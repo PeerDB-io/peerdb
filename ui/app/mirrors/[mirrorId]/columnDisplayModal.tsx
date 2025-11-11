@@ -4,9 +4,8 @@ import { TableColumnsResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import { Table, TableCell } from '@/lib/Table';
+import { Table, TableCell, TableRow } from '@/lib/Table';
 import * as Dialog from '@radix-ui/react-dialog';
-import { TableRow } from '@tremor/react';
 import { useEffect, useState } from 'react';
 
 interface ColumnDisplayModalProps {

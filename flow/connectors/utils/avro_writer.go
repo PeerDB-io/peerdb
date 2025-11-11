@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -75,7 +74,10 @@ func (p *peerDBOCFWriter) WriteOCF(
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (int64, error) {
-	ocfWriter, err := p.createOCFWriter(w)
+	ocfWriter, err := ocf.NewEncoderWithSchema(
+		p.avroSchema.Schema, w, ocf.WithCodec(p.avroCompressionCodec),
+		ocf.WithBlockLength(8192), ocf.WithBlockSize(1<<26),
+	)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
 	}
@@ -185,11 +187,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 	shutdown := shared.Interval(ctx, time.Minute, func() { printFileStats("writing to temporary Avro file") })
 	defer shutdown()
 
-	buffSizeBytes := 1 << 26 // 64 MB
-	bufferedWriter := bufio.NewWriterSize(file, buffSizeBytes)
-	defer bufferedWriter.Flush()
-
-	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter, nil, nil)
+	numRecords, err := p.WriteOCF(ctx, env, file, nil, nil)
 	if err != nil {
 		return AvroFile{}, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}
@@ -202,18 +200,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 	}, nil
 }
 
-func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*ocf.Encoder, error) {
-	ocfWriter, err := ocf.NewEncoderWithSchema(
-		p.avroSchema.Schema, w, ocf.WithCodec(p.avroCompressionCodec),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OCF writer: %w", err)
-	}
-
-	return ocfWriter, nil
-}
-
-func (p *peerDBOCFWriter) getAvroFieldNamesFromSchemaJSON() ([]string, error) {
+func (p *peerDBOCFWriter) getAvroFieldNamesFromSchema() ([]string, error) {
 	fields := p.avroSchema.Schema.Fields()
 	avroFieldNames := make([]string, len(fields))
 	for i, field := range fields {
@@ -231,9 +218,9 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 ) (int64, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
-	avroFieldNames, err := p.getAvroFieldNamesFromSchemaJSON()
+	avroFieldNames, err := p.getAvroFieldNamesFromSchema()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get Avro field names from schema JSON: %w", err)
+		return 0, fmt.Errorf("failed to get Avro field names from schema: %w", err)
 	}
 	avroConverter, err := model.NewQRecordAvroConverter(
 		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,

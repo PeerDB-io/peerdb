@@ -47,7 +47,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !sourceOk {
 				sourceTries += 1
 				var dropSourceFuture workflow.Future
-				if sourceTries < 50 {
+				var applicationError *temporal.ApplicationError
+				if sourceTries < 50 && (!errors.As(sourceError, &applicationError) || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(sourceTries*sourceTries)*time.Second)
 					selector.AddFuture(sleep, sleepSource)
 				} else {
@@ -83,7 +84,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !destinationOk {
 				destinationTries += 1
 				var dropDestinationFuture workflow.Future
-				if destinationTries < 50 {
+				var applicationError *temporal.ApplicationError
+				if destinationTries < 50 && (!errors.As(destinationError, &applicationError) || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(destinationTries*destinationTries)*time.Second)
 					selector.AddFuture(sleep, sleepDestination)
 				} else {
@@ -140,15 +142,16 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		status = protos.FlowStatus_STATUS_RESYNC
 	}
 	logger := workflow.GetLogger(ctx)
-	syncStatusToCatalog(ctx, logger, status)
+	syncStatusToCatalogWithFlowName(ctx, logger, status, input.FlowJobName)
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
 	logger.Info("performing cleanup for flow",
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
 	contextMetadataInput := &protos.FlowContextMetadataInput{
-		FlowName: input.FlowJobName,
-		Status:   protos.FlowStatus_STATUS_UNKNOWN,
-		IsResync: false,
+		FlowName:           input.FlowJobName,
+		Status:             status,
+		IsResync:           false,
+		FetchSourceVariant: false,
 	}
 	if input.FlowConnectionConfigs != nil {
 		contextMetadataInput.SourceName = input.FlowConnectionConfigs.SourceName
@@ -160,6 +163,13 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	if err != nil {
 		return fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
+
+	// Must be called after GetFlowMetadataContext to build flow context, then
+	// ContextPropagator ensures attributes get propagated from flow to activity
+	_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+	}), flowable.ReportStatusMetric, status).Get(ctx, nil)
 
 	if input.FlowConnectionConfigs != nil {
 		if input.DropFlowStats {

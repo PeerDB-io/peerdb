@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -15,8 +17,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
+const SSHKeepaliveInterval = 15 * time.Second
+
 type SSHTunnel struct {
 	*ssh.Client
+	keepaliveChan atomic.Pointer[chan struct{}]
+	badTunnel     bool
 }
 
 // GetSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
@@ -69,31 +75,102 @@ func GetSSHClientConfig(config *protos.SSHConfig) (*ssh.ClientConfig, error) {
 func NewSSHTunnel(
 	ctx context.Context,
 	sshConfig *protos.SSHConfig,
-) (SSHTunnel, error) {
+) (*SSHTunnel, error) {
 	if sshConfig != nil {
 		logger := internal.LoggerFromCtx(ctx)
 		sshServer := shared.JoinHostPort(sshConfig.Host, sshConfig.Port)
 		clientConfig, err := GetSSHClientConfig(sshConfig)
 		if err != nil {
-			logger.Error("Failed to get SSH client config", "error", err)
-			return SSHTunnel{}, err
+			logger.Error("Failed to get SSH client config", slog.Any("error", err))
+			return nil, err
 		}
 
-		logger.Info("Setting up SSH connection ", slog.String("Server", sshServer))
+		logger.Info("Setting up SSH connection", slog.String("Server", sshServer))
 		client, err := ssh.Dial("tcp", sshServer, clientConfig)
 		if err != nil {
-			return SSHTunnel{}, exceptions.NewSSHTunnelSetupError(err)
+			return nil, exceptions.NewSSHTunnelSetupError(err)
 		}
 
-		return SSHTunnel{Client: client}, nil
+		return &SSHTunnel{Client: client, badTunnel: false}, nil
 	}
 
-	return SSHTunnel{}, nil
+	return nil, nil
 }
 
-func (tunnel SSHTunnel) Close() error {
-	if tunnel.Client != nil {
+func (tunnel *SSHTunnel) Close() error {
+	if tunnel != nil && tunnel.Client != nil {
+		if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
+			close(*keepaliveChan)
+		}
+		tunnel.badTunnel = true
 		return tunnel.Client.Close()
 	}
 	return nil
+}
+
+// returns a channel that will receive a value if the SSH keepalive fails
+// or nil if no SSH tunnel is configured
+func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) <-chan struct{} {
+	if tunnel == nil || tunnel.Client == nil || tunnel.badTunnel {
+		// nil channel would be of no consequence in a select
+		// UNLESS it's the only branch in a select, in which case it would block forever
+		return nil
+	}
+	if keepaliveChan := tunnel.keepaliveChan.Load(); keepaliveChan != nil {
+		// Already started
+		return *keepaliveChan
+	}
+	keepaliveChan := make(chan struct{})
+	tunnel.keepaliveChan.Store(&keepaliveChan)
+
+	go func() {
+		ticker := time.NewTicker(SSHKeepaliveInterval)
+		defer ticker.Stop()
+		logger := internal.LoggerFromCtx(ctx)
+		// in case request hangs, we want to detect that and not send another request
+		requestSent := atomic.Bool{}
+		var keepaliveErr error
+		// closed by request making goroutine to signal error, keepaliveErr
+		errChan := make(chan struct{})
+
+		for {
+			select {
+			case <-ticker.C:
+				if requestSent.Load() {
+					// Previous keepalive request didn't return yet, something's wrong
+					logger.Error("Previous keepalive request still pending, marking tunnel as bad")
+					if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
+						close(*keepaliveChan)
+					}
+					tunnel.badTunnel = true
+					return
+				}
+				go func() {
+					requestSent.Store(true)
+					_, _, err := tunnel.Client.SendRequest("keepalive@openssh.com", true, nil)
+					requestSent.Store(false)
+					if err != nil {
+						keepaliveErr = err
+						close(errChan)
+					}
+				}()
+			case <-ctx.Done():
+				if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
+					close(*keepaliveChan)
+				}
+				return
+			case <-keepaliveChan:
+				// channel closed from outside
+				return
+			case <-errChan:
+				logger.Error("Keepalive request failed, marking tunnel as bad", slog.Any("error", keepaliveErr))
+				if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
+					close(*keepaliveChan)
+				}
+				tunnel.badTunnel = true
+				return
+			}
+		}
+	}()
+	return keepaliveChan
 }

@@ -22,7 +22,7 @@ func GetPeerDBOAuthConfig(ctx context.Context) PeerDBOAuthConfig {
 	oauthDiscoveryEnabledString := GetEnvString("PEERDB_OAUTH_DISCOVERY_ENABLED", "false")
 	oauthDiscoveryEnabled, err := strconv.ParseBool(oauthDiscoveryEnabledString)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to parse PEERDB_OAUTH_DISCOVERY_ENABLED to bool", "error", err)
+		slog.ErrorContext(ctx, "failed to parse PEERDB_OAUTH_DISCOVERY_ENABLED to bool", slog.Any("error", err))
 		oauthDiscoveryEnabled = false
 	}
 	oauthKeysetJson := GetEnvString("PEERDB_OAUTH_KEYSET_JSON", "")

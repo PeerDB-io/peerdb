@@ -9,11 +9,10 @@ edition = "2024"
 anyhow = "1.0"
 async-trait = "0.1.57"
 base64 = "0.22"
-catalog = { path = "../catalog" }
 chrono.workspace = true
 futures = "0.3"
 hex = "0.4"
-jsonwebtoken = { version = "9.0", features = ["use_pem"] }
+jsonwebtoken = { version = "10", features = ["use_pem", "aws_lc_rs"] }
 peer-cursor = { path = "../peer-cursor" }
 pgwire.workspace = true
 pt = { path = "../pt" }

@@ -22,8 +22,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -49,7 +49,7 @@ func NewClickHouseConnector(
 
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
-		logger.Error("failed to create postgres metadata store", "error", err)
+		logger.Error("failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -346,6 +346,11 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 		for _, dstField := range dstSchema {
 			// not doing type checks for now
 			if dstField.Name == colName {
+				if dstField.DefaultKind == "ALIAS" || dstField.DefaultKind == "MATERIALIZED" {
+					return fmt.Errorf("field %s in destination table %s is %s and doesn't support INSERTs",
+						srcField.Name, dstTableName, dstField.DefaultKind)
+				}
+
 				found = true
 				break
 			}
@@ -435,6 +440,12 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindArrayUUID
 		case "Array(DateTime64(6))":
 			qkind = types.QValueKindArrayTimestamp
+		case "Array(Int64)":
+			qkind = types.QValueKindArrayInt64
+		case "Array(Bool)":
+			qkind = types.QValueKindArrayBoolean
+		case "Array(Date)":
+			qkind = types.QValueKindArrayDate
 		case "JSON":
 			qkind = types.QValueKindJSON
 		default:

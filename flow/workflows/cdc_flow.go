@@ -44,7 +44,7 @@ type CDCFlowWorkflowState struct {
 }
 
 // returns a new empty PeerFlowState
-func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflowState {
+func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigsCore) *CDCFlowWorkflowState {
 	tableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		tableMappings = append(tableMappings, proto.CloneOf(tableMapping))
@@ -67,14 +67,32 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 	return &state
 }
 
+func syncStatusToCatalogWithFlowName(ctx workflow.Context, logger log.Logger, status protos.FlowStatus, flowName string) {
+	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 1 * time.Minute,
+	})
+
+	if err := workflow.ExecuteLocalActivity(
+		updateCtx,
+		updateFlowStatusWithNameInCatalogActivity,
+		flowName,
+		status,
+	).Get(updateCtx, nil); err != nil {
+		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
+	}
+}
+
 func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
 	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
 
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx,
-		flowable.UpdateFlowStatusInCatalogLocalActivity, workflow.GetInfo(ctx).WorkflowExecution.ID, status)
-	if err := updateFuture.Get(updateCtx, nil); err != nil {
+	if err := workflow.ExecuteLocalActivity(
+		updateCtx,
+		updateFlowStatusInCatalogActivity,
+		workflow.GetInfo(ctx).WorkflowExecution.ID,
+		status,
+	).Get(updateCtx, nil); err != nil {
 		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
 }
@@ -99,9 +117,9 @@ func GetChildWorkflowID(
 }
 
 func updateFlowConfigWithLatestSettings(
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
-) *protos.FlowConnectionConfigs {
+) *protos.FlowConnectionConfigsCore {
 	cloneCfg := proto.CloneOf(cfg)
 	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
@@ -126,9 +144,9 @@ type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
 func syncStateToConfigProtoInCatalog(
 	ctx workflow.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
-) *protos.FlowConnectionConfigs {
+) *protos.FlowConnectionConfigsCore {
 	cloneCfg := updateFlowConfigWithLatestSettings(cfg, state)
 	uploadConfigToCatalog(ctx, cloneCfg)
 	return cloneCfg
@@ -136,7 +154,7 @@ func syncStateToConfigProtoInCatalog(
 
 func uploadConfigToCatalog(
 	ctx workflow.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 ) {
 	updateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -151,7 +169,7 @@ func uploadConfigToCatalog(
 func processCDCFlowConfigUpdate(
 	ctx workflow.Context,
 	logger log.Logger,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 	mirrorNameSearch temporal.SearchAttributes,
 ) error {
@@ -209,7 +227,7 @@ func processCDCFlowConfigUpdate(
 
 func handleFlowSignalStateChange(
 	ctx workflow.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 	logger log.Logger,
 	op string,
@@ -250,7 +268,7 @@ func handleFlowSignalStateChange(
 func processTableAdditions(
 	ctx workflow.Context,
 	logger log.Logger,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 	mirrorNameSearch temporal.SearchAttributes,
 ) error {
@@ -289,7 +307,7 @@ func processTableAdditions(
 			additionalTablesUUID := GetUUID(ctx)
 			childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
 			additionalTablesCfg := proto.CloneOf(cfg)
-			additionalTablesCfg.DoInitialSnapshot = true
+			additionalTablesCfg.DoInitialSnapshot = !flowConfigUpdate.SkipInitialSnapshotForTableAdditions
 			additionalTablesCfg.InitialSnapshotOnly = true
 			additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
 			additionalTablesCfg.Resync = false
@@ -360,7 +378,7 @@ func processTableAdditions(
 func processTableRemovals(
 	ctx workflow.Context,
 	logger log.Logger,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 ) error {
 	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_MODIFYING)
@@ -409,7 +427,7 @@ func processTableRemovals(
 				cfg, state.FlowConfigUpdate.RemovedTables)
 			removeTablesSelector.AddFuture(removeTablesFromCatalogFuture, func(f workflow.Future) {
 				if err := f.Get(ctx, nil); err != nil {
-					logger.Error("failed to clean up raw table for removed tables", "error", err)
+					logger.Error("failed to clean up raw table for removed tables", slog.Any("error", err))
 					removeTablesFlowErr = err
 					return
 				}
@@ -476,13 +494,14 @@ func addCdcPropertiesSignalListener(
 			slog.Uint64("SnapshotNumPartitionsOverride", uint64(cdcConfigUpdate.SnapshotNumPartitionsOverride)),
 			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),
 			slog.Uint64("SnapshotNumTablesInParallel", uint64(cdcConfigUpdate.SnapshotNumTablesInParallel)),
+			slog.Bool("SkipInitialSnapshotForTableAdditions", cdcConfigUpdate.SkipInitialSnapshotForTableAdditions),
 		)
 	})
 }
 
 func CDCFlowWorkflow(
 	ctx workflow.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
 	if cfg == nil {
@@ -589,11 +608,12 @@ func CDCFlowWorkflow(
 
 		var err error
 		ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
-			FlowName:        cfg.FlowJobName,
-			SourceName:      cfg.SourceName,
-			DestinationName: cfg.DestinationName,
-			Status:          state.CurrentFlowStatus,
-			IsResync:        cfg.Resync,
+			FlowName:           cfg.FlowJobName,
+			SourceName:         cfg.SourceName,
+			DestinationName:    cfg.DestinationName,
+			Status:             state.CurrentFlowStatus,
+			IsResync:           cfg.Resync,
+			FetchSourceVariant: false,
 		})
 		if err != nil {
 			logger.Error("failed to GetFlowMetadataContext", slog.Any("error", err))
@@ -702,11 +722,9 @@ func CDCFlowWorkflow(
 
 		taskQueue := internal.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        snapshotFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 20,
-			},
+			WorkflowID:            snapshotFlowID,
+			ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			RetryPolicy:           &temporal.RetryPolicy{MaximumAttempts: 1},
 			TaskQueue:             taskQueue,
 			TypedSearchAttributes: mirrorNameSearch,
 			WaitForCancellation:   true,
@@ -841,7 +859,8 @@ func CDCFlowWorkflow(
 			var sleepFor time.Duration
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
-				sleepFor = time.Duration(10+min(state.ErrorCount, 3)*15) * time.Minute
+				// linear backoff starting at 10 minutes, up to 55 minutes in steps of 5 minutes
+				sleepFor = time.Duration(10+min(state.ErrorCount, 9)*5) * time.Minute
 				logger.Error(
 					"panic in sync flow",
 					slog.Any("error", panicErr.Error()),
@@ -849,6 +868,7 @@ func CDCFlowWorkflow(
 					slog.Any("sleepFor", sleepFor),
 				)
 			} else {
+				// linear backoff from 1 minute up to 10 minutes
 				sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
 				logger.Error("error in sync flow", slog.Any("error", err), slog.Any("sleepFor", sleepFor))
 			}

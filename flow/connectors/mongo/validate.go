@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 )
 
 func (c *MongoConnector) ValidateCheck(ctx context.Context) error {
@@ -19,7 +19,7 @@ func (c *MongoConnector) ValidateCheck(ctx context.Context) error {
 	return nil
 }
 
-func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
 		return nil
 	}

@@ -9,11 +9,12 @@ nexus/server/tests/assets/*.json
 nexus/server/tests/results/actual/
 e2e_cleanup/peer-flow-cleanup
 flow/peer-flow
+target/
 
 go.work
 go.work.sum
 
-# generated protobuf files
+# generated protobuf files and go generate
 ui/grpc_generated
 flow/generated
 nexus/pt/src/gen

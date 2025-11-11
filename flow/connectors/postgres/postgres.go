@@ -42,7 +42,7 @@ type ReplState struct {
 type PostgresConnector struct {
 	logger                 log.Logger
 	customTypeMapping      map[uint32]shared.CustomDataType
-	ssh                    utils.SSHTunnel
+	ssh                    *utils.SSHTunnel
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
 	replState              *ReplState
@@ -170,7 +170,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 
 	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
 	if err != nil {
-		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
+		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
 	}
 	return conn, nil
@@ -232,7 +232,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 
 		c.replLock.Lock()
 		defer c.replLock.Unlock()
-		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), slotName, startLSN, replicationOpts); err != nil {
+		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), utils.QuoteIdentifier(slotName), startLSN, replicationOpts); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
 			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
@@ -269,21 +269,30 @@ func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion
 
 // Close closes all connections.
 func (c *PostgresConnector) Close() error {
-	var connerr, replerr error
+	var errs []error
 	if c != nil {
 		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		connerr = c.conn.Close(timeout)
+		if err := c.conn.Close(timeout); err != nil {
+			c.logger.Error("failed to close Postgres connection", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to close Postgres connection: %w", err))
+		}
 
 		if c.replConn != nil {
 			timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			replerr = c.replConn.Close(timeout)
+			if err := c.replConn.Close(timeout); err != nil {
+				c.logger.Error("failed to close Postgres replication connection", slog.Any("error", err))
+				errs = append(errs, fmt.Errorf("failed to close Postgres replication connection: %w", err))
+			}
 		}
 
-		c.ssh.Close()
+		if err := c.ssh.Close(); err != nil {
+			c.logger.Error("[postgres] failed to close SSH tunnel", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("[postgres] failed to close SSH tunnel: %w", err))
+		}
 	}
-	return errors.Join(connerr, replerr)
+	return errors.Join(errs...)
 }
 
 func (c *PostgresConnector) Conn() *pgx.Conn {
@@ -1192,14 +1201,18 @@ func (c *PostgresConnector) EnsurePullability(
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
 		// this is ok for replica identity index as we populate the primary key columns
 		if len(pKeyCols) == 0 && replicaIdentity != ReplicaIdentityFull {
-			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
+			return nil, exceptions.NewMissingPrimaryKeyError(schemaTable.String())
 		}
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
 }
 
-func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context, env map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *PostgresConnector) ExportTxSnapshot(
+	ctx context.Context,
+	_ string,
+	env map[string]string,
+) (*protos.ExportTxSnapshotOutput, any, error) {
 	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, env)
 	if err != nil {
 		c.logger.Error("failed to check PEERDB_SKIP_SNAPSHOT_EXPORT, proceeding with export snapshot", slog.Any("error", err))
@@ -1290,7 +1303,8 @@ func (c *PostgresConnector) SetupReplication(
 		}
 	}
 	// Create the replication slot and publication
-	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot, skipSnapshotExport)
+	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping,
+		req.DoInitialSnapshot, skipSnapshotExport, req.Env)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
@@ -1371,7 +1385,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	slotInfo, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database)
 	if err != nil {
-		logger.Warn("warning: failed to get slot info", "error", err)
+		logger.Warn("warning: failed to get slot info", slog.Any("error", err))
 		return err
 	}
 
@@ -1418,7 +1432,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.Config.User)
 	if err != nil {
-		logger.Warn("warning: failed to get current open connections", "error", err)
+		logger.Warn("warning: failed to get current open connections", slog.Any("error", err))
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, alertKeys, res)
@@ -1433,7 +1447,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.Config.User)
 	if err != nil {
-		logger.Warn("warning: failed to get current open replication connections", "error", err)
+		logger.Warn("warning: failed to get current open replication connections", slog.Any("error", err))
 		return err
 	}
 
@@ -1527,8 +1541,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		}
 		notPresentTables := shared.ArrayMinus(additionalSrcTables, tableNames)
 		if len(notPresentTables) > 0 {
-			return exceptions.NewPostgresSetupError(fmt.Errorf("some additional tables not present in custom publication: %s",
-				strings.Join(notPresentTables, ",")))
+			return exceptions.NewTablesNotInPublicationError(notPresentTables, req.PublicationName)
 		}
 	} else {
 		for _, additionalSrcTable := range additionalSrcTables {
@@ -1699,7 +1712,7 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
 			utils.QuoteIdentifier(rawTableIdentifier), utils.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
-			c.logger.Error("failed to remove entries from raw table", "error", err)
+			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
@@ -1715,4 +1728,67 @@ func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
 	}
 	c.logger.Info("[postgres] version", slog.String("version", version))
 	return version, nil
+}
+
+func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
+	// First check for Aurora by trying to look up aurora_version()
+	var isAurora bool
+	err := c.conn.QueryRow(ctx, "SELECT to_regproc('pg_catalog.aurora_version') IS NOT NULL").Scan(&isAurora)
+	if err != nil {
+		c.logger.Error("failed to query to_regproc for determining variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+	if isAurora {
+		return protos.DatabaseVariant_AWS_AURORA, nil
+	}
+
+	// It's not Aurora - continue checking other variants
+	settingsQuery := `
+		SELECT name, setting
+		FROM pg_settings
+		WHERE name IN (
+			'rds.extensions',
+			'cloudsql.logical_decoding',
+			'azure.extensions',
+			'neon.endpoint_id',
+			'extwlist.pscale_allowed_extensions',
+			'supautils.privileged_extensions'
+		) AND setting IS NOT NULL AND setting != ''`
+
+	rows, err := c.conn.Query(ctx, settingsQuery)
+	if err != nil {
+		c.logger.Error("failed to query pg_settings for determining variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, setting string
+		if err := rows.Scan(&name, &setting); err != nil {
+			c.logger.Warn("failed to scan from pg_settings", slog.Any("error", err))
+			continue
+		}
+
+		switch name {
+		case "rds.extensions":
+			return protos.DatabaseVariant_AWS_RDS, nil
+		case "cloudsql.logical_decoding":
+			return protos.DatabaseVariant_GOOGLE_CLOUD_SQL, nil
+		case "azure.extensions":
+			return protos.DatabaseVariant_AZURE_DATABASE, nil
+		case "neon.endpoint_id":
+			return protos.DatabaseVariant_NEON, nil
+		case "extwlist.pscale_allowed_extensions":
+			return protos.DatabaseVariant_PLANETSCALE, nil
+		case "supautils.privileged_extensions":
+			return protos.DatabaseVariant_SUPABASE, nil
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		c.logger.Error("error iterating pg_settings rows", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+
+	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }

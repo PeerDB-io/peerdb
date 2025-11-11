@@ -9,12 +9,12 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	chvalidate "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 )
 
 func (c *ClickHouseConnector) ValidateMirrorDestination(
 	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
 	if internal.PeerDBOnlyClickHouseAllowed() {
@@ -26,6 +26,11 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 
 	if cfg.Resync {
 		return nil // no need to validate schema for resync, as we will create or replace the tables
+	}
+
+	peerDBColumns := []string{isDeletedColName, versionColName}
+	if cfg.SyncedAtColName != "" {
+		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
 	}
 
 	// this is for handling column exclusion, processed schema does that in a step
@@ -57,11 +62,6 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
 	if err != nil {
 		return err
-	}
-
-	peerDBColumns := []string{signColName, versionColName}
-	if cfg.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
 	}
 
 	for _, tableMapping := range cfg.TableMappings {

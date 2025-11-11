@@ -1,11 +1,12 @@
-# syntax=docker/dockerfile:1.18@sha256:dabfc0969b935b2080555ace70ee69a5261af8a8f1b4df97b9e7fbcf6722eddf
+# syntax=docker/dockerfile:1.19@sha256:b6afd42430b15f2d2a4c5a02b919e98a525b785b1aaff16747d2f623364e39b6
 
-FROM golang:1.25-alpine@sha256:b6ed3fd0452c0e9bcdef5597f29cc1418f61672e9d3a2f55bf02e7222c014abd AS builder
+FROM golang:1.25-alpine@sha256:d3f0cf7723f3429e3f9ed846243970b20a2de7bae6a5b66fc5914e228d831bbb AS builder
 RUN apk add --no-cache gcc geos-dev musl-dev
 WORKDIR /root/flow
 
 # first copy only go.mod and go.sum to cache dependencies
 COPY flow/go.mod flow/go.sum ./
+COPY flow/pkg/go.mod flow/pkg/go.sum ./pkg/
 
 # download all the dependencies
 RUN go mod download
@@ -17,9 +18,12 @@ RUN rm -f go.work*
 # build the binary from flow folder
 WORKDIR /root/flow
 ENV CGO_ENABLED=1
-RUN go build -o /root/peer-flow
+# Generate the typed handler wrapper
+RUN go generate
+ENV GOCACHE=/root/.cache/go-build
+RUN --mount=type=cache,target="/root/.cache/go-build" go build -o /root/peer-flow
 
-FROM alpine:3.22@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1 AS flow-base
+FROM alpine:3.22@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d80990c2ad8dd412 AS flow-base
 ENV TZ=UTC
 ADD --checksum=sha256:e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem
 RUN apk add --no-cache ca-certificates geos && \

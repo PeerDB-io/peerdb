@@ -7,12 +7,15 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/postgres/sanitize"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PgCopyShared struct {
@@ -54,6 +57,10 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
+			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
+				return 0, 0, temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
+					exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(), err)
+			}
 			return 0, 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}

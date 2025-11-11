@@ -1,12 +1,21 @@
 'use client';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@tremor/react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@radix-ui/react-tabs';
 import { useEffect, useState } from 'react';
+import styled from 'styled-components';
 import CdcDetails from './cdcDetails';
 import { SnapshotStatusTable } from './snapshot';
+import { TabListStyle, TabsRootStyle } from './styles/tab.styles';
+
+const StyledTabTrigger = styled(TabsTrigger)`
+  &[data-state='active'] {
+    font-weight: bold;
+  }
+`;
 
 type CDCMirrorStatusProps = {
   status: MirrorStatusResponse;
@@ -14,6 +23,7 @@ type CDCMirrorStatusProps = {
 };
 export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
   const LocalStorageTabKey = 'cdctab';
+  const theme = useTheme();
   const [selectedTab, setSelectedTab] = useLocalStorage(LocalStorageTabKey, 0);
   const [mounted, setMounted] = useState(false);
   const handleTab = (index: number) => {
@@ -39,31 +49,32 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
     );
   }
   return (
-    <TabGroup
-      index={selectedTab}
-      onIndexChange={handleTab}
-      style={{ marginTop: '1rem' }}
+    <Tabs
+      style={TabsRootStyle}
+      className='TabsRoot'
+      defaultValue={selectedTab.toString()}
+      onValueChange={(value) => handleTab(Number(value))}
     >
-      <TabList
-        color='neutral'
-        style={{ display: 'flex', justifyContent: 'space-around' }}
-        className='[&_button]:text-gray-600 dark:[&_button]:text-gray-300 [&_button:hover]:text-gray-900 dark:[&_button:hover]:text-white [&_button[data-state=active]]:text-gray-900 dark:[&_button[data-state=active]]:text-white'
-      >
-        <Tab>Overview</Tab>
-        <Tab>Sync Status</Tab>
-        <Tab>Initial Copy</Tab>
-      </TabList>
-      <TabPanels>
-        <TabPanel>
-          <CdcDetails
-            createdAt={status.createdAt}
-            mirrorConfig={status.cdcStatus!}
-            mirrorStatus={status.currentFlowState}
-          />
-        </TabPanel>
-        <TabPanel>{syncStatusChild}</TabPanel>
-        <TabPanel>{snapshot}</TabPanel>
-      </TabPanels>
-    </TabGroup>
+      <TabsList style={TabListStyle(theme.theme)} className='TabsList'>
+        <StyledTabTrigger className='TabsTrigger' value='0'>
+          Overview
+        </StyledTabTrigger>
+        <StyledTabTrigger value='1'>Sync Status</StyledTabTrigger>
+        <StyledTabTrigger value='2'>Initial Copy</StyledTabTrigger>
+      </TabsList>
+      <TabsContent className='TabsContent' value='0'>
+        <CdcDetails
+          createdAt={status.createdAt}
+          mirrorConfig={status.cdcStatus!}
+          mirrorStatus={status.currentFlowState}
+        />
+      </TabsContent>
+      <TabsContent className='TabsContent' value='1'>
+        {syncStatusChild}
+      </TabsContent>
+      <TabsContent className='TabsContent' value='2'>
+        {snapshot}
+      </TabsContent>
+    </Tabs>
   );
 }

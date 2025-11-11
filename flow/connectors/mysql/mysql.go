@@ -8,6 +8,7 @@ import (
 	"iter"
 	"log/slog"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -26,9 +27,9 @@ import (
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
 	config         *protos.MySqlConfig
-	ssh            utils.SSHTunnel
+	ssh            *utils.SSHTunnel
 	conn           atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts       chan context.Context
+	contexts       atomic.Pointer[chan context.Context]
 	logger         log.Logger
 	rdsAuth        *utils.RDSAuth
 	serverVersion  string
@@ -62,19 +63,32 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		config:           config,
 		ssh:              ssh,
 		conn:             atomic.Pointer[client.Conn]{},
-		contexts:         contexts,
 		logger:           logger,
 		rdsAuth:          rdsAuth,
 	}
+	c.contexts.Store(&contexts)
 	go func() {
 		ctx := context.Background()
 		for {
 			var ok bool
 			select {
-			case <-ctx.Done():
+			case <-ssh.GetKeepaliveChan(ctx):
+				c.logger.Info("SSH keepalive failed, closing connection")
 				ctx = context.Background()
 				if conn := c.conn.Swap(nil); conn != nil {
-					conn.Close()
+					c.logger.Info("Closing connection due to SSH keepalive failure")
+					if err := conn.Close(); err != nil {
+						c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
+					}
+				}
+			case <-ctx.Done():
+				c.logger.Info("ctx canceled, closing connection")
+				ctx = context.Background()
+				if conn := c.conn.Swap(nil); conn != nil {
+					c.logger.Info("Closing connection due to ctx cancellation")
+					if err := conn.Close(); err != nil {
+						c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
+					}
 				}
 			case ctx, ok = <-contexts:
 				if !ok {
@@ -88,9 +102,14 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 }
 
 func (c *MySqlConnector) watchCtx(ctx context.Context) func() {
-	c.contexts <- ctx
+	if contexts := c.contexts.Load(); contexts != nil {
+		*contexts <- ctx
+	}
+
 	return func() {
-		c.contexts <- context.Background()
+		if contexts := c.contexts.Load(); contexts != nil {
+			*contexts <- context.Background()
+		}
 	}
 }
 
@@ -106,28 +125,32 @@ func (c *MySqlConnector) Flavor() string {
 }
 
 func (c *MySqlConnector) Close() error {
+	c.logger.Info("Closing MySQL connector")
 	var errs []error
-	if c.contexts != nil {
-		close(c.contexts)
+	if contexts := c.contexts.Swap(nil); contexts != nil {
+		close(*contexts)
 	}
 	if conn := c.conn.Swap(nil); conn != nil {
 		if err := conn.Close(); err != nil {
-			errs = append(errs, err)
+			c.logger.Error("failed to close MySQL connection", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to close MySQL connection: %w", err))
 		}
 	}
 	if err := c.ssh.Close(); err != nil {
-		errs = append(errs, err)
+		c.logger.Error("[mysql] failed to close SSH tunnel", slog.Any("error", err))
+		errs = append(errs, fmt.Errorf("[mysql] failed to close SSH tunnel: %w", err))
 	}
 	return errors.Join(errs...)
 }
 
-func (c *MySqlConnector) ConnectionActive(context.Context) error {
-	return nil
+func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
+	_, err := c.Execute(ctx, "SELECT 1")
+	return err
 }
 
 func (c *MySqlConnector) Dialer() client.Dialer {
 	var meteredDialer utils.MeteredDialer
-	if c.ssh.Client != nil {
+	if c.ssh != nil && c.ssh.Client != nil {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.ssh.Client.DialContext, false)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
@@ -182,37 +205,54 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			// need to check if context cancel came in before above Store
 			return nil, err
 		}
-		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
-			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
-		}
-
-		// Set max_execution_time/max_statement_time to 0 (unlimited)
-		switch c.Flavor() {
-		case mysql.MySQLFlavor:
-			// set max_execution_time to unlimited
-			if _, err := conn.Execute("SET SESSION max_execution_time=0;"); err != nil {
-				var mErr *mysql.MyError
-				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
-					// max_execution_time is not supported, ignore the error
-					c.logger.Warn("max_execution_time is not supported by the MySQL server, ignoring", slog.Any("error", err))
-				} else {
-					return nil, fmt.Errorf("failed to set max_execution_time to 0: %w", err)
-				}
-			}
-		case mysql.MariaDBFlavor:
-			// set max_statement_time to unlimited
-			if _, err := conn.Execute("SET SESSION max_statement_time=0;"); err != nil {
-				var mErr *mysql.MyError
-				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
-					// max_statement_time is not supported, ignore the error
-					c.logger.Warn("max_statement_time is not supported by the MariaDB server, ignoring", slog.Any("error", err))
-				} else {
-					return nil, fmt.Errorf("failed to set max_statement_time to 0: %w", err)
-				}
-			}
+		if err := c.setSessionSettings(); err != nil {
+			return nil, err
 		}
 	}
 	return conn, nil
+}
+
+func (c *MySqlConnector) setSessionSettings() error {
+	conn := c.conn.Load()
+	if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
+		return fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
+	}
+
+	// set session timezone to UTC (use numeric offset to avoid tz table dependency)
+	if _, err := conn.Execute("SET SESSION time_zone = '+00:00';"); err != nil {
+		var mErr *mysql.MyError
+		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			c.logger.Warn("session time_zone is not supported by the MySQL server, ignoring", slog.Any("error", err))
+		} else {
+			return fmt.Errorf("failed to set session time_zone to '+00:00': %w", err)
+		}
+	}
+
+	switch c.Flavor() {
+	case mysql.MySQLFlavor:
+		// set max_execution_time to unlimited
+		if _, err := conn.Execute("SET SESSION max_execution_time=0;"); err != nil {
+			var mErr *mysql.MyError
+			if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+				// max_execution_time is not supported, ignore the error
+				c.logger.Warn("max_execution_time is not supported by the MySQL server, ignoring", slog.Any("error", err))
+			} else {
+				return fmt.Errorf("failed to set max_execution_time to 0: %w", err)
+			}
+		}
+	case mysql.MariaDBFlavor:
+		// set max_statement_time to unlimited
+		if _, err := conn.Execute("SET SESSION max_statement_time=0;"); err != nil {
+			var mErr *mysql.MyError
+			if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+				// max_statement_time is not supported, ignore the error
+				c.logger.Warn("max_statement_time is not supported by the MariaDB server, ignoring", slog.Any("error", err))
+			} else {
+				return fmt.Errorf("failed to set max_statement_time to 0: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 // withRetries return an iterable over connections,
@@ -400,18 +440,20 @@ func (c *MySqlConnector) StatActivity(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerStatResponse, error) {
-	rs, err := c.Execute(ctx, "SELECT ID,COMMAND,STATE,TIME,INFO FROM performance_schema.processlist WHERE USER=?", c.config.User)
+	rs, err := c.Execute(ctx,
+		fmt.Sprintf("SELECT ID,COMMAND,STATE,TIME,INFO FROM performance_schema.processlist WHERE USER='%s'", mysql.Escape(c.config.User)))
 	if err != nil {
 		// 42S02 is ER_NO_SUCH_TABLE
 		var myErr *mysql.MyError
 		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
 			// mariadb
 			rs, err = c.Execute(ctx,
-				"SELECT PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
-					" FROM performance_schema.threads WHERE USER=?", c.config.User)
+				fmt.Sprintf("SELECT PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
+					" FROM performance_schema.threads WHERE USER='%s'", mysql.Escape(c.config.User)))
 			if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
 				rs, err = c.Execute(ctx,
-					"SELECT ID,COMMAND,STATE,TIME,INFO FROM information_schema.processlist WHERE USER=?", c.config.User)
+					fmt.Sprintf("SELECT ID,COMMAND,STATE,TIME,INFO FROM information_schema.processlist WHERE USER='%s'",
+						mysql.Escape(c.config.User)))
 			}
 		}
 
@@ -436,4 +478,37 @@ func (c *MySqlConnector) StatActivity(
 	return &protos.PeerStatResponse{
 		StatData: statInfoRows,
 	}, nil
+}
+
+func (c *MySqlConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
+	query := `SHOW VARIABLES WHERE Variable_name IN ('aurora_version', 'cloudsql_iam_authentication', 'azure_server_name', 'basedir')`
+
+	rs, err := c.Execute(ctx, query)
+	if err != nil {
+		c.logger.Error("failed to execute SHOW VARIABLES for getting database variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+
+	var basedirValue string
+	for _, row := range rs.Values {
+		varName := string(row[0].AsString())
+		varValue := string(row[1].AsString())
+		switch varName {
+		case "aurora_version":
+			return protos.DatabaseVariant_AWS_AURORA, nil
+		case "cloudsql_iam_authentication":
+			return protos.DatabaseVariant_GOOGLE_CLOUD_SQL, nil
+		case "azure_server_name":
+			return protos.DatabaseVariant_AZURE_DATABASE, nil
+		case "basedir":
+			basedirValue = varValue
+		}
+	}
+
+	// true for RDS and Aurora, but we check for Aurora via aurora_version above
+	if strings.Contains(basedirValue, "/rdsdbbin/") {
+		return protos.DatabaseVariant_AWS_RDS, nil
+	}
+
+	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }

@@ -1,27 +1,30 @@
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
 import { AppThemeProvider, StyledComponentsRegistry } from '../lib/AppTheme';
+import { ChartJSProvider } from './chartProvider';
 
 export const metadata: Metadata = {
   title: 'Peerdb UI',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   // Read theme from cookie during SSR
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const themeCookie = cookieStore.get('peerdb-theme');
   const initialTheme = themeCookie?.value === 'dark' ? 'dark' : 'light';
   return (
     <html lang='en' className={initialTheme}>
       <body>
         <StyledComponentsRegistry>
-          <AppThemeProvider initialTheme={initialTheme}>
-            {children}
-          </AppThemeProvider>
+          <ChartJSProvider>
+            <AppThemeProvider initialTheme={initialTheme}>
+              {children}
+            </AppThemeProvider>
+          </ChartJSProvider>
         </StyledComponentsRegistry>
       </body>
     </html>

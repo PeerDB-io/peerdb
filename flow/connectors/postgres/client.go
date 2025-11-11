@@ -16,9 +16,11 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 const (
@@ -130,7 +132,7 @@ func (c *PostgresConnector) getReplicaIdentityType(
 		return ReplicaIdentityDefault, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
 	}
 	if replicaIdentity == rune(ReplicaIdentityNothing) {
-		return ReplicaIdentityType(replicaIdentity), fmt.Errorf("table %s has replica identity 'n'/NOTHING", schemaTable)
+		return ReplicaIdentityType(replicaIdentity), exceptions.NewReplicaIdentityNothingError(schemaTable.String(), nil)
 	}
 
 	return ReplicaIdentityType(replicaIdentity), nil
@@ -367,6 +369,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
 	skipSnapshotExport bool,
+	env map[string]string,
 ) (model.SetupReplicationResult, error) {
 	// iterate through source tables and create publication,
 	// expecting tablenames to be schema qualified
@@ -408,17 +411,34 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error getting PG version: %w", err)
 		}
 
-		c.logger.Info(fmt.Sprintf("Creating replication slot '%s'", slot))
-		opts := pglogrepl.CreateReplicationSlotOptions{
-			Temporary: false,
-			Mode:      pglogrepl.LogicalReplication,
+		var optionsString string
+		if failoverEnabled, err := internal.PeerDBPostgresEnableFailoverSlots(ctx, env); err != nil {
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error checking dynamic config for failover slots: %w", err)
+		} else if failoverEnabled {
+			// can't create failover slots on a standby
+			isInRecovery, err := c.IsInRecovery(ctx)
+			if err != nil {
+				conn.Close(ctx)
+				return model.SetupReplicationResult{}, fmt.Errorf("[slot] error checking if in recovery: %w", err)
+			}
+
+			if pgversion >= shared.POSTGRES_17 && !isInRecovery {
+				optionsString = " (FAILOVER 'true')"
+			}
 		}
-		res, err := pglogrepl.CreateReplicationSlot(ctx, conn.PgConn(), slot, "pgoutput", opts)
+
+		createSlotCommand := fmt.Sprintf("CREATE_REPLICATION_SLOT %s LOGICAL pgoutput%s", utils.QuoteIdentifier(slot), optionsString)
+
+		c.logger.Info("Creating replication slot", slog.String("slot", slot))
+		// CreateReplicationSlot does not support failover options and uses Postgres syntax that makes it tricky to drop in
+		// TODO: upstream pglogrepl to support this
+		res, err := pglogrepl.ParseCreateReplicationSlot(conn.PgConn().Exec(ctx, createSlotCommand))
 		if err != nil {
 			conn.Close(ctx)
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error creating replication slot: %w", err)
 		}
-		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
+		c.logger.Info("Created replication slot", slog.String("slot", slot))
 
 		if skipSnapshotExport {
 			conn.Close(ctx)
@@ -436,7 +456,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			SupportsTIDScans: pgversion >= shared.POSTGRES_13,
 		}, nil
 	} else {
-		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
+		c.logger.Info("Replication slot already exists", slog.String("slot", slot))
 		var err error
 		if doInitialCopy {
 			err = shared.ErrSlotAlreadyExists
@@ -698,4 +718,12 @@ func (c *PostgresConnector) execWithLogging(ctx context.Context, query string) (
 func (c *PostgresConnector) execWithLoggingTx(ctx context.Context, query string, tx pgx.Tx) (pgconn.CommandTag, error) {
 	c.logger.Info("[postgres] executing DDL statement", slog.String("query", query))
 	return tx.Exec(ctx, query)
+}
+
+func (c *PostgresConnector) IsInRecovery(ctx context.Context) (bool, error) {
+	var inRecovery bool
+	if err := c.conn.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery); err != nil {
+		return false, fmt.Errorf("error checking if in recovery: %w", err)
+	}
+	return inRecovery, nil
 }

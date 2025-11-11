@@ -6,15 +6,20 @@ import (
 	"log/slog"
 	"math/rand/v2"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type RecordStreamSink struct {
 	*model.QRecordStream
+	DestinationType protos.DBType
 }
 
 func (stream RecordStreamSink) ExecuteQueryWithTx(
@@ -30,6 +35,10 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
+			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
+				return 0, 0, temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
+					exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(), err)
+			}
 			return 0, 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
@@ -38,7 +47,6 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	randomUint := rand.Uint64()
 
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
-	fetchSize := shared.FetchAndChannelSize
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
 
 	if _, err := tx.Exec(ctx, cursorQuery, args...); err != nil {
@@ -53,10 +61,19 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		slog.String("query", query),
 		slog.Int("channelLen", len(stream.Records)))
 
+	if !stream.IsSchemaSet() {
+		schema, err := qe.cursorToSchema(ctx, tx, cursorName)
+		if err != nil {
+			return 0, 0, err
+		}
+		stream.SetSchema(schema)
+	}
+
 	var totalNumRows int64
 	var totalNumBytes int64
 	for {
-		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, fetchSize, stream.QRecordStream)
+		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.FetchAndChannelSize,
+			stream.DestinationType, stream.QRecordStream)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))
 			return totalNumRows, totalNumBytes, err

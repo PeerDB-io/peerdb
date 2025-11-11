@@ -5,7 +5,9 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -20,8 +22,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 )
 
 const (
@@ -35,7 +37,7 @@ type MongoConnector struct {
 	*metadataStore.PostgresMetadata
 	config         *protos.MongoConfig
 	client         *mongo.Client
-	ssh            utils.SSHTunnel
+	ssh            *utils.SSHTunnel
 	totalBytesRead atomic.Int64
 	deltaBytesRead atomic.Int64
 }
@@ -60,13 +62,13 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	mc.ssh = sshTunnel
 
 	var meteredDialer utils.MeteredDialer
-	if sshTunnel.Client != nil {
+	if sshTunnel != nil && sshTunnel.Client != nil {
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, sshTunnel.Client.DialContext, true)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
 
-	clientOptions, err := parseAsClientOptions(config, meteredDialer)
+	clientOptions, err := parseAsClientOptions(config, meteredDialer, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -81,18 +83,22 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 }
 
 func (c *MongoConnector) Close() error {
+	var errs []error
 	if c != nil && c.client != nil {
 		// Use a timeout to ensure the disconnect operation does not hang indefinitely
 		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		return c.client.Disconnect(timeout)
-	}
-	if c.ssh.Client != nil {
-		if err := c.ssh.Close(); err != nil {
-			return fmt.Errorf("failed to close SSH tunnel: %w", err)
+		if err := c.client.Disconnect(timeout); err != nil {
+			c.logger.Error("failed to disconnect MongoDB client", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to disconnect MongoDB client: %w", err))
 		}
 	}
-	return nil
+
+	if err := c.ssh.Close(); err != nil {
+		c.logger.Error("[mongo] failed to close SSH tunnel", slog.Any("error", err))
+		errs = append(errs, fmt.Errorf("[mongo] failed to close SSH tunnel: %w", err))
+	}
+	return errors.Join(errs...)
 }
 
 func (c *MongoConnector) ConnectionActive(ctx context.Context) error {
@@ -113,7 +119,7 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 	return buildInfo.Version, nil
 }
 
-func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.MeteredDialer) (*options.ClientOptions, error) {
+func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.MeteredDialer, logger log.Logger) (*options.ClientOptions, error) {
 	connStr, err := connstring.Parse(config.Uri)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing uri: %w", err)
@@ -160,6 +166,10 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 			return nil, err
 		}
 		clientOptions.SetTLSConfig(tlsConfig)
+	}
+
+	if level, ok := os.LookupEnv("PEERDB_LOG_LEVEL"); ok && level == "DEBUG" {
+		clientOptions.SetMonitor(NewCommandMonitor(logger))
 	}
 
 	err = clientOptions.Validate()

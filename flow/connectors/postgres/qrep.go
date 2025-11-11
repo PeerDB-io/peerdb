@@ -2,9 +2,12 @@ package connpostgres
 
 import (
 	"bytes"
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"strings"
 	"text/template"
@@ -15,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -22,9 +26,13 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-const qRepMetadataTableName = "_peerdb_query_replication_metadata"
+const (
+	qRepMetadataTableName = "_peerdb_query_replication_metadata"
+	ctidColumnName        = "ctid"
+)
 
 type QRepPullSink interface {
 	Close(error)
@@ -87,7 +95,7 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 
 	if supportsTidScans {
 		for _, tm := range input.TableMappings {
-			output.TableDefaultPartitionKeyMapping[tm.SourceTableIdentifier] = "ctid"
+			output.TableDefaultPartitionKeyMapping[tm.SourceTableIdentifier] = ctidColumnName
 		}
 	}
 
@@ -133,6 +141,10 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx, snapshot string) error {
 	if snapshot != "" {
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(snapshot)); err != nil {
+			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
+				return temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
+					exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(), err)
+			}
 			return fmt.Errorf("failed to set transaction snapshot: %w", err)
 		}
 	}
@@ -258,8 +270,20 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 		return partitionHelper.GetPartitions(), nil
 	} else {
+		// Special handling for CTID watermark column when a fixed number of partitions is specified:
+		// Partitions are created by dividing table blocks uniformly.
+		// Note: partition boundaries (block ranges) are uniform, but actual row distribution may be skewed
+		// due to table bloat, deleted tuples, or uneven data distribution across blocks.
+		if config.WatermarkColumn == ctidColumnName {
+			return c.getCTIDBlockPartitions(ctx, tx, *parsedWatermarkTable, numPartitions, last)
+		}
+
+		// Default path for non-CTID watermark column when a fixed number of partitions is specified:
+		// Partitions are created by uniformly splitting the min/max value range.
+		// Note: partition boundaries are uniform, but actual row distribution may be skewed
+		// due to non-uniform data distribution, gaps in the value range, or deleted rows.
 		minmaxQuery := fmt.Sprintf("SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s",
-			parsedWatermarkTable.String(), config.WatermarkColumn, whereClause)
+			parsedWatermarkTable.String(), quotedWatermarkColumn, whereClause)
 		var row pgx.Row
 		var minVal any
 		if last != nil && last.Range != nil {
@@ -287,6 +311,85 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		}
 		return partitionHelper.GetPartitions(), nil
 	}
+}
+
+func (c *PostgresConnector) getCTIDBlockPartitions(
+	ctx context.Context,
+	tx pgx.Tx,
+	parsedWatermarkTable utils.SchemaTable,
+	numPartitions int64,
+	last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
+	if numPartitions <= 1 {
+		return nil, errors.New("expect numPartitions to be greater than 1")
+	}
+
+	blocksQuery := "SELECT (pg_relation_size(to_regclass($1)) / current_setting('block_size')::int)::bigint"
+	var totalBlocks pgtype.Int8
+	if err := tx.QueryRow(ctx, blocksQuery, parsedWatermarkTable.String()).Scan(&totalBlocks); err != nil {
+		return nil, fmt.Errorf("failed to get relation blocks: %w", err)
+	}
+	if !totalBlocks.Valid || totalBlocks.Int64 <= 0 {
+		return nil, fmt.Errorf("total blocks: %d, valid: %t", totalBlocks.Int64, totalBlocks.Valid)
+	}
+
+	tidCmp := func(a pgtype.TID, b pgtype.TID) int {
+		if blockCmp := cmp.Compare(a.BlockNumber, b.BlockNumber); blockCmp != 0 {
+			return blockCmp
+		}
+		return cmp.Compare(a.OffsetNumber, b.OffsetNumber)
+	}
+
+	tidInc := func(t pgtype.TID) pgtype.TID {
+		if t.OffsetNumber < math.MaxUint16 {
+			return pgtype.TID{BlockNumber: t.BlockNumber, OffsetNumber: t.OffsetNumber + 1, Valid: true}
+		}
+		return pgtype.TID{BlockNumber: t.BlockNumber + 1, OffsetNumber: 0, Valid: true}
+	}
+
+	tidRangeForPartition := func(partitionIndex int64) (pgtype.TID, pgtype.TID, bool) {
+		blockStart := uint32((partitionIndex * totalBlocks.Int64) / numPartitions)
+		nextPartitionBlockStart := uint32(((partitionIndex + 1) * totalBlocks.Int64) / numPartitions)
+		if nextPartitionBlockStart <= blockStart {
+			return pgtype.TID{}, pgtype.TID{}, false
+		}
+		tidStartInclusive := pgtype.TID{BlockNumber: blockStart, OffsetNumber: 0, Valid: true}
+		tidEndInclusive := pgtype.TID{BlockNumber: nextPartitionBlockStart - 1, OffsetNumber: math.MaxUint16, Valid: true}
+		return tidStartInclusive, tidEndInclusive, true
+	}
+
+	var resumeFrom pgtype.TID
+	if last != nil && last.Range != nil {
+		if lr, ok := last.Range.Range.(*protos.PartitionRange_TidRange); ok {
+			resume := pgtype.TID{BlockNumber: lr.TidRange.End.BlockNumber, OffsetNumber: uint16(lr.TidRange.End.OffsetNumber), Valid: true}
+			resumeFrom = tidInc(resume)
+		} else {
+			c.logger.Warn("Ignoring resume offset because it's not TidRange")
+		}
+	}
+
+	partitionHelper := utils.NewPartitionHelper(c.logger)
+	for i := range numPartitions {
+		start, end, valid := tidRangeForPartition(i)
+		if !valid {
+			continue
+		}
+		if resumeFrom.Valid {
+			if tidCmp(end, resumeFrom) < 0 {
+				continue
+			}
+			if tidCmp(start, resumeFrom) < 0 {
+				start = resumeFrom
+			}
+		}
+		if err := partitionHelper.AddPartition(
+			pgtype.TID{BlockNumber: start.BlockNumber, OffsetNumber: start.OffsetNumber, Valid: true},
+			pgtype.TID{BlockNumber: end.BlockNumber, OffsetNumber: end.OffsetNumber, Valid: true},
+		); err != nil {
+			return nil, fmt.Errorf("failed to add TID partition: %w", err)
+		}
+	}
+	return partitionHelper.GetPartitions(), nil
 }
 
 func (c *PostgresConnector) getMinMaxValues(
@@ -380,11 +483,13 @@ func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
-		QRecordStream: stream,
+		QRecordStream:   stream,
+		DestinationType: dstType,
 	})
 }
 
@@ -392,6 +497,7 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
 ) (int64, int64, error) {
@@ -475,7 +581,8 @@ func (c *PostgresConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
 	return syncQRepRecords(c, ctx, config, partition, RecordStreamSink{
-		QRecordStream: stream,
+		QRecordStream:   stream,
+		DestinationType: protos.DBType_POSTGRES,
 	})
 }
 
@@ -705,17 +812,20 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 func (c *PostgresConnector) PullXminRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, int64, error) {
 	return pullXminRecordStream(c, ctx, config, partition, RecordStreamSink{
-		QRecordStream: stream,
+		QRecordStream:   stream,
+		DestinationType: dstType,
 	})
 }
 
 func (c *PostgresConnector) PullXminPgRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
+	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	pipe PgCopyWriter,
 ) (int64, int64, int64, error) {

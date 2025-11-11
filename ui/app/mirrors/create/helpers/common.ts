@@ -1,5 +1,6 @@
 import { CDCConfig } from '@/app/dto/MirrorsDTO';
 import { QRepConfig, TypeSystem } from '@/grpc_generated/flow';
+import { DBType } from '@/grpc_generated/peers';
 
 export enum AdvancedSettingType {
   QUEUE = 'queue',
@@ -20,6 +21,8 @@ export interface MirrorSetting {
   command?: string;
 }
 
+export const SOFT_DELETE_COLUMN_NAME = '_PEERDB_IS_DELETED';
+
 export const blankCDCSetting: CDCConfig = {
   sourceName: '',
   destinationName: '',
@@ -36,7 +39,7 @@ export const blankCDCSetting: CDCConfig = {
   cdcStagingPath: '',
   replicationSlotName: '',
   resync: false,
-  softDeleteColName: '_PEERDB_IS_DELETED',
+  softDeleteColName: SOFT_DELETE_COLUMN_NAME,
   syncedAtColName: '_PEERDB_SYNCED_AT',
   initialSnapshotOnly: false,
   idleTimeoutSeconds: 60,
@@ -46,6 +49,13 @@ export const blankCDCSetting: CDCConfig = {
   env: {},
   envString: '',
   version: 0,
+};
+
+export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {
+  [DBType[DBType.BIGQUERY]]: {
+    doInitialSnapshot: true,
+    initialSnapshotOnly: true,
+  },
 };
 
 export const blankQRepSetting: QRepConfig = {

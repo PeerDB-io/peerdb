@@ -1,13 +1,14 @@
 package main
 
+//go:generate go run ./cmd/codegen
+
 import (
 	"context"
 	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
-	//nolint:gosec
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"os/signal"
 	"runtime"
@@ -26,7 +27,7 @@ func main() {
 	appCtx, appClose := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer appClose()
 
-	slog.SetDefault(slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))))
+	slog.SetDefault(slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))))
 
 	temporalHostPortFlag := &cli.StringFlag{
 		Name:    "temporal-host-port",

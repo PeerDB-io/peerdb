@@ -27,6 +27,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -97,6 +98,16 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 
 func RequireEqualTables(suite RowSource, table string, cols string) {
 	RequireEqualTablesWithNames(suite, table, table, cols)
+}
+
+func RequireEmptyDestinationTable(suite RowSource, dstTable string, cols string) {
+	t := suite.T()
+	t.Helper()
+
+	rows, err := suite.GetRows(dstTable, cols)
+	require.NoError(t, err)
+
+	require.Empty(t, rows.Records)
 }
 
 func RequireEqualTablesWithNames(suite RowSource, srcTable string, dstTable string, cols string) {
@@ -653,6 +664,14 @@ func ExecutePeerflow(t *testing.T, tc client.Client, config *protos.FlowConnecti
 		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
 		c:           tc,
 	}
+}
+
+func ExecuteDropFlow(ctx context.Context, tc client.Client, config *protos.FlowConnectionConfigs, tableMappingsVersion int64) WorkflowRun {
+	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           config.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: proto_conversions.FlowConnectionConfigsToCore(config, tableMappingsVersion),
+	})
 }
 
 func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf any, args ...any) WorkflowRun {

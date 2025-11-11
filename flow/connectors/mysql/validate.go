@@ -10,7 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	peerdb_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
+	peerdb_mysql "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
 
 func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
@@ -75,7 +75,7 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 	return errors.New("failed to connect to MySQL server")
 }
 
-func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)

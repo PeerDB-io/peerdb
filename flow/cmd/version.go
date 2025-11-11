@@ -10,7 +10,7 @@ import (
 func (h *FlowRequestHandler) GetVersion(
 	ctx context.Context,
 	req *protos.PeerDBVersionRequest,
-) (*protos.PeerDBVersionResponse, error) {
+) (*protos.PeerDBVersionResponse, APIError) {
 	versionResponse := protos.PeerDBVersionResponse{
 		Version: internal.PeerDBVersionShaShort(),
 	}

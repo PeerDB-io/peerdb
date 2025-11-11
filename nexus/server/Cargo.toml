@@ -29,40 +29,45 @@ assets = [
 ]
 
 
+[features]
+default = ["tls", "aws"]
+bigquery = ["dep:peer-bigquery"]
+mysql = ["dep:peer-mysql"]
+snowflake = ["dep:peer-snowflake"]
+tls = ["dep:tokio-rustls", "dep:rustls-pemfile", "dep:rustls-pki-types"]
+aws = ["catalog/aws"]
+
 [dependencies]
 analyzer = { path = "../analyzer" }
 anyhow = "1"
 async-trait = "0.1"
 bytes = "1.0"
-catalog = { path = "../catalog" }
+catalog = { path = "../catalog", default-features = false }
 clap = { version = "4.0", features = ["derive", "env"] }
 dashmap.workspace = true
 dotenvy = "0.15.7"
 flow-rs = { path = "../flow-rs" }
 futures = { version = "0.3.28", features = ["executor"] }
-peer-bigquery = { path = "../peer-bigquery" }
-peer-connections = { path = "../peer-connections" }
+peer-bigquery = { path = "../peer-bigquery", optional = true }
 peer-cursor = { path = "../peer-cursor" }
-peer-mysql = { path = "../peer-mysql" }
+peer-mysql = { path = "../peer-mysql", optional = true }
 peer-postgres = { path = "../peer-postgres" }
-peer-snowflake = { path = "../peer-snowflake" }
+peer-snowflake = { path = "../peer-snowflake", optional = true }
 peerdb-parser = { path = "../parser" }
 pgwire.workspace = true
 pt = { path = "../pt" }
 sqlparser = { workspace = true, features = ["visitor"] }
 serde_json = "1.0"
 rand = "0.9"
-rustls-pemfile = "2.0"
-rustls-pki-types = "1.0"
+rustls-pemfile = { version = "2.0", optional = true }
+rustls-pki-types = { version = "1.0", optional = true }
 tokio.workspace = true
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"]}
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"], optional = true }
 tracing.workspace = true
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = "1"
-cargo-deb = "3"
-aws-config = "1.5"
 
 [dev-dependencies]
-postgres = "=0.19.10"
-similar = "=2.7.0"
+postgres = "0.19.10"
+similar = "2.7.0"

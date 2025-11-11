@@ -35,7 +35,6 @@ const (
 		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
 	createDummyTableSQL               = "CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_DUMMY_COL STRING)"
-	rawTableMultiValueInsertSQL       = "INSERT INTO %s.%s VALUES%s"
 	createNormalizedTableSQL          = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	createOrReplaceNormalizedTableSQL = "CREATE OR REPLACE TABLE %s(%s)"
 	toVariantColumnName               = "VAR_COLS"
@@ -61,9 +60,12 @@ const (
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID = %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
-	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE FROM INFORMATION_SCHEMA.COLUMNS
-	 WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
-
+	getTableColumnListSQL = `SHOW COLUMNS IN TABLE IDENTIFIER(?)`
+	getTableSchemaSQL     = `SELECT "column_name",
+		parse_json("data_type"):type::string AS type,
+		parse_json("data_type"):precision::string AS precision,
+		parse_json("data_type"):scale::string AS scale
+		FROM table(result_scan(?))`
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
@@ -176,7 +178,7 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	// in case we return after error, ensure transaction is rolled back
 	defer func() {
 		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
-			c.logger.Error("error while rolling back transaction for table check", "error", err)
+			c.logger.Error("error while rolling back transaction for table check", slog.Any("error", err))
 		}
 	}()
 
@@ -726,7 +728,7 @@ func (c *SnowflakeConnector) RenameTables(
 	defer func() {
 		deferErr := renameTablesTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error rolling back transaction for renaming tables", "error", err)
+			c.logger.Error("error rolling back transaction for renaming tables", slog.Any("error", err))
 		}
 	}()
 
@@ -833,7 +835,7 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 	defer func() {
 		deferErr := createTablesFromExistingTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Info("error rolling back transaction for creating tables", "error", err)
+			c.logger.Info("error rolling back transaction for creating tables", slog.Any("error", err))
 		}
 	}()
 
@@ -869,7 +871,7 @@ func (c *SnowflakeConnector) RemoveTableEntriesFromRawTable(
 			" AND _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d",
 			c.rawSchema, rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
-			c.logger.Error("failed to remove entries from raw table", "error", err)
+			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))

@@ -2,10 +2,13 @@ package connmysql
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
+	gomysql "github.com/go-mysql-org/go-mysql/mysql"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared/mysql"
+	"github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
 
 func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -48,8 +51,8 @@ func (c *MySqlConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasRes
 func (c *MySqlConnector) GetTablesInSchema(
 	ctx context.Context, schema string, cdcEnabled bool,
 ) (*protos.SchemaTablesResponse, error) {
-	rs, err := c.Execute(ctx, `select table_name, data_length + index_length
-		from information_schema.tables where table_schema = ? order by table_name`, schema)
+	rs, err := c.Execute(ctx, fmt.Sprintf(`select table_name, data_length + index_length
+		from information_schema.tables where table_schema = '%s' order by table_name`, gomysql.Escape(schema)))
 	if err != nil {
 		return nil, err
 	}
@@ -74,9 +77,9 @@ func (c *MySqlConnector) GetTablesInSchema(
 }
 
 func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error) {
-	rs, err := c.Execute(ctx, `select column_name, column_type, column_key
-		from information_schema.columns where table_schema = ? and table_name = ? order by column_name`,
-		schema, table)
+	rs, err := c.Execute(ctx, fmt.Sprintf(`select column_name, column_type, column_key
+		from information_schema.columns where table_schema = '%s' and table_name = '%s' order by column_name`,
+		gomysql.Escape(schema), gomysql.Escape(table)))
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +98,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		if err != nil {
 			return nil, err
 		}
-		qkind, err := mysql.QkindFromMysqlColumnType(columnType)
+		qkind, err := QkindFromMysqlColumnType(columnType)
 		if err != nil {
 			return nil, err
 		}

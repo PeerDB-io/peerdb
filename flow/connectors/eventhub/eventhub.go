@@ -37,14 +37,14 @@ func NewEventHubConnector(
 	logger := internal.LoggerFromCtx(ctx)
 	defaultAzureCreds, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		logger.Error("failed to get default azure credentials", "error", err)
+		logger.Error("failed to get default azure credentials", slog.Any("error", err))
 		return nil, err
 	}
 
 	hubManager := NewEventHubManager(defaultAzureCreds, config)
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
-		logger.Error("failed to create postgres metadata store", "error", err)
+		logger.Error("failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
 	}
 

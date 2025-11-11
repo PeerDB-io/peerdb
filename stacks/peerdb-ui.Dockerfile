@@ -1,7 +1,7 @@
-# syntax=docker/dockerfile:1.18@sha256:dabfc0969b935b2080555ace70ee69a5261af8a8f1b4df97b9e7fbcf6722eddf
+# syntax=docker/dockerfile:1.19@sha256:b6afd42430b15f2d2a4c5a02b919e98a525b785b1aaff16747d2f623364e39b6
 
 # Base stage
-FROM node:24-alpine@sha256:be4d5e92ac68483ec71440bf5934865b4b7fcb93588f17a24d411d15f0204e4f AS base
+FROM node:24-alpine@sha256:f36fed0b2129a8492535e2853c64fbdbd2d29dc1219ee3217023ca48aebd3787 AS base
 ENV TZ=UTC
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 RUN apk add --no-cache openssl && \
@@ -12,13 +12,29 @@ USER node
 WORKDIR /app
 
 # Dependencies stage
-FROM base AS builder
+FROM base AS dependencies
 COPY --chown=node:node ui/package.json ui/package-lock.json ./
-RUN npm ci
+# BuildKit cache mount for npm cache
+RUN --mount=type=cache,target=/home/node/.npm,uid=1000,gid=1000 \
+    npm ci
+
+# Builder stage for production
+FROM dependencies AS builder
 COPY --chown=node:node ui/ .
 RUN npm run build
 
-# Builder stage
+# Dev stage
+FROM dependencies AS dev
+COPY --chown=node:node ui/ .
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+ENV NODE_ENV=development
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+CMD ["npm", "run", "dev"]
+
+# Runner stage for production
 FROM base AS runner
 ENV NODE_ENV=production
 
@@ -41,3 +57,4 @@ ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "server.js"]
+

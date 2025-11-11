@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -218,10 +219,8 @@ func TestBuildQuery_Basic(t *testing.T) {
 	ctx := t.Context()
 	tableName := "my_table"
 	rawTableName := "raw_my_table"
-	part := uint64(0)
-	numParts := uint64(1)
-	syncBatchID := int64(10)
-	batchIDToLoadForTable := int64(5)
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
 	enablePrimaryUpdate := false
 	sourceSchemaAsDestinationColumn := false
 	env := map[string]string{}
@@ -247,18 +246,18 @@ func TestBuildQuery_Basic(t *testing.T) {
 
 	g := NewNormalizeQueryGenerator(
 		tableName,
-		part,
 		tableNameSchemaMapping,
 		tableMappings,
-		syncBatchID,
-		batchIDToLoadForTable,
-		numParts,
+		endBatchID,
+		lastNormBatchID,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
 		nil,
 		false,
+		"",
+		shared.InternalVersion_Latest,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -276,10 +275,8 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 	ctx := t.Context()
 	tableName := "my_table"
 	rawTableName := "raw_my_table"
-	part := uint64(0)
-	numParts := uint64(1)
-	syncBatchID := int64(10)
-	batchIDToLoadForTable := int64(5)
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
 	enablePrimaryUpdate := true
 	sourceSchemaAsDestinationColumn := false
 	env := map[string]string{}
@@ -303,18 +300,18 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 
 	g := NewNormalizeQueryGenerator(
 		tableName,
-		part,
 		tableNameSchemaMapping,
 		tableMappings,
-		syncBatchID,
-		batchIDToLoadForTable,
-		numParts,
+		endBatchID,
+		lastNormBatchID,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
 		nil,
 		false,
+		"",
+		shared.InternalVersion_Latest,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -329,10 +326,8 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 	ctx := t.Context()
 	tableName := "my_table"
 	rawTableName := "raw_my_table"
-	part := uint64(0)
-	numParts := uint64(1)
-	syncBatchID := int64(10)
-	batchIDToLoadForTable := int64(5)
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
 	enablePrimaryUpdate := false
 	sourceSchemaAsDestinationColumn := true
 	env := map[string]string{}
@@ -356,74 +351,24 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 
 	g := NewNormalizeQueryGenerator(
 		tableName,
-		part,
 		tableNameSchemaMapping,
 		tableMappings,
-		syncBatchID,
-		batchIDToLoadForTable,
-		numParts,
+		endBatchID,
+		lastNormBatchID,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
 		nil,
 		true,
+		"",
+		shared.InternalVersion_Latest,
 	)
 
 	query, err := g.BuildQuery(ctx)
 	require.NoError(t, err)
 	require.Contains(t, query, " AS `_peerdb_source_schema`")
 	require.Contains(t, query, "parallel_distributed_insert_select=0")
-}
-
-func TestBuildQuery_WithNumParts(t *testing.T) {
-	ctx := t.Context()
-	tableName := "my_table"
-	rawTableName := "raw_my_table"
-	part := uint64(2)
-	numParts := uint64(4)
-	syncBatchID := int64(10)
-	batchIDToLoadForTable := int64(5)
-	enablePrimaryUpdate := false
-	sourceSchemaAsDestinationColumn := false
-	env := map[string]string{}
-
-	tableSchema := &protos.TableSchema{
-		Columns: []*protos.FieldDescription{
-			{Name: "id", Type: string(types.QValueKindInt64)},
-		},
-		NullableEnabled: false,
-	}
-	tableNameSchemaMapping := map[string]*protos.TableSchema{
-		tableName: tableSchema,
-	}
-
-	tableMappings := []*protos.TableMapping{
-		{
-			SourceTableIdentifier:      "public.my_table",
-			DestinationTableIdentifier: tableName,
-		},
-	}
-
-	g := NewNormalizeQueryGenerator(
-		tableName,
-		part,
-		tableNameSchemaMapping,
-		tableMappings,
-		syncBatchID,
-		batchIDToLoadForTable,
-		numParts,
-		enablePrimaryUpdate,
-		sourceSchemaAsDestinationColumn,
-		env,
-		rawTableName,
-		nil,
-		false,
-	)
-
-	query, err := g.BuildQuery(ctx)
-	require.NoError(t, err)
-	require.Contains(t, query, "cityHash64(_peerdb_uid) % 4 = 2")
 }
 
 func TestGetOrderedPartitionByColumns(t *testing.T) {

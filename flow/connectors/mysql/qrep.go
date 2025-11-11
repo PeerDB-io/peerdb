@@ -18,12 +18,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *MySqlConnector) tableRowEstimate(ctx context.Context, schema string, table string) (int64, error) {
-	rs, err := c.Execute(ctx, "select table_rows from information_schema.tables where table_schema=? and table_name=?", schema, table)
+	rs, err := c.Execute(ctx, fmt.Sprintf("select table_rows from information_schema.tables where table_schema='%s' and table_name='%s'",
+		mysql.Escape(schema), mysql.Escape(table)))
 	if err != nil {
 		return 0, fmt.Errorf("failed to query information schema for row count estimate: %w", err)
 	}
@@ -40,7 +40,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
-				PartitionId:        shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID,
+				PartitionId:        utils.FullTablePartitionID,
 				Range:              nil,
 				FullTablePartition: true,
 			},
@@ -62,12 +62,13 @@ func (c *MySqlConnector) GetQRepPartitions(
 	var minmaxQuery string
 	var minmaxHasCount bool
 	if last != nil && last.Range != nil {
+		// partial query, append minVal later
 		if numPartitions == 0 {
 			minmaxHasCount = true
-			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`),COUNT(*) FROM %[1]s WHERE `%[2]s` > ?",
+			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`),COUNT(*) FROM %[1]s WHERE `%[2]s` > ",
 				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
 		} else {
-			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s WHERE `%[2]s` > ?",
+			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s WHERE `%[2]s` > ",
 				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
 		}
 	} else if numPartitions == 0 {
@@ -95,20 +96,21 @@ func (c *MySqlConnector) GetQRepPartitions(
 		}
 	}
 
-	var minVal any
 	var rs *mysql.Result
 	if last != nil && last.Range != nil {
+		var minVal string
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
-			minVal = lastRange.IntRange.End
+			minVal = strconv.FormatInt(lastRange.IntRange.End, 10)
 		case *protos.PartitionRange_UintRange:
-			minVal = lastRange.UintRange.End
+			minVal = strconv.FormatUint(lastRange.UintRange.End, 10)
 		case *protos.PartitionRange_TimestampRange:
-			minVal = lastRange.TimestampRange.End.AsTime().String()
+			time := lastRange.TimestampRange.End.AsTime()
+			minVal = "'" + time.Format("2006-01-02 15:04:05.999999") + "'"
 		}
 
-		c.logger.Info("querying min/max", slog.String("query", minmaxQuery), slog.Any("minVal", minVal))
-		rs, err = c.Execute(ctx, minmaxQuery, minVal)
+		c.logger.Info("querying min/max", slog.String("query", minmaxQuery), slog.String("minVal", minVal))
+		rs, err = c.Execute(ctx, minmaxQuery+minVal)
 	} else {
 		c.logger.Info("querying min/max", slog.String("query", minmaxQuery))
 		rs, err = c.Execute(ctx, minmaxQuery)
@@ -175,6 +177,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {

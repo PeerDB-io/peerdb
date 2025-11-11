@@ -28,7 +28,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
-	qmysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -69,9 +68,9 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	rs, err := c.Execute(ctx, `select column_name, column_type, column_key, is_nullable, numeric_precision, numeric_scale
-	from information_schema.columns
-	where table_schema = ? and table_name = ? order by ordinal_position`, schemaTable.Schema, schemaTable.Table)
+	rs, err := c.Execute(ctx, fmt.Sprintf(`select column_name, column_type, column_key, is_nullable, numeric_precision, numeric_scale
+		from information_schema.columns where table_schema = '%s' and table_name = '%s' order by ordinal_position`,
+		mysql.Escape(schemaTable.Schema), mysql.Escape(schemaTable.Table)))
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +106,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
-		qkind, err := qmysql.QkindFromMysqlColumnType(dataType)
+		qkind, err := QkindFromMysqlColumnType(dataType)
 		if err != nil {
 			return nil, err
 		}
@@ -140,7 +139,7 @@ func (c *MySqlConnector) EnsurePullability(
 	return nil, nil
 }
 
-func (c *MySqlConnector) ExportTxSnapshot(context.Context, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *MySqlConnector) ExportTxSnapshot(context.Context, string, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
 	// https://dev.mysql.com/doc/refman/8.4/en/replication-howto-masterstatus.html
 	return nil, nil, nil
 }
@@ -700,7 +699,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						slog.String("tableName", sourceTableName))
 					continue
 				}
-				qkind, err := qmysql.QkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
+				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
 				if err != nil {
 					return err
 				}

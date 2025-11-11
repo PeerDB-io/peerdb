@@ -3,7 +3,7 @@ name: GolangCI-Lint
 on:
   pull_request:
     branches: [main]
-    paths: [flow/**, .github/workflows/golang-lint.yml]
+    paths: [flow/**, e2e_cleanup/**, .github/workflows/golang-lint.yml]
 
 permissions:
   contents: read
@@ -24,17 +24,17 @@ jobs:
           sudo apt-get install libgeos-dev
       - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
         with:
-          go-version: '1.25.1'
+          go-version: '1.25.3'
           cache: false
       - name: golangci-lint flow
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
-          version: v2.4.0
+          version: v2.5.0
           working-directory: ./flow
           args: --timeout=10m
       - name: golangci-lint e2e_cleanup
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
-          version: v2.4.0
+          version: v2.5.0
           working-directory: ./e2e_cleanup
           args: --timeout=10m

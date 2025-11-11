@@ -3,7 +3,9 @@ use std::env;
 use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
+#[cfg(feature = "aws")]
 use aws_config::{BehaviorVersion, meta::region::RegionProviderChain};
+#[cfg(feature = "aws")]
 use aws_sdk_kms::{Client as KmsClient, primitives::Blob};
 use base64::prelude::*;
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
@@ -32,6 +34,7 @@ pub struct Catalog {
     kms_key_id: Option<Arc<String>>,
 }
 
+#[cfg(feature = "aws")]
 pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
     let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
     let config = aws_config::defaults(BehaviorVersion::v2025_08_07())
@@ -55,6 +58,11 @@ pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::R
     let bytes = inner.as_ref();
 
     Ok(String::from_utf8(bytes.to_vec()).expect("Could not convert decrypted data to UTF-8"))
+}
+
+#[cfg(not(feature = "aws"))]
+pub async fn kms_decrypt(_encrypted_payload: &str, _kms_key_id: &str) -> anyhow::Result<String> {
+    Err(anyhow::anyhow!("AWS KMS support not compiled in"))
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
@@ -164,14 +172,14 @@ impl Catalog {
             return Err(anyhow!("ciphertext too short"));
         }
 
-        let nonce = XNonce::from_slice(&payload[..NONCE_SIZE]);
+        let nonce = XNonce::try_from(&payload[..NONCE_SIZE])?;
         let ciphertext = &payload[NONCE_SIZE..];
 
         let cipher = XChaCha20Poly1305::new_from_slice(&key)
             .map_err(|e| anyhow!("Failed to create ChaCha20Poly1305 cipher: {}", e))?;
 
         cipher
-            .decrypt(nonce, ciphertext)
+            .decrypt(&nonce, ciphertext)
             .map_err(|e| anyhow!("Decryption failed: {}", e))
     }
 
@@ -335,6 +343,7 @@ impl Catalog {
                         pt::peerdb_peers::MySqlConfig::decode(&options[..]).with_context(err)?;
                     Config::MysqlConfig(mysql_config)
                 }
+                DbType::DbtypeUnknown => return Ok(None),
             })
         } else {
             None
@@ -388,15 +397,17 @@ impl Catalog {
             .pg
             .prepare_typed(
                 "INSERT INTO flows (name, source_peer, destination_peer, description,
-                     destination_table_identifier, query_string, flow_metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT,
-                 types::Type::TEXT, types::Type::TEXT, types::Type::JSONB],
+                     query_string, flow_metadata) VALUES ($1, $2, $3, $4, $5, $6)",
+                &[
+                    types::Type::TEXT,
+                    types::Type::INT4,
+                    types::Type::INT4,
+                    types::Type::TEXT,
+                    types::Type::TEXT,
+                    types::Type::JSONB,
+                ],
             )
             .await?;
-
-        let Some(destination_table_name) = job.flow_options.get("destination_table_name") else {
-            return Err(anyhow!("destination_table_name not found in flow options"));
-        };
 
         let _rows = self
             .pg
@@ -407,7 +418,6 @@ impl Catalog {
                     &source_peer_id,
                     &destination_peer_id,
                     &job.description,
-                    &destination_table_name.as_str().unwrap(),
                     &job.query_string,
                     &serde_json::to_value(job.flow_options.clone())
                         .context("unable to serialize flow options")?,

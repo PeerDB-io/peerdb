@@ -10,7 +10,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -21,46 +22,50 @@ type NormalizeQueryGenerator struct {
 	Query                           string
 	TableName                       string
 	rawTableName                    string
+	isDeletedColName                string
 	tableMappings                   []*protos.TableMapping
-	Part                            uint64
-	batchIDToLoadForTable           int64
-	numParts                        uint64
-	syncBatchID                     int64
+	lastNormBatchID                 int64
+	endBatchID                      int64
 	enablePrimaryUpdate             bool
 	sourceSchemaAsDestinationColumn bool
 	cluster                         bool
+	version                         uint32
 }
 
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
 func NewNormalizeQueryGenerator(
 	tableName string,
-	part uint64,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 	tableMappings []*protos.TableMapping,
-	syncBatchID int64,
-	batchIDToLoadForTable int64,
-	numParts uint64,
+	endBatchID int64,
+	lastNormBatchID int64,
 	enablePrimaryUpdate bool,
 	sourceSchemaAsDestinationColumn bool,
 	env map[string]string,
 	rawTableName string,
 	chVersion *chproto.Version,
 	cluster bool,
+	configuredSoftDeleteColName string,
+	version uint32,
 ) *NormalizeQueryGenerator {
+	isDeletedColumn := isDeletedColName
+	if configuredSoftDeleteColName != "" {
+		isDeletedColumn = configuredSoftDeleteColName
+	}
 	return &NormalizeQueryGenerator{
 		TableName:                       tableName,
-		Part:                            part,
 		tableNameSchemaMapping:          tableNameSchemaMapping,
 		tableMappings:                   tableMappings,
-		syncBatchID:                     syncBatchID,
-		batchIDToLoadForTable:           batchIDToLoadForTable,
-		numParts:                        numParts,
+		endBatchID:                      endBatchID,
+		lastNormBatchID:                 lastNormBatchID,
 		enablePrimaryUpdate:             enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn: sourceSchemaAsDestinationColumn,
 		env:                             env,
 		rawTableName:                    rawTableName,
 		chVersion:                       chVersion,
 		cluster:                         cluster,
+		isDeletedColName:                isDeletedColumn,
+		version:                         version,
 	}
 }
 
@@ -184,13 +189,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			}
 		case "JSON", "Nullable(JSON)":
 			fmt.Fprintf(&projection,
-				"JSONExtractString(_peerdb_data, %s) AS %s,",
+				"JSONExtractString(_peerdb_data, %s)::JSON AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					"JSONExtractString(_peerdb_match_data, %s) AS %s,",
+					"JSONExtractString(_peerdb_match_data, %s)::JSON AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
@@ -260,8 +265,8 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	}
 
 	// add _peerdb_sign as _peerdb_record_type / 2
-	fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-	fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(signColName))
+	fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(isDeletedColName))
+	fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(isDeletedColName))
 
 	// add _peerdb_timestamp as _peerdb_version
 	fmt.Fprintf(&projection, "_peerdb_timestamp AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
@@ -270,10 +275,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	selectQuery.WriteString(projection.String())
 	fmt.Fprintf(&selectQuery,
 		" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.batchIDToLoadForTable, t.syncBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
-	if t.numParts > 1 {
-		fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", t.numParts, t.Part)
-	}
+		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 
 	if t.enablePrimaryUpdate {
 		if t.sourceSchemaAsDestinationColumn {
@@ -281,7 +283,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		}
 
 		// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
-		fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
+		fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(isDeletedColName))
 		// decrement timestamp by 1 so delete is ordered before latest data,
 		// could be same if deletion records were only generated when ordering updated
 		fmt.Fprintf(&projectionUpdate, "_peerdb_timestamp - 1 AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
@@ -292,18 +294,21 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
 				" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
 			peerdb_clickhouse.QuoteIdentifier(t.rawTableName),
-			t.batchIDToLoadForTable, t.syncBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
-		if t.numParts > 1 {
-			fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", t.numParts, t.Part)
-		}
+			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 	}
 
+	chSettings := NewCHSettings(t.chVersion)
+	chSettings.Add(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
 	if t.cluster {
-		colSelector.WriteString(" SETTINGS parallel_distributed_insert_select=0")
+		chSettings.Add(SettingParallelDistributedInsertSelect, "0")
+	}
+	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
+		chSettings.Add(SettingJsonTypeEscapeDotsInKeys, "1")
 	}
 
-	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
-		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String())
+	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
+		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String(), chSettings.String())
 
 	t.Query = insertIntoSelectQuery
 

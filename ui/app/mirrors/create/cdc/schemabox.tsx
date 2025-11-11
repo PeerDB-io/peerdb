@@ -24,10 +24,13 @@ import {
   useMemo,
   useState,
 } from 'react';
+import ReactSelect from 'react-select';
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
+import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
+import SelectSortingKeys from './sortingkey';
 import {
   columnBoxDividerStyle,
   engineOptionStyles,
@@ -36,11 +39,6 @@ import {
   tableBoxStyle,
   tooltipStyle,
 } from './styles';
-
-import { Divider } from '@tremor/react';
-import ReactSelect from 'react-select';
-import CustomColumnType from './customColumnType';
-import SelectSortingKeys from './sortingkey';
 interface SchemaBoxProps {
   sourcePeer: string;
   schema: string;
@@ -195,17 +193,9 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const rowsDoNotHaveSchemaTables = (schema: string) => {
-    return !rows.some((row) => row.schema === schema);
-  };
-
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setExpandedSchemas((curr) => [...curr, schemaName]);
-
-      if (rowsDoNotHaveSchemaTables(schemaName)) {
-        fetchTablesForSchema(schemaName);
-      }
     } else {
       setExpandedSchemas((curr) =>
         curr.filter((expandedSchema) => expandedSchema != schemaName)
@@ -214,15 +204,18 @@ export default function SchemaBox({
   };
 
   const fetchTablesForSchema = useCallback(
-    (schemaName: string) => {
+    async (schemaName: string) => {
       setTablesLoading(true);
-      fetchTables(
-        sourcePeer,
-        schemaName,
-        defaultTargetSchema,
-        peerType,
-        initialLoadOnly
-      ).then((newRows) => {
+
+      try {
+        const newRows = await fetchTables(
+          sourcePeer,
+          schemaName,
+          defaultTargetSchema,
+          peerType,
+          initialLoadOnly
+        );
+
         if (alreadySelectedTables) {
           for (const row of newRows) {
             const existingRow = alreadySelectedTables.find(
@@ -242,23 +235,28 @@ export default function SchemaBox({
             }
           }
         }
+
         setRows((oldRows) => {
           const filteredRows = oldRows.filter(
             (oldRow) => oldRow.schema !== schemaName
           );
           return [...filteredRows, ...newRows];
         });
+      } catch (error) {
+        // Handle error if needed
+        console.error('Error fetching tables:', error);
+      } finally {
         setTablesLoading(false);
-      });
+      }
     },
     [
-      setRows,
       sourcePeer,
       defaultTargetSchema,
       peerType,
       alreadySelectedTables,
       addTableColumns,
       initialLoadOnly,
+      setRows,
     ]
   );
 
@@ -270,8 +268,10 @@ export default function SchemaBox({
   ];
 
   useEffect(() => {
-    fetchTablesForSchema(schema);
-  }, [schema, fetchTablesForSchema, initialLoadOnly]);
+    if (schemaIsExpanded(schema)) {
+      fetchTablesForSchema(schema);
+    }
+  }, [schema, fetchTablesForSchema, schemaIsExpanded, initialLoadOnly]);
 
   return (
     <div style={schemaBoxStyle}>
@@ -345,7 +345,7 @@ export default function SchemaBox({
                               as='label'
                               style={{
                                 fontSize: 13,
-                                color: row.canMirror ? 'black' : 'gray',
+                                color: row.canMirror ? undefined : 'gray',
                               }}
                             >
                               {row.source}
@@ -504,8 +504,7 @@ export default function SchemaBox({
                     {/* COLUMN BOX */}
                     {row.selected && (
                       <div className='ml-5 mt-3' style={{ width: '100%' }}>
-                        <Divider style={columnBoxDividerStyle} />
-
+                        <hr style={columnBoxDividerStyle} />
                         <div
                           style={{
                             display: 'flex',
@@ -545,12 +544,7 @@ export default function SchemaBox({
                                   rowGap: '0.5rem',
                                 }}
                               >
-                                <Divider
-                                  style={{
-                                    ...columnBoxDividerStyle,
-                                    marginTop: '0.5rem',
-                                  }}
-                                />
+                                <hr style={columnBoxDividerStyle} />
                                 <div style={{ width: '50%' }}>
                                   <SelectSortingKeys
                                     columns={columns

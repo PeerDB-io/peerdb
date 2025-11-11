@@ -5,14 +5,14 @@ on:
     branches: [main, release/*]
   pull_request:
     branches: [main, release/*]
-    paths: [nexus/**, protos/**, .github/workflows/ci.yml]
+    paths: [nexus/**, protos/**, .github/workflows/ci.yml, buf.gen.yaml]
 
 jobs:
   build:
     strategy:
       matrix:
         runner: [ubuntu-latest]
-        postgres-version: [13, 14, 15, 16, 17]
+        postgres-version: [14, 15, 16, 17, 18]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:

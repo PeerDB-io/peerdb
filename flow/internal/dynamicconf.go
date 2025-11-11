@@ -43,8 +43,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_GROUP_NORMALIZE",
 		Description:      "Controls whether normalize applies to one batch at a time, or all pending batches",
-		DefaultValue:     "false",
-		ValueType:        protos.DynconfValueType_BOOL,
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
@@ -171,7 +171,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:         "PEERDB_S3_BYTES_PER_AVRO_FILE",
 		Description:  "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
-		DefaultValue: "10000000000", // 10GB, not GiB so to not align with 64MiB to avoid always having tiny part at end
+		DefaultValue: "1000000000", // 1GB, not GiB so to not align with 64MiB to avoid always having tiny part at end
 		ValueType:    protos.DynconfValueType_INT,
 		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 	},
@@ -298,14 +298,6 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS",
-		Description:      "Chunk normalization into N queries, can help mitigate OOM issues on ClickHouse",
-		DefaultValue:     "1",
-		ValueType:        protos.DynconfValueType_UINT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
-		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
-	},
-	{
 		Name:             "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION",
 		Description:      "Chunk partitions in initial load into N queries, can help mitigate OOM issues on ClickHouse",
 		DefaultValue:     "1",
@@ -366,6 +358,22 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_UI_MAINTENANCE_TAB_ENABLED",
 		Description:      "Enable/disable the maintenance tab in the PeerDB UI",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_POSTGRES_ENABLE_FAILOVER_SLOTS",
+		Description:      "Create slots with failover enabled when possible",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED",
+		Description:      "Enable/disable recording of aggregate metrics",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
@@ -528,8 +536,8 @@ func PeerDBNormalizeBufferSize(ctx context.Context, env map[string]string) (int6
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE")
 }
 
-func PeerDBGroupNormalize(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_GROUP_NORMALIZE")
+func PeerDBGroupNormalize(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_GROUP_NORMALIZE")
 }
 
 func PeerDBQueueFlushTimeoutSeconds(ctx context.Context, env map[string]string) (time.Duration, error) {
@@ -660,10 +668,6 @@ func PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx context.Context, env map[st
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS")
 }
 
-func PeerDBClickHouseNormalizationParts(ctx context.Context, env map[string]string) (uint64, error) {
-	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS")
-}
-
 func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[string]string) (uint64, error) {
 	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION")
 }
@@ -690,4 +694,12 @@ func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Conte
 
 func PeerDBForceInternalVersion(ctx context.Context, env map[string]string) (uint32, error) {
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_FORCE_INTERNAL_VERSION")
+}
+
+func PeerDBPostgresEnableFailoverSlots(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_ENABLE_FAILOVER_SLOTS")
+}
+
+func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED")
 }

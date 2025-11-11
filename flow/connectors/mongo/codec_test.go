@@ -179,6 +179,28 @@ func TestMarshalDocument(t *testing.T) {
 			expected: `{"a":"-Inf"}`,
 		},
 
+		// DateTime
+		{
+			desc:     "bson.DateTime",
+			input:    bson.D{{Key: "date", Value: bson.DateTime(1672531200000)}}, // 2023-01-01 00:00:00 UTC
+			expected: `{"date":"2023-01-01T00:00:00Z"}`,
+		},
+		{
+			desc:     "bson.DateTime out of RFC3339 range",
+			input:    bson.D{{Key: "date", Value: bson.DateTime(253433923200000)}}, // 10001-01-01 00:00:00 UTC
+			expected: `{"date":"10001-01-01T00:00:00Z"}`,
+		},
+		{
+			desc:     "bson.DateTime max",
+			input:    bson.D{{Key: "date", Value: bson.DateTime(math.MaxInt64)}},
+			expected: `{"date":"292278994-08-17T07:12:55.807Z"}`,
+		},
+		{
+			desc:     "bson.DateTime max",
+			input:    bson.D{{Key: "date", Value: bson.DateTime(math.MinInt64)}},
+			expected: `{"date":"-292275055-05-16T16:47:04.192Z"}`,
+		},
+
 		// Null values
 		{
 			desc:     "nil",
@@ -222,21 +244,21 @@ func TestMarshalDocument(t *testing.T) {
 			expected: `{"a":[1,"str",true]}`,
 		},
 		{
-			desc:     "bson.A special float",
-			input:    bson.D{{Key: "a", Value: bson.A{math.NaN(), math.Inf(1), math.Inf(-1)}}},
-			expected: `{"a":["NaN","+Inf","-Inf"]}`,
+			desc:     "bson.A special values",
+			input:    bson.D{{Key: "a", Value: bson.A{math.NaN(), math.Inf(1), math.Inf(-1), bson.DateTime(math.MaxInt64)}}},
+			expected: `{"a":["NaN","+Inf","-Inf","292278994-08-17T07:12:55.807Z"]}`,
 		},
 		{
-			desc: "bson.A nested special float",
+			desc: "bson.A nested special values",
 			input: bson.D{{Key: "nested", Value: bson.A{
 				bson.D{{Key: "inner1", Value: bson.A{
 					bson.D{{Key: "inner_inner", Value: bson.A{
-						math.NaN(), math.Inf(1), math.Inf(-1),
+						math.NaN(), math.Inf(1), math.Inf(-1), bson.DateTime(math.MaxInt64),
 					}}},
 				}}},
 				bson.D{{Key: "inner2", Value: 1.23}},
 			}}},
-			expected: `{"nested":[{"inner1":[{"inner_inner":["NaN","+Inf","-Inf"]}]},{"inner2":1.23}]}`,
+			expected: `{"nested":[{"inner1":[{"inner_inner":["NaN","+Inf","-Inf","292278994-08-17T07:12:55.807Z"]}]},{"inner2":1.23}]}`,
 		},
 		{
 			desc: "complex nested bson.A",
@@ -272,11 +294,6 @@ func TestMarshalDocument(t *testing.T) {
 				return bson.D{{Key: "id", Value: oid}}
 			}(),
 			expected: `{"id":"507f1f77bcf86cd799439011"}`,
-		},
-		{
-			desc:     "bson.DateTime",
-			input:    bson.D{{Key: "date", Value: bson.DateTime(1672531200000)}}, // 2023-01-01 00:00:00 UTC
-			expected: `{"date":"2023-01-01T00:00:00Z"}`,
 		},
 		{
 			desc:     "bson.JavaScript",

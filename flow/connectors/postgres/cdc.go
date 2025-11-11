@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -33,7 +34,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
-	"github.com/PeerDB-io/peerdb/flow/shared/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -279,6 +279,15 @@ func processTuple[Items model.Items](
 	items := processor.NewItems(len(tuple.Columns))
 	var unchangedToastColumns map[string]struct{}
 
+	var none Items
+	if len(tuple.Columns) > len(rel.Columns) {
+		return none, nil, fmt.Errorf(
+			"tuple has more columns than the last RelationMessage: %d > %d. "+
+				"One known occurrence of this was due to a bug with replication column lists in PG 15-15.1. "+
+				"https://www.postgresql.org/message-id/CADGJaX9kiRZ-OH0EpWF5Fkyh1ZZYofoNRCrhapBfdk02tj5EKg@mail.gmail.com",
+			len(tuple.Columns), len(rel.Columns))
+	}
+
 	for idx, tcol := range tuple.Columns {
 		rcol := rel.Columns[idx]
 		if _, ok := nameAndExclude.Exclude[rcol.Name]; ok {
@@ -290,7 +299,6 @@ func processTuple[Items model.Items](
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
 		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping); err != nil {
-			var none Items
 			return none, nil, err
 		}
 	}
@@ -324,18 +332,23 @@ func (p *PostgresCDCSource) decodeColumnData(
 				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
-			return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+			if parsedData == nil {
+				// avoid confusing SQL null & JSON null by using pre-marshaled value
+				parsedData = json.RawMessage("null")
+			}
+			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+				parsedData, customTypeMapping, p.internalVersion)
 		}
 		return types.QValueNull(types.QValueKindJSON), nil
 	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
-		textArr := &pgtype.FlatArray[pgtype.Text]{}
-		if err := p.typeMap.Scan(dataType, formatCode, data, textArr); err != nil {
+		textArr := pgtype.FlatArray[pgtype.Text]{}
+		if err := p.typeMap.Scan(dataType, formatCode, data, &textArr); err != nil {
 			p.logger.Error("[pg_cdc] failed to scan json array", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to scan json array: %w", err)
 		}
 
-		arr := make([]any, len(*textArr))
-		for j, text := range *textArr {
+		arr := make([]any, len(textArr))
+		for j, text := range textArr {
 			if text.Valid {
 				if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
 					p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
@@ -345,7 +358,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 				arr[j] = nil
 			}
 		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, arr, customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN, arr, customTypeMapping, p.internalVersion)
 	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
@@ -373,11 +386,13 @@ func (p *PostgresCDCSource) decodeColumnData(
 			}
 			return nil, err
 		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+			parsedData, customTypeMapping, p.internalVersion)
 	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
-		return p.parseFieldFromPostgresOID(dataType, typmod, string(data), customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+			string(data), customTypeMapping, p.internalVersion)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
-		customQKind := postgres.CustomTypeToQKind(typeData, version)
+		customQKind := CustomTypeToQKind(typeData, version)
 		switch customQKind {
 		case types.QValueKindGeography, types.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
@@ -445,9 +460,9 @@ func PullCdcRecords[Items model.Items](
 	sendStandbyAfterReplLock := func(updateType string) error {
 		replLock.Lock()
 		defer replLock.Unlock()
-		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
-		if err != nil {
+		if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
+			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())},
+		); err != nil {
 			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
 		}
 		return nil
@@ -671,7 +686,7 @@ func PullCdcRecords[Items model.Items](
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
 				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
 				if err != nil {
-					return fmt.Errorf("error processing message: %w", err)
+					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
 
 				if xld.WALStart > clientXLogPos {
@@ -1103,9 +1118,8 @@ func processRelationMessage[Items model.Items](
 		case protos.TypeSystem_Q:
 			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping, p.internalVersion)
 			if qKind == types.QValueKindInvalid {
-				typeName, ok := customTypeMapping[column.DataType]
-				if ok {
-					qKind = postgres.CustomTypeToQKind(typeName, p.internalVersion)
+				if typeName, ok := customTypeMapping[column.DataType]; ok {
+					qKind = CustomTypeToQKind(typeName, p.internalVersion)
 				}
 			}
 			currRelMap[column.Name] = string(qKind)
