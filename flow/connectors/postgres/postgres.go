@@ -1041,9 +1041,22 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
+
+	rows.Close()
+
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
 	if replicaIdentityType == ReplicaIdentityFull && len(pKeyCols) == 0 {
 		pKeyCols = columnNames
+	}
+
+	// Fetch indexes for the table
+	indexes, err := c.getTableIndexes(ctx, schemaTable)
+	c.logger.Info("fetched indexes", slog.String("table", schemaTable.String()), slog.Any("indexes", indexes))
+	if err != nil {
+		c.logger.Warn("Failed to fetch indexes for table, continuing without indexes",
+			slog.String("table", tm.SourceTableIdentifier),
+			slog.Any("error", err))
+		indexes = nil
 	}
 
 	return &protos.TableSchema{
@@ -1053,6 +1066,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		Columns:               columns,
 		NullableEnabled:       nullableEnabled,
 		System:                system,
+		Indexes:               indexes,
 	}, nil
 }
 
@@ -1107,6 +1121,21 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
+	}
+
+	if len(tableSchema.Indexes) > 0 {
+		c.logger.Info("Creating indexes on destination table",
+			slog.String("table", tableIdentifier),
+			slog.Int("indexCount", len(tableSchema.Indexes)))
+
+		if err := c.createTableIndexesFromSchema(ctx, createNormalizedTablesTx, tableSchema, parsedNormalizedTable); err != nil {
+			// Log the error but don't fail the table creation
+			c.logger.Warn("Failed to create indexes for table",
+				slog.String("table", tableIdentifier),
+				slog.Any("error", err))
+		}
+	} else {
+		c.logger.Info("No secondary indexes to create for table", slog.String("table", tableIdentifier))
 	}
 
 	return false, nil

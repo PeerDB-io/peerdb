@@ -233,6 +233,7 @@ message TableSchema {
   TypeSystem system = 4;
   bool nullable_enabled = 5;
   repeated FieldDescription columns = 6;
+  repeated IndexDescription indexes = 7;
 }
 
 message FieldDescription {
@@ -240,6 +241,14 @@ message FieldDescription {
   string type = 2;
   int32 type_modifier = 3;
   bool nullable = 4;
+}
+
+message IndexDescription {
+  string index_name = 1;
+  string index_def = 2;
+  bool is_primary = 3;
+  bool is_unique = 4;
+  bool is_replica = 5;
 }
 
 message SetupTableSchemaBatchInput {
