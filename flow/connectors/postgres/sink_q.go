@@ -72,7 +72,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	var totalNumRows int64
 	var totalNumBytes int64
 	for {
-		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.FetchAndChannelSize,
+		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.QRepFetchSize,
 			stream.DestinationType, stream.QRecordStream)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))
