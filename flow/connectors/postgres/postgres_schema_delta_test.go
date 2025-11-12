@@ -62,11 +62,11 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		AddedColumns: []*protos.FieldDescription{
 			{
 				Name:         "hi",
-				Type:         string(types.QValueKindInt64),
-				TypeModifier: -1,
-				Nullable:     true,
-			},
+			Type:         string(types.QValueKindInt64),
+			TypeModifier: -1,
+			Nullable:     true,
 		},
+	},
 	}}))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
@@ -112,9 +112,9 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	}
 
 	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
+	SrcTableName: tableName,
+	DstTableName: tableName,
+	AddedColumns: addedColumns,
 	}}))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
@@ -143,9 +143,9 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	}
 
 	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
+	SrcTableName: tableName,
+	DstTableName: tableName,
+	AddedColumns: addedColumns,
 	}}))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
@@ -174,9 +174,9 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	}
 
 	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
+	SrcTableName: tableName,
+	DstTableName: tableName,
+	AddedColumns: addedColumns,
 	}}))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
