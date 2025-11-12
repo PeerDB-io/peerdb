@@ -98,7 +98,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		if err != nil {
 			return nil, err
 		}
-		qkind, err := QkindFromMysqlColumnType(columnType)
+		qkind, err := QkindFromMysqlColumnType(columnType, version)
 		if err != nil {
 			return nil, err
 		}

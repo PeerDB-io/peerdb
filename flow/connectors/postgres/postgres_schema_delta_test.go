@@ -67,7 +67,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 				Nullable:     true,
 			},
 		},
-	}}))
+	}}, shared.InternalVersion_Latest))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -115,7 +115,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	}}))
+	}}, shared.InternalVersion_Latest))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -146,7 +146,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	}}))
+	}}, shared.InternalVersion_Latest))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -177,7 +177,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	}}))
+	}}, shared.InternalVersion_Latest))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})

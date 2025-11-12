@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/stretchr/testify/require"
@@ -112,6 +113,44 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 		quotedSrcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
+
+	// Verify that TIME column uses Time64(3) when ClickHouse version >= 25.6 and internal version >= InternalVersion_ClickHouseTime64
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	var columnType string
+	err = ch.QueryRow(s.t.Context(), fmt.Sprintf(
+		"SELECT type FROM system.columns WHERE database = currentDatabase() AND table = %s AND name = 't'",
+		clickhouse.QuoteLiteral(dstTableName),
+	)).Scan(&columnType)
+	require.NoError(s.t, err)
+
+	chVersion, err := s.connector.GetVersion(s.t.Context())
+	require.NoError(s.t, err)
+
+	// Check if ClickHouse version >= 25.6
+	versionParts := strings.Split(chVersion, ".")
+	if len(versionParts) >= 2 {
+		major, _ := strconv.Atoi(versionParts[0])
+		minor, _ := strconv.Atoi(versionParts[1])
+
+		// If ClickHouse >= 25.6 and using latest internal version, should use Time64(3)
+		if major > 25 || (major == 25 && minor >= 6) {
+			if flowConnConfig.Version >= shared.InternalVersion_ClickHouseTime64 {
+				require.Contains(s.t, columnType, "Time64(3)",
+					"Expected Time64(3) for TIME column when ClickHouse >= 25.6 and internal version >= InternalVersion_ClickHouseTime64, got %s", columnType)
+			} else {
+				// Old version should use DateTime64(6)
+				require.Contains(s.t, columnType, "DateTime64(6)",
+					"Expected DateTime64(6) for TIME column with old internal version, got %s", columnType)
+			}
+		} else {
+			// Older ClickHouse versions should use DateTime64(6)
+			require.Contains(s.t, columnType, "DateTime64(6)",
+				"Expected DateTime64(6) for TIME column when ClickHouse < 25.6, got %s", columnType)
+		}
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
