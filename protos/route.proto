@@ -241,6 +241,21 @@ message SlotInfo {
   float lag_in_mb = 5;
   string confirmed_flush_lSN = 6;
   string wal_status = 7;
+  string sent_lSN = 8;
+  string current_lSN = 9;
+  float restart_to_confirmed_mb = 10;
+  float confirmed_to_sent_mb = 11;
+  float sent_to_current_mb = 12;
+  int64 safe_wal_size = 13;
+  string wait_event_type = 14;
+  string wait_event = 15;
+  string backend_state = 16;
+  int64 logical_decoding_work_mem_mb = 17;
+  bool logical_decoding_work_mem_pending_restart = 18;
+  int64 stats_reset = 19;
+  int64 spill_txns = 20;
+  int64 spill_count = 21;
+  int64 spill_bytes = 22;
 }
 
 message SlotLagPoint {

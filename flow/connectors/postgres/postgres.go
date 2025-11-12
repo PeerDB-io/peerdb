@@ -1394,51 +1394,93 @@ func (c *PostgresConnector) HandleSlotInfo(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	slotInfo, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database)
+	slotInfos, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database)
 	if err != nil {
 		logger.Warn("warning: failed to get slot info", slog.Any("error", err))
 		return err
 	}
 
-	if len(slotInfo) == 0 {
+	if len(slotInfos) == 0 {
 		logger.Warn("warning: unable to get slot info", slog.String("slotName", alertKeys.SlotName))
 		return nil
 	}
+	slotInfo := slotInfos[0]
 
 	logger.Info(fmt.Sprintf("Checking %s lag for %s", alertKeys.SlotName, alertKeys.PeerName),
-		slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
-	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo[0])
+		slog.Float64("LagInMB", float64(slotInfo.LagInMb)))
+	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo)
 
 	attributeSet := metric.WithAttributeSet(attribute.NewSet(
 		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
 		attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
 	))
-	if slotMetricGauges.SlotLagGauge != nil {
-		slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo[0].LagInMb), attributeSet)
-	} else {
-		logger.Warn("warning: slotMetricGauges.SlotLagGauge is nil")
-	}
+	slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo.LagInMb), attributeSet)
+	slotMetricGauges.RestartToConfirmedMBGauge.Record(ctx, float64(slotInfo.RestartToConfirmedMb), attributeSet)
+	slotMetricGauges.ConfirmedToSentMBGauge.Record(ctx, float64(slotInfo.ConfirmedToSentMb), attributeSet)
+	slotMetricGauges.SentToCurrentMBGauge.Record(ctx, float64(slotInfo.SentToCurrentMb), attributeSet)
 
-	if slotMetricGauges.ConfirmedFlushLSNGauge != nil {
-		lsn, err := pglogrepl.ParseLSN(slotInfo[0].ConfirmedFlushLSN)
-		if err != nil {
-			logger.Warn("error parsing confirmed flush LSN", slog.Any("error", err))
-		}
-		slotMetricGauges.ConfirmedFlushLSNGauge.Record(ctx, int64(lsn), attributeSet)
-	} else {
-		logger.Warn("warning: slotMetricGauges.ConfirmedFlushLSNGauge is nil")
+	currentLSN, err := pglogrepl.ParseLSN(slotInfo.CurrentLSN)
+	if err != nil {
+		logger.Warn("error parsing current LSN", slog.Any("error", err))
 	}
+	slotMetricGauges.CurrentWalLSNGauge.Record(ctx, int64(currentLSN), attributeSet)
 
-	if slotMetricGauges.RestartLSNGauge != nil {
-		lsn, err := pglogrepl.ParseLSN(slotInfo[0].RestartLSN)
-		if err != nil {
-			logger.Warn("error parsing restart LSN", slog.Any("error", err))
-		}
-		slotMetricGauges.RestartLSNGauge.Record(ctx, int64(lsn), attributeSet)
-	} else {
-		logger.Warn("warning: slotMetricGauges.RestartLSNGauge is nil")
+	sentLSN, err := pglogrepl.ParseLSN(slotInfo.SentLSN)
+	if err != nil {
+		logger.Warn("error parsing sent LSN", slog.Any("error", err))
 	}
+	slotMetricGauges.SentLSNGauge.Record(ctx, int64(sentLSN), attributeSet)
+
+	confirmedFlushLSN, err := pglogrepl.ParseLSN(slotInfo.ConfirmedFlushLSN)
+	if err != nil {
+		logger.Warn("error parsing confirmed flush LSN", slog.Any("error", err))
+	}
+	slotMetricGauges.ConfirmedFlushLSNGauge.Record(ctx, int64(confirmedFlushLSN), attributeSet)
+
+	restartLSN, err := pglogrepl.ParseLSN(slotInfo.RestartLSN)
+	if err != nil {
+		logger.Warn("error parsing restart LSN", slog.Any("error", err))
+	}
+	slotMetricGauges.RestartLSNGauge.Record(ctx, int64(restartLSN), attributeSet)
+
+	slotMetricGauges.SafeWalSizeGauge.Record(ctx, slotInfo.SafeWalSize, attributeSet)
+
+	var activeValue int64
+	if slotInfo.Active {
+		activeValue = 1
+	}
+	slotMetricGauges.SlotActiveGauge.Record(ctx, activeValue, attributeSet)
+
+	slotMetricGauges.WalSenderStateGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
+		attribute.String(otel_metrics.WaitEventTypeKey, slotInfo.WaitEventType),
+		attribute.String(otel_metrics.WaitEventKey, slotInfo.WaitEvent),
+		attribute.String(otel_metrics.BackendStateKey, slotInfo.BackendState),
+	)))
+
+	slotMetricGauges.WalStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
+		attribute.String(otel_metrics.WalStatusKey, slotInfo.WalStatus),
+	)))
+
+	slotMetricGauges.LogicalDecodingWorkMemGauge.Record(ctx, slotInfo.LogicalDecodingWorkMemMb,
+		metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+			attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
+			attribute.Bool(otel_metrics.PendingRestartKey, slotInfo.LogicalDecodingWorkMemPendingRestart),
+		)))
+
+	// PG 16+ statistics gauges
+	slotMetricGauges.StatsResetGauge.Record(ctx, slotInfo.StatsReset, attributeSet)
+	slotMetricGauges.SpillTxnsGauge.Record(ctx, slotInfo.SpillTxns, attributeSet)
+	slotMetricGauges.SpillCountGauge.Record(ctx, slotInfo.SpillCount, attributeSet)
+	slotMetricGauges.SpillBytesGauge.Record(ctx, slotInfo.SpillBytes, attributeSet)
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.Config.User)
@@ -1448,30 +1490,23 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	alerter.AlertIfOpenConnections(ctx, alertKeys, res)
 
-	if slotMetricGauges.OpenConnectionsGauge != nil {
-		slotMetricGauges.OpenConnectionsGauge.Record(ctx, res.CurrentOpenConnections, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-		)))
-	} else {
-		logger.Warn("warning: slotMetricGauges.OpenConnectionsGauge is nil")
-	}
+	slotMetricGauges.OpenConnectionsGauge.Record(ctx, res.CurrentOpenConnections, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+	)))
+
 	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.Config.User)
 	if err != nil {
 		logger.Warn("warning: failed to get current open replication connections", slog.Any("error", err))
 		return err
 	}
 
-	if slotMetricGauges.OpenReplicationConnectionsGauge != nil {
-		slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
-			metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-			)),
-		)
-	} else {
-		logger.Warn("warning: slotMetricGauges.OpenReplicationConnectionsGauge is nil")
-	}
+	slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
+		metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		)),
+	)
 
 	var intervalSinceLastNormalize *time.Duration
 	if err := alerter.CatalogPool.QueryRow(
@@ -1485,20 +1520,16 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return nil
 	}
 	if intervalSinceLastNormalize != nil {
-		if slotMetricGauges.IntervalSinceLastNormalizeGauge != nil {
-			slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
-				metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-					attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-				)),
-			)
-		} else {
-			logger.Warn("warning: slotMetricGauges.IntervalSinceLastNormalizeGauge is nil")
-		}
+		slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
+			metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+			)),
+		)
 		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
 	}
 
-	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo[0])
+	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo)
 }
 
 func getOpenConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string) (*protos.GetOpenConnectionsForUserResult, error) {
