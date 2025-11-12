@@ -208,12 +208,14 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
 		PeerName:          flowConnectionConfigs.DestinationName,
 		TableMappings:     flowConnectionConfigs.TableMappings,
-		SoftDeleteColName: flowConnectionConfigs.SoftDeleteColName,
-		SyncedAtColName:   flowConnectionConfigs.SyncedAtColName,
-		FlowName:          flowConnectionConfigs.FlowJobName,
-		Env:               flowConnectionConfigs.Env,
-		IsResync:          flowConnectionConfigs.Resync,
-	}
+	SoftDeleteColName: flowConnectionConfigs.SoftDeleteColName,
+	SyncedAtColName:   flowConnectionConfigs.SyncedAtColName,
+	FlowName:          flowConnectionConfigs.FlowJobName,
+	Env:               flowConnectionConfigs.Env,
+	IsResync:          flowConnectionConfigs.Resync,
+	Version:           flowConnectionConfigs.Version,
+	SourceName:        flowConnectionConfigs.SourceName,
+}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
 		s.Error("failed to create normalized tables", slog.Any("error", err))
