@@ -1059,6 +1059,16 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		indexes = nil
 	}
 
+	// Fetch functions for the table schema
+	functions, err := c.getTableFunctions(ctx, schemaTable)
+	c.logger.Info("fetched functions", slog.String("table", schemaTable.String()), slog.Any("functions", functions))
+	if err != nil {
+		c.logger.Warn("Failed to fetch functions for table, continuing without functions",
+			slog.String("table", tm.SourceTableIdentifier),
+			slog.Any("error", err))
+		functions = nil
+	}
+
 	return &protos.TableSchema{
 		TableIdentifier:       tm.SourceTableIdentifier,
 		PrimaryKeyColumns:     pKeyCols,
@@ -1067,6 +1077,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		NullableEnabled:       nullableEnabled,
 		System:                system,
 		Indexes:               indexes,
+		Functions:             functions,
 	}, nil
 }
 
@@ -1136,6 +1147,21 @@ func (c *PostgresConnector) SetupNormalizedTable(
 		}
 	} else {
 		c.logger.Info("No secondary indexes to create for table", slog.String("table", tableIdentifier))
+	}
+
+	if len(tableSchema.Functions) > 0 {
+		c.logger.Info("Creating functions on destination schema",
+			slog.String("schema", parsedNormalizedTable.Schema),
+			slog.Int("functionCount", len(tableSchema.Functions)))
+
+		if err := c.createTableFunctionsFromSchema(ctx, createNormalizedTablesTx, tableSchema, parsedNormalizedTable); err != nil {
+			// Log the error but don't fail the table creation
+			c.logger.Warn("Failed to create functions for schema",
+				slog.String("schema", parsedNormalizedTable.Schema),
+				slog.Any("error", err))
+		}
+	} else {
+		c.logger.Info("No functions to create for schema", slog.String("schema", parsedNormalizedTable.Schema))
 	}
 
 	return false, nil

@@ -234,6 +234,7 @@ message TableSchema {
   bool nullable_enabled = 5;
   repeated FieldDescription columns = 6;
   repeated IndexDescription indexes = 7;
+  repeated FunctionDescription functions = 8;
 }
 
 message FieldDescription {
@@ -249,6 +250,13 @@ message IndexDescription {
   bool is_primary = 3;
   bool is_unique = 4;
   bool is_replica = 5;
+}
+
+message FunctionDescription {
+  string function_name = 1;
+  string function_def = 2;
+  string language = 3;
+  string return_type = 4;
 }
 
 message SetupTableSchemaBatchInput {
