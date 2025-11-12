@@ -10,6 +10,7 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -63,7 +64,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 				TypeModifier: -1,
 			},
 		},
-	}}))
+	}}, shared.InternalVersion_Latest))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -171,7 +172,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	}}))
+	}}, shared.InternalVersion_Latest))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -250,7 +251,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	}}))
+	}}, shared.InternalVersion_Latest))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -305,7 +306,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	}}))
+	}}, shared.InternalVersion_Latest))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
