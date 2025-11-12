@@ -103,7 +103,7 @@ type CDCPullConnectorCore interface {
 	SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error)
 
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
-	SetupReplConn(context.Context) error
+	SetupReplConn(context.Context, map[string]string) error
 
 	// Ping source to keep connection alive. Can be called concurrently with pulling records; skips ping in that case.
 	ReplPing(context.Context) error

@@ -319,7 +319,7 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	if err := srcConn.SetupReplConn(ctx); err != nil {
+	if err := srcConn.SetupReplConn(ctx, config.Env); err != nil {
 		srcClose(ctx)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}

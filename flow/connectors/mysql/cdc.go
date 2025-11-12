@@ -185,7 +185,7 @@ func (c *MySqlConnector) SetupReplication(
 	return model.SetupReplicationResult{}, nil
 }
 
-func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
+func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error {
 	// mysql code will spin up new connection for each normalize for now
 	return nil
 }

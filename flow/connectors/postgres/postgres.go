@@ -151,7 +151,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 	return c.customTypeMapping, nil
 }
 
-func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
+func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]string) (*pgx.Conn, error) {
 	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	replConfig, err := ParseConfig(c.connStr, c.Config)
@@ -168,6 +168,17 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
+	walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
+	}
+	if !strings.EqualFold(walSenderTimeout, "NONE") {
+		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", walSenderTimeout))
+		replConfig.Config.RuntimeParams["wal_sender_timeout"] = walSenderTimeout
+	} else {
+		c.logger.Info("not setting wal_sender_timeout")
+	}
+
 	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
@@ -176,8 +187,8 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	return conn, nil
 }
 
-func (c *PostgresConnector) SetupReplConn(ctx context.Context) error {
-	conn, err := c.CreateReplConn(ctx)
+func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]string) error {
+	conn, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return err
 	}

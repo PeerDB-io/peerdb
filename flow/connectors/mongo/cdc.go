@@ -486,7 +486,7 @@ func (c *MongoConnector) FinishExport(any) error {
 	return nil
 }
 
-func (c *MongoConnector) SetupReplConn(context.Context) error {
+func (c *MongoConnector) SetupReplConn(context.Context, map[string]string) error {
 	return nil
 }
 
