@@ -514,6 +514,19 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer srcClose(ctx)
 
+	if tableSizeEstimatorConn, ok := srcConn.(connectors.TableSizeEstimatorConnector); ok {
+		// expect estimate query execution to be fast, so set a short timeout
+		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if bytes, connErr := tableSizeEstimatorConn.GetTableSizeEstimatedBytes(timeoutCtx, config.WatermarkTable); connErr == nil {
+			if bytes > 1024*1024*1024*2024 {
+				msg := fmt.Sprintf("Large table detected: %s (%s). Partitioning query may take several hours to execute. "+
+					"This is normal for tables over 1 TB.", config.WatermarkTable, utils.FormatTableSize(bytes))
+				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, msg)
+			}
+		}
+	}
+
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
 		return nil, a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to get partitions from source", err)

@@ -331,6 +331,12 @@ type DatabaseVariantConnector interface {
 	GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error)
 }
 
+type TableSizeEstimatorConnector interface {
+	Connector
+
+	GetTableSizeEstimatedBytes(ctx context.Context, tableName string) (int64, error)
+}
+
 func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (protos.DBType, error) {
 	row := catalogPool.QueryRow(ctx, "SELECT type FROM peers WHERE name = $1", peerName)
 	var dbtype protos.DBType
@@ -673,4 +679,7 @@ var (
 
 	_ DatabaseVariantConnector = &connpostgres.PostgresConnector{}
 	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}
+
+	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
+	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}
 )
