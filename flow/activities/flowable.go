@@ -612,7 +612,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 
 		return func(partition *protos.QRepPartition) error {
-			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+			stream := model.NewQRecordStream(shared.QRepChannelSize)
 			outstream := stream
 
 			if luaScript != nil {
@@ -641,7 +641,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 
 		return func(partition *protos.QRepPartition) error {
-			stream := model.NewQObjectStream(shared.FetchAndChannelSize)
+			stream := model.NewQObjectStream(shared.QRepChannelSize)
 
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
 				connectors.QRepPullObjectsConnector.PullQRepObjects,
@@ -1534,7 +1534,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 
 	switch config.System {
 	case protos.TypeSystem_Q:
-		stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+		stream := model.NewQRecordStream(shared.QRepChannelSize)
 		return replicateXminPartition(ctx, a, config, partition, runUUID,
 			stream, stream,
 			(*connpostgres.PostgresConnector).PullXminRecordStream,

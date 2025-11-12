@@ -78,7 +78,8 @@ const (
 	RequestIdKey     ContextKey = "x-peerdb-request-id"
 )
 
-const FetchAndChannelSize = 1024
+const QRepFetchSize = 128 * 1024
+const QRepChannelSize = 1024
 
 func Ptr[T any](x T) *T {
 	return &x
