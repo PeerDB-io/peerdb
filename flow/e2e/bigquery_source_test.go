@@ -428,7 +428,7 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket + "/test"
+	flowConnConfig.SnapshotStagingPath = stagingTestBucket
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
