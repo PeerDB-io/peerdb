@@ -305,12 +305,12 @@ func AppendSlotSizeInfo(
 		slotInfo.WaitEventType,
 		slotInfo.WaitEvent,
 		slotInfo.BackendState,
+		slotInfo.LogicalDecodingWorkMemMb,
+		slotInfo.LogicalDecodingWorkMemPendingRestart,
 		slotInfo.StatsReset,
 		slotInfo.SpillTxns,
 		slotInfo.SpillCount,
 		slotInfo.SpillBytes,
-		slotInfo.LogicalDecodingWorkMemMb,
-		slotInfo.LogicalDecodingWorkMemPendingRestart,
 	); err != nil {
 		return fmt.Errorf("error while upserting row for slot_size: %w", err)
 	}
