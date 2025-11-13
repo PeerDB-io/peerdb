@@ -1808,7 +1808,6 @@ func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, full
 	tableSizeQuery := "SELECT pg_relation_size(to_regclass($1))"
 	var tableSizeBytes pgtype.Int8
 	if err := c.conn.QueryRow(ctx, tableSizeQuery, fullyQualifiedTableName).Scan(&tableSizeBytes); err != nil {
-		c.logger.Warn("failed to get estimated table size", slog.Any("error", err))
 		return 0, err
 	}
 	if !tableSizeBytes.Valid {

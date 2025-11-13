@@ -529,7 +529,6 @@ func (c *MySqlConnector) GetTableSizeEstimatedBytes(ctx context.Context, fullyQu
 
 	rs, err := c.Execute(ctx, query)
 	if err != nil {
-		c.logger.Warn("failed to get estimated table size", slog.Any("error", err))
 		return 0, err
 	}
 	defer rs.Close()
