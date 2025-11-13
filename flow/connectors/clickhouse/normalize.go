@@ -205,7 +205,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			if clickHouseType == "" {
 				var err error
 				clickHouseType, err = qvalue.ToDWHColumnType(
-					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column, tableSchema.NullableEnabled || columnNullableEnabled, internalVersion,
+					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column,
+					tableSchema.NullableEnabled || columnNullableEnabled, internalVersion,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
