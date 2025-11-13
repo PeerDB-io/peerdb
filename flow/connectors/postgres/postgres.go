@@ -1069,6 +1069,16 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		functions = nil
 	}
 
+	// Fetch triggers for the table schema
+	triggers, err := c.getTableTriggers(ctx, schemaTable)
+	c.logger.Info("fetched triggers", slog.String("table", schemaTable.String()), slog.Any("triggers", triggers))
+	if err != nil {
+		c.logger.Warn("Failed to fetch triggers for table, continuing without triggers",
+			slog.String("table", tm.SourceTableIdentifier),
+			slog.Any("error", err))
+		triggers = nil
+	}
+
 	return &protos.TableSchema{
 		TableIdentifier:       tm.SourceTableIdentifier,
 		PrimaryKeyColumns:     pKeyCols,
@@ -1078,6 +1088,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		System:                system,
 		Indexes:               indexes,
 		Functions:             functions,
+		Triggers:              triggers,
 	}, nil
 }
 
@@ -1162,6 +1173,25 @@ func (c *PostgresConnector) SetupNormalizedTable(
 		}
 	} else {
 		c.logger.Info("No functions to create for schema", slog.String("schema", parsedNormalizedTable.Schema))
+	}
+
+	if len(tableSchema.Triggers) > 0 {
+		c.logger.Info("Creating triggers on destination table",
+			slog.String("schema", parsedNormalizedTable.Schema),
+			slog.String("table", parsedNormalizedTable.Table),
+			slog.Int("triggerCount", len(tableSchema.Triggers)))
+
+		if err := c.createTableTriggersFromSchema(ctx, createNormalizedTablesTx, tableSchema, parsedNormalizedTable); err != nil {
+			// Log the error but don't fail the table creation
+			c.logger.Warn("Failed to create triggers for table",
+				slog.String("schema", parsedNormalizedTable.Schema),
+				slog.String("table", parsedNormalizedTable.Table),
+				slog.Any("error", err))
+		}
+	} else {
+		c.logger.Info("No triggers to create for table",
+			slog.String("schema", parsedNormalizedTable.Schema),
+			slog.String("table", parsedNormalizedTable.Table))
 	}
 
 	return false, nil

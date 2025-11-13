@@ -235,6 +235,7 @@ message TableSchema {
   repeated FieldDescription columns = 6;
   repeated IndexDescription indexes = 7;
   repeated FunctionDescription functions = 8;
+  repeated TriggerDescription triggers = 9;
 }
 
 message FieldDescription {
@@ -257,6 +258,14 @@ message FunctionDescription {
   string function_def = 2;
   string language = 3;
   string return_type = 4;
+}
+
+message TriggerDescription {
+  string trigger_name = 1;
+  string trigger_def = 2;
+  string event_manipulation = 3;
+  string action_timing = 4;
+  string action_orientation = 5;
 }
 
 message SetupTableSchemaBatchInput {
