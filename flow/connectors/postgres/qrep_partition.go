@@ -32,10 +32,6 @@ type PartitioningFunc func(context.Context, PartitionParams) ([]*protos.QRepPart
 // equal-sized partitions based on row count. It uses the NTILE window function to assign rows
 // to buckets and ensures more balanced row distribution across partitions.
 func NTileBucketPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
-	if pp.numPartitions <= 1 {
-		return nil, errors.New("expect numPartitions to be greater than 1")
-	}
-
 	const queryTemplate = `SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 		FROM (
 			SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s %[4]s
@@ -191,7 +187,7 @@ func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPar
 	var whereClause string
 	var queryArgs []any
 	if pp.lastRangeEnd != nil {
-		whereClause = fmt.Sprintf(` WHERE %s > $1`, pp.watermarkColumn)
+		whereClause = fmt.Sprintf("WHERE %s > $1", pp.watermarkColumn)
 		queryArgs = []any{pp.lastRangeEnd}
 	}
 	var totalRows pgtype.Int8
