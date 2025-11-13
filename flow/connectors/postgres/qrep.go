@@ -41,6 +41,10 @@ type QRepSyncSink interface {
 	CopyInto(context.Context, *PostgresConnector, pgx.Tx, pgx.Identifier) (int64, error)
 }
 
+func (c *PostgresConnector) SupportsTablePartitioning() bool {
+	return true
+}
+
 func (c *PostgresConnector) GetQRepPartitions(
 	ctx context.Context,
 	config *protos.QRepConfig,

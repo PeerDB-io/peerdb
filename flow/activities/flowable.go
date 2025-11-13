@@ -514,14 +514,15 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer srcClose(ctx)
 
-	if tableSizeEstimatorConn, ok := srcConn.(connectors.TableSizeEstimatorConnector); ok {
-		// expect estimate query execution to be fast, so set a short timeout
+	partitioned := config.WatermarkColumn != ""
+	if tableSizeEstimatorConn, ok := srcConn.(connectors.TableSizeEstimatorConnector); ok && partitioned {
+		// expect estimate query execution to be fast, set a short timeout defensively to avoid blocking workflow
 		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		if bytes, connErr := tableSizeEstimatorConn.GetTableSizeEstimatedBytes(timeoutCtx, config.WatermarkTable); connErr == nil {
-			if bytes > 1024*1024*1024*2024 {
+			if bytes > 1<<40 { // 1 TiB
 				msg := fmt.Sprintf("Large table detected: %s (%s). Partitioning query may take several hours to execute. "+
-					"This is normal for tables over 1 TB.", config.WatermarkTable, utils.FormatTableSize(bytes))
+					"This is normal for tables over 1 TiB.", config.WatermarkTable, utils.FormatTableSize(bytes))
 				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, msg)
 			}
 		}

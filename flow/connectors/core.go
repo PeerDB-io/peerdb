@@ -682,4 +682,5 @@ var (
 
 	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
 	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}
+	_ TableSizeEstimatorConnector = &connmongo.MongoConnector{}
 )

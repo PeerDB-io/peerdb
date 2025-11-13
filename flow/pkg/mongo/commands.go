@@ -60,6 +60,20 @@ func GetHelloResponse(ctx context.Context, client *mongo.Client) (HelloResponse,
 	return runCommand[HelloResponse](ctx, client, "hello")
 }
 
+type CollStats struct {
+	// uncompressed
+	Size int64 `bson:"size"`
+	// compressed
+	StorageSize int64 `bson:"storageSize"`
+}
+
+func GetCollStats(ctx context.Context, client *mongo.Client, database string, collection string) (CollStats, error) {
+	return runDatabaseCommand[CollStats](ctx, client, database, bson.D{
+		{Key: "collStats", Value: collection},
+		{Key: "scale", Value: 1},
+	})
+}
+
 func runCommand[T any](ctx context.Context, client *mongo.Client, command string) (T, error) {
 	var result T
 	singleResult := client.Database("admin").RunCommand(ctx, bson.D{
@@ -71,6 +85,19 @@ func runCommand[T any](ctx context.Context, client *mongo.Client, command string
 
 	if err := singleResult.Decode(&result); err != nil {
 		return result, fmt.Errorf("'%s' failed: %v", command, err)
+	}
+	return result, nil
+}
+
+func runDatabaseCommand[T any](ctx context.Context, client *mongo.Client, database string, commandDoc bson.D) (T, error) {
+	var result T
+	singleResult := client.Database(database).RunCommand(ctx, commandDoc)
+	if singleResult.Err() != nil {
+		return result, fmt.Errorf("command failed: %v", singleResult.Err())
+	}
+
+	if err := singleResult.Decode(&result); err != nil {
+		return result, fmt.Errorf("command decoding failed: %v", err)
 	}
 	return result, nil
 }
