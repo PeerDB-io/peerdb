@@ -497,6 +497,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyPostgresSlotMemalloc, pgErrorInfo
 			}
 
+			// Usually a single occurrence then reconnect immediately helps
+			if strings.Contains(pgErr.Message, "pfree called with invalid pointer") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
