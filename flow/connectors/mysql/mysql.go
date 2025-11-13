@@ -12,16 +12,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-mysql-org/go-mysql/client"
-	"github.com/go-mysql-org/go-mysql/mysql"
-	"go.temporal.io/sdk/log"
-	"google.golang.org/protobuf/proto"
-
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/go-mysql-org/go-mysql/client"
+	"github.com/go-mysql-org/go-mysql/mysql"
+	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 )
 
 type MySqlConnector struct {
@@ -379,10 +378,13 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 		showBinlogStatus = "SHOW BINLOG STATUS"
 		masterReplaced = "10.5.2" // https://mariadb.com/kb/en/show-binlog-status
 	}
-	if eq, err := c.CompareServerVersion(ctx, masterReplaced); err == nil && eq < 0 {
+	if eq, err := c.CompareServerVersion(ctx, masterReplaced); err != nil {
+		c.logger.Warn("failed to compare server version", slog.Any("error", err))
+	} else if eq < 0 {
 		showBinlogStatus = "SHOW MASTER STATUS"
 	}
 
+	c.logger.Info(fmt.Sprintf("running command '%s' given server version '%s'", showBinlogStatus, c.serverVersion))
 	rr, err := c.Execute(ctx, showBinlogStatus)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to %s: %w", showBinlogStatus, err)
