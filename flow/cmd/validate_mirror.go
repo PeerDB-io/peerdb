@@ -65,6 +65,46 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			errors.New("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
+	// Validate ClickHouse numeric settings if provided
+	var chDefPrecision, chDefScale int32
+	if connectionConfigs.ClickhouseNumericDefaultPrecision != nil {
+		chDefPrecision = *connectionConfigs.ClickhouseNumericDefaultPrecision
+	}
+	if connectionConfigs.ClickhouseNumericDefaultScale != nil {
+		chDefScale = *connectionConfigs.ClickhouseNumericDefaultScale
+	}
+	if chDefPrecision > 0 || chDefScale > 0 {
+		// Load destination peer to check if it's ClickHouse
+		dstPeer, err := connectors.LoadPeer(ctx, h.pool, connectionConfigs.DestinationName)
+		if err != nil {
+			return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to load destination peer: %w", err))
+		}
+
+		// Only validate ClickHouse numeric settings for ClickHouse destinations
+		if dstPeer.Type == protos.DBType_CLICKHOUSE {
+			precision := chDefPrecision
+			scale := chDefScale
+
+			// If scale is provided but precision is not, reject early with a clear error
+			if precision == 0 && scale > 0 {
+				return nil, NewInvalidArgumentApiError(
+					errors.New("clickhouse numeric precision must be set when providing a custom scale"))
+			}
+
+			// Validate precision: 1-76
+			if precision < 1 || precision > 76 {
+				return nil, NewInvalidArgumentApiError(
+					fmt.Errorf("clickhouse numeric precision must be between 1 and 76, got %d", precision))
+			}
+
+			// Validate scale: 0 to precision
+			if scale < 0 || scale > precision {
+				return nil, NewInvalidArgumentApiError(
+					fmt.Errorf("clickhouse numeric scale must be between 0 and %d (precision), got %d", precision, scale))
+			}
+		}
+	}
+
 	for _, tm := range connectionConfigs.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {

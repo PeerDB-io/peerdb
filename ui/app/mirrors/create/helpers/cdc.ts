@@ -272,4 +272,49 @@ export const cdcSettings: MirrorSetting[] = [
     tips: '{"string":"string"} JSON mapping to override global settings for mirror',
     advanced: AdvancedSettingType.ALL,
   },
+  {
+    label: 'ClickHouse Decimal Precision (Unbounded)',
+    stateHandler: (value, setter) =>
+      setter(
+        (curr: CDCConfig): CDCConfig => ({
+          ...curr,
+          clickhouseNumericDefaultPrecision: (value as number) || 0,
+        })
+      ),
+    type: 'number',
+    default: 76,
+    tips: 'For unbounded Postgres NUMERIC columns (no precision specified), this sets the default decimal precision in ClickHouse. Range: 1-76 (default 76).',
+    advanced: AdvancedSettingType.ALL,
+    checked: (config: CDCConfig) => {
+      // Only show for ClickHouse destinations
+      return (
+        config.destinationName?.toLowerCase().includes('clickhouse') ||
+        config.destination_name?.toLowerCase().includes('clickhouse') ||
+        false
+      );
+    },
+  },
+  {
+    label: 'ClickHouse Decimal Scale (Unbounded)',
+    stateHandler: (value, setter) =>
+      setter(
+        (curr: CDCConfig): CDCConfig => ({
+          ...curr,
+          clickhouseNumericDefaultScale: (value as number) || 0,
+        })
+      ),
+    type: 'number',
+    default: 38,
+    tips: 'For unbounded Postgres NUMERIC columns, this sets the default decimal scale (digits after decimal point) in ClickHouse. Range: 0 to Precision (default 38).',
+    advanced: AdvancedSettingType.ALL,
+    checked: (config: CDCConfig) => {
+      // Only show for ClickHouse destinations
+      return (
+        config.destinationName?.toLowerCase().includes('clickhouse') ||
+        config.destination_name?.toLowerCase().includes('clickhouse') ||
+        false
+      );
+    },
+  },
 ];
+

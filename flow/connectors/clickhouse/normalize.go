@@ -202,8 +202,17 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 			if clickHouseType == "" {
 				var err error
+				// Fetch optional ClickHouse numeric default overrides from env
+				var chDefPrecision, chDefScale int32
+				if p, errP := internal.PeerDBClickHouseNumericDefaultPrecision(ctx, config.Env); errP == nil {
+					chDefPrecision = p
+				}
+				if s, errS := internal.PeerDBClickHouseNumericDefaultScale(ctx, config.Env); errS == nil {
+					chDefScale = s
+				}
 				clickHouseType, err = qvalue.ToDWHColumnType(
 					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column, tableSchema.NullableEnabled || columnNullableEnabled,
+					chDefPrecision, chDefScale,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -560,6 +569,15 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				continue
 			}
 
+			// Fetch optional ClickHouse numeric default overrides from env for query generation
+			var chDefPrecision, chDefScale int32
+			if p, errP := internal.PeerDBClickHouseNumericDefaultPrecision(ctx, req.Env); errP == nil {
+				chDefPrecision = p
+			}
+			if s, errS := internal.PeerDBClickHouseNumericDefaultScale(ctx, req.Env); errS == nil {
+				chDefScale = s
+			}
+
 			queryGenerator := NewNormalizeQueryGenerator(
 				tbl,
 				req.TableNameSchemaMapping,
@@ -574,6 +592,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				c.Config.Cluster != "",
 				req.SoftDeleteColName,
 				req.Version,
+				chDefPrecision,
+				chDefScale,
 			)
 			query, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {

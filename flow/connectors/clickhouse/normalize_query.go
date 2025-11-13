@@ -30,6 +30,9 @@ type NormalizeQueryGenerator struct {
 	sourceSchemaAsDestinationColumn bool
 	cluster                         bool
 	version                         uint32
+	// Override defaults for unbounded Postgres NUMERIC -> ClickHouse Decimal
+	clickhouseNumericDefaultPrecision int32
+	clickhouseNumericDefaultScale     int32
 }
 
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
@@ -47,25 +50,29 @@ func NewNormalizeQueryGenerator(
 	cluster bool,
 	configuredSoftDeleteColName string,
 	version uint32,
+	clickhouseNumericDefaultPrecision int32,
+	clickhouseNumericDefaultScale int32,
 ) *NormalizeQueryGenerator {
 	isDeletedColumn := isDeletedColName
 	if configuredSoftDeleteColName != "" {
 		isDeletedColumn = configuredSoftDeleteColName
 	}
 	return &NormalizeQueryGenerator{
-		TableName:                       tableName,
-		tableNameSchemaMapping:          tableNameSchemaMapping,
-		tableMappings:                   tableMappings,
-		endBatchID:                      endBatchID,
-		lastNormBatchID:                 lastNormBatchID,
-		enablePrimaryUpdate:             enablePrimaryUpdate,
-		sourceSchemaAsDestinationColumn: sourceSchemaAsDestinationColumn,
-		env:                             env,
-		rawTableName:                    rawTableName,
-		chVersion:                       chVersion,
-		cluster:                         cluster,
-		isDeletedColName:                isDeletedColumn,
-		version:                         version,
+		TableName:                         tableName,
+		tableNameSchemaMapping:            tableNameSchemaMapping,
+		tableMappings:                     tableMappings,
+		endBatchID:                        endBatchID,
+		lastNormBatchID:                   lastNormBatchID,
+		enablePrimaryUpdate:               enablePrimaryUpdate,
+		sourceSchemaAsDestinationColumn:   sourceSchemaAsDestinationColumn,
+		env:                               env,
+		rawTableName:                      rawTableName,
+		chVersion:                         chVersion,
+		cluster:                           cluster,
+		isDeletedColName:                  isDeletedColumn,
+		version:                           version,
+		clickhouseNumericDefaultPrecision: clickhouseNumericDefaultPrecision,
+		clickhouseNumericDefaultScale:     clickhouseNumericDefaultScale,
 	}
 }
 
@@ -124,6 +131,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			var err error
 			clickHouseType, err = qvalue.ToDWHColumnType(
 				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled,
+				t.clickhouseNumericDefaultPrecision, t.clickhouseNumericDefaultScale,
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)

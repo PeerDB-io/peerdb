@@ -19,6 +19,7 @@ type NumericDestinationType struct {
 
 func GetNumericDestinationType(
 	precision, scale int16, targetDWH protos.DBType, unboundedNumericAsString bool,
+	chDefaultPrecision, chDefaultScale int32,
 ) NumericDestinationType {
 	if targetDWH == protos.DBType_CLICKHOUSE {
 		if precision == 0 && scale == 0 && unboundedNumericAsString {
@@ -28,7 +29,8 @@ func GetNumericDestinationType(
 			return NumericDestinationType{IsString: true}
 		}
 	}
-	destPrecision, destScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
+	// For ClickHouse, apply overrides only when precision is unbounded (0,0) and user provided a precision > 0.
+	destPrecision, destScale := DetermineNumericSettingForDWH(precision, scale, targetDWH, chDefaultPrecision, chDefaultScale)
 	return NumericDestinationType{
 		IsString:  false,
 		Precision: destPrecision,
@@ -36,19 +38,20 @@ func GetNumericDestinationType(
 	}
 }
 
-func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, typeModifier int32) (string, error) {
+func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, typeModifier int32, chDefaultPrecision, chDefaultScale int32) (string, error) {
 	precision, scale := datatypes.ParseNumericTypmod(typeModifier)
 	asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 	if err != nil {
 		return "", err
 	}
-	destinationType := GetNumericDestinationType(precision, scale, protos.DBType_CLICKHOUSE, asString)
+	destinationType := GetNumericDestinationType(precision, scale, protos.DBType_CLICKHOUSE, asString, chDefaultPrecision, chDefaultScale)
 	if destinationType.IsString {
 		return "String", nil
 	}
 	return fmt.Sprintf("Decimal(%d, %d)", destinationType.Precision, destinationType.Scale), nil
 }
 
+// Extended to accept optional ClickHouse default precision/scale overrides.
 func ToDWHColumnType(
 	ctx context.Context,
 	kind types.QValueKind,
@@ -57,6 +60,7 @@ func ToDWHColumnType(
 	dwhVersion *chproto.Version,
 	column *protos.FieldDescription,
 	nullableEnabled bool,
+	chDefaultPrecision, chDefaultScale int32,
 ) (string, error) {
 	var colType string
 	switch dwhType {
@@ -75,13 +79,13 @@ func ToDWHColumnType(
 	case protos.DBType_CLICKHOUSE:
 		if kind == types.QValueKindNumeric {
 			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier, chDefaultPrecision, chDefaultScale)
 			if err != nil {
 				return "", err
 			}
 		} else if kind == types.QValueKindArrayNumeric {
 			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier, chDefaultPrecision, chDefaultScale)
 			if err != nil {
 				return "", err
 			}
