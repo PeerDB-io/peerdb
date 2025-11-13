@@ -379,10 +379,13 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 		showBinlogStatus = "SHOW BINLOG STATUS"
 		masterReplaced = "10.5.2" // https://mariadb.com/kb/en/show-binlog-status
 	}
-	if eq, err := c.CompareServerVersion(ctx, masterReplaced); err == nil && eq < 0 {
+	if eq, err := c.CompareServerVersion(ctx, masterReplaced); err != nil {
+		c.logger.Warn("failed to compare server version", slog.Any("error", err))
+	} else if eq < 0 {
 		showBinlogStatus = "SHOW MASTER STATUS"
 	}
 
+	c.logger.Info(fmt.Sprintf("running command '%s' given server version '%s'", showBinlogStatus, c.serverVersion))
 	rr, err := c.Execute(ctx, showBinlogStatus)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to %s: %w", showBinlogStatus, err)
