@@ -84,7 +84,7 @@ func runCommand[T any](ctx context.Context, client *mongo.Client, command string
 	}
 
 	if err := singleResult.Decode(&result); err != nil {
-		return result, fmt.Errorf("'%s' failed: %v", command, err)
+		return result, fmt.Errorf("'%s' decoding failed: %v", command, err)
 	}
 	return result, nil
 }
@@ -93,11 +93,11 @@ func runDatabaseCommand[T any](ctx context.Context, client *mongo.Client, databa
 	var result T
 	singleResult := client.Database(database).RunCommand(ctx, commandDoc)
 	if singleResult.Err() != nil {
-		return result, fmt.Errorf("command failed: %v", singleResult.Err())
+		return result, fmt.Errorf("'%s' failed: %v", commandDoc.String(), singleResult.Err())
 	}
 
 	if err := singleResult.Decode(&result); err != nil {
-		return result, fmt.Errorf("command decoding failed: %v", err)
+		return result, fmt.Errorf("'%s' decoding failed: %v", commandDoc.String(), err)
 	}
 	return result, nil
 }
