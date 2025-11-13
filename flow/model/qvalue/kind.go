@@ -8,6 +8,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -57,6 +58,7 @@ func ToDWHColumnType(
 	dwhVersion *chproto.Version,
 	column *protos.FieldDescription,
 	nullableEnabled bool,
+	internalVersion uint32,
 ) (string, error) {
 	var colType string
 	switch dwhType {
@@ -88,6 +90,14 @@ func ToDWHColumnType(
 			colType = fmt.Sprintf("Array(%s)", colType)
 		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
 			colType = "JSON"
+		} else if kind == types.QValueKindTime && internalVersion >= shared.InternalVersion_ClickHouseTime64 && dwhVersion != nil {
+			// Time64 was introduced in ClickHouse 25.6
+			if chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 6, Patch: 0}, *dwhVersion) {
+				colType = "Time64(3)"
+			} else {
+				// Fall back to DateTime64(6) for older ClickHouse versions
+				colType = types.QValueKindToClickHouseTypeMap[kind]
+			}
 		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
 		} else {
