@@ -202,7 +202,6 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 			if clickHouseType == "" {
 				var err error
-				// Fetch optional ClickHouse numeric default overrides from env
 				var chDefPrecision, chDefScale int32
 				if p, errP := internal.PeerDBClickHouseNumericDefaultPrecision(ctx, config.Env); errP == nil {
 					chDefPrecision = p
@@ -224,18 +223,15 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
 		}
 
-		// synced at column will be added to all normalized tables
 		if config.SyncedAtColName != "" {
 			colName := strings.ToLower(config.SyncedAtColName)
 			fmt.Fprintf(builder, "%s DateTime64(9) DEFAULT now64(), ", peerdb_clickhouse.QuoteIdentifier(colName))
 		}
 
-		// add _peerdb_source_schema_name column
 		if sourceSchemaAsDestinationColumn {
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName), sourceSchemaColType)
 		}
 
-		// add sign and version columns
 		fmt.Fprintf(builder, "%s %s, %s %s)",
 			peerdb_clickhouse.QuoteIdentifier(isDeletedColumn), isDeletedColType,
 			peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)

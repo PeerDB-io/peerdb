@@ -617,14 +617,10 @@ func PeerDBEnableClickHouseJSON(ctx context.Context, env map[string]string) (boo
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_JSON")
 }
 
-// Mirror-scoped override for unbounded NUMERIC -> ClickHouse Decimal default precision.
-// Prefer value from env map when present; falls back to dynamic settings if configured.
 func PeerDBClickHouseNumericDefaultPrecision(ctx context.Context, env map[string]string) (int32, error) {
 	return dynamicConfSigned[int32](ctx, env, "PEERDB_CLICKHOUSE_NUMERIC_DEFAULT_PRECISION")
 }
 
-// Mirror-scoped override for unbounded NUMERIC -> ClickHouse Decimal default scale.
-// Prefer value from env map when present; falls back to dynamic settings if configured.
 func PeerDBClickHouseNumericDefaultScale(ctx context.Context, env map[string]string) (int32, error) {
 	return dynamicConfSigned[int32](ctx, env, "PEERDB_CLICKHOUSE_NUMERIC_DEFAULT_SCALE")
 }

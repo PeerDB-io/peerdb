@@ -14,7 +14,6 @@ func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBTy
 		// If user provided overrides and typmod is unbounded (precision and scale are 0), use the overrides
 		if precision == 0 && scale == 0 && (chDefaultPrecision > 0 || chDefaultScale >= 0) {
 			// Convert from int32 to int16 for comparison and return
-			// If chDefaultPrecision was set but chDefaultScale wasn't, still use the defaults as fallback
 			if chDefaultPrecision > 0 {
 				return int16(chDefaultPrecision), int16(chDefaultScale)
 			}

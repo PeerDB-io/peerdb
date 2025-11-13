@@ -29,7 +29,6 @@ func GetNumericDestinationType(
 			return NumericDestinationType{IsString: true}
 		}
 	}
-	// For ClickHouse, apply overrides only when precision is unbounded (0,0) and user provided a precision > 0.
 	destPrecision, destScale := DetermineNumericSettingForDWH(precision, scale, targetDWH, chDefaultPrecision, chDefaultScale)
 	return NumericDestinationType{
 		IsString:  false,
@@ -51,7 +50,6 @@ func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]strin
 	return fmt.Sprintf("Decimal(%d, %d)", destinationType.Precision, destinationType.Scale), nil
 }
 
-// Extended to accept optional ClickHouse default precision/scale overrides.
 func ToDWHColumnType(
 	ctx context.Context,
 	kind types.QValueKind,

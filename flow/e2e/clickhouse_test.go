@@ -203,15 +203,12 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Verifies that unbounded Postgres NUMERIC maps to ClickHouse Decimal(precision, scale)
-// when overrides are provided via env dynamic config.
 func (s ClickHouseSuite) Test_ClickHouse_Numeric_Overrides_Unbounded() {
 	tc := NewTemporalClient(s.t)
 
 	srcTable := s.attachSchemaSuffix("test_numeric_override_src")
 	dstTable := "test_numeric_override_dst"
 
-	// Create source table with unbounded NUMERIC (no typmod) and not null to avoid Nullable in CH
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
@@ -219,12 +216,10 @@ func (s ClickHouseSuite) Test_ClickHouse_Numeric_Overrides_Unbounded() {
 		);
 	`, srcTable)))
 
-	// Insert a couple of rows
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s (val) VALUES (123.456), (789.01234);
 	`, srcTable)))
 
-	// Generate flow with ClickHouse destination and set numeric overrides via env
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("numeric_override_flow"),
 		TableNameMapping: map[string]string{srcTable: dstTable},
@@ -240,7 +235,6 @@ func (s ClickHouseSuite) Test_ClickHouse_Numeric_Overrides_Unbounded() {
 
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 
-	// Connect to ClickHouse and verify the destination column type
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	defer ch.Close()
@@ -248,12 +242,8 @@ func (s ClickHouseSuite) Test_ClickHouse_Numeric_Overrides_Unbounded() {
 	expectedType := "Decimal(60, 10)"
 	dbName := s.Peer().GetClickhouseConfig().Database
 
-	// Wait until the table is created and type is materialized to expected Decimal
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for ClickHouse table with overridden numeric type", func() bool {
 		var colType string
-		// system.columns stores type without Nullable() wrapper in separate nullable flag for newer versions,
-		// but to be safe, we accept exact Decimal(60, 10) or Nullable(Decimal(60, 10)).
-		// We query the exact type string ClickHouse exposes.
 		rows, qerr := ch.Query(s.t.Context(),
 			`SELECT type FROM system.columns WHERE database = ? AND table = ? AND name = 'val' LIMIT 1`, dbName, dstTable)
 		if qerr != nil {

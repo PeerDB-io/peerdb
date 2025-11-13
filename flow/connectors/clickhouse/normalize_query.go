@@ -16,26 +16,24 @@ import (
 )
 
 type NormalizeQueryGenerator struct {
-	env                             map[string]string
-	tableNameSchemaMapping          map[string]*protos.TableSchema
-	chVersion                       *chproto.Version
-	Query                           string
-	TableName                       string
-	rawTableName                    string
-	isDeletedColName                string
-	tableMappings                   []*protos.TableMapping
-	lastNormBatchID                 int64
-	endBatchID                      int64
-	enablePrimaryUpdate             bool
-	sourceSchemaAsDestinationColumn bool
-	cluster                         bool
-	version                         uint32
-	// Override defaults for unbounded Postgres NUMERIC -> ClickHouse Decimal
+	env                               map[string]string
+	tableNameSchemaMapping            map[string]*protos.TableSchema
+	chVersion                         *chproto.Version
+	Query                             string
+	TableName                         string
+	rawTableName                      string
+	isDeletedColName                  string
+	tableMappings                     []*protos.TableMapping
+	lastNormBatchID                   int64
+	endBatchID                        int64
+	enablePrimaryUpdate               bool
+	sourceSchemaAsDestinationColumn   bool
+	cluster                           bool
+	version                           uint32
 	clickhouseNumericDefaultPrecision int32
 	clickhouseNumericDefaultScale     int32
 }
 
-// NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
 func NewNormalizeQueryGenerator(
 	tableName string,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
