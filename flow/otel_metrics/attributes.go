@@ -28,6 +28,11 @@ const (
 	TemporalWorkflowTypeKey    = "temporalWorkflowType"
 	IsFlowActiveKey            = "isFlowActive"
 	DestinationTableNameKey    = "destinationTableName"
+	WaitEventTypeKey           = "waitEventType"
+	WaitEventKey               = "waitEvent"
+	BackendStateKey            = "backendState"
+	WalStatusKey               = "walStatus"
+	PendingRestartKey          = "pendingRestart"
 )
 
 const (
