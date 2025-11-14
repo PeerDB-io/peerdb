@@ -266,6 +266,7 @@ message TriggerDescription {
   string event_manipulation = 3;
   string action_timing = 4;
   string action_orientation = 5;
+  string function_name = 6;  // The function called by EXECUTE FUNCTION
 }
 
 message SetupTableSchemaBatchInput {

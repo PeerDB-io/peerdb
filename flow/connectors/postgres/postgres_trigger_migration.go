@@ -37,10 +37,12 @@ func (c *PostgresConnector) getTableTriggers(
 			CASE 
 				WHEN t.tgtype & 1 = 1 THEN 'ROW'
 				ELSE 'STATEMENT'
-			END AS action_orientation
+			END AS action_orientation,
+			p.proname AS function_name
 		FROM pg_trigger t
 		JOIN pg_class c ON t.tgrelid = c.oid
 		JOIN pg_namespace n ON c.relnamespace = n.oid
+		JOIN pg_proc p ON t.tgfoid = p.oid
 		WHERE n.nspname = $1 
 		AND c.relname = $2
 		AND NOT t.tgisinternal
@@ -56,8 +58,8 @@ func (c *PostgresConnector) getTableTriggers(
 
 	var triggers []*protos.TriggerDescription
 	for rows.Next() {
-		var triggerName, triggerDef, eventManipulation, actionTiming, actionOrientation string
-		if err := rows.Scan(&triggerName, &triggerDef, &eventManipulation, &actionTiming, &actionOrientation); err != nil {
+		var triggerName, triggerDef, eventManipulation, actionTiming, actionOrientation, functionName string
+		if err := rows.Scan(&triggerName, &triggerDef, &eventManipulation, &actionTiming, &actionOrientation, &functionName); err != nil {
 			return nil, fmt.Errorf("error scanning trigger definition: %w", err)
 		}
 		triggers = append(triggers, &protos.TriggerDescription{
@@ -66,6 +68,7 @@ func (c *PostgresConnector) getTableTriggers(
 			EventManipulation: eventManipulation,
 			ActionTiming:      actionTiming,
 			ActionOrientation: actionOrientation,
+			FunctionName:      functionName,
 		})
 	}
 
@@ -225,6 +228,116 @@ func (c *PostgresConnector) createTableTriggersFromSchema(
 			slog.String("triggerName", trig.TriggerName),
 			slog.String("schema", destTable.Schema),
 			slog.String("table", destTable.Table))
+	}
+
+	return nil
+}
+
+// checkTriggerDependency checks if the function a trigger depends on was created successfully
+// Returns true if the function exists and was created successfully
+func checkTriggerDependency(functionName string, createdFunctions map[string]bool) bool {
+	// Check if function was created successfully
+	if created, exists := createdFunctions[functionName]; exists && created {
+		return true
+	}
+	return false
+}
+
+// createTableTriggersWithDependencyCheck creates triggers but checks function dependencies first
+func (c *PostgresConnector) createTableTriggersWithDependencyCheck(
+	ctx context.Context,
+	tx pgx.Tx,
+	tableSchema *protos.TableSchema,
+	destTable *utils.SchemaTable,
+	createdFunctions map[string]bool,
+) error {
+	if len(tableSchema.Triggers) == 0 {
+		return nil
+	}
+
+	// Parse source table from the table schema identifier
+	sourceTable, err := utils.ParseSchemaTable(tableSchema.TableIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to parse source table identifier: %w", err)
+	}
+
+	successCount := 0
+	skippedCount := 0
+	failedCount := 0
+
+	for _, trig := range tableSchema.Triggers {
+		// Check dependencies before creating trigger using the function_name field from proto
+		if trig.FunctionName != "" && !checkTriggerDependency(trig.FunctionName, createdFunctions) {
+			c.logger.Warn("Skipping trigger creation due to missing function dependency",
+				slog.String("triggerName", trig.TriggerName),
+				slog.String("schema", destTable.Schema),
+				slog.String("table", destTable.Table),
+				slog.String("requiredFunction", trig.FunctionName))
+			skippedCount++
+			continue
+		}
+
+		// Replace source table reference with destination table in the trigger definition
+		modifiedTriggerDef := strings.Replace(
+			trig.TriggerDef,
+			fmt.Sprintf("ON %s.%s", utils.QuoteIdentifier(sourceTable.Schema), utils.QuoteIdentifier(sourceTable.Table)),
+			fmt.Sprintf("ON %s.%s", utils.QuoteIdentifier(destTable.Schema), utils.QuoteIdentifier(destTable.Table)),
+			1,
+		)
+
+		// Also handle case without schema qualification
+		modifiedTriggerDef = strings.Replace(
+			modifiedTriggerDef,
+			fmt.Sprintf("ON %s", utils.QuoteIdentifier(sourceTable.Table)),
+			fmt.Sprintf("ON %s.%s", utils.QuoteIdentifier(destTable.Schema), utils.QuoteIdentifier(destTable.Table)),
+			1,
+		)
+
+		// Replace schema references in function calls within the trigger
+		modifiedTriggerDef = strings.ReplaceAll(
+			modifiedTriggerDef,
+			fmt.Sprintf("%s.", sourceTable.Schema),
+			fmt.Sprintf("%s.", destTable.Schema),
+		)
+
+		c.logger.Info("Creating trigger on destination table",
+			slog.String("triggerName", trig.TriggerName),
+			slog.String("schema", destTable.Schema),
+			slog.String("table", destTable.Table),
+			slog.String("triggerDef", modifiedTriggerDef),
+			slog.String("eventManipulation", trig.EventManipulation),
+			slog.String("actionTiming", trig.ActionTiming),
+			slog.String("actionOrientation", trig.ActionOrientation))
+
+		_, err := tx.Exec(ctx, modifiedTriggerDef)
+		if err != nil {
+			// Log as warning and continue with other triggers
+			c.logger.Warn("Failed to create trigger on destination",
+				slog.String("triggerName", trig.TriggerName),
+				slog.String("schema", destTable.Schema),
+				slog.String("table", destTable.Table),
+				slog.Any("error", err))
+			failedCount++
+			continue
+		}
+
+		c.logger.Info("Successfully created trigger",
+			slog.String("triggerName", trig.TriggerName),
+			slog.String("schema", destTable.Schema),
+			slog.String("table", destTable.Table))
+		successCount++
+	}
+
+	c.logger.Info("Trigger creation summary",
+		slog.String("schema", destTable.Schema),
+		slog.String("table", destTable.Table),
+		slog.Int("total", len(tableSchema.Triggers)),
+		slog.Int("successful", successCount),
+		slog.Int("skipped", skippedCount),
+		slog.Int("failed", failedCount))
+
+	if failedCount > 0 || skippedCount > 0 {
+		return fmt.Errorf("some triggers were not created: %d skipped due to dependencies, %d failed", skippedCount, failedCount)
 	}
 
 	return nil

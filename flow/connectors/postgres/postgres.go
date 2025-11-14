@@ -1145,6 +1145,9 @@ func (c *PostgresConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
 	}
 
+	// Track which functions were created successfully (needed for trigger dependency checking)
+	createdFunctions := make(map[string]bool)
+
 	if len(tableSchema.Indexes) > 0 {
 		c.logger.Info("Creating indexes on destination table",
 			slog.String("table", tableIdentifier),
@@ -1165,12 +1168,21 @@ func (c *PostgresConnector) SetupNormalizedTable(
 			slog.String("schema", parsedNormalizedTable.Schema),
 			slog.Int("functionCount", len(tableSchema.Functions)))
 
-		if err := c.createTableFunctionsFromSchema(ctx, createNormalizedTablesTx, tableSchema, parsedNormalizedTable); err != nil {
-			// Log the error but don't fail the table creation
-			c.logger.Warn("Failed to create functions for schema",
-				slog.String("schema", parsedNormalizedTable.Schema),
-				slog.Any("error", err))
+		// Create functions and track which ones succeeded
+		createdFunctions = c.createTableFunctionsAndTrack(ctx, createNormalizedTablesTx, tableSchema, parsedNormalizedTable)
+
+		successCount := 0
+		for _, success := range createdFunctions {
+			if success {
+				successCount++
+			}
 		}
+
+		c.logger.Info("Function creation summary",
+			slog.String("schema", parsedNormalizedTable.Schema),
+			slog.Int("total", len(tableSchema.Functions)),
+			slog.Int("successful", successCount),
+			slog.Int("failed", len(tableSchema.Functions)-successCount))
 	} else {
 		c.logger.Info("No functions to create for schema", slog.String("schema", parsedNormalizedTable.Schema))
 	}
@@ -1181,9 +1193,10 @@ func (c *PostgresConnector) SetupNormalizedTable(
 			slog.String("table", parsedNormalizedTable.Table),
 			slog.Int("triggerCount", len(tableSchema.Triggers)))
 
-		if err := c.createTableTriggersFromSchema(ctx, createNormalizedTablesTx, tableSchema, parsedNormalizedTable); err != nil {
+		// Create triggers with dependency checking
+		if err := c.createTableTriggersWithDependencyCheck(ctx, createNormalizedTablesTx, tableSchema, parsedNormalizedTable, createdFunctions); err != nil {
 			// Log the error but don't fail the table creation
-			c.logger.Warn("Failed to create triggers for table",
+			c.logger.Warn("Failed to create some triggers for table",
 				slog.String("schema", parsedNormalizedTable.Schema),
 				slog.String("table", parsedNormalizedTable.Table),
 				slog.Any("error", err))

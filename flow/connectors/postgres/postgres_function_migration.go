@@ -186,3 +186,69 @@ func (c *PostgresConnector) createTableFunctionsFromSchema(
 
 	return nil
 }
+
+// createTableFunctionsAndTrack creates functions and returns a map tracking which ones succeeded
+// This is used by trigger migration to check if function dependencies are satisfied
+func (c *PostgresConnector) createTableFunctionsAndTrack(
+	ctx context.Context,
+	tx pgx.Tx,
+	tableSchema *protos.TableSchema,
+	destTable *utils.SchemaTable,
+) map[string]bool {
+	createdFunctions := make(map[string]bool)
+
+	if len(tableSchema.Functions) == 0 {
+		return createdFunctions
+	}
+
+	// Parse source table from the table schema identifier
+	sourceTable, err := utils.ParseSchemaTable(tableSchema.TableIdentifier)
+	if err != nil {
+		c.logger.Warn("Failed to parse source table identifier",
+			slog.Any("error", err))
+		return createdFunctions
+	}
+
+	for _, fn := range tableSchema.Functions {
+		// Replace source schema with destination schema in the function definition
+		modifiedFunctionDef := strings.Replace(
+			fn.FunctionDef,
+			fmt.Sprintf("FUNCTION %s.", utils.QuoteIdentifier(sourceTable.Schema)),
+			fmt.Sprintf("FUNCTION %s.", utils.QuoteIdentifier(destTable.Schema)),
+			1,
+		)
+
+		// Also handle case without schema qualification in function body
+		modifiedFunctionDef = strings.ReplaceAll(
+			modifiedFunctionDef,
+			fmt.Sprintf("%s.", sourceTable.Schema),
+			fmt.Sprintf("%s.", destTable.Schema),
+		)
+
+		c.logger.Info("Creating function on destination schema",
+			slog.String("functionName", fn.FunctionName),
+			slog.String("schema", destTable.Schema),
+			slog.String("functionDef", modifiedFunctionDef),
+			slog.String("language", fn.Language),
+			slog.String("returnType", fn.ReturnType))
+
+		_, err := tx.Exec(ctx, modifiedFunctionDef)
+		if err != nil {
+			// Track failure but continue with other functions
+			createdFunctions[fn.FunctionName] = false
+			c.logger.Warn("Failed to create function on destination",
+				slog.String("functionName", fn.FunctionName),
+				slog.String("schema", destTable.Schema),
+				slog.Any("error", err))
+			continue
+		}
+
+		// Track success
+		createdFunctions[fn.FunctionName] = true
+		c.logger.Info("Successfully created function",
+			slog.String("functionName", fn.FunctionName),
+			slog.String("schema", destTable.Schema))
+	}
+
+	return createdFunctions
+}
