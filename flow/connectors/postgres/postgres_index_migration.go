@@ -156,9 +156,9 @@ func (c *PostgresConnector) getTableIndexCount(
 	return count, nil
 }
 
-// createTableIndexesFromSchema creates indexes on the destination table from the TableSchema
+// CreateTableIndexesFromSchema creates indexes on the destination table from the TableSchema
 // This method uses the indexes that were fetched from the source during SetupTableSchema
-func (c *PostgresConnector) createTableIndexesFromSchema(
+func (c *PostgresConnector) CreateTableIndexesFromSchema(
 	ctx context.Context,
 	tx pgx.Tx,
 	tableSchema *protos.TableSchema,

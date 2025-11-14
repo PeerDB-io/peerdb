@@ -187,9 +187,9 @@ func (c *PostgresConnector) createTableFunctionsFromSchema(
 	return nil
 }
 
-// createTableFunctionsAndTrack creates functions and returns a map tracking which ones succeeded
+// CreateTableFunctionsAndTrack creates functions and returns a map tracking which ones succeeded
 // This is used by trigger migration to check if function dependencies are satisfied
-func (c *PostgresConnector) createTableFunctionsAndTrack(
+func (c *PostgresConnector) CreateTableFunctionsAndTrack(
 	ctx context.Context,
 	tx pgx.Tx,
 	tableSchema *protos.TableSchema,

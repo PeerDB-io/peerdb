@@ -243,8 +243,8 @@ func checkTriggerDependency(functionName string, createdFunctions map[string]boo
 	return false
 }
 
-// createTableTriggersWithDependencyCheck creates triggers but checks function dependencies first
-func (c *PostgresConnector) createTableTriggersWithDependencyCheck(
+// CreateTableTriggersWithDependencyCheck creates triggers but checks function dependencies first
+func (c *PostgresConnector) CreateTableTriggersWithDependencyCheck(
 	ctx context.Context,
 	tx pgx.Tx,
 	tableSchema *protos.TableSchema,

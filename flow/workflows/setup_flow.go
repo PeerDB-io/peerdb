@@ -221,6 +221,21 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		return fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
+	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTableIndexes, setupConfig).Get(ctx, nil); err != nil {
+		s.Error("failed to create normalized table indexes", slog.Any("error", err))
+		return fmt.Errorf("failed to create normalized table indexes: %w", err)
+	}
+
+	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTableFunctions, setupConfig).Get(ctx, nil); err != nil {
+		s.Error("failed to create normalized table functions", slog.Any("error", err))
+		return fmt.Errorf("failed to create normalized table functions: %w", err)
+	}
+
+	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTableTriggers, setupConfig).Get(ctx, nil); err != nil {
+		s.Error("failed to create normalized table triggers", slog.Any("error", err))
+		return fmt.Errorf("failed to create normalized table triggers: %w", err)
+	}
+
 	s.Info("finished setting up normalized tables for peer flow")
 	return nil
 }
