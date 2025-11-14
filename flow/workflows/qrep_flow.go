@@ -160,7 +160,6 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			FlowName:          q.config.FlowJobName,
 			Env:               q.config.Env,
 			IsResync:          q.config.DstTableFullResync,
-			Version:           q.config.Version,
 		}
 
 		if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {

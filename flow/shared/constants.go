@@ -40,9 +40,6 @@ const (
 	IntervalVersion_MongoDBFullDocumentColumnToDoc
 	// All: setting json_type_escape_dots_in_keys = true when inserting JSON column to ClickHouse (only impacts MongoDB today)
 	InternalVersion_JsonEscapeDotsInKeys
-	// ClickHouse: use Time64(3) data type for QValueKindTime when ClickHouse version >= 25.6
-	// MySQL: map TIME type to QValueKindTime instead of QValueKindTimestamp
-	InternalVersion_ClickHouseTime64
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
