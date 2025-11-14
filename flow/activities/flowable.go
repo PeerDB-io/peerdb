@@ -520,9 +520,10 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		if bytes, connErr := tableSizeEstimatorConn.GetTableSizeEstimatedBytes(timeoutCtx, config.WatermarkTable); connErr == nil {
-			if bytes > 1<<40 { // 1 TiB
-				msg := fmt.Sprintf("large table detected: %s (%s). Partitioning query may take several hours to execute. "+
-					"This is normal for tables over 1 TiB.", config.WatermarkTable, utils.FormatTableSize(bytes))
+			if bytes > 100<<30 { // 100 GiB
+				msg := fmt.Sprintf("large table detected: %s (%s). Counting/partitioning queries for parallel "+
+					"snapshotting may take minutes to hours to execute. This is normal for tables over 100 GiB.",
+					config.WatermarkTable, utils.FormatTableSize(bytes))
 				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, msg)
 			}
 		} else {
