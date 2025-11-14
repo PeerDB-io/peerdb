@@ -515,3 +515,22 @@ func (c *MySqlConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
+
+func (c *MySqlConnector) GetTableSizeEstimatedBytes(ctx context.Context, fullyQualifiedTable string) (int64, error) {
+	schemaTable, err := utils.ParseSchemaTable(fullyQualifiedTable)
+	if err != nil {
+		return 0, err
+	}
+	query := fmt.Sprintf(
+		"SELECT data_length FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s'",
+		mysql.Escape(schemaTable.Schema),
+		mysql.Escape(schemaTable.Table),
+	)
+
+	rs, err := c.Execute(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+	defer rs.Close()
+	return rs.GetInt(0, 0)
+}
