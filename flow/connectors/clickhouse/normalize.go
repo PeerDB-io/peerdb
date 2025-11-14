@@ -202,8 +202,16 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 			if clickHouseType == "" {
 				var err error
+				var chDefPrecision, chDefScale int32
+				if p, errP := internal.PeerDBClickHouseNumericDefaultPrecision(ctx, config.Env); errP == nil {
+					chDefPrecision = p
+				}
+				if s, errS := internal.PeerDBClickHouseNumericDefaultScale(ctx, config.Env); errS == nil {
+					chDefScale = s
+				}
 				clickHouseType, err = qvalue.ToDWHColumnType(
 					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column, tableSchema.NullableEnabled || columnNullableEnabled,
+					chDefPrecision, chDefScale,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -215,18 +223,15 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
 		}
 
-		// synced at column will be added to all normalized tables
 		if config.SyncedAtColName != "" {
 			colName := strings.ToLower(config.SyncedAtColName)
 			fmt.Fprintf(builder, "%s DateTime64(9) DEFAULT now64(), ", peerdb_clickhouse.QuoteIdentifier(colName))
 		}
 
-		// add _peerdb_source_schema_name column
 		if sourceSchemaAsDestinationColumn {
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName), sourceSchemaColType)
 		}
 
-		// add sign and version columns
 		fmt.Fprintf(builder, "%s %s, %s %s)",
 			peerdb_clickhouse.QuoteIdentifier(isDeletedColumn), isDeletedColType,
 			peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
@@ -560,6 +565,15 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				continue
 			}
 
+			// Fetch optional ClickHouse numeric default overrides from env for query generation
+			var chDefPrecision, chDefScale int32
+			if p, errP := internal.PeerDBClickHouseNumericDefaultPrecision(ctx, req.Env); errP == nil {
+				chDefPrecision = p
+			}
+			if s, errS := internal.PeerDBClickHouseNumericDefaultScale(ctx, req.Env); errS == nil {
+				chDefScale = s
+			}
+
 			queryGenerator := NewNormalizeQueryGenerator(
 				tbl,
 				req.TableNameSchemaMapping,
@@ -574,6 +588,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				c.Config.Cluster != "",
 				req.SoftDeleteColName,
 				req.Version,
+				chDefPrecision,
+				chDefScale,
 			)
 			query, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {

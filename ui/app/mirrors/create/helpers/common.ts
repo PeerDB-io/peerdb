@@ -49,6 +49,8 @@ export const blankCDCSetting: CDCConfig = {
   env: {},
   envString: '',
   version: 0,
+  clickhouseNumericDefaultPrecision: 0,
+  clickhouseNumericDefaultScale: 0,
 };
 
 export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {

@@ -366,6 +366,20 @@ func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 	schema types.QRecordSchema,
 	avroNameMap map[string]string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
+	// Inject ClickHouse numeric default overrides from dynamic env (if set) for Avro schema generation
+	if s.ClickHouseConnector != nil {
+		copied := make(map[string]string, len(env)+2)
+		for k, v := range env {
+			copied[k] = v
+		}
+		if p, err := internal.PeerDBClickHouseNumericDefaultPrecision(ctx, env); err == nil && p > 0 {
+			copied["PEERDB_CLICKHOUSE_NUMERIC_DEFAULT_PRECISION"] = fmt.Sprintf("%d", p)
+		}
+		if sc, err := internal.PeerDBClickHouseNumericDefaultScale(ctx, env); err == nil {
+			copied["PEERDB_CLICKHOUSE_NUMERIC_DEFAULT_SCALE"] = fmt.Sprintf("%d", sc)
+		}
+		env = copied
+	}
 	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_CLICKHOUSE, avroNameMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)

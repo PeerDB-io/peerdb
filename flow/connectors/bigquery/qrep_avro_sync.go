@@ -252,7 +252,7 @@ func DefineAvroSchema(dstTableName string,
 
 func GetAvroType(bqField *bigquery.FieldSchema) (avro.Schema, error) {
 	avroNumericPrecision, avroNumericScale := qvalue.DetermineNumericSettingForDWH(
-		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY)
+		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY, 0, 0)
 
 	considerRepeated := func(typ avro.Type, repeated bool) avro.Schema {
 		if repeated {

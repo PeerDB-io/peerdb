@@ -185,7 +185,7 @@ func truncateNumerics(
 			switch numeric := val.(type) {
 			case types.QValueNumeric:
 				destType := qvalue.GetNumericDestinationType(
-					numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString,
+					numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString, 0, 0,
 				)
 				if destType.IsString {
 					newVal = val
@@ -204,7 +204,7 @@ func truncateNumerics(
 				}
 			case types.QValueArrayNumeric:
 				destType := qvalue.GetNumericDestinationType(
-					numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString,
+					numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString, 0, 0,
 				)
 				if destType.IsString {
 					newVal = val

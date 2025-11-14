@@ -56,6 +56,15 @@ func (qac *QRecordAvroConverter) Convert(
 	numericTruncator SnapshotTableNumericTruncator,
 	format internal.BinaryFormat,
 ) (map[string]any, error) {
+	var chDefaultPrecision, chDefaultScale int32
+	if qac.TargetDWH == protos.DBType_CLICKHOUSE {
+		if p, err := internal.PeerDBClickHouseNumericDefaultPrecision(ctx, env); err == nil {
+			chDefaultPrecision = p
+		}
+		if s, err := internal.PeerDBClickHouseNumericDefaultScale(ctx, env); err == nil {
+			chDefaultScale = s
+		}
+	}
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
 		if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
@@ -66,6 +75,7 @@ func (qac *QRecordAvroConverter) Convert(
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
 			numericTruncator.Get(idx),
 			format,
+			chDefaultPrecision, chDefaultScale,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
@@ -93,6 +103,7 @@ type QRecordAvroSchemaDefinition struct {
 	Fields []types.QField
 }
 
+// Extended: numeric overrides can be threaded later if needed; currently schema-level override happens at conversion time.
 func GetAvroSchemaDefinition(
 	ctx context.Context,
 	env map[string]string,

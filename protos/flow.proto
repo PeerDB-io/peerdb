@@ -91,6 +91,12 @@ message FlowConnectionConfigs {
 
   map<string, string> env = 24;
   uint32 version = 25;
+
+  // ClickHouse-specific numeric settings for unbounded Postgres NUMERIC columns
+  // If set, these override the default precision (76) and scale (38) for unbounded NUMERIC
+  // Only applies when destination is ClickHouse; ignored for other destinations
+  optional int32 clickhouse_numeric_default_precision = 27;
+  optional int32 clickhouse_numeric_default_scale = 28;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -137,6 +143,12 @@ message FlowConnectionConfigsCore {
 
   map<string, string> env = 24;
   uint32 version = 25;
+
+  // ClickHouse-specific numeric settings for unbounded Postgres NUMERIC columns
+  // If set, these override the default precision (76) and scale (38) for unbounded NUMERIC
+  // Only applies when destination is ClickHouse; ignored for other destinations
+  optional int32 clickhouse_numeric_default_precision = 27;
+  optional int32 clickhouse_numeric_default_scale = 28;
 }
 
 message RenameTableOption {
