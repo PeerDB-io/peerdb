@@ -29,7 +29,7 @@ func handlePanic(ctx context.Context, p any) error {
 
 	slog.ErrorContext(ctx, "panic recovered in gRPC handler",
 		slog.String("method", method),
-		slog.Any("panic", p),
+		slog.Any("error", p),
 		slog.String("stack", string(stack)),
 	)
 
