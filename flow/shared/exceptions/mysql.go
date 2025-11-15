@@ -5,6 +5,7 @@ import (
 )
 
 type MySQLIncompatibleColumnTypeError struct {
+	error
 	TableName  string
 	ColumnName string
 	dataType   string
@@ -24,7 +25,19 @@ func NewMySQLIncompatibleColumnTypeError(
 	}
 }
 
-func (e MySQLIncompatibleColumnTypeError) Error() string {
+func (e *MySQLIncompatibleColumnTypeError) Error() string {
 	return fmt.Sprintf("Incompatible type for column %s in table %s, expect qkind %s but data is %s (mysql type %d)",
 		e.ColumnName, e.TableName, e.qkind, e.dataType, e.columnType)
+}
+
+type MySQLUnsupportedBinlogRowMetadataError struct {
+	error
+}
+
+func NewMySQLUnsupportedBinlogRowMetadataError() *MySQLUnsupportedBinlogRowMetadataError {
+	return &MySQLUnsupportedBinlogRowMetadataError{}
+}
+
+func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
+	return fmt.Sprintf("Detected binlog_row_metadata change from FULL to MINIMAL")
 }

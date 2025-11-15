@@ -115,6 +115,9 @@ var (
 	ErrorNotifyBinlogInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
 	}
+	ErrorNotifyBinlogRowMetadataInvalid = ErrorClass{
+		Class: "NOTIFY_BINLOG_ROW_METADATA_INVALID", action: NotifyUser,
+	}
 	ErrorNotifyBadGTIDSetup = ErrorClass{
 		Class: "NOTIFY_BAD_MULTISOURCE_GTID_SETUP", action: NotifyUser,
 	}
@@ -828,6 +831,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				ErrorAttributeKeyTable:  incompatibleColumnTypeError.TableName,
 				ErrorAttributeKeyColumn: incompatibleColumnTypeError.ColumnName,
 			},
+		}
+	}
+
+	var unsupportedBinlogRowMetadataError *exceptions.MySQLUnsupportedBinlogRowMetadataError
+	if errors.As(err, &unsupportedBinlogRowMetadataError) {
+		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_BINLOG_ROW_METADATA",
 		}
 	}
 

@@ -49,3 +49,70 @@ func TestErrorConstructorsShouldReturnPointers(t *testing.T) {
 		})
 	}
 }
+
+// For consistency/convention, tests that all error types implement Error() method with pointer receiver
+func TestErrorMethodsShouldHavePointerReceivers(t *testing.T) {
+	cfg := &packages.Config{
+		Mode: packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
+		Dir:  ".",
+	}
+
+	pkgs, err := packages.Load(cfg, ".")
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1, "Expected exactly one package")
+
+	pkg := pkgs[0]
+
+	// Track error type names (structs that end with "Error")
+	errorTypes := make(map[string]bool)
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			// Find all struct types that end with "Error"
+			if typeSpec, ok := n.(*ast.TypeSpec); ok {
+				if _, isStruct := typeSpec.Type.(*ast.StructType); isStruct {
+					if strings.HasSuffix(typeSpec.Name.Name, "Error") {
+						errorTypes[typeSpec.Name.Name] = true
+					}
+				}
+			}
+			return true
+		})
+	}
+
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			if fn, ok := n.(*ast.FuncDecl); ok {
+				if fn.Recv != nil && len(fn.Recv.List) > 0 {
+					recvType := fn.Recv.List[0].Type
+
+					// Extract the receiver type name (handling both pointer and value receivers)
+					var typeName string
+					var isPointer bool
+
+					switch recv := recvType.(type) {
+					case *ast.StarExpr:
+						// Pointer receiver: *SomeError
+						isPointer = true
+						if ident, ok := recv.X.(*ast.Ident); ok {
+							typeName = ident.Name
+						}
+					case *ast.Ident:
+						// Value receiver: SomeError
+						isPointer = false
+						typeName = recv.Name
+					}
+
+					// If this is an Error type and uses a value receiver, fail
+					if typeName != "" && errorTypes[typeName] && !isPointer {
+						pos := pkg.Fset.Position(fn.Pos())
+						assert.Fail(
+							t, "Error() method should have pointer receiver",
+							"%s: func (%s) Error() should be func (*%s) Error()",
+							pos.Filename, typeName, typeName)
+					}
+				}
+			}
+			return true
+		})
+	}
+}
