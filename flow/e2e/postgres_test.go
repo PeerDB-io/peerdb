@@ -1286,3 +1286,80 @@ func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s PeerFlowE2ETestSuitePG) Test_Index_Migration() {
+	srcTableName := s.attachSchemaSuffix("test_index_migration")
+	dstTableName := s.attachSchemaSuffix("test_index_migration_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			email TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW(),
+			data JSONB
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	// Create various types of indexes on source table
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE UNIQUE INDEX idx_email_unique ON %s(email);
+		CREATE INDEX idx_created_at ON %s(created_at);
+		CREATE INDEX idx_data_gin ON %s USING gin(data);
+	`, srcTableName, srcTableName, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_index_migration_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 100
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Verify indexes were created on destination table
+	var indexCount int
+	err = s.Conn().QueryRow(s.t.Context(), fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM pg_indexes
+		WHERE schemaname = 'e2e_test_%s'
+		AND tablename = '%s'
+		AND indexname != '%s_pkey'
+	`, s.suffix, "test_index_migration_dst", "test_index_migration_dst")).Scan(&indexCount)
+	require.NoError(s.t, err)
+	require.Equal(s.t, 3, indexCount, "expected 3 indexes on destination table (excluding primary key)")
+
+	// Verify specific indexes exist
+	var exists bool
+	err = s.Conn().QueryRow(s.t.Context(), fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1 FROM pg_indexes
+			WHERE schemaname = 'e2e_test_%s'
+			AND tablename = '%s'
+			AND indexname = 'idx_email_unique'
+		)
+	`, s.suffix, "test_index_migration_dst")).Scan(&exists)
+	require.NoError(s.t, err)
+	require.True(s.t, exists, "unique index on email should exist on destination")
+
+	// Insert some data and verify the mirror works
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(email, data) VALUES
+		('test1@example.com', '{"key": "value1"}'::jsonb),
+		('test2@example.com', '{"key": "value2"}'::jsonb)
+	`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "normalize records", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,email,created_at,data") == nil
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
