@@ -281,13 +281,8 @@ func AppendSlotSizeInfo(
 ) error {
 	if _, err := pool.Exec(ctx,
 		"INSERT INTO peerdb_stats.peer_slot_size"+
-			"(peer_name, slot_name, restart_lsn, redo_lsn, confirmed_flush_lsn, slot_size, wal_status, "+
-			"sent_lsn, current_lsn, restart_to_confirmed_mb, confirmed_to_sent_mb, sent_to_current_mb, "+
-			"safe_wal_size, slot_active, wait_event_type, wait_event, backend_state, "+
-			"logical_decoding_work_mem_mb, logical_decoding_work_mem_pending_restart, "+
-			"stats_reset, spill_txns, spill_count, spill_bytes) "+
-			"VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) "+
-			"ON CONFLICT DO NOTHING;",
+			"(peer_name, slot_name, restart_lsn, redo_lsn, confirmed_flush_lsn, slot_size, wal_status) "+
+			"VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING;",
 		peerName,
 		slotInfo.SlotName,
 		slotInfo.RestartLSN,
@@ -295,22 +290,6 @@ func AppendSlotSizeInfo(
 		slotInfo.ConfirmedFlushLSN,
 		slotInfo.LagInMb,
 		slotInfo.WalStatus,
-		slotInfo.SentLSN,
-		slotInfo.CurrentLSN,
-		slotInfo.RestartToConfirmedMb,
-		slotInfo.ConfirmedToSentMb,
-		slotInfo.SentToCurrentMb,
-		slotInfo.SafeWalSize,
-		slotInfo.Active,
-		slotInfo.WaitEventType,
-		slotInfo.WaitEvent,
-		slotInfo.BackendState,
-		slotInfo.LogicalDecodingWorkMemMb,
-		slotInfo.LogicalDecodingWorkMemPendingRestart,
-		slotInfo.StatsReset,
-		slotInfo.SpillTxns,
-		slotInfo.SpillCount,
-		slotInfo.SpillBytes,
 	); err != nil {
 		return fmt.Errorf("error while upserting row for slot_size: %w", err)
 	}
