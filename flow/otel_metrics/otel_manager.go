@@ -36,6 +36,7 @@ const (
 	RestartLSNGaugeName                  = "restart_lsn"
 	ConfirmedFlushLSNGaugeName           = "confirmed_flush_lsn"
 	SentLSNGaugeName                     = "sent_lsn"
+	ReceivedCommitLSNGaugeName           = "received_commit_lsn"
 	CurrentWalLSNGaugeName               = "current_wal_lsn"
 	RestartToConfirmedMBGaugeName        = "restart_to_confirmed_lsn_mb"
 	ConfirmedToSentMBGaugeName           = "confirmed_to_sent_lsn_mb"
@@ -88,6 +89,7 @@ type Metrics struct {
 	RestartLSNGauge                  metric.Int64Gauge
 	ConfirmedFlushLSNGauge           metric.Int64Gauge
 	SentLSNGauge                     metric.Int64Gauge
+	ReceivedCommitLSNGauge           metric.Int64Gauge
 	CurrentWalLSNGauge               metric.Int64Gauge
 	RestartToConfirmedMBGauge        metric.Float64Gauge
 	ConfirmedToSentMBGauge           metric.Float64Gauge
@@ -280,6 +282,12 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	}
 
 	if om.Metrics.SentLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SentLSNGaugeName),
+		metric.WithDescription("Sent LSN from pg_stat_replication"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ReceivedCommitLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ReceivedCommitLSNGaugeName),
 		metric.WithDescription("Sent LSN from pg_stat_replication"),
 	); err != nil {
 		return err
