@@ -185,6 +185,12 @@ func (c *PostgresConnector) getNumRowsPartitions(
 				minVal = lastRange.UintRange.End
 			case *protos.PartitionRange_TimestampRange:
 				minVal = lastRange.TimestampRange.End.AsTime()
+			case *protos.PartitionRange_TidRange:
+				minVal = pgtype.TID{
+					BlockNumber:  lastRange.TidRange.End.BlockNumber,
+					OffsetNumber: uint16(lastRange.TidRange.End.OffsetNumber),
+					Valid:        true,
+				}
 			}
 
 			row = tx.QueryRow(ctx, countQuery, minVal)
@@ -294,6 +300,12 @@ func (c *PostgresConnector) getNumRowsPartitions(
 				minVal = lastRange.UintRange.End
 			case *protos.PartitionRange_TimestampRange:
 				minVal = lastRange.TimestampRange.End.AsTime()
+			case *protos.PartitionRange_TidRange:
+				minVal = pgtype.TID{
+					BlockNumber:  lastRange.TidRange.End.BlockNumber,
+					OffsetNumber: uint16(lastRange.TidRange.End.OffsetNumber),
+					Valid:        true,
+				}
 			}
 
 			row = tx.QueryRow(ctx, minmaxQuery, minVal)
