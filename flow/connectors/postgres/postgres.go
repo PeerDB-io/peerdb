@@ -1002,6 +1002,12 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		selectedColumnsStr = strings.Join(selectedColumns, ",")
 	}
 
+	var indexes []*protos.IndexDescription
+	indexes, err = c.getIndexesForTable(ctx, relID, schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("error getting indexes for table %s: %w", schemaTable, err)
+	}
+
 	// Get the column names and types
 	rows, err := c.conn.Query(ctx,
 		fmt.Sprintf(`SELECT %s FROM %s LIMIT 0`, selectedColumnsStr, schemaTable.String()),
@@ -1053,6 +1059,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		Columns:               columns,
 		NullableEnabled:       nullableEnabled,
 		System:                system,
+		Indexes:               indexes,
 	}, nil
 }
 
@@ -1107,6 +1114,15 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
+	}
+
+	// create non-primary indexes on the normalized table
+	c.logger.Info("Creating non-primary indexes on the normalized table", slog.String("table", parsedNormalizedTable.String()), slog.Any("tableSchema", tableSchema))
+	for _, stmt := range generateCreateIndexesSQLForNormalizedTable(parsedNormalizedTable, tableSchema) {
+		c.logger.Info("Creating index", slog.String("index", stmt))
+		if _, err := c.execWithLoggingTx(ctx, stmt, createNormalizedTablesTx); err != nil {
+			return false, fmt.Errorf("error while creating index on normalized table %s: %w", parsedNormalizedTable.String(), err)
+		}
 	}
 
 	return false, nil
@@ -1209,12 +1225,100 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 				slog.String("dstTableName", schemaDelta.DstTableName),
 			)
 		}
+
+		// indexes dropped
+		for _, idxName := range schemaDelta.DroppedIndexes {
+			dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+			if err != nil {
+				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+			}
+			stmt := fmt.Sprintf("DROP INDEX IF EXISTS %s.%s",
+				utils.QuoteIdentifier(dstSchemaTable.Schema),
+				utils.QuoteIdentifier(idxName.Name))
+			if _, err := c.execWithLoggingTx(ctx, stmt, tableSchemaModifyTx); err != nil {
+				return fmt.Errorf("failed to drop index %s for table %s: %w", idxName, schemaDelta.DstTableName, err)
+			}
+			c.logger.Info("[schema delta replay] dropped index",
+				slog.String("indexName", idxName.Name),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
+		}
+
+		// indexes added
+		for _, idx := range schemaDelta.AddedIndexes {
+			if idx == nil || len(idx.ColumnNames) == 0 || idx.Name == "" {
+				continue
+			}
+
+			dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+			if err != nil {
+				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+			}
+
+			stmt, _ := buildCreateIndexStmt(dstSchemaTable.String(), idx)
+
+			if _, err := c.execWithLoggingTx(ctx, stmt, tableSchemaModifyTx); err != nil {
+				return fmt.Errorf("failed to create index %s for table %s: %w", idx.Name, schemaDelta.DstTableName, err)
+			}
+			c.logger.Info("[schema delta replay] added index",
+				slog.String("indexName", idx.Name),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
+		}
 	}
 
 	if err := tableSchemaModifyTx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction for table schema modification: %w", err)
 	}
 	return nil
+}
+
+func buildCreateIndexStmt(tableIdent string, idx *protos.IndexDescription) (string, bool) {
+	if idx == nil || len(idx.ColumnNames) == 0 || idx.Name == "" {
+		return "", false
+	}
+
+	var unique string
+	if idx.IsUnique {
+		unique = "UNIQUE "
+	}
+
+	colIdents := make([]string, 0, len(idx.ColumnNames))
+	for _, cName := range idx.ColumnNames {
+		colIdents = append(colIdents, utils.QuoteIdentifier(cName))
+	}
+
+	includeClause := ""
+	if len(idx.IncludeColumns) > 0 {
+		includeCols := make([]string, 0, len(idx.IncludeColumns))
+		for _, cName := range idx.IncludeColumns {
+			includeCols = append(includeCols, utils.QuoteIdentifier(cName))
+		}
+		includeClause = " INCLUDE (" + strings.Join(includeCols, ",") + ")"
+	}
+
+	methodClause := ""
+	if idx.Method != "" && strings.ToLower(idx.Method) != "btree" {
+		methodClause = " USING " + idx.Method
+	}
+
+	whereClause := ""
+	if idx.Where != "" {
+		whereClause = " WHERE " + idx.Where
+	}
+
+	stmt := fmt.Sprintf(
+		"CREATE %sINDEX IF NOT EXISTS %s ON %s%s (%s)%s%s",
+		unique,
+		utils.QuoteIdentifier(idx.Name),
+		tableIdent,
+		methodClause,
+		strings.Join(colIdents, ","),
+		includeClause,
+		whereClause,
+	)
+
+	return stmt, true
 }
 
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.

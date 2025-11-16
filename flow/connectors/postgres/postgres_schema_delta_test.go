@@ -261,6 +261,94 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
+func (s PostgresSchemaDeltaTestSuite) TestSimpleDropIndex() {
+	tableName := s.schema + ".simple_drop_index"
+	_, err := s.connector.conn.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY, hi INT); CREATE INDEX idx_hi ON %s(hi);", tableName, tableName))
+	require.NoError(s.t, err)
+	expectedTableSchema := &protos.TableSchema{
+		TableIdentifier:   tableName,
+		PrimaryKeyColumns: []string{"id"},
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "id",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "hi",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: -1,
+				Nullable:     true,
+			},
+		},
+		System: protos.TypeSystem_Q,
+	}
+
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+		SrcTableName:   tableName,
+		DstTableName:   tableName,
+		DroppedIndexes: []*protos.IndexDescription{{Name: "idx_hi"}},
+	}}))
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
+	require.NoError(s.t, err)
+	require.Equal(s.t, expectedTableSchema, output[tableName])
+}
+
+func (s PostgresSchemaDeltaTestSuite) TestSimpleAddIndex() {
+	tableName := s.schema + ".simple_add_index"
+	_, err := s.connector.conn.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY, hi INT)", tableName))
+	require.NoError(s.t, err)
+
+	expectedTableSchema := &protos.TableSchema{
+		TableIdentifier:   tableName,
+		PrimaryKeyColumns: []string{"id"},
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "id",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "hi",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: -1,
+				Nullable:     true,
+			},
+		},
+		System: protos.TypeSystem_Q,
+		Indexes: []*protos.IndexDescription{
+			{
+				Name:        "idx_hi",
+				ColumnNames: []string{"hi"},
+				Method:      "btree",
+				IsUnique:    false,
+				Where:       "",
+			},
+		},
+	}
+	addedIndexes := make([]*protos.IndexDescription, 0)
+	for _, index := range expectedTableSchema.Indexes {
+		if index.Name != "id" {
+			addedIndexes = append(addedIndexes, index)
+		}
+	}
+
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+		SrcTableName: tableName,
+		DstTableName: tableName,
+		AddedIndexes: addedIndexes,
+	}}))
+
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
+
+	require.NoError(s.t, err)
+	require.Equal(s.t, expectedTableSchema, output[tableName])
+}
+
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite)
 }
