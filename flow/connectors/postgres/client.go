@@ -727,3 +727,57 @@ func (c *PostgresConnector) IsInRecovery(ctx context.Context) (bool, error) {
 	}
 	return inRecovery, nil
 }
+
+// IndexMetadata represents metadata about a PostgreSQL index
+type IndexMetadata struct {
+	IndexName string   `db:"index_name"`
+	IsUnique  bool     `db:"is_unique"`
+	IsPrimary bool     `db:"is_primary"`
+	Columns   []string `db:"columns"`
+	IndexDef  string   `db:"index_def"`
+}
+
+// GetIndexes retrieves all indexes for a given table.
+func (c *PostgresConnector) GetIndexes(
+	ctx context.Context,
+	schemaTable *utils.SchemaTable,
+) ([]*IndexMetadata, error) {
+	query := `
+		SELECT
+			i.indexrelid::regclass::text AS index_name,
+			i.indisunique AS is_unique,
+			i.indisprimary AS is_primary,
+			array_agg(a.attname ORDER BY array_position(i.indkey, a.attnum)) AS columns,
+			pg_get_indexdef(i.indexrelid) AS index_def
+		FROM pg_index i
+		JOIN pg_class c ON c.oid = i.indrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+		WHERE n.nspname = $1 AND c.relname = $2
+		GROUP BY i.indexrelid, i.indisunique, i.indisprimary
+		ORDER BY index_name
+	`
+
+	rows, err := c.conn.Query(ctx, query, schemaTable.Schema, schemaTable.Table)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query indexes for %s: %w", schemaTable, err)
+	}
+
+	indexes, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*IndexMetadata, error) {
+		var idx IndexMetadata
+		if err := row.Scan(&idx.IndexName, &idx.IsUnique, &idx.IsPrimary, &idx.Columns, &idx.IndexDef); err != nil {
+			return nil, err
+		}
+		return &idx, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect index rows for %s: %w", schemaTable, err)
+	}
+
+	c.logger.Info("Retrieved indexes for table",
+		slog.String("schema", schemaTable.Schema),
+		slog.String("table", schemaTable.Table),
+		slog.Int("count", len(indexes)))
+
+	return indexes, nil
+}
