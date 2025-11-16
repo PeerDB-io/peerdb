@@ -162,8 +162,27 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
-	whereClause := ""
+	// Extract the end value from the last partition range if it exists
+	var lastRangeEnd any
 	if last != nil && last.Range != nil {
+		switch lastRange := last.Range.Range.(type) {
+		case *protos.PartitionRange_IntRange:
+			lastRangeEnd = lastRange.IntRange.End
+		case *protos.PartitionRange_UintRange:
+			lastRangeEnd = lastRange.UintRange.End
+		case *protos.PartitionRange_TimestampRange:
+			lastRangeEnd = lastRange.TimestampRange.End.AsTime()
+		case *protos.PartitionRange_TidRange:
+			lastRangeEnd = pgtype.TID{
+				BlockNumber:  lastRange.TidRange.End.BlockNumber,
+				OffsetNumber: uint16(lastRange.TidRange.End.OffsetNumber),
+				Valid:        true,
+			}
+		}
+	}
+
+	whereClause := ""
+	if lastRangeEnd != nil {
 		whereClause = fmt.Sprintf(`WHERE %s > $1`, quotedWatermarkColumn)
 	}
 
@@ -176,24 +195,8 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		// Query to get the total number of rows in the table
 		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, parsedWatermarkTable.String(), whereClause)
 		var row pgx.Row
-		var minVal any
-		if last != nil && last.Range != nil {
-			switch lastRange := last.Range.Range.(type) {
-			case *protos.PartitionRange_IntRange:
-				minVal = lastRange.IntRange.End
-			case *protos.PartitionRange_UintRange:
-				minVal = lastRange.UintRange.End
-			case *protos.PartitionRange_TimestampRange:
-				minVal = lastRange.TimestampRange.End.AsTime()
-			case *protos.PartitionRange_TidRange:
-				minVal = pgtype.TID{
-					BlockNumber:  lastRange.TidRange.End.BlockNumber,
-					OffsetNumber: uint16(lastRange.TidRange.End.OffsetNumber),
-					Valid:        true,
-				}
-			}
-
-			row = tx.QueryRow(ctx, countQuery, minVal)
+		if lastRangeEnd != nil {
+			row = tx.QueryRow(ctx, countQuery, lastRangeEnd)
 		} else {
 			row = tx.QueryRow(ctx, countQuery)
 		}
@@ -218,7 +221,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 		// Query to get partitions using window functions
 		var rows pgx.Rows
-		if minVal != nil {
+		if lastRangeEnd != nil {
 			partitionsQuery := fmt.Sprintf(
 				`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
@@ -232,7 +235,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 				parsedWatermarkTable.String(),
 			)
 			c.logger.Info("[row_based_next] partitions query", slog.String("query", partitionsQuery))
-			rows, err = tx.Query(ctx, partitionsQuery, minVal)
+			rows, err = tx.Query(ctx, partitionsQuery, lastRangeEnd)
 		} else {
 			partitionsQuery := fmt.Sprintf(
 				`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
@@ -291,24 +294,8 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		minmaxQuery := fmt.Sprintf("SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s",
 			parsedWatermarkTable.String(), quotedWatermarkColumn, whereClause)
 		var row pgx.Row
-		var minVal any
-		if last != nil && last.Range != nil {
-			switch lastRange := last.Range.Range.(type) {
-			case *protos.PartitionRange_IntRange:
-				minVal = lastRange.IntRange.End
-			case *protos.PartitionRange_UintRange:
-				minVal = lastRange.UintRange.End
-			case *protos.PartitionRange_TimestampRange:
-				minVal = lastRange.TimestampRange.End.AsTime()
-			case *protos.PartitionRange_TidRange:
-				minVal = pgtype.TID{
-					BlockNumber:  lastRange.TidRange.End.BlockNumber,
-					OffsetNumber: uint16(lastRange.TidRange.End.OffsetNumber),
-					Valid:        true,
-				}
-			}
-
-			row = tx.QueryRow(ctx, minmaxQuery, minVal)
+		if lastRangeEnd != nil {
+			row = tx.QueryRow(ctx, minmaxQuery, lastRangeEnd)
 		} else {
 			row = tx.QueryRow(ctx, minmaxQuery)
 		}
