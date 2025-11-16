@@ -754,10 +754,9 @@ func PullCdcRecords[Items model.Items](
 								return err
 							}
 
-							// Track initial state
-							var initialColCount int64
+							var nonToastCount int64
 							if recItems, ok := any(r.NewItems).(model.RecordItems); ok {
-								initialColCount = int64(len(recItems.ColToVal))
+								nonToastCount = int64(len(recItems.ColToVal))
 							}
 							toastCount := len(r.UnchangedToastColumns)
 							var backfilledCount int
@@ -777,7 +776,6 @@ func PullCdcRecords[Items model.Items](
 
 							// Report metrics
 							remainingToast := len(r.UnchangedToastColumns)
-							nonToastCount := initialColCount
 							toastMetricsMutex.Lock()
 							if backfilledCount > 0 {
 								toastValueMetrics[toastMetricKey{tableName, "true"}] += int64(backfilledCount)
