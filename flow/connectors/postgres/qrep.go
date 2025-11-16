@@ -200,10 +200,15 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 
 	if numPartitions == 0 {
-		computedNumPartitions, err := ComputeNumPartitions(
-			ctx, tx, parsedWatermarkTable.String(), quotedWatermarkColumn,
-			lastRangeEnd, numRowsPerPartition, c.logger,
-		)
+		partitionParams := PartitionParams{
+			tx:              tx,
+			watermarkTable:  parsedWatermarkTable.String(),
+			watermarkColumn: quotedWatermarkColumn,
+			lastRangeEnd:    lastRangeEnd,
+			numPartitions:   numPartitions,
+			logger:          c.logger,
+		}
+		computedNumPartitions, err := ComputeNumPartitions(ctx, partitionParams, numRowsPerPartition)
 		if err != nil {
 			return nil, err
 		}
@@ -300,41 +305,47 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 }
 
+// PartitionParams groups parameters needed for partitioning operations
+type PartitionParams struct {
+	tx              pgx.Tx
+	watermarkTable  string
+	watermarkColumn string
+	lastRangeEnd    any
+	numPartitions   int64
+	logger          log.Logger
+}
+
 // ComputeNumPartitions computes the number of partitions given desired number of rows
 // per partition, with automatic adjustment to respect the maximum partition limit.
 // TODO: use estimated row count instead to speed up query execution on large tables
 func ComputeNumPartitions(
 	ctx context.Context,
-	tx pgx.Tx,
-	watermarkTable string,
-	watermarkColumn string,
-	lastRangeEnd any,
+	pp PartitionParams,
 	numRowsPerPartition int64,
-	logger log.Logger,
 ) (int64, error) {
 	const queryTemplate = "SELECT COUNT(*) FROM %s %s"
 	var whereClause string
 	var queryArgs []any
-	if lastRangeEnd != nil {
-		whereClause = fmt.Sprintf("WHERE %s > $1", watermarkColumn)
-		queryArgs = []any{lastRangeEnd}
+	if pp.lastRangeEnd != nil {
+		whereClause = fmt.Sprintf("WHERE %s > $1", pp.watermarkColumn)
+		queryArgs = []any{pp.lastRangeEnd}
 	}
 
-	countQuery := fmt.Sprintf(queryTemplate, watermarkTable, whereClause)
-	logger.Info("fetch row count", slog.String("query", countQuery))
+	countQuery := fmt.Sprintf(queryTemplate, pp.watermarkTable, whereClause)
+	pp.logger.Info("fetch row count", slog.String("query", countQuery))
 
 	var totalRows pgtype.Int8
-	if err := tx.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows); err != nil {
+	if err := pp.tx.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows); err != nil {
 		return 0, fmt.Errorf("failed to query for total rows: %w", err)
 	}
 
 	if totalRows.Int64 == 0 {
-		logger.Warn("no records to replicate, returning")
+		pp.logger.Warn("no records to replicate, returning")
 		return 0, nil
 	}
 
 	adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
-	logger.Info("[postgres] partition adjustment details",
+	pp.logger.Info("[postgres] partition adjustment details",
 		slog.Int64("totalRows", totalRows.Int64),
 		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
 		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
