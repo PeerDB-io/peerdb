@@ -165,7 +165,6 @@ func (c *PostgresConnector) getPartitions(
 ) ([]*protos.QRepPartition, error) {
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	numPartitions := int64(config.NumPartitionsOverride)
-
 	schemaTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
@@ -173,7 +172,6 @@ func (c *PostgresConnector) getPartitions(
 	watermarkTable := schemaTable.String()
 	watermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
-	// Extract the end value from the last partition range if it exists
 	var lastRangeEnd any
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
@@ -221,7 +219,6 @@ func (c *PostgresConnector) getPartitions(
 	} else {
 		partitionFunc = NTileBucketPartitioningFunc
 	}
-
 	return partitionFunc(ctx, partitionParams)
 }
 
