@@ -12,25 +12,25 @@ import (
 )
 
 // Mock handlers
-func panicHandler(ctx context.Context, req interface{}) (interface{}, error) {
+func panicHandler(ctx context.Context, req any) (any, error) {
 	panic("something went wrong")
 }
 
-func nilPointerPanicHandler(ctx context.Context, req interface{}) (interface{}, error) {
+func nilPointerPanicHandler(ctx context.Context, req any) (any, error) {
 	var ptr *string
 	_ = *ptr
 	return nil, nil
 }
 
-func normalErrorHandler(ctx context.Context, req interface{}) (interface{}, error) {
+func normalErrorHandler(ctx context.Context, req any) (any, error) {
 	return nil, errors.New("normal error")
 }
 
-func successHandler(ctx context.Context, req interface{}) (interface{}, error) {
+func successHandler(ctx context.Context, req any) (any, error) {
 	return "success", nil
 }
 
-func nilConnectionConfigsHandler(ctx context.Context, req interface{}) (interface{}, error) {
+func nilConnectionConfigsHandler(ctx context.Context, req any) (any, error) {
 	panic("runtime error: invalid memory address or nil pointer dereference")
 }
 
