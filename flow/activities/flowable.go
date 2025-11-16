@@ -514,6 +514,23 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer srcClose(ctx)
 
+	partitioned := config.WatermarkColumn != ""
+	if tableSizeEstimatorConn, ok := srcConn.(connectors.TableSizeEstimatorConnector); ok && partitioned {
+		// expect estimate query execution to be fast, set a short timeout defensively to avoid blocking workflow
+		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if bytes, connErr := tableSizeEstimatorConn.GetTableSizeEstimatedBytes(timeoutCtx, config.WatermarkTable); connErr == nil {
+			if bytes > 100<<30 { // 100 GiB
+				msg := fmt.Sprintf("large table detected: %s (%s). Counting/partitioning queries for parallel "+
+					"snapshotting may take minutes to hours to execute. This is normal for tables over 100 GiB.",
+					config.WatermarkTable, utils.FormatTableSize(bytes))
+				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, msg)
+			}
+		} else {
+			logger.Warn("failed to get estimated table size", slog.Any("error", connErr))
+		}
+	}
+
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
 		return nil, a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to get partitions from source", err)
@@ -612,7 +629,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 
 		return func(partition *protos.QRepPartition) error {
-			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+			stream := model.NewQRecordStream(shared.QRepChannelSize)
 			outstream := stream
 
 			if luaScript != nil {
@@ -641,7 +658,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 
 		return func(partition *protos.QRepPartition) error {
-			stream := model.NewQObjectStream(shared.FetchAndChannelSize)
+			stream := model.NewQObjectStream(shared.QRepChannelSize)
 
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
 				connectors.QRepPullObjectsConnector.PullQRepObjects,
@@ -1548,7 +1565,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 
 	switch config.System {
 	case protos.TypeSystem_Q:
-		stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+		stream := model.NewQRecordStream(shared.QRepChannelSize)
 		return replicateXminPartition(ctx, a, config, partition, runUUID,
 			stream, stream,
 			(*connpostgres.PostgresConnector).PullXminRecordStream,

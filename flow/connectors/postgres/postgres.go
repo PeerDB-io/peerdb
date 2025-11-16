@@ -1834,3 +1834,15 @@ func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.Data
 
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
+
+func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, fullyQualifiedTableName string) (int64, error) {
+	tableSizeQuery := "SELECT pg_relation_size(to_regclass($1))"
+	var tableSizeBytes pgtype.Int8
+	if err := c.conn.QueryRow(ctx, tableSizeQuery, fullyQualifiedTableName).Scan(&tableSizeBytes); err != nil {
+		return 0, err
+	}
+	if !tableSizeBytes.Valid {
+		return 0, errors.New("table size is not valid")
+	}
+	return tableSizeBytes.Int64, nil
+}

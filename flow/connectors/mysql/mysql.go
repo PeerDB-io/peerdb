@@ -379,10 +379,13 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 		showBinlogStatus = "SHOW BINLOG STATUS"
 		masterReplaced = "10.5.2" // https://mariadb.com/kb/en/show-binlog-status
 	}
-	if eq, err := c.CompareServerVersion(ctx, masterReplaced); err == nil && eq < 0 {
+	if eq, err := c.CompareServerVersion(ctx, masterReplaced); err != nil {
+		c.logger.Warn("failed to compare server version", slog.Any("error", err))
+	} else if eq < 0 {
 		showBinlogStatus = "SHOW MASTER STATUS"
 	}
 
+	c.logger.Info(fmt.Sprintf("running command '%s' given server version '%s'", showBinlogStatus, c.serverVersion))
 	rr, err := c.Execute(ctx, showBinlogStatus)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to %s: %w", showBinlogStatus, err)
@@ -511,4 +514,23 @@ func (c *MySqlConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 	}
 
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
+}
+
+func (c *MySqlConnector) GetTableSizeEstimatedBytes(ctx context.Context, fullyQualifiedTable string) (int64, error) {
+	schemaTable, err := utils.ParseSchemaTable(fullyQualifiedTable)
+	if err != nil {
+		return 0, err
+	}
+	query := fmt.Sprintf(
+		"SELECT data_length FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s'",
+		mysql.Escape(schemaTable.Schema),
+		mysql.Escape(schemaTable.Table),
+	)
+
+	rs, err := c.Execute(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+	defer rs.Close()
+	return rs.GetInt(0, 0)
 }

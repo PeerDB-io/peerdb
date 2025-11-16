@@ -2,12 +2,9 @@ package connpostgres
 
 import (
 	"bytes"
-	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"strconv"
 	"strings"
 	"text/template"
@@ -68,13 +65,21 @@ func (c *PostgresConnector) GetQRepPartitions(
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	// rollback transaction will no-op if transaction is committed
 	defer shared.RollbackTx(getPartitionsTx, c.logger)
 
 	if err := c.setTransactionSnapshot(ctx, getPartitionsTx, config.SnapshotName); err != nil {
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
-	return c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
+	partitions, err := c.getPartitions(ctx, getPartitionsTx, config, last)
+
+	// commit transaction
+	if err := getPartitionsTx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return partitions, err
 }
 
 func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
@@ -152,244 +157,69 @@ func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.T
 	return nil
 }
 
-func (c *PostgresConnector) getNumRowsPartitions(
+func (c *PostgresConnector) getPartitions(
 	ctx context.Context,
 	tx pgx.Tx,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	numPartitions := int64(config.NumPartitionsOverride)
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
-
-	whereClause := ""
-	if last != nil && last.Range != nil {
-		whereClause = fmt.Sprintf(`WHERE %s > $1`, quotedWatermarkColumn)
-	}
-
-	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+	numPartitions := int64(config.NumPartitionsOverride)
+	schemaTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
+	watermarkTable := schemaTable.String()
+	watermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
-	if numPartitions == 0 {
-		// Query to get the total number of rows in the table
-		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, parsedWatermarkTable.String(), whereClause)
-		var row pgx.Row
-		var minVal any
-		if last != nil && last.Range != nil {
-			switch lastRange := last.Range.Range.(type) {
-			case *protos.PartitionRange_IntRange:
-				minVal = lastRange.IntRange.End
-			case *protos.PartitionRange_UintRange:
-				minVal = lastRange.UintRange.End
-			case *protos.PartitionRange_TimestampRange:
-				minVal = lastRange.TimestampRange.End.AsTime()
+	var lastRangeEnd any
+	if last != nil && last.Range != nil {
+		switch lastRange := last.Range.Range.(type) {
+		case *protos.PartitionRange_IntRange:
+			lastRangeEnd = lastRange.IntRange.End
+		case *protos.PartitionRange_UintRange:
+			lastRangeEnd = lastRange.UintRange.End
+		case *protos.PartitionRange_TimestampRange:
+			lastRangeEnd = lastRange.TimestampRange.End.AsTime()
+		case *protos.PartitionRange_TidRange:
+			lastRangeEnd = pgtype.TID{
+				BlockNumber:  lastRange.TidRange.End.BlockNumber,
+				OffsetNumber: uint16(lastRange.TidRange.End.OffsetNumber),
+				Valid:        true,
 			}
-
-			row = tx.QueryRow(ctx, countQuery, minVal)
-		} else {
-			row = tx.QueryRow(ctx, countQuery)
+		default:
+			return nil, fmt.Errorf("unknown range type %T", lastRange)
 		}
+	}
 
-		var totalRows pgtype.Int8
-		if err := row.Scan(&totalRows); err != nil {
-			return nil, fmt.Errorf("failed to query for total rows: %w", err)
-		}
+	partitionParams := PartitionParams{
+		tx:              tx,
+		watermarkTable:  watermarkTable,
+		watermarkColumn: watermarkColumn,
+		numPartitions:   numPartitions,
+		lastRangeEnd:    lastRangeEnd,
+		logger:          c.logger,
+	}
 
-		if totalRows.Int64 == 0 {
-			c.logger.Warn("no records to replicate, returning")
-			return nil, nil
-		}
-
-		// Calculate the number of partitions
-		adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
-		c.logger.Info("[postgres] partition adjustment details",
-			slog.Int64("totalRows", totalRows.Int64),
-			slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
-			slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
-			slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
-
-		// Query to get partitions using window functions
-		var rows pgx.Rows
-		if minVal != nil {
-			partitionsQuery := fmt.Sprintf(
-				`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
-				FROM %[3]s WHERE %[2]s > $1
-			) subquery
-			GROUP BY bucket
-			ORDER BY start`,
-				adjustedPartitions.AdjustedNumPartitions,
-				quotedWatermarkColumn,
-				parsedWatermarkTable.String(),
-			)
-			c.logger.Info("[row_based_next] partitions query", slog.String("query", partitionsQuery))
-			rows, err = tx.Query(ctx, partitionsQuery, minVal)
-		} else {
-			partitionsQuery := fmt.Sprintf(
-				`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
-			) subquery
-			GROUP BY bucket
-			ORDER BY start`,
-				adjustedPartitions.AdjustedNumPartitions,
-				quotedWatermarkColumn,
-				parsedWatermarkTable.String(),
-			)
-			c.logger.Info("[row_based] partitions query", slog.String("query", partitionsQuery))
-			rows, err = tx.Query(ctx, partitionsQuery)
-		}
+	if config.NumPartitionsOverride <= 0 {
+		computedNumPartitions, err := ComputeNumPartitions(ctx, partitionParams, numRowsPerPartition)
 		if err != nil {
-			return nil, shared.LogError(c.logger, fmt.Errorf("failed to query for partitions: %w", err))
-		}
-		defer rows.Close()
-
-		partitionHelper := utils.NewPartitionHelper(c.logger)
-		for rows.Next() {
-			var bucket pgtype.Int8
-			var start, end any
-			if err := rows.Scan(&bucket, &start, &end); err != nil {
-				return nil, fmt.Errorf("failed to scan row: %w", err)
-			}
-
-			if err := partitionHelper.AddPartition(start, end); err != nil {
-				return nil, fmt.Errorf("failed to add partition: %w", err)
-			}
-		}
-
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("failed to read rows: %w", err)
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			return nil, fmt.Errorf("failed to commit transaction: %w", err)
-		}
-
-		return partitionHelper.GetPartitions(), nil
-	} else {
-		// Special handling for CTID watermark column when a fixed number of partitions is specified:
-		// Partitions are created by dividing table blocks uniformly.
-		// Note: partition boundaries (block ranges) are uniform, but actual row distribution may be skewed
-		// due to table bloat, deleted tuples, or uneven data distribution across blocks.
-		if config.WatermarkColumn == ctidColumnName {
-			return c.getCTIDBlockPartitions(ctx, tx, *parsedWatermarkTable, numPartitions, last)
-		}
-
-		// Default path for non-CTID watermark column when a fixed number of partitions is specified:
-		// Partitions are created by uniformly splitting the min/max value range.
-		// Note: partition boundaries are uniform, but actual row distribution may be skewed
-		// due to non-uniform data distribution, gaps in the value range, or deleted rows.
-		minmaxQuery := fmt.Sprintf("SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s",
-			parsedWatermarkTable.String(), quotedWatermarkColumn, whereClause)
-		var row pgx.Row
-		var minVal any
-		if last != nil && last.Range != nil {
-			switch lastRange := last.Range.Range.(type) {
-			case *protos.PartitionRange_IntRange:
-				minVal = lastRange.IntRange.End
-			case *protos.PartitionRange_UintRange:
-				minVal = lastRange.UintRange.End
-			case *protos.PartitionRange_TimestampRange:
-				minVal = lastRange.TimestampRange.End.AsTime()
-			}
-
-			row = tx.QueryRow(ctx, minmaxQuery, minVal)
-		} else {
-			row = tx.QueryRow(ctx, minmaxQuery)
-		}
-		var start, end any
-		if err := row.Scan(&start, &end); err != nil {
 			return nil, err
 		}
-
-		partitionHelper := utils.NewPartitionHelper(c.logger)
-		if err := partitionHelper.AddPartitionsWithRange(start, end, numPartitions); err != nil {
-			return nil, fmt.Errorf("failed to add partitions: %w", err)
-		}
-		return partitionHelper.GetPartitions(), nil
-	}
-}
-
-func (c *PostgresConnector) getCTIDBlockPartitions(
-	ctx context.Context,
-	tx pgx.Tx,
-	parsedWatermarkTable utils.SchemaTable,
-	numPartitions int64,
-	last *protos.QRepPartition,
-) ([]*protos.QRepPartition, error) {
-	if numPartitions <= 1 {
-		return nil, errors.New("expect numPartitions to be greater than 1")
+		partitionParams.numPartitions = computedNumPartitions
 	}
 
-	blocksQuery := "SELECT (pg_relation_size(to_regclass($1)) / current_setting('block_size')::int)::bigint"
-	var totalBlocks pgtype.Int8
-	if err := tx.QueryRow(ctx, blocksQuery, parsedWatermarkTable.String()).Scan(&totalBlocks); err != nil {
-		return nil, fmt.Errorf("failed to get relation blocks: %w", err)
-	}
-	if !totalBlocks.Valid || totalBlocks.Int64 <= 0 {
-		return nil, fmt.Errorf("total blocks: %d, valid: %t", totalBlocks.Int64, totalBlocks.Valid)
-	}
-
-	tidCmp := func(a pgtype.TID, b pgtype.TID) int {
-		if blockCmp := cmp.Compare(a.BlockNumber, b.BlockNumber); blockCmp != 0 {
-			return blockCmp
-		}
-		return cmp.Compare(a.OffsetNumber, b.OffsetNumber)
-	}
-
-	tidInc := func(t pgtype.TID) pgtype.TID {
-		if t.OffsetNumber < math.MaxUint16 {
-			return pgtype.TID{BlockNumber: t.BlockNumber, OffsetNumber: t.OffsetNumber + 1, Valid: true}
-		}
-		return pgtype.TID{BlockNumber: t.BlockNumber + 1, OffsetNumber: 0, Valid: true}
-	}
-
-	tidRangeForPartition := func(partitionIndex int64) (pgtype.TID, pgtype.TID, bool) {
-		blockStart := uint32((partitionIndex * totalBlocks.Int64) / numPartitions)
-		nextPartitionBlockStart := uint32(((partitionIndex + 1) * totalBlocks.Int64) / numPartitions)
-		if nextPartitionBlockStart <= blockStart {
-			return pgtype.TID{}, pgtype.TID{}, false
-		}
-		tidStartInclusive := pgtype.TID{BlockNumber: blockStart, OffsetNumber: 0, Valid: true}
-		tidEndInclusive := pgtype.TID{BlockNumber: nextPartitionBlockStart - 1, OffsetNumber: math.MaxUint16, Valid: true}
-		return tidStartInclusive, tidEndInclusive, true
-	}
-
-	var resumeFrom pgtype.TID
-	if last != nil && last.Range != nil {
-		if lr, ok := last.Range.Range.(*protos.PartitionRange_TidRange); ok {
-			resume := pgtype.TID{BlockNumber: lr.TidRange.End.BlockNumber, OffsetNumber: uint16(lr.TidRange.End.OffsetNumber), Valid: true}
-			resumeFrom = tidInc(resume)
+	var partitionFunc PartitioningFunc
+	if config.NumPartitionsOverride > 0 {
+		if config.WatermarkColumn == ctidColumnName {
+			partitionFunc = CTIDBlockPartitioningFunc
 		} else {
-			c.logger.Warn("Ignoring resume offset because it's not TidRange")
+			partitionFunc = MinMaxRangePartitioningFunc
 		}
+	} else {
+		partitionFunc = NTileBucketPartitioningFunc
 	}
-
-	partitionHelper := utils.NewPartitionHelper(c.logger)
-	for i := range numPartitions {
-		start, end, valid := tidRangeForPartition(i)
-		if !valid {
-			continue
-		}
-		if resumeFrom.Valid {
-			if tidCmp(end, resumeFrom) < 0 {
-				continue
-			}
-			if tidCmp(start, resumeFrom) < 0 {
-				start = resumeFrom
-			}
-		}
-		if err := partitionHelper.AddPartition(
-			pgtype.TID{BlockNumber: start.BlockNumber, OffsetNumber: start.OffsetNumber, Valid: true},
-			pgtype.TID{BlockNumber: end.BlockNumber, OffsetNumber: end.OffsetNumber, Valid: true},
-		); err != nil {
-			return nil, fmt.Errorf("failed to add TID partition: %w", err)
-		}
-	}
-	return partitionHelper.GetPartitions(), nil
+	return partitionFunc(ctx, partitionParams)
 }
 
 func (c *PostgresConnector) getMinMaxValues(

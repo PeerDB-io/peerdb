@@ -187,3 +187,15 @@ func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, err
 
 	return float64(serverStatus.OplogTruncation.OplogMinRetentionHours), nil
 }
+
+func (c *MongoConnector) GetTableSizeEstimatedBytes(ctx context.Context, fullyQualifiedTable string) (int64, error) {
+	databaseTable, err := utils.ParseSchemaTable(fullyQualifiedTable)
+	if err != nil {
+		return 0, err
+	}
+	collStats, err := peerdb_mongo.GetCollStats(ctx, c.client, databaseTable.Schema, databaseTable.Table)
+	if err != nil {
+		return 0, err
+	}
+	return collStats.Size, nil
+}

@@ -170,6 +170,23 @@ func TestPostgresMemoryAllocErrorShouldBeSlotMemalloc(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresPfreeInvalidPointerErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a Postgres pfree invalid pointer error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "pfree called with invalid pointer 0x400720764ed0 (header 0x0000400720825ae0) ",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a ClickHouse access entity not found error
 	for idx, msg := range []string{

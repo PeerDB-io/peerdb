@@ -71,8 +71,13 @@ func (p *gcsPath) Bucket() string {
 // It is used as the prefix to query objects in the bucket.
 // For example, if the path is "folder/subfolder", it returns "folder/subfolder/".
 // If the path is "folder/subfolder/", it also returns "folder/subfolder/".
+// If the path is empty or just "/", it returns an empty string.
 func (p *gcsPath) QueryPrefix() string {
-	return strings.TrimPrefix(p.Path, "/") + "/"
+	path := strings.TrimPrefix(p.Path, "/")
+	if path == "" {
+		return ""
+	}
+	return path + "/"
 }
 
 func (p *gcsPath) JoinPath(elem ...string) *gcsPath {
