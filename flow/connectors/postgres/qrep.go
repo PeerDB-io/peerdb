@@ -200,32 +200,16 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 
 	if numPartitions == 0 {
-		// Query to get the total number of rows in the table
-		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, parsedWatermarkTable.String(), whereClause)
-		var row pgx.Row
-		if lastRangeEnd != nil {
-			row = tx.QueryRow(ctx, countQuery, lastRangeEnd)
-		} else {
-			row = tx.QueryRow(ctx, countQuery)
+		computedNumPartitions, err := ComputeNumPartitions(
+			ctx, tx, parsedWatermarkTable.String(), quotedWatermarkColumn,
+			lastRangeEnd, numRowsPerPartition, c.logger,
+		)
+		if err != nil {
+			return nil, err
 		}
-
-		var totalRows pgtype.Int8
-		if err := row.Scan(&totalRows); err != nil {
-			return nil, fmt.Errorf("failed to query for total rows: %w", err)
-		}
-
-		if totalRows.Int64 == 0 {
-			c.logger.Warn("no records to replicate, returning")
+		if computedNumPartitions == 0 {
 			return nil, nil
 		}
-
-		// Calculate the number of partitions
-		adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
-		c.logger.Info("[postgres] partition adjustment details",
-			slog.Int64("totalRows", totalRows.Int64),
-			slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
-			slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
-			slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
 
 		// Query to get partitions using window functions
 		var rows pgx.Rows
@@ -238,7 +222,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			) subquery
 			GROUP BY bucket
 			ORDER BY start`,
-				adjustedPartitions.AdjustedNumPartitions,
+				computedNumPartitions,
 				quotedWatermarkColumn,
 				parsedWatermarkTable.String(),
 			)
@@ -252,7 +236,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			) subquery
 			GROUP BY bucket
 			ORDER BY start`,
-				adjustedPartitions.AdjustedNumPartitions,
+				computedNumPartitions,
 				quotedWatermarkColumn,
 				parsedWatermarkTable.String(),
 			)
@@ -314,6 +298,49 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		}
 		return partitionHelper.GetPartitions(), nil
 	}
+}
+
+// ComputeNumPartitions computes the number of partitions given desired number of rows
+// per partition, with automatic adjustment to respect the maximum partition limit.
+// TODO: use estimated row count instead to speed up query execution on large tables
+func ComputeNumPartitions(
+	ctx context.Context,
+	tx pgx.Tx,
+	watermarkTable string,
+	watermarkColumn string,
+	lastRangeEnd any,
+	numRowsPerPartition int64,
+	logger log.Logger,
+) (int64, error) {
+	const queryTemplate = "SELECT COUNT(*) FROM %s %s"
+	var whereClause string
+	var queryArgs []any
+	if lastRangeEnd != nil {
+		whereClause = fmt.Sprintf("WHERE %s > $1", watermarkColumn)
+		queryArgs = []any{lastRangeEnd}
+	}
+
+	countQuery := fmt.Sprintf(queryTemplate, watermarkTable, whereClause)
+	logger.Info("fetch row count", slog.String("query", countQuery))
+
+	var totalRows pgtype.Int8
+	if err := tx.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows); err != nil {
+		return 0, fmt.Errorf("failed to query for total rows: %w", err)
+	}
+
+	if totalRows.Int64 == 0 {
+		logger.Warn("no records to replicate, returning")
+		return 0, nil
+	}
+
+	adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
+	logger.Info("[postgres] partition adjustment details",
+		slog.Int64("totalRows", totalRows.Int64),
+		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+		slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
+
+	return adjustedPartitions.AdjustedNumPartitions, nil
 }
 
 func (c *PostgresConnector) getCTIDBlockPartitions(
