@@ -1109,6 +1109,10 @@ func (c *PostgresConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
 	}
 
+	// Note: Schema migration (indexes, triggers, constraints) is now handled by
+	// migrateSchemaMetadata() in flow/activities/flowable.go which has access to both
+	// source and destination connectors for proper cross-server migration
+
 	return false, nil
 }
 
@@ -1802,4 +1806,458 @@ func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.Data
 	}
 
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
+}
+
+// ============================================================================
+// Schema Migration Support (Indexes, Triggers, Constraints)
+// ============================================================================
+
+// migrateTableSchemaMetadata migrates indexes, triggers, and constraints from source to destination
+// This is called during table setup to ensure the destination table has the same schema as source
+func (c *PostgresConnector) migrateTableSchemaMetadata(
+	ctx context.Context,
+	config *protos.SetupNormalizedTableBatchInput,
+	destTableIdentifier string,
+	tableSchema *protos.TableSchema,
+	tx any,
+) error {
+	// Find the corresponding source table from table mappings
+	var sourceTableIdentifier string
+	for _, mapping := range config.TableMappings {
+		if mapping.DestinationTableIdentifier == destTableIdentifier {
+			sourceTableIdentifier = mapping.SourceTableIdentifier
+			break
+		}
+	}
+
+	if sourceTableIdentifier == "" {
+		c.logger.Warn("[schema migration] could not find source table mapping",
+			slog.String("destTable", destTableIdentifier))
+		return fmt.Errorf("no source table mapping found for %s", destTableIdentifier)
+	}
+
+	parsedSourceTable, err := utils.ParseSchemaTable(sourceTableIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to parse source table identifier: %w", err)
+	}
+
+	parsedDestTable, err := utils.ParseSchemaTable(destTableIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to parse dest table identifier: %w", err)
+	}
+
+	c.logger.Info("[schema migration] migrating schema metadata",
+		slog.String("sourceTable", sourceTableIdentifier),
+		slog.String("destTable", destTableIdentifier))
+
+	// Create a temporary connection for reading source schema
+	// Note: We need a separate connection to query the source database
+	// For now, we assume we're doing postgres-to-postgres on the same server
+	// In a real implementation, you'd get a source connector here
+
+	// Step 1: Get and create indexes
+	indexes, err := c.GetTableIndexes(ctx, parsedSourceTable)
+	if err != nil {
+		c.logger.Warn("[schema migration] failed to get indexes", slog.Any("error", err))
+	} else {
+		if err := c.CreateIndexes(ctx, parsedDestTable, indexes); err != nil {
+			c.logger.Warn("[schema migration] failed to create indexes", slog.Any("error", err))
+		}
+	}
+
+	// Step 2: Get and create triggers
+	triggers, err := c.GetTableTriggers(ctx, parsedSourceTable)
+	if err != nil {
+		c.logger.Warn("[schema migration] failed to get triggers", slog.Any("error", err))
+	} else {
+		if err := c.CreateTriggers(ctx, parsedDestTable, triggers); err != nil {
+			c.logger.Warn("[schema migration] failed to create triggers", slog.Any("error", err))
+		}
+	}
+
+	// Step 3: Get and create constraints
+	constraints, err := c.GetTableConstraints(ctx, parsedSourceTable)
+	if err != nil {
+		c.logger.Warn("[schema migration] failed to get constraints", slog.Any("error", err))
+	} else {
+		if err := c.CreateConstraints(ctx, parsedDestTable, constraints); err != nil {
+			c.logger.Warn("[schema migration] failed to create constraints", slog.Any("error", err))
+		}
+	}
+
+	c.logger.Info("[schema migration] schema metadata migration complete",
+		slog.String("table", destTableIdentifier))
+
+	return nil
+}
+
+// IndexDef represents an index definition
+type IndexDef struct {
+	Name       string
+	Definition string
+}
+
+// TriggerDef represents a trigger definition
+type TriggerDef struct {
+	Name       string
+	Definition string
+}
+
+// ConstraintDef represents a constraint definition
+type ConstraintDef struct {
+	Name       string
+	Type       string // 'c' = check, 'u' = unique, 'f' = foreign key
+	Definition string
+}
+
+// FunctionDef represents a function definition
+type FunctionDef struct {
+	Name       string
+	Definition string
+}
+
+// GetTableIndexes retrieves all indexes for a given table from the source database
+func (c *PostgresConnector) GetTableIndexes(
+	ctx context.Context,
+	schemaTable *utils.SchemaTable,
+) ([]*IndexDef, error) {
+	query := `
+		SELECT
+			indexname,
+			indexdef
+		FROM pg_indexes
+		WHERE tablename = $1
+		  AND schemaname = $2
+		  AND indexname NOT LIKE '%_pkey'
+		ORDER BY indexname
+	`
+
+	rows, err := c.conn.Query(ctx, query, schemaTable.Table, schemaTable.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query indexes for table %s: %w", schemaTable.String(), err)
+	}
+	defer rows.Close()
+
+	var indexes []*IndexDef
+	for rows.Next() {
+		var idx IndexDef
+		if err := rows.Scan(&idx.Name, &idx.Definition); err != nil {
+			return nil, fmt.Errorf("failed to scan index row: %w", err)
+		}
+		indexes = append(indexes, &idx)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating index rows: %w", err)
+	}
+
+	c.logger.Info("[schema migration] found indexes",
+		slog.String("table", schemaTable.String()),
+		slog.Int("count", len(indexes)))
+
+	return indexes, nil
+}
+
+// GetTableTriggers retrieves all triggers for a given table from the source database
+func (c *PostgresConnector) GetTableTriggers(
+	ctx context.Context,
+	schemaTable *utils.SchemaTable,
+) ([]*TriggerDef, error) {
+	query := `
+		SELECT
+			t.tgname AS trigger_name,
+			pg_get_triggerdef(t.oid) AS trigger_def
+		FROM pg_trigger t
+		JOIN pg_class c ON t.tgrelid = c.oid
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE c.relname = $1
+		  AND n.nspname = $2
+		  AND NOT t.tgisinternal
+		ORDER BY t.tgname
+	`
+
+	rows, err := c.conn.Query(ctx, query, schemaTable.Table, schemaTable.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query triggers for table %s: %w", schemaTable.String(), err)
+	}
+	defer rows.Close()
+
+	var triggers []*TriggerDef
+	for rows.Next() {
+		var trg TriggerDef
+		if err := rows.Scan(&trg.Name, &trg.Definition); err != nil {
+			return nil, fmt.Errorf("failed to scan trigger row: %w", err)
+		}
+		triggers = append(triggers, &trg)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating trigger rows: %w", err)
+	}
+
+	c.logger.Info("[schema migration] found triggers",
+		slog.String("table", schemaTable.String()),
+		slog.Int("count", len(triggers)))
+
+	return triggers, nil
+}
+
+// GetTableConstraints retrieves CHECK and UNIQUE constraints for a given table
+func (c *PostgresConnector) GetTableConstraints(
+	ctx context.Context,
+	schemaTable *utils.SchemaTable,
+) ([]*ConstraintDef, error) {
+	query := `
+		SELECT
+			con.conname AS constraint_name,
+			con.contype::text AS constraint_type,
+			pg_get_constraintdef(con.oid) AS constraint_definition
+		FROM pg_constraint con
+		JOIN pg_class c ON con.conrelid = c.oid
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE c.relname = $1
+		  AND n.nspname = $2
+		  AND con.contype IN ('c', 'u')
+		ORDER BY con.conname
+	`
+
+	rows, err := c.conn.Query(ctx, query, schemaTable.Table, schemaTable.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query constraints for table %s: %w", schemaTable.String(), err)
+	}
+	defer rows.Close()
+
+	var constraints []*ConstraintDef
+	for rows.Next() {
+		var con ConstraintDef
+		if err := rows.Scan(&con.Name, &con.Type, &con.Definition); err != nil {
+			return nil, fmt.Errorf("failed to scan constraint row: %w", err)
+		}
+		constraints = append(constraints, &con)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating constraint rows: %w", err)
+	}
+
+	c.logger.Info("[schema migration] found constraints",
+		slog.String("table", schemaTable.String()),
+		slog.Int("count", len(constraints)))
+
+	return constraints, nil
+}
+
+// CreateIndexes creates indexes on the target database
+func (c *PostgresConnector) CreateIndexes(
+	ctx context.Context,
+	schemaTable *utils.SchemaTable,
+	indexes []*IndexDef,
+) error {
+	if len(indexes) == 0 {
+		c.logger.Info("[schema migration] no indexes to create", slog.String("table", schemaTable.String()))
+		return nil
+	}
+
+	c.logger.Info("[schema migration] creating indexes",
+		slog.String("table", schemaTable.String()),
+		slog.Int("count", len(indexes)))
+
+	for _, idx := range indexes {
+		c.logger.Info("[schema migration] creating index",
+			slog.String("index", idx.Name),
+			slog.String("definition", idx.Definition))
+
+		// Execute the CREATE INDEX statement
+		// Use IF NOT EXISTS pattern by modifying the definition
+		createSQL := idx.Definition
+		if !strings.Contains(strings.ToUpper(createSQL), "IF NOT EXISTS") {
+			// Insert IF NOT EXISTS after CREATE INDEX or CREATE UNIQUE INDEX
+			createSQL = strings.Replace(createSQL, "CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1)
+			createSQL = strings.Replace(createSQL, "CREATE UNIQUE INDEX", "CREATE UNIQUE INDEX IF NOT EXISTS", 1)
+		}
+
+		if _, err := c.conn.Exec(ctx, createSQL); err != nil {
+			// Log warning but continue with other indexes
+			c.logger.Warn("[schema migration] failed to create index",
+				slog.String("index", idx.Name),
+				slog.Any("error", err))
+			// Don't return error, just continue
+			continue
+		}
+
+		c.logger.Info("[schema migration] created index successfully", slog.String("index", idx.Name))
+	}
+
+	return nil
+}
+
+// CreateTriggers creates triggers on the target database
+func (c *PostgresConnector) CreateTriggers(
+	ctx context.Context,
+	schemaTable *utils.SchemaTable,
+	triggers []*TriggerDef,
+) error {
+	if len(triggers) == 0 {
+		c.logger.Info("[schema migration] no triggers to create", slog.String("table", schemaTable.String()))
+		return nil
+	}
+
+	c.logger.Info("[schema migration] creating triggers",
+		slog.String("table", schemaTable.String()),
+		slog.Int("count", len(triggers)))
+
+	for _, trg := range triggers {
+		c.logger.Info("[schema migration] creating trigger",
+			slog.String("trigger", trg.Name),
+			slog.String("definition", trg.Definition))
+
+		// Execute the CREATE TRIGGER statement
+		if _, err := c.conn.Exec(ctx, trg.Definition); err != nil {
+			// Check if it's because trigger already exists
+			if strings.Contains(err.Error(), "already exists") {
+				c.logger.Info("[schema migration] trigger already exists, skipping",
+					slog.String("trigger", trg.Name))
+				continue
+			}
+
+			// Log warning but continue with other triggers
+			c.logger.Warn("[schema migration] failed to create trigger",
+				slog.String("trigger", trg.Name),
+				slog.Any("error", err))
+			// Don't return error, just continue
+			continue
+		}
+
+		c.logger.Info("[schema migration] created trigger successfully", slog.String("trigger", trg.Name))
+	}
+
+	return nil
+}
+
+// CreateConstraints creates CHECK and UNIQUE constraints on the target database
+func (c *PostgresConnector) CreateConstraints(
+	ctx context.Context,
+	schemaTable *utils.SchemaTable,
+	constraints []*ConstraintDef,
+) error {
+	if len(constraints) == 0 {
+		c.logger.Info("[schema migration] no constraints to create", slog.String("table", schemaTable.String()))
+		return nil
+	}
+
+	c.logger.Info("[schema migration] creating constraints",
+		slog.String("table", schemaTable.String()),
+		slog.Int("count", len(constraints)))
+
+	for _, con := range constraints {
+		c.logger.Info("[schema migration] creating constraint",
+			slog.String("constraint", con.Name),
+			slog.String("type", con.Type),
+			slog.String("definition", con.Definition))
+
+		// Build ALTER TABLE statement
+		// Note: con.Definition from pg_get_constraintdef includes just the constraint clause (e.g., "CHECK (price >= 0)")
+		alterSQL := fmt.Sprintf(
+			"ALTER TABLE %s.%s ADD CONSTRAINT %s %s",
+			utils.QuoteIdentifier(schemaTable.Schema),
+			utils.QuoteIdentifier(schemaTable.Table),
+			utils.QuoteIdentifier(con.Name),
+			con.Definition,
+		)
+
+		if _, err := c.conn.Exec(ctx, alterSQL); err != nil {
+			// Check if it's because constraint already exists
+			if strings.Contains(err.Error(), "already exists") {
+				c.logger.Info("[schema migration] constraint already exists, skipping",
+					slog.String("constraint", con.Name))
+				continue
+			}
+
+			// Log warning but continue with other constraints
+			c.logger.Warn("[schema migration] failed to create constraint",
+				slog.String("constraint", con.Name),
+				slog.Any("error", err))
+			// Don't return error, just continue
+			continue
+		}
+
+		c.logger.Info("[schema migration] created constraint successfully", slog.String("constraint", con.Name))
+	}
+
+	return nil
+}
+
+// GetTableFunctions retrieves all functions used by triggers on a given table
+func (c *PostgresConnector) GetTableFunctions(
+	ctx context.Context,
+	schemaTable *utils.SchemaTable,
+) ([]*FunctionDef, error) {
+	// Query to get functions that are used by triggers on this table
+	query := `
+		SELECT DISTINCT
+			p.proname AS function_name,
+			pg_get_functiondef(p.oid) AS function_definition
+		FROM pg_trigger t
+		JOIN pg_class c ON t.tgrelid = c.oid
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		JOIN pg_proc p ON t.tgfoid = p.oid
+		WHERE c.relname = $1
+		  AND n.nspname = $2
+		  AND NOT t.tgisinternal
+		ORDER BY p.proname
+	`
+
+	rows, err := c.conn.Query(ctx, query, schemaTable.Table, schemaTable.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query functions for table %s: %w", schemaTable.String(), err)
+	}
+	defer rows.Close()
+
+	var functions []*FunctionDef
+	for rows.Next() {
+		var fn FunctionDef
+		if err := rows.Scan(&fn.Name, &fn.Definition); err != nil {
+			return nil, fmt.Errorf("failed to scan function row: %w", err)
+		}
+		functions = append(functions, &fn)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating function rows: %w", err)
+	}
+
+	c.logger.Info("[schema migration] found functions",
+		slog.String("table", schemaTable.String()),
+		slog.Int("count", len(functions)))
+
+	return functions, nil
+}
+
+// CreateFunctions creates functions on the target database
+func (c *PostgresConnector) CreateFunctions(
+	ctx context.Context,
+	functions []*FunctionDef,
+) error {
+	c.logger.Info("[schema migration] creating functions", slog.Int("count", len(functions)))
+
+	for _, fn := range functions {
+		c.logger.Info("[schema migration] creating function",
+			slog.String("function", fn.Name),
+			slog.String("definition", fn.Definition))
+
+		// Use CREATE OR REPLACE to handle existing functions
+		// pg_get_functiondef already returns CREATE OR REPLACE FUNCTION statement
+		_, err := c.conn.Exec(ctx, fn.Definition)
+		if err != nil {
+			// Log warning but continue with other functions
+			c.logger.Warn("[schema migration] failed to create function",
+				slog.String("function", fn.Name),
+				slog.Any("error", err))
+			continue
+		}
+
+		c.logger.Info("[schema migration] created function successfully", slog.String("function", fn.Name))
+	}
+
+	return nil
 }

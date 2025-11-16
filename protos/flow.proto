@@ -262,6 +262,7 @@ message SetupNormalizedTableBatchInput {
   string flow_name = 6;
   string peer_name = 7;
   bool is_resync = 8;
+  string source_name = 9;  // Source peer name for schema migration
 }
 
 message SetupNormalizedTableOutput {

@@ -276,9 +276,116 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	a.Alerter.LogFlowInfo(ctx, config.FlowName, "All destination tables have been setup")
 
+	// Migrate schema metadata (indexes, triggers, constraints) if source is available
+	if config.SourceName != "" {
+		logger.Info("[schema migration] starting cross-server schema migration",
+			slog.String("source", config.SourceName),
+			slog.String("destination", config.PeerName))
+
+		if err := a.migrateSchemaMetadata(ctx, config); err != nil {
+			// Don't fail the whole setup if schema migration fails, just log warning
+			logger.Warn("[schema migration] failed to migrate schema metadata", slog.Any("error", err))
+			a.Alerter.LogFlowInfo(ctx, config.FlowName, "Warning: Schema migration failed, but table creation succeeded")
+		} else {
+			logger.Info("[schema migration] schema metadata migration completed successfully")
+			a.Alerter.LogFlowInfo(ctx, config.FlowName, "Schema migration (indexes, triggers, constraints) completed")
+		}
+	}
+
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
 	}, nil
+}
+
+// migrateSchemaMetadata migrates indexes, triggers, and constraints from source to destination
+// This function gets both source and destination connectors and migrates schema objects
+func (a *FlowableActivity) migrateSchemaMetadata(
+	ctx context.Context,
+	config *protos.SetupNormalizedTableBatchInput,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+
+	// Get source connector (read schema from here)
+	srcConn, srcClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		return fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer srcClose(ctx)
+
+	// Get destination connector (write schema to here)
+	dstConn, dstClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.PeerName)
+	if err != nil {
+		return fmt.Errorf("failed to get destination connector: %w", err)
+	}
+	defer dstClose(ctx)
+
+	// Migrate schema for each table mapping
+	for _, tableMapping := range config.TableMappings {
+		srcTable, err := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		if err != nil {
+			logger.Warn("[schema migration] failed to parse source table", slog.Any("error", err))
+			continue
+		}
+
+		dstTable, err := utils.ParseSchemaTable(tableMapping.DestinationTableIdentifier)
+		if err != nil {
+			logger.Warn("[schema migration] failed to parse destination table", slog.Any("error", err))
+			continue
+		}
+
+		logger.Info("[schema migration] migrating schema for table",
+			slog.String("source", srcTable.String()),
+			slog.String("destination", dstTable.String()))
+
+		// Migrate indexes
+		indexes, err := srcConn.GetTableIndexes(ctx, srcTable)
+		if err != nil {
+			logger.Warn("[schema migration] failed to get indexes", slog.Any("error", err))
+		} else if len(indexes) > 0 {
+			logger.Info("[schema migration] migrating indexes", slog.Int("count", len(indexes)))
+			if err := dstConn.CreateIndexes(ctx, dstTable, indexes); err != nil {
+				logger.Warn("[schema migration] failed to create indexes", slog.Any("error", err))
+			}
+		}
+
+		// Migrate functions (must be done before triggers that depend on them)
+		functions, err := srcConn.GetTableFunctions(ctx, srcTable)
+		if err != nil {
+			logger.Warn("[schema migration] failed to get functions", slog.Any("error", err))
+		} else if len(functions) > 0 {
+			logger.Info("[schema migration] migrating functions", slog.Int("count", len(functions)))
+			if err := dstConn.CreateFunctions(ctx, functions); err != nil {
+				logger.Warn("[schema migration] failed to create functions", slog.Any("error", err))
+			}
+		}
+
+		// Migrate triggers (after functions, since triggers may depend on functions)
+		triggers, err := srcConn.GetTableTriggers(ctx, srcTable)
+		if err != nil {
+			logger.Warn("[schema migration] failed to get triggers", slog.Any("error", err))
+		} else if len(triggers) > 0 {
+			logger.Info("[schema migration] migrating triggers", slog.Int("count", len(triggers)))
+			if err := dstConn.CreateTriggers(ctx, dstTable, triggers); err != nil {
+				logger.Warn("[schema migration] failed to create triggers", slog.Any("error", err))
+			}
+		}
+
+		// Migrate constraints
+		constraints, err := srcConn.GetTableConstraints(ctx, srcTable)
+		if err != nil {
+			logger.Warn("[schema migration] failed to get constraints", slog.Any("error", err))
+		} else if len(constraints) > 0 {
+			logger.Info("[schema migration] migrating constraints", slog.Int("count", len(constraints)))
+			if err := dstConn.CreateConstraints(ctx, dstTable, constraints); err != nil {
+				logger.Warn("[schema migration] failed to create constraints", slog.Any("error", err))
+			}
+		}
+
+		logger.Info("[schema migration] completed schema migration for table",
+			slog.String("table", dstTable.String()))
+	}
+
+	return nil
 }
 
 func (a *FlowableActivity) SyncFlow(

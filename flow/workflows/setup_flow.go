@@ -207,6 +207,7 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	s.Info("setting up normalized tables on destination peer", slog.String("destination", flowConnectionConfigs.DestinationName))
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
 		PeerName:          flowConnectionConfigs.DestinationName,
+		SourceName:        flowConnectionConfigs.SourceName,  // Add source for schema migration
 		TableMappings:     flowConnectionConfigs.TableMappings,
 		SoftDeleteColName: flowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:   flowConnectionConfigs.SyncedAtColName,
