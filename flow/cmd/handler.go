@@ -138,7 +138,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 ) (*protos.CreateCDCFlowResponse, APIError) {
 	cfg := req.ConnectionConfigs
 	if cfg == nil {
-		// todo(@iamKunalGupta): add a panic recovery handler with metric and alert for it
 		return nil, NewInvalidArgumentApiError(errors.New("connection configs cannot be nil"))
 	}
 	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env)
