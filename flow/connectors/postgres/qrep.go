@@ -216,61 +216,9 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			return nil, nil
 		}
 
-		// Query to get partitions using window functions
-		var rows pgx.Rows
-		if lastRangeEnd != nil {
-			partitionsQuery := fmt.Sprintf(
-				`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
-				FROM %[3]s WHERE %[2]s > $1
-			) subquery
-			GROUP BY bucket
-			ORDER BY start`,
-				computedNumPartitions,
-				quotedWatermarkColumn,
-				parsedWatermarkTable.String(),
-			)
-			c.logger.Info("[row_based_next] partitions query", slog.String("query", partitionsQuery))
-			rows, err = tx.Query(ctx, partitionsQuery, lastRangeEnd)
-		} else {
-			partitionsQuery := fmt.Sprintf(
-				`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
-			) subquery
-			GROUP BY bucket
-			ORDER BY start`,
-				computedNumPartitions,
-				quotedWatermarkColumn,
-				parsedWatermarkTable.String(),
-			)
-			c.logger.Info("[row_based] partitions query", slog.String("query", partitionsQuery))
-			rows, err = tx.Query(ctx, partitionsQuery)
-		}
-		if err != nil {
-			return nil, shared.LogError(c.logger, fmt.Errorf("failed to query for partitions: %w", err))
-		}
-		defer rows.Close()
-
-		partitionHelper := utils.NewPartitionHelper(c.logger)
-		for rows.Next() {
-			var bucket pgtype.Int8
-			var start, end any
-			if err := rows.Scan(&bucket, &start, &end); err != nil {
-				return nil, fmt.Errorf("failed to scan row: %w", err)
-			}
-
-			if err := partitionHelper.AddPartition(start, end); err != nil {
-				return nil, fmt.Errorf("failed to add partition: %w", err)
-			}
-		}
-
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("failed to read rows: %w", err)
-		}
-
-		return partitionHelper.GetPartitions(), nil
+		// Use NTILE window function to create partitions
+		partitionParams.numPartitions = computedNumPartitions
+		return NTileBucketPartitioningFunc(ctx, partitionParams)
 	} else {
 		// Special handling for CTID watermark column when a fixed number of partitions is specified:
 		// Partitions are created by dividing table blocks uniformly.
@@ -352,6 +300,53 @@ func ComputeNumPartitions(
 		slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
 
 	return adjustedPartitions.AdjustedNumPartitions, nil
+}
+
+// NTileBucketPartitioningFunc partitions a table into approximately equal-sized
+// partitions based on row count. It uses the NTILE window function to assign
+// rows to buckets, ensuring more balanced row distribution across partitions.
+func NTileBucketPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
+	const queryTemplate = `SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
+		FROM (
+			SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s %[4]s
+		) subquery
+		GROUP BY bucket
+		ORDER BY start`
+
+	var whereClause string
+	var queryArgs []any
+	if pp.lastRangeEnd != nil {
+		whereClause = fmt.Sprintf("WHERE %s > $1", pp.watermarkColumn)
+		queryArgs = []any{pp.lastRangeEnd}
+	}
+
+	partitionsQuery := fmt.Sprintf(queryTemplate, pp.numPartitions, pp.watermarkColumn, pp.watermarkTable, whereClause)
+	pp.logger.Info("[NTileBucketPartitioning] partitions query", slog.String("query", partitionsQuery))
+
+	rows, err := pp.tx.Query(ctx, partitionsQuery, queryArgs...)
+	if err != nil {
+		return nil, shared.LogError(pp.logger, fmt.Errorf("failed to query for partitions: %w", err))
+	}
+	defer rows.Close()
+
+	partitionHelper := utils.NewPartitionHelper(pp.logger)
+	for rows.Next() {
+		var bucket pgtype.Int8
+		var start, end any
+		if err := rows.Scan(&bucket, &start, &end); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		if err := partitionHelper.AddPartition(start, end); err != nil {
+			return nil, fmt.Errorf("failed to add partition: %w", err)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read rows: %w", err)
+	}
+
+	return partitionHelper.GetPartitions(), nil
 }
 
 func (c *PostgresConnector) getCTIDBlockPartitions(
