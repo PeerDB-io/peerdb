@@ -881,6 +881,7 @@ func processMessage[Items model.Items](
 			slog.Any("CommitLSN", msg.CommitLSN),
 			slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
+		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
 		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
