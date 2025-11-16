@@ -701,7 +701,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		switch chproto.Error(chException.Code) {
 		case chproto.ErrUnknownTable,
 			chproto.ErrNoSuchColumnInTable,
-			// Too large string for FixedString column: (at row 10195)
+			// "Too large string for FixedString column: (at row 10195)"
 			// The only one created by us is FixedString(1) for PG QChar so assuming the user did it for a string and it didn't work
 			chproto.ErrTooLargeStringSize:
 			if isClickHouseMvError(chException) {
