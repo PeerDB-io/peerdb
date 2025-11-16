@@ -5,7 +5,6 @@ import (
 )
 
 type MySQLIncompatibleColumnTypeError struct {
-	error
 	TableName  string
 	ColumnName string
 	dataType   string
@@ -31,13 +30,15 @@ func (e *MySQLIncompatibleColumnTypeError) Error() string {
 }
 
 type MySQLUnsupportedBinlogRowMetadataError struct {
-	error
+	SchemaName string
+	TableName  string
 }
 
-func NewMySQLUnsupportedBinlogRowMetadataError() *MySQLUnsupportedBinlogRowMetadataError {
-	return &MySQLUnsupportedBinlogRowMetadataError{}
+func NewMySQLUnsupportedBinlogRowMetadataError(schema string, table string) *MySQLUnsupportedBinlogRowMetadataError {
+	return &MySQLUnsupportedBinlogRowMetadataError{SchemaName: schema, TableName: table}
 }
 
 func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
-	return fmt.Sprintf("Detected binlog_row_metadata change from FULL to MINIMAL")
+	return fmt.Sprintf("Detected binlog_row_metadata change from FULL to MINIMAL while processing %s.%s",
+		e.SchemaName, e.TableName)
 }

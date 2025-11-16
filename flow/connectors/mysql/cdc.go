@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/pingcap/tidb/pkg/parser"
@@ -29,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -489,8 +489,10 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.RowsEvent:
-			if len(ev.Table.ColumnName) == 0 {
-				return exceptions.NewMySQLUnsupportedBinlogRowMetadataError()
+			if len(ev.Table.ColumnName) == 0 && len(ev.Table.ColumnType) > 0 {
+				e := exceptions.NewMySQLUnsupportedBinlogRowMetadataError(string(ev.Table.Schema), string(ev.Table.Table))
+				c.logger.Error(e.Error())
+				return e
 			}
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name

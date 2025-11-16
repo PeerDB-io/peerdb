@@ -82,33 +82,16 @@ func TestErrorMethodsShouldHavePointerReceivers(t *testing.T) {
 	for _, file := range pkg.Syntax {
 		ast.Inspect(file, func(n ast.Node) bool {
 			if fn, ok := n.(*ast.FuncDecl); ok {
+				// Look for receiver methods
 				if fn.Recv != nil && len(fn.Recv.List) > 0 {
 					recvType := fn.Recv.List[0].Type
-
-					// Extract the receiver type name (handling both pointer and value receivers)
-					var typeName string
-					var isPointer bool
-
-					switch recv := recvType.(type) {
-					case *ast.StarExpr:
-						// Pointer receiver: *SomeError
-						isPointer = true
-						if ident, ok := recv.X.(*ast.Ident); ok {
-							typeName = ident.Name
-						}
-					case *ast.Ident:
-						// Value receiver: SomeError
-						isPointer = false
-						typeName = recv.Name
-					}
-
-					// If this is an Error type and uses a value receiver, fail
-					if typeName != "" && errorTypes[typeName] && !isPointer {
+					// Fail if found value receivers in error types
+					if recv, ok := recvType.(*ast.Ident); ok && errorTypes[recv.Name] {
 						pos := pkg.Fset.Position(fn.Pos())
 						assert.Fail(
 							t, "Error() method should have pointer receiver",
 							"%s: func (%s) Error() should be func (*%s) Error()",
-							pos.Filename, typeName, typeName)
+							pos.Filename, recv.Name, recv.Name)
 					}
 				}
 			}
