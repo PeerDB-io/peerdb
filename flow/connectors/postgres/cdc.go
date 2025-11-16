@@ -797,6 +797,22 @@ func PullCdcRecords[Items model.Items](
 								tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
 							records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 						}
+						schemaMigrationEnabled, err := internal.PeerDBPostgresCDCMigrationEnabled(ctx, req.Env)
+						if err != nil {
+							return fmt.Errorf("error checking if schema migration is enabled: %w", err)
+						}
+						if schemaMigrationEnabled {
+							if len(tableSchemaDelta.DroppedColumns) > 0 {
+								logger.Info(fmt.Sprintf("Detected schema change for table %s, droppedColumns: %v",
+									tableSchemaDelta.SrcTableName, tableSchemaDelta.DroppedColumns))
+								records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+							}
+							if len(tableSchemaDelta.AlteredColumns) > 0 {
+								logger.Info(fmt.Sprintf("Detected schema change for table %s, alteredColumns: %v",
+									tableSchemaDelta.SrcTableName, tableSchemaDelta.AlteredColumns))
+								records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+							}
+						}
 
 					case *model.MessageRecord[Items]:
 						// if cdc store empty, we can move lsn,
@@ -1141,6 +1157,8 @@ func processRelationMessage[Items model.Items](
 		AddedColumns:    nil,
 		System:          prevSchema.System,
 		NullableEnabled: prevSchema.NullableEnabled,
+		DroppedColumns:  nil,
+		AlteredColumns:  nil,
 	}
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
@@ -1171,15 +1189,27 @@ func processRelationMessage[Items model.Items](
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
-			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
-				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
+			p.logger.Info("Detected altered column",
+				slog.String("columnName", column.Name),
+				slog.String("oldType", prevRelMap[column.Name]),
+				slog.String("newType", currRelMap[column.Name]),
+				slog.String("relationName", schemaDelta.SrcTableName))
+
+			schemaDelta.AlteredColumns = append(schemaDelta.AlteredColumns, &protos.FieldDescription{
+				Name:         column.Name,
+				Type:         currRelMap[column.Name],
+				TypeModifier: column.TypeModifier,
+			})
 		}
 	}
 	for _, column := range prevSchema.Columns {
 		// present in previous relation message, but not in current one, so dropped.
 		if _, ok := currRelMap[column.Name]; !ok {
-			p.logger.Warn(fmt.Sprintf("Detected dropped column %s in table %s, but not propagating", column,
-				schemaDelta.SrcTableName))
+			p.logger.Info("Detected dropped column",
+				slog.String("columnName", column.Name),
+				slog.String("relationName", schemaDelta.SrcTableName))
+
+			schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, column.Name)
 		}
 	}
 	if len(potentiallyNullableAddedColumns) > 0 {
@@ -1214,7 +1244,10 @@ func processRelationMessage[Items model.Items](
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
-	if len(schemaDelta.AddedColumns) > 0 {
+	hasDelta := len(schemaDelta.AddedColumns) > 0 ||
+		len(schemaDelta.DroppedColumns) > 0 ||
+		len(schemaDelta.AlteredColumns) > 0
+	if hasDelta {
 		return &model.RelationRecord[Items]{
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,

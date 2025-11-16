@@ -1134,7 +1134,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	defer shared.RollbackTx(tableSchemaModifyTx, c.logger)
 
 	for _, schemaDelta := range schemaDeltas {
-		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+		if schemaDelta == nil {
 			continue
 		}
 
@@ -1161,6 +1161,51 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s",
 				addedColumn.Name, addedColumn.Type),
 				slog.String("srcTableName", schemaDelta.SrcTableName),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
+		}
+
+		for _, droppedColumn := range schemaDelta.DroppedColumns {
+			dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+			if err != nil {
+				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+			}
+			_, err = c.execWithLoggingTx(ctx, fmt.Sprintf(
+				"ALTER TABLE %s.%s DROP COLUMN IF EXISTS %s",
+				utils.QuoteIdentifier(dstSchemaTable.Schema),
+				utils.QuoteIdentifier(dstSchemaTable.Table),
+				utils.QuoteIdentifier(droppedColumn)), tableSchemaModifyTx)
+
+			c.logger.Info("[schema delta replay] dropped column",
+				slog.String("columnName", droppedColumn),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
+		}
+
+		for _, alteredColumn := range schemaDelta.AlteredColumns {
+			columnType := alteredColumn.Type
+			if schemaDelta.System == protos.TypeSystem_Q {
+				columnType = qValueKindToPostgresType(columnType)
+			}
+
+			dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+			if err != nil {
+				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+			}
+
+			quotedColumnName := utils.QuoteIdentifier(alteredColumn.Name)
+			stmt := fmt.Sprintf("ALTER TABLE %s.%s ALTER COLUMN %s TYPE %s USING %s::%s",
+				utils.QuoteIdentifier(dstSchemaTable.Schema),
+				utils.QuoteIdentifier(dstSchemaTable.Table),
+				quotedColumnName, columnType, quotedColumnName, columnType)
+
+			_, err = c.execWithLoggingTx(ctx, stmt, tableSchemaModifyTx)
+			if err != nil {
+				return fmt.Errorf("failed to alter column %s for table %s: %w", alteredColumn.Name, schemaDelta.DstTableName, err)
+			}
+			c.logger.Info("[schema delta replay] altered column",
+				slog.String("columnName", alteredColumn.Name),
+				slog.String("newType", columnType),
 				slog.String("dstTableName", schemaDelta.DstTableName),
 			)
 		}

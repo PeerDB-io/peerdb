@@ -92,6 +92,82 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}, output[tableName])
 }
 
+func (s PostgresSchemaDeltaTestSuite) TestSimpleAlterColumn() {
+	tableName := s.schema + ".simple_alter_column"
+	_, err := s.connector.conn.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY, hi INT)", tableName))
+	require.NoError(s.t, err)
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+		SrcTableName: tableName,
+		DstTableName: tableName,
+		AlteredColumns: []*protos.FieldDescription{
+			{
+				Name:         "hi",
+				Type:         string(types.QValueKindBoolean),
+				TypeModifier: -1,
+				Nullable:     true,
+			},
+		},
+	}}))
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
+	require.NoError(s.t, err)
+	require.Equal(s.t, &protos.TableSchema{
+		TableIdentifier:   tableName,
+		PrimaryKeyColumns: []string{"id"},
+		System:            protos.TypeSystem_Q,
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "id",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "hi",
+				Type:         string(types.QValueKindBoolean),
+				TypeModifier: -1,
+				Nullable:     true,
+			},
+		},
+	}, output[tableName])
+	fmt.Println("output", output)
+}
+
+func (s PostgresSchemaDeltaTestSuite) TestSimpleDropColumn() {
+	tableName := s.schema + ".simple_drop_column"
+	_, err := s.connector.conn.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY, hi INT, bye TEXT)", tableName))
+	require.NoError(s.t, err)
+
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+		SrcTableName:   tableName,
+		DstTableName:   tableName,
+		DroppedColumns: []string{"hi"},
+	}}))
+
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
+	require.NoError(s.t, err)
+	require.Equal(s.t, &protos.TableSchema{
+		TableIdentifier:   tableName,
+		PrimaryKeyColumns: []string{"id"},
+		System:            protos.TypeSystem_Q,
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "id",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "bye",
+				Type:         string(types.QValueKindString),
+				TypeModifier: -1,
+				Nullable:     true,
+			},
+		},
+	}, output[tableName])
+}
+
 func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	tableName := s.schema + ".add_drop_all_column_types"
 	_, err := s.connector.conn.Exec(s.t.Context(),

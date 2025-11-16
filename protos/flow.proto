@@ -431,6 +431,8 @@ message TableSchemaDelta {
   repeated FieldDescription added_columns = 3;
   TypeSystem system = 4;
   bool nullable_enabled = 5;
+  repeated string dropped_columns = 6;
+  repeated FieldDescription altered_columns = 7;
 }
 
 message QRepFlowState {
