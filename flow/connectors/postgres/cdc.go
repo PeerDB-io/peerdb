@@ -754,11 +754,11 @@ func PullCdcRecords[Items model.Items](
 								return err
 							}
 
-							var nonToastCount int64
+							var nonUnchangedToastCount int64
 							if recItems, ok := any(r.NewItems).(model.RecordItems); ok {
-								nonToastCount = int64(len(recItems.ColToVal))
+								nonUnchangedToastCount = int64(len(recItems.ColToVal))
 							}
-							toastCount := len(r.UnchangedToastColumns)
+							unchangedToastCount := len(r.UnchangedToastColumns)
 							var backfilledCount int
 
 							latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
@@ -775,22 +775,22 @@ func PullCdcRecords[Items model.Items](
 							}
 
 							// Report metrics
-							remainingToast := len(r.UnchangedToastColumns)
+							remainingUnchangedToast := len(r.UnchangedToastColumns)
 							toastMetricsMutex.Lock()
 							if backfilledCount > 0 {
 								toastValueMetrics[toastMetricKey{tableName, "true"}] += int64(backfilledCount)
 							}
-							if remainingToast > 0 {
-								toastValueMetrics[toastMetricKey{tableName, "false"}] += int64(remainingToast)
+							if remainingUnchangedToast > 0 {
+								toastValueMetrics[toastMetricKey{tableName, "false"}] += int64(remainingUnchangedToast)
 							}
-							if nonToastCount > 0 {
-								toastValueMetrics[toastMetricKey{tableName, "not_toast"}] += nonToastCount
+							if nonUnchangedToastCount > 0 {
+								toastValueMetrics[toastMetricKey{tableName, "not_unchanged_toast"}] += nonUnchangedToastCount
 							}
 							var backfillStatus string
 							switch {
-							case toastCount == 0:
+							case unchangedToastCount == 0:
 								backfillStatus = "no_toast"
-							case backfilledCount == toastCount:
+							case backfilledCount == unchangedToastCount:
 								backfillStatus = "fully"
 							case backfilledCount > 0:
 								backfillStatus = "partially"
