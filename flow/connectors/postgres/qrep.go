@@ -75,7 +75,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
-	partitions, err := c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
+	partitions, err := c.getPartitions(ctx, getPartitionsTx, config, last)
 
 	// commit transaction
 	if err := getPartitionsTx.Commit(ctx); err != nil {
@@ -160,15 +160,21 @@ func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.T
 	return nil
 }
 
-func (c *PostgresConnector) getNumRowsPartitions(
+func (c *PostgresConnector) getPartitions(
 	ctx context.Context,
 	tx pgx.Tx,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	numPartitions := int64(config.NumPartitionsOverride)
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
+	numPartitions := int64(config.NumPartitionsOverride)
+
+	schemaTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
+	}
+	watermarkTable := schemaTable.String()
+	watermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
 	// Extract the end value from the last partition range if it exists
 	var lastRangeEnd any
@@ -189,25 +195,17 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		}
 	}
 
-	whereClause := ""
-	if lastRangeEnd != nil {
-		whereClause = fmt.Sprintf(`WHERE %s > $1`, quotedWatermarkColumn)
+	partitionParams := PartitionParams{
+		tx:              tx,
+		watermarkTable:  watermarkTable,
+		watermarkColumn: watermarkColumn,
+		lastRangeEnd:    lastRangeEnd,
+		numPartitions:   numPartitions,
+		logger:          c.logger,
 	}
 
-	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
-	}
-
-	if numPartitions == 0 {
-		partitionParams := PartitionParams{
-			tx:              tx,
-			watermarkTable:  parsedWatermarkTable.String(),
-			watermarkColumn: quotedWatermarkColumn,
-			lastRangeEnd:    lastRangeEnd,
-			numPartitions:   numPartitions,
-			logger:          c.logger,
-		}
+	// Compute number of partitions if not specified
+	if config.NumPartitionsOverride <= 0 {
 		computedNumPartitions, err := ComputeNumPartitions(ctx, partitionParams, numRowsPerPartition)
 		if err != nil {
 			return nil, err
@@ -215,29 +213,22 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		if computedNumPartitions == 0 {
 			return nil, nil
 		}
-
-		// Use NTILE window function to create partitions
 		partitionParams.numPartitions = computedNumPartitions
-		return NTileBucketPartitioningFunc(ctx, partitionParams)
-	} else {
-		// Fixed number of partitions specified
-		partitionParams := PartitionParams{
-			tx:              tx,
-			watermarkTable:  parsedWatermarkTable.String(),
-			watermarkColumn: quotedWatermarkColumn,
-			lastRangeEnd:    lastRangeEnd,
-			numPartitions:   numPartitions,
-			logger:          c.logger,
-		}
-
-		if config.WatermarkColumn == ctidColumnName {
-			// Special handling for CTID watermark column
-			return CTIDBlockPartitioningFunc(ctx, partitionParams)
-		} else {
-			// Default: uniformly split the min/max value range
-			return MinMaxRangePartitioningFunc(ctx, partitionParams)
-		}
 	}
+
+	// Select partitioning strategy
+	var partitionFunc PartitioningFunc
+	if config.NumPartitionsOverride > 0 {
+		if config.WatermarkColumn == ctidColumnName {
+			partitionFunc = CTIDBlockPartitioningFunc
+		} else {
+			partitionFunc = MinMaxRangePartitioningFunc
+		}
+	} else {
+		partitionFunc = NTileBucketPartitioningFunc
+	}
+
+	return partitionFunc(ctx, partitionParams)
 }
 
 // PartitionParams groups parameters needed for partitioning operations
@@ -249,6 +240,9 @@ type PartitionParams struct {
 	numPartitions   int64
 	logger          log.Logger
 }
+
+// PartitioningFunc defines the interface for partitioning strategies
+type PartitioningFunc func(context.Context, PartitionParams) ([]*protos.QRepPartition, error)
 
 // ComputeNumPartitions computes the number of partitions given desired number of rows
 // per partition, with automatic adjustment to respect the maximum partition limit.
