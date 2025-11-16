@@ -68,13 +68,21 @@ func (c *PostgresConnector) GetQRepPartitions(
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	// rollback transaction will no-op if transaction is committed
 	defer shared.RollbackTx(getPartitionsTx, c.logger)
 
 	if err := c.setTransactionSnapshot(ctx, getPartitionsTx, config.SnapshotName); err != nil {
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
-	return c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
+	partitions, err := c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
+
+	// commit transaction
+	if err := getPartitionsTx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return partitions, err
 }
 
 func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
@@ -271,10 +279,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 		if err := rows.Err(); err != nil {
 			return nil, fmt.Errorf("failed to read rows: %w", err)
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			return nil, fmt.Errorf("failed to commit transaction: %w", err)
 		}
 
 		return partitionHelper.GetPartitions(), nil
