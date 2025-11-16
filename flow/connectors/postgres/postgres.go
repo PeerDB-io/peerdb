@@ -1041,9 +1041,42 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
+
+	rows.Close()
+
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
 	if replicaIdentityType == ReplicaIdentityFull && len(pKeyCols) == 0 {
 		pKeyCols = columnNames
+	}
+
+	// Fetch indexes for the table
+	indexes, err := c.getTableIndexes(ctx, schemaTable)
+	c.logger.Info("fetched indexes", slog.String("table", schemaTable.String()), slog.Any("indexes", indexes))
+	if err != nil {
+		c.logger.Warn("Failed to fetch indexes for table, continuing without indexes",
+			slog.String("table", tm.SourceTableIdentifier),
+			slog.Any("error", err))
+		indexes = nil
+	}
+
+	// Fetch functions for the table schema
+	functions, err := c.getTableFunctions(ctx, schemaTable)
+	c.logger.Info("fetched functions", slog.String("table", schemaTable.String()), slog.Any("functions", functions))
+	if err != nil {
+		c.logger.Warn("Failed to fetch functions for table, continuing without functions",
+			slog.String("table", tm.SourceTableIdentifier),
+			slog.Any("error", err))
+		functions = nil
+	}
+
+	// Fetch triggers for the table schema
+	triggers, err := c.getTableTriggers(ctx, schemaTable)
+	c.logger.Info("fetched triggers", slog.String("table", schemaTable.String()), slog.Any("triggers", triggers))
+	if err != nil {
+		c.logger.Warn("Failed to fetch triggers for table, continuing without triggers",
+			slog.String("table", tm.SourceTableIdentifier),
+			slog.Any("error", err))
+		triggers = nil
 	}
 
 	return &protos.TableSchema{
@@ -1053,6 +1086,9 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		Columns:               columns,
 		NullableEnabled:       nullableEnabled,
 		System:                system,
+		Indexes:               indexes,
+		Functions:             functions,
+		Triggers:              triggers,
 	}, nil
 }
 
@@ -1108,6 +1144,8 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
 	}
+
+	c.logger.Info("Successfully created normalized table", slog.String("table", tableIdentifier))
 
 	return false, nil
 }
