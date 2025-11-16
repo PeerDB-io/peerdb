@@ -1109,7 +1109,91 @@ func (c *PostgresConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
 	}
 
+	// Setup indexes from source table on destination table
+	if err := c.setupIndexes(ctx, config, tableIdentifier, parsedNormalizedTable, createNormalizedTablesTx); err != nil {
+		return false, err
+	}
+
 	return false, nil
+}
+
+func (c *PostgresConnector) getSourceTableIdentifier(
+	tableMappings []*protos.TableMapping,
+	destinationIdentifier string,
+) string {
+	for _, tm := range tableMappings {
+		if tm.DestinationTableIdentifier == destinationIdentifier {
+			return tm.SourceTableIdentifier
+		}
+	}
+	return ""
+}
+
+// setupIndexes creates indexes on destination table based on source table indexes during initial setup.
+func (c *PostgresConnector) setupIndexes(
+	ctx context.Context,
+	config *protos.SetupNormalizedTableBatchInput,
+	tableIdentifier string,
+	parsedNormalizedTable *utils.SchemaTable,
+	tx pgx.Tx,
+) error {
+	srcTableIdentifier := c.getSourceTableIdentifier(config.TableMappings, tableIdentifier)
+	if srcTableIdentifier == "" {
+		c.logger.Warn("[postgres] no source table mapping found for destination table",
+			slog.String("destinationTable", tableIdentifier))
+		return nil
+	}
+
+	srcSchemaTable, err := utils.ParseSchemaTable(srcTableIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to parse source table %s: %w", srcTableIdentifier, err)
+	}
+
+	// Get all indexes from source table
+	indexes, err := c.GetIndexes(ctx, srcSchemaTable)
+	if err != nil {
+		c.logger.Warn("[postgres] failed to get indexes for source table",
+			slog.String("sourceTable", srcTableIdentifier),
+			slog.Any("error", err))
+		// Don't fail the entire setup if index migration fails
+		return nil
+	}
+
+	// Filter out primary key indexes since they're already created with the table
+	var nonPrimaryIndexes []*IndexMetadata
+	for _, idx := range indexes {
+		if !idx.IsPrimary {
+			nonPrimaryIndexes = append(nonPrimaryIndexes, idx)
+		}
+	}
+
+	if len(nonPrimaryIndexes) == 0 {
+		return nil
+	}
+
+	c.logger.Info("[postgres] setting up indexes on destination table",
+		slog.String("sourceTable", srcTableIdentifier),
+		slog.String("destinationTable", tableIdentifier),
+		slog.Int("indexCount", len(nonPrimaryIndexes)))
+
+	for _, idx := range nonPrimaryIndexes {
+		// Modify index definition to use destination table name
+		indexDef := strings.ReplaceAll(idx.IndexDef, srcSchemaTable.String(), parsedNormalizedTable.String())
+
+		c.logger.Info("[postgres] creating index",
+			slog.String("index", idx.IndexName),
+			slog.String("table", tableIdentifier))
+
+		if _, err := c.execWithLoggingTx(ctx, indexDef, tx); err != nil {
+			c.logger.Warn("[postgres] failed to create index, continuing",
+				slog.String("index", idx.IndexName),
+				slog.String("table", tableIdentifier),
+				slog.Any("error", err))
+			// Don't fail if a single index fails to create
+		}
+	}
+
+	return nil
 }
 
 // replayTableSchemaDeltaCore changes a destination table to match the schema at source
