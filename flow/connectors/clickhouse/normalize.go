@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -266,9 +267,14 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			}
 		}
 
+		settings := peerdb_clickhouse.NewCHSettings(chVersion)
 		if allowNullableKey {
-			stmtBuilder.WriteString(NewCHSettingsString(chVersion, SettingAllowNullableKey, "1"))
+			settings.Add(peerdb_clickhouse.SettingAllowNullableKey, "1")
 		}
+		if internalVersion >= shared.InternalVersion_ClickHouseTime64 {
+			settings.Add(peerdb_clickhouse.SettingEnableTimeTime64Type, "1")
+		}
+		stmtBuilder.WriteString(settings.String())
 
 		if c.Config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",

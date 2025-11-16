@@ -15,7 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -58,14 +58,14 @@ func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, a
 
 	var expr strings.Builder
 	expr.WriteString("s3(")
-	expr.WriteString(peerdb_clickhouse.QuoteLiteral(avroFileUrl))
+	expr.WriteString(clickhouse.QuoteLiteral(avroFileUrl))
 	expr.WriteByte(',')
-	expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.AccessKeyID))
+	expr.WriteString(clickhouse.QuoteLiteral(creds.AWS.AccessKeyID))
 	expr.WriteByte(',')
-	expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.SecretAccessKey))
+	expr.WriteString(clickhouse.QuoteLiteral(creds.AWS.SecretAccessKey))
 	if creds.AWS.SessionToken != "" {
 		expr.WriteByte(',')
-		expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.SessionToken))
+		expr.WriteString(clickhouse.QuoteLiteral(creds.AWS.SessionToken))
 	}
 	expr.WriteString(",'Avro')")
 	return expr.String(), nil
@@ -81,7 +81,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM %s",
-		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), s3TableFunction)
+		clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), s3TableFunction)
 	return s.exec(ctx, query)
 }
 
@@ -293,11 +293,11 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 	}
 	numParts = max(numParts, 1)
 
-	chSettings := NewCHSettings(s.chVersion)
-	chSettings.Add(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := clickhouse.NewCHSettings(s.chVersion)
+	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
 	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(SettingJsonTypeEscapeDotsInKeys, "1")
+		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
 	}
 
 	// Process each chunk file individually

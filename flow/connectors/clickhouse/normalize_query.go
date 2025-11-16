@@ -312,14 +312,17 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 	}
 
-	chSettings := NewCHSettings(t.chVersion)
-	chSettings.Add(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := peerdb_clickhouse.NewCHSettings(t.chVersion)
+	chSettings.Add(peerdb_clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(peerdb_clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
 	if t.cluster {
-		chSettings.Add(SettingParallelDistributedInsertSelect, "0")
+		chSettings.Add(peerdb_clickhouse.SettingParallelDistributedInsertSelect, "0")
 	}
 	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(SettingJsonTypeEscapeDotsInKeys, "1")
+		chSettings.Add(peerdb_clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
+	}
+	if t.version >= shared.InternalVersion_ClickHouseTime64 {
+		chSettings.Add(peerdb_clickhouse.SettingEnableTimeTime64Type, "1")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
