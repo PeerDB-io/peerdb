@@ -10,7 +10,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
-// IndexInfo represents information about a PostgreSQL index
 type IndexInfo struct {
 	IndexName    string
 	TableSchema  string
@@ -20,8 +19,6 @@ type IndexInfo struct {
 	IsPrimary    bool
 	IndexColumns []string
 }
-
-// TriggerInfo represents information about a PostgreSQL trigger
 type TriggerInfo struct {
 	TriggerName       string
 	TableSchema       string
@@ -32,7 +29,6 @@ type TriggerInfo struct {
 	ActionStatement   string
 }
 
-// ConstraintInfo represents information about a PostgreSQL constraint
 type ConstraintInfo struct {
 	ConstraintName string
 	TableSchema    string
@@ -43,21 +39,6 @@ type ConstraintInfo struct {
 	IsDeferred     bool
 }
 
-// SyncIndexesAndTriggers syncs indexes, triggers, and constraints from source to destination.
-// This is called once during initial setup, not for on-the-fly changes.
-//
-// Features:
-//   - Syncs all non-primary-key indexes from source to destination
-//   - Syncs all triggers from source to destination
-//   - Syncs check constraints and foreign key constraints
-//   - Automatically syncs trigger functions if they don't exist on destination
-//   - Skips indexes/triggers/constraints that already exist on destination
-//
-// Limitations:
-//   - Only runs during initial setup (not for on-the-fly changes)
-//   - Requires trigger functions to exist on source (or will attempt to sync them)
-//   - Primary key indexes and constraints are skipped (already exist)
-//   - Foreign key constraints referencing tables not in the sync are skipped
 func (c *PostgresConnector) SyncIndexesAndTriggers(
 	ctx context.Context,
 	tableMappings []*protos.TableMapping,
@@ -83,25 +64,20 @@ func (c *PostgresConnector) SyncIndexesAndTriggers(
 				slog.String("srcTable", srcTable.String()),
 				slog.String("dstTable", dstTable.String()),
 				slog.Any("error", err))
-			// Continue with other tables even if one fails
 		}
 
-		// Sync triggers
 		if err := c.syncTriggersForTable(ctx, srcTable, dstTable, sourceConn); err != nil {
 			c.logger.Warn("Failed to sync triggers for table",
 				slog.String("srcTable", srcTable.String()),
 				slog.String("dstTable", dstTable.String()),
 				slog.Any("error", err))
-			// Continue with other tables even if one fails
 		}
 
-		// Sync constraints (check constraints and foreign keys)
 		if err := c.syncConstraintsForTable(ctx, srcTable, dstTable, sourceConn, tableMappings); err != nil {
 			c.logger.Warn("Failed to sync constraints for table",
 				slog.String("srcTable", srcTable.String()),
 				slog.String("dstTable", dstTable.String()),
 				slog.Any("error", err))
-			// Continue with other tables even if one fails
 		}
 	}
 
@@ -109,49 +85,39 @@ func (c *PostgresConnector) SyncIndexesAndTriggers(
 	return nil
 }
 
-// syncIndexesForTable syncs indexes for a specific table
 func (c *PostgresConnector) syncIndexesForTable(
 	ctx context.Context,
 	srcTable *utils.SchemaTable,
 	dstTable *utils.SchemaTable,
 	sourceConn *PostgresConnector,
 ) error {
-	// Get indexes from source
 	srcIndexes, err := sourceConn.getIndexesForTable(ctx, srcTable)
 	if err != nil {
 		return fmt.Errorf("error getting source indexes: %w", err)
 	}
 
-	// Get indexes from destination
 	dstIndexes, err := c.getIndexesForTable(ctx, dstTable)
 	if err != nil {
 		return fmt.Errorf("error getting destination indexes: %w", err)
 	}
 
-	// Create a map of destination indexes by name for quick lookup
 	dstIndexMap := make(map[string]*IndexInfo, len(dstIndexes))
 	for _, idx := range dstIndexes {
 		dstIndexMap[idx.IndexName] = idx
 	}
 
-	// Find missing indexes and create them
 	createdCount := 0
 	for _, srcIdx := range srcIndexes {
-		// Skip primary key indexes - they should already exist
 		if srcIdx.IsPrimary {
 			continue
 		}
 
-		// Check if index already exists in destination
 		if _, exists := dstIndexMap[srcIdx.IndexName]; exists {
 			c.logger.Debug("Index already exists in destination",
 				slog.String("indexName", srcIdx.IndexName),
 				slog.String("dstTable", dstTable.String()))
 			continue
 		}
-
-		// Create the index
-		// Replace source schema/table names with destination
 		indexSQL := c.adaptIndexSQL(srcIdx.IndexDef, srcTable, dstTable)
 
 		c.logger.Info("Creating index on destination",
@@ -165,7 +131,6 @@ func (c *PostgresConnector) syncIndexesForTable(
 				slog.String("indexName", srcIdx.IndexName),
 				slog.String("indexSQL", indexSQL),
 				slog.Any("error", err))
-			// Continue with other indexes even if one fails
 			continue
 		}
 
@@ -191,37 +156,21 @@ func (c *PostgresConnector) syncTriggersForTable(
 	dstTable *utils.SchemaTable,
 	sourceConn *PostgresConnector,
 ) error {
-	c.logger.Info("Starting trigger sync for table",
-		slog.String("srcTable", srcTable.String()),
-		slog.String("dstTable", dstTable.String()))
-
-	// Get triggers from source
 	srcTriggers, err := sourceConn.getTriggersForTable(ctx, srcTable)
 	if err != nil {
 		return fmt.Errorf("error getting source triggers: %w", err)
 	}
 
-	c.logger.Info("Retrieved source triggers",
-		slog.String("srcTable", srcTable.String()),
-		slog.Int("triggerCount", len(srcTriggers)))
-
-	// Get triggers from destination
 	dstTriggers, err := c.getTriggersForTable(ctx, dstTable)
 	if err != nil {
 		return fmt.Errorf("error getting destination triggers: %w", err)
 	}
 
-	c.logger.Info("Retrieved destination triggers",
-		slog.String("dstTable", dstTable.String()),
-		slog.Int("triggerCount", len(dstTriggers)))
-
-	// Create a map of destination triggers by name for quick lookup
 	dstTriggerMap := make(map[string]*TriggerInfo, len(dstTriggers))
 	for _, trig := range dstTriggers {
 		dstTriggerMap[trig.TriggerName] = trig
 	}
 
-	// Find missing triggers and create them
 	createdCount := 0
 	for _, srcTrig := range srcTriggers {
 		c.logger.Info("Processing source trigger",
@@ -229,7 +178,6 @@ func (c *PostgresConnector) syncTriggersForTable(
 			slog.String("triggerDef", srcTrig.TriggerDef),
 			slog.String("srcTable", srcTable.String()))
 
-		// Check if trigger already exists in destination
 		if _, exists := dstTriggerMap[srcTrig.TriggerName]; exists {
 			c.logger.Info("Trigger already exists in destination, skipping",
 				slog.String("triggerName", srcTrig.TriggerName),
@@ -237,19 +185,11 @@ func (c *PostgresConnector) syncTriggersForTable(
 			continue
 		}
 
-		// Extract function name from trigger definition
 		funcName, funcSchema := c.extractFunctionFromTriggerDef(srcTrig.TriggerDef)
-		c.logger.Info("Extracted function from trigger definition",
-			slog.String("triggerName", srcTrig.TriggerName),
-			slog.String("functionName", funcName),
-			slog.String("functionSchema", funcSchema))
 
-		// Check if function exists on destination
-		// Try multiple schemas if function name doesn't have schema qualification
 		funcExists := false
 		if funcName != "" {
 			schemasToCheck := []string{funcSchema}
-			// If no schema was specified, try public schema and table's schema
 			if funcSchema == "public" || funcSchema == "" {
 				schemasToCheck = []string{"public", dstTable.Schema, srcTable.Schema}
 			}
@@ -274,8 +214,6 @@ func (c *PostgresConnector) syncTriggersForTable(
 			}
 
 			if !funcExists {
-				// Try to sync the function from source
-				// Try multiple schemas on source to find the function
 				sourceSchemasToCheck := []string{funcSchema, "public", srcTable.Schema}
 				if funcSchema == "public" || funcSchema == "" {
 					sourceSchemasToCheck = []string{"public", srcTable.Schema}
@@ -289,14 +227,9 @@ func (c *PostgresConnector) syncTriggersForTable(
 						slog.String("targetSchema", funcSchema))
 
 					if err := c.syncTriggerFunction(ctx, sourceSchema, funcName, funcSchema, sourceConn); err != nil {
-						c.logger.Debug("Failed to sync function from this schema, trying next",
-							slog.String("functionName", funcName),
-							slog.String("sourceSchema", sourceSchema),
-							slog.Any("error", err))
 						continue
 					}
 
-					// Verify function was created
 					funcExists, err = c.checkFunctionExists(ctx, funcSchema, funcName)
 					if err == nil && funcExists {
 						funcSynced = true
@@ -318,24 +251,13 @@ func (c *PostgresConnector) syncTriggersForTable(
 				}
 			}
 		}
-
-		// Create the trigger
-		// pg_get_triggerdef already gives us the full CREATE TRIGGER statement
-		// We just need to replace source schema/table names with destination
 		triggerSQL := c.adaptTriggerSQL(srcTrig.TriggerDef, srcTable, dstTable)
-
-		c.logger.Info("Creating trigger on destination",
-			slog.String("triggerName", srcTrig.TriggerName),
-			slog.String("srcTable", srcTable.String()),
-			slog.String("dstTable", dstTable.String()),
-			slog.String("triggerSQL", triggerSQL))
 
 		if _, err := c.conn.Exec(ctx, triggerSQL); err != nil {
 			c.logger.Error("Failed to create trigger",
 				slog.String("triggerName", srcTrig.TriggerName),
 				slog.String("triggerSQL", triggerSQL),
 				slog.Any("error", err))
-			// Continue with other triggers even if one fails
 			continue
 		}
 
@@ -359,7 +281,6 @@ func (c *PostgresConnector) getIndexesForTable(
 	ctx context.Context,
 	table *utils.SchemaTable,
 ) ([]*IndexInfo, error) {
-	// Use pg_indexes view which is simpler and more reliable
 	query := `
 		SELECT
 			indexname,
@@ -390,16 +311,10 @@ func (c *PostgresConnector) getIndexesForTable(
 			return nil, fmt.Errorf("error scanning index row: %w", err)
 		}
 
-		// Determine if index is unique or primary key
 		idx.IsUnique = strings.Contains(strings.ToUpper(idx.IndexDef), "UNIQUE")
-
-		// Check if it's a primary key constraint
-		// Primary keys are typically named like tablename_pkey
 		idx.IsPrimary = strings.HasSuffix(idx.IndexName, "_pkey") ||
 			strings.Contains(strings.ToUpper(idx.IndexDef), "PRIMARY KEY")
 
-		// Extract column names from index definition
-		// This is a simple extraction - may need refinement for complex cases
 		idx.IndexColumns = c.extractColumnsFromIndexDef(idx.IndexDef)
 
 		indexes = append(indexes, &idx)
@@ -414,23 +329,16 @@ func (c *PostgresConnector) getIndexesForTable(
 
 // extractColumnsFromIndexDef extracts column names from index definition
 func (c *PostgresConnector) extractColumnsFromIndexDef(indexDef string) []string {
-	// This is a simplified extraction - looks for patterns like (col1, col2)
-	// For more complex cases, we might need to parse the SQL properly
 	var columns []string
 
-	// Find the part between parentheses
 	start := strings.Index(indexDef, "(")
 	end := strings.LastIndex(indexDef, ")")
 	if start >= 0 && end > start {
 		colPart := indexDef[start+1 : end]
-		// Split by comma and clean up
 		parts := strings.Split(colPart, ",")
 		for _, part := range parts {
 			col := strings.TrimSpace(part)
-			// Remove function calls, operators, etc. - just get column name
-			// Remove quotes if present
 			col = strings.Trim(col, `"'`)
-			// Take only the column name part (before any operators or functions)
 			if spaceIdx := strings.Index(col, " "); spaceIdx > 0 {
 				col = col[:spaceIdx]
 			}
@@ -448,7 +356,6 @@ func (c *PostgresConnector) getTriggersForTable(
 	ctx context.Context,
 	table *utils.SchemaTable,
 ) ([]*TriggerInfo, error) {
-	// Use pg_trigger and pg_proc to get full trigger definition
 	query := `
 		SELECT
 			t.tgname as trigger_name,
@@ -496,9 +403,6 @@ func (c *PostgresConnector) getTriggersForTable(
 			return nil, fmt.Errorf("error scanning trigger row: %w", err)
 		}
 
-		// Extract action statement from trigger definition
-		// The trigger_def from pg_get_triggerdef already contains the full CREATE TRIGGER statement
-		// We just need to extract the EXECUTE FUNCTION part
 		trig.ActionStatement = c.extractActionStatement(trig.TriggerDef)
 
 		triggers = append(triggers, &trig)
@@ -511,11 +415,7 @@ func (c *PostgresConnector) getTriggersForTable(
 	return triggers, nil
 }
 
-// extractActionStatement extracts the action statement (EXECUTE FUNCTION ...) from trigger definition
 func (c *PostgresConnector) extractActionStatement(triggerDef string) string {
-	// pg_get_triggerdef returns something like:
-	// CREATE TRIGGER trigger_name BEFORE INSERT ON schema.table FOR EACH ROW EXECUTE FUNCTION function_name()
-	// We want to extract the EXECUTE FUNCTION part
 	executeIdx := strings.Index(strings.ToUpper(triggerDef), "EXECUTE")
 	if executeIdx >= 0 {
 		return triggerDef[executeIdx:]
@@ -523,18 +423,15 @@ func (c *PostgresConnector) extractActionStatement(triggerDef string) string {
 	return ""
 }
 
-// adaptIndexSQL adapts index SQL from source to destination table
 func (c *PostgresConnector) adaptIndexSQL(
 	indexSQL string,
 	srcTable *utils.SchemaTable,
 	dstTable *utils.SchemaTable,
 ) string {
-	// Replace source schema.table with destination schema.table
 	adapted := strings.ReplaceAll(indexSQL,
 		fmt.Sprintf("%s.%s", utils.QuoteIdentifier(srcTable.Schema), utils.QuoteIdentifier(srcTable.Table)),
 		fmt.Sprintf("%s.%s", utils.QuoteIdentifier(dstTable.Schema), utils.QuoteIdentifier(dstTable.Table)))
 
-	// Also handle unquoted versions
 	adapted = strings.ReplaceAll(adapted,
 		fmt.Sprintf("%s.%s", srcTable.Schema, srcTable.Table),
 		fmt.Sprintf("%s.%s", dstTable.Schema, dstTable.Table))
@@ -542,22 +439,13 @@ func (c *PostgresConnector) adaptIndexSQL(
 	return adapted
 }
 
-// extractFunctionFromTriggerDef extracts function name and schema from trigger definition
 func (c *PostgresConnector) extractFunctionFromTriggerDef(triggerDef string) (funcName, funcSchema string) {
-	// pg_get_triggerdef returns something like:
-	// CREATE TRIGGER trigger_name BEFORE INSERT ON schema.table FOR EACH ROW EXECUTE FUNCTION schema.function_name()
-	// We need to extract the function name and schema
-
-	// Find "EXECUTE FUNCTION" or "EXECUTE PROCEDURE"
 	executeIdx := strings.Index(strings.ToUpper(triggerDef), "EXECUTE")
 	if executeIdx < 0 {
 		return "", ""
 	}
 
-	// Get the part after EXECUTE
 	executePart := triggerDef[executeIdx:]
-
-	// Look for FUNCTION or PROCEDURE keyword
 	funcKeywordIdx := strings.Index(strings.ToUpper(executePart), "FUNCTION")
 	if funcKeywordIdx < 0 {
 		funcKeywordIdx = strings.Index(strings.ToUpper(executePart), "PROCEDURE")
@@ -566,10 +454,7 @@ func (c *PostgresConnector) extractFunctionFromTriggerDef(triggerDef string) (fu
 		}
 	}
 
-	// Get the function part (after FUNCTION/PROCEDURE keyword)
 	funcPart := strings.TrimSpace(executePart[funcKeywordIdx+8:]) // 8 = len("FUNCTION") or len("PROCEDURE")
-
-	// Remove trailing parentheses and whitespace
 	funcPart = strings.TrimSpace(strings.TrimSuffix(funcPart, "()"))
 	funcPart = strings.TrimSpace(strings.TrimSuffix(funcPart, ")"))
 
@@ -577,11 +462,9 @@ func (c *PostgresConnector) extractFunctionFromTriggerDef(triggerDef string) (fu
 	if dotIdx := strings.LastIndex(funcPart, "."); dotIdx >= 0 {
 		funcSchema = funcPart[:dotIdx]
 		funcName = funcPart[dotIdx+1:]
-		// Remove quotes if present
 		funcSchema = strings.Trim(funcSchema, `"'`)
 		funcName = strings.Trim(funcName, `"'`)
 	} else {
-		// No schema, function is in current schema or public
 		funcName = strings.Trim(funcPart, `"'`)
 		funcSchema = "public" // Default to public schema
 	}
@@ -615,7 +498,6 @@ func (c *PostgresConnector) syncTriggerFunction(
 	sourceSchema, funcName, targetSchema string,
 	sourceConn *PostgresConnector,
 ) error {
-	// Get function definition from source
 	query := `
 		SELECT pg_get_functiondef(p.oid) as function_def
 		FROM pg_proc p
@@ -639,8 +521,6 @@ func (c *PostgresConnector) syncTriggerFunction(
 		slog.String("sourceSchema", sourceSchema),
 		slog.String("functionDef", funcDef))
 
-	// Adapt function definition to use target schema if different
-	// Replace source schema with target schema in the function definition
 	if sourceSchema != targetSchema {
 		funcDef = strings.ReplaceAll(funcDef,
 			fmt.Sprintf("%s.%s", utils.QuoteIdentifier(sourceSchema), utils.QuoteIdentifier(funcName)),
@@ -650,9 +530,6 @@ func (c *PostgresConnector) syncTriggerFunction(
 			fmt.Sprintf("%s.%s", targetSchema, funcName))
 	}
 
-	// Create function on destination
-	// The function definition from pg_get_functiondef already includes CREATE OR REPLACE FUNCTION
-	// We just need to execute it
 	c.logger.Info("Creating function on destination",
 		slog.String("functionName", funcName),
 		slog.String("targetSchema", targetSchema))
@@ -674,12 +551,10 @@ func (c *PostgresConnector) adaptTriggerSQL(
 	srcTable *utils.SchemaTable,
 	dstTable *utils.SchemaTable,
 ) string {
-	// Replace source schema.table with destination schema.table
 	adapted := strings.ReplaceAll(triggerSQL,
 		fmt.Sprintf("%s.%s", utils.QuoteIdentifier(srcTable.Schema), utils.QuoteIdentifier(srcTable.Table)),
 		fmt.Sprintf("%s.%s", utils.QuoteIdentifier(dstTable.Schema), utils.QuoteIdentifier(dstTable.Table)))
 
-	// Also handle unquoted versions
 	adapted = strings.ReplaceAll(adapted,
 		fmt.Sprintf("%s.%s", srcTable.Schema, srcTable.Table),
 		fmt.Sprintf("%s.%s", dstTable.Schema, dstTable.Table))
@@ -695,37 +570,21 @@ func (c *PostgresConnector) syncConstraintsForTable(
 	sourceConn *PostgresConnector,
 	tableMappings []*protos.TableMapping,
 ) error {
-	c.logger.Info("Starting constraint sync for table",
-		slog.String("srcTable", srcTable.String()),
-		slog.String("dstTable", dstTable.String()))
-
-	// Get constraints from source
 	srcConstraints, err := sourceConn.getConstraintsForTable(ctx, srcTable)
 	if err != nil {
 		return fmt.Errorf("error getting source constraints: %w", err)
 	}
 
-	c.logger.Info("Retrieved source constraints",
-		slog.String("srcTable", srcTable.String()),
-		slog.Int("constraintCount", len(srcConstraints)))
-
-	// Get constraints from destination
 	dstConstraints, err := c.getConstraintsForTable(ctx, dstTable)
 	if err != nil {
 		return fmt.Errorf("error getting destination constraints: %w", err)
 	}
 
-	c.logger.Info("Retrieved destination constraints",
-		slog.String("dstTable", dstTable.String()),
-		slog.Int("constraintCount", len(dstConstraints)))
-
-	// Create a map of destination constraints by name for quick lookup
 	dstConstraintMap := make(map[string]*ConstraintInfo, len(dstConstraints))
 	for _, constraint := range dstConstraints {
 		dstConstraintMap[constraint.ConstraintName] = constraint
 	}
 
-	// Build a mapping of source table names to destination table names for FK resolution
 	tableNameMap := make(map[string]string)
 	for _, tm := range tableMappings {
 		src, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
@@ -736,51 +595,27 @@ func (c *PostgresConnector) syncConstraintsForTable(
 		if err != nil {
 			continue
 		}
-		// Map both qualified and unqualified names
 		tableNameMap[src.String()] = dst.String()
 		tableNameMap[fmt.Sprintf("%s.%s", src.Schema, src.Table)] = fmt.Sprintf("%s.%s", dst.Schema, dst.Table)
 	}
 
-	// Find missing constraints and create them
 	createdCount := 0
 	for _, srcConstraint := range srcConstraints {
-		c.logger.Info("Processing source constraint",
-			slog.String("constraintName", srcConstraint.ConstraintName),
-			slog.String("constraintType", srcConstraint.ConstraintType),
-			slog.String("constraintDef", srcConstraint.ConstraintDef),
-			slog.String("srcTable", srcTable.String()))
 
-		// Skip primary key constraints - they should already exist
 		if srcConstraint.ConstraintType == "p" {
-			c.logger.Debug("Skipping primary key constraint",
-				slog.String("constraintName", srcConstraint.ConstraintName))
 			continue
 		}
-
-		// Skip unique constraints that are already covered by unique indexes
 		if srcConstraint.ConstraintType == "u" {
-			c.logger.Debug("Skipping unique constraint (handled by unique index)",
-				slog.String("constraintName", srcConstraint.ConstraintName))
 			continue
 		}
 
-		// Check if constraint already exists in destination
 		if _, exists := dstConstraintMap[srcConstraint.ConstraintName]; exists {
 			c.logger.Info("Constraint already exists in destination, skipping",
 				slog.String("constraintName", srcConstraint.ConstraintName),
 				slog.String("dstTable", dstTable.String()))
 			continue
 		}
-
-		// Adapt constraint definition for destination
 		constraintSQL := c.adaptConstraintSQL(srcConstraint.ConstraintDef, srcTable, dstTable, tableNameMap, srcConstraint.ConstraintName)
-
-		c.logger.Info("Creating constraint on destination",
-			slog.String("constraintName", srcConstraint.ConstraintName),
-			slog.String("constraintType", srcConstraint.ConstraintType),
-			slog.String("srcTable", srcTable.String()),
-			slog.String("dstTable", dstTable.String()),
-			slog.String("constraintSQL", constraintSQL))
 
 		if _, err := c.conn.Exec(ctx, constraintSQL); err != nil {
 			c.logger.Error("Failed to create constraint",
@@ -788,7 +623,6 @@ func (c *PostgresConnector) syncConstraintsForTable(
 				slog.String("constraintType", srcConstraint.ConstraintType),
 				slog.String("constraintSQL", constraintSQL),
 				slog.Any("error", err))
-			// Continue with other constraints even if one fails
 			continue
 		}
 
@@ -813,7 +647,6 @@ func (c *PostgresConnector) getConstraintsForTable(
 	ctx context.Context,
 	table *utils.SchemaTable,
 ) ([]*ConstraintInfo, error) {
-	// Query constraints from pg_constraint
 	query := `
 		SELECT
 			con.conname as constraint_name,
@@ -872,33 +705,18 @@ func (c *PostgresConnector) adaptConstraintSQL(
 	tableNameMap map[string]string,
 	constraintName string,
 ) string {
-	// The constraint definition from pg_get_constraintdef is already in the format:
-	// For check: CHECK (expression)
-	// For foreign key: FOREIGN KEY (columns) REFERENCES table(columns)
-	// We need to:
-	// 1. For foreign keys, replace referenced table names using tableNameMap FIRST
-	// 2. Then replace source table name with destination table name (for self-referencing FKs)
 
 	adapted := constraintDef
-
-	// For foreign key constraints, replace referenced table names
-	// Handle both cross-table and self-referencing foreign keys
 	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(adapted)), "FOREIGN KEY") {
-		// First, add the current table to the tableNameMap if not already present
-		// This ensures self-referencing FKs are handled
 		srcTableStr := fmt.Sprintf("%s.%s", srcTable.Schema, srcTable.Table)
 		dstTableStr := fmt.Sprintf("%s.%s", dstTable.Schema, dstTable.Table)
 		if _, exists := tableNameMap[srcTableStr]; !exists {
 			tableNameMap[srcTableStr] = dstTableStr
 		}
-		// Also add unqualified table name
 		if _, exists := tableNameMap[srcTable.Table]; !exists {
 			tableNameMap[srcTable.Table] = dstTable.Table
 		}
-
-		// Look for REFERENCES clause and replace table names
 		for srcTableName, dstTableName := range tableNameMap {
-			// Handle schema-qualified table names in REFERENCES
 			if strings.Contains(srcTableName, ".") {
 				parts := strings.Split(srcTableName, ".")
 				if len(parts) == 2 {
@@ -906,44 +724,32 @@ func (c *PostgresConnector) adaptConstraintSQL(
 					dstParts := strings.Split(dstTableName, ".")
 					if len(dstParts) == 2 {
 						dstSchema, dstTbl := dstParts[0], dstParts[1]
-						// Replace schema.table references (quoted)
 						adapted = strings.ReplaceAll(adapted,
 							fmt.Sprintf("REFERENCES %s.%s", utils.QuoteIdentifier(srcSchema), utils.QuoteIdentifier(srcTbl)),
 							fmt.Sprintf("REFERENCES %s.%s", utils.QuoteIdentifier(dstSchema), utils.QuoteIdentifier(dstTbl)))
-						// Replace schema.table references (unquoted)
 						adapted = strings.ReplaceAll(adapted,
 							fmt.Sprintf("REFERENCES %s.%s", srcSchema, srcTbl),
 							fmt.Sprintf("REFERENCES %s.%s", dstSchema, dstTbl))
 					}
 				}
 			} else {
-				// Handle unqualified table names in REFERENCES
-				// Replace unqualified table name (quoted)
 				adapted = strings.ReplaceAll(adapted,
 					fmt.Sprintf("REFERENCES %s", utils.QuoteIdentifier(srcTableName)),
 					fmt.Sprintf("REFERENCES %s.%s", utils.QuoteIdentifier(dstTable.Schema), utils.QuoteIdentifier(dstTableName)))
-				// Replace unqualified table name (unquoted)
 				adapted = strings.ReplaceAll(adapted,
 					fmt.Sprintf("REFERENCES %s", srcTableName),
 					fmt.Sprintf("REFERENCES %s.%s", utils.QuoteIdentifier(dstTable.Schema), utils.QuoteIdentifier(dstTableName)))
 			}
 		}
 	}
-
-	// Replace source schema.table with destination schema.table in CHECK constraints
-	// (For FKs, we've already handled the REFERENCES clause above)
 	adapted = strings.ReplaceAll(adapted,
 		fmt.Sprintf("%s.%s", utils.QuoteIdentifier(srcTable.Schema), utils.QuoteIdentifier(srcTable.Table)),
 		fmt.Sprintf("%s.%s", utils.QuoteIdentifier(dstTable.Schema), utils.QuoteIdentifier(dstTable.Table)))
 
-	// Also handle unquoted versions
 	adapted = strings.ReplaceAll(adapted,
 		fmt.Sprintf("%s.%s", srcTable.Schema, srcTable.Table),
 		fmt.Sprintf("%s.%s", dstTable.Schema, dstTable.Table))
 
-	// Build the full ALTER TABLE statement
-	// For check constraints: ALTER TABLE ... ADD CONSTRAINT ... CHECK ...
-	// For foreign keys: ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ...
 	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(adapted)), "CHECK") ||
 		strings.HasPrefix(strings.ToUpper(strings.TrimSpace(adapted)), "FOREIGN KEY") {
 		return fmt.Sprintf("ALTER TABLE %s.%s ADD CONSTRAINT %s %s",

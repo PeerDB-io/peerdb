@@ -157,7 +157,6 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	quotedColumnNamesFiltered := make([]string, 0, columnCount)
 
 	for _, column := range normalizedTableSchema.Columns {
-		// Skip PeerDB system columns - they are handled separately
 		if systemCols[column.Name] {
 			continue
 		}
@@ -185,7 +184,6 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	}
 
 	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns)
-	// append synced_at column (system column, added separately)
 	if n.peerdbCols.SyncedAtColName != "" {
 		quotedColumnNames = append(quotedColumnNames, utils.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
 		insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")

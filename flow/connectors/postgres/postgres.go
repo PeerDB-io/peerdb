@@ -1264,6 +1264,11 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s",
+				addedColumn.Name, addedColumn.Type),
+				slog.String("srcTableName", schemaDelta.SrcTableName),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
 		}
 	}
 

@@ -224,7 +224,6 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	// Sync indexes, triggers, and constraints after tables are created
 	if err := workflow.ExecuteActivity(ctx, flowable.SyncIndexesAndTriggers, setupConfig).Get(ctx, nil); err != nil {
 		s.Warn("failed to sync indexes, triggers, and constraints", slog.Any("error", err))
-		// Don't fail the setup if sync fails - log warning and continue
 	}
 
 	s.Info("finished setting up normalized tables for peer flow")
