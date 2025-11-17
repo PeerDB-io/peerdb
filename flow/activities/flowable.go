@@ -1813,3 +1813,663 @@ func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos
 	)))
 	return nil
 }
+
+// MigrateTriggersAfterSnapshot migrates triggers from source to destination after snapshot completion.
+// It queries triggers from source and applies them to destination in a disabled state.
+// Retries up to 3 times with exponential backoff on failure.
+func (a *FlowableActivity) MigrateTriggersAfterSnapshot(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	flowName := config.FlowJobName
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
+
+	logger.Info("Starting trigger migration after snapshot", slog.String("flowName", flowName))
+	a.Alerter.LogFlowInfo(ctx, flowName, "Migrating triggers from source to destination")
+
+	sourceConn, sourceClose, err := connectors.GetPostgresConnectorByName(
+		ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get source connector: %w", err))
+	}
+	defer sourceClose(ctx)
+
+	destConn, destClose, err := connectors.GetPostgresConnectorByName(
+		ctx, config.Env, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get destination connector: %w", err))
+	}
+	defer destClose(ctx)
+
+	maxRetries := 3
+	baseDelay := 5 * time.Second
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt > 1 {
+			delay := baseDelay * time.Duration(1<<uint(attempt-2))
+			logger.Info("Retrying trigger migration",
+				slog.Int("attempt", attempt),
+				slog.Int("maxRetries", maxRetries),
+				slog.Duration("delay", delay))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		triggersByTable, err := sourceConn.GetTriggersForTables(ctx, config.TableMappings)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to query triggers from source: %w", err)
+			logger.Warn("Failed to query triggers from source",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		if len(triggersByTable) == 0 {
+			return nil
+		}
+
+		functionDefinitions, err := sourceConn.GetTriggerFunctionDefinitions(ctx, triggersByTable)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to get trigger function definitions from source: %w", err)
+			logger.Warn("Failed to get trigger function definitions from source",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		if len(functionDefinitions) > 0 {
+			err = destConn.ApplyTriggerFunctions(ctx, functionDefinitions)
+			if err != nil {
+				lastErr = fmt.Errorf("failed to apply trigger functions to destination: %w", err)
+				logger.Warn("Failed to apply trigger functions to destination",
+					slog.Any("error", lastErr),
+					slog.Int("attempt", attempt))
+				if attempt < maxRetries {
+					continue
+				}
+				return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+			}
+		}
+
+		err = destConn.ApplyTriggers(ctx, config.TableMappings, triggersByTable)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to apply triggers to destination: %w", err)
+			logger.Warn("Failed to apply triggers to destination",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		logger.Info("Trigger migration completed after snapshot",
+			slog.Int("numTables", len(triggersByTable)),
+			slog.String("flowName", flowName))
+		a.Alerter.LogFlowInfo(ctx, flowName,
+			fmt.Sprintf("Trigger migration completed for %d tables", len(triggersByTable)))
+		return nil
+	}
+
+	return a.Alerter.LogFlowError(ctx, flowName,
+		fmt.Errorf("failed to migrate triggers after %d attempts: %w", maxRetries, lastErr))
+}
+
+// MigrateIndexesAfterSnapshot migrates indexes from source to destination after snapshot completion.
+// It queries indexes from source and creates them on destination using CREATE INDEX CONCURRENTLY.
+// Retries up to 3 times with exponential backoff on failure.
+func (a *FlowableActivity) MigrateIndexesAfterSnapshot(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	flowName := config.FlowJobName
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
+
+	logger.Info("Starting index migration after snapshot", slog.String("flowName", flowName))
+	a.Alerter.LogFlowInfo(ctx, flowName, "Migrating indexes from source to destination")
+
+	sourceConn, sourceClose, err := connectors.GetPostgresConnectorByName(
+		ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get source connector: %w", err))
+	}
+	defer sourceClose(ctx)
+
+	destConn, destClose, err := connectors.GetPostgresConnectorByName(
+		ctx, config.Env, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get destination connector: %w", err))
+	}
+	defer destClose(ctx)
+
+	maxRetries := 3
+	baseDelay := 5 * time.Second
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt > 1 {
+			delay := baseDelay * time.Duration(1<<uint(attempt-2))
+			logger.Info("Retrying index migration",
+				slog.Int("attempt", attempt),
+				slog.Int("maxRetries", maxRetries),
+				slog.Duration("delay", delay))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		indexesByTable, err := sourceConn.GetIndexesForTables(ctx, config.TableMappings)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to query indexes from source: %w", err)
+			logger.Warn("Failed to query indexes from source",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		if len(indexesByTable) == 0 {
+			return nil
+		}
+
+		err = destConn.ApplyIndexes(ctx, config.TableMappings, indexesByTable, true)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to apply indexes to destination: %w", err)
+			logger.Warn("Failed to apply indexes to destination",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		logger.Info("Index migration completed after snapshot",
+			slog.Int("numTables", len(indexesByTable)),
+			slog.String("flowName", flowName))
+		a.Alerter.LogFlowInfo(ctx, flowName,
+			fmt.Sprintf("Index migration completed for %d tables", len(indexesByTable)))
+		return nil
+	}
+
+	return a.Alerter.LogFlowError(ctx, flowName,
+		fmt.Errorf("failed to migrate indexes after %d attempts: %w", maxRetries, lastErr))
+}
+
+// PollAndSyncTriggers polls source triggers periodically and syncs new triggers to destination.
+// It compares source and destination triggers to find new triggers and applies them in disabled state.
+// Configurable polling interval (default: 1 hour), retries 3 times with exponential backoff on failure.
+func (a *FlowableActivity) PollAndSyncTriggers(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+	pollingIntervalSeconds int32,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	flowName := config.FlowJobName
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
+
+	pollingInterval := time.Duration(pollingIntervalSeconds) * time.Second
+	if pollingIntervalSeconds <= 0 {
+		pollingInterval = 1 * time.Minute
+	}
+
+	logger.Info("Starting trigger polling",
+		slog.String("flowName", flowName),
+		slog.Duration("pollingInterval", pollingInterval))
+	a.Alerter.LogFlowInfo(ctx, flowName,
+		fmt.Sprintf("Starting trigger polling with interval %v", pollingInterval))
+
+	sourceConn, sourceClose, err := connectors.GetPostgresConnectorByName(
+		ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get source connector: %w", err))
+	}
+	defer sourceClose(ctx)
+
+	destConn, destClose, err := connectors.GetPostgresConnectorByName(
+		ctx, config.Env, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get destination connector: %w", err))
+	}
+	defer destClose(ctx)
+
+	destTableMappings := make([]*protos.TableMapping, 0, len(config.TableMappings))
+	for _, tm := range config.TableMappings {
+		destTableMappings = append(destTableMappings, &protos.TableMapping{
+			SourceTableIdentifier:      tm.DestinationTableIdentifier,
+			DestinationTableIdentifier: tm.DestinationTableIdentifier,
+		})
+	}
+
+	triggersEqual := func(t1, t2 *connpostgres.TriggerInfo) bool {
+		return t1.TriggerName == t2.TriggerName &&
+			t1.Timing == t2.Timing &&
+			t1.FunctionSchema == t2.FunctionSchema &&
+			t1.FunctionName == t2.FunctionName &&
+			compareStringSlices(t1.Events, t2.Events)
+	}
+
+	// Helper function to check if a trigger exists in a list
+	triggerExists := func(trigger *connpostgres.TriggerInfo, triggers []*connpostgres.TriggerInfo) bool {
+		for _, t := range triggers {
+			if triggersEqual(trigger, t) {
+				return true
+			}
+		}
+		return false
+	}
+
+	ticker := time.NewTicker(pollingInterval)
+	defer ticker.Stop()
+
+	if err := a.syncTriggersOnce(ctx, logger, flowName, sourceConn, destConn, config.TableMappings,
+		destTableMappings, triggersEqual, triggerExists); err != nil {
+		logger.Warn("Failed to sync triggers on first attempt", slog.Any("error", err))
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Stopping trigger polling due to context cancellation",
+				slog.String("flowName", flowName))
+			return ctx.Err()
+		case <-ticker.C:
+			if err := a.syncTriggersOnce(ctx, logger, flowName, sourceConn, destConn, config.TableMappings,
+				destTableMappings, triggersEqual, triggerExists); err != nil {
+				logger.Warn("Failed to sync triggers during polling", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+// syncTriggersOnce performs a single sync operation: queries source and destination triggers,
+// finds new triggers, and applies them. Retries 3 times with exponential backoff on failure.
+func (a *FlowableActivity) syncTriggersOnce(
+	ctx context.Context,
+	logger log.Logger,
+	flowName string,
+	sourceConn *connpostgres.PostgresConnector,
+	destConn *connpostgres.PostgresConnector,
+	sourceTableMappings []*protos.TableMapping,
+	destTableMappings []*protos.TableMapping,
+	triggersEqual func(*connpostgres.TriggerInfo, *connpostgres.TriggerInfo) bool,
+	triggerExists func(*connpostgres.TriggerInfo, []*connpostgres.TriggerInfo) bool,
+) error {
+	maxRetries := 3
+	baseDelay := 5 * time.Second
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt > 1 {
+			delay := baseDelay * time.Duration(1<<uint(attempt-2))
+			logger.Info("Retrying trigger sync",
+				slog.Int("attempt", attempt),
+				slog.Int("maxRetries", maxRetries),
+				slog.Duration("delay", delay))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		sourceTriggersByTable, err := sourceConn.GetTriggersForTables(ctx, sourceTableMappings)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to query triggers from source: %w", err)
+			logger.Warn("Failed to query triggers from source",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		destTriggersByTable, err := destConn.GetTriggersForTables(ctx, destTableMappings)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to query triggers from destination: %w", err)
+			logger.Warn("Failed to query triggers from destination",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		srcToDstTableMap := make(map[string]string)
+		for _, tm := range sourceTableMappings {
+			srcToDstTableMap[tm.SourceTableIdentifier] = tm.DestinationTableIdentifier
+		}
+
+		newTriggersByTable := make(map[string][]*connpostgres.TriggerInfo)
+		for srcTableKey, sourceTriggers := range sourceTriggersByTable {
+			dstTableIdentifier, ok := srcToDstTableMap[srcTableKey]
+			if !ok {
+				logger.Warn("No destination table mapping found for source table, skipping triggers",
+					slog.String("sourceTable", srcTableKey),
+					slog.String("flowName", flowName))
+				continue
+			}
+
+			destTriggers := destTriggersByTable[dstTableIdentifier]
+
+			for _, sourceTrigger := range sourceTriggers {
+				if !triggerExists(sourceTrigger, destTriggers) {
+					newTriggersByTable[srcTableKey] = append(newTriggersByTable[srcTableKey], sourceTrigger)
+				}
+			}
+		}
+
+		if len(newTriggersByTable) == 0 {
+			return nil
+		}
+
+		totalNewTriggers := 0
+		for _, triggers := range newTriggersByTable {
+			totalNewTriggers += len(triggers)
+		}
+
+		err = destConn.ApplyTriggers(ctx, sourceTableMappings, newTriggersByTable)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to apply new triggers to destination: %w", err)
+			logger.Warn("Failed to apply new triggers to destination",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		logger.Info("Successfully synced new triggers",
+			slog.Int("numTables", len(newTriggersByTable)),
+			slog.Int("totalTriggers", totalNewTriggers),
+			slog.String("flowName", flowName))
+		a.Alerter.LogFlowInfo(ctx, flowName,
+			fmt.Sprintf("Successfully synced %d new triggers across %d tables", totalNewTriggers, len(newTriggersByTable)))
+		return nil
+	}
+
+	return a.Alerter.LogFlowError(ctx, flowName,
+		fmt.Errorf("failed to sync triggers after %d attempts: %w", maxRetries, lastErr))
+}
+
+// PollAndSyncIndexes polls source indexes periodically and syncs new indexes to destination.
+// It compares source and destination indexes to find new indexes and creates them using CREATE INDEX CONCURRENTLY.
+// Configurable polling interval (default: 1 hour), retries 3 times with exponential backoff on failure.
+func (a *FlowableActivity) PollAndSyncIndexes(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+	pollingIntervalSeconds int32,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	flowName := config.FlowJobName
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
+
+	pollingInterval := time.Duration(pollingIntervalSeconds) * time.Second
+	if pollingIntervalSeconds <= 0 {
+		pollingInterval = 1 * time.Minute
+	}
+
+	logger.Info("Starting index polling",
+		slog.String("flowName", flowName),
+		slog.Duration("pollingInterval", pollingInterval))
+	a.Alerter.LogFlowInfo(ctx, flowName,
+		fmt.Sprintf("Starting index polling with interval %v", pollingInterval))
+
+	sourceConn, sourceClose, err := connectors.GetPostgresConnectorByName(
+		ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get source connector: %w", err))
+	}
+	defer sourceClose(ctx)
+
+	destConn, destClose, err := connectors.GetPostgresConnectorByName(
+		ctx, config.Env, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get destination connector: %w", err))
+	}
+	defer destClose(ctx)
+
+	destTableMappings := make([]*protos.TableMapping, 0, len(config.TableMappings))
+	for _, tm := range config.TableMappings {
+		destTableMappings = append(destTableMappings, &protos.TableMapping{
+			SourceTableIdentifier:      tm.DestinationTableIdentifier,
+			DestinationTableIdentifier: tm.DestinationTableIdentifier,
+		})
+	}
+
+	indexesEqual := func(i1, i2 *connpostgres.IndexInfo) bool {
+		return i1.IndexName == i2.IndexName &&
+			i1.TableSchema == i2.TableSchema &&
+			i1.TableName == i2.TableName &&
+			compareStringSlices(i1.Columns, i2.Columns) &&
+			i1.IsUnique == i2.IsUnique
+	}
+
+	// Helper function to check if an index exists in a list
+	indexExists := func(index *connpostgres.IndexInfo, indexes []*connpostgres.IndexInfo) bool {
+		for _, idx := range indexes {
+			if indexesEqual(index, idx) {
+				return true
+			}
+		}
+		return false
+	}
+
+	ticker := time.NewTicker(pollingInterval)
+	defer ticker.Stop()
+
+	if err := a.syncIndexesOnce(ctx, logger, flowName, sourceConn, destConn, config.TableMappings,
+		destTableMappings, indexesEqual, indexExists); err != nil {
+		logger.Warn("Failed to sync indexes on first attempt", slog.Any("error", err))
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Stopping index polling due to context cancellation",
+				slog.String("flowName", flowName))
+			return ctx.Err()
+		case <-ticker.C:
+			if err := a.syncIndexesOnce(ctx, logger, flowName, sourceConn, destConn, config.TableMappings,
+				destTableMappings, indexesEqual, indexExists); err != nil {
+				logger.Warn("Failed to sync indexes during polling", slog.Any("error", err))
+				// Continue polling even if sync fails
+			}
+		}
+	}
+}
+
+// syncIndexesOnce performs a single sync operation: queries source and destination indexes,
+// finds new indexes, and creates them using CREATE INDEX CONCURRENTLY. Retries 3 times with exponential backoff on failure.
+func (a *FlowableActivity) syncIndexesOnce(
+	ctx context.Context,
+	logger log.Logger,
+	flowName string,
+	sourceConn *connpostgres.PostgresConnector,
+	destConn *connpostgres.PostgresConnector,
+	sourceTableMappings []*protos.TableMapping,
+	destTableMappings []*protos.TableMapping,
+	indexesEqual func(*connpostgres.IndexInfo, *connpostgres.IndexInfo) bool,
+	indexExists func(*connpostgres.IndexInfo, []*connpostgres.IndexInfo) bool,
+) error {
+	// Retry logic with exponential backoff (3 attempts)
+	maxRetries := 3
+	baseDelay := 5 * time.Second
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt > 1 {
+			delay := baseDelay * time.Duration(1<<uint(attempt-2)) // Exponential backoff: 5s, 10s, 20s
+			logger.Info("Retrying index sync",
+				slog.Int("attempt", attempt),
+				slog.Int("maxRetries", maxRetries),
+				slog.Duration("delay", delay))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		// Query indexes from source
+		sourceIndexesByTable, err := sourceConn.GetIndexesForTables(ctx, sourceTableMappings)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to query indexes from source: %w", err)
+			logger.Warn("Failed to query indexes from source",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		// Query indexes from destination
+		destIndexesByTable, err := destConn.GetIndexesForTables(ctx, destTableMappings)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to query indexes from destination: %w", err)
+			logger.Warn("Failed to query indexes from destination",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		// Find new indexes that exist on source but not on destination
+		newIndexesByTable := make(map[string][]*connpostgres.IndexInfo)
+		for srcTableKey, srcIndexes := range sourceIndexesByTable {
+			// Find corresponding destination table
+			var dstTableKey string
+			for _, tm := range sourceTableMappings {
+				srcSchemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
+				if err != nil {
+					continue
+				}
+				if fmt.Sprintf("%s.%s", srcSchemaTable.Schema, srcSchemaTable.Table) == srcTableKey {
+					dstSchemaTable, err := utils.ParseSchemaTable(tm.DestinationTableIdentifier)
+					if err != nil {
+						continue
+					}
+					dstTableKey = fmt.Sprintf("%s.%s", dstSchemaTable.Schema, dstSchemaTable.Table)
+					break
+				}
+			}
+
+			if dstTableKey == "" {
+				logger.Warn("No destination table mapping found for source table, skipping indexes",
+					slog.String("sourceTable", srcTableKey))
+				continue
+			}
+
+			destIndexes := destIndexesByTable[dstTableKey]
+			for _, srcIndex := range srcIndexes {
+				if !indexExists(srcIndex, destIndexes) {
+					newIndexesByTable[srcTableKey] = append(newIndexesByTable[srcTableKey], srcIndex)
+				}
+			}
+		}
+
+		if len(newIndexesByTable) == 0 {
+			return nil
+		}
+
+		totalNewIndexes := 0
+		for _, indexes := range newIndexesByTable {
+			totalNewIndexes += len(indexes)
+		}
+
+		err = destConn.ApplyIndexes(ctx, sourceTableMappings, newIndexesByTable, true)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to apply indexes to destination: %w", err)
+			logger.Warn("Failed to apply indexes to destination",
+				slog.Any("error", lastErr),
+				slog.Int("attempt", attempt))
+			if attempt < maxRetries {
+				continue
+			}
+			return a.Alerter.LogFlowError(ctx, flowName, lastErr)
+		}
+
+		logger.Info("Successfully synced new indexes",
+			slog.Int("numTables", len(newIndexesByTable)),
+			slog.Int("totalIndexes", totalNewIndexes),
+			slog.String("flowName", flowName))
+		a.Alerter.LogFlowInfo(ctx, flowName,
+			fmt.Sprintf("Successfully synced %d new indexes across %d tables", totalNewIndexes, len(newIndexesByTable)))
+		return nil
+	}
+
+	return a.Alerter.LogFlowError(ctx, flowName,
+		fmt.Errorf("failed to sync indexes after %d attempts: %w", maxRetries, lastErr))
+}
+
+// compareStringSlices compares two string slices for equality (order-independent)
+func compareStringSlices(s1, s2 []string) bool {
+	if len(s1) != len(s2) {
+		return false
+	}
+	// Create maps for O(n) comparison
+	m1 := make(map[string]int)
+	m2 := make(map[string]int)
+	for _, s := range s1 {
+		m1[s]++
+	}
+	for _, s := range s2 {
+		m2[s]++
+	}
+	// Compare maps
+	if len(m1) != len(m2) {
+		return false
+	}
+	for k, v := range m1 {
+		if m2[k] != v {
+			return false
+		}
+	}
+	return true
+}

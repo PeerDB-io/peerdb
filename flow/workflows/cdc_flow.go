@@ -840,6 +840,32 @@ func CDCFlowWorkflow(
 	}))
 	syncFlowFuture := workflow.ExecuteActivity(syncCtx, flowable.SyncFlow, cfg, state.SyncFlowOptions)
 
+	pollingIntervalSeconds := int32(60)
+	if state.SyncFlowOptions != nil && state.SyncFlowOptions.TriggerIndexPollingIntervalSeconds > 0 {
+		pollingIntervalSeconds = state.SyncFlowOptions.TriggerIndexPollingIntervalSeconds
+	}
+
+	pollingCtx, cancelPolling := workflow.WithCancel(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 365 * 24 * time.Hour,
+		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+	}))
+
+	triggerPollingFuture := workflow.ExecuteActivity(
+		pollingCtx,
+		flowable.PollAndSyncTriggers,
+		cfg,
+		pollingIntervalSeconds,
+	)
+
+	indexPollingFuture := workflow.ExecuteActivity(
+		pollingCtx,
+		flowable.PollAndSyncIndexes,
+		cfg,
+		pollingIntervalSeconds,
+	)
+
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
 		finished = true
@@ -936,9 +962,11 @@ func CDCFlowWorkflow(
 		}
 
 		if finished {
-			// wait on sync flow before draining selector
 			cancelSync()
+			cancelPolling()
 			_ = syncFlowFuture.Get(ctx, nil)
+			_ = triggerPollingFuture.Get(ctx, nil)
+			_ = indexPollingFuture.Get(ctx, nil)
 
 			for ctx.Err() == nil && mainLoopSelector.HasPending() {
 				mainLoopSelector.Select(ctx)

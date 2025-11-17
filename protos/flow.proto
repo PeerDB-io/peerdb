@@ -181,6 +181,10 @@ message SyncFlowOptions {
   map<uint32, string> src_table_id_name_mapping = 4;
   repeated TableMapping table_mappings = 6;
   int32 number_of_syncs = 7;
+  // Polling interval in seconds for trigger and index synchronization during CDC
+  // Default: 60 seconds (1 minute)
+  // Set to 0 or negative to use default
+  int32 trigger_index_polling_interval_seconds = 8;
 }
 
 message EnsurePullabilityBatchInput {
