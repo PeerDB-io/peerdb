@@ -187,7 +187,6 @@ func (pgProcessor) NewItems(size int) model.PgItems {
 	return model.NewPgItems(size)
 }
 
-// How then integer / timestamp  type got synced for our test case
 func (pgProcessor) Process(
 	items model.PgItems,
 	p *PostgresCDCSource,
@@ -223,7 +222,6 @@ func (qProcessor) NewItems(size int) model.RecordItems {
 	return model.NewRecordItems(size)
 }
 
-// what is diff b/w pgProcessor and qProcessor
 func (qProcessor) Process(
 	items model.RecordItems,
 	p *PostgresCDCSource,
@@ -700,17 +698,6 @@ func PullCdcRecords[Items model.Items](
 					totalFetchedBytes.Add(int64(len(msg.Data)))
 					tableName := rec.GetDestinationTableName()
 
-					// Log if this is a DML operation following a schema change
-					switch rec.(type) {
-					case *model.InsertRecord[Items], *model.UpdateRecord[Items], *model.DeleteRecord[Items]:
-						if schema, ok := req.TableNameSchemaMapping[tableName]; ok {
-							logger.Debug("Processing DML operation",
-								slog.String("tableName", tableName),
-								slog.Int("columnCount", len(schema.Columns)),
-								slog.Any("LSN", xld.WALStart))
-						}
-					}
-
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:
 						// tableName here is destination tableName.
@@ -811,15 +798,6 @@ func PullCdcRecords[Items model.Items](
 							for _, col := range tableSchemaDelta.AddedColumns {
 								addedColNames = append(addedColNames, fmt.Sprintf("%s(%s)", col.Name, col.Type))
 							}
-							logger.Info("Processing RelationRecord with schema changes",
-								slog.String("srcTableName", tableSchemaDelta.SrcTableName),
-								slog.String("dstTableName", tableSchemaDelta.DstTableName),
-								slog.Int("addedColumnsCount", len(tableSchemaDelta.AddedColumns)),
-								slog.Any("addedColumns", addedColNames),
-								slog.Int("droppedColumnsCount", len(tableSchemaDelta.DroppedColumns)),
-								slog.Any("droppedColumns", tableSchemaDelta.DroppedColumns),
-								slog.Int64("checkpointID", r.CheckpointID),
-								slog.Uint64("transactionID", r.TransactionID))
 							records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 							logger.Info("Added schema delta to records stream",
 								slog.String("srcTableName", tableSchemaDelta.SrcTableName))
@@ -877,6 +855,7 @@ func (p *PostgresCDCSource) baseRecord(lsn pglogrepl.LSN) model.BaseRecord {
 	}
 }
 
+// req *model.PullRecordsRequest[Items] because schema-change handling now needs access to the request’s table-schema cache
 func processMessage[Items model.Items](
 	ctx context.Context,
 	p *PostgresCDCSource,
@@ -926,14 +905,6 @@ func processMessage[Items model.Items](
 			currColNames = append(currColNames, col.Name)
 		}
 
-		logger.Info("Received RelationMessage from WAL",
-			slog.Uint64("RelationID", uint64(msg.RelationID)),
-			slog.String("Namespace", msg.Namespace),
-			slog.String("RelationName", msg.RelationName),
-			slog.Int("columnCount", len(msg.Columns)),
-			slog.Any("columnNames", currColNames),
-			slog.Any("LSN", currentClientXlogPos))
-
 		if _, exists := p.srcTableIDNameMapping[msg.RelationID]; !exists {
 			logger.Warn("RelationMessage received for table not in replication set, skipping",
 				slog.Uint64("RelationID", uint64(msg.RelationID)),
@@ -941,12 +912,6 @@ func processMessage[Items model.Items](
 				slog.String("RelationName", msg.RelationName))
 			return nil, nil
 		}
-
-		logger.Debug("Processing RelationMessage for replicated table",
-			slog.Uint64("RelationID", uint64(msg.RelationID)),
-			slog.String("Namespace", msg.Namespace),
-			slog.String("RelationName", msg.RelationName),
-			slog.Any("Columns", msg.Columns))
 
 		return processRelationMessage[Items](ctx, p, req, currentClientXlogPos, msg)
 	case *pglogrepl.LogicalDecodingMessage:
@@ -1119,15 +1084,6 @@ func processDeleteMessage[Items model.Items](
 }
 
 // processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
-// Currently supported DDL operations:
-//   - ADD COLUMN (with default values)
-//   - DROP COLUMN (excluding PeerDB system columns)
-//   - ALTER COLUMN TYPE (column type changes)
-//
-// Not currently supported:
-//   - CREATE/DROP INDEX (indexes are not replicated via logical replication RelationMessages)
-//   - CREATE/DROP TRIGGER (triggers are not replicated via logical replication RelationMessages)
-//   - Other DDL operations not captured in RelationMessages
 func processRelationMessage[Items model.Items](
 	ctx context.Context,
 	p *PostgresCDCSource,
@@ -1191,10 +1147,6 @@ func processRelationMessage[Items model.Items](
 		prevRelMap[column.Name] = column.Type
 		prevColNames = append(prevColNames, column.Name)
 	}
-	p.logger.Info("Retrieved previous schema from cache",
-		slog.String("tableName", currRelDstInfo.Name),
-		slog.Int("previousColumnCount", len(prevSchema.Columns)),
-		slog.Any("previousColumns", prevColNames))
 
 	currRelMap := make(map[string]string, len(currRel.Columns))
 	for _, column := range currRel.Columns {
@@ -1325,7 +1277,6 @@ func processRelationMessage[Items model.Items](
 				continue
 			}
 
-			// only add to delta if not excluded
 			if _, ok := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[column.Name]; !ok {
 				schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, column.Name)
 				p.logger.Info("Detected dropped column",
@@ -1341,7 +1292,6 @@ func processRelationMessage[Items model.Items](
 		}
 	}
 
-	// Log summary of detected schema changes
 	if len(schemaDelta.AddedColumns) > 0 || len(schemaDelta.DroppedColumns) > 0 || len(schemaDelta.TypeChangedColumns) > 0 {
 		addedColNames := make([]string, 0, len(schemaDelta.AddedColumns))
 		for _, col := range schemaDelta.AddedColumns {
@@ -1363,15 +1313,7 @@ func processRelationMessage[Items model.Items](
 			slog.Any("LSN", lsn))
 	}
 
-	// Update relationMessageMapping IMMEDIATELY so DML operations that follow
-	// in the same WAL stream use the updated schema
 	p.relationMessageMapping[currRel.RelationID] = currRel
-	p.logger.Info("Updated relationMessageMapping with new schema",
-		slog.String("tableName", currRelName),
-		slog.Int("columnCount", len(currRel.Columns)),
-		slog.Any("LSN", lsn))
-
-	// Fetch default values and nullable info for added columns from pg_catalog
 	if len(schemaDelta.AddedColumns) > 0 {
 		addedColNames := make([]string, 0, len(schemaDelta.AddedColumns))
 		for _, col := range schemaDelta.AddedColumns {
@@ -1424,11 +1366,6 @@ func processRelationMessage[Items model.Items](
 				if info.columnDefault.Valid && info.columnDefault.String != "" {
 					// Store default value - we'll use it in the ADD COLUMN statement
 					column.DefaultValue = info.columnDefault.String
-					p.logger.Info("Detected column with default value",
-						slog.String("columnName", column.Name),
-						slog.String("defaultValue", info.columnDefault.String),
-						slog.Bool("nullable", column.Nullable),
-						slog.String("tableName", schemaDelta.SrcTableName))
 				} else {
 					p.logger.Info("Detected column without default value",
 						slog.String("columnName", column.Name),
@@ -1439,10 +1376,7 @@ func processRelationMessage[Items model.Items](
 		}
 	}
 
-	// Update the cached schema mapping after detecting changes
-	// This ensures the next comparison uses the updated schema
 	if len(schemaDelta.AddedColumns) > 0 || len(schemaDelta.DroppedColumns) > 0 || len(schemaDelta.TypeChangedColumns) > 0 {
-		// Create updated schema with new columns added, dropped columns removed, and type changes applied
 		updatedSchema := &protos.TableSchema{
 			Columns:           make([]*protos.FieldDescription, 0, len(prevSchema.Columns)),
 			System:            prevSchema.System,
@@ -1450,7 +1384,6 @@ func processRelationMessage[Items model.Items](
 			NullableEnabled:   prevSchema.NullableEnabled,
 		}
 
-		// Build maps for efficient lookup
 		droppedColsMap := make(map[string]bool, len(schemaDelta.DroppedColumns))
 		for _, droppedCol := range schemaDelta.DroppedColumns {
 			droppedColsMap[droppedCol] = true
@@ -1460,13 +1393,9 @@ func processRelationMessage[Items model.Items](
 		for _, typeChange := range schemaDelta.TypeChangedColumns {
 			typeChangedColsMap[typeChange.ColumnName] = typeChange
 		}
-
-		// Add existing columns that weren't dropped, updating types if changed
 		for _, col := range prevSchema.Columns {
 			if !droppedColsMap[col.Name] {
-				// Check if this column's type changed
 				if typeChange, ok := typeChangedColsMap[col.Name]; ok {
-					// Update the column with new type
 					updatedCol := &protos.FieldDescription{
 						Name:         col.Name,
 						Type:         typeChange.NewType,
@@ -1481,13 +1410,10 @@ func processRelationMessage[Items model.Items](
 			}
 		}
 
-		// Add newly added columns
 		for _, addedCol := range schemaDelta.AddedColumns {
 			updatedSchema.Columns = append(updatedSchema.Columns, addedCol)
 		}
 
-		// Update the cached schema mapping in both places
-		// This ensures DML operations that follow in the same WAL stream use updated schema
 		p.tableNameSchemaMapping[currRelDstInfo.Name] = updatedSchema
 		if req != nil && req.TableNameSchemaMapping != nil {
 			req.TableNameSchemaMapping[currRelDstInfo.Name] = updatedSchema
@@ -1502,7 +1428,6 @@ func processRelationMessage[Items model.Items](
 			slog.Int("totalColumns", len(updatedSchema.Columns)))
 	}
 
-	// Return RelationRecord if there are any schema changes (added, dropped, or type changed)
 	if len(schemaDelta.AddedColumns) > 0 || len(schemaDelta.DroppedColumns) > 0 || len(schemaDelta.TypeChangedColumns) > 0 {
 		p.logger.Info("Returning RelationRecord with schema delta",
 			slog.String("srcTableName", schemaDelta.SrcTableName),
