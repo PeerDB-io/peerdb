@@ -153,9 +153,17 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	flowJobName string,
 ) (utils.AvroFile, error) {
 	if s.config.StagingPath == "" {
-		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
+		compression := ocf.ZStandard
+		skipCompression, err := internal.PeerDBSnowflakeSkipCompression(ctx, s.config.Env)
+		if err != nil {
+			s.logger.Warn("Failed to load PEERDB_SNOWFLAKE_SKIP_COMPRESSION, proceeding without", slog.Any("error", err))
+		} else if skipCompression {
+			compression = ocf.Null
+		}
+
+		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, compression, protos.DBType_SNOWFLAKE)
 		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
-		err := os.MkdirAll(tmpDir, os.ModePerm)
+		err = os.MkdirAll(tmpDir, os.ModePerm)
 		if err != nil {
 			return utils.AvroFile{}, fmt.Errorf("failed to create temp dir: %w", err)
 		}

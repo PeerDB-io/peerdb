@@ -136,6 +136,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
 	},
 	{
+		Name:             "PEERDB_SNOWFLAKE_SKIP_COMPRESSION",
+		Description:      "Use `NULL` compression when creating Avro files to be uploaded to Snowflake directly",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
 		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
 		DefaultValue:     "raw",
@@ -627,6 +635,10 @@ func PeerDBEnableClickHouseJSON(ctx context.Context, env map[string]string) (boo
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
+}
+
+func PeerDBSnowflakeSkipCompression(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_SKIP_COMPRESSION")
 }
 
 func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bool, error) {
