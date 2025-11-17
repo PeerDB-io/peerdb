@@ -39,8 +39,7 @@ const (
 	ReceivedCommitLSNGaugeName           = "received_commit_lsn"
 	CurrentWalLSNGaugeName               = "current_wal_lsn"
 	RestartToConfirmedMBGaugeName        = "restart_to_confirmed_lsn"
-	ConfirmedToSentMBGaugeName           = "confirmed_to_sent_lsn"
-	SentToCurrentMBGaugeName             = "sent_to_current_lsn"
+	ConfirmedToCurrentMBGaugeName        = "confirmed_to_current_lsn"
 	WalStatusGaugeName                   = "wal_status"
 	SafeWalSizeGaugeName                 = "safe_wal_size"
 	SlotActiveGaugeName                  = "slot_active"
@@ -92,8 +91,7 @@ type Metrics struct {
 	ReceivedCommitLSNGauge           metric.Int64Gauge
 	CurrentWalLSNGauge               metric.Int64Gauge
 	RestartToConfirmedMBGauge        metric.Float64Gauge
-	ConfirmedToSentMBGauge           metric.Float64Gauge
-	SentToCurrentMBGauge             metric.Float64Gauge
+	ConfirmedToCurrentMBGauge        metric.Float64Gauge
 	WalStatusGauge                   metric.Int64Gauge
 	SafeWalSizeGauge                 metric.Int64Gauge
 	SlotActiveGauge                  metric.Int64Gauge
@@ -139,8 +137,7 @@ type SlotMetricGauges struct {
 	SentLSNGauge                    metric.Int64Gauge
 	CurrentWalLSNGauge              metric.Int64Gauge
 	RestartToConfirmedMBGauge       metric.Float64Gauge
-	ConfirmedToSentMBGauge          metric.Float64Gauge
-	SentToCurrentMBGauge            metric.Float64Gauge
+	ConfirmedToCurrentMBGauge       metric.Float64Gauge
 	WalStatusGauge                  metric.Int64Gauge
 	SafeWalSizeGauge                metric.Int64Gauge
 	SlotActiveGauge                 metric.Int64Gauge
@@ -282,13 +279,13 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	}
 
 	if om.Metrics.SentLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SentLSNGaugeName),
-		metric.WithDescription("Sent LSN from pg_stat_replication"),
+		metric.WithDescription("Sent LSN from pg_stat_replication, only emitted if we have pg_monitor/pg_read_all_stats role"),
 	); err != nil {
 		return err
 	}
 
 	if om.Metrics.ReceivedCommitLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ReceivedCommitLSNGaugeName),
-		metric.WithDescription("Sent LSN from pg_stat_replication"),
+		metric.WithDescription("Received commit LSN on the consumer side"),
 	); err != nil {
 		return err
 	}
@@ -306,16 +303,9 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 
-	if om.Metrics.ConfirmedToSentMBGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(ConfirmedToSentMBGaugeName),
+	if om.Metrics.ConfirmedToCurrentMBGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(ConfirmedToCurrentMBGaugeName),
 		metric.WithUnit("MiBy"),
-		metric.WithDescription("Difference between sent_lsn and confirmed_flush_lsn (MB)"),
-	); err != nil {
-		return err
-	}
-
-	if om.Metrics.SentToCurrentMBGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(SentToCurrentMBGaugeName),
-		metric.WithUnit("MiBy"),
-		metric.WithDescription("Difference between current WAL LSN and sent_lsn (MB)"),
+		metric.WithDescription("Difference between sent_lsn and current WAL LSN (MB)"),
 	); err != nil {
 		return err
 	}

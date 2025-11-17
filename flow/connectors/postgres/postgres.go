@@ -1417,8 +1417,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	))
 	slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo.LagInMb), attributeSet)
 	slotMetricGauges.RestartToConfirmedMBGauge.Record(ctx, float64(slotInfo.RestartToConfirmedMb), attributeSet)
-	slotMetricGauges.ConfirmedToSentMBGauge.Record(ctx, float64(slotInfo.ConfirmedToSentMb), attributeSet)
-	slotMetricGauges.SentToCurrentMBGauge.Record(ctx, float64(slotInfo.SentToCurrentMb), attributeSet)
+	slotMetricGauges.ConfirmedToCurrentMBGauge.Record(ctx, float64(slotInfo.ConfirmedToCurrentMb), attributeSet)
 
 	currentLSN, err := pglogrepl.ParseLSN(slotInfo.CurrentLSN)
 	if err != nil {
@@ -1426,11 +1425,13 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	slotMetricGauges.CurrentWalLSNGauge.Record(ctx, int64(currentLSN), attributeSet)
 
-	sentLSN, err := pglogrepl.ParseLSN(slotInfo.SentLSN)
-	if err != nil {
-		logger.Warn("error parsing sent LSN", slog.Any("error", err))
+	if slotInfo.SentLSN != nil {
+		sentLSN, err := pglogrepl.ParseLSN(*slotInfo.SentLSN)
+		if err != nil {
+			logger.Warn("error parsing sent LSN", slog.Any("error", err))
+		}
+		slotMetricGauges.SentLSNGauge.Record(ctx, int64(sentLSN), attributeSet)
 	}
-	slotMetricGauges.SentLSNGauge.Record(ctx, int64(sentLSN), attributeSet)
 
 	confirmedFlushLSN, err := pglogrepl.ParseLSN(slotInfo.ConfirmedFlushLSN)
 	if err != nil {
@@ -1468,19 +1469,21 @@ func (c *PostgresConnector) HandleSlotInfo(
 		attribute.String(otel_metrics.WalStatusKey, slotInfo.WalStatus),
 	)))
 
-	slotMetricGauges.LogicalDecodingWorkMemGauge.Record(ctx, slotInfo.LogicalDecodingWorkMemMb,
-		metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-			attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
-			attribute.Bool(otel_metrics.PendingRestartKey, slotInfo.LogicalDecodingWorkMemPendingRestart),
-		)))
+	slotMetricGauges.LogicalDecodingWorkMemGauge.Record(ctx, slotInfo.LogicalDecodingWorkMemMb, attributeSet)
 
 	// PG 16+ statistics gauges
-	slotMetricGauges.StatsResetGauge.Record(ctx, slotInfo.StatsReset, attributeSet)
-	slotMetricGauges.SpillTxnsGauge.Record(ctx, slotInfo.SpillTxns, attributeSet)
-	slotMetricGauges.SpillCountGauge.Record(ctx, slotInfo.SpillCount, attributeSet)
-	slotMetricGauges.SpillBytesGauge.Record(ctx, slotInfo.SpillBytes, attributeSet)
+	if slotInfo.StatsReset != nil {
+		slotMetricGauges.StatsResetGauge.Record(ctx, *slotInfo.StatsReset, attributeSet)
+	}
+	if slotInfo.SpillTxns != nil {
+		slotMetricGauges.SpillTxnsGauge.Record(ctx, *slotInfo.SpillTxns, attributeSet)
+	}
+	if slotInfo.SpillCount != nil {
+		slotMetricGauges.SpillCountGauge.Record(ctx, *slotInfo.SpillCount, attributeSet)
+	}
+	if slotInfo.SpillBytes != nil {
+		slotMetricGauges.SpillBytesGauge.Record(ctx, *slotInfo.SpillBytes, attributeSet)
+	}
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.Config.User)

@@ -290,14 +290,9 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 	}
 
 	ldwMBSelect := "NULL::bigint"
-	ldwPendingSelect := "NULL::boolean"
 	if pgversion >= shared.POSTGRES_13 {
 		ldwMBSelect = `(
 			SELECT (pg_size_bytes(setting || COALESCE(unit,'')) / 1024 / 1024)::bigint
-			FROM pg_settings WHERE name='logical_decoding_work_mem'
-		)`
-		ldwPendingSelect = `(
-			SELECT pending_restart
 			FROM pg_settings WHERE name='logical_decoding_work_mem'
 		)`
 	}
@@ -347,13 +342,11 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 			prs.active,
 			round((cw.current_lsn - prs.restart_lsn) / 1024 / 1024),
 			round((prs.confirmed_flush_lsn - prs.restart_lsn) / 1024 / 1024),
-			round((psr.sent_lsn - prs.confirmed_flush_lsn) / 1024 / 1024),
-			round((cw.current_lsn - psr.sent_lsn) / 1024 / 1024),
+			round((cw.current_lsn - prs.confirmed_flush_lsn) / 1024 / 1024),
 			psa.wait_event_type,
 			psa.wait_event,
 			psa.state,
 			%s, -- logical_decoding_work_mem megabytes
-			%s, -- logical_decoding_work_mem pending_restart
 			%s  -- stats
 		FROM current_wal cw,
 			pg_control_checkpoint() as pcc,
@@ -367,7 +360,6 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 		walStatusSelect,
 		safeWalSizeSelect,
 		ldwMBSelect,
-		ldwPendingSelect,
 		statsSelect,
 		statsJoin,
 		whereClause,
@@ -385,21 +377,19 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 		var walStatus pgtype.Text
 		var safeWalSize pgtype.Int8
 		var confirmedFlushLSN pgtype.Text
-		var sentLSN pgtype.Text
+		var sentLSN *string
 		var active pgtype.Bool
 		var lagInMB pgtype.Float4
 		var restartToConfirmedMB pgtype.Float4
-		var confirmedToSentMB pgtype.Float4
-		var sentToCurrentMB pgtype.Float4
+		var confirmedToCurrentMB pgtype.Float4
 		var waitEventType pgtype.Text
 		var waitEvent pgtype.Text
 		var backendState pgtype.Text
 		var ldwMemMB pgtype.Int8
-		var ldwPendingRestart pgtype.Bool
-		var statsReset pgtype.Int8
-		var spillTxns pgtype.Int8
-		var spillCount pgtype.Int8
-		var spillBytes pgtype.Int8
+		var statsReset *int64
+		var spillTxns *int64
+		var spillCount *int64
+		var spillBytes *int64
 
 		err := rows.Scan(
 			&slotName,
@@ -413,13 +403,11 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 			&active,
 			&lagInMB,
 			&restartToConfirmedMB,
-			&confirmedToSentMB,
-			&sentToCurrentMB,
+			&confirmedToCurrentMB,
 			&waitEventType,
 			&waitEvent,
 			&backendState,
 			&ldwMemMB,
-			&ldwPendingRestart,
 			&statsReset,
 			&spillTxns,
 			&spillCount,
@@ -430,28 +418,26 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 		}
 
 		slotInfoRows = append(slotInfoRows, &protos.SlotInfo{
-			SlotName:                             slotName.String,
-			RedoLSN:                              redoLSN.String,
-			RestartLSN:                           restartLSN.String,
-			CurrentLSN:                           currentLSN.String,
-			Active:                               active.Bool,
-			LagInMb:                              lagInMB.Float32,
-			ConfirmedFlushLSN:                    confirmedFlushLSN.String,
-			SentLSN:                              sentLSN.String,
-			RestartToConfirmedMb:                 restartToConfirmedMB.Float32,
-			ConfirmedToSentMb:                    confirmedToSentMB.Float32,
-			SentToCurrentMb:                      sentToCurrentMB.Float32,
-			WalStatus:                            walStatus.String,
-			SafeWalSize:                          safeWalSize.Int64,
-			WaitEventType:                        waitEventType.String,
-			WaitEvent:                            waitEvent.String,
-			BackendState:                         backendState.String,
-			LogicalDecodingWorkMemMb:             ldwMemMB.Int64,
-			LogicalDecodingWorkMemPendingRestart: ldwPendingRestart.Bool,
-			StatsReset:                           statsReset.Int64,
-			SpillTxns:                            spillTxns.Int64,
-			SpillCount:                           spillCount.Int64,
-			SpillBytes:                           spillBytes.Int64,
+			SlotName:                 slotName.String,
+			RedoLSN:                  redoLSN.String,
+			RestartLSN:               restartLSN.String,
+			CurrentLSN:               currentLSN.String,
+			Active:                   active.Bool,
+			LagInMb:                  lagInMB.Float32,
+			ConfirmedFlushLSN:        confirmedFlushLSN.String,
+			SentLSN:                  sentLSN,
+			RestartToConfirmedMb:     restartToConfirmedMB.Float32,
+			ConfirmedToCurrentMb:     confirmedToCurrentMB.Float32,
+			WalStatus:                walStatus.String,
+			SafeWalSize:              safeWalSize.Int64,
+			WaitEventType:            waitEventType.String,
+			WaitEvent:                waitEvent.String,
+			BackendState:             backendState.String,
+			LogicalDecodingWorkMemMb: ldwMemMB.Int64,
+			StatsReset:               statsReset,
+			SpillTxns:                spillTxns,
+			SpillCount:               spillCount,
+			SpillBytes:               spillBytes,
 		})
 	}
 	return slotInfoRows, nil
