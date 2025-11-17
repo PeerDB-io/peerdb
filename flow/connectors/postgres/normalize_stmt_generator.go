@@ -138,18 +138,34 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	unchangedToastColumns []string,
 ) string {
 	columnCount := len(normalizedTableSchema.Columns)
-	quotedColumnNames := make([]string, columnCount)
-
 	flattenedCastsSQLArray := make([]string, 0, columnCount)
 	parsedDstTable, _ := utils.ParseSchemaTable(dstTableName)
 
 	primaryKeyColumnCasts := make(map[string]string)
 	primaryKeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
-	for i, column := range normalizedTableSchema.Columns {
+
+	// Filter out PeerDB system columns - they are added separately
+	systemCols := make(map[string]bool)
+	if n.peerdbCols.SyncedAtColName != "" {
+		systemCols[n.peerdbCols.SyncedAtColName] = true
+	}
+	if n.peerdbCols.SoftDeleteColName != "" {
+		systemCols[n.peerdbCols.SoftDeleteColName] = true
+	}
+
+	// Build column lists excluding system columns
+	quotedColumnNamesFiltered := make([]string, 0, columnCount)
+
+	for _, column := range normalizedTableSchema.Columns {
+		// Skip PeerDB system columns - they are handled separately
+		if systemCols[column.Name] {
+			continue
+		}
+
 		genericColumnType := column.Type
 		quotedCol := utils.QuoteIdentifier(column.Name)
 		stringCol := utils.QuoteLiteral(column.Name)
-		quotedColumnNames[i] = quotedCol
+		quotedColumnNamesFiltered = append(quotedColumnNamesFiltered, quotedCol)
 		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
 		expr := n.generateExpr(normalizedTableSchema, genericColumnType, stringCol, pgType)
 
@@ -159,14 +175,17 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s", quotedCol, quotedCol))
 		}
 	}
+
+	// Use filtered column names (excluding system columns)
+	quotedColumnNames := quotedColumnNamesFiltered
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
-	insertValuesSQLArray := make([]string, 0, columnCount+2)
+	insertValuesSQLArray := make([]string, 0, len(quotedColumnNames)+2)
 	for _, quotedCol := range quotedColumnNames {
 		insertValuesSQLArray = append(insertValuesSQLArray, "src."+quotedCol)
 	}
 
 	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns)
-	// append synced_at column
+	// append synced_at column (system column, added separately)
 	if n.peerdbCols.SyncedAtColName != "" {
 		quotedColumnNames = append(quotedColumnNames, utils.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
 		insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
