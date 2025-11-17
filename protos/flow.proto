@@ -233,6 +233,7 @@ message TableSchema {
   TypeSystem system = 4;
   bool nullable_enabled = 5;
   repeated FieldDescription columns = 6;
+  uint32 table_oid = 7;
 }
 
 message FieldDescription {

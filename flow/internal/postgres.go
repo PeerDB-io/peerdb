@@ -72,3 +72,36 @@ func LoadTableSchemaFromCatalog(
 	tableSchema := &protos.TableSchema{}
 	return tableSchema, proto.Unmarshal(tableSchemaBytes, tableSchema)
 }
+
+func UpdateTableOIDInTableSchemaInCatalog(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	logger log.Logger,
+	flowName string,
+	destinationTableName string,
+	tableOID uint32,
+) error {
+	logger.Info("updating table OID in catalog",
+		slog.String("flowName", flowName),
+		slog.String("destinationTableName", destinationTableName),
+		slog.Uint64("tableOID", uint64(tableOID)))
+
+	tableSchema, err := LoadTableSchemaFromCatalog(ctx, pool, flowName, destinationTableName)
+	if err != nil {
+		return fmt.Errorf("failed to load table schema from catalog: %w", err)
+	}
+
+	tableSchema.TableOid = tableOID
+	tableSchemaBytes, err := proto.Marshal(tableSchema)
+	if err != nil {
+		return fmt.Errorf("unable to marshal updated table schema: %w", err)
+	}
+
+	if _, err := pool.Exec(ctx, "UPDATE table_schema_mapping SET table_schema=$1 WHERE flow_name=$2 AND table_name=$3", tableSchemaBytes, flowName, destinationTableName); err != nil {
+		logger.Error("failed to update table schema in catalog", slog.Any("error", err), slog.String("flowName", flowName), slog.String("tableName", destinationTableName))
+		return fmt.Errorf("failed to update table schema in catalog: %w", err)
+	}
+
+	logger.Info("updated table OID in catalog", slog.String("flowName", flowName), slog.String("tableName", destinationTableName), slog.Uint64("tableOID", uint64(tableOID)))
+	return nil
+}

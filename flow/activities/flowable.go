@@ -1826,3 +1826,40 @@ func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos
 	)))
 	return nil
 }
+
+func (a *FlowableActivity) MigratePostgresTableOIDs(
+	ctx context.Context,
+	flowName string,
+	oidToTableNameMapping map[uint32]string,
+	tableMappings []*protos.TableMapping,
+) error {
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "migrating oids to table schema"
+	})
+	defer shutdown()
+	logger := internal.LoggerFromCtx(ctx)
+	total := len(oidToTableNameMapping)
+	remaining := total
+	for oid, tableName := range oidToTableNameMapping {
+		var destinationTableIdentifier string
+		for _, tm := range tableMappings {
+			if tm.SourceTableIdentifier == tableName {
+				destinationTableIdentifier = tm.DestinationTableIdentifier
+				break
+			}
+		}
+		err := internal.UpdateTableOIDInTableSchemaInCatalog(ctx, a.CatalogPool, logger, flowName, destinationTableIdentifier, oid)
+		if err != nil {
+			return fmt.Errorf("failed to update OID for table %s in flow %s: %w", tableName, flowName, err)
+		}
+		remaining--
+		logger.Info("Migrated OID for table",
+			slog.String("flowName", flowName),
+			slog.String("tableName", tableName),
+			slog.Uint64("oid", uint64(oid)),
+			slog.Int("remainingTables", remaining),
+			slog.Int("totalTables", total),
+		)
+	}
+	return nil
+}
