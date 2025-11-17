@@ -108,9 +108,6 @@ func (a *FlowableActivity) applySchemaDeltas(
 	return nil
 }
 
-// updateDestinationSchemaMapping updates the destination schema mapping in the catalog
-// after schema deltas have been applied to the destination. This ensures normalization
-// uses the correct updated schema.
 func (a *FlowableActivity) updateDestinationSchemaMapping(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
@@ -119,7 +116,6 @@ func (a *FlowableActivity) updateDestinationSchemaMapping(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	// Filter table mappings for tables that had schema changes
 	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
 	for _, tableMapping := range options.TableMappings {
 		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
@@ -134,27 +130,19 @@ func (a *FlowableActivity) updateDestinationSchemaMapping(
 		return nil
 	}
 
-	// Get destination connector to fetch updated schema
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.GetTableSchemaConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector for schema update: %w", err)
 	}
 	defer dstClose(ctx)
 
-	logger.Info("Updating destination schema mapping after schema deltas",
-		slog.String("flowName", config.FlowJobName),
-		slog.Int("tablesAffected", len(filteredTableMappings)))
-
-	// Fetch updated schema from destination
 	tableNameSchemaMapping, err := dstConn.GetTableSchema(ctx, config.Env, config.Version, config.System, filteredTableMappings)
 	if err != nil {
 		return fmt.Errorf("failed to get updated schema from destination: %w", err)
 	}
 
-	// Build processed schema mapping (maps destination table names to schemas)
 	processed := internal.BuildProcessedSchemaMapping(filteredTableMappings, tableNameSchemaMapping, logger)
 
-	// Update catalog with new destination schemas
 	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to start transaction for schema mapping update: %w", err)
@@ -176,18 +164,11 @@ func (a *FlowableActivity) updateDestinationSchemaMapping(
 		); err != nil {
 			return fmt.Errorf("failed to update schema mapping for %s: %w", tableName, err)
 		}
-		logger.Info("Updated destination schema mapping in catalog",
-			slog.String("tableName", tableName),
-			slog.Int("columnCount", len(tableSchema.Columns)))
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit schema mapping update: %w", err)
 	}
-
-	logger.Info("Successfully updated destination schema mapping",
-		slog.String("flowName", config.FlowJobName),
-		slog.Int("tablesUpdated", len(processed)))
 	return nil
 }
 
@@ -421,12 +402,10 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, err
 	}
 
-	// For Postgres to Postgres, update destination schema mapping after applying schema deltas
 	if len(res.TableSchemaDeltas) > 0 {
 		if err := a.updateDestinationSchemaMapping(ctx, config, options, res.TableSchemaDeltas); err != nil {
 			logger.Warn("Failed to update destination schema mapping, normalization may use stale schema",
 				slog.Any("error", err))
-			// Don't fail the sync if schema mapping update fails, but log it
 		}
 	}
 
