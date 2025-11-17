@@ -278,52 +278,166 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 }
 
 func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database string) ([]*protos.SlotInfo, error) {
-	var whereClause string
-	if slotName != "" {
-		whereClause = "WHERE slot_name=" + utils.QuoteLiteral(slotName)
-	} else {
-		whereClause = "WHERE database=" + utils.QuoteLiteral(database)
-	}
-
 	pgversion, err := shared.GetMajorVersion(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
-	walStatusSelector := "wal_status"
+	walStatusSelect := "prs.wal_status"
+	safeWalSizeSelect := "prs.safe_wal_size"
 	if pgversion < shared.POSTGRES_13 {
-		walStatusSelector = "'unknown'"
+		walStatusSelect = "'unknown'"
+		safeWalSizeSelect = "NULL::bigint"
 	}
-	rows, err := conn.Query(ctx, fmt.Sprintf(`SELECT slot_name, redo_lsn::Text,restart_lsn::text,%s,
-		confirmed_flush_lsn::text,active,
-		round((CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END
-		- restart_lsn) / 1024 / 1024) AS MB_Behind
-		FROM pg_control_checkpoint(),pg_replication_slots %s`, walStatusSelector, whereClause))
+
+	ldwMBSelect := "NULL::bigint"
+	if pgversion >= shared.POSTGRES_13 {
+		ldwMBSelect = `(
+			SELECT (pg_size_bytes(setting || COALESCE(unit,'')) / 1024 / 1024)::bigint
+			FROM pg_settings WHERE name='logical_decoding_work_mem'
+		)`
+	}
+
+	statsSelect := `
+		NULL::bigint,
+		NULL::bigint,
+		NULL::bigint,
+		NULL::bigint
+	`
+	statsJoin := ""
+	if pgversion >= shared.POSTGRES_16 {
+		statsSelect = `
+			EXTRACT(EPOCH FROM psrs.stats_reset)::bigint,
+			psrs.spill_txns,
+			psrs.spill_count,
+			psrs.spill_bytes
+		`
+		statsJoin = `
+			LEFT JOIN pg_stat_replication_slots AS psrs
+				ON psrs.slot_name = prs.slot_name
+		`
+	}
+	var whereClause string
+	if slotName != "" {
+		whereClause = "WHERE prs.slot_name=" + utils.QuoteLiteral(slotName)
+	} else {
+		whereClause = "WHERE prs.database=" + utils.QuoteLiteral(database)
+	}
+	rows, err := conn.Query(ctx, fmt.Sprintf(`
+		WITH current_wal AS (
+			SELECT CASE
+				WHEN pg_is_in_recovery()
+				THEN pg_last_wal_receive_lsn()
+				ELSE pg_current_wal_lsn()
+			END AS current_lsn
+		)
+		SELECT
+			prs.slot_name,
+			pcc.redo_lsn::text,
+			prs.restart_lsn::text,
+			cw.current_lsn::text,
+			%s, -- prs.wal_status
+			%s, -- prs.safe_wal_size
+			prs.confirmed_flush_lsn::text,
+			psr.sent_lsn::text,
+			prs.active,
+			round((cw.current_lsn - prs.restart_lsn) / 1024 / 1024),
+			round((prs.confirmed_flush_lsn - prs.restart_lsn) / 1024 / 1024),
+			round((cw.current_lsn - prs.confirmed_flush_lsn) / 1024 / 1024),
+			psa.wait_event_type,
+			psa.wait_event,
+			psa.state,
+			%s, -- logical_decoding_work_mem megabytes
+			%s  -- stats
+		FROM current_wal cw,
+			pg_control_checkpoint() as pcc,
+			(pg_replication_slots as prs
+				LEFT JOIN pg_stat_activity as psa
+					on psa.pid = prs.active_pid
+				LEFT JOIN pg_stat_replication as psr
+					on psr.pid = prs.active_pid
+				%s)
+		%s`,
+		walStatusSelect,
+		safeWalSizeSelect,
+		ldwMBSelect,
+		statsSelect,
+		statsJoin,
+		whereClause,
+	))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read information for slots: %w", err)
 	}
 	defer rows.Close()
 	var slotInfoRows []*protos.SlotInfo
 	for rows.Next() {
-		var redoLSN pgtype.Text
 		var slotName pgtype.Text
+		var redoLSN pgtype.Text
 		var restartLSN pgtype.Text
+		var currentLSN pgtype.Text
+		var walStatus pgtype.Text
+		var safeWalSize pgtype.Int8
 		var confirmedFlushLSN pgtype.Text
+		var sentLSN *string
 		var active pgtype.Bool
 		var lagInMB pgtype.Float4
-		var walStatus pgtype.Text
-		err := rows.Scan(&slotName, &redoLSN, &restartLSN, &walStatus, &confirmedFlushLSN, &active, &lagInMB)
+		var restartToConfirmedMB pgtype.Float4
+		var confirmedToCurrentMB pgtype.Float4
+		var waitEventType pgtype.Text
+		var waitEvent pgtype.Text
+		var backendState pgtype.Text
+		var ldwMemMB pgtype.Int8
+		var statsReset *int64
+		var spillTxns *int64
+		var spillCount *int64
+		var spillBytes *int64
+
+		err := rows.Scan(
+			&slotName,
+			&redoLSN,
+			&restartLSN,
+			&currentLSN,
+			&walStatus,
+			&safeWalSize,
+			&confirmedFlushLSN,
+			&sentLSN,
+			&active,
+			&lagInMB,
+			&restartToConfirmedMB,
+			&confirmedToCurrentMB,
+			&waitEventType,
+			&waitEvent,
+			&backendState,
+			&ldwMemMB,
+			&statsReset,
+			&spillTxns,
+			&spillCount,
+			&spillBytes,
+		)
 		if err != nil {
 			return nil, err
 		}
 
 		slotInfoRows = append(slotInfoRows, &protos.SlotInfo{
-			RedoLSN:           redoLSN.String,
-			RestartLSN:        restartLSN.String,
-			WalStatus:         walStatus.String,
-			ConfirmedFlushLSN: confirmedFlushLSN.String,
-			SlotName:          slotName.String,
-			Active:            active.Bool,
-			LagInMb:           lagInMB.Float32,
+			SlotName:                 slotName.String,
+			RedoLSN:                  redoLSN.String,
+			RestartLSN:               restartLSN.String,
+			CurrentLSN:               currentLSN.String,
+			Active:                   active.Bool,
+			LagInMb:                  lagInMB.Float32,
+			ConfirmedFlushLSN:        confirmedFlushLSN.String,
+			SentLSN:                  sentLSN,
+			RestartToConfirmedMb:     restartToConfirmedMB.Float32,
+			ConfirmedToCurrentMb:     confirmedToCurrentMB.Float32,
+			WalStatus:                walStatus.String,
+			SafeWalSize:              safeWalSize.Int64,
+			WaitEventType:            waitEventType.String,
+			WaitEvent:                waitEvent.String,
+			BackendState:             backendState.String,
+			LogicalDecodingWorkMemMb: ldwMemMB.Int64,
+			StatsReset:               statsReset,
+			SpillTxns:                spillTxns,
+			SpillCount:               spillCount,
+			SpillBytes:               spillBytes,
 		})
 	}
 	return slotInfoRows, nil

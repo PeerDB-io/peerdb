@@ -241,6 +241,19 @@ message SlotInfo {
   float lag_in_mb = 5;
   string confirmed_flush_lSN = 6;
   string wal_status = 7;
+  optional string sent_lSN = 8; // Only populated if we have a pg_monitor/pg_read_all_stats role
+  string current_lSN = 9;
+  float restart_to_confirmed_mb = 10;
+  float confirmed_to_current_mb = 11;
+  int64 safe_wal_size = 12;
+  string wait_event_type = 13;
+  string wait_event = 14;
+  string backend_state = 15;
+  int64 logical_decoding_work_mem_mb = 16;
+  optional int64 stats_reset = 17;
+  optional int64 spill_txns = 18;
+  optional int64 spill_count = 19;
+  optional int64 spill_bytes = 20;
 }
 
 message SlotLagPoint {
