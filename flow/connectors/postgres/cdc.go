@@ -486,6 +486,14 @@ func PullCdcRecords[Items model.Items](
 		return err
 	}
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	// Accumulate TOAST metrics locally and flush periodically
+	type toastMetricKey struct {
+		table  string
+		status string
+	}
+	toastValueMetrics := make(map[toastMetricKey]int64)
+	toastRowMetrics := make(map[toastMetricKey]int64)
+	toastMetricsMutex := &sync.Mutex{}
 	pullStart := time.Now()
 	defer func() {
 		if cdcRecordsStorage.IsEmpty() {
@@ -504,13 +512,36 @@ func PullCdcRecords[Items model.Items](
 	logger.Info("pulling records start")
 
 	waitingForCommit := false
+	flushToastMetrics := func() {
+		toastMetricsMutex.Lock()
+		flushingValueMetrics := toastValueMetrics
+		flushingRowMetrics := toastRowMetrics
+		toastRowMetrics = make(map[toastMetricKey]int64)
+		toastValueMetrics = make(map[toastMetricKey]int64)
+		toastMetricsMutex.Unlock()
+
+		for key, count := range flushingValueMetrics {
+			p.otelManager.Metrics.ToastValuesCounter.Add(ctx, count,
+				metric.WithAttributeSet(attribute.NewSet(
+					attribute.String("table", key.table),
+					attribute.String("backfilled", key.status))))
+		}
+		for key, count := range flushingRowMetrics {
+			p.otelManager.Metrics.ToastRowsCounter.Add(ctx, count,
+				metric.WithAttributeSet(attribute.NewSet(
+					attribute.String("table", key.table),
+					attribute.String("backfill_status", key.status))))
+		}
+	}
 	defer func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		flushToastMetrics()
 	}()
 	shutdown := shared.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		flushToastMetrics()
 		logger.Info("pulling records",
 			slog.Int("records", cdcRecordsStorage.Len()),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
@@ -709,15 +740,11 @@ func PullCdcRecords[Items model.Items](
 							if recItems, ok := any(r.NewItems).(model.RecordItems); ok {
 								colCount = int64(len(recItems.ColToVal))
 							}
+							toastMetricsMutex.Lock()
 							// Backfilling unchanged TOAST not applicable because of replica identity full, reporting as such
-							p.otelManager.Metrics.ToastValuesCounter.Add(ctx, colCount,
-								metric.WithAttributeSet(attribute.NewSet(
-									attribute.String("table", tableName),
-									attribute.String("backfilled", "na_replica_identity_full"))))
-							p.otelManager.Metrics.ToastRowsCounter.Add(ctx, 1,
-								metric.WithAttributeSet(attribute.NewSet(
-									attribute.String("table", tableName),
-									attribute.String("backfill_status", "na_replica_identity_full"))))
+							toastValueMetrics[toastMetricKey{tableName, "na_replica_identity_full"}] += colCount
+							toastRowMetrics[toastMetricKey{tableName, "na_replica_identity_full"}]++
+							toastMetricsMutex.Unlock()
 
 							if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 								return err
@@ -749,40 +776,30 @@ func PullCdcRecords[Items model.Items](
 							}
 
 							// Report metrics
+							toastMetricsMutex.Lock()
 							if backfilledCount > 0 {
-								p.otelManager.Metrics.ToastValuesCounter.Add(ctx, int64(backfilledCount),
-									metric.WithAttributeSet(attribute.NewSet(
-										attribute.String("table", tableName),
-										attribute.String("backfilled", "true"))))
+								toastValueMetrics[toastMetricKey{tableName, "true"}] += int64(backfilledCount)
 							}
 							remainingUnchangedToast := len(r.UnchangedToastColumns)
 							if remainingUnchangedToast > 0 {
-								p.otelManager.Metrics.ToastValuesCounter.Add(ctx, int64(remainingUnchangedToast),
-									metric.WithAttributeSet(attribute.NewSet(
-										attribute.String("table", tableName),
-										attribute.String("backfilled", "false"))))
+								toastValueMetrics[toastMetricKey{tableName, "false"}] += int64(remainingUnchangedToast)
 							}
 							if nonUnchangedToastCount > 0 {
-								p.otelManager.Metrics.ToastValuesCounter.Add(ctx, nonUnchangedToastCount,
-									metric.WithAttributeSet(attribute.NewSet(
-										attribute.String("table", tableName),
-										attribute.String("backfilled", "na_not_unchanged_toast"))))
+								toastValueMetrics[toastMetricKey{tableName, "na_not_unchanged_toast"}] += nonUnchangedToastCount
 							}
-							var backfillStatus string
+							var rowBackfillStatus string
 							switch {
 							case unchangedToastCount == 0:
-								backfillStatus = "na_no_toast" // No unchanged TOAST values, nothing to backfill
+								rowBackfillStatus = "na_no_toast" // No unchanged TOAST values, nothing to backfill
 							case backfilledCount == unchangedToastCount:
-								backfillStatus = "fully" // Everything was backfilled
+								rowBackfillStatus = "fully" // Everything was backfilled
 							case backfilledCount > 0:
-								backfillStatus = "partially" // Some values were backfilled
+								rowBackfillStatus = "partially" // Some values were backfilled
 							default:
-								backfillStatus = "none" // Couldn't backfill anything
+								rowBackfillStatus = "none" // Couldn't backfill anything
 							}
-							p.otelManager.Metrics.ToastRowsCounter.Add(ctx, 1,
-								metric.WithAttributeSet(attribute.NewSet(
-									attribute.String("table", tableName),
-									attribute.String("backfill_status", backfillStatus))))
+							toastValueMetrics[toastMetricKey{tableName, rowBackfillStatus}]++
+							toastMetricsMutex.Unlock()
 
 							if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
 								return err
