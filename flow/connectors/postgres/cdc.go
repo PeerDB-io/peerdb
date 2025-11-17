@@ -798,7 +798,7 @@ func PullCdcRecords[Items model.Items](
 							default:
 								rowBackfillStatus = "none" // Couldn't backfill anything
 							}
-							toastValueMetrics[toastMetricKey{tableName, rowBackfillStatus}]++
+							toastRowMetrics[toastMetricKey{tableName, rowBackfillStatus}]++
 							toastMetricsMutex.Unlock()
 
 							if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
