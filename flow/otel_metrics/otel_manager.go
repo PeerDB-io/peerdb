@@ -75,8 +75,7 @@ const (
 	WorkloadTotalReplicasGaugeName       = "workload_total_replicas"
 	LogRetentionGaugeName                = "log_retention"
 	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
-	ToastRowsCounterName                 = "toast_rows"
-	ToastValuesCounterName               = "toast_values"
+	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 )
 
 type Metrics struct {
@@ -128,8 +127,7 @@ type Metrics struct {
 	WorkloadTotalReplicasGauge       metric.Int64Gauge
 	LatestConsumedLogEventGauge      metric.Int64Gauge
 	LogRetentionGauge                metric.Float64Gauge
-	ToastRowsCounter                 metric.Int64Counter
-	ToastValuesCounter               metric.Int64Counter
+	UnchangedToastValuesCounter      metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -545,16 +543,9 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 
-	if om.Metrics.ToastRowsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ToastRowsCounterName),
+	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
 		metric.WithDescription(
-			"Counter of UPDATE rows by TOAST backfill status (Postgres only)"),
-	); err != nil {
-		return err
-	}
-
-	if om.Metrics.ToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ToastValuesCounterName),
-		metric.WithDescription(
-			"Counter of column values by TOAST backfill status (Postgres only)"),
+			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
 	); err != nil {
 		return err
 	}
