@@ -239,7 +239,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		logger.Info("written records to OCF",
 			slog.Int64("records", numRows.Load()),
 			slog.Int("channelLen", len(p.stream.Records)),
-			slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()))
+			slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()),
+			slog.String("compression", string(p.avroCompressionCodec)))
 	})
 	defer shutdown()
 
@@ -269,7 +270,9 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 
 	logger.Info("finished writing records to OCF",
 		slog.Int64("records", numRows.Load()),
-		slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()))
+		slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()),
+		slog.String("compression", string(p.avroCompressionCodec)),
+	)
 
 	if err := p.stream.Err(); err != nil {
 		logger.Error("Failed to get record from stream", slog.Any("error", err))
