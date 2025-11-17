@@ -709,7 +709,7 @@ func PullCdcRecords[Items model.Items](
 							if recItems, ok := any(r.NewItems).(model.RecordItems); ok {
 								colCount = int64(len(recItems.ColToVal))
 							}
-							p.otelManager.Metrics.ToastValuesCounter.Add(ctx, int64(colCount),
+							p.otelManager.Metrics.ToastValuesCounter.Add(ctx, colCount,
 								metric.WithAttributeSet(attribute.NewSet(
 									attribute.String("table", tableName),
 									attribute.String("backfilled", "replica_identity_full"))))
