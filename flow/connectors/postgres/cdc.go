@@ -709,14 +709,15 @@ func PullCdcRecords[Items model.Items](
 							if recItems, ok := any(r.NewItems).(model.RecordItems); ok {
 								colCount = int64(len(recItems.ColToVal))
 							}
+							// Backfilling unchanged TOAST not applicable because of replica identity full, reporting as such
 							p.otelManager.Metrics.ToastValuesCounter.Add(ctx, colCount,
 								metric.WithAttributeSet(attribute.NewSet(
 									attribute.String("table", tableName),
-									attribute.String("backfilled", "replica_identity_full"))))
+									attribute.String("backfilled", "na_replica_identity_full"))))
 							p.otelManager.Metrics.ToastRowsCounter.Add(ctx, 1,
 								metric.WithAttributeSet(attribute.NewSet(
 									attribute.String("table", tableName),
-									attribute.String("backfill_status", "replica_identity_full"))))
+									attribute.String("backfill_status", "na_replica_identity_full"))))
 
 							if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 								return err
@@ -748,13 +749,13 @@ func PullCdcRecords[Items model.Items](
 							}
 
 							// Report metrics
-							remainingUnchangedToast := len(r.UnchangedToastColumns)
 							if backfilledCount > 0 {
 								p.otelManager.Metrics.ToastValuesCounter.Add(ctx, int64(backfilledCount),
 									metric.WithAttributeSet(attribute.NewSet(
 										attribute.String("table", tableName),
 										attribute.String("backfilled", "true"))))
 							}
+							remainingUnchangedToast := len(r.UnchangedToastColumns)
 							if remainingUnchangedToast > 0 {
 								p.otelManager.Metrics.ToastValuesCounter.Add(ctx, int64(remainingUnchangedToast),
 									metric.WithAttributeSet(attribute.NewSet(
@@ -765,18 +766,18 @@ func PullCdcRecords[Items model.Items](
 								p.otelManager.Metrics.ToastValuesCounter.Add(ctx, nonUnchangedToastCount,
 									metric.WithAttributeSet(attribute.NewSet(
 										attribute.String("table", tableName),
-										attribute.String("backfilled", "not_unchanged_toast"))))
+										attribute.String("backfilled", "na_not_unchanged_toast"))))
 							}
 							var backfillStatus string
 							switch {
 							case unchangedToastCount == 0:
-								backfillStatus = "no_toast"
+								backfillStatus = "na_no_toast" // No unchanged TOAST values, nothing to backfill
 							case backfilledCount == unchangedToastCount:
-								backfillStatus = "fully"
+								backfillStatus = "fully" // Everything was backfilled
 							case backfilledCount > 0:
-								backfillStatus = "partially"
+								backfillStatus = "partially" // Some values were backfilled
 							default:
-								backfillStatus = "none"
+								backfillStatus = "none" // Couldn't backfill anything
 							}
 							p.otelManager.Metrics.ToastRowsCounter.Add(ctx, 1,
 								metric.WithAttributeSet(attribute.NewSet(
