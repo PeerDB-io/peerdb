@@ -238,7 +238,7 @@ func (s *SetupFlowExecution) executeSetupFlow(
 		}
 	}
 
-	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly)
+	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly && !config.Rekickoff)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
 	}
