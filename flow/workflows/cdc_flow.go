@@ -600,6 +600,7 @@ func CDCFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	state.SyncFlowOptions.NumberOfSyncs = 0 // removed feature
 
+	// MIGRATION: Migrate Postgres table OIDs to catalog before starting/resuming the flow
 	migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
 		HeartbeatTimeout:    2 * time.Minute,

@@ -1827,6 +1827,9 @@ func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos
 	return nil
 }
 
+/**
+ * MigratePostgresTableOIDs migrates the OIDs for source Postgres tables to the catalog's table_schema_mapping
+ */
 func (a *FlowableActivity) MigratePostgresTableOIDs(
 	ctx context.Context,
 	flowName string,
