@@ -91,6 +91,8 @@ message FlowConnectionConfigs {
 
   map<string, string> env = 24;
   uint32 version = 25;
+
+  bool rekickoff = 27;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -137,6 +139,8 @@ message FlowConnectionConfigsCore {
 
   map<string, string> env = 24;
   uint32 version = 25;
+
+  bool rekickoff = 27;
 }
 
 message RenameTableOption {

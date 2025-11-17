@@ -350,6 +350,10 @@ func SnapshotFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigsCore,
 ) error {
+	if config.Rekickoff {
+		workflow.GetLogger(ctx).Info("rekickoff is set to true, skipping snapshot flow execution")
+		return nil
+	}
 	se := &SnapshotFlowExecution{
 		config: config,
 		logger: log.With(workflow.GetLogger(ctx),

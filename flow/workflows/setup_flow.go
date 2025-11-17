@@ -231,14 +231,23 @@ func (s *SetupFlowExecution) executeSetupFlow(
 ) (*protos.SetupFlowOutput, error) {
 	s.Info("executing setup flow")
 
-	// first check the connectionsAndSetupMetadataTables
-	if err := s.checkConnectionsAndSetupMetadataTables(ctx, config); err != nil {
-		return nil, fmt.Errorf("failed to check connections and setup metadata tables: %w", err)
+	if !config.Rekickoff {
+		// first check the connectionsAndSetupMetadataTables
+		if err := s.checkConnectionsAndSetupMetadataTables(ctx, config); err != nil {
+			return nil, fmt.Errorf("failed to check connections and setup metadata tables: %w", err)
+		}
 	}
 
 	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
+	}
+
+	if config.Rekickoff {
+		// on rekickoff, we are done after ensuring pullability
+		return &protos.SetupFlowOutput{
+			SrcTableIdNameMapping: srcTableIdNameMapping,
+		}, nil
 	}
 
 	// for initial copy only flows, we don't need to create the raw table
