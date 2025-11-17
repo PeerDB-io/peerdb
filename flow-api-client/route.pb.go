@@ -3292,16 +3292,29 @@ func (x *ListPeersResponse) GetDestinationItems() []*PeerListItem {
 }
 
 type SlotInfo struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	SlotName          string                 `protobuf:"bytes,1,opt,name=slot_name,json=slotName,proto3" json:"slot_name,omitempty"`
-	RedoLSN           string                 `protobuf:"bytes,2,opt,name=redo_lSN,json=redoLSN,proto3" json:"redo_lSN,omitempty"`
-	RestartLSN        string                 `protobuf:"bytes,3,opt,name=restart_lSN,json=restartLSN,proto3" json:"restart_lSN,omitempty"`
-	Active            bool                   `protobuf:"varint,4,opt,name=active,proto3" json:"active,omitempty"`
-	LagInMb           float32                `protobuf:"fixed32,5,opt,name=lag_in_mb,json=lagInMb,proto3" json:"lag_in_mb,omitempty"`
-	ConfirmedFlushLSN string                 `protobuf:"bytes,6,opt,name=confirmed_flush_lSN,json=confirmedFlushLSN,proto3" json:"confirmed_flush_lSN,omitempty"`
-	WalStatus         string                 `protobuf:"bytes,7,opt,name=wal_status,json=walStatus,proto3" json:"wal_status,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	SlotName                 string                 `protobuf:"bytes,1,opt,name=slot_name,json=slotName,proto3" json:"slot_name,omitempty"`
+	RedoLSN                  string                 `protobuf:"bytes,2,opt,name=redo_lSN,json=redoLSN,proto3" json:"redo_lSN,omitempty"`
+	RestartLSN               string                 `protobuf:"bytes,3,opt,name=restart_lSN,json=restartLSN,proto3" json:"restart_lSN,omitempty"`
+	Active                   bool                   `protobuf:"varint,4,opt,name=active,proto3" json:"active,omitempty"`
+	LagInMb                  float32                `protobuf:"fixed32,5,opt,name=lag_in_mb,json=lagInMb,proto3" json:"lag_in_mb,omitempty"`
+	ConfirmedFlushLSN        string                 `protobuf:"bytes,6,opt,name=confirmed_flush_lSN,json=confirmedFlushLSN,proto3" json:"confirmed_flush_lSN,omitempty"`
+	WalStatus                string                 `protobuf:"bytes,7,opt,name=wal_status,json=walStatus,proto3" json:"wal_status,omitempty"`
+	SentLSN                  *string                `protobuf:"bytes,8,opt,name=sent_lSN,json=sentLSN,proto3,oneof" json:"sent_lSN,omitempty"` // Only populated if we have a pg_monitor/pg_read_all_stats role
+	CurrentLSN               string                 `protobuf:"bytes,9,opt,name=current_lSN,json=currentLSN,proto3" json:"current_lSN,omitempty"`
+	RestartToConfirmedMb     float32                `protobuf:"fixed32,10,opt,name=restart_to_confirmed_mb,json=restartToConfirmedMb,proto3" json:"restart_to_confirmed_mb,omitempty"`
+	ConfirmedToCurrentMb     float32                `protobuf:"fixed32,11,opt,name=confirmed_to_current_mb,json=confirmedToCurrentMb,proto3" json:"confirmed_to_current_mb,omitempty"`
+	SafeWalSize              int64                  `protobuf:"varint,12,opt,name=safe_wal_size,json=safeWalSize,proto3" json:"safe_wal_size,omitempty"`
+	WaitEventType            string                 `protobuf:"bytes,13,opt,name=wait_event_type,json=waitEventType,proto3" json:"wait_event_type,omitempty"`
+	WaitEvent                string                 `protobuf:"bytes,14,opt,name=wait_event,json=waitEvent,proto3" json:"wait_event,omitempty"`
+	BackendState             string                 `protobuf:"bytes,15,opt,name=backend_state,json=backendState,proto3" json:"backend_state,omitempty"`
+	LogicalDecodingWorkMemMb int64                  `protobuf:"varint,16,opt,name=logical_decoding_work_mem_mb,json=logicalDecodingWorkMemMb,proto3" json:"logical_decoding_work_mem_mb,omitempty"`
+	StatsReset               *int64                 `protobuf:"varint,17,opt,name=stats_reset,json=statsReset,proto3,oneof" json:"stats_reset,omitempty"`
+	SpillTxns                *int64                 `protobuf:"varint,18,opt,name=spill_txns,json=spillTxns,proto3,oneof" json:"spill_txns,omitempty"`
+	SpillCount               *int64                 `protobuf:"varint,19,opt,name=spill_count,json=spillCount,proto3,oneof" json:"spill_count,omitempty"`
+	SpillBytes               *int64                 `protobuf:"varint,20,opt,name=spill_bytes,json=spillBytes,proto3,oneof" json:"spill_bytes,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *SlotInfo) Reset() {
@@ -3381,6 +3394,97 @@ func (x *SlotInfo) GetWalStatus() string {
 		return x.WalStatus
 	}
 	return ""
+}
+
+func (x *SlotInfo) GetSentLSN() string {
+	if x != nil && x.SentLSN != nil {
+		return *x.SentLSN
+	}
+	return ""
+}
+
+func (x *SlotInfo) GetCurrentLSN() string {
+	if x != nil {
+		return x.CurrentLSN
+	}
+	return ""
+}
+
+func (x *SlotInfo) GetRestartToConfirmedMb() float32 {
+	if x != nil {
+		return x.RestartToConfirmedMb
+	}
+	return 0
+}
+
+func (x *SlotInfo) GetConfirmedToCurrentMb() float32 {
+	if x != nil {
+		return x.ConfirmedToCurrentMb
+	}
+	return 0
+}
+
+func (x *SlotInfo) GetSafeWalSize() int64 {
+	if x != nil {
+		return x.SafeWalSize
+	}
+	return 0
+}
+
+func (x *SlotInfo) GetWaitEventType() string {
+	if x != nil {
+		return x.WaitEventType
+	}
+	return ""
+}
+
+func (x *SlotInfo) GetWaitEvent() string {
+	if x != nil {
+		return x.WaitEvent
+	}
+	return ""
+}
+
+func (x *SlotInfo) GetBackendState() string {
+	if x != nil {
+		return x.BackendState
+	}
+	return ""
+}
+
+func (x *SlotInfo) GetLogicalDecodingWorkMemMb() int64 {
+	if x != nil {
+		return x.LogicalDecodingWorkMemMb
+	}
+	return 0
+}
+
+func (x *SlotInfo) GetStatsReset() int64 {
+	if x != nil && x.StatsReset != nil {
+		return *x.StatsReset
+	}
+	return 0
+}
+
+func (x *SlotInfo) GetSpillTxns() int64 {
+	if x != nil && x.SpillTxns != nil {
+		return *x.SpillTxns
+	}
+	return 0
+}
+
+func (x *SlotInfo) GetSpillCount() int64 {
+	if x != nil && x.SpillCount != nil {
+		return *x.SpillCount
+	}
+	return 0
+}
+
+func (x *SlotInfo) GetSpillBytes() int64 {
+	if x != nil && x.SpillBytes != nil {
+		return *x.SpillBytes
+	}
+	return 0
 }
 
 type SlotLagPoint struct {
@@ -6138,7 +6242,7 @@ const file_route_proto_rawDesc = "" +
 	"\x11ListPeersResponse\x120\n" +
 	"\x05items\x18\x01 \x03(\v2\x1a.peerdb_route.PeerListItemR\x05items\x12=\n" +
 	"\fsource_items\x18\x02 \x03(\v2\x1a.peerdb_route.PeerListItemR\vsourceItems\x12G\n" +
-	"\x11destination_items\x18\x03 \x03(\v2\x1a.peerdb_route.PeerListItemR\x10destinationItems\"\xe6\x01\n" +
+	"\x11destination_items\x18\x03 \x03(\v2\x1a.peerdb_route.PeerListItemR\x10destinationItems\"\xc7\x06\n" +
 	"\bSlotInfo\x12\x1b\n" +
 	"\tslot_name\x18\x01 \x01(\tR\bslotName\x12\x19\n" +
 	"\bredo_lSN\x18\x02 \x01(\tR\aredoLSN\x12\x1f\n" +
@@ -6148,7 +6252,32 @@ const file_route_proto_rawDesc = "" +
 	"\tlag_in_mb\x18\x05 \x01(\x02R\alagInMb\x12.\n" +
 	"\x13confirmed_flush_lSN\x18\x06 \x01(\tR\x11confirmedFlushLSN\x12\x1d\n" +
 	"\n" +
-	"wal_status\x18\a \x01(\tR\twalStatus\"\x97\x01\n" +
+	"wal_status\x18\a \x01(\tR\twalStatus\x12\x1e\n" +
+	"\bsent_lSN\x18\b \x01(\tH\x00R\asentLSN\x88\x01\x01\x12\x1f\n" +
+	"\vcurrent_lSN\x18\t \x01(\tR\n" +
+	"currentLSN\x125\n" +
+	"\x17restart_to_confirmed_mb\x18\n" +
+	" \x01(\x02R\x14restartToConfirmedMb\x125\n" +
+	"\x17confirmed_to_current_mb\x18\v \x01(\x02R\x14confirmedToCurrentMb\x12\"\n" +
+	"\rsafe_wal_size\x18\f \x01(\x03R\vsafeWalSize\x12&\n" +
+	"\x0fwait_event_type\x18\r \x01(\tR\rwaitEventType\x12\x1d\n" +
+	"\n" +
+	"wait_event\x18\x0e \x01(\tR\twaitEvent\x12#\n" +
+	"\rbackend_state\x18\x0f \x01(\tR\fbackendState\x12>\n" +
+	"\x1clogical_decoding_work_mem_mb\x18\x10 \x01(\x03R\x18logicalDecodingWorkMemMb\x12$\n" +
+	"\vstats_reset\x18\x11 \x01(\x03H\x01R\n" +
+	"statsReset\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"spill_txns\x18\x12 \x01(\x03H\x02R\tspillTxns\x88\x01\x01\x12$\n" +
+	"\vspill_count\x18\x13 \x01(\x03H\x03R\n" +
+	"spillCount\x88\x01\x01\x12$\n" +
+	"\vspill_bytes\x18\x14 \x01(\x03H\x04R\n" +
+	"spillBytes\x88\x01\x01B\v\n" +
+	"\t_sent_lSNB\x0e\n" +
+	"\f_stats_resetB\r\n" +
+	"\v_spill_txnsB\x0e\n" +
+	"\f_spill_countB\x0e\n" +
+	"\f_spill_bytes\"\x97\x01\n" +
 	"\fSlotLagPoint\x12\x12\n" +
 	"\x04time\x18\x01 \x01(\x01R\x04time\x12\x12\n" +
 	"\x04size\x18\x02 \x01(\x01R\x04size\x12\x19\n" +
@@ -6731,6 +6860,7 @@ func file_route_proto_init() {
 	file_flow_proto_init()
 	file_route_proto_msgTypes[11].OneofWrappers = []any{}
 	file_route_proto_msgTypes[14].OneofWrappers = []any{}
+	file_route_proto_msgTypes[58].OneofWrappers = []any{}
 	file_route_proto_msgTypes[68].OneofWrappers = []any{
 		(*MirrorStatusResponse_QrepStatus)(nil),
 		(*MirrorStatusResponse_CdcStatus)(nil),
