@@ -363,7 +363,7 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if om.Metrics.LogicalDecodingWorkMemGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LogicalDecodingWorkMemGaugeName),
 		metric.WithUnit("MiBy"),
-		metric.WithDescription("Current logical_decoding_work_mem setting in MB (with pendingRestart attribute)"),
+		metric.WithDescription("Current logical_decoding_work_mem setting in MB"),
 	); err != nil {
 		return err
 	}
