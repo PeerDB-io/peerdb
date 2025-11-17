@@ -1287,15 +1287,12 @@ func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Test_Indexes_Triggers_Constraints_PG tests that indexes, triggers, and constraints
-// are synced from source to destination during initial setup
 func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
 	tc := NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_idx_trig_const")
 	dstTableName := s.attachSchemaSuffix("test_idx_trig_const_dst")
 
-	// Create a trigger function on source
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE OR REPLACE FUNCTION %s.update_timestamp()
 		RETURNS TRIGGER AS $$
@@ -1306,7 +1303,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
 		$$ LANGUAGE plpgsql`, Schema(s)))
 	require.NoError(s.t, err)
 
-	// Create source table with indexes, triggers, and constraints
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
@@ -1317,8 +1313,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
 			updated_at TIMESTAMPTZ DEFAULT NOW()
 		)`, srcTableName))
 	require.NoError(s.t, err)
-
-	// Create indexes on source
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE INDEX idx_name ON %s(name)`, srcTableName))
 	require.NoError(s.t, err)
@@ -1330,16 +1324,12 @@ func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE INDEX idx_created_at ON %s(created_at DESC)`, srcTableName))
 	require.NoError(s.t, err)
-
-	// Create trigger on source
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TRIGGER update_updated_at
 		BEFORE UPDATE ON %s
 		FOR EACH ROW
 		EXECUTE FUNCTION %s.update_timestamp()`, srcTableName, Schema(s)))
 	require.NoError(s.t, err)
-
-	// Create check constraints on source
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		ALTER TABLE %s ADD CONSTRAINT check_name_length 
 		CHECK (char_length(name) >= 3)`, srcTableName))
@@ -1367,10 +1357,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
 
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-
-	// Wait for initial setup to complete (this includes index/trigger/constraint sync)
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for initial setup", func() bool {
-		// Check if destination table exists
 		var exists bool
 		err := s.Conn().QueryRow(s.t.Context(), `
 			SELECT EXISTS (
@@ -1379,8 +1366,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
 			)`, Schema(s), "test_idx_trig_const_dst").Scan(&exists)
 		return err == nil && exists
 	})
-
-	// Verify indexes were synced
 	s.t.Log("Verifying indexes were synced...")
 	indexQuery := `
 		SELECT indexname 
@@ -1403,7 +1388,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
 	require.True(s.t, indexNames["idx_email"], "idx_email should be synced")
 	require.True(s.t, indexNames["idx_created_at"], "idx_created_at should be synced")
 
-	// Verify trigger was synced
 	s.t.Log("Verifying trigger was synced...")
 	triggerQuery := `
 		SELECT t.tgname
@@ -1419,7 +1403,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
 	require.NoError(s.t, err)
 	require.Equal(s.t, "update_updated_at", triggerName, "update_updated_at trigger should be synced")
 
-	// Verify constraints were synced
 	s.t.Log("Verifying constraints were synced...")
 	constraintQuery := `
 		SELECT con.conname
@@ -1448,12 +1431,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
 
 	s.t.Log("All indexes, triggers, and constraints were successfully synced!")
 
-	// Insert some data to verify the trigger works
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s(name, email, age) VALUES ('test', 'test@example.com', 25)`, srcTableName))
 	EnvNoError(s.t, env, err)
 
-	// Wait for data to sync
 	EnvWaitForEqualTablesWithNames(env, s, "waiting for data sync", srcTableName, dstTableName, "id,name,email,age")
 
 	env.Cancel(s.t.Context())

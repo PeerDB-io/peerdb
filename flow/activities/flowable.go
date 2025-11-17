@@ -282,7 +282,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 }
 
 // SyncIndexesAndTriggers syncs indexes and triggers from source to destination
-// This is called once during initial setup, not for on-the-fly changes
+// This is called once during initial setup, not for on-the-fly changes, thats reason its added into flow
 func (a *FlowableActivity) SyncIndexesAndTriggers(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
@@ -290,8 +290,6 @@ func (a *FlowableActivity) SyncIndexesAndTriggers(
 	logger := internal.LoggerFromCtx(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 
-	// Only sync for Postgres to Postgres
-	// Check if destination is Postgres
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.NormalizedTablesConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -302,14 +300,11 @@ func (a *FlowableActivity) SyncIndexesAndTriggers(
 	}
 	defer dstClose(ctx)
 
-	// Check if destination connector is Postgres
 	pgDstConn, ok := dstConn.(*connpostgres.PostgresConnector)
 	if !ok {
 		logger.Info("Destination is not Postgres, skipping index/trigger sync")
 		return nil
 	}
-
-	// Get source connector (use SourcePeerName if available, otherwise skip)
 	if config.SourcePeerName == "" {
 		logger.Info("Source peer name not provided, skipping index/trigger sync")
 		return nil
@@ -321,14 +316,11 @@ func (a *FlowableActivity) SyncIndexesAndTriggers(
 	}
 	defer srcClose(ctx)
 
-	// Check if source connector is Postgres
 	pgSrcConn, ok := srcConn.(*connpostgres.PostgresConnector)
 	if !ok {
 		logger.Info("Source is not Postgres, skipping index/trigger sync")
 		return nil
 	}
-
-	// Sync indexes, triggers, and constraints
 	a.Alerter.LogFlowInfo(ctx, config.FlowName, "Syncing indexes, triggers, and constraints from source to destination")
 	if err := pgDstConn.SyncIndexesAndTriggers(ctx, config.TableMappings, pgSrcConn); err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to sync indexes, triggers, and constraints: %w", err))
