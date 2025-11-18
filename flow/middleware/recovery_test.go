@@ -18,7 +18,7 @@ func panicHandler(ctx context.Context, req any) (any, error) {
 
 func nilPointerPanicHandler(ctx context.Context, req any) (any, error) {
 	var ptr *string
-	//nolint:nilness
+	//nolint:govet
 	_ = *ptr
 	return nil, nil
 }
