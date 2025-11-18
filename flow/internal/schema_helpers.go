@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
@@ -80,4 +81,24 @@ func BuildProcessedSchemaMapping(
 			slog.Any("schema", tableSchema))
 	}
 	return processedSchemaMapping
+}
+
+func GetDestinationTableOidMap(
+	tableMappings []*protos.TableMapping,
+	sourceTableOidMap map[uint32]string, // map[tableOID]sourceTableName
+) (map[string]uint32, error) { // map[destinationTableName]tableOID
+	sourceToDestTableMap := make(map[string]string, len(tableMappings))
+	for _, tm := range tableMappings {
+		sourceToDestTableMap[tm.SourceTableIdentifier] = tm.DestinationTableIdentifier
+	}
+
+	destinationTableOidMap := make(map[string]uint32, len(sourceTableOidMap))
+	for oid, tableName := range sourceTableOidMap {
+		destinationTableIdentifier, ok := sourceToDestTableMap[tableName]
+		if !ok {
+			return nil, fmt.Errorf("destination table identifier not found for source table %s", tableName)
+		}
+		destinationTableOidMap[destinationTableIdentifier] = oid
+	}
+	return destinationTableOidMap, nil
 }

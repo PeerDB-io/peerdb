@@ -1840,29 +1840,22 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 		return "migrating oids to table schema"
 	})
 	defer shutdown()
+
 	logger := internal.LoggerFromCtx(ctx)
-	total := len(oidToTableNameMapping)
-	remaining := total
-	for oid, tableName := range oidToTableNameMapping {
-		var destinationTableIdentifier string
-		for _, tm := range tableMappings {
-			if tm.SourceTableIdentifier == tableName {
-				destinationTableIdentifier = tm.DestinationTableIdentifier
-				break
-			}
-		}
-		err := internal.UpdateTableOIDInTableSchemaInCatalog(ctx, a.CatalogPool, logger, flowName, destinationTableIdentifier, oid)
-		if err != nil {
-			return fmt.Errorf("failed to update OID for table %s in flow %s: %w", tableName, flowName, err)
-		}
-		remaining--
-		logger.Info("Migrated OID for table",
-			slog.String("flowName", flowName),
-			slog.String("tableName", tableName),
-			slog.Uint64("oid", uint64(oid)),
-			slog.Int("remainingTables", remaining),
-			slog.Int("totalTables", total),
-		)
+	destinationTableOidMap, err := internal.GetDestinationTableOidMap(tableMappings, oidToTableNameMapping)
+	if err != nil {
+		return fmt.Errorf("failed to get destination table OID map: %w", err)
 	}
+	err = internal.UpdateTableOIDsInTableSchemaInCatalog(
+		ctx,
+		a.CatalogPool,
+		logger,
+		flowName,
+		destinationTableOidMap,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update table OIDs in catalog: %w", err)
+	}
+
 	return nil
 }
