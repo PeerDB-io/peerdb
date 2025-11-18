@@ -639,7 +639,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		// this often happens on Mongo Atlas as part of maintenance, and should recover, but we notify if exceed default threshold
 		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
 		if mongoCmdErr.HasErrorMessage("(ShutdownInProgress) The server is in quiesce mode and will shut down") {
-			return ErrorNotifyConnectivity, mongoErrorInfo
+			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		}
 
 		// This should recover, but we notify if exceed default threshold
@@ -652,7 +652,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 91: // ShutdownInProgress
-			return ErrorNotifyConnectivity, mongoErrorInfo
+			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 286: // ChangeStreamHistoryLost
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
 		default:
@@ -689,6 +689,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "CONNECTION_ERROR",
+		}
+	}
+
+	// MongoDB can leak error without properly encapsulate it into a pre-defined error type
+	// so here we use string matching as a catch-all to avoid false alarms
+	if strings.Contains(err.Error(), "(ShutdownInProgress) The server is in quiesce mode and will shut down") {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   strconv.Itoa(91), // ShutdownInProgress
 		}
 	}
 
