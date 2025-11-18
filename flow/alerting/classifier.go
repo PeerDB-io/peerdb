@@ -516,7 +516,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// same underlying error but different messages, depending on PG version
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") || // PG13-17
 				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") || // PG13-17
-				strings.Contains(pgErr.Message, "could not import the requested snapshot") ||
+				strings.Contains(pgErr.Message, "could not import the requested snapshot") || // All
 				strings.Contains(pgErr.Message, "can no longer access replication slot") { // PG18
 				return ErrorNotifySlotInvalid, pgErrorInfo
 			}
