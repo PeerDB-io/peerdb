@@ -10,11 +10,11 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: checkout sources
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
         with:
-          go-version: '1.25.3'
+          go-version: '1.25.4'
           cache-dependency-path: e2e_cleanup/go.sum
 
       - name: download go modules
