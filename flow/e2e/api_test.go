@@ -161,6 +161,24 @@ func (s APITestSuite) checkCatalogTableMapping(
 	return true, nil
 }
 
+func (s APITestSuite) getCatalogTableSchemaForSourceTable(
+	ctx context.Context,
+	conn *pgx.Conn,
+	flowName string,
+	sourceTableIdentifier string,
+) (*protos.TableSchema, error) {
+	var configBytes sql.RawBytes
+	if err := conn.QueryRow(ctx,
+		`SELECT table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_name = $2`,
+		flowName, sourceTableIdentifier,
+	).Scan(&configBytes); err != nil {
+		return nil, err
+	}
+
+	var config protos.TableSchema
+	return &config, proto.Unmarshal(configBytes, &config)
+}
+
 func testApi[TSource SuiteSource](
 	t *testing.T,
 	setup func(*testing.T, string) (TSource, error),
@@ -1064,7 +1082,7 @@ func (s APITestSuite) TestAlertConfig() {
 	}))
 }
 
-func (s APITestSuite) TestTotalRowsSyncedByMirror() {
+func (s APITestSuite) TestOIDsAndTotalRowsSyncedByMirror() {
 	var cols string
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
@@ -1113,6 +1131,41 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	// test initial load
 	RequireEqualTables(s.ch, "table1", cols)
 	RequireEqualTables(s.ch, "table2", cols)
+
+	// Check Postgres table OIDs in catalog
+	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
+		var table1OID, table2OID uint32
+		err = pgconn.Conn().QueryRow(s.t.Context(),
+			`SELECT c.oid FROM pg_class c JOIN pg_namespace n
+		 ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
+			Schema(s), "table1").Scan(&table1OID)
+		require.NoError(s.t, err)
+		err = pgconn.Conn().QueryRow(s.t.Context(),
+			`SELECT c.oid FROM pg_class c JOIN pg_namespace n
+		 ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
+			Schema(s), "table2").Scan(&table2OID)
+		require.NoError(s.t, err)
+
+		schema1, err := s.getCatalogTableSchemaForSourceTable(
+			s.t.Context(),
+			pgconn.Conn(),
+			flowConnConfig.FlowJobName,
+			AttachSchema(s, "table1"),
+		)
+		require.NoError(s.t, err)
+		require.Equal(s.t, AttachSchema(s, "table1"), schema1.TableIdentifier)
+		require.Equal(s.t, table1OID, schema1.TableOid)
+
+		schema2, err := s.getCatalogTableSchemaForSourceTable(
+			s.t.Context(),
+			pgconn.Conn(),
+			flowConnConfig.FlowJobName,
+			AttachSchema(s, "table2"),
+		)
+		require.NoError(s.t, err)
+		require.Equal(s.t, AttachSchema(s, "table2"), schema2.TableIdentifier)
+		require.Equal(s.t, table2OID, schema2.TableOid)
+	}
 
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
