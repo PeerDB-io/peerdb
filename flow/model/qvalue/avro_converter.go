@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"math/bits"
 	"regexp"
 	"strings"
 	"time"
@@ -174,12 +175,12 @@ func getAvroNumericSchema(
 }
 
 type QValueAvroConverter struct {
+	logger log.Logger
 	*types.QField
-	logger                   log.Logger
 	Stat                     *NumericStat
+	binaryFormat             internal.BinaryFormat
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
-	binaryFormat             internal.BinaryFormat
 }
 
 func QValueToAvro(
@@ -188,10 +189,6 @@ func QValueToAvro(
 	unboundedNumericAsString bool, stat *NumericStat,
 	binaryFormat internal.BinaryFormat,
 ) (any, error) {
-	if value.Value() == nil {
-		return nil, nil
-	}
-
 	c := QValueAvroConverter{
 		QField:                   field,
 		logger:                   logger,
@@ -199,6 +196,10 @@ func QValueToAvro(
 		TargetDWH:                targetDWH,
 		UnboundedNumericAsString: unboundedNumericAsString,
 		binaryFormat:             binaryFormat,
+	}
+
+	if value.Value() == nil {
+		return nil, nil
 	}
 
 	switch v := value.(type) {
@@ -268,7 +269,8 @@ func QValueToAvro(
 	case types.QValueJSON:
 		return c.processJSON(v.Val), nil
 	case types.QValueHStore:
-		return c.processHStore(v.Val)
+		avroVal, err := c.processHStore(v.Val)
+		return avroVal, err
 	case types.QValueArrayFloat32:
 		return c.processArrayFloat32(v.Val), nil
 	case types.QValueArrayFloat64:
@@ -300,7 +302,7 @@ func QValueToAvro(
 	case types.QValueArrayNumeric:
 		return c.processArrayNumeric(v.Val), nil
 	default:
-		return nil, fmt.Errorf("[toavro] unsupported %T", value)
+		return nil, fmt.Errorf("[QValueToAvro] unsupported %T", value)
 	}
 }
 
@@ -678,4 +680,221 @@ func (ns *NumericStat) CollectWarnings(warnings *shared.QRepWarnings) {
 		warning := exceptions.NewNumericOutOfRangeError(err, ns.DestinationTable, ns.DestinationColumn)
 		*warnings = append(*warnings, warning)
 	}
+}
+
+// ComputeAvroSize calculates the estimated uncompressed Avro-encoded size for a QValue
+// based on the schema determined by GetAvroSchemaFromQValueKind
+// Note: currently the size computation assumes ClickHouse as the TargetDWH
+func ComputeAvroSize(value types.QValue, nullable bool, logger log.Logger) int64 {
+	// we only use union tag for nullable types
+	unionTagSize := int64(0)
+	if nullable {
+		unionTagSize = 1
+	}
+
+	if value.Value() == nil {
+		return unionTagSize
+	}
+
+	// Avro encodes arrays with a zero-byte terminator
+	arrTerminationByteSize := int64(1)
+
+	size := int64(0)
+	switch v := value.(type) {
+	case types.QValueInvalid:
+		size = stringSize(v.Val)
+	case types.QValueFloat32:
+		size = 4
+	case types.QValueFloat64:
+		size = 8
+	case types.QValueInt8:
+		size = varIntSize(int64(v.Val))
+	case types.QValueInt16:
+		size = varIntSize(int64(v.Val))
+	case types.QValueInt32:
+		size = varIntSize(int64(v.Val))
+	case types.QValueInt64:
+		size = varIntSize(v.Val)
+	case types.QValueInt256:
+		if v.Val == nil {
+			return unionTagSize
+		}
+		size = 32
+	case types.QValueUInt8:
+		size = varIntSize(int64(v.Val))
+	case types.QValueUInt16:
+		size = varIntSize(int64(v.Val))
+	case types.QValueUInt32:
+		size = varIntSize(int64(v.Val))
+	case types.QValueUInt64:
+		size = varIntSize(int64(v.Val))
+	case types.QValueUInt256:
+		if v.Val == nil {
+			return unionTagSize
+		}
+		size = 32
+	case types.QValueBoolean:
+		size = 1
+	case types.QValueQChar:
+		size = 2
+	case types.QValueString:
+		size = stringSize(v.Val)
+	case types.QValueEnum:
+		size = stringSize(v.Val)
+	case types.QValueTimestamp:
+		size = 8
+	case types.QValueTimestampTZ:
+		size = 8
+	case types.QValueDate:
+		size = 4
+	case types.QValueTime:
+		size = 8
+	case types.QValueTimeTZ:
+		size = 8
+	case types.QValueInterval:
+		size = stringSize(v.Val)
+	case types.QValueNumeric:
+		size = stringSize(v.Val.String())
+	case types.QValueBytes:
+		size = varIntSize(int64(len(v.Val))) + int64(len(v.Val))
+	case types.QValueUUID:
+		size = stringSize(v.Val.String())
+	case types.QValueJSON:
+		size = stringSize(v.Val)
+	case types.QValueHStore:
+		size = stringSize(v.Val)
+	case types.QValueGeography:
+		size = stringSize(v.Val)
+	case types.QValueGeometry:
+		size = stringSize(v.Val)
+	case types.QValuePoint:
+		size = stringSize(v.Val)
+	case types.QValueCIDR:
+		size = stringSize(v.Val)
+	case types.QValueINET:
+		size = stringSize(v.Val)
+	case types.QValueMacaddr:
+		size = stringSize(v.Val)
+	case types.QValueArrayFloat32:
+		count := int64(len(v.Val))
+		size = varIntSize(count) + (count * 4)
+		if count > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayFloat64:
+		count := int64(len(v.Val))
+		size = varIntSize(count) + (count * 8)
+		if count > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayInt16:
+		size += varIntSize(int64(len(v.Val)))
+		for _, elem := range v.Val {
+			size += varIntSize(int64(elem))
+		}
+		if len(v.Val) > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayInt32:
+		size += varIntSize(int64(len(v.Val)))
+		for _, elem := range v.Val {
+			size += varIntSize(int64(elem))
+		}
+		if len(v.Val) > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayInt64:
+		size += varIntSize(int64(len(v.Val)))
+		for _, elem := range v.Val {
+			size += varIntSize(elem)
+		}
+		if len(v.Val) > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayString:
+		size += varIntSize(int64(len(v.Val)))
+		for _, elem := range v.Val {
+			size += stringSize(elem)
+		}
+		if len(v.Val) > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayDate:
+		count := int64(len(v.Val))
+		size = varIntSize(count) + (count * 4)
+		if count > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayTimestamp:
+		count := int64(len(v.Val))
+		size = varIntSize(count) + (count * 8)
+		if count > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayTimestampTZ:
+		count := int64(len(v.Val))
+		size = varIntSize(count) + (count * 8)
+		if count > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayBoolean:
+		count := int64(len(v.Val))
+		size = varIntSize(count) + count
+		if count > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayEnum:
+		size += varIntSize(int64(len(v.Val)))
+		for _, elem := range v.Val {
+			size += stringSize(elem)
+		}
+		if len(v.Val) > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayInterval:
+		size += varIntSize(int64(len(v.Val)))
+		for _, elem := range v.Val {
+			size += stringSize(elem)
+		}
+		if len(v.Val) > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayUUID:
+		size += varIntSize(int64(len(v.Val)))
+		for _, elem := range v.Val {
+			size += stringSize(elem.String())
+		}
+		if len(v.Val) > 0 {
+			size += arrTerminationByteSize
+		}
+	case types.QValueArrayNumeric:
+		size += varIntSize(int64(len(v.Val)))
+		for _, elem := range v.Val {
+			size += stringSize(elem.String())
+		}
+		if len(v.Val) > 0 {
+			size += arrTerminationByteSize
+		}
+	default:
+		logger.Warn("[ComputeAvroSize] unsupported %T", value)
+	}
+
+	return size + unionTagSize
+}
+
+// varIntSize calculates the avro-encoded size for its int and long primitive types
+// Format: avro uses Variable-Length Zig-Zag encoding
+func varIntSize(n int64) int64 {
+	if n == 0 {
+		return 1
+	}
+	encoded := uint64((n << 1) ^ (n >> 63))
+	bitLen := bits.Len64(encoded)
+	return int64((bitLen + 6) / 7)
+}
+
+// stringSize calculates the Avro-encoded size for a string
+// Format: varInt-encoded length + actual bytes
+func stringSize(s string) int64 {
+	return varIntSize(int64(len(s))) + int64(len(s))
 }
