@@ -88,7 +88,7 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer shared.RollbackTx(tx, logger)
 
 	for destinationTableName, tableOID := range tableOIDs {
 		tableSchema, err := LoadTableSchemaFromCatalog(ctx, pool, flowName, destinationTableName)
