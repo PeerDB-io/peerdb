@@ -34,6 +34,10 @@ const (
 	NotifyTelemetry ErrorAction = "notify_telemetry"
 )
 
+const (
+	MongoDBShutdownInProgress = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
+)
+
 var (
 	ClickHouseDecimalParsingRe = regexp.MustCompile(
 		`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`,
@@ -638,7 +642,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		// this often happens on Mongo Atlas as part of maintenance, and should recover, but we notify if exceed default threshold
 		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
-		if mongoCmdErr.HasErrorMessage("(ShutdownInProgress) The server is in quiesce mode and will shut down") {
+		if mongoCmdErr.HasErrorMessage(MongoDBShutdownInProgress) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		}
 
@@ -694,7 +698,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	// MongoDB can leak error without properly encapsulate it into a pre-defined error type
 	// so here we use string matching as a catch-all to avoid false alarms
-	if strings.Contains(err.Error(), "(ShutdownInProgress) The server is in quiesce mode and will shut down") {
+	if strings.Contains(err.Error(), MongoDBShutdownInProgress) {
 		return ErrorIgnoreConnTemporary, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   strconv.Itoa(91), // ShutdownInProgress
