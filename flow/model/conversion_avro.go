@@ -71,6 +71,7 @@ func (qac *QRecordAvroConverter) Convert(
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
 		}
+
 		m[qac.ColNames[idx]] = avroVal
 	}
 
@@ -102,8 +103,8 @@ type QRecordAvroSchemaDefinition struct {
 }
 
 type QRecordAvroChunkSizeTracker struct {
-	UncompressedBytes atomic.Int64
-	CompressedBytes   atomic.Int64
+	TrackUncompressed bool
+	Bytes             atomic.Int64
 }
 
 func GetAvroSchemaDefinition(

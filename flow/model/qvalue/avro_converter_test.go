@@ -244,7 +244,6 @@ func TestAvroQValueSize(t *testing.T) {
 					assert.Equal(t, tt.expectedSize, size, "size mismatch for %s", tt.name)
 				}
 			})
-
 		}
 	}
 }

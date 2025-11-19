@@ -175,12 +175,12 @@ func getAvroNumericSchema(
 }
 
 type QValueAvroConverter struct {
-	logger log.Logger
 	*types.QField
+	logger                   log.Logger
 	Stat                     *NumericStat
-	binaryFormat             internal.BinaryFormat
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
+	binaryFormat             internal.BinaryFormat
 }
 
 func QValueToAvro(
@@ -189,6 +189,10 @@ func QValueToAvro(
 	unboundedNumericAsString bool, stat *NumericStat,
 	binaryFormat internal.BinaryFormat,
 ) (any, error) {
+	if value.Value() == nil {
+		return nil, nil
+	}
+
 	c := QValueAvroConverter{
 		QField:                   field,
 		logger:                   logger,
@@ -196,10 +200,6 @@ func QValueToAvro(
 		TargetDWH:                targetDWH,
 		UnboundedNumericAsString: unboundedNumericAsString,
 		binaryFormat:             binaryFormat,
-	}
-
-	if value.Value() == nil {
-		return nil, nil
 	}
 
 	switch v := value.(type) {
@@ -269,8 +269,7 @@ func QValueToAvro(
 	case types.QValueJSON:
 		return c.processJSON(v.Val), nil
 	case types.QValueHStore:
-		avroVal, err := c.processHStore(v.Val)
-		return avroVal, err
+		return c.processHStore(v.Val)
 	case types.QValueArrayFloat32:
 		return c.processArrayFloat32(v.Val), nil
 	case types.QValueArrayFloat64:
