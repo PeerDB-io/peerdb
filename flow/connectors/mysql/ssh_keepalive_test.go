@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"context"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -61,7 +62,9 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 
 func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 	// Skip if running MariaDB instead of MySQL
-	t.Skip("Skipping SSH keepalive test for TODO")
+	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+		t.Skip("Skipping SSH keepalive test for MariaDB")
+	}
 
 	ctx := t.Context()
 
@@ -120,7 +123,9 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 
 func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 	// Skip if running MariaDB instead of MySQL
-	t.Skip("Skipping SSH keepalive test for TODO")
+	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+		t.Skip("Skipping SSH keepalive test for MariaDB")
+	}
 
 	ctx := t.Context()
 
@@ -161,7 +166,9 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 
 func TestMySQLSSHResetPeer(t *testing.T) {
 	// Skip if running MariaDB instead of MySQL
-	t.Skip("Skipping SSH keepalive test for TODO")
+	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+		t.Skip("Skipping SSH keepalive test for MariaDB")
+	}
 
 	ctx := t.Context()
 

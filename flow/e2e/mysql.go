@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	"github.com/PeerDB-io/peerdb/flow/connectors/mysql"
+	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -92,8 +92,8 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 			return nil, err
 		}
 		if !strings.EqualFold(gtidMode, "on") {
-			// TODO: Re-enable binlog_row_metadata=full when reverting to MySQL >= 8.0.1
 			for _, sql := range []string{
+				"set global binlog_row_metadata=full",
 				"set global enforce_gtid_consistency=on",
 				"set global gtid_mode=off_permissive",
 				"set global gtid_mode=on_permissive",
@@ -111,10 +111,10 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 			return nil, err
 		}
 	} else {
-		// TODO: Re-enable binlog_row_metadata=full when reverting to MariaDB >= 10.5.0
 		for _, sql := range []string{
 			"set global binlog_format=row",
 			"set binlog_format=row",
+			"set global binlog_row_metadata=full",
 			"set global max_connections=500",
 		} {
 			if _, err := connector.Execute(t.Context(), sql); err != nil {
