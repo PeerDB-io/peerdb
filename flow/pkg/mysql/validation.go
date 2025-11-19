@@ -11,6 +11,11 @@ import (
 	"go.temporal.io/sdk/log"
 )
 
+const (
+	MySQLMinVersionForBinlogRowMetadata   = "8.0.1"
+	MariaDBMinVersionForBinlogRowMetadata = "10.5.0"
+)
+
 func CompareServerVersion(conn *client.Conn, version string) (int, error) {
 	rr, err := conn.Execute("SELECT version()")
 	if err != nil {
@@ -77,15 +82,6 @@ func CheckMySQL5BinlogSettings(conn *client.Conn, logger log.Logger) error {
 }
 
 func CheckMySQL8BinlogSettings(conn *client.Conn, logger log.Logger) error {
-	cmp, err := CompareServerVersion(conn, "8.0.1")
-	if err != nil {
-		return fmt.Errorf("failed to get server version: %w", err)
-	}
-	if cmp < 0 {
-		logger.Warn("MySQL less than 8.0.1, checking binlog settings <5.7")
-		return CheckMySQL5BinlogSettings(conn, logger)
-	}
-
 	query := "SELECT @@binlog_expire_logs_seconds, @@binlog_format, @@binlog_row_image, @@binlog_row_metadata"
 	// check if binlog_row_value_options is available
 	checkRowValueOptions := false
@@ -133,19 +129,42 @@ func CheckMySQL8BinlogSettings(conn *client.Conn, logger log.Logger) error {
 	return nil
 }
 
-func CheckMariaDBBinlogSettings(conn *client.Conn, logger log.Logger) error {
-	query := "SELECT @@binlog_format, @@binlog_row_image, @@binlog_row_metadata"
+func CheckMariaDBBinlogSettings(conn *client.Conn, logger log.Logger, requireRowMetadata bool) error {
+	query := "SELECT @@binlog_format, @@binlog_row_image"
 
-	checkBinlogExpiry := false
-	cmp, err := CompareServerVersion(conn, "10.6.1")
+	checkBinlogRowMetadata := false
+	cmp, err := CompareServerVersion(conn, MariaDBMinVersionForBinlogRowMetadata)
 	if err != nil {
 		return fmt.Errorf("failed to get server version: %w", err)
 	}
 	if cmp >= 0 {
-		checkBinlogExpiry = true
-		query += ", @@binlog_expire_logs_seconds"
+		checkBinlogRowMetadata = true
+		query += ", @@binlog_row_metadata"
 	} else {
-		logger.Warn("MariaDB version does not support binlog_expire_logs_seconds, skipping check")
+		if requireRowMetadata {
+			return errors.New(
+				"MariaDB version too old for column exclusion support, " +
+					fmt.Sprintf("please disable it or upgrade to >=%s (binlog_row_metadata needed)",
+						MariaDBMinVersionForBinlogRowMetadata),
+			)
+		}
+		logger.Warn("MariaDB version does not support binlog_row_metadata, skipping check")
+		// to keep index ordering
+		query += ", NULL"
+	}
+	checkBinlogExpiry := false
+	// if binlog_row_metadata is not supported, this isn't either
+	if checkBinlogRowMetadata {
+		cmp, err = CompareServerVersion(conn, "10.6.1")
+		if err != nil {
+			return fmt.Errorf("failed to get server version: %w", err)
+		}
+		if cmp >= 0 {
+			checkBinlogExpiry = true
+			query += ", @@binlog_expire_logs_seconds"
+		} else {
+			logger.Warn("MariaDB version does not support binlog_expire_logs_seconds, skipping check")
+		}
 	}
 
 	rs, err := conn.Execute(query)
@@ -167,10 +186,12 @@ func CheckMariaDBBinlogSettings(conn *client.Conn, logger log.Logger) error {
 		return errors.New("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
 	}
 
-	binlogRowMetadata := string(row[2].AsString())
-	if binlogRowMetadata != "FULL" {
-		// only strictly required for column exclusion support, but let's enforce it for consistency
-		return errors.New("binlog_row_metadata must be set to 'FULL', currently " + binlogRowMetadata)
+	if checkBinlogRowMetadata {
+		binlogRowMetadata := string(row[2].AsString())
+		if binlogRowMetadata != "FULL" {
+			// only strictly required for column exclusion support, but let's enforce it for consistency
+			return errors.New("binlog_row_metadata must be set to 'FULL', currently " + binlogRowMetadata)
+		}
 	}
 
 	if checkBinlogExpiry {

@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -317,7 +318,11 @@ func (c *MySqlConnector) PullRecords(
 	}
 
 	binlogRowMetadataSupported := true
-	cmp, err := c.CompareServerVersion(ctx, "8.0.1")
+	versionToCmp := mysql_validation.MySQLMinVersionForBinlogRowMetadata
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		versionToCmp = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
+	}
+	cmp, err := c.CompareServerVersion(ctx, versionToCmp)
 	if err != nil {
 		return fmt.Errorf("failed to get server version: %w", err)
 	}
