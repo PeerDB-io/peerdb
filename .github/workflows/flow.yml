@@ -147,7 +147,7 @@ jobs:
 
       - name: MariaDB
         if: matrix.db-version.mysql == 'maria'
-        run: docker run -d --rm --name mariadb -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
+        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
 
       - name: Mongo
         run: |
