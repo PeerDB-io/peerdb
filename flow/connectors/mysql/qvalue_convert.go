@@ -594,7 +594,10 @@ func QValueFromMysqlRowEvent(
 
 	schemaName := string(ev.Schema)
 	tableName := string(ev.Table)
-	columnName := string(ev.ColumnName[idx])
+	columnName := "__peerdb_unknown_" + strconv.Itoa(idx)
+	if len(ev.ColumnName) > idx {
+		columnName = string(ev.ColumnName[idx])
+	}
 	qkindStr := string(qkind)
 
 	err := exceptions.NewMySQLIncompatibleColumnTypeError(
