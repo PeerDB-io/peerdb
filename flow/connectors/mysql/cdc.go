@@ -500,16 +500,18 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.RowsEvent:
-			if binlogRowMetadataSupported && len(ev.Table.ColumnName) == 0 && len(ev.Table.ColumnType) > 0 {
-				e := exceptions.NewMySQLUnsupportedBinlogRowMetadataError(string(ev.Table.Schema), string(ev.Table.Table))
-				c.logger.Error(e.Error())
-				return e
-			}
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				// The issue is global, but only error if we see a table in the pipe
+				// Otherwise users could be confused
+				if binlogRowMetadataSupported && len(ev.Table.ColumnName) == 0 && len(ev.Table.ColumnType) > 0 {
+					e := exceptions.NewMySQLUnsupportedBinlogRowMetadataError(string(ev.Table.Schema), string(ev.Table.Table))
+					c.logger.Error(e.Error())
+					return e
+				}
 				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 				fetchedBytes.Add(int64(len(event.RawData)))
 				totalFetchedBytes.Add(int64(len(event.RawData)))

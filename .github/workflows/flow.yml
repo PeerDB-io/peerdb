@@ -42,7 +42,9 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       mysql:
-        image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
+        # TODO: Revert to newer MySQL version after testing binlog_row_metadata conditional logic
+        # Was: mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2
+        image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:5.7.44-oraclelinux7@sha256:dab0a802b44617303694fb17d166501de279c3031ddeb28c56ecf7fcab5ef0da' || '' }}
         ports:
           - 3306:3306
         env:
@@ -147,7 +149,9 @@ jobs:
 
       - name: MariaDB
         if: matrix.db-version.mysql == 'maria'
-        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
+        # TODO: Revert to newer MariaDB version after testing binlog_row_metadata conditional logic
+        # Was: mariadb:lts
+        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:10.1.48-bionic@sha256:bd44f3ef0bf4544a119732df8ffd038fec2992ff75435d03d6f1f142595f9020 --log-bin=maria
 
       - name: Mongo
         run: |
