@@ -150,7 +150,7 @@ jobs:
         # TODO: Revert to newer MariaDB version after testing binlog_row_metadata conditional logic
         # TODO: MYSQL_ROOT_PASSWORD needs to be changed back to MARIADB_ROOT_PASSWORD
         # Was: mariadb:lts
-        run: docker run -d --rm --name mariadb -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mariadb:10.1.48-bionic@sha256:bd44f3ef0bf4544a119732df8ffd038fec2992ff75435d03d6f1f142595f9020 --log-bin=maria
+        run: docker run -d --rm --name mariadb -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mariadb:10.1.48-bionic@sha256:bd44f3ef0bf4544a119732df8ffd038fec2992ff75435d03d6f1f142595f9020 --log-bin=maria --server-id=1
 
       - name: Mongo
         run: |
