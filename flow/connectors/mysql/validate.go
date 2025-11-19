@@ -61,11 +61,9 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 				// as we're dispatching to a function that doesn't know about binlog_row_metadata,
 				// perform the check here instead of inside
 				if requireRowMetadata {
-					return errors.New(
-						"MySQL version too old for column exclusion support, " +
-							fmt.Sprintf("please disable it or upgrade to >=%s (binlog_row_metadata needed)",
-								mysql_validation.MySQLMinVersionForBinlogRowMetadata),
-					)
+					return fmt.Errorf("MySQL version too old for column exclusion support, "+
+						"please disable it or upgrade to >=%s (binlog_row_metadata needed)",
+						mysql_validation.MySQLMinVersionForBinlogRowMetadata)
 				}
 				c.logger.Warn("Falling back to MySQL 5.7 check")
 				return mysql_validation.CheckMySQL5BinlogSettings(conn, c.logger)

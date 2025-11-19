@@ -317,7 +317,6 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
-	binlogRowMetadataSupported := true
 	versionToCmp := mysql_validation.MySQLMinVersionForBinlogRowMetadata
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		versionToCmp = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
@@ -326,9 +325,7 @@ func (c *MySqlConnector) PullRecords(
 	if err != nil {
 		return fmt.Errorf("failed to get server version: %w", err)
 	}
-	if cmp < 0 {
-		binlogRowMetadataSupported = false
-	}
+	binlogRowMetadataSupported := cmp >= 0
 
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {

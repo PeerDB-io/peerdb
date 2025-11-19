@@ -142,11 +142,9 @@ func CheckMariaDBBinlogSettings(conn *client.Conn, logger log.Logger, requireRow
 		query += ", @@binlog_row_metadata"
 	} else {
 		if requireRowMetadata {
-			return errors.New(
-				"MariaDB version too old for column exclusion support, " +
-					fmt.Sprintf("please disable it or upgrade to >=%s (binlog_row_metadata needed)",
-						MariaDBMinVersionForBinlogRowMetadata),
-			)
+			return fmt.Errorf("MariaDB version too old for column exclusion support, "+
+				"please disable it or upgrade to >=%s (binlog_row_metadata needed)",
+				MariaDBMinVersionForBinlogRowMetadata)
 		}
 		logger.Warn("MariaDB version does not support binlog_row_metadata, skipping check")
 		// to keep index ordering
