@@ -316,6 +316,15 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
+	binlogRowMetadataSupported := true
+	cmp, err := c.CompareServerVersion(ctx, "8.0.1")
+	if err != nil {
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	if cmp < 0 {
+		binlogRowMetadataSupported = false
+	}
+
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
 		return err
@@ -489,7 +498,7 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.RowsEvent:
-			if len(ev.Table.ColumnName) == 0 && len(ev.Table.ColumnType) > 0 {
+			if binlogRowMetadataSupported && len(ev.Table.ColumnName) == 0 && len(ev.Table.ColumnType) > 0 {
 				e := exceptions.NewMySQLUnsupportedBinlogRowMetadataError(string(ev.Table.Schema), string(ev.Table.Table))
 				c.logger.Error(e.Error())
 				return e
