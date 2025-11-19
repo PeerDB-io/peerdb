@@ -116,6 +116,16 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		return errors.New("check replication permissions: conn is nil")
 	}
 
+	// check wal_level
+	var walLevel string
+	if err := c.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
+		return err
+	}
+
+	if walLevel != "logical" {
+		return errors.New("wal_level is not logical")
+	}
+
 	var replicationRes bool
 	err := c.conn.QueryRow(ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1", username).Scan(&replicationRes)
 	if err != nil {
@@ -136,16 +146,6 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 				return errors.New("postgres user does not have replication role")
 			}
 		}
-	}
-
-	// check wal_level
-	var walLevel string
-	if err := c.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
-		return err
-	}
-
-	if walLevel != "logical" {
-		return errors.New("wal_level is not logical")
 	}
 
 	// max_wal_senders must be at least 2
