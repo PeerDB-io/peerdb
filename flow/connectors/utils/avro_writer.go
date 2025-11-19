@@ -35,9 +35,9 @@ const (
 type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
+	sizeTracker          *model.QRecordAvroChunkSizeTracker
 	avroCompressionCodec ocf.CodecName
 	targetDWH            protos.DBType
-	sizeTracker          *model.QRecordAvroChunkSizeTracker
 }
 
 type AvroFile struct {
@@ -125,10 +125,10 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			w.Close()
 		}()
 		var writer io.Writer
-		if p.sizeTracker == nil {
+		if p.sizeTracker == nil || p.sizeTracker.TrackUncompressed {
 			writer = w
 		} else {
-			writer = shared.NewWatchWriter(w, &p.sizeTracker.CompressedBytes)
+			writer = shared.NewWatchWriter(w, &p.sizeTracker.Bytes)
 		}
 		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions, numericTruncator)
 	}()
@@ -266,8 +266,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
 			}
 
-			if p.sizeTracker != nil {
-				p.sizeTracker.UncompressedBytes.Add(avroConverter.ComputeSize(qrecord))
+			if p.sizeTracker != nil && p.sizeTracker.TrackUncompressed {
+				p.sizeTracker.Bytes.Add(avroConverter.ComputeSize(qrecord))
 			}
 
 			numRows.Add(1)

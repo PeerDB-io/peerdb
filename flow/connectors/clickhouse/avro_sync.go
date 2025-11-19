@@ -107,7 +107,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	}
 
 	batchIdentifierForFile := fmt.Sprintf("%s_%d", shared.RandomString(16), syncBatchID)
-	avroFile, err := s.writeToAvroFile(ctx, env, stream, avroSchema, batchIdentifierForFile, flowJobName, nil, nil, nil)
+	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -192,30 +192,23 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 		return nil, 0, err
 	}
 
-	s.logger.Info("writing avro chunks to S3 start",
-		slog.String("partitionId", partition.PartitionId))
+	// track uncompressed bytes for MongoDB due to high JSON compression ratio
+	trackUncompressed := config.SourceType == protos.DBType_MONGO
 
-	// helper function to create a substream and fill it up to bytesPerAvroFile
+	s.logger.Info("writing avro chunks to S3 start",
+		slog.String("partitionId", partition.PartitionId),
+		slog.Int64("bytesPerAvroFile", bytesPerAvroFile))
+
+	// helper function to create a substream for splitting the main stream into chunks
 	createChunkedSubstream := func(done *atomic.Bool) (*model.QRecordStream, *model.QRecordAvroChunkSizeTracker) {
 		substream := model.NewQRecordStream(0)
 		substream.SetSchema(schema)
-
-		// Create chunk size tracker for determining when to split files.
-		// Use uncompressed for MongoDB due to high JSON compression ratio, but keep using
-		// compressed bytes for other connectors since we have not experienced OOM
-		sizeTracker := model.QRecordAvroChunkSizeTracker{}
-		var bytesUsedForChunking *atomic.Int64
-		if config.SourceType == protos.DBType_MONGO {
-			bytesUsedForChunking = &sizeTracker.UncompressedBytes
-		} else {
-			bytesUsedForChunking = &sizeTracker.CompressedBytes
-		}
-
+		sizeTracker := model.QRecordAvroChunkSizeTracker{TrackUncompressed: trackUncompressed}
 		go func() {
 			recordsDone := true
 			for record := range stream.Records {
 				substream.Records <- record
-				if bytesUsedForChunking.Load() >= bytesPerAvroFile {
+				if sizeTracker.Bytes.Load() >= bytesPerAvroFile {
 					recordsDone = false
 					break
 				}
@@ -225,7 +218,6 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 			}
 			substream.Close(stream.Err())
 		}()
-
 		return substream, &sizeTracker
 	}
 
@@ -241,20 +233,23 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 			}
 
 			substream, sizeTracker := createChunkedSubstream(&done)
-			chunkedAvroFile, err := s.writeToAvroFile(ctx, config.Env, substream, avroSchema,
+			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, sizeTracker, avroSchema,
 				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
-				config.FlowJobName, sizeTracker, destTypeConversions, numericTruncator,
+				config.FlowJobName, destTypeConversions, numericTruncator,
 			)
 			if err != nil {
 				return nil, 0, err
 			}
-			avroFiles = append(avroFiles, chunkedAvroFile)
+			avroFiles = append(avroFiles, subFile)
 			chunkNum += 1
-			totalRecords += chunkedAvroFile.NumRecords
+			totalRecords += subFile.NumRecords
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
 		}
 	} else {
 		avroFile, err := s.writeToAvroFile(
-			ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName, nil,
+			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName,
 			destTypeConversions, numericTruncator,
 		)
 		if err != nil {
@@ -262,9 +257,6 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 		}
 		avroFiles = append(avroFiles, avroFile)
 		totalRecords = avroFile.NumRecords
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, 0, err
 	}
 
 	s.logger.Info("finished writing avro chunks to S3",
@@ -394,10 +386,10 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	ctx context.Context,
 	env map[string]string,
 	stream *model.QRecordStream,
+	sizeTracker *model.QRecordAvroChunkSizeTracker,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	identifierForFile string,
 	flowJobName string,
-	sizeTracker *model.QRecordAvroChunkSizeTracker,
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
