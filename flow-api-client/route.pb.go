@@ -3304,7 +3304,6 @@ type SlotInfo struct {
 	CurrentLSN               string                 `protobuf:"bytes,9,opt,name=current_lSN,json=currentLSN,proto3" json:"current_lSN,omitempty"`
 	RestartToConfirmedMb     float32                `protobuf:"fixed32,10,opt,name=restart_to_confirmed_mb,json=restartToConfirmedMb,proto3" json:"restart_to_confirmed_mb,omitempty"`
 	ConfirmedToCurrentMb     float32                `protobuf:"fixed32,11,opt,name=confirmed_to_current_mb,json=confirmedToCurrentMb,proto3" json:"confirmed_to_current_mb,omitempty"`
-	SafeWalSize              int64                  `protobuf:"varint,12,opt,name=safe_wal_size,json=safeWalSize,proto3" json:"safe_wal_size,omitempty"`
 	WaitEventType            string                 `protobuf:"bytes,13,opt,name=wait_event_type,json=waitEventType,proto3" json:"wait_event_type,omitempty"`
 	WaitEvent                string                 `protobuf:"bytes,14,opt,name=wait_event,json=waitEvent,proto3" json:"wait_event,omitempty"`
 	BackendState             string                 `protobuf:"bytes,15,opt,name=backend_state,json=backendState,proto3" json:"backend_state,omitempty"`
@@ -3313,6 +3312,7 @@ type SlotInfo struct {
 	SpillTxns                *int64                 `protobuf:"varint,18,opt,name=spill_txns,json=spillTxns,proto3,oneof" json:"spill_txns,omitempty"`
 	SpillCount               *int64                 `protobuf:"varint,19,opt,name=spill_count,json=spillCount,proto3,oneof" json:"spill_count,omitempty"`
 	SpillBytes               *int64                 `protobuf:"varint,20,opt,name=spill_bytes,json=spillBytes,proto3,oneof" json:"spill_bytes,omitempty"`
+	SafeWalSize              *int64                 `protobuf:"varint,21,opt,name=safe_wal_size,json=safeWalSize,proto3,oneof" json:"safe_wal_size,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -3424,13 +3424,6 @@ func (x *SlotInfo) GetConfirmedToCurrentMb() float32 {
 	return 0
 }
 
-func (x *SlotInfo) GetSafeWalSize() int64 {
-	if x != nil {
-		return x.SafeWalSize
-	}
-	return 0
-}
-
 func (x *SlotInfo) GetWaitEventType() string {
 	if x != nil {
 		return x.WaitEventType
@@ -3483,6 +3476,13 @@ func (x *SlotInfo) GetSpillCount() int64 {
 func (x *SlotInfo) GetSpillBytes() int64 {
 	if x != nil && x.SpillBytes != nil {
 		return *x.SpillBytes
+	}
+	return 0
+}
+
+func (x *SlotInfo) GetSafeWalSize() int64 {
+	if x != nil && x.SafeWalSize != nil {
+		return *x.SafeWalSize
 	}
 	return 0
 }
@@ -6242,7 +6242,7 @@ const file_route_proto_rawDesc = "" +
 	"\x11ListPeersResponse\x120\n" +
 	"\x05items\x18\x01 \x03(\v2\x1a.peerdb_route.PeerListItemR\x05items\x12=\n" +
 	"\fsource_items\x18\x02 \x03(\v2\x1a.peerdb_route.PeerListItemR\vsourceItems\x12G\n" +
-	"\x11destination_items\x18\x03 \x03(\v2\x1a.peerdb_route.PeerListItemR\x10destinationItems\"\xc7\x06\n" +
+	"\x11destination_items\x18\x03 \x03(\v2\x1a.peerdb_route.PeerListItemR\x10destinationItems\"\xe4\x06\n" +
 	"\bSlotInfo\x12\x1b\n" +
 	"\tslot_name\x18\x01 \x01(\tR\bslotName\x12\x19\n" +
 	"\bredo_lSN\x18\x02 \x01(\tR\aredoLSN\x12\x1f\n" +
@@ -6258,8 +6258,7 @@ const file_route_proto_rawDesc = "" +
 	"currentLSN\x125\n" +
 	"\x17restart_to_confirmed_mb\x18\n" +
 	" \x01(\x02R\x14restartToConfirmedMb\x125\n" +
-	"\x17confirmed_to_current_mb\x18\v \x01(\x02R\x14confirmedToCurrentMb\x12\"\n" +
-	"\rsafe_wal_size\x18\f \x01(\x03R\vsafeWalSize\x12&\n" +
+	"\x17confirmed_to_current_mb\x18\v \x01(\x02R\x14confirmedToCurrentMb\x12&\n" +
 	"\x0fwait_event_type\x18\r \x01(\tR\rwaitEventType\x12\x1d\n" +
 	"\n" +
 	"wait_event\x18\x0e \x01(\tR\twaitEvent\x12#\n" +
@@ -6272,12 +6271,14 @@ const file_route_proto_rawDesc = "" +
 	"\vspill_count\x18\x13 \x01(\x03H\x03R\n" +
 	"spillCount\x88\x01\x01\x12$\n" +
 	"\vspill_bytes\x18\x14 \x01(\x03H\x04R\n" +
-	"spillBytes\x88\x01\x01B\v\n" +
+	"spillBytes\x88\x01\x01\x12'\n" +
+	"\rsafe_wal_size\x18\x15 \x01(\x03H\x05R\vsafeWalSize\x88\x01\x01B\v\n" +
 	"\t_sent_lSNB\x0e\n" +
 	"\f_stats_resetB\r\n" +
 	"\v_spill_txnsB\x0e\n" +
 	"\f_spill_countB\x0e\n" +
-	"\f_spill_bytes\"\x97\x01\n" +
+	"\f_spill_bytesB\x10\n" +
+	"\x0e_safe_wal_sizeJ\x04\b\f\x10\r\"\x97\x01\n" +
 	"\fSlotLagPoint\x12\x12\n" +
 	"\x04time\x18\x01 \x01(\x01R\x04time\x12\x12\n" +
 	"\x04size\x18\x02 \x01(\x01R\x04size\x12\x19\n" +
