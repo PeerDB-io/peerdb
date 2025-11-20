@@ -647,10 +647,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		}
 
-		if mongoCmdErr.HasErrorMessage(MongoIncompleteReadOfMessageHeader) {
-			return ErrorRetryRecoverable, mongoErrorInfo
-		}
-
 		// This should recover, but we notify if exceed default threshold
 		if mongoCmdErr.HasErrorLabel(driver.TransientTransactionError) {
 			return ErrorNotifyConnectivity, mongoErrorInfo
@@ -695,6 +691,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	var mongoConnError topology.ConnectionError
 	if errors.As(err, &mongoConnError) {
+		if strings.Contains(err.Error(), MongoIncompleteReadOfMessageHeader) {
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourceMongoDB,
+				Code:   "CONNECTION_ERROR",
+			}
+		}
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "CONNECTION_ERROR",
@@ -709,7 +711,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(91), // ShutdownInProgress
 		}
 	}
-
 	if strings.Contains(err.Error(), MongoIncompleteReadOfMessageHeader) {
 		return ErrorRetryRecoverable, ErrorInfo{
 			Source: ErrorSourceMongoDB,
