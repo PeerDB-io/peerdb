@@ -64,6 +64,32 @@ func (s APITestSuite) DestinationTable(table string) string {
 	return table
 }
 
+// checkMigrationCompleted checks if a migration has been completed for a given flow
+func (s APITestSuite) checkMigrationCompleted(
+	ctx context.Context,
+	conn *pgx.Conn,
+	flowName string,
+	migrationName string,
+) (bool, error) {
+	var completed bool
+	err := conn.QueryRow(
+		ctx,
+		"SELECT completed FROM flow_migrations WHERE flow_name = $1 AND migration_name = $2",
+		flowName,
+		migrationName,
+	).Scan(&completed)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			// Migration record doesn't exist, so it hasn't been completed
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check migration status: %w", err)
+	}
+
+	return completed, nil
+}
+
 // checkMetadataLastSyncStateValues checks the values of sync_batch_id and normalize_batch_id
 // in the metadata_last_sync_state table
 func (s APITestSuite) checkMetadataLastSyncStateValues(
@@ -1252,6 +1278,15 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 	require.NoError(s.t, err)
 	require.Equal(s.t, AttachSchema(s, "table2"), schema2.TableIdentifier)
 	require.Equal(s.t, table2OID, schema2.TableOid)
+
+	ok, err = s.checkMigrationCompleted(
+		s.t.Context(),
+		pgconn.Conn(),
+		flowConnConfig.FlowJobName,
+		shared.POSTGRES_TABLE_OID_MIGRATION,
+	)
+	require.NoError(s.t, err)
+	require.True(s.t, ok, "expected Postgres table OID migration to be completed")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
