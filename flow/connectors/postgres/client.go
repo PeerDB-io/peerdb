@@ -375,7 +375,7 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 		var restartLSN pgtype.Text
 		var currentLSN pgtype.Text
 		var walStatus pgtype.Text
-		var safeWalSize pgtype.Int8
+		var safeWalSize *int64
 		var confirmedFlushLSN pgtype.Text
 		var sentLSN *string
 		var active pgtype.Bool
@@ -429,7 +429,7 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 			RestartToConfirmedMb:     restartToConfirmedMB.Float32,
 			ConfirmedToCurrentMb:     confirmedToCurrentMB.Float32,
 			WalStatus:                walStatus.String,
-			SafeWalSize:              safeWalSize.Int64,
+			SafeWalSize:              safeWalSize,
 			WaitEventType:            waitEventType.String,
 			WaitEvent:                waitEvent.String,
 			BackendState:             backendState.String,

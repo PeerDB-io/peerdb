@@ -1445,7 +1445,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	slotMetricGauges.RestartLSNGauge.Record(ctx, int64(restartLSN), attributeSet)
 
-	slotMetricGauges.SafeWalSizeGauge.Record(ctx, slotInfo.SafeWalSize, attributeSet)
+	if slotInfo.SafeWalSize != nil {
+		slotMetricGauges.SafeWalSizeGauge.Record(ctx, *slotInfo.SafeWalSize, attributeSet)
+	}
 
 	var activeValue int64
 	if slotInfo.Active {
@@ -1462,12 +1464,14 @@ func (c *PostgresConnector) HandleSlotInfo(
 		attribute.String(otel_metrics.BackendStateKey, slotInfo.BackendState),
 	)))
 
-	slotMetricGauges.WalStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-		attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
-		attribute.String(otel_metrics.WalStatusKey, slotInfo.WalStatus),
-	)))
+	if slotInfo.WalStatus != "" {
+		slotMetricGauges.WalStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+			attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
+			attribute.String(otel_metrics.WalStatusKey, slotInfo.WalStatus),
+		)))
+	}
 
 	slotMetricGauges.LogicalDecodingWorkMemGauge.Record(ctx, slotInfo.LogicalDecodingWorkMemMb, attributeSet)
 

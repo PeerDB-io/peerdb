@@ -234,6 +234,7 @@ message ListPeersResponse {
 }
 
 message SlotInfo {
+  reserved 12;
   string slot_name = 1;
   string redo_lSN = 2;
   string restart_lSN = 3;
@@ -245,7 +246,6 @@ message SlotInfo {
   string current_lSN = 9;
   float restart_to_confirmed_mb = 10;
   float confirmed_to_current_mb = 11;
-  int64 safe_wal_size = 12;
   string wait_event_type = 13;
   string wait_event = 14;
   string backend_state = 15;
@@ -254,6 +254,7 @@ message SlotInfo {
   optional int64 spill_txns = 18;
   optional int64 spill_count = 19;
   optional int64 spill_bytes = 20;
+  optional int64 safe_wal_size = 21;
 }
 
 message SlotLagPoint {
