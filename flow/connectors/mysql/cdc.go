@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -316,6 +317,16 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
+	versionToCmp := mysql_validation.MySQLMinVersionForBinlogRowMetadata
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		versionToCmp = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
+	}
+	cmp, err := c.CompareServerVersion(ctx, versionToCmp)
+	if err != nil {
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	binlogRowMetadataSupported := cmp >= 0
+
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
 		return err
@@ -489,16 +500,18 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.RowsEvent:
-			if len(ev.Table.ColumnName) == 0 && len(ev.Table.ColumnType) > 0 {
-				e := exceptions.NewMySQLUnsupportedBinlogRowMetadataError(string(ev.Table.Schema), string(ev.Table.Table))
-				c.logger.Error(e.Error())
-				return e
-			}
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				// The issue is global, but only error if we see a table in the pipe
+				// Otherwise users could be confused
+				if binlogRowMetadataSupported && ev.Table.ColumnName == nil {
+					e := exceptions.NewMySQLUnsupportedBinlogRowMetadataError(string(ev.Table.Schema), string(ev.Table.Table))
+					c.logger.Error(e.Error())
+					return e
+				}
 				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 				fetchedBytes.Add(int64(len(event.RawData)))
 				totalFetchedBytes.Add(int64(len(event.RawData)))

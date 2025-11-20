@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	"github.com/PeerDB-io/peerdb/flow/connectors/mysql"
+	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
