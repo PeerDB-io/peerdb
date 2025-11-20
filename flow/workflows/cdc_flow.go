@@ -41,9 +41,6 @@ type CDCFlowWorkflowState struct {
 	SnapshotNumPartitionsOverride uint32
 	SnapshotMaxParallelWorkers    uint32
 	SnapshotNumTablesInParallel   uint32
-
-	// Mark if OID migration is completed
-	OidMigrationCompleted bool
 }
 
 // returns a new empty PeerFlowState
@@ -603,22 +600,19 @@ func CDCFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	state.SyncFlowOptions.NumberOfSyncs = 0 // removed feature
 
-	if !state.OidMigrationCompleted {
-		// MIGRATION: Migrate Postgres table OIDs to catalog before starting/resuming the flow
-		migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 1 * time.Hour,
-			HeartbeatTimeout:    2 * time.Minute,
-		})
-		if err := workflow.ExecuteActivity(
-			migrateCtx,
-			flowable.MigratePostgresTableOIDs,
-			cfg.FlowJobName,
-			state.SyncFlowOptions.SrcTableIdNameMapping,
-			state.SyncFlowOptions.TableMappings,
-		).Get(migrateCtx, nil); err != nil {
-			return state, fmt.Errorf("failed to migrate Postgres table OIDs: %w", err)
-		}
-		state.OidMigrationCompleted = true
+	// MIGRATION: Migrate Postgres table OIDs to catalog before starting/resuming the flow
+	migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+		HeartbeatTimeout:    2 * time.Minute,
+	})
+	if err := workflow.ExecuteActivity(
+		migrateCtx,
+		flowable.MigratePostgresTableOIDs,
+		cfg.FlowJobName,
+		state.SyncFlowOptions.SrcTableIdNameMapping,
+		state.SyncFlowOptions.TableMappings,
+	).Get(migrateCtx, nil); err != nil {
+		return state, fmt.Errorf("failed to migrate Postgres table OIDs: %w", err)
 	}
 
 	for {

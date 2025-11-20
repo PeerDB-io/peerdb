@@ -1842,20 +1842,41 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 	defer shutdown()
 
 	logger := internal.LoggerFromCtx(ctx)
-	destinationTableOidMap, err := internal.GetDestinationTableOidMap(tableMappings, oidToTableNameMapping)
-	if err != nil {
-		return fmt.Errorf("failed to get destination table OID map: %w", err)
-	}
-	err = internal.UpdateTableOIDsInTableSchemaInCatalog(
-		ctx,
-		a.CatalogPool,
-		logger,
-		flowName,
-		destinationTableOidMap,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update table OIDs in catalog: %w", err)
-	}
+	migrationName := "migrate_postgres_table_oids_v1"
 
-	return nil
+	return internal.RunMigrationOnce(ctx, a.CatalogPool, logger, flowName, migrationName, func(ctx context.Context) error {
+		logger.Info("starting PostgreSQL table OIDs migration",
+			slog.String("flowName", flowName),
+			slog.Int("tableCount", len(oidToTableNameMapping)))
+
+		sourceToDestTableMap := make(map[string]string, len(tableMappings))
+		for _, tm := range tableMappings {
+			sourceToDestTableMap[tm.SourceTableIdentifier] = tm.DestinationTableIdentifier
+		}
+		destinationTableOidMap := make(map[string]uint32, len(oidToTableNameMapping))
+		for oid, tableName := range oidToTableNameMapping {
+			destinationTableIdentifier, ok := sourceToDestTableMap[tableName]
+			if !ok {
+				return fmt.Errorf("destination table identifier not found for source table %s", tableName)
+			}
+			destinationTableOidMap[destinationTableIdentifier] = oid
+		}
+
+		err := internal.UpdateTableOIDsInTableSchemaInCatalog(
+			ctx,
+			a.CatalogPool,
+			logger,
+			flowName,
+			destinationTableOidMap,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update table OIDs in catalog: %w", err)
+		}
+
+		logger.Info("successfully completed PostgreSQL table OIDs migration",
+			slog.String("flowName", flowName),
+			slog.Int("tableCount", len(oidToTableNameMapping)))
+
+		return nil
+	})
 }
