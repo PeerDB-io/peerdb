@@ -7,5 +7,5 @@ edition = "2024"
 serde_json = "1.0"
 anyhow = "1.0"
 tracing.workspace = true
-tonic-health = "0.12"
+tonic-health = "0.14"
 pt = { path = "../pt" }
