@@ -78,7 +78,6 @@ func (s APITestSuite) checkMigrationCompleted(
 		flowName,
 		migrationName,
 	).Scan(&completed)
-
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			// Migration record doesn't exist, so it hasn't been completed

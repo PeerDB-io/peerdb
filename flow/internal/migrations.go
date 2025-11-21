@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // CheckMigrationCompleted checks if a migration has been completed for a given flow
@@ -24,7 +25,6 @@ func CheckMigrationCompleted(
 		flowName,
 		migrationName,
 	).Scan(&completed)
-
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			// Migration record doesn't exist, so it hasn't been completed
@@ -57,7 +57,6 @@ func MarkMigrationCompleted(
 		flowName,
 		migrationName,
 	)
-
 	if err != nil {
 		logger.Error("failed to mark migration as completed",
 			slog.Any("error", err),

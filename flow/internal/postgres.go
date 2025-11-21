@@ -6,12 +6,12 @@ import (
 	"log/slog"
 	"net/url"
 
+	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/jackc/pgx/v5"
 )
 
 func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
@@ -136,7 +136,7 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	results := tx.SendBatch(ctx, batch)
 	defer results.Close()
 
-	for i := 0; i < len(tableOIDs); i++ {
+	for i := range len(tableOIDs) {
 		if _, err := results.Exec(); err != nil {
 			logger.Error("failed to update table schema in catalog",
 				slog.Any("error", err),
