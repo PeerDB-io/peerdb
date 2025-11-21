@@ -71,8 +71,6 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
-	require.NotEqual(s.t, 0, output[tableName].TableOid)
-	output[tableName].TableOid = 0 // zero out TableOid for comparison
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier:   tableName,
@@ -121,8 +119,6 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
-	require.NotEqual(s.t, 0, output[tableName].TableOid)
-	output[tableName].TableOid = 0 // zero out TableOid for comparison
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
@@ -154,8 +150,6 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
-	require.NotEqual(s.t, 0, output[tableName].TableOid)
-	output[tableName].TableOid = 0 // zero out TableOid for comparison
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
@@ -187,8 +181,6 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
-	require.NotEqual(s.t, 0, output[tableName].TableOid)
-	output[tableName].TableOid = 0 // zero out TableOid for comparison
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
