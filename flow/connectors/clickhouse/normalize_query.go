@@ -123,7 +123,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		if clickHouseType == "" {
 			var err error
 			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled,
+				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.version,
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
@@ -131,6 +131,21 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		}
 
 		switch clickHouseType {
+		case "Time64(3)", "Nullable(Time64(3))":
+			// Time64 is a time-of-day type, parse from JSON string
+			// toTime64 converts string to Time64(3), returns NULL if string is NULL or invalid
+			fmt.Fprintf(&projection,
+				"toTime64(JSONExtractString(_peerdb_data, %s),3) AS %s,",
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					"toTime64(JSONExtractString(_peerdb_match_data, %s),3) AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
 		case "Date32", "Nullable(Date32)":
 			fmt.Fprintf(&projection,
 				"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC')) AS %s,",
