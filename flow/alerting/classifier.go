@@ -35,7 +35,8 @@ const (
 )
 
 const (
-	MongoDBShutdownInProgress = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
+	MongoDBShutdownInProgress          = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
+	MongoIncompleteReadOfMessageHeader = "incomplete read of message header"
 )
 
 var (
@@ -690,6 +691,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	var mongoConnError topology.ConnectionError
 	if errors.As(err, &mongoConnError) {
+		if strings.Contains(err.Error(), MongoIncompleteReadOfMessageHeader) {
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourceMongoDB,
+				Code:   "CONNECTION_ERROR",
+			}
+		}
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "CONNECTION_ERROR",
@@ -702,6 +709,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorIgnoreConnTemporary, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   strconv.Itoa(91), // ShutdownInProgress
+		}
+	}
+	if strings.Contains(err.Error(), MongoIncompleteReadOfMessageHeader) {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "CONNECTION_ERROR",
 		}
 	}
 
