@@ -134,6 +134,7 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	}
 
 	results := tx.SendBatch(ctx, batch)
+	defer results.Close() // Ensure resources are freed in case of early return
 
 	for i := range len(tableOIDs) {
 		if _, err := results.Exec(); err != nil {
