@@ -165,7 +165,16 @@ func getAvroNumericSchema(
 	if err != nil {
 		return nil, err
 	}
-	destinationType := GetNumericDestinationType(precision, scale, targetDWH, asString)
+	var chDefaultPrecision, chDefaultScale int32
+	if targetDWH == protos.DBType_CLICKHOUSE {
+		if p, err := internal.PeerDBClickHouseNumericDefaultPrecision(ctx, env); err == nil {
+			chDefaultPrecision = p
+		}
+		if s, err := internal.PeerDBClickHouseNumericDefaultScale(ctx, env); err == nil {
+			chDefaultScale = s
+		}
+	}
+	destinationType := GetNumericDestinationType(precision, scale, targetDWH, asString, chDefaultPrecision, chDefaultScale)
 	if destinationType.IsString {
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	}
@@ -180,6 +189,8 @@ type QValueAvroConverter struct {
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
 	binaryFormat             internal.BinaryFormat
+	chDefaultPrecision       int32
+	chDefaultScale           int32
 }
 
 func QValueToAvro(
@@ -187,6 +198,7 @@ func QValueToAvro(
 	value types.QValue, field *types.QField, targetDWH protos.DBType, logger log.Logger,
 	unboundedNumericAsString bool, stat *NumericStat,
 	binaryFormat internal.BinaryFormat,
+	chDefaultPrecision, chDefaultScale int32,
 ) (any, error) {
 	if value.Value() == nil {
 		return nil, nil
@@ -199,6 +211,8 @@ func QValueToAvro(
 		TargetDWH:                targetDWH,
 		UnboundedNumericAsString: unboundedNumericAsString,
 		binaryFormat:             binaryFormat,
+		chDefaultPrecision:       chDefaultPrecision,
+		chDefaultScale:           chDefaultScale,
 	}
 
 	switch v := value.(type) {
@@ -361,7 +375,7 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
-	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
+	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString, c.chDefaultPrecision, c.chDefaultScale)
 	if destType.IsString {
 		return c.processNullableUnion(num.String())
 	}
@@ -424,7 +438,7 @@ func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
 }
 
 func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) any {
-	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
+	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString, c.chDefaultPrecision, c.chDefaultScale)
 	if destType.IsString {
 		transformedNumArr := make([]string, 0, len(arrayNum))
 		for _, num := range arrayNum {

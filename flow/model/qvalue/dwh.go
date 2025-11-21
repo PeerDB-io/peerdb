@@ -7,10 +7,17 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 )
 
-func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBType) (int16, int16) {
+func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBType, chDefaultPrecision, chDefaultScale int32) (int16, int16) {
 	var warehouseNumeric datatypes.WarehouseNumericCompatibility
 	switch dwh {
 	case protos.DBType_CLICKHOUSE:
+		// If user provided overrides and typmod is unbounded (precision and scale are 0), use the overrides
+		if precision == 0 && scale == 0 && (chDefaultPrecision > 0 || chDefaultScale >= 0) {
+			// Convert from int32 to int16 for comparison and return
+			if chDefaultPrecision > 0 {
+				return int16(chDefaultPrecision), int16(chDefaultScale)
+			}
+		}
 		warehouseNumeric = datatypes.ClickHouseNumericCompatibility{}
 	case protos.DBType_SNOWFLAKE:
 		warehouseNumeric = datatypes.SnowflakeNumericCompatibility{}

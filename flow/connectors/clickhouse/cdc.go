@@ -170,6 +170,15 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		return nil
 	}
 
+	// Fetch optional ClickHouse numeric default overrides from env
+	var chDefPrecision, chDefScale int32
+	if p, err := internal.PeerDBClickHouseNumericDefaultPrecision(ctx, env); err == nil {
+		chDefPrecision = p
+	}
+	if s, err := internal.PeerDBClickHouseNumericDefaultScale(ctx, env); err == nil {
+		chDefScale = s
+	}
+
 	onCluster := c.onCluster()
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
@@ -189,6 +198,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			qvKind := types.QValueKind(addedColumn.Type)
 			clickHouseColType, err := qvalue.ToDWHColumnType(
 				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled,
+				chDefPrecision, chDefScale,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)

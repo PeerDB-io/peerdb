@@ -633,6 +633,14 @@ func PeerDBEnableClickHouseJSON(ctx context.Context, env map[string]string) (boo
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_JSON")
 }
 
+func PeerDBClickHouseNumericDefaultPrecision(ctx context.Context, env map[string]string) (int32, error) {
+	return dynamicConfSigned[int32](ctx, env, "PEERDB_CLICKHOUSE_NUMERIC_DEFAULT_PRECISION")
+}
+
+func PeerDBClickHouseNumericDefaultScale(ctx context.Context, env map[string]string) (int32, error) {
+	return dynamicConfSigned[int32](ctx, env, "PEERDB_CLICKHOUSE_NUMERIC_DEFAULT_SCALE")
+}
+
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
