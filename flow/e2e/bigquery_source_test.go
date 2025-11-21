@@ -445,6 +445,52 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 	env.Cancel(t.Context())
 }
 
+func (s BigQueryClickhouseSuite) Test_Trips_Flow_Small_Partitions() {
+	t := s.T()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := "trips_1k"
+	dstTable := "trips_1k_dst_small_partitions"
+
+	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
+
+	count, err := source.helper.countRowsWithDataset(t.Context(), source.config.DatasetId, srcTable, "")
+	require.NoError(t, err, "should be able to count rows in source table")
+	require.Positive(t, count, "source table should have data")
+	t.Logf("Source table %s has %d rows", srcTable, count)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, srcTable),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
+				DestinationTableIdentifier: s.DestinationTable(dstTable),
+			},
+		},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SnapshotStagingPath = stagingTestBucket
+	flowConnConfig.SnapshotNumRowsPerPartition = 10 // 1000 rows / 10 = 100 partitions
+	flowConnConfig.SnapshotMaxParallelWorkers = 10
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(
+		env,
+		s,
+		"initial load to match",
+		srcTable,
+		dstTable,
+		"trip_id,vendor_id,passenger_count,trip_distance,fare_amount",
+	)
+
+	env.Cancel(t.Context())
+}
+
 func (s BigQueryClickhouseSuite) Test_Types() {
 	t := s.T()
 	ctx := t.Context()

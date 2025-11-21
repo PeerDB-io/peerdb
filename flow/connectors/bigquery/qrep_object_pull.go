@@ -55,8 +55,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
 	}
-	bucketName := stagingPath.Bucket()
-	prefix := stagingPath.QueryPrefix()
+	tablePath := stagingPath.JoinPath(config.WatermarkTable)
+	bucketName := tablePath.Bucket()
+	prefix := tablePath.QueryPrefix()
 
 	bucket := c.storageClient.Bucket(bucketName)
 
@@ -127,7 +128,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 
 	it := bucket.Objects(ctx, &storage.Query{
 		Prefix:      prefix,
-		Delimiter:   "/",
+		Delimiter:   "/", // to avoid listing "folders"
 		StartOffset: objectRange.Start,
 		EndOffset:   objectRange.End,
 	})
@@ -144,6 +145,12 @@ func (c *BigQueryConnector) PullQRepObjects(
 		}
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
+		}
+
+		if attrs.Name == "" {
+			// ObjectIterator may return empty Name for prefixes if Delimiter is set.
+			// We have to skip those. See: https://cloud.google.com/storage/docs/listing-objects#code-samples
+			continue
 		}
 
 		if err := processObject(attrs); err != nil {
@@ -187,7 +194,7 @@ func (c *BigQueryConnector) GetQRepPartitions(
 
 	it := bucket.Objects(ctx, &storage.Query{
 		Prefix:      prefix,
-		Delimiter:   "/",
+		Delimiter:   "/", // to avoid listing "folders"
 		StartOffset: startOffset,
 	})
 
@@ -204,6 +211,12 @@ func (c *BigQueryConnector) GetQRepPartitions(
 		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
+		}
+
+		if attrs.Name == "" {
+			// ObjectIterator may return empty Name for prefixes if Delimiter is set.
+			// We have to skip those. See: https://cloud.google.com/storage/docs/listing-objects#code-samples
+			continue
 		}
 
 		// we only want the first object after the start offset
