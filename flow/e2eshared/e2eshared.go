@@ -33,7 +33,7 @@ func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
 					subtest.Parallel()
 					suite := setup(subtest)
 					subtest.Cleanup(func() {
-						ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+						ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 						defer cancel()
 						suite.Teardown(ctx)
 					})
