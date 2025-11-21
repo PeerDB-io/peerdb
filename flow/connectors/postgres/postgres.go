@@ -1053,7 +1053,6 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		Columns:               columns,
 		NullableEnabled:       nullableEnabled,
 		System:                system,
-		TableOid:              relID,
 	}, nil
 }
 

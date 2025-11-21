@@ -164,6 +164,4 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, updates[3].NewStatus)
 	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, updates[4].OldStatus)
 	require.Equal(s.t, protos.FlowStatus_STATUS_RUNNING, updates[4].NewStatus)
-	env.Cancel(s.t.Context())
-	RequireEnvCanceled(s.t, env)
 }

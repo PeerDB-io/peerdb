@@ -59,7 +59,7 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 
 	connector, err := connmysql.NewMySqlConnector(t.Context(), config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mysql connection: %w", err)
+		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
 
 	if _, err := connector.Execute(
