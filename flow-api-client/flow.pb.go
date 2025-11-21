@@ -2138,7 +2138,6 @@ type TableSchema struct {
 	System                TypeSystem             `protobuf:"varint,4,opt,name=system,proto3,enum=peerdb_flow.TypeSystem" json:"system,omitempty"`
 	NullableEnabled       bool                   `protobuf:"varint,5,opt,name=nullable_enabled,json=nullableEnabled,proto3" json:"nullable_enabled,omitempty"`
 	Columns               []*FieldDescription    `protobuf:"bytes,6,rep,name=columns,proto3" json:"columns,omitempty"`
-	TableOid              uint32                 `protobuf:"varint,7,opt,name=table_oid,json=tableOid,proto3" json:"table_oid,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -2213,13 +2212,6 @@ func (x *TableSchema) GetColumns() []*FieldDescription {
 		return x.Columns
 	}
 	return nil
-}
-
-func (x *TableSchema) GetTableOid() uint32 {
-	if x != nil {
-		return x.TableOid
-	}
-	return 0
 }
 
 type FieldDescription struct {
@@ -5235,15 +5227,14 @@ const file_flow_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"A\n" +
 	"\x14CreateRawTableOutput\x12)\n" +
-	"\x10table_identifier\x18\x01 \x01(\tR\x0ftableIdentifier\"\xd3\x02\n" +
+	"\x10table_identifier\x18\x01 \x01(\tR\x0ftableIdentifier\"\xb6\x02\n" +
 	"\vTableSchema\x12)\n" +
 	"\x10table_identifier\x18\x01 \x01(\tR\x0ftableIdentifier\x12.\n" +
 	"\x13primary_key_columns\x18\x02 \x03(\tR\x11primaryKeyColumns\x127\n" +
 	"\x18is_replica_identity_full\x18\x03 \x01(\bR\x15isReplicaIdentityFull\x12/\n" +
 	"\x06system\x18\x04 \x01(\x0e2\x17.peerdb_flow.TypeSystemR\x06system\x12)\n" +
 	"\x10nullable_enabled\x18\x05 \x01(\bR\x0fnullableEnabled\x127\n" +
-	"\acolumns\x18\x06 \x03(\v2\x1d.peerdb_flow.FieldDescriptionR\acolumns\x12\x1b\n" +
-	"\ttable_oid\x18\a \x01(\rR\btableOid\"{\n" +
+	"\acolumns\x18\x06 \x03(\v2\x1d.peerdb_flow.FieldDescriptionR\acolumns\"{\n" +
 	"\x10FieldDescription\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12#\n" +
