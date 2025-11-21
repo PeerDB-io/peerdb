@@ -273,6 +273,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_CLIENT_NAME",
+		Description:      "Client name to pass to ClickHouse Client",
+		DefaultValue:     "peerdb",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES",
 		Description:      "Duration in minutes since last normalize to start alerting, 0 disables all alerting entirely",
 		DefaultValue:     "240",
@@ -631,6 +639,10 @@ func PeerDBEnableClickHouseNumericAsString(ctx context.Context, env map[string]s
 
 func PeerDBEnableClickHouseJSON(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_JSON")
+}
+
+func PeerDBClickHouseClientName(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_CLIENT_NAME")
 }
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
