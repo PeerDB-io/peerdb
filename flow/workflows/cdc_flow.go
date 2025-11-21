@@ -600,6 +600,21 @@ func CDCFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	state.SyncFlowOptions.NumberOfSyncs = 0 // removed feature
 
+	// MIGRATION: Migrate Postgres table OIDs to catalog before starting/resuming the flow
+	migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+		HeartbeatTimeout:    2 * time.Minute,
+	})
+	if err := workflow.ExecuteActivity(
+		migrateCtx,
+		flowable.MigratePostgresTableOIDs,
+		cfg.FlowJobName,
+		state.SyncFlowOptions.SrcTableIdNameMapping,
+		state.SyncFlowOptions.TableMappings,
+	).Get(migrateCtx, nil); err != nil {
+		return state, fmt.Errorf("failed to migrate Postgres table OIDs: %w", err)
+	}
+
 	for {
 		if err := ctx.Err(); err != nil {
 			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
