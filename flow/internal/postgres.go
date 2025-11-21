@@ -137,8 +137,7 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	defer results.Close()
 
 	for i := 0; i < len(tableOIDs); i++ {
-		_, err := results.Exec()
-		if err != nil {
+		if _, err := results.Exec(); err != nil {
 			logger.Error("failed to update table schema in catalog",
 				slog.Any("error", err),
 				slog.String("flowName", flowName),
