@@ -306,6 +306,53 @@ func (s *SnapshotFlowExecution) cloneTables(
 	}
 
 	s.logger.Info("finished cloning tables")
+
+	migrateTriggersCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 10 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumAttempts:    3,
+		},
+	})
+
+	migrateIndexesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumAttempts:    3,
+		},
+	})
+
+	triggerFuture := workflow.ExecuteActivity(
+		migrateTriggersCtx,
+		flowable.MigrateTriggersAfterSnapshot,
+		s.config,
+	)
+
+	indexFuture := workflow.ExecuteActivity(
+		migrateIndexesCtx,
+		flowable.MigrateIndexesAfterSnapshot,
+		s.config,
+	)
+
+	triggerErr := triggerFuture.Get(ctx, nil)
+	if triggerErr != nil {
+		s.logger.Warn("Failed to migrate triggers after snapshot, will retry later",
+			slog.Any("error", triggerErr))
+	} else {
+		s.logger.Info("Successfully migrated triggers after snapshot")
+	}
+
+	indexErr := indexFuture.Get(ctx, nil)
+	if indexErr != nil {
+		s.logger.Warn("Failed to migrate indexes after snapshot, will retry later",
+			slog.Any("error", indexErr))
+	} else {
+		s.logger.Info("Successfully migrated indexes after snapshot")
+	}
+
 	return nil
 }
 

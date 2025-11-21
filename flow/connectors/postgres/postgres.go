@@ -1172,6 +1172,353 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	return nil
 }
 
+// ApplyTriggerFunctions creates trigger functions on the destination database.
+// It migrates function definitions from source to destination.
+func (c *PostgresConnector) ApplyTriggerFunctions(
+	ctx context.Context,
+	functionDefinitions map[string]*TriggerFunctionInfo,
+) error {
+	if len(functionDefinitions) == 0 {
+		return nil
+	}
+
+	functionTx, err := c.conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("error starting transaction for trigger function creation: %w", err)
+	}
+	defer shared.RollbackTx(functionTx, c.logger)
+
+	var functionsCreated, functionsSkipped int
+	for _, fnInfo := range functionDefinitions {
+		var functionExists bool
+		err := functionTx.QueryRow(ctx,
+			`SELECT EXISTS (
+				SELECT 1 FROM pg_proc p
+				JOIN pg_namespace pn ON p.pronamespace = pn.oid
+				WHERE pn.nspname = $1 AND p.proname = $2
+			)`,
+			fnInfo.FunctionSchema,
+			fnInfo.FunctionName,
+		).Scan(&functionExists)
+		if err != nil {
+			c.logger.Warn(fmt.Sprintf("Error checking if trigger function %s.%s exists: %v",
+				fnInfo.FunctionSchema, fnInfo.FunctionName, err))
+			functionsSkipped++
+			continue
+		}
+
+		if functionExists {
+			c.logger.Info(fmt.Sprintf("Trigger function %s.%s already exists on destination, skipping creation",
+				fnInfo.FunctionSchema, fnInfo.FunctionName))
+			continue
+		}
+
+		_, err = c.execWithLoggingTx(ctx, fnInfo.Definition, functionTx)
+		if err != nil {
+			c.logger.Warn(fmt.Sprintf("Failed to create trigger function %s.%s: %v",
+				fnInfo.FunctionSchema, fnInfo.FunctionName, err),
+				slog.String("functionDefinition", fnInfo.Definition))
+			functionsSkipped++
+			continue
+		}
+
+		functionsCreated++
+		c.logger.Info(fmt.Sprintf("[trigger function migration] created function %s.%s",
+			fnInfo.FunctionSchema, fnInfo.FunctionName))
+	}
+
+	if err := functionTx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction for trigger function creation: %w", err)
+	}
+
+	totalFunctions := functionsCreated + functionsSkipped
+	if functionsSkipped > 0 {
+		c.logger.Warn(fmt.Sprintf("[trigger function migration] completed: %d created, %d skipped",
+			functionsCreated, functionsSkipped),
+			slog.Int("totalFunctions", totalFunctions))
+	} else if functionsCreated > 0 {
+		c.logger.Info(fmt.Sprintf("[trigger function migration] completed: %d functions created successfully",
+			functionsCreated),
+			slog.Int("totalFunctions", totalFunctions))
+	}
+
+	return nil
+}
+
+// ApplyTriggers creates triggers on the destination database in a disabled state.
+// It maps source table names to destination table names using tableMappings.
+// Trigger functions must exist on the destination (they should be migrated first using ApplyTriggerFunctions).
+func (c *PostgresConnector) ApplyTriggers(
+	ctx context.Context,
+	tableMappings []*protos.TableMapping,
+	triggersByTable map[string][]*TriggerInfo,
+) error {
+	if len(triggersByTable) == 0 {
+		return nil
+	}
+
+	srcToDstTableMap := make(map[string]string)
+	for _, tm := range tableMappings {
+		srcToDstTableMap[tm.SourceTableIdentifier] = tm.DestinationTableIdentifier
+	}
+
+	triggerTx, err := c.conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("error starting transaction for trigger creation: %w", err)
+	}
+	defer shared.RollbackTx(triggerTx, c.logger)
+
+	var triggersCreated, triggersSkipped int
+	for srcTableKey, triggers := range triggersByTable {
+		dstTableIdentifier, ok := srcToDstTableMap[srcTableKey]
+		if !ok {
+			c.logger.Warn(fmt.Sprintf("No destination table mapping found for source table %s, skipping triggers",
+				srcTableKey))
+			continue
+		}
+
+		dstSchemaTable, err := utils.ParseSchemaTable(dstTableIdentifier)
+		if err != nil {
+			return fmt.Errorf("error parsing destination table identifier %s: %w", dstTableIdentifier, err)
+		}
+
+		for _, trigger := range triggers {
+			var functionExists bool
+			err := triggerTx.QueryRow(ctx,
+				`SELECT EXISTS (
+					SELECT 1 FROM pg_proc p
+					JOIN pg_namespace pn ON p.pronamespace = pn.oid
+					WHERE pn.nspname = $1 AND p.proname = $2
+				)`,
+				trigger.FunctionSchema,
+				trigger.FunctionName,
+			).Scan(&functionExists)
+			if err != nil {
+				c.logger.Warn(fmt.Sprintf("Error checking if trigger function %s.%s exists: %v",
+					trigger.FunctionSchema, trigger.FunctionName, err))
+				continue
+			}
+
+			if !functionExists {
+				triggersSkipped++
+				c.logger.Warn(fmt.Sprintf("Trigger function %s.%s does not exist on destination, skipping trigger %s",
+					trigger.FunctionSchema, trigger.FunctionName, trigger.TriggerName),
+					slog.String("sourceTable", srcTableKey),
+					slog.String("destinationTable", dstTableIdentifier),
+				)
+				continue
+			}
+
+			var triggerExists bool
+			err = triggerTx.QueryRow(ctx,
+				`SELECT EXISTS (
+					SELECT 1 FROM pg_trigger t
+					JOIN pg_class c ON t.tgrelid = c.oid
+					JOIN pg_namespace n ON c.relnamespace = n.oid
+					WHERE n.nspname = $1 AND c.relname = $2 AND t.tgname = $3
+						AND NOT t.tgisinternal
+				)`,
+				dstSchemaTable.Schema,
+				dstSchemaTable.Table,
+				trigger.TriggerName,
+			).Scan(&triggerExists)
+			if err != nil {
+				c.logger.Warn(fmt.Sprintf("Error checking if trigger %s exists on %s.%s: %v",
+					trigger.TriggerName, dstSchemaTable.Schema, dstSchemaTable.Table, err))
+				continue
+			}
+
+			if triggerExists {
+				c.logger.Info(fmt.Sprintf("Trigger %s already exists on %s.%s, skipping creation",
+					trigger.TriggerName, dstSchemaTable.Schema, dstSchemaTable.Table))
+			} else {
+				eventsStr := strings.Join(trigger.Events, " OR ")
+				createTriggerSQL := fmt.Sprintf(
+					"CREATE TRIGGER %s %s %s ON %s.%s FOR EACH ROW EXECUTE FUNCTION %s.%s()",
+					utils.QuoteIdentifier(trigger.TriggerName),
+					trigger.Timing,
+					eventsStr,
+					utils.QuoteIdentifier(dstSchemaTable.Schema),
+					utils.QuoteIdentifier(dstSchemaTable.Table),
+					utils.QuoteIdentifier(trigger.FunctionSchema),
+					utils.QuoteIdentifier(trigger.FunctionName),
+				)
+
+				_, err = c.execWithLoggingTx(ctx, createTriggerSQL, triggerTx)
+				if err != nil {
+					return fmt.Errorf("failed to create trigger %s on table %s: %w",
+						trigger.TriggerName, dstTableIdentifier, err)
+				}
+
+				triggersCreated++
+				c.logger.Info(fmt.Sprintf("[trigger migration] created trigger %s on table %s.%s",
+					trigger.TriggerName, dstSchemaTable.Schema, dstSchemaTable.Table),
+					slog.String("sourceTable", srcTableKey),
+					slog.String("destinationTable", dstTableIdentifier),
+				)
+			}
+
+			disableTriggerSQL := fmt.Sprintf(
+				"ALTER TABLE %s.%s DISABLE TRIGGER %s",
+				utils.QuoteIdentifier(dstSchemaTable.Schema),
+				utils.QuoteIdentifier(dstSchemaTable.Table),
+				utils.QuoteIdentifier(trigger.TriggerName),
+			)
+
+			_, err = c.execWithLoggingTx(ctx, disableTriggerSQL, triggerTx)
+			if err != nil {
+				return fmt.Errorf("failed to disable trigger %s on table %s: %w",
+					trigger.TriggerName, dstTableIdentifier, err)
+			}
+
+			c.logger.Info(fmt.Sprintf("[trigger migration] disabled trigger %s on table %s.%s",
+				trigger.TriggerName, dstSchemaTable.Schema, dstSchemaTable.Table),
+				slog.String("sourceTable", srcTableKey),
+				slog.String("destinationTable", dstTableIdentifier),
+			)
+		}
+	}
+
+	if err := triggerTx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction for trigger creation: %w", err)
+	}
+
+	totalTriggers := triggersCreated + triggersSkipped
+	if triggersSkipped > 0 {
+		c.logger.Warn(fmt.Sprintf("[trigger migration] completed: %d created, %d skipped (missing trigger functions)",
+			triggersCreated, triggersSkipped),
+			slog.Int("totalTriggers", totalTriggers))
+	} else if triggersCreated > 0 {
+		c.logger.Info(fmt.Sprintf("[trigger migration] completed: %d triggers created successfully",
+			triggersCreated),
+			slog.Int("totalTriggers", totalTriggers))
+	}
+
+	return nil
+}
+
+// ApplyIndexes creates indexes on the destination database.
+// It maps source table names to destination table names using tableMappings.
+// Uses CREATE INDEX CONCURRENTLY when concurrent=true to avoid locking the table.
+// Note: CREATE INDEX CONCURRENTLY cannot run inside a transaction, so we execute each index separately.
+func (c *PostgresConnector) ApplyIndexes(
+	ctx context.Context,
+	tableMappings []*protos.TableMapping,
+	indexesByTable map[string][]*IndexInfo,
+	concurrent bool,
+) error {
+	if len(indexesByTable) == 0 {
+		return nil
+	}
+
+	srcToDstTableMap := make(map[string]string)
+	for _, tm := range tableMappings {
+		srcToDstTableMap[tm.SourceTableIdentifier] = tm.DestinationTableIdentifier
+	}
+
+	var indexesCreated, indexesSkipped int
+	for srcTableKey, indexes := range indexesByTable {
+		dstTableIdentifier, ok := srcToDstTableMap[srcTableKey]
+		if !ok {
+			c.logger.Warn(fmt.Sprintf("No destination table mapping found for source table %s, skipping indexes",
+				srcTableKey))
+			continue
+		}
+
+		dstSchemaTable, err := utils.ParseSchemaTable(dstTableIdentifier)
+		if err != nil {
+			return fmt.Errorf("error parsing destination table identifier %s: %w", dstTableIdentifier, err)
+		}
+
+		for _, index := range indexes {
+			var indexExists bool
+			err := c.conn.QueryRow(ctx,
+				`SELECT EXISTS (
+					SELECT 1 FROM pg_index idx
+					JOIN pg_class i ON idx.indexrelid = i.oid
+					JOIN pg_class t ON idx.indrelid = t.oid
+					JOIN pg_namespace n ON t.relnamespace = n.oid
+					WHERE n.nspname = $1 AND t.relname = $2 AND i.relname = $3
+						AND i.relkind = 'i'
+				)`,
+				dstSchemaTable.Schema,
+				dstSchemaTable.Table,
+				index.IndexName,
+			).Scan(&indexExists)
+			if err != nil {
+				c.logger.Warn(fmt.Sprintf("Error checking if index %s exists on %s.%s: %v",
+					index.IndexName, dstSchemaTable.Schema, dstSchemaTable.Table, err))
+				indexesSkipped++
+				continue
+			}
+
+			if indexExists {
+				c.logger.Info(fmt.Sprintf("Index %s already exists on %s.%s, skipping creation",
+					index.IndexName, dstSchemaTable.Schema, dstSchemaTable.Table))
+				continue
+			}
+
+			createIndexSQL := replaceTableNameInIndexDef(index.Definition, index.TableSchema, index.TableName,
+				dstSchemaTable.Schema, dstSchemaTable.Table)
+
+			if concurrent && !strings.Contains(strings.ToUpper(createIndexSQL), "CONCURRENTLY") {
+				createIndexSQL = strings.Replace(createIndexSQL, "CREATE INDEX", "CREATE INDEX CONCURRENTLY", 1)
+				createIndexSQL = strings.Replace(createIndexSQL, "CREATE UNIQUE INDEX", "CREATE UNIQUE INDEX CONCURRENTLY", 1)
+			}
+
+			_, err = c.execWithLogging(ctx, createIndexSQL)
+			if err != nil {
+				if shared.IsSQLStateError(err, pgerrcode.DuplicateObject) {
+					c.logger.Info(fmt.Sprintf("Index %s already exists on %s.%s (race condition), skipping creation",
+						index.IndexName, dstSchemaTable.Schema, dstSchemaTable.Table))
+				} else {
+					c.logger.Warn(fmt.Sprintf("Failed to create index %s on table %s: %v",
+						index.IndexName, dstTableIdentifier, err),
+						slog.String("sourceTable", srcTableKey),
+						slog.String("destinationTable", dstTableIdentifier),
+						slog.String("indexDefinition", createIndexSQL))
+					indexesSkipped++
+					continue
+				}
+			} else {
+				indexesCreated++
+				c.logger.Info(fmt.Sprintf("[index migration] created index %s on table %s.%s",
+					index.IndexName, dstSchemaTable.Schema, dstSchemaTable.Table),
+					slog.String("sourceTable", srcTableKey),
+					slog.String("destinationTable", dstTableIdentifier),
+					slog.Bool("concurrent", concurrent))
+			}
+		}
+	}
+
+	totalIndexes := indexesCreated + indexesSkipped
+	if indexesSkipped > 0 {
+		c.logger.Warn(fmt.Sprintf("[index migration] completed: %d created, %d skipped",
+			indexesCreated, indexesSkipped),
+			slog.Int("totalIndexes", totalIndexes),
+			slog.Bool("concurrent", concurrent))
+	} else if indexesCreated > 0 {
+		c.logger.Info(fmt.Sprintf("[index migration] completed: %d indexes created successfully",
+			indexesCreated),
+			slog.Int("totalIndexes", totalIndexes),
+			slog.Bool("concurrent", concurrent))
+	}
+
+	return nil
+}
+
+func replaceTableNameInIndexDef(indexDef, srcSchema, srcTable, dstSchema, dstTable string) string {
+	srcTableRef := fmt.Sprintf("%s.%s", utils.QuoteIdentifier(srcSchema), utils.QuoteIdentifier(srcTable))
+	dstTableRef := fmt.Sprintf("%s.%s", utils.QuoteIdentifier(dstSchema), utils.QuoteIdentifier(dstTable))
+	result := strings.Replace(indexDef, srcTableRef, dstTableRef, 1)
+
+	unquotedSrcRef := fmt.Sprintf("%s.%s", srcSchema, srcTable)
+	unquotedDstRef := fmt.Sprintf("%s.%s", dstSchema, dstTable)
+	result = strings.Replace(result, unquotedSrcRef, unquotedDstRef, 1)
+
+	return result
+}
+
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.
 func (c *PostgresConnector) EnsurePullability(
 	ctx context.Context,
@@ -1184,7 +1531,6 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, fmt.Errorf("error parsing schema and table: %w", err)
 		}
 
-		// check if the table exists by getting the relation ID
 		relID, err := c.getRelIDForTable(ctx, schemaTable)
 		if err != nil {
 			return nil, err

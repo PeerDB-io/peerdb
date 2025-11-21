@@ -77,6 +77,14 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 		CatalogPool:        conn,
 	})
 
+	// Register FlowableActivity to support trigger migration after snapshot
+	w.RegisterActivity(&activities.FlowableActivity{
+		CatalogPool:    conn,
+		Alerter:        alerting.NewAlerter(ctx, conn, otelManager),
+		OtelManager:    otelManager,
+		TemporalClient: c,
+	})
+
 	return &WorkerSetupResponse{
 		Client:      c,
 		Worker:      w,
