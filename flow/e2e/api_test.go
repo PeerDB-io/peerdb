@@ -1258,6 +1258,8 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
          ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
 		Schema(s), "table2").Scan(&table2OID)
 	require.NoError(s.t, err)
+	require.NotEqual(s.t, uint32(0), table1OID)
+	require.NotEqual(s.t, uint32(0), table2OID)
 
 	schema1, err := s.getCatalogTableSchemaForSourceTable(
 		s.t.Context(),

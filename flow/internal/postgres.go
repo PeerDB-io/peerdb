@@ -81,13 +81,15 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	flowName string,
 	tableOIDs map[string]uint32, // map[destinationTableName]tableOID
 ) error {
+	if len(tableOIDs) == 0 {
+		logger.Info("no table OIDs to update, skipping migration",
+			slog.String("flowName", flowName))
+		return nil
+	}
+
 	logger.Info("updating table OIDs in catalog",
 		slog.String("flowName", flowName),
 		slog.Int("numTables", len(tableOIDs)))
-
-	if len(tableOIDs) == 0 {
-		return nil
-	}
 
 	tableNames := make([]string, 0, len(tableOIDs))
 	for tableName := range tableOIDs {

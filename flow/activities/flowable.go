@@ -1842,7 +1842,7 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 	defer shutdown()
 
 	logger := internal.LoggerFromCtx(ctx)
-	migrationName := "migrate_postgres_table_oids_v1"
+	migrationName := shared.POSTGRES_TABLE_OID_MIGRATION
 
 	return internal.RunMigrationOnce(ctx, a.CatalogPool, logger, flowName, migrationName, func(ctx context.Context) error {
 		logger.Info("starting PostgreSQL table OIDs migration",
