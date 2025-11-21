@@ -213,11 +213,17 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		FlowName:          flowConnectionConfigs.FlowJobName,
 		Env:               flowConnectionConfigs.Env,
 		IsResync:          flowConnectionConfigs.Resync,
+		SourcePeerName:    flowConnectionConfigs.SourceName,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
 		s.Error("failed to create normalized tables", slog.Any("error", err))
 		return fmt.Errorf("failed to create normalized tables: %w", err)
+	}
+
+	// Sync indexes, triggers, and constraints after tables are created
+	if err := workflow.ExecuteActivity(ctx, flowable.SyncIndexesAndTriggers, setupConfig).Get(ctx, nil); err != nil {
+		s.Warn("failed to sync indexes, triggers, and constraints", slog.Any("error", err))
 	}
 
 	s.Info("finished setting up normalized tables for peer flow")

@@ -108,6 +108,70 @@ func (a *FlowableActivity) applySchemaDeltas(
 	return nil
 }
 
+func (a *FlowableActivity) updateDestinationSchemaMapping(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+	options *protos.SyncFlowOptions,
+	schemaDeltas []*protos.TableSchemaDelta,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+
+	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
+	for _, tableMapping := range options.TableMappings {
+		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
+			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
+				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
+		}) {
+			filteredTableMappings = append(filteredTableMappings, tableMapping)
+		}
+	}
+
+	if len(filteredTableMappings) == 0 {
+		return nil
+	}
+
+	dstConn, dstClose, err := connectors.GetByNameAs[connectors.GetTableSchemaConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return fmt.Errorf("failed to get destination connector for schema update: %w", err)
+	}
+	defer dstClose(ctx)
+
+	tableNameSchemaMapping, err := dstConn.GetTableSchema(ctx, config.Env, config.Version, config.System, filteredTableMappings)
+	if err != nil {
+		return fmt.Errorf("failed to get updated schema from destination: %w", err)
+	}
+
+	processed := internal.BuildProcessedSchemaMapping(filteredTableMappings, tableNameSchemaMapping, logger)
+
+	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to start transaction for schema mapping update: %w", err)
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	for tableName, tableSchema := range processed {
+		processedBytes, err := proto.Marshal(tableSchema)
+		if err != nil {
+			return fmt.Errorf("failed to marshal table schema for %s: %w", tableName, err)
+		}
+		if _, err := tx.Exec(
+			ctx,
+			"insert into table_schema_mapping(flow_name, table_name, table_schema) values ($1, $2, $3) "+
+				"on conflict (flow_name, table_name) do update set table_schema = $3",
+			config.FlowJobName,
+			tableName,
+			processedBytes,
+		); err != nil {
+			return fmt.Errorf("failed to update schema mapping for %s: %w", tableName, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit schema mapping update: %w", err)
+	}
+	return nil
+}
+
 func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
 	ctx context.Context,
 	a *FlowableActivity,
@@ -336,6 +400,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncState.Store(shared.Ptr("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
 		return nil, err
+	}
+
+	if len(res.TableSchemaDeltas) > 0 {
+		if err := a.updateDestinationSchemaMapping(ctx, config, options, res.TableSchemaDeltas); err != nil {
+			logger.Warn("Failed to update destination schema mapping, normalization may use stale schema",
+				slog.Any("error", err))
+		}
 	}
 
 	if recordBatchSync.NeedsNormalize() {

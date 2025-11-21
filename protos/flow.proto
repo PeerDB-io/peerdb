@@ -240,6 +240,7 @@ message FieldDescription {
   string type = 2;
   int32 type_modifier = 3;
   bool nullable = 4;
+  string default_value = 5;
 }
 
 message SetupTableSchemaBatchInput {
@@ -262,6 +263,7 @@ message SetupNormalizedTableBatchInput {
   string flow_name = 6;
   string peer_name = 7;
   bool is_resync = 8;
+  string source_peer_name = 9;
 }
 
 message SetupNormalizedTableOutput {
@@ -425,10 +427,19 @@ message DropFlowInput {
   bool resync = 8;
 }
 
+message ColumnTypeChange {
+  string column_name = 1;
+  string old_type = 2;
+  string new_type = 3;
+  string new_default_value = 4;
+}
+
 message TableSchemaDelta {
   string src_table_name = 1;
   string dst_table_name = 2;
   repeated FieldDescription added_columns = 3;
+  repeated string dropped_columns = 6;
+  repeated ColumnTypeChange type_changed_columns = 7;
   TypeSystem system = 4;
   bool nullable_enabled = 5;
 }
