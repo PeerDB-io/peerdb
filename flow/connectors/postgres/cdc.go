@@ -797,6 +797,38 @@ func PullCdcRecords[Items model.Items](
 								tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
 							records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 						}
+						schemaMigrationEnabled, err := internal.PeerDBPostgresCDCMigrationEnabled(ctx, req.Env)
+						if err != nil {
+							return fmt.Errorf("error checking if schema migration is enabled: %w", err)
+						}
+						if schemaMigrationEnabled {
+							if len(tableSchemaDelta.DroppedColumns) > 0 {
+								logger.Info(fmt.Sprintf("Detected schema change for table %s, droppedColumns: %v",
+									tableSchemaDelta.SrcTableName, tableSchemaDelta.DroppedColumns))
+								records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+							}
+							if len(tableSchemaDelta.AlteredColumns) > 0 {
+								logger.Info(fmt.Sprintf("Detected schema change for table %s, alteredColumns: %v",
+									tableSchemaDelta.SrcTableName, tableSchemaDelta.AlteredColumns))
+								records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+							}
+						}
+						schemaMigrationIndexEnabled, err := internal.PeerDBPostgresCDCMigrationIndexEnabled(ctx, req.Env)
+						if err != nil {
+							return fmt.Errorf("error checking if schema migration index is enabled: %w", err)
+						}
+						if schemaMigrationIndexEnabled {
+							if len(tableSchemaDelta.AddedIndexes) > 0 {
+								logger.Info(fmt.Sprintf("Detected schema change for table %s, addedIndexes: %v",
+									tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedIndexes))
+								records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+							}
+							if len(tableSchemaDelta.DroppedIndexes) > 0 {
+								logger.Info(fmt.Sprintf("Detected schema change for table %s, droppedIndexes: %v",
+									tableSchemaDelta.SrcTableName, tableSchemaDelta.DroppedIndexes))
+								records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+							}
+						}
 
 					case *model.MessageRecord[Items]:
 						// if cdc store empty, we can move lsn,
@@ -1142,6 +1174,10 @@ func processRelationMessage[Items model.Items](
 		AddedColumns:    nil,
 		System:          prevSchema.System,
 		NullableEnabled: prevSchema.NullableEnabled,
+		DroppedColumns:  nil,
+		AlteredColumns:  nil,
+		AddedIndexes:    nil,
+		DroppedIndexes:  nil,
 	}
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
@@ -1172,15 +1208,27 @@ func processRelationMessage[Items model.Items](
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
-			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
-				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
+			p.logger.Info("Detected altered column",
+				slog.String("columnName", column.Name),
+				slog.String("oldType", prevRelMap[column.Name]),
+				slog.String("newType", currRelMap[column.Name]),
+				slog.String("relationName", schemaDelta.SrcTableName))
+
+			schemaDelta.AlteredColumns = append(schemaDelta.AlteredColumns, &protos.FieldDescription{
+				Name:         column.Name,
+				Type:         currRelMap[column.Name],
+				TypeModifier: column.TypeModifier,
+			})
 		}
 	}
 	for _, column := range prevSchema.Columns {
 		// present in previous relation message, but not in current one, so dropped.
 		if _, ok := currRelMap[column.Name]; !ok {
-			p.logger.Warn(fmt.Sprintf("Detected dropped column %s in table %s, but not propagating", column,
-				schemaDelta.SrcTableName))
+			p.logger.Info("Detected dropped column",
+				slog.String("columnName", column.Name),
+				slog.String("relationName", schemaDelta.SrcTableName))
+
+			schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, column.Name)
 		}
 	}
 	if len(potentiallyNullableAddedColumns) > 0 {
@@ -1213,9 +1261,37 @@ func processRelationMessage[Items model.Items](
 		}
 	}
 
+	srcSchemaTable, err := utils.ParseSchemaTable(schemaDelta.SrcTableName)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing source table name %s for index diff: %w", schemaDelta.SrcTableName, err)
+	}
+
+	currIndexes, err := p.getIndexesForTable(ctx, currRel.RelationID, srcSchemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("error getting indexes for relation %s: %w", schemaDelta.SrcTableName, err)
+	}
+
+	addedIdx, droppedIdx := diffIndexes(prevSchema.Indexes, currIndexes)
+	if len(addedIdx) > 0 || len(droppedIdx) > 0 {
+		schemaDelta.AddedIndexes = addedIdx
+		schemaDelta.DroppedIndexes = droppedIdx
+		p.logger.Info("Detected index changes",
+			slog.Any("added", addedIdx),
+			slog.Any("dropped", droppedIdx),
+			slog.String("relationName", schemaDelta.SrcTableName))
+	}
+
+	// Update in-memory schema so future diffs are incremental
+	prevSchema.Indexes = currIndexes
+
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
-	if len(schemaDelta.AddedColumns) > 0 {
+	hasDelta := len(schemaDelta.AddedColumns) > 0 ||
+		len(schemaDelta.DroppedColumns) > 0 ||
+		len(schemaDelta.AlteredColumns) > 0 ||
+		len(schemaDelta.AddedIndexes) > 0 ||
+		len(schemaDelta.DroppedIndexes) > 0
+	if hasDelta {
 		return &model.RelationRecord[Items]{
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
@@ -1281,4 +1357,52 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 	}
 
 	return relID, nil
+}
+
+func indexesEqual(a, b *protos.IndexDescription) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Name != b.Name || a.Method != b.Method || a.IsUnique != b.IsUnique || a.Where != b.Where {
+		return false
+	}
+	if !slices.Equal(a.ColumnNames, b.ColumnNames) {
+		return false
+	}
+	if !slices.Equal(a.IncludeColumns, b.IncludeColumns) {
+		return false
+	}
+	return true
+}
+
+func diffIndexes(
+	prev, curr []*protos.IndexDescription,
+) (added []*protos.IndexDescription, dropped []*protos.IndexDescription) {
+	prevMap := make(map[string]*protos.IndexDescription, len(prev))
+	for _, idx := range prev {
+		if idx == nil {
+			continue
+		}
+		prevMap[idx.Name] = idx
+	}
+	currMap := make(map[string]*protos.IndexDescription, len(curr))
+	for _, idx := range curr {
+		if idx == nil {
+			continue
+		}
+		currMap[idx.Name] = idx
+	}
+
+	for name, cIdx := range currMap {
+		pIdx, ok := prevMap[name]
+		if !ok || !indexesEqual(pIdx, cIdx) {
+			added = append(added, cIdx)
+		}
+	}
+	for name := range prevMap {
+		if _, ok := currMap[name]; !ok {
+			dropped = append(dropped, prevMap[name])
+		}
+	}
+	return added, dropped
 }

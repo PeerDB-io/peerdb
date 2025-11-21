@@ -207,6 +207,68 @@ func (c *PostgresConnector) getColumnNamesForIndex(ctx context.Context, indexOID
 	return cols, nil
 }
 
+// getIndexesForTable returns all non-primary indexes for the given table.
+func (c *PostgresConnector) getIndexesForTable(
+	ctx context.Context,
+	relID uint32,
+	schemaTable *utils.SchemaTable,
+) ([]*protos.IndexDescription, error) {
+	query := `
+		SELECT
+			ci.relname AS index_name,
+			am.amname AS method,
+			i.indisunique AS is_unique,
+			pg_get_expr(i.indpred, i.indrelid) AS predicate,
+			(
+				SELECT array_agg(a.attname ORDER BY u.nr)
+				FROM unnest(i.indkey) WITH ORDINALITY AS u(attnum, nr)
+				JOIN pg_attribute AS a ON a.attrelid = i.indrelid AND a.attnum = u.attnum
+			) as column_names
+		FROM pg_index i
+		JOIN pg_class ct ON ct.oid = i.indrelid
+		JOIN pg_namespace ns ON ns.oid = ct.relnamespace
+		JOIN pg_class ci ON ci.oid = i.indexrelid
+		JOIN pg_am am ON am.oid = ci.relam
+		WHERE i.indrelid = $1
+		  AND ns.nspname = $2
+		  AND ct.relname = $3
+		  AND NOT i.indisprimary`
+
+	rows, err := c.conn.Query(ctx, query, relID, schemaTable.Schema, schemaTable.Table)
+	if err != nil {
+		return nil, fmt.Errorf("error querying indexes for table %s: %w", schemaTable, err)
+	}
+
+	var indexes []*protos.IndexDescription
+	var (
+		name        string
+		method      string
+		isUnique    bool
+		whereClause pgtype.Text
+		columnNames []string
+	)
+	_, err = pgx.ForEachRow(rows, []any{&name, &method, &isUnique, &whereClause, &columnNames}, func() error {
+		where := ""
+		if whereClause.Valid {
+			where = whereClause.String
+		}
+		indexes = append(indexes, &protos.IndexDescription{
+			Name:           name,
+			ColumnNames:    columnNames,
+			Method:         method,
+			IsUnique:       isUnique,
+			Where:          where,
+			IncludeColumns: nil, // can be filled later if you also query INCLUDE columns
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error iterating index rows for table %s: %w", schemaTable, err)
+	}
+
+	return indexes, nil
+}
+
 func (c *PostgresConnector) getNullableColumns(ctx context.Context, relID uint32) (map[string]struct{}, error) {
 	rows, err := c.conn.Query(ctx, "SELECT a.attname FROM pg_attribute a WHERE a.attrelid = $1 AND NOT a.attnotnull", relID)
 	if err != nil {
@@ -637,6 +699,27 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	return fmt.Sprintf(createNormalizedTableSQL, dstSchemaTable.String(), strings.Join(createTableSQLArray, ","))
+}
+
+func generateCreateIndexesSQLForNormalizedTable(
+	dstSchemaTable *utils.SchemaTable,
+	tableSchema *protos.TableSchema,
+) []string {
+	if tableSchema == nil || len(tableSchema.Indexes) == 0 {
+		return nil
+	}
+	stmts := make([]string, 0, len(tableSchema.Indexes))
+	for _, idx := range tableSchema.Indexes {
+		if idx == nil || len(idx.ColumnNames) == 0 || idx.Name == "" {
+			continue
+		}
+
+		stmt, _ := buildCreateIndexStmt(dstSchemaTable.String(), idx)
+
+		stmts = append(stmts, stmt)
+	}
+
+	return stmts
 }
 
 func (c *PostgresConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
