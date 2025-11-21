@@ -1263,7 +1263,7 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 		s.t.Context(),
 		pgconn.Conn(),
 		flowConnConfig.FlowJobName,
-		AttachSchema(s, "table1"),
+		"table1",
 	)
 	require.NoError(s.t, err)
 	require.Equal(s.t, AttachSchema(s, "table1"), schema1.TableIdentifier)
@@ -1273,7 +1273,7 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 		s.t.Context(),
 		pgconn.Conn(),
 		flowConnConfig.FlowJobName,
-		AttachSchema(s, "table2"),
+		"table2",
 	)
 	require.NoError(s.t, err)
 	require.Equal(s.t, AttachSchema(s, "table2"), schema2.TableIdentifier)
