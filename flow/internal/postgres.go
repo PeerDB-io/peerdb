@@ -134,7 +134,6 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	}
 
 	results := tx.SendBatch(ctx, batch)
-	defer results.Close()
 
 	for i := range len(tableOIDs) {
 		if _, err := results.Exec(); err != nil {
@@ -146,6 +145,13 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 		}
 	}
 
+	// Close results before committing
+	if err := results.Close(); err != nil {
+		logger.Error("failed to close batch results",
+			slog.Any("error", err),
+			slog.String("flowName", flowName))
+		return fmt.Errorf("failed to close batch results: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
