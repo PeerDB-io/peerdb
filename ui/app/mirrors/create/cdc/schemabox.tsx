@@ -231,6 +231,7 @@ export default function SchemaBox({
               row.partitionByExpr = existingRow.partitionByExpr;
               row.exclude = new Set(existingRow.exclude ?? []);
               row.destination = existingRow.destinationTableIdentifier;
+              row.columns = existingRow.columns ?? [];
               addTableColumns(row.source);
             }
           }

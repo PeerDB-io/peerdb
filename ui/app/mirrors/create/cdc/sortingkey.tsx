@@ -51,6 +51,10 @@ function UpdatedRows(
     const newRows = [...rows];
     const columns = rows[rowIndex].columns.map(update);
     if (!columns.find((setting) => setting.sourceName === colName)) {
+      // Check if there's an existing ColumnSetting to preserve nullableEnabled
+      const existingSetting = rows[rowIndex].columns.find(
+        (setting) => setting.sourceName === colName
+      );
       columns.push(
         update({
           sourceName: colName,
@@ -58,7 +62,7 @@ function UpdatedRows(
           destinationType: '',
           ordering: 0,
           partitioning: 0,
-          nullableEnabled: false,
+          nullableEnabled: existingSetting?.nullableEnabled ?? false,
         })
       );
     }

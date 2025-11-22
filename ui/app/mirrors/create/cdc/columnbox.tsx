@@ -1,10 +1,11 @@
 'use client';
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
+import { ColumnSetting } from '@/grpc_generated/flow';
 import { ColumnsItem } from '@/grpc_generated/route';
 import { Checkbox } from '@/lib/Checkbox';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
-import { Dispatch, SetStateAction } from 'react';
+import { Dispatch, Fragment, SetStateAction } from 'react';
 
 interface ColumnProps {
   columns: ColumnsItem[];
@@ -20,69 +21,150 @@ export default function ColumnBox({
   rows,
   setRows,
   disabled,
+  showOrdering,
 }: ColumnProps) {
-  const handleColumnExclusion = (column: string, include: boolean) => {
-    const source = tableRow.source;
-    const currRows = [...rows];
-    const rowIndex = currRows.findIndex((row) => row.source === source);
+  // Helper to update a specific row
+  const updateRow = (updater: (row: TableMapRow) => TableMapRow) => {
+    const rowIndex = rows.findIndex((row) => row.source === tableRow.source);
     if (rowIndex !== -1) {
-      const sourceRow = currRows[rowIndex],
-        newExclude = new Set(sourceRow.exclude);
+      const updatedRows = [...rows];
+      updatedRows[rowIndex] = updater(updatedRows[rowIndex]);
+      setRows(updatedRows);
+    }
+  };
+
+  const handleColumnExclusion = (column: string, include: boolean) => {
+    updateRow((row) => {
+      const newExclude = new Set(row.exclude);
       if (include) {
         newExclude.delete(column);
       } else {
         newExclude.add(column);
       }
-      currRows[rowIndex] = {
-        ...sourceRow,
-        exclude: newExclude,
-      };
-      setRows(currRows);
-    }
+      return { ...row, exclude: newExclude };
+    });
   };
 
-  return columns.map((column) => {
-    const partOfOrderingKey = rows
-      .find((row) => row.source == tableRow.source)
-      ?.columns.some(
-        (col) =>
-          col.sourceName === column.name &&
-          (col.ordering > 0 || col.partitioning > 0)
+  const handleNullableEnabledChange = (columnName: string, enabled: boolean) => {
+    updateRow((row) => {
+      const existingColumn = row.columns.find(
+        (col) => col.sourceName === columnName
       );
+
+      const updatedColumns: ColumnSetting[] = existingColumn
+        ? // Update existing ColumnSetting
+        row.columns.map((col) =>
+          col.sourceName === columnName
+            ? { ...col, nullableEnabled: enabled }
+            : col
+        )
+        : // Create new ColumnSetting
+        [
+          ...row.columns,
+          {
+            sourceName: columnName,
+            destinationName: '',
+            destinationType: '',
+            ordering: 0,
+            partitioning: 0,
+            nullableEnabled: enabled,
+          },
+        ];
+
+      return { ...row, columns: updatedColumns };
+    });
+  };
+
+  const getNullableEnabled = (columnName: string): boolean => {
     return (
-      <RowWithCheckbox
-        key={column.name}
-        label={
-          <Label
-            as='label'
-            style={{
-              fontSize: 13,
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            {column.name}
-            <p
+      tableRow.columns.find((col) => col.sourceName === columnName)
+        ?.nullableEnabled ?? false
+    );
+  };
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: showOrdering
+          ? 'minmax(0, 2fr) minmax(0, 1fr) auto'
+          : 'minmax(0, 2fr) minmax(0, 1fr)',
+        alignItems: 'center',
+        columnGap: '10rem',
+        width: '80%',
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 500 }}>Name</div>
+      <div style={{ fontSize: 12, fontWeight: 500 }}>Type</div>
+      {showOrdering &&
+        <div style={{ fontSize: 12, fontWeight: 500 }}>Nullable</div>
+      }
+
+      {columns.map((column) => {
+        const partOfOrderingKey = rows
+          .find((row) => row.source == tableRow.source)
+          ?.columns.some(
+            (col) =>
+              col.sourceName === column.name &&
+              (col.ordering > 0 || col.partitioning > 0)
+          );
+
+        const isIncluded = !tableRow.exclude.has(column.name);
+        const nullableEnabled = getNullableEnabled(column.name);
+
+        return (
+          <Fragment key={column.name}>
+            <RowWithCheckbox
+              label={
+                <Label
+                  as="label"
+                  style={{
+                    fontSize: 13,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  {column.name}
+                </Label>
+              }
+              action={
+                <Checkbox
+                  style={{ cursor: 'pointer' }}
+                  disabled={column.isKey || disabled || partOfOrderingKey}
+                  checked={isIncluded}
+                  onCheckedChange={(state: boolean) =>
+                    handleColumnExclusion(column.name, state)
+                  }
+                />
+              }
+            />
+
+            <div
               style={{
-                marginLeft: '0.5rem',
+                fontSize: 13,
                 color: 'gray',
+                whiteSpace: 'nowrap',
               }}
             >
               {column.type}
-            </p>
-          </Label>
-        }
-        action={
-          <Checkbox
-            style={{ cursor: 'pointer' }}
-            disabled={column.isKey || disabled || partOfOrderingKey}
-            checked={!tableRow.exclude.has(column.name)}
-            onCheckedChange={(state: boolean) =>
-              handleColumnExclusion(column.name, state)
-            }
-          />
-        }
-      />
-    );
-  });
+            </div>
+
+            {showOrdering && (
+              <Checkbox
+                style={{
+                  cursor: isIncluded && !disabled ? 'pointer' : 'default',
+                  justifySelf: 'flex-start',
+                }}
+                disabled={disabled || !isIncluded}
+                checked={isIncluded ? nullableEnabled : false}
+                onCheckedChange={(state: boolean) =>
+                  handleNullableEnabledChange(column.name, state)
+                }
+              />
+            )}
+          </Fragment>
+        );
+      })}
+    </div>
+  );
 }
