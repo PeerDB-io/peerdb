@@ -141,10 +141,10 @@ export default function CustomColumnType({
           prev.map((row) => {
             if (row.source !== tableRow.source) return row;
 
-            const columnExistsInRow = row.columns.some(
+            const existingColumn = row.columns.find(
               (col) => col.sourceName === selectedColumnName
             );
-            if (!columnExistsInRow) {
+            if (!existingColumn) {
               return {
                 ...row,
                 columns: [
