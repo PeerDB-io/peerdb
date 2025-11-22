@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/hamba/avro/v2"
 	"go.temporal.io/sdk/log"
@@ -77,6 +78,14 @@ func (qac *QRecordAvroConverter) Convert(
 	return m, nil
 }
 
+func (qac *QRecordAvroConverter) ComputeSize(qrecord []types.QValue) int64 {
+	recordSize := int64(0)
+	for idx, val := range qrecord {
+		recordSize += qvalue.ComputeAvroSize(val, qac.Schema.Fields[idx].Nullable, qac.logger)
+	}
+	return recordSize
+}
+
 type QRecordAvroField struct {
 	Type any    `json:"type"`
 	Name string `json:"name"`
@@ -91,6 +100,11 @@ type QRecordAvroSchema struct {
 type QRecordAvroSchemaDefinition struct {
 	Schema *avro.RecordSchema
 	Fields []types.QField
+}
+
+type QRecordAvroChunkSizeTracker struct {
+	TrackUncompressed bool
+	Bytes             atomic.Int64
 }
 
 func GetAvroSchemaDefinition(

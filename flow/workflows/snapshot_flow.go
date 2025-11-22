@@ -221,6 +221,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
 		SourceName:                 s.config.SourceName,
+		SourceType:                 sourcePeerType,
 		DestinationName:            s.config.DestinationName,
 		Query:                      query,
 		WatermarkColumn:            mapping.PartitionKey,

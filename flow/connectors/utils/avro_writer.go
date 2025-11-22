@@ -35,6 +35,7 @@ const (
 type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
+	sizeTracker          *model.QRecordAvroChunkSizeTracker
 	avroCompressionCodec ocf.CodecName
 	targetDWH            protos.DBType
 }
@@ -58,12 +59,14 @@ func NewPeerDBOCFWriter(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	avroCompressionCodec ocf.CodecName,
 	targetDWH protos.DBType,
+	sizeTracker *model.QRecordAvroChunkSizeTracker,
 ) *peerDBOCFWriter {
 	return &peerDBOCFWriter{
 		stream:               stream,
 		avroSchema:           avroSchema,
 		avroCompressionCodec: avroCompressionCodec,
 		targetDWH:            targetDWH,
+		sizeTracker:          sizeTracker,
 	}
 }
 
@@ -96,7 +99,6 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	bucketName string,
 	key string,
 	s3Creds AWSCredentialsProvider,
-	avroSize *atomic.Int64,
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (AvroFile, error) {
@@ -123,10 +125,10 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			w.Close()
 		}()
 		var writer io.Writer
-		if avroSize == nil {
+		if p.sizeTracker == nil || p.sizeTracker.TrackUncompressed {
 			writer = w
 		} else {
-			writer = shared.NewWatchWriter(w, avroSize)
+			writer = shared.NewWatchWriter(w, &p.sizeTracker.Bytes)
 		}
 		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions, numericTruncator)
 	}()
@@ -262,6 +264,10 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 			if err := ocfWriter.Encode(avroMap); err != nil {
 				logger.Error("Failed to write record to OCF", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
+			}
+
+			if p.sizeTracker != nil && p.sizeTracker.TrackUncompressed {
+				p.sizeTracker.Bytes.Add(avroConverter.ComputeSize(qrecord))
 			}
 
 			numRows.Add(1)

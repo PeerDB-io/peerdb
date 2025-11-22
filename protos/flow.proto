@@ -399,6 +399,8 @@ message QRepConfig {
 
   repeated ColumnSetting columns = 27;
   uint32 version = 28;
+
+  peerdb_peers.DBType source_type = 30;
 }
 
 message QRepPartition {
