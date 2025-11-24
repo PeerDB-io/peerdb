@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	tEnums "go.temporal.io/api/enums/v1"
@@ -49,17 +48,6 @@ func NewFlowRequestHandler(ctx context.Context, temporalClient client.Client, po
 	}
 }
 
-func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (int32, error) {
-	var id pgtype.Int4
-	var peerType pgtype.Int4
-	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
-	if err != nil {
-		slog.ErrorContext(ctx, "unable to query peer id for peer "+peerName, slog.Any("error", err))
-		return -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
-	}
-	return id.Int32, nil
-}
-
 func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName string) (bool, error) {
 	var exists bool
 	err := h.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM flows WHERE name = $1)`, flowJobName).Scan(&exists)
@@ -69,47 +57,21 @@ func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName 
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	connectionConfigs *protos.FlowConnectionConfigsCore, workflowID string, idempotent bool,
 ) error {
-	sourcePeerID, srcErr := h.getPeerID(ctx, connectionConfigs.SourceName)
-	if srcErr != nil {
-		return fmt.Errorf("unable to get peer id for source peer %s: %w",
-			connectionConfigs.SourceName, srcErr)
-	}
-
-	destinationPeerID, dstErr := h.getPeerID(ctx, connectionConfigs.DestinationName)
-	if dstErr != nil {
-		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			connectionConfigs.DestinationName, dstErr)
-	}
-
-	cfgBytes, err := proto.Marshal(connectionConfigs)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	if _, err = h.pool.Exec(ctx,
-		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,	description)
-		VALUES ($1,$2,$3,$4,$5,$6,'gRPC')`,
-		workflowID, connectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
-	); err != nil && !(idempotent && shared.IsSQLStateError(err, pgerrcode.UniqueViolation)) {
-		return fmt.Errorf("unable to insert into flows table for flow %s: %w",
-			connectionConfigs.FlowJobName, err)
-	}
-
-	return nil
+	return shared.CreateCdcJobEntry(ctx, h.pool, connectionConfigs, workflowID, idempotent)
 }
 
 func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	req *protos.CreateQRepFlowRequest, workflowID string,
 ) error {
 	sourcePeerName := req.QrepConfig.SourceName
-	sourcePeerID, srcErr := h.getPeerID(ctx, sourcePeerName)
+	sourcePeerID, srcErr := shared.GetPeerID(ctx, h.pool, sourcePeerName)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
 			sourcePeerName, srcErr)
 	}
 
 	destinationPeerName := req.QrepConfig.DestinationName
-	destinationPeerID, dstErr := h.getPeerID(ctx, destinationPeerName)
+	destinationPeerID, dstErr := shared.GetPeerID(ctx, h.pool, destinationPeerName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
 			destinationPeerName, dstErr)
@@ -154,7 +116,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		}
 	}
 
-	workflowID := getWorkflowID(cfg.FlowJobName)
+	workflowID := shared.GetWorkflowID(cfg.FlowJobName)
 	var errNotFound *serviceerror.NotFound
 	desc, err := h.temporalClient.DescribeWorkflow(ctx, workflowID, "")
 	if err != nil && !errors.As(err, &errNotFound) {
@@ -189,10 +151,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	} else {
 		return resp, nil
 	}
-}
-
-func getWorkflowID(flowName string) string {
-	return flowName + "-peerflow"
 }
 
 func (h *FlowRequestHandler) createCDCFlow(
@@ -556,7 +514,7 @@ func (h *FlowRequestHandler) DropPeer(
 	}
 
 	// Check if peer name is in flows table
-	peerID, err := h.getPeerID(ctx, req.PeerName)
+	peerID, err := shared.GetPeerID(ctx, h.pool, req.PeerName)
 	if err != nil {
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to obtain peer ID for peer %s: %w", req.PeerName, err))
 	}
@@ -629,7 +587,7 @@ func (h *FlowRequestHandler) resyncCompletedSnapshot(
 		return err
 	}
 
-	workflowID := getWorkflowID(config.FlowJobName)
+	workflowID := shared.GetWorkflowID(config.FlowJobName)
 	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
 	if _, err := h.createCDCFlow(ctx, configCore, workflowID); err != nil {
 		return err
