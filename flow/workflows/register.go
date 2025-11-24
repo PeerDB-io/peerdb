@@ -20,4 +20,6 @@ func RegisterFlowWorkerWorkflows(w worker.WorkflowRegistry) {
 
 	w.RegisterWorkflow(StartMaintenanceWorkflow)
 	w.RegisterWorkflow(EndMaintenanceWorkflow)
+
+	w.RegisterWorkflow(CancelTableAdditionFlow)
 }

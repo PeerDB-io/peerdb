@@ -95,7 +95,7 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	for tableName := range tableOIDs {
 		tableNames = append(tableNames, tableName)
 	}
-	tableSchemas, err := loadTableSchemasFromCatalog(ctx, pool, flowName, tableNames)
+	tableSchemas, err := LoadTableSchemasFromCatalog(ctx, pool, flowName, tableNames)
 	if err != nil {
 		return fmt.Errorf("failed to load table schemas from catalog: %w", err)
 	}
@@ -164,7 +164,7 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	return nil
 }
 
-func loadTableSchemasFromCatalog(
+func LoadTableSchemasFromCatalog(
 	ctx context.Context,
 	pool shared.CatalogPool,
 	flowName string,
