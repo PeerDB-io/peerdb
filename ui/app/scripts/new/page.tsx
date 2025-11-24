@@ -10,7 +10,7 @@ import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { GetScriptById, HandleAddScript, HandleEditScript } from '../handlers';
 
 export default function EditScript() {
@@ -188,7 +188,7 @@ end`,
           'Add script'
         )}
       </Button>
-      <ToastContainer />
+      <ThemedToastContainer />
     </div>
   );
 }

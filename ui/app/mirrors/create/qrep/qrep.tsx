@@ -1,5 +1,5 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
@@ -61,6 +61,7 @@ export default function QRepConfigForm({
   setter,
   xmin,
 }: QRepConfigProps) {
+  const selectTheme = useSelectTheme();
   const [sourceTables, setSourceTables] = useState<
     { value: string; label: string }[]
   >([]);
@@ -214,7 +215,7 @@ export default function QRepConfigForm({
                             val && handleChange(val.value, setting)
                           }
                           options={WriteModes}
-                          theme={SelectTheme}
+                          theme={selectTheme}
                         />
                       ) : setting.label === 'Upsert Key Columns' ? (
                         <UpsertColsDisplay
@@ -239,7 +240,7 @@ export default function QRepConfigForm({
                               ? watermarkColumns
                               : sourceTables
                           }
-                          theme={SelectTheme}
+                          theme={selectTheme}
                         />
                       )}
                     </div>
@@ -299,7 +300,7 @@ export default function QRepConfigForm({
           );
         })
       ) : (
-        <Label as='label' style={{ color: 'gray', fontSize: 15 }}>
+        <Label as='label' colorName='lowContrast' style={{ fontSize: 15 }}>
           Please select a source peer
         </Label>
       )}

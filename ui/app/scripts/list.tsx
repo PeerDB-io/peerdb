@@ -9,7 +9,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 
 function LanguageIcon(language: string) {
   switch (language.toLowerCase()) {
@@ -101,7 +101,7 @@ export default function ScriptsTable({ scripts }: { scripts: Script[] }) {
           );
         })}
       </Table>
-      <ToastContainer />
+      <ThemedToastContainer />
     </>
   );
 }

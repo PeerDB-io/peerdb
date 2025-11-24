@@ -11,7 +11,7 @@ import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
 import { useEffect, useMemo, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { notifyErr } from '../utils/notify';
 
 function ApplyModeIconWithTooltip({ applyMode }: { applyMode: number }) {
@@ -253,7 +253,7 @@ export default function SettingsPage() {
             onSettingUpdate={fetchSettings}
           />
         ))}
-        <ToastContainer />
+        <ThemedToastContainer />
       </div>
     </div>
   );

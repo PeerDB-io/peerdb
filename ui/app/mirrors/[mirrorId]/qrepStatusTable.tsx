@@ -1,6 +1,6 @@
 'use client';
 
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
 import { PartitionStatus } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
@@ -12,6 +12,7 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
+import { useTheme as useStyledTheme } from 'styled-components';
 
 function TimeOrProgressBar({ time }: { time: Date | null }) {
   if (time === null) {
@@ -67,6 +68,8 @@ type QRepStatusTableProps = {
 };
 
 export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
+  const selectTheme = useSelectTheme();
+  const styledTheme = useStyledTheme();
   const ROWS_PER_PAGE = 10;
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(partitions.length / ROWS_PER_PAGE);
@@ -157,14 +160,14 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
                   setSortField(sortVal);
                 }}
                 defaultValue={{ value: 'startTime', label: 'Start Time' }}
-                theme={SelectTheme}
+                theme={selectTheme}
               />
             </div>
             <button
               className='IconButton'
               onClick={() => setSortDir('asc')}
               aria-label='sort up'
-              style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+              style={{ color: sortDir == 'asc' ? styledTheme.colors.positive.text.lowContrast : styledTheme.colors.base.text.lowContrast }}
             >
               <Icon name='arrow_upward' />
             </button>
@@ -172,7 +175,7 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
               className='IconButton'
               onClick={() => setSortDir('dsc')}
               aria-label='sort down'
-              style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+              style={{ color: sortDir == 'dsc' ? styledTheme.colors.positive.text.lowContrast : styledTheme.colors.base.text.lowContrast }}
             >
               <Icon name='arrow_downward' />
             </button>

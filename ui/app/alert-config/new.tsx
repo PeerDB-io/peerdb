@@ -7,8 +7,8 @@ import Link from 'next/link';
 import { Dispatch, SetStateAction, useState } from 'react';
 import ReactSelect from 'react-select';
 import { PulseLoader } from 'react-spinners';
-import { ToastContainer } from 'react-toastify';
-import SelectTheme from '../styles/select';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
+import { useSelectTheme } from '../styles/select';
 import { notifyErr } from '../utils/notify';
 import {
   alertConfigReqSchema,
@@ -154,6 +154,7 @@ function getServiceFields<T extends serviceConfigType>(
 }
 
 export function NewConfig(alertProps: AlertConfigProps) {
+  const selectTheme = useSelectTheme();
   const [serviceType, setServiceType] = useState<ServiceType>(
     alertProps.serviceType
   );
@@ -257,7 +258,7 @@ export function NewConfig(alertProps: AlertConfigProps) {
           }}
           formatOptionLabel={ConfigLabel}
           onChange={(val, _) => val && setServiceType(val.value as ServiceType)}
-          theme={SelectTheme}
+          theme={selectTheme}
         />
       </div>
       {serviceType === 'slack' && (
@@ -331,7 +332,7 @@ export function NewConfig(alertProps: AlertConfigProps) {
           'Create'
         )}
       </Button>
-      <ToastContainer />
+      <ThemedToastContainer />
     </div>
   );
 }

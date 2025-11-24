@@ -3,7 +3,7 @@
 import LogsTable from '@/components/LogsTable';
 import { Label } from '@/lib/Label';
 import { useParams } from 'next/navigation';
-import { ToastContainer } from 'react-toastify';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 
 export default function MirrorError() {
   const params = useParams<{ mirrorName: string }>();
@@ -34,7 +34,7 @@ export default function MirrorError() {
           />
         </div>
       </div>
-      <ToastContainer />
+      <ThemedToastContainer />
     </>
   );
 }

@@ -32,7 +32,7 @@ import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useState } from 'react';
-import { ToastContainer } from 'react-toastify';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
@@ -256,7 +256,7 @@ export default function CreateConfig({ params }: CreateConfigProps) {
           )}
         </Panel>
       </Panel>
-      <ToastContainer style={{ minWidth: '20%' }} />
+      <ThemedToastContainer style={{ minWidth: '20%' }} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
+import { useSelectTheme } from '@/app/styles/select';
 import {
   TableEngine,
   tableEngineFromJSON,
@@ -64,6 +65,7 @@ export default function SchemaBox({
   alreadySelectedTables,
   initialLoadOnly,
 }: SchemaBoxProps) {
+  const selectTheme = useSelectTheme();
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
@@ -420,6 +422,7 @@ export default function SchemaBox({
                               <ReactSelect
                                 isDisabled={row.editingDisabled}
                                 styles={engineOptionStyles}
+                                theme={selectTheme}
                                 options={engineOptions}
                                 value={
                                   engineOptions.find(

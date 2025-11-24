@@ -19,7 +19,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import TablePicker from '../../create/cdc/tablemapping';
 import {
   changesToTablesMapping,
@@ -335,7 +335,7 @@ export default function EditMirror({ params }: EditMirrorProps) {
           )}
         </Button>
       </div>
-      <ToastContainer />
+      <ThemedToastContainer />
     </div>
   );
 }

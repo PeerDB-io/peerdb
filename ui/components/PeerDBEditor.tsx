@@ -1,7 +1,7 @@
 'use client';
 
+import { useTheme } from '@/lib/AppTheme/ThemeContext';
 import Editor from '@monaco-editor/react';
-import { useEffect, useState } from 'react';
 
 const defaultOptions = {
   readOnly: false,
@@ -18,30 +18,7 @@ interface CodeEditorProps {
 }
 
 export default function PeerDBCodeEditor(props: CodeEditorProps) {
-  // Initialize with the correct theme from the start
-  const [theme, setTheme] = useState<'light' | 'vs-dark'>(() => {
-    if (typeof document !== 'undefined') {
-      return document.documentElement.classList.contains('dark')
-        ? 'vs-dark'
-        : 'light';
-    }
-    return 'light';
-  });
-
-  useEffect(() => {
-    // Only watch for theme changes, don't set initial theme here
-    const observer = new MutationObserver(() => {
-      const isDark = document.documentElement.classList.contains('dark');
-      setTheme(isDark ? 'vs-dark' : 'light');
-    });
-
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-
-    return () => observer.disconnect();
-  }, []);
+  const { theme } = useTheme();
 
   return (
     <Editor
@@ -50,7 +27,7 @@ export default function PeerDBCodeEditor(props: CodeEditorProps) {
       value={props.code}
       defaultLanguage={props.language ?? 'pgsql'}
       onChange={(value) => props.setter(value as string)}
-      theme={theme}
+      theme={theme === 'dark' ? 'vs-dark' : 'vs'}
     />
   );
 }

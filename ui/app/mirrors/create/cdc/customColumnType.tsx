@@ -10,7 +10,7 @@ import {
 import ReactSelect from 'react-select';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import { DBType } from '@/grpc_generated/peers';
 import { ColumnsItem } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
@@ -35,6 +35,7 @@ export default function CustomColumnType({
   setRows,
   peerType,
 }: CustomColumnTypeProps) {
+  const selectTheme = useSelectTheme();
   const [useCustom, setUseCustom] = useState(false);
   const [selectedColumnName, setSelectedColumnName] = useState<string>('');
   const [destinationTypeMapping, setDestinationTypeMapping] = useState<
@@ -262,7 +263,7 @@ export default function CustomColumnType({
                           value: mapping.columnName,
                           label: mapping.columnName,
                         }}
-                        theme={SelectTheme}
+                        theme={selectTheme}
                         styles={engineOptionStyles}
                       />
                     </div>
@@ -276,7 +277,7 @@ export default function CustomColumnType({
                         onChange={(val) =>
                           val?.value && handleUpdateColumn(mapping, val.value)
                         }
-                        theme={SelectTheme}
+                        theme={selectTheme}
                         styles={engineOptionStyles}
                         options={destinationTypeOptions(mapping.columnName)}
                       />
@@ -314,7 +315,7 @@ export default function CustomColumnType({
                       value: col.name,
                       label: col.name,
                     }))}
-                    theme={SelectTheme}
+                    theme={selectTheme}
                     styles={engineOptionStyles}
                   />
                 </div>
@@ -331,7 +332,7 @@ export default function CustomColumnType({
                         ? destinationTypeOptions(selectedColumnName)
                         : []
                     }
-                    theme={SelectTheme}
+                    theme={selectTheme}
                     styles={engineOptionStyles}
                   />
                 </div>

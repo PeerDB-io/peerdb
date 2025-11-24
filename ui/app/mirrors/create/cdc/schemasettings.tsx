@@ -1,6 +1,8 @@
+'use client';
 import { Icon } from '@/lib/Icon';
 import * as Popover from '@radix-ui/react-popover';
 import { useState } from 'react';
+import { useTheme as useStyledTheme } from 'styled-components';
 
 export default function SchemaSettings({
   schema,
@@ -9,6 +11,7 @@ export default function SchemaSettings({
   schema: string;
   setTargetSchemaOverride: (schema: string) => void;
 }) {
+  const styledTheme = useStyledTheme();
   const [inputValue, setInputValue] = useState(schema);
   const [savedIndicator, setSavedIndicator] = useState(false);
 
@@ -32,14 +35,14 @@ export default function SchemaSettings({
 
       <Popover.Portal>
         <Popover.Content
-          style={{ backgroundColor: '#fff' }}
+          style={{ backgroundColor: styledTheme.colors.base.surface.normal }}
           className='PopoverContent'
           sideOffset={5}
         >
           <div
             style={{
-              border: '1px solid #d9d7d7',
-              boxShadow: '0 0 10px #d9d7d7',
+              border: `1px solid ${styledTheme.colors.base.border.normal}`,
+              boxShadow: `0 0 10px ${styledTheme.colors.base.border.subtle}`,
               padding: '0.5rem',
               borderRadius: '0.5rem',
               minWidth: '15rem',
@@ -55,15 +58,17 @@ export default function SchemaSettings({
                 padding: '0.5rem',
                 marginBottom: '0.5rem',
                 borderRadius: '0.25rem',
-                border: '1px solid #d9d7d7',
+                border: `1px solid ${styledTheme.colors.base.border.normal}`,
+                backgroundColor: styledTheme.colors.base.background.normal,
+                color: styledTheme.colors.base.text.highContrast,
               }}
             />
             <button
               onClick={handleSave}
               style={{
                 padding: '0.25rem 0.5rem',
-                backgroundColor: '#30A46C',
-                color: '#fff',
+                backgroundColor: styledTheme.colors.accent.fill.normal,
+                color: styledTheme.colors.special.fixed.white,
                 border: 'none',
                 borderRadius: '0.25rem',
                 cursor: 'pointer',
@@ -73,7 +78,7 @@ export default function SchemaSettings({
               Save
             </button>
             {savedIndicator && (
-              <span style={{ marginLeft: '0.5rem', color: 'green' }}>
+              <span style={{ marginLeft: '0.5rem', color: styledTheme.colors.positive.text.lowContrast }}>
                 success
               </span>
             )}

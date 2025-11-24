@@ -1,5 +1,5 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
 import { CloneTableSummary } from '@/grpc_generated/route';
 import { Badge } from '@/lib/Badge/Badge';
@@ -11,6 +11,7 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
+import { useTheme as useStyledTheme } from 'styled-components';
 import { TableCloneSummary } from './snapshot';
 
 const ROWS_PER_PAGE = 5;
@@ -57,6 +58,8 @@ export default function SnapshotTable({
   tableLoads: TableCloneSummary[];
   title: string;
 }) {
+  const selectTheme = useSelectTheme();
+  const styledTheme = useStyledTheme();
   const [sortField, setSortField] = useState<
     'cloneStartTime' | 'avgTimePerPartition'
   >('cloneStartTime');
@@ -147,14 +150,14 @@ export default function SnapshotTable({
                   value: 'cloneStartTime',
                   label: 'Start Time',
                 }}
-                theme={SelectTheme}
+                theme={selectTheme}
               />
             </div>
             <button
               className='IconButton'
               onClick={() => setSortDir('asc')}
               aria-label='sort up'
-              style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+              style={{ color: sortDir == 'asc' ? styledTheme.colors.positive.text.lowContrast : styledTheme.colors.base.text.lowContrast }}
             >
               <Icon name='arrow_upward' />
             </button>
@@ -162,7 +165,7 @@ export default function SnapshotTable({
               className='IconButton'
               onClick={() => setSortDir('dsc')}
               aria-label='sort down'
-              style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+              style={{ color: sortDir == 'dsc' ? styledTheme.colors.positive.text.lowContrast : styledTheme.colors.base.text.lowContrast }}
             >
               <Icon name='arrow_downward' />
             </button>

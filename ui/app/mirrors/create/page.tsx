@@ -1,5 +1,5 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import InfoPopover from '@/components/InfoPopover';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
@@ -20,7 +20,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import ReactSelect, { SingleValue } from 'react-select';
-import { ToastContainer } from 'react-toastify';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { CDCConfig, MirrorType, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
 import {
@@ -62,6 +62,7 @@ function getPeerLabel(peer: PeerListItem) {
 }
 
 export default function CreateMirrors() {
+  const selectTheme = useSelectTheme();
   const router = useRouter();
   const mirrorParam = useSearchParams();
   const mirrorTypeParam = mirrorParam.get('type');
@@ -210,6 +211,7 @@ export default function CreateMirrors() {
                 >
                   <div style={{ width: '100%' }}>
                     <ReactSelect
+                      instanceId={`peer-select-${peerEnd}`}
                       placeholder={`Select the ${
                         peerEnd === 'src' ? 'source' : 'destination'
                       } peer`}
@@ -222,7 +224,7 @@ export default function CreateMirrors() {
                       }
                       getOptionValue={getPeerValue}
                       formatOptionLabel={getPeerLabel}
-                      theme={SelectTheme}
+                      theme={selectTheme}
                     />
                   </div>
                   <InfoPopover
@@ -285,7 +287,7 @@ export default function CreateMirrors() {
               Configuration
             </Label>
           )}
-          {!creating && <ToastContainer />}
+          {!creating && <ThemedToastContainer />}
           {!mirrorType ? (
             <></>
           ) : mirrorType === MirrorType.CDC ? (
