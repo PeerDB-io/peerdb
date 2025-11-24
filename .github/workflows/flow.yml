@@ -48,7 +48,7 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:ff1d06479199ac0e69737aa18343d156cd73090ff3284f3bb62da538d592200b
+        image: redpandadata/redpanda@sha256:5e6ef104f48f430c25b5ddf1e1bef83394086d51ad6e752b78d10a018f74833d
         ports:
           - 9092:9092
           - 9644:9644
@@ -61,7 +61,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.139.0@sha256:faf125d656fa47cea568b2f3b4494efd2525083bc75c1e96038bc23f05cd68fd
+        image: otel/opentelemetry-collector-contrib:0.140.1@sha256:5901567d6f684547bafee53f02403869b5655e13a4e0af65aa6ae9f6301075d9
         ports:
           - 4317:4317
       toxiproxy:
@@ -74,7 +74,7 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:d5c9b76a243eb4503914b8e63368677bc25c8ff21f21fe24931118206f8fd933
+        image: linuxserver/openssh-server:latest@sha256:3acac97f1b835860fbcc7fd4e9d6be3e0571f4742cdec97c1fe08ed07b8fc24c
         ports:
           - 2222:2222
         env:
@@ -87,13 +87,13 @@ jobs:
           DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
+      - uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
         with:
           go-version: '1.25.4'
           cache-dependency-path: flow/go.sum
@@ -136,7 +136,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@00943011d9042930efac3dcd3a170e4273319bc8 # v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         id: setup-aws
         with:
           audience: sts.amazonaws.com
