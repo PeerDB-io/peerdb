@@ -42,24 +42,24 @@ func TestMongoDBAvroSizeComputation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Create temporary file
+			tmpfile, err := os.CreateTemp(t.TempDir(), fmt.Sprintf("test_avro_size_%s.avro", tc.name))
+			require.NoError(t, err)
+			defer os.Remove(tmpfile.Name())
+			defer tmpfile.Close()
+
 			schema := types.QRecordSchema{
 				Fields: []types.QField{
 					{Name: "_id", Type: types.QValueKindString, Nullable: false},
 					{Name: "doc", Type: types.QValueKindJSON, Nullable: false},
 				},
 			}
-			tmpFile := fmt.Sprintf("/tmp/test_avro_size_%s_%d.avro", tc.name, time.Now().Unix())
-			defer func() {
-				if err := os.Remove(tmpFile); err != nil && !os.IsNotExist(err) {
-					t.Logf("Warning: failed to remove temp file %s: %v", tmpFile, err)
-				}
-			}()
-			avroSchema, computedSize := writeAvroFileCompressed(t, schema, tc.numRecords, tmpFile)
+			avroSchema, computedSize := writeAvroFileCompressed(t, schema, tc.numRecords, tmpfile.Name())
 
 			t.Logf("Total computed size for %d records: %d bytes (%.2f MiB)",
 				tc.numRecords, computedSize, float64(computedSize)/(1024*1024))
 
-			actualSize := getActualUncompressedSize(t, tmpFile, avroSchema, tc.numRecords)
+			actualSize := getActualUncompressedSize(t, tmpfile.Name(), avroSchema, tc.numRecords)
 			t.Logf("Actual uncompressed Avro size for %d records: %d bytes (%.2f MiB)",
 				tc.numRecords, actualSize, float64(actualSize)/(1024*1024))
 
@@ -67,15 +67,15 @@ func TestMongoDBAvroSizeComputation(t *testing.T) {
 			diffPercent := float64(diff) / float64(actualSize) * 100
 			t.Logf("Difference: %d bytes (%.2f%%)", diff, diffPercent)
 
-			lowerBound := float64(actualSize) * 0.9
-			upperBound := float64(actualSize) * 1.1
+			lowerBound := float64(actualSize) * 0.95
+			upperBound := float64(actualSize) * 1.05
 			assert.GreaterOrEqual(t, float64(computedSize), lowerBound,
-				"Estimated size should be within 10% of actual (lower bound)")
+				"Estimated size should be within 5% of actual (lower bound)")
 			assert.LessOrEqual(t, float64(computedSize), upperBound,
-				"Estimated size should be within 10% of actual (upper bound)")
+				"Estimated size should be within 5% of actual (upper bound)")
 
 			// for completion, print out the compression ratio
-			fileInfo, err := os.Stat(tmpFile)
+			fileInfo, err := os.Stat(tmpfile.Name())
 			require.NoError(t, err)
 			compressedSize := fileInfo.Size()
 			compressionRatio := float64(actualSize) / float64(compressedSize)
@@ -178,19 +178,20 @@ func writeAvroFileCompressed(
 			types.QValueJSON{Val: randomizedDocContent},
 		}
 
-		avroMap, err := avroConverter.Convert(
+		avroMap, size, err := avroConverter.Convert(
 			context.Background(),
 			env,
 			record,
 			nil,
 			nil,
 			internal.BinaryFormatRaw,
+			true,
 		)
 		require.NoError(t, err)
 		err = encoder.Encode(avroMap)
 		require.NoError(t, err)
 
-		bytes += avroConverter.ComputeSize(record)
+		bytes += size
 	}
 
 	err = encoder.Flush()

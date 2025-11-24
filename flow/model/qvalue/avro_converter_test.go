@@ -1,6 +1,7 @@
 package qvalue
 
 import (
+	"context"
 	"math/big"
 	"testing"
 	"time"
@@ -9,7 +10,10 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -221,83 +225,268 @@ func TestAvroQValueSize(t *testing.T) {
 			expectedSize: 16, // 15 chars + varint(15)
 		},
 
+		// Special types (as string)
+		{
+			name:         "cidr",
+			qvalue:       types.QValueCIDR{Val: "192.168.1.0/24"},
+			expectedSize: 15, // varint(14) + 14 chars
+		},
+		{
+			name:         "inet",
+			qvalue:       types.QValueINET{Val: "192.168.1.1"},
+			expectedSize: 12, // varint(11) + 11 chars
+		},
+		{
+			name:         "macaddr",
+			qvalue:       types.QValueMacaddr{Val: "08:00:2b:01:02:03"},
+			expectedSize: 18, // varint(17) + 17 chars
+		},
+		{
+			name:         "interval",
+			qvalue:       types.QValueInterval{Val: "1 day"},
+			expectedSize: 6, // varint(5) + 5 chars
+		},
+		{
+			name:         "enum",
+			qvalue:       types.QValueEnum{Val: "active"},
+			expectedSize: 7, // varint(6) + 6 chars
+		},
+		{
+			name:         "geography",
+			qvalue:       types.QValueGeography{Val: "POINT(1 1)"},
+			expectedSize: 11, // varint(10) + 10 chars
+		},
+		{
+			name:         "geometry",
+			qvalue:       types.QValueGeometry{Val: "POINT(2 2)"},
+			expectedSize: 11, // varint(10) + 10 chars
+		},
+		{
+			name:         "point",
+			qvalue:       types.QValuePoint{Val: "(1,2)"},
+			expectedSize: 6, // varint(5) + 5 chars
+		},
+		{
+			name:         "invalid",
+			qvalue:       types.QValueInvalid{Val: "bad_value"},
+			expectedSize: 10, // varint(9) + 9 chars
+		},
+
 		// Arrays
 		{
-			name:         "array int32 empty",
-			qvalue:       types.QValueArrayInt32{Val: []int32{}},
-			expectedSize: 1, // varint(0) for empty array block
+			name:         "array int16 with values",
+			qvalue:       types.QValueArrayInt16{Val: []int16{10, 20, 30}},
+			expectedSize: 5, // varint(3) + 1 + 1 + 1 + terminator(1)
+		},
+		{
+			name:         "array int32 with values",
+			qvalue:       types.QValueArrayInt32{Val: []int32{1, 2, 3}},
+			expectedSize: 5, // varint(3) + 1 + 1 + 1 + terminator(1)
+		},
+		{
+			name:         "array int64 with values",
+			qvalue:       types.QValueArrayInt64{Val: []int64{100, 200, 300}},
+			expectedSize: 8, // varint(3) + 2 + 2 + 2 + terminator(1)
+		},
+		{
+			name:         "array float32 with values",
+			qvalue:       types.QValueArrayFloat32{Val: []float32{1.1, 2.2, 3.3}},
+			expectedSize: 14, // varint(3) + 4*3 + terminator(1)
+		},
+		{
+			name:         "array float64 with values",
+			qvalue:       types.QValueArrayFloat64{Val: []float64{1.1, 2.2, 3.3}},
+			expectedSize: 26, // varint(3) + 8*3 + terminator(1)
+		},
+		{
+			name:         "array boolean with values",
+			qvalue:       types.QValueArrayBoolean{Val: []bool{true, false, true}},
+			expectedSize: 5, // varint(3) + 1*3 + terminator(1)
 		},
 		{
 			name:         "array string small",
 			qvalue:       types.QValueArrayString{Val: []string{"a", "b"}},
-			expectedSize: 6, // varint(2) + (varint(1)+1) + (varint(1)+1) + varint(0)
+			expectedSize: 6, // varint(2) + (varint(1)+1) + (varint(1)+1) + terminator(1)
+		},
+		{
+			name:         "array enum",
+			qvalue:       types.QValueArrayEnum{Val: []string{"red", "blue"}},
+			expectedSize: 11, // varint(2) + (varint(3)+3) + (varint(4)+4) + terminator(1)
+		},
+		{
+			name:         "array interval",
+			qvalue:       types.QValueArrayInterval{Val: []string{"1 day", "2 hours"}},
+			expectedSize: 16, // varint(2) + (varint(5)+5) + (varint(7)+7) + terminator(1)
+		},
+		{
+			name:         "array timestamp with values",
+			qvalue:       types.QValueArrayTimestamp{Val: []time.Time{time.Now(), time.Now()}},
+			expectedSize: 18, // varint(2) + 8*2 + terminator(1)
+		},
+		{
+			name:         "array timestamptz with values",
+			qvalue:       types.QValueArrayTimestampTZ{Val: []time.Time{time.Now(), time.Now()}},
+			expectedSize: 18, // varint(2) + 8*2 + terminator(1)
+		},
+		{
+			name:         "array date with values",
+			qvalue:       types.QValueArrayDate{Val: []time.Time{time.Now(), time.Now()}},
+			expectedSize: 10, // varint(2) + 4*2 + terminator(1)
+		},
+		{
+			name:         "array uuid with values",
+			qvalue:       types.QValueArrayUUID{Val: []uuid.UUID{uuid.New(), uuid.New()}},
+			expectedSize: 76, // varint(2) + (varint(36)+36)*2 + terminator(1)
+		},
+		{
+			name:         "array numeric with values",
+			qvalue:       types.QValueArrayNumeric{Val: []decimal.Decimal{decimal.NewFromFloat(1.23), decimal.NewFromFloat(4.56)}},
+			expectedSize: 12, // varint(1) + (varint(4)+4) + (varint(4)+4) + terminator(1)
 		},
 	}
 
 	for _, tt := range tests {
-		for _, nullable := range []bool{false, true} {
-			t.Run(tt.name, func(t *testing.T) {
-				size := ComputeAvroSize(tt.qvalue, nullable, nil)
-				if nullable {
-					assert.Equal(t, tt.expectedSize+1, size, "size mismatch for %s", tt.name)
-				} else {
-					assert.Equal(t, tt.expectedSize, size, "size mismatch for %s", tt.name)
-				}
-			})
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			field := &types.QField{Nullable: false}
+			_, size, err := QValueToAvro(context.Background(), tt.qvalue, field, protos.DBType_CLICKHOUSE,
+				log.NewStructuredLogger(nil), false, nil, internal.BinaryFormatRaw, true)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedSize, size, "size mismatch for %s", tt.name)
+		})
+		t.Run(tt.name+"_nullable", func(t *testing.T) {
+			field := &types.QField{Nullable: true}
+			_, size, err := QValueToAvro(context.Background(), tt.qvalue, field, protos.DBType_CLICKHOUSE,
+				log.NewStructuredLogger(nil), false, nil, internal.BinaryFormatRaw, true)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedSize+1, size, "size mismatch for %s", tt.name)
+		})
+		t.Run(tt.name+"_no_calc_size", func(t *testing.T) {
+			field := &types.QField{Nullable: false}
+			_, size, err := QValueToAvro(context.Background(), tt.qvalue, field, protos.DBType_CLICKHOUSE,
+				log.NewStructuredLogger(nil), false, nil, internal.BinaryFormatRaw, false)
+			require.NoError(t, err)
+			assert.Equal(t, int64(0), size, "size mismatch for %s", tt.name)
+		})
 	}
 }
 
-func TestAvroQValueSizeNilValue(t *testing.T) {
-	qval := types.QValueInt256{Val: nil}
-	size := ComputeAvroSize(qval, true, nil)
-	assert.Equal(t, int64(1), size, "nil value should return just union tag size")
+func TestConstSize(t *testing.T) {
+	tests := []struct {
+		name         string
+		n            int64
+		nullableSize int64
+		expectedSize int64
+	}{
+		// n + nullable
+		{"simple [123+0]", 123, 0, 123},
+		{"simple [0+0]", 0, 0, 0},
+		{"with nullable [4+1]", 4, 1, 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			size := constSize(tt.n, tt.nullableSize, true)
+			assert.Equal(t, tt.expectedSize, size)
+		})
+	}
 }
 
 func TestVarIntSize(t *testing.T) {
 	tests := []struct {
+		name         string
 		value        int64
 		expectedSize int64
 	}{
-		{0, 1},
-		{1, 1},
-		{63, 1},
-		{64, 2},
-		{127, 2},
-		{128, 2},
-		{8191, 2},
-		{8192, 3},
-		{-1, 1},
-		{-64, 1},
-		{-65, 2},
-		{1000000000, 5},
-		{-1000000000, 5},
+		{"zero", 0, 1},
+		{"small positive", 1, 1},
+		{"max 1-byte positive", 63, 1},
+		{"min 2-byte positive", 64, 2},
+		{"max 2-byte positive", 8191, 2},
+		{"min 3-byte positive", 8192, 3},
+		{"small negative", -1, 1},
+		{"max 1-byte negative", -64, 1},
+		{"min 2-byte negative", -65, 2},
+		{"max 2-byte negative", -8192, 2},
+		{"min 3-byte negative", -8193, 3},
+		{"large positive", 1000000000, 5},
+		{"large negative", -1000000000, 5},
 	}
 
 	for _, tt := range tests {
-		t.Run(string(rune(tt.value)), func(t *testing.T) {
-			size := varIntSize(tt.value)
-			assert.Equal(t, tt.expectedSize, size, "varIntSize(%d) should be %d", tt.value, tt.expectedSize)
+		t.Run(tt.name, func(t *testing.T) {
+			size := varIntSize(tt.value, 0, true)
+			assert.Equal(t, tt.expectedSize, size)
 		})
 	}
 }
 
 func TestStringSize(t *testing.T) {
 	tests := []struct {
+		name         string
 		str          string
+		nullableSize int64
 		expectedSize int64
 	}{
-		{"", 1},
-		{"a", 2},
-		{"hello", 6},
-		{"hello world", 12},
-		{string(make([]byte, 127)), 129},
+		// varint(count) + len(string) + nullable
+		{"empty string [1+0+0]", "", 0, 1},
+		{"single char [1+1+0]]", "a", 0, 2},
+		{"simple string [1+11+0]", "hello world", 0, 12},
+		{"longer string [2+127+0]", string(make([]byte, 127)), 0, 129},
+		{"with nullable [2+127+1]", string(make([]byte, 127)), 1, 130},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.str, func(t *testing.T) {
-			size := stringSize(tt.str)
-			require.Equal(t, tt.expectedSize, size, "stringSize should be %d", tt.expectedSize)
+		t.Run(tt.name, func(t *testing.T) {
+			size := stringSize(tt.str, tt.nullableSize, true)
+			require.Equal(t, tt.expectedSize, size)
+		})
+	}
+}
+
+func TestFixedElementArraySize(t *testing.T) {
+	tests := []struct {
+		name         string
+		count        int64
+		elemSize     int64
+		nullableSize int64
+		expectedSize int64
+	}{
+		// nullable + varint(count) + (elemSize * count) + terminator if non-empty
+		{"empty array [0+1+0+0]", 0, 8, 0, 1},
+		{"single element [0+1+8+1]", 1, 8, 0, 10},
+		{"multiple elements [0+1+5*8+1]", 5, 8, 0, 42},
+		{"with nullable [1+1+3*4+1]", 3, 4, 1, 15},
+		{"large count [0+2+100*1+1]", 100, 1, 0, 103},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			size := fixedElementArraySize(tt.count, tt.elemSize, tt.nullableSize, true)
+			assert.Equal(t, tt.expectedSize, size)
+		})
+	}
+}
+
+func TestVariableElementArraySize(t *testing.T) {
+	tests := []struct {
+		name         string
+		vals         []string
+		nullableSize int64
+		expectedSize int64
+	}{
+		// nullable + varint(count) + sum(elem sizes) + terminator(if non-empty)
+		{"empty array [0+1+0+0]", []string{}, 0, 1},
+		{"single elem [0+1+(1+1)+1]", []string{"a"}, 0, 4},
+		{"multiple elems [0+1+((1+0)+(1+2)+(1+3))+1]", []string{"", "ab", "xyz"}, 0, 10},
+		{"with nullable [1+1+(1+4)+1]", []string{"test"}, 1, 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			size := variableElementArraySize(tt.vals, func(elem string) int64 {
+				return stringSize(elem, 0, true)
+			}, tt.nullableSize, true)
+			assert.Equal(t, tt.expectedSize, size)
 		})
 	}
 }

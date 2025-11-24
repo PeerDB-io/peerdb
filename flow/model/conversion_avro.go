@@ -56,34 +56,32 @@ func (qac *QRecordAvroConverter) Convert(
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator SnapshotTableNumericTruncator,
 	format internal.BinaryFormat,
-) (map[string]any, error) {
+	calcSize bool,
+) (map[string]any, int64, error) {
 	m := make(map[string]any, len(qrecord))
+	s := int64(0)
 	for idx, val := range qrecord {
 		if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
 			val = typeConversion.ValueConversion(val)
 		}
-		avroVal, err := qvalue.QValueToAvro(
+		avroVal, size, err := qvalue.QValueToAvro(
 			ctx, val,
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
 			numericTruncator.Get(idx),
 			format,
+			calcSize,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
+			return nil, 0, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
 		}
 
 		m[qac.ColNames[idx]] = avroVal
+		if calcSize {
+			s += size
+		}
 	}
 
-	return m, nil
-}
-
-func (qac *QRecordAvroConverter) ComputeSize(qrecord []types.QValue) int64 {
-	recordSize := int64(0)
-	for idx, val := range qrecord {
-		recordSize += qvalue.ComputeAvroSize(val, qac.Schema.Fields[idx].Nullable, qac.logger)
-	}
-	return recordSize
+	return m, s, nil
 }
 
 type QRecordAvroField struct {

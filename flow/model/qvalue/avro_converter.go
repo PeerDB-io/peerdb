@@ -188,9 +188,16 @@ func QValueToAvro(
 	value types.QValue, field *types.QField, targetDWH protos.DBType, logger log.Logger,
 	unboundedNumericAsString bool, stat *NumericStat,
 	binaryFormat internal.BinaryFormat,
-) (any, error) {
+	calcSize bool,
+) (any, int64, error) {
+	// we only use union tag for nullable types
+	nullableSize := int64(0)
+	if calcSize && field.Nullable {
+		nullableSize = 1
+	}
+
 	if value.Value() == nil {
-		return nil, nil
+		return nil, nullableSize, nil
 	}
 
 	c := QValueAvroConverter{
@@ -205,103 +212,126 @@ func QValueToAvro(
 	switch v := value.(type) {
 	case types.QValueInvalid:
 		// we will attempt to convert invalid to a string
-		return c.processNullableUnion(v.Val), nil
+		return c.processNullableUnion(v.Val), stringSize(v.Val, nullableSize, calcSize), nil
 	case types.QValueTime:
-		return c.processNullableUnion(c.processGoTime(v.Val)), nil
+		return c.processNullableUnion(c.processGoTime(v.Val)), constSize(8, nullableSize, calcSize), nil
 	case types.QValueTimeTZ:
-		return c.processNullableUnion(c.processGoTime(v.Val)), nil
+		return c.processNullableUnion(c.processGoTime(v.Val)), constSize(8, nullableSize, calcSize), nil
 	case types.QValueTimestamp:
-		return c.processNullableUnion(c.processGoTimestamp(v.Val)), nil
+		return c.processNullableUnion(c.processGoTimestamp(v.Val)), constSize(8, nullableSize, calcSize), nil
 	case types.QValueTimestampTZ:
-		return c.processNullableUnion(c.processGoTimestampTZ(v.Val)), nil
+		return c.processNullableUnion(c.processGoTimestampTZ(v.Val)), constSize(8, nullableSize, calcSize), nil
 	case types.QValueDate:
-		return c.processNullableUnion(c.processGoDate(v.Val)), nil
+		return c.processNullableUnion(c.processGoDate(v.Val)), constSize(4, nullableSize, calcSize), nil
 	case types.QValueQChar:
-		return c.processNullableUnion(string(v.Val)), nil
+		return c.processNullableUnion(string(v.Val)), constSize(2, nullableSize, calcSize), nil
 	case types.QValueString,
 		types.QValueCIDR, types.QValueINET, types.QValueMacaddr,
 		types.QValueInterval, types.QValueEnum,
 		types.QValueGeography, types.QValueGeometry, types.QValuePoint:
+		size := stringSize(v.Value().(string), nullableSize, calcSize)
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
 			slog.WarnContext(ctx, "Clearing TEXT value > 15MB for Snowflake!")
 			slog.WarnContext(ctx, "Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+
 			if c.Nullable {
-				return nil, nil
+				return nil, size, nil
 			} else {
-				return "", nil
+				return "", size, nil
 			}
 		}
-		return c.processNullableUnion(v.Value()), nil
+		return c.processNullableUnion(v.Value()), size, nil
 	case types.QValueFloat32:
+		size := constSize(4, nullableSize, calcSize)
 		if c.TargetDWH == protos.DBType_BIGQUERY {
-			return c.processNullableUnion(float64(v.Val)), nil
+			return c.processNullableUnion(float64(v.Val)), size, nil
 		}
-		return c.processNullableUnion(v.Val), nil
+		return c.processNullableUnion(v.Val), size, nil
 	case types.QValueFloat64:
-		return c.processNullableUnion(v.Val), nil
+		return c.processNullableUnion(v.Val), constSize(8, nullableSize, calcSize), nil
 	case types.QValueInt8:
-		return c.processNullableUnion(int64(v.Val)), nil
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), nullableSize, calcSize), nil
 	case types.QValueInt16:
-		return c.processNullableUnion(int64(v.Val)), nil
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), nullableSize, calcSize), nil
 	case types.QValueInt32:
-		return c.processNullableUnion(int64(v.Val)), nil
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), nullableSize, calcSize), nil
 	case types.QValueInt64:
-		return c.processNullableUnion(v.Val), nil
+		return c.processNullableUnion(v.Val), varIntSize(v.Val, nullableSize, calcSize), nil
 	case types.QValueInt256:
-		return c.processInt256(v.Val), nil
+		return c.processInt256(v.Val), constSize(32, nullableSize, calcSize), nil
 	case types.QValueUInt8:
-		return c.processNullableUnion(int64(v.Val)), nil
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), nullableSize, calcSize), nil
 	case types.QValueUInt16:
-		return c.processNullableUnion(int64(v.Val)), nil
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), nullableSize, calcSize), nil
 	case types.QValueUInt32:
-		return c.processNullableUnion(int64(v.Val)), nil
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), nullableSize, calcSize), nil
 	case types.QValueUInt64:
-		return c.processNullableUnion(int64(v.Val)), nil
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), nullableSize, calcSize), nil
 	case types.QValueUInt256:
-		return c.processUInt256(v.Val), nil
+		return c.processUInt256(v.Val), constSize(32, nullableSize, calcSize), nil
 	case types.QValueBoolean:
-		return c.processNullableUnion(v.Val), nil
+		return c.processNullableUnion(v.Val), constSize(1, nullableSize, calcSize), nil
 	case types.QValueNumeric:
-		return c.processNumeric(v.Val), nil
+		return c.processNumeric(v.Val), stringSize(v.Val.String(), nullableSize, calcSize), nil
 	case types.QValueBytes:
-		return c.processBytes(v.Val), nil
+		return c.processBytes(v.Val), stringSize(string(v.Val), nullableSize, calcSize), nil
 	case types.QValueJSON:
-		return c.processJSON(v.Val), nil
+		return c.processJSON(v.Val), stringSize(v.Val, nullableSize, calcSize), nil
 	case types.QValueHStore:
-		return c.processHStore(v.Val)
+		val, err := c.processHStore(v.Val)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error processing HStore value: %w", err)
+		}
+		return val, stringSize(v.Val, nullableSize, calcSize), nil
 	case types.QValueArrayFloat32:
-		return c.processArrayFloat32(v.Val), nil
+		return c.processArrayFloat32(v.Val), fixedElementArraySize(int64(len(v.Val)), 4, nullableSize, calcSize), nil
 	case types.QValueArrayFloat64:
-		return c.processArrayFloat64(v.Val), nil
+		return c.processArrayFloat64(v.Val), fixedElementArraySize(int64(len(v.Val)), 8, nullableSize, calcSize), nil
 	case types.QValueArrayInt16:
-		return c.processArrayInt16(v.Val), nil
+		return c.processArrayInt16(v.Val), variableElementArraySize(v.Val, func(elem int16) int64 {
+			return varIntSize(int64(elem), 0, calcSize)
+		}, nullableSize, calcSize), nil
 	case types.QValueArrayInt32:
-		return c.processArrayInt32(v.Val), nil
+		return c.processArrayInt32(v.Val), variableElementArraySize(v.Val, func(elem int32) int64 {
+			return varIntSize(int64(elem), 0, calcSize)
+		}, nullableSize, calcSize), nil
 	case types.QValueArrayInt64:
-		return c.processArrayInt64(v.Val), nil
+		return c.processArrayInt64(v.Val), variableElementArraySize(v.Val, func(elem int64) int64 {
+			return varIntSize(elem, 0, calcSize)
+		}, nullableSize, calcSize), nil
 	case types.QValueArrayString:
-		return c.processArrayString(v.Val), nil
+		return c.processArrayString(v.Val), variableElementArraySize(v.Val, func(elem string) int64 {
+			return stringSize(elem, 0, calcSize)
+		}, nullableSize, calcSize), nil
 	case types.QValueArrayEnum:
-		return c.processArrayString(v.Val), nil
+		return c.processArrayString(v.Val), variableElementArraySize(v.Val, func(elem string) int64 {
+			return stringSize(elem, 0, calcSize)
+		}, nullableSize, calcSize), nil
 	case types.QValueArrayInterval:
-		return c.processArrayString(v.Val), nil
+		return c.processArrayString(v.Val), variableElementArraySize(v.Val, func(elem string) int64 {
+			return stringSize(elem, 0, calcSize)
+		}, nullableSize, calcSize), nil
 	case types.QValueArrayBoolean:
-		return c.processArrayBoolean(v.Val), nil
+		return c.processArrayBoolean(v.Val), fixedElementArraySize(int64(len(v.Val)), 1, nullableSize, calcSize), nil
 	case types.QValueArrayTimestamp:
-		return c.processArrayTime(v.Val), nil
+		return c.processArrayTime(v.Val), fixedElementArraySize(int64(len(v.Val)), 8, nullableSize, calcSize), nil
 	case types.QValueArrayTimestampTZ:
-		return c.processArrayTime(v.Val), nil
+		return c.processArrayTime(v.Val), fixedElementArraySize(int64(len(v.Val)), 8, nullableSize, calcSize), nil
 	case types.QValueArrayDate:
-		return c.processArrayDate(v.Val), nil
+		return c.processArrayDate(v.Val), fixedElementArraySize(int64(len(v.Val)), 4, nullableSize, calcSize), nil
 	case types.QValueUUID:
-		return c.processUUID(v.Val), nil
+		return c.processUUID(v.Val), stringSize(v.Val.String(), nullableSize, calcSize), nil
 	case types.QValueArrayUUID:
-		return c.processArrayUUID(v.Val), nil
+		return c.processArrayUUID(v.Val), variableElementArraySize(v.Val, func(elem uuid.UUID) int64 {
+			return stringSize(elem.String(), 0, calcSize)
+		}, nullableSize, calcSize), nil
 	case types.QValueArrayNumeric:
-		return c.processArrayNumeric(v.Val), nil
+		return c.processArrayNumeric(v.Val), variableElementArraySize(v.Val, func(elem decimal.Decimal) int64 {
+			return stringSize(elem.String(), 0, calcSize)
+		}, nullableSize, calcSize), nil
 	default:
-		return nil, fmt.Errorf("[QValueToAvro] unsupported %T", value)
+		return nil, 0, fmt.Errorf("[QValueToAvro] unsupported %T", value)
 	}
 }
 
@@ -681,219 +711,56 @@ func (ns *NumericStat) CollectWarnings(warnings *shared.QRepWarnings) {
 	}
 }
 
-// ComputeAvroSize calculates the estimated uncompressed Avro-encoded size for a QValue
-// based on the schema determined by GetAvroSchemaFromQValueKind
-// Note: currently the size computation assumes ClickHouse as the TargetDWH
-func ComputeAvroSize(value types.QValue, nullable bool, logger log.Logger) int64 {
-	// we only use union tag for nullable types
-	unionTagSize := int64(0)
-	if nullable {
-		unionTagSize = 1
+func constSize(n int64, nullableSize int64, calcSize bool) int64 {
+	if !calcSize {
+		return 0
 	}
-
-	if value.Value() == nil {
-		return unionTagSize
-	}
-
-	// Avro encodes arrays with a zero-byte terminator
-	arrTerminationByteSize := int64(1)
-
-	size := int64(0)
-	switch v := value.(type) {
-	case types.QValueInvalid:
-		size = stringSize(v.Val)
-	case types.QValueFloat32:
-		size = 4
-	case types.QValueFloat64:
-		size = 8
-	case types.QValueInt8:
-		size = varIntSize(int64(v.Val))
-	case types.QValueInt16:
-		size = varIntSize(int64(v.Val))
-	case types.QValueInt32:
-		size = varIntSize(int64(v.Val))
-	case types.QValueInt64:
-		size = varIntSize(v.Val)
-	case types.QValueInt256:
-		if v.Val == nil {
-			return unionTagSize
-		}
-		size = 32
-	case types.QValueUInt8:
-		size = varIntSize(int64(v.Val))
-	case types.QValueUInt16:
-		size = varIntSize(int64(v.Val))
-	case types.QValueUInt32:
-		size = varIntSize(int64(v.Val))
-	case types.QValueUInt64:
-		size = varIntSize(int64(v.Val))
-	case types.QValueUInt256:
-		if v.Val == nil {
-			return unionTagSize
-		}
-		size = 32
-	case types.QValueBoolean:
-		size = 1
-	case types.QValueQChar:
-		size = 2
-	case types.QValueString:
-		size = stringSize(v.Val)
-	case types.QValueEnum:
-		size = stringSize(v.Val)
-	case types.QValueTimestamp:
-		size = 8
-	case types.QValueTimestampTZ:
-		size = 8
-	case types.QValueDate:
-		size = 4
-	case types.QValueTime:
-		size = 8
-	case types.QValueTimeTZ:
-		size = 8
-	case types.QValueInterval:
-		size = stringSize(v.Val)
-	case types.QValueNumeric:
-		size = stringSize(v.Val.String())
-	case types.QValueBytes:
-		size = varIntSize(int64(len(v.Val))) + int64(len(v.Val))
-	case types.QValueUUID:
-		size = stringSize(v.Val.String())
-	case types.QValueJSON:
-		size = stringSize(v.Val)
-	case types.QValueHStore:
-		size = stringSize(v.Val)
-	case types.QValueGeography:
-		size = stringSize(v.Val)
-	case types.QValueGeometry:
-		size = stringSize(v.Val)
-	case types.QValuePoint:
-		size = stringSize(v.Val)
-	case types.QValueCIDR:
-		size = stringSize(v.Val)
-	case types.QValueINET:
-		size = stringSize(v.Val)
-	case types.QValueMacaddr:
-		size = stringSize(v.Val)
-	case types.QValueArrayFloat32:
-		count := int64(len(v.Val))
-		size = varIntSize(count) + (count * 4)
-		if count > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayFloat64:
-		count := int64(len(v.Val))
-		size = varIntSize(count) + (count * 8)
-		if count > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayInt16:
-		size += varIntSize(int64(len(v.Val)))
-		for _, elem := range v.Val {
-			size += varIntSize(int64(elem))
-		}
-		if len(v.Val) > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayInt32:
-		size += varIntSize(int64(len(v.Val)))
-		for _, elem := range v.Val {
-			size += varIntSize(int64(elem))
-		}
-		if len(v.Val) > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayInt64:
-		size += varIntSize(int64(len(v.Val)))
-		for _, elem := range v.Val {
-			size += varIntSize(elem)
-		}
-		if len(v.Val) > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayString:
-		size += varIntSize(int64(len(v.Val)))
-		for _, elem := range v.Val {
-			size += stringSize(elem)
-		}
-		if len(v.Val) > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayDate:
-		count := int64(len(v.Val))
-		size = varIntSize(count) + (count * 4)
-		if count > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayTimestamp:
-		count := int64(len(v.Val))
-		size = varIntSize(count) + (count * 8)
-		if count > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayTimestampTZ:
-		count := int64(len(v.Val))
-		size = varIntSize(count) + (count * 8)
-		if count > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayBoolean:
-		count := int64(len(v.Val))
-		size = varIntSize(count) + count
-		if count > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayEnum:
-		size += varIntSize(int64(len(v.Val)))
-		for _, elem := range v.Val {
-			size += stringSize(elem)
-		}
-		if len(v.Val) > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayInterval:
-		size += varIntSize(int64(len(v.Val)))
-		for _, elem := range v.Val {
-			size += stringSize(elem)
-		}
-		if len(v.Val) > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayUUID:
-		size += varIntSize(int64(len(v.Val)))
-		for _, elem := range v.Val {
-			size += stringSize(elem.String())
-		}
-		if len(v.Val) > 0 {
-			size += arrTerminationByteSize
-		}
-	case types.QValueArrayNumeric:
-		size += varIntSize(int64(len(v.Val)))
-		for _, elem := range v.Val {
-			size += stringSize(elem.String())
-		}
-		if len(v.Val) > 0 {
-			size += arrTerminationByteSize
-		}
-	default:
-		logger.Warn("[ComputeAvroSize] unsupported %T", value)
-	}
-
-	return size + unionTagSize
+	return nullableSize + n
 }
 
-// varIntSize calculates the avro-encoded size for its int and long primitive types
-// Format: avro uses Variable-Length Zig-Zag encoding
-func varIntSize(n int64) int64 {
-	if n == 0 {
-		return 1
+func stringSize(s string, nullableSize int64, calcSize bool) int64 {
+	if !calcSize {
+		return 0
 	}
+	return nullableSize + varIntSize(int64(len(s)), 0, true) + int64(len(s))
+}
+
+func varIntSize(n int64, nullableSize int64, calcSize bool) int64 {
+	if !calcSize {
+		return 0
+	}
+	if n == 0 {
+		return nullableSize + 1
+	}
+	// Avro uses Variable-Length Zig-Zag encoding
 	encoded := uint64((n << 1) ^ (n >> 63))
 	bitLen := bits.Len64(encoded)
-	return int64((bitLen + 6) / 7)
+	return nullableSize + int64((bitLen+6)/7)
 }
 
-// stringSize calculates the Avro-encoded size for a string
-// Format: varInt-encoded length + actual bytes
-func stringSize(s string) int64 {
-	return varIntSize(int64(len(s))) + int64(len(s))
+func fixedElementArraySize(count int64, elemSize int64, nullableSize int64, calcSize bool) int64 {
+	if !calcSize {
+		return 0
+	}
+	size := nullableSize + varIntSize(count, 0, true) + count*elemSize
+	if count > 0 {
+		size += 1 // array termination byte
+	}
+	return size
+}
+
+func variableElementArraySize[T any](vals []T, elemSizeFn func(T) int64, nullableSize int64, calcSize bool) int64 {
+	if !calcSize {
+		return 0
+	}
+	totalElemSize := int64(0)
+	for _, elem := range vals {
+		totalElemSize += elemSizeFn(elem)
+	}
+	count := int64(len(vals))
+	size := nullableSize + varIntSize(count, 0, true) + totalElemSize
+	if count > 0 {
+		size += 1 // array termination byte
+	}
+	return size
 }

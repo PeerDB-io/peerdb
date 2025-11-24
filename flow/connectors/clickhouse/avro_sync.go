@@ -244,6 +244,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 			chunkNum += 1
 			totalRecords += subFile.NumRecords
 		}
+
 		if err := ctx.Err(); err != nil {
 			return nil, 0, err
 		}

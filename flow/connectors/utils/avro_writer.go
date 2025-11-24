@@ -251,11 +251,12 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		return 0, err
 	}
 
+	calcSize := p.sizeTracker != nil && p.sizeTracker.TrackUncompressed
 	for qrecord := range p.stream.Records {
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err
 		} else {
-			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, numericTruncator, format)
+			avroMap, size, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, numericTruncator, format, calcSize)
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
@@ -266,8 +267,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
 			}
 
-			if p.sizeTracker != nil && p.sizeTracker.TrackUncompressed {
-				p.sizeTracker.Bytes.Add(avroConverter.ComputeSize(qrecord))
+			if calcSize {
+				p.sizeTracker.Bytes.Add(size)
 			}
 
 			numRows.Add(1)
