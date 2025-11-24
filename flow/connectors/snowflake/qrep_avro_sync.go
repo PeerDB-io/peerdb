@@ -161,7 +161,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 			compression = ocf.Null
 		}
 
-		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, compression, protos.DBType_SNOWFLAKE)
+		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, compression, protos.DBType_SNOWFLAKE, nil)
 		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
 		err = os.MkdirAll(tmpDir, os.ModePerm)
 		if err != nil {
@@ -177,7 +177,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		return avroFile, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
+		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE, nil)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
 			return utils.AvroFile{}, fmt.Errorf("failed to parse staging path: %w", err)
@@ -191,7 +191,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 		if err != nil {
 			return utils.AvroFile{}, err
 		}
-		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, provider, nil, nil, nil)
+		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, provider, nil, nil)
 		if err != nil {
 			return utils.AvroFile{}, fmt.Errorf("failed to write records to S3: %w", err)
 		}

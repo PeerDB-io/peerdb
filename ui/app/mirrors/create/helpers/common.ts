@@ -85,4 +85,5 @@ export const blankQRepSetting: QRepConfig = {
   parentMirrorName: '',
   exclude: [],
   columns: [],
+  sourceType: DBType.DBTYPE_UNKNOWN,
 };

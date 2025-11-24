@@ -35,6 +35,7 @@ const (
 type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
+	sizeTracker          *shared.AvroChunkSizeTracker
 	avroCompressionCodec ocf.CodecName
 	targetDWH            protos.DBType
 }
@@ -58,12 +59,14 @@ func NewPeerDBOCFWriter(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	avroCompressionCodec ocf.CodecName,
 	targetDWH protos.DBType,
+	sizeTracker *shared.AvroChunkSizeTracker,
 ) *peerDBOCFWriter {
 	return &peerDBOCFWriter{
 		stream:               stream,
 		avroSchema:           avroSchema,
 		avroCompressionCodec: avroCompressionCodec,
 		targetDWH:            targetDWH,
+		sizeTracker:          sizeTracker,
 	}
 }
 
@@ -74,20 +77,76 @@ func (p *peerDBOCFWriter) WriteOCF(
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (int64, error) {
-	ocfWriter, err := ocf.NewEncoderWithSchema(
-		p.avroSchema.Schema, w, ocf.WithCodec(p.avroCompressionCodec),
-		ocf.WithBlockLength(8192), ocf.WithBlockSize(1<<26),
+	logger := internal.LoggerFromCtx(ctx)
+
+	avroFieldNames, err := p.getAvroFieldNamesFromSchema()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get Avro field names from schema: %w", err)
+	}
+	avroConverter, err := model.NewQRecordAvroConverter(
+		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
+		return 0, err
 	}
-	defer ocfWriter.Close()
 
-	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter, typeConversions, numericTruncator)
+	format, err := internal.PeerDBBinaryFormat(ctx, env)
 	if err != nil {
-		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
+		return 0, err
 	}
-	return numRows, nil
+
+	avroEncoder, err := shared.NewAvroEncoder(p.avroSchema.Schema, w, p.avroCompressionCodec, p.sizeTracker)
+	if err != nil {
+		return 0, err
+	}
+	defer avroEncoder.Close()
+
+	logger.Info("writing records to OCF start",
+		slog.Int("channelLen", len(p.stream.Records)))
+
+	numRows := atomic.Int64{}
+	writeStart := time.Now()
+
+	shutdown := shared.Interval(ctx, time.Minute, func() {
+		logger.Info("written records to OCF",
+			slog.Int64("records", numRows.Load()),
+			slog.Int("channelLen", len(p.stream.Records)),
+			slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()),
+			slog.String("compression", string(p.avroCompressionCodec)))
+	})
+	defer shutdown()
+
+	for qrecord := range p.stream.Records {
+		if err := ctx.Err(); err != nil {
+			return numRows.Load(), err
+		}
+
+		avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, numericTruncator, format)
+		if err != nil {
+			logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
+			return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
+		}
+
+		if err := avroEncoder.Encode(avroMap); err != nil {
+			logger.Error("Failed to write record to OCF", slog.Any("error", err))
+			return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
+		}
+
+		numRows.Add(1)
+	}
+
+	logger.Info("finished writing records to OCF",
+		slog.Int64("records", numRows.Load()),
+		slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()),
+		slog.String("compression", string(p.avroCompressionCodec)),
+	)
+
+	if err := p.stream.Err(); err != nil {
+		logger.Error("Failed to get record from stream", slog.Any("error", err))
+		return numRows.Load(), fmt.Errorf("failed to get record from stream: %w", err)
+	}
+
+	return numRows.Load(), nil
 }
 
 func (p *peerDBOCFWriter) WriteRecordsToS3(
@@ -96,7 +155,6 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	bucketName string,
 	key string,
 	s3Creds AWSCredentialsProvider,
-	avroSize *atomic.Int64,
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (AvroFile, error) {
@@ -122,13 +180,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			}
 			w.Close()
 		}()
-		var writer io.Writer
-		if avroSize == nil {
-			writer = w
-		} else {
-			writer = shared.NewWatchWriter(w, avroSize)
-		}
-		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions, numericTruncator)
+		numRows, writeOcfError = p.WriteOCF(ctx, env, w, typeConversions, numericTruncator)
 	}()
 
 	partSize, err := internal.PeerDBS3PartSize(ctx, env)
@@ -207,77 +259,4 @@ func (p *peerDBOCFWriter) getAvroFieldNamesFromSchema() ([]string, error) {
 		avroFieldNames[i] = field.Name()
 	}
 	return avroFieldNames, nil
-}
-
-func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
-	ctx context.Context,
-	env map[string]string,
-	ocfWriter *ocf.Encoder,
-	typeConversions map[string]types.TypeConversion,
-	numericTruncator model.SnapshotTableNumericTruncator,
-) (int64, error) {
-	logger := internal.LoggerFromCtx(ctx)
-
-	avroFieldNames, err := p.getAvroFieldNamesFromSchema()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get Avro field names from schema: %w", err)
-	}
-	avroConverter, err := model.NewQRecordAvroConverter(
-		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	logger.Info("writing records to OCF start",
-		slog.Int("channelLen", len(p.stream.Records)))
-
-	numRows := atomic.Int64{}
-	writeStart := time.Now()
-
-	shutdown := shared.Interval(ctx, time.Minute, func() {
-		logger.Info("written records to OCF",
-			slog.Int64("records", numRows.Load()),
-			slog.Int("channelLen", len(p.stream.Records)),
-			slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()),
-			slog.String("compression", string(p.avroCompressionCodec)))
-	})
-	defer shutdown()
-
-	format, err := internal.PeerDBBinaryFormat(ctx, env)
-	if err != nil {
-		return 0, err
-	}
-
-	for qrecord := range p.stream.Records {
-		if err := ctx.Err(); err != nil {
-			return numRows.Load(), err
-		} else {
-			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, numericTruncator, format)
-			if err != nil {
-				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
-				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
-			}
-
-			if err := ocfWriter.Encode(avroMap); err != nil {
-				logger.Error("Failed to write record to OCF", slog.Any("error", err))
-				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
-			}
-
-			numRows.Add(1)
-		}
-	}
-
-	logger.Info("finished writing records to OCF",
-		slog.Int64("records", numRows.Load()),
-		slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()),
-		slog.String("compression", string(p.avroCompressionCodec)),
-	)
-
-	if err := p.stream.Err(); err != nil {
-		logger.Error("Failed to get record from stream", slog.Any("error", err))
-		return numRows.Load(), fmt.Errorf("failed to get record from stream: %w", err)
-	}
-
-	return numRows.Load(), nil
 }
