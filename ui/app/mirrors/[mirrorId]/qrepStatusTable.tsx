@@ -4,13 +4,13 @@ import { useSelectTheme } from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
 import { PartitionStatus } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
+import { useSortButtonColor } from '@/lib/hooks/useSortButtonColor';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useSortButtonColor } from '@/lib/hooks/useSortButtonColor';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 

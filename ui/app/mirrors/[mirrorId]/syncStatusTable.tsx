@@ -7,12 +7,12 @@ import {
   GetCDCBatchesResponse,
 } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
+import { useSortButtonColor } from '@/lib/hooks/useSortButtonColor';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useSortButtonColor } from '@/lib/hooks/useSortButtonColor';
 import { useCallback, useEffect, useState } from 'react';
 import { RowDataFormatter } from './rowsDisplay';
 
