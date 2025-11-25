@@ -145,7 +145,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	numericTruncator := model.NewSnapshotTableNumericTruncator(dstTableName, schema.Fields)
 
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
-	avroFiles, totalRecords, err := s.pushDataToS3(ctx, config, dstTableName, schema,
+	avroFiles, totalRecords, err := s.pushDataToS3ForSnapshot(ctx, config, dstTableName, schema,
 		columnNameAvroFieldMap, partition, stream, destTypeConversions, numericTruncator)
 	if err != nil {
 		s.logger.Error("failed to push data to S3",
@@ -154,7 +154,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, nil, err
 	}
 
-	if err := s.pushS3DataToClickHouse(
+	if err := s.pushS3DataToClickHouseForSnapshot(
 		ctx, avroFiles, schema, columnNameAvroFieldMap, config); err != nil {
 		s.logger.Error("failed to push data to ClickHouse",
 			slog.String("dstTable", dstTableName),
@@ -171,7 +171,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	return totalRecords, warnings, nil
 }
 
-func (s *ClickHouseAvroSyncMethod) pushDataToS3(
+func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	dstTableName string,
@@ -187,18 +187,44 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 		return nil, 0, err
 	}
 
-	avroChunking, err := internal.PeerDBS3BytesPerAvroFile(ctx, config.Env)
+	bytesPerAvroFile, err := internal.PeerDBS3BytesPerAvroFile(ctx, config.Env)
 	if err != nil {
 		return nil, 0, err
 	}
 
+	// track uncompressed bytes for MongoDB due to high JSON compression ratio
+	trackUncompressed := config.SourceType == protos.DBType_MONGO
+
 	s.logger.Info("writing avro chunks to S3 start",
-		slog.String("partitionId", partition.PartitionId))
+		slog.String("partitionId", partition.PartitionId),
+		slog.Int64("bytesPerAvroFile", bytesPerAvroFile))
+
+	// helper function to create a substream for splitting the main stream into chunks
+	createChunkedSubstream := func(done *atomic.Bool) (*model.QRecordStream, *model.QRecordAvroChunkSizeTracker) {
+		substream := model.NewQRecordStream(0)
+		substream.SetSchema(schema)
+		sizeTracker := model.QRecordAvroChunkSizeTracker{TrackUncompressed: trackUncompressed}
+		go func() {
+			recordsDone := true
+			for record := range stream.Records {
+				substream.Records <- record
+				if sizeTracker.Bytes.Load() >= bytesPerAvroFile {
+					recordsDone = false
+					break
+				}
+			}
+			if recordsDone {
+				done.Store(true)
+			}
+			substream.Close(stream.Err())
+		}()
+		return substream, &sizeTracker
+	}
 
 	var avroFiles []utils.AvroFile
 	var totalRecords int64
 
-	if avroChunking != 0 {
+	if bytesPerAvroFile != 0 {
 		chunkNum := 0
 		var done atomic.Bool
 		for !done.Load() {
@@ -206,27 +232,11 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 				return nil, 0, err
 			}
 
-			substream := model.NewQRecordStream(0)
-			substream.SetSchema(schema)
-			var avroSize atomic.Int64
-			go func() {
-				recordsDone := true
-				for record := range stream.Records {
-					substream.Records <- record
-					if avroSize.Load() >= avroChunking {
-						recordsDone = false
-						break
-					}
-				}
-				if recordsDone {
-					done.Store(true)
-				}
-				substream.Close(stream.Err())
-			}()
-
-			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, &avroSize, avroSchema,
+			substream, sizeTracker := createChunkedSubstream(&done)
+			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, sizeTracker, avroSchema,
 				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
-				config.FlowJobName, destTypeConversions, numericTruncator)
+				config.FlowJobName, destTypeConversions, numericTruncator,
+			)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -258,7 +268,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 	return avroFiles, totalRecords, nil
 }
 
-func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
+func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 	ctx context.Context,
 	avroFiles []utils.AvroFile,
 	schema types.QRecordSchema,
@@ -377,7 +387,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	ctx context.Context,
 	env map[string]string,
 	stream *model.QRecordStream,
-	avroSize *atomic.Int64,
+	sizeTracker *model.QRecordAvroChunkSizeTracker,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	identifierForFile string,
 	flowJobName string,
@@ -385,7 +395,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
 	stagingPath := s.credsProvider.BucketPath
-	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE)
+	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE, sizeTracker)
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
 		return utils.AvroFile{}, fmt.Errorf("failed to parse staging path: %w", err)
@@ -404,7 +414,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	}
 	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
 	avroFile, err := ocfWriter.WriteRecordsToS3(
-		ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, avroSize, typeConversions, numericTruncator,
+		ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, typeConversions, numericTruncator,
 	)
 	if err != nil {
 		return utils.AvroFile{}, fmt.Errorf("failed to write records to S3: %w", err)

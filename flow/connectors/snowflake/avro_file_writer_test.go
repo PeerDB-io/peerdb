@@ -152,7 +152,7 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE)
+	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE, nil)
 	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
@@ -179,7 +179,7 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
+	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE, nil)
 	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
@@ -206,7 +206,7 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Deflate, protos.DBType_SNOWFLAKE)
+	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Deflate, protos.DBType_SNOWFLAKE, nil)
 	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
@@ -232,7 +232,7 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE)
+	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE, nil)
 	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
@@ -259,7 +259,7 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE)
+	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE, nil)
 	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
