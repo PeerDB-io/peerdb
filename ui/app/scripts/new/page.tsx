@@ -1,6 +1,6 @@
 'use client';
 import { notifyErr } from '@/app/utils/notify';
-import PeerDBCodeEditor from '@/components/PeerDBEditor';
+import PeerDBCodeEditor from '@/components/PeerDBCodeEditor';
 import { Script } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';

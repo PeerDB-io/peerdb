@@ -3,7 +3,7 @@ import { useSelectTheme } from '@/app/styles/select';
 import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import InfoPopover from '@/components/InfoPopover';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
-import PeerDBCodeEditor from '@/components/PeerDBEditor';
+import PeerDBCodeEditor from '@/components/PeerDBCodeEditor';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
