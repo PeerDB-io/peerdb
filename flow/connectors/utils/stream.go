@@ -190,7 +190,7 @@ func truncateNumerics(
 				if destType.IsString {
 					newVal = val
 				} else {
-					truncated, ok := qvalue.TruncateNumeric(
+					truncated, _, ok := qvalue.TruncateNumeric(
 						numeric.Val, destType.Precision, destType.Scale, targetDWH, columnTruncator.Stat,
 					)
 					if !ok {
@@ -211,7 +211,7 @@ func truncateNumerics(
 				} else {
 					truncatedArr := make([]decimal.Decimal, 0, len(numeric.Val))
 					for _, num := range numeric.Val {
-						truncated, ok := qvalue.TruncateNumeric(
+						truncated, _, ok := qvalue.TruncateNumeric(
 							num, destType.Precision, destType.Scale, targetDWH, columnTruncator.Stat,
 						)
 						if !ok {
