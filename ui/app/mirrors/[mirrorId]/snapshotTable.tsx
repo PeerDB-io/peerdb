@@ -9,9 +9,9 @@ import { Label } from '@/lib/Label';
 import { ProgressBar } from '@/lib/ProgressBar';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { useSortButtonColor } from '@/lib/hooks/useSortButtonColor';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
-import { useTheme as useStyledTheme } from 'styled-components';
 import { TableCloneSummary } from './snapshot';
 
 const ROWS_PER_PAGE = 5;
@@ -59,7 +59,7 @@ export default function SnapshotTable({
   title: string;
 }) {
   const selectTheme = useSelectTheme();
-  const styledTheme = useStyledTheme();
+  const sortButtonColor = useSortButtonColor();
   const [sortField, setSortField] = useState<
     'cloneStartTime' | 'avgTimePerPartition'
   >('cloneStartTime');
@@ -157,7 +157,7 @@ export default function SnapshotTable({
               className='IconButton'
               onClick={() => setSortDir('asc')}
               aria-label='sort up'
-              style={{ color: sortDir == 'asc' ? styledTheme.colors.positive.text.lowContrast : styledTheme.colors.base.text.lowContrast }}
+              style={{ color: sortButtonColor(sortDir === 'asc') }}
             >
               <Icon name='arrow_upward' />
             </button>
@@ -165,7 +165,7 @@ export default function SnapshotTable({
               className='IconButton'
               onClick={() => setSortDir('dsc')}
               aria-label='sort down'
-              style={{ color: sortDir == 'dsc' ? styledTheme.colors.positive.text.lowContrast : styledTheme.colors.base.text.lowContrast }}
+              style={{ color: sortButtonColor(sortDir === 'dsc') }}
             >
               <Icon name='arrow_downward' />
             </button>

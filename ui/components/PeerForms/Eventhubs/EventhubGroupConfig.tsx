@@ -1,12 +1,12 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { blankEventhubSetting } from '@/app/peers/create/[peerType]/helpers/eh';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { EventHubConfig, EventHubGroupConfig } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { useEffect, useState } from 'react';
-import ThemedToastContainer from '@/components/ThemedToastContainer';
 import EventhubsConfig from './EventhubConfig';
 interface EventhubsProps {
   groupConfig: EventHubGroupConfig;

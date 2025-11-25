@@ -78,7 +78,12 @@ export default function SchemaSettings({
               Save
             </button>
             {savedIndicator && (
-              <span style={{ marginLeft: '0.5rem', color: styledTheme.colors.positive.text.lowContrast }}>
+              <span
+                style={{
+                  marginLeft: '0.5rem',
+                  color: styledTheme.colors.positive.text.lowContrast,
+                }}
+              >
                 success
               </span>
             )}

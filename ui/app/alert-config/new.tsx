@@ -1,3 +1,4 @@
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { PostAlertConfigRequest } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label/Label';
@@ -7,7 +8,6 @@ import Link from 'next/link';
 import { Dispatch, SetStateAction, useState } from 'react';
 import ReactSelect from 'react-select';
 import { PulseLoader } from 'react-spinners';
-import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { useSelectTheme } from '../styles/select';
 import { notifyErr } from '../utils/notify';
 import {

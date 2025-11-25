@@ -151,7 +151,7 @@ export default function DropDialog({
       triggerButton={
         <Button variant='drop'>
           {mode === 'ALERT' ? (
-            <Label as='label' colorSet='destructive' colorName='lowContrast' >
+            <Label as='label' colorSet='destructive' colorName='lowContrast'>
               Delete
             </Label>
           ) : (

@@ -15,6 +15,7 @@ import { notifyErr } from '@/app/utils/notify';
 import TitleCase from '@/app/utils/titlecase';
 import ElasticsearchConfigForm from '@/components/PeerForms/ElasticsearchConfigForm';
 import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import {
   ElasticsearchConfig,
   EventHubGroupConfig,
@@ -32,7 +33,6 @@ import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useState } from 'react';
-import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';

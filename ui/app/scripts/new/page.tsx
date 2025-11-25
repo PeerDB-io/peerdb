@@ -1,6 +1,7 @@
 'use client';
 import { notifyErr } from '@/app/utils/notify';
 import PeerDBCodeEditor from '@/components/PeerDBCodeEditor';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { Script } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -10,7 +11,6 @@ import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { GetScriptById, HandleAddScript, HandleEditScript } from '../handlers';
 
 export default function EditScript() {

@@ -6,7 +6,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { SupabaseListProjectsResponse } from '../dto/PeersDTO';
-import { useProjectCardStyle, ProjectNameStyle } from './styles';
+import { ProjectNameStyle, useProjectCardStyle } from './styles';
 
 interface ProjectCardProps {
   project: SupabaseListProjectsResponse;

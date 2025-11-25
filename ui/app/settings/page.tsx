@@ -1,5 +1,6 @@
 'use client';
 
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { DynconfApplyMode, DynconfValueType } from '@/grpc_generated/flow';
 import {
   DynamicSetting,
@@ -11,7 +12,6 @@ import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
 import { useEffect, useMemo, useState } from 'react';
-import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { notifyErr } from '../utils/notify';
 
 function ApplyModeIconWithTooltip({ applyMode }: { applyMode: number }) {

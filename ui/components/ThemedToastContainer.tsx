@@ -4,5 +4,7 @@ import { ToastContainer, ToastContainerProps } from 'react-toastify';
 
 export default function ThemedToastContainer(props: ToastContainerProps) {
   const { theme } = useTheme();
-  return <ToastContainer theme={theme === 'dark' ? 'dark' : 'light'} {...props} />;
+  return (
+    <ToastContainer theme={theme === 'dark' ? 'dark' : 'light'} {...props} />
+  );
 }

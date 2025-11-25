@@ -9,12 +9,18 @@ async function getHandler() {
   return NextAuth(getAuthOptions(colorScheme));
 }
 
-export async function GET(request: Request, context: { params: Promise<{ nextauth: string[] }> }) {
+export async function GET(
+  request: Request,
+  context: { params: Promise<{ nextauth: string[] }> }
+) {
   const handler = await getHandler();
   return handler(request, context);
 }
 
-export async function POST(request: Request, context: { params: Promise<{ nextauth: string[] }> }) {
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ nextauth: string[] }> }
+) {
   const handler = await getHandler();
   return handler(request, context);
 }

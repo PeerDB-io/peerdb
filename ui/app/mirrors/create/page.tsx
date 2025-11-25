@@ -5,6 +5,7 @@ import InfoPopover from '@/components/InfoPopover';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
 import PeerDBCodeEditor from '@/components/PeerDBCodeEditor';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { QRepConfig } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { ListPeersResponse, PeerListItem } from '@/grpc_generated/route';
@@ -20,7 +21,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import ReactSelect, { SingleValue } from 'react-select';
-import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { CDCConfig, MirrorType, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
 import {

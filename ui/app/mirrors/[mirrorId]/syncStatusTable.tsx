@@ -12,8 +12,8 @@ import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
+import { useSortButtonColor } from '@/lib/hooks/useSortButtonColor';
 import { useCallback, useEffect, useState } from 'react';
-import { useTheme as useStyledTheme } from 'styled-components';
 import { RowDataFormatter } from './rowsDisplay';
 
 type SyncStatusTableProps = { mirrorName: string };
@@ -47,7 +47,7 @@ function TimeWithDurationOrRunning({
 
 const ROWS_PER_PAGE = 5;
 export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
-  const styledTheme = useStyledTheme();
+  const sortButtonColor = useSortButtonColor();
   const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [ascending, setAscending] = useState(false);
@@ -122,7 +122,7 @@ export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
                 setBeforeAfterId([-1, 0]);
               }}
               aria-label='sort up'
-              style={{ color: ascending ? styledTheme.colors.positive.text.lowContrast : styledTheme.colors.base.text.lowContrast }}
+              style={{ color: sortButtonColor(ascending) }}
             >
               <Icon name='arrow_upward' />
             </button>
@@ -133,7 +133,7 @@ export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
                 setBeforeAfterId([-1, -1]);
               }}
               aria-label='sort down'
-              style={{ color: ascending ? styledTheme.colors.base.text.lowContrast : styledTheme.colors.positive.text.lowContrast }}
+              style={{ color: sortButtonColor(!ascending) }}
             >
               <Icon name='arrow_downward' />
             </button>
