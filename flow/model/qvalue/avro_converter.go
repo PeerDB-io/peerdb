@@ -398,7 +398,7 @@ func (c *QValueAvroConverter) processGoTimestamp(t time.Time, so sizeOpt) (any, 
 
 func (c *QValueAvroConverter) processGoDate(t time.Time, so sizeOpt) (any, int64) {
 	// Date is days since epoch, encoded as Avro int (varint)
-	return c.processGeneralTime(t, "2006-01-02", int64(t.Unix()/86400), so)
+	return c.processGeneralTime(t, "2006-01-02", t.Unix()/86400, so)
 }
 
 func (c *QValueAvroConverter) processNullableUnion(
