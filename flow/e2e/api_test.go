@@ -2060,8 +2060,19 @@ func (s APITestSuite) TestCancelTableAddition() {
 	})
 
 	// insert CDC row
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "original"))))
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "original"))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("original").
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
 
 	originalConfig := s.ch.Peer().GetClickhouseConfig()
 	badClickHouseConfig := proto.Clone(originalConfig).(*protos.ClickhouseConfig)
@@ -2103,7 +2114,7 @@ func (s APITestSuite) TestCancelTableAddition() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
 	})
 
-	_, err = s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
+	output, err := s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
 		FlowJobName:                flowConnConfig.FlowJobName,
 		CurrentlyReplicatingTables: flowConnConfig.TableMappings,
 		IdempotencyKey:             "test",
@@ -2113,6 +2124,8 @@ func (s APITestSuite) TestCancelTableAddition() {
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition cancellation to finish", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
+
+	require.Len(s.t, output.TablesAfterCancellation, len(flowConnConfig.TableMappings))
 
 	// pause
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{

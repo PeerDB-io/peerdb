@@ -121,6 +121,7 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		OtelManager:    otelManager,
 		TemporalClient: c,
 	})
+
 	return &WorkerSetupResponse{
 		Client:      c,
 		Worker:      w,

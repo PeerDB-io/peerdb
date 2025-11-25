@@ -4,15 +4,14 @@ import (
 	"time"
 
 	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"go.temporal.io/sdk/temporal"
 )
 
-func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAdditionInput) error {
+func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAdditionInput) (*protos.CancelTableAdditionOutput, error) {
 	logger := workflow.GetLogger(ctx)
 	flowJobName := input.FlowJobName
 
@@ -31,20 +30,24 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	getSnapshottedTablesCtx := workflow.WithActivityOptions(ctx, getSnapshottedCompletedTablesOptions)
 
 	var snapshottedSourceTables []string
-	err := workflow.ExecuteActivity(getSnapshottedTablesCtx, cancelTableAddition.GetCompletedTablesInQrepRuns, flowJobName).Get(ctx, &snapshottedSourceTables)
+	err := workflow.ExecuteActivity(
+		getSnapshottedTablesCtx,
+		cancelTableAddition.GetCompletedTablesInQrepRuns,
+		flowJobName,
+	).Get(ctx, &snapshottedSourceTables)
 	if err != nil {
 		logger.Error("Failed to get completed tables", "error", err)
-		return err
+		return nil, err
 	}
 
 	logger.Info("Retrieved completed tables", "flowName", flowJobName, "completedCount", len(snapshottedSourceTables))
 
-	snapshottedTables := make([]*protos.TableMapping, 0)
 	snapshottedTableSet := make(map[string]bool)
 	for _, tableName := range snapshottedSourceTables {
 		snapshottedTableSet[tableName] = true
 	}
 
+	snapshottedTables := make([]*protos.TableMapping, 0)
 	for _, mapping := range input.CurrentlyReplicatingTables {
 		if snapshottedTableSet[mapping.SourceTableIdentifier] {
 			snapshottedTables = append(snapshottedTables, mapping)
@@ -71,7 +74,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 		flowJobName, snapshottedTables).Get(ctx, &tableOIDs)
 	if err != nil {
 		logger.Error("Failed to get PostgreSQL table OIDs", "error", err)
-		return err
+		return nil, err
 	}
 
 	logger.Info("Retrieved PostgreSQL table OIDs", "flowName", flowJobName, "oidCount", len(tableOIDs))
@@ -91,7 +94,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 		flowJobName, snapshottedTables).Get(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to cleanup incomplete tables in stats", "error", err)
-		return err
+		return nil, err
 	}
 	logger.Info("Successfully cleaned up incomplete tables in stats", "flowName", flowJobName)
 
@@ -106,20 +109,19 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 	getFlowConfigCtx := workflow.WithActivityOptions(ctx, getFlowConfigOptions)
 
-	var flowConfig *protos.FlowConnectionConfigs
+	var flowConfig *protos.FlowConnectionConfigsCore
 	err = workflow.ExecuteActivity(getFlowConfigCtx, cancelTableAddition.GetFlowConfigFromCatalog, flowJobName).Get(ctx, &flowConfig)
 	if err != nil {
 		logger.Error("Failed to get flow config from catalog", "error", err)
-		return err
+		return nil, err
 	}
 	logger.Info("Retrieved flow config", "flowName", flowJobName, "tableCount", len(flowConfig.TableMappings))
 
 	// update table mappings for upcoming request
 	flowConfig.TableMappings = snapshottedTables
 	flowConfig.DoInitialSnapshot = false
-	coreConfig := proto_conversions.FlowConnectionConfigsToCore(flowConfig, 0)
 
-	state := NewCDCFlowWorkflowState(ctx, logger, coreConfig)
+	state := NewCDCFlowWorkflowState(ctx, logger, flowConfig)
 	// update table OIDs for upcoming request
 	if len(tableOIDs) > 0 {
 		state.SyncFlowOptions.SrcTableIdNameMapping = tableOIDs
@@ -144,13 +146,13 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	err = workflow.ExecuteActivity(cleanupCurrentParentMirrorCtx, cancelTableAddition.CleanupCurrentParentMirror, flowJobName).Get(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to cleanup current parent mirror", "error", err)
-		return err
+		return nil, err
 	}
 
 	logger.Info("Successfully cleaned up current parent mirror workflow", "flowName", flowJobName)
 
 	createCdcJobEntryOptions := workflow.ActivityOptions{
-		StartToCloseTimeout: time.Minute * 3,
+		StartToCloseTimeout: time.Minute * 5,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    time.Second * 5,
 			BackoffCoefficient: 2.0,
@@ -160,12 +162,12 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 	createCdcJobEntryCtx := workflow.WithActivityOptions(ctx, createCdcJobEntryOptions)
 
-	childWorkflowID := shared.GetWorkflowID(coreConfig.FlowJobName)
+	childWorkflowID := shared.GetWorkflowID(flowConfig.FlowJobName)
 	err = workflow.ExecuteActivity(createCdcJobEntryCtx, cancelTableAddition.CreateCdcJobEntry,
-		coreConfig, childWorkflowID, false).Get(ctx, nil)
+		flowConfig, childWorkflowID).Get(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to create CDC job entry", "error", err)
-		return err
+		return nil, err
 	}
 
 	logger.Info("Starting CDC flow with updated configuration and OID mappings",
@@ -178,7 +180,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 
 	childCtx := workflow.WithChildOptions(ctx, childWorkflowOptions)
-	childFuture := workflow.ExecuteChildWorkflow(childCtx, CDCFlowWorkflow, coreConfig, state)
+	childFuture := workflow.ExecuteChildWorkflow(childCtx, CDCFlowWorkflow, flowConfig, state)
 
 	selector := workflow.NewSelector(ctx)
 	selector.AddFuture(childFuture, func(f workflow.Future) {
@@ -207,15 +209,22 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 	waitForRunningMirrorCtx := workflow.WithActivityOptions(ctx, waitForRunningMirrorOptions)
 
-	err = workflow.ExecuteActivity(waitForRunningMirrorCtx, cancelTableAddition.WaitForNewRunningMirrorToBeInRunningState, flowJobName).Get(ctx, nil)
+	err = workflow.ExecuteActivity(
+		waitForRunningMirrorCtx,
+		cancelTableAddition.WaitForNewRunningMirrorToBeInRunningState,
+		flowJobName,
+	).Get(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to confirm new mirror is running", "error", err)
-		return err
+		return nil, err
 	}
 
 	logger.Info("Cancel table addition flow completed successfully - CDC workflow started and running",
 		"flowName", flowJobName,
 		"finalTableCount", len(snapshottedTables))
 
-	return nil
+	return &protos.CancelTableAdditionOutput{
+		FlowJobName:             flowJobName,
+		TablesAfterCancellation: snapshottedTables,
+	}, nil
 }
