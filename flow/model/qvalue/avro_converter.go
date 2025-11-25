@@ -812,6 +812,9 @@ func fixedArraySize(count int, elemSize int64, so sizeOpt) int64 {
 }
 
 func varIntArraySize[T ~int16 | ~int32 | ~int64](vals []T, so sizeOpt) int64 {
+	if so == sizeSkip {
+		return 0
+	}
 	totalElemSize := int64(0)
 	for _, elem := range vals {
 		totalElemSize += varIntSize(int64(elem), sizePlain)
@@ -820,6 +823,9 @@ func varIntArraySize[T ~int16 | ~int32 | ~int64](vals []T, so sizeOpt) int64 {
 }
 
 func stringArraySize(vals []string, so sizeOpt) int64 {
+	if so == sizeSkip {
+		return 0
+	}
 	totalElemSize := int64(0)
 	for _, elem := range vals {
 		totalElemSize += stringSize(elem, sizePlain)
