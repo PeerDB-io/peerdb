@@ -28,21 +28,6 @@ import (
 
 var re = regexp.MustCompile(`[^A-Za-z0-9_]`)
 
-type sizeOpt int8
-
-const (
-	sizeSkip sizeOpt = iota
-	sizePlain
-	sizeNullable
-)
-
-func (s sizeOpt) nullableSize() int64 {
-	if s == sizeNullable {
-		return 1
-	}
-	return 0
-}
-
 // ConvertToAvroCompatibleName converts a column name to a field name that is compatible with Avro.
 func ConvertToAvroCompatibleName(columnName string) string {
 	// Avro field names must:
@@ -199,6 +184,21 @@ type QValueAvroConverter struct {
 	binaryFormat             internal.BinaryFormat
 }
 
+type sizeOpt int8
+
+const (
+	sizeSkip sizeOpt = iota
+	sizePlain
+	sizeNullable
+)
+
+func (s sizeOpt) nullableSize() int64 {
+	if s == sizeNullable {
+		return 1
+	}
+	return 0
+}
+
 func QValueToAvro(
 	ctx context.Context,
 	value types.QValue, field *types.QField, targetDWH protos.DBType, logger log.Logger,
@@ -206,6 +206,7 @@ func QValueToAvro(
 	binaryFormat internal.BinaryFormat,
 	calcSize bool,
 ) (any, int64, error) {
+	// Condense calcSize and nullable into a single value for shorter case statements
 	sizeOpt := sizeSkip
 	if calcSize {
 		sizeOpt = sizePlain
