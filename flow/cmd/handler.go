@@ -54,12 +54,6 @@ func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName 
 	return exists, err
 }
 
-func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
-	connectionConfigs *protos.FlowConnectionConfigsCore, workflowID string, idempotent bool,
-) error {
-	return shared.CreateCdcJobEntry(ctx, h.pool, connectionConfigs, workflowID, idempotent)
-}
-
 func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	req *protos.CreateQRepFlowRequest, workflowID string,
 ) error {
@@ -164,7 +158,7 @@ func (h *FlowRequestHandler) createCDCFlow(
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // but creating the same id as a completed one is allowed
 	}
 
-	if err := h.createCdcJobEntry(ctx, connectionConfigs, workflowID, true); err != nil {
+	if err := shared.CreateCdcJobEntry(ctx, h.pool, connectionConfigs, workflowID, true); err != nil {
 		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
@@ -428,11 +422,12 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_TERMINATED:
 			if currState != protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATING {
-				if currState == protos.FlowStatus_STATUS_COMPLETED {
+				switch currState {
+				case protos.FlowStatus_STATUS_COMPLETED:
 					changeErr = h.dropFlow(ctx, req.FlowJobName, req.DropMirrorStats)
-				} else if currState == protos.FlowStatus_STATUS_FAILED {
+				case protos.FlowStatus_STATUS_FAILED:
 					changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
-				} else {
+				default:
 					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 				}
 			}

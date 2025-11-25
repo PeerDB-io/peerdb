@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/jackc/pgerrcode"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func GetWorkflowID(flowName string) string {
