@@ -199,13 +199,6 @@ func TestAvroQValueSize(t *testing.T) {
 			expectedSize: 2, // varint(1) + 1 byte
 		},
 
-		// Numeric (decimal as string)
-		{
-			name:         "numeric small",
-			qvalue:       types.QValueNumeric{Val: decimal.NewFromFloat(123.45)},
-			expectedSize: 7, // "123.45" = varint(6) + 6 chars
-		},
-
 		// Bytes type
 		{
 			name:         "bytes empty",
@@ -338,11 +331,6 @@ func TestAvroQValueSize(t *testing.T) {
 			qvalue:       types.QValueArrayUUID{Val: []uuid.UUID{uuid.New(), uuid.New()}},
 			expectedSize: 76, // varint(2) + (varint(36)+36)*2 + terminator(1)
 		},
-		{
-			name:         "array numeric with values",
-			qvalue:       types.QValueArrayNumeric{Val: []decimal.Decimal{decimal.NewFromFloat(1.23), decimal.NewFromFloat(4.56)}},
-			expectedSize: 12, // varint(1) + (varint(4)+4) + (varint(4)+4) + terminator(1)
-		},
 	}
 
 	for _, tt := range tests {
@@ -374,18 +362,18 @@ func TestConstSize(t *testing.T) {
 	tests := []struct {
 		name         string
 		n            int64
-		nullableSize int64
+		sizeOpt      sizeOpt
 		expectedSize int64
 	}{
 		// n + nullable
-		{"simple [123+0]", 123, 0, 123},
-		{"simple [0+0]", 0, 0, 0},
-		{"with nullable [4+1]", 4, 1, 5},
+		{"simple [123+0]", 123, sizePlain, 123},
+		{"simple [0+0]", 0, sizePlain, 0},
+		{"with nullable [4+1]", 4, sizeNullable, 5},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			size := constSize(tt.n, tt.nullableSize, true)
+			size := constSize(tt.n, tt.sizeOpt)
 			assert.Equal(t, tt.expectedSize, size)
 		})
 	}
@@ -414,7 +402,7 @@ func TestVarIntSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			size := varIntSize(tt.value, 0, true)
+			size := varIntSize(tt.value, sizePlain)
 			assert.Equal(t, tt.expectedSize, size)
 		})
 	}
@@ -424,68 +412,130 @@ func TestStringSize(t *testing.T) {
 	tests := []struct {
 		name         string
 		str          string
-		nullableSize int64
+		sizeOpt      sizeOpt
 		expectedSize int64
 	}{
 		// varint(count) + len(string) + nullable
-		{"empty string [1+0+0]", "", 0, 1},
-		{"single char [1+1+0]]", "a", 0, 2},
-		{"simple string [1+11+0]", "hello world", 0, 12},
-		{"longer string [2+127+0]", string(make([]byte, 127)), 0, 129},
-		{"with nullable [2+127+1]", string(make([]byte, 127)), 1, 130},
+		{"empty string [1+0+0]", "", sizePlain, 1},
+		{"single char [1+1+0]]", "a", sizePlain, 2},
+		{"simple string [1+11+0]", "hello world", sizePlain, 12},
+		{"longer string [2+127+0]", string(make([]byte, 127)), sizePlain, 129},
+		{"with nullable [2+127+1]", string(make([]byte, 127)), sizeNullable, 130},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			size := stringSize(tt.str, tt.nullableSize, true)
+			size := stringSize(tt.str, tt.sizeOpt)
 			require.Equal(t, tt.expectedSize, size)
 		})
 	}
 }
 
-func TestFixedElementArraySize(t *testing.T) {
+func TestFixedArraySize(t *testing.T) {
 	tests := []struct {
 		name         string
-		count        int64
+		count        int
 		elemSize     int64
-		nullableSize int64
+		sizeOpt      sizeOpt
 		expectedSize int64
 	}{
 		// nullable + varint(count) + (elemSize * count) + terminator if non-empty
-		{"empty array [0+1+0+0]", 0, 8, 0, 1},
-		{"single element [0+1+8+1]", 1, 8, 0, 10},
-		{"multiple elements [0+1+5*8+1]", 5, 8, 0, 42},
-		{"with nullable [1+1+3*4+1]", 3, 4, 1, 15},
-		{"large count [0+2+100*1+1]", 100, 1, 0, 103},
+		{"empty array [0+1+0+0]", 0, 8, sizePlain, 1},
+		{"single element [0+1+8+1]", 1, 8, sizePlain, 10},
+		{"multiple elements [0+1+5*8+1]", 5, 8, sizePlain, 42},
+		{"with nullable [1+1+3*4+1]", 3, 4, sizeNullable, 15},
+		{"large count [0+2+100*1+1]", 100, 1, sizePlain, 103},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			size := fixedElementArraySize(tt.count, tt.elemSize, tt.nullableSize, true)
+			size := fixedArraySize(tt.count, tt.elemSize, tt.sizeOpt)
 			assert.Equal(t, tt.expectedSize, size)
 		})
 	}
 }
 
-func TestVariableElementArraySize(t *testing.T) {
+func TestStringArraySize(t *testing.T) {
 	tests := []struct {
 		name         string
 		vals         []string
-		nullableSize int64
+		sizeOpt      sizeOpt
 		expectedSize int64
 	}{
 		// nullable + varint(count) + sum(elem sizes) + terminator(if non-empty)
-		{"empty array [0+1+0+0]", []string{}, 0, 1},
-		{"single elem [0+1+(1+1)+1]", []string{"a"}, 0, 4},
-		{"multiple elems [0+1+((1+0)+(1+2)+(1+3))+1]", []string{"", "ab", "xyz"}, 0, 10},
-		{"with nullable [1+1+(1+4)+1]", []string{"test"}, 1, 8},
+		{"empty array [0+1+0+0]", []string{}, sizePlain, 1},
+		{"single elem [0+1+(1+1)+1]", []string{"a"}, sizePlain, 4},
+		{"multiple elems [0+1+((1+0)+(1+2)+(1+3))+1]", []string{"", "ab", "xyz"}, sizePlain, 10},
+		{"with nullable [1+1+(1+4)+1]", []string{"test"}, sizeNullable, 8},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			size := variableElementArraySize(tt.vals, func(elem string) int64 {
-				return stringSize(elem, 0, true)
-			}, tt.nullableSize, true)
+			size := stringArraySize(tt.vals, tt.sizeOpt)
+			assert.Equal(t, tt.expectedSize, size)
+		})
+	}
+}
+
+func TestDecimalSize(t *testing.T) {
+	tests := []struct {
+		name         string
+		num          decimal.Decimal
+		precision    int16
+		scale        int16
+		sizeOpt      sizeOpt
+		expectedSize int64
+	}{
+		// name format: "value [varint+bytes(+nullable)?(, 1 overcount)?]"
+		{"0 [1+1]", decimal.NewFromInt(0), 38, 0, sizePlain, 2},
+		{"1.23 [1+2]", decimal.NewFromFloat(1.23), 38, 2, sizePlain, 3},
+		{"-1.23 [1+2]", decimal.NewFromFloat(-1.23), 38, 2, sizePlain, 3},
+		{"1000 [1+2]", decimal.NewFromInt(1000), 38, 0, sizePlain, 3},
+		{"9999999999 [1+5]", decimal.NewFromInt(9999999999), 38, 0, sizePlain, 6},
+		{"123.456789 [1+4]", decimal.NewFromFloat(123.456789), 38, 6, sizePlain, 5},
+		{"128 [1+2]", decimal.NewFromInt(128), 38, 0, sizePlain, 3},
+		{"-129 [1+2]", decimal.NewFromInt(-129), 38, 0, sizePlain, 3},
+		{"0.123 [1+2]", decimal.NewFromFloat(0.123), 38, 3, sizePlain, 3},
+		{"127 [1+2, 1 overcount]", decimal.NewFromInt(127), 38, 0, sizePlain, 3},
+		{"-128 [1+2, 1 overcount]", decimal.NewFromInt(-128), 38, 0, sizePlain, 3},
+		{"1234567890 [1+5, 1 overcount]", decimal.NewFromInt(1234567890), 38, 0, sizePlain, 6},
+		{"99.99 nullable [1+2+1]", decimal.NewFromFloat(99.99), 38, 2, sizeNullable, 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := QValueAvroConverter{
+				QField: &types.QField{
+					Precision: tt.precision,
+					Scale:     tt.scale,
+				},
+				TargetDWH: protos.DBType_CLICKHOUSE,
+			}
+			_, size := c.processNumeric(tt.num, tt.sizeOpt)
+			assert.Equal(t, tt.expectedSize, size)
+		})
+	}
+
+	// unboundedNumericAsString=true encodes decimals as strings
+	stringTests := []struct {
+		name         string
+		num          decimal.Decimal
+		expectedSize int64
+	}{
+		// size = varint(len) + string chars
+		{"123.45 [1+6]", decimal.NewFromFloat(123.45), 7},
+		{"0 [1+1]", decimal.NewFromInt(0), 2},
+		{"-999.999 [1+8]", decimal.NewFromFloat(-999.999), 9},
+	}
+
+	for _, tt := range stringTests {
+		t.Run("string/"+tt.name, func(t *testing.T) {
+			c := QValueAvroConverter{
+				QField:                   &types.QField{},
+				TargetDWH:                protos.DBType_CLICKHOUSE,
+				UnboundedNumericAsString: true,
+			}
+			_, size := c.processNumeric(tt.num, sizePlain)
 			assert.Equal(t, tt.expectedSize, size)
 		})
 	}
