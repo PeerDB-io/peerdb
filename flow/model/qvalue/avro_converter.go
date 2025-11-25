@@ -425,16 +425,16 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal, so sizeOpt) (a
 		return big.Rat{}, constSize(zeroDecimalSize, so)
 	}
 
-	return c.processNullableUnion(num.Rat()), decimalSize(intDigits, int(destType.Scale), so)
+	return c.processNullableUnion(num.Rat()), decimalSize(num, intDigits, int(destType.Scale), so)
 }
 
 // decimalSize estimates Avro-encoded size from integer digit count and scale.
 // Total digits = intDigits + scale determines byte length of two's complement encoding.
-func decimalSize(intDigits, scale int, so sizeOpt) int64 {
+func decimalSize(num decimal.Decimal, intDigits, scale int, so sizeOpt) int64 {
 	if so == sizeSkip {
 		return 0
 	}
-	if intDigits == 0 && scale == 0 {
+	if num.IsZero() {
 		return so.nullableSize() + zeroDecimalSize
 	}
 
@@ -442,7 +442,7 @@ func decimalSize(intDigits, scale int, so sizeOpt) int64 {
 	// may need fewer bits (e.g., 127 needs 7 bits, not 10 bits like 999). This can
 	// overestimate by ~1 byte for values well below the max for their digit count.
 	estimatedBitLen := max(int(float64(intDigits+scale)*math.Log2(10)), 8)
-	byteLen := int64((estimatedBitLen + 8) / 8) // +8 for sign bit rounding
+	byteLen := int64((estimatedBitLen + 9) / 8) // +9 for sign bit and rounding
 	return so.nullableSize() + varIntSize(byteLen, sizePlain) + byteLen
 }
 
@@ -515,7 +515,7 @@ func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal, so
 			continue
 		}
 		transformedNumArr = append(transformedNumArr, num.Rat())
-		totalElemSize += decimalSize(intDigits, int(destType.Scale), sizePlain)
+		totalElemSize += decimalSize(num, intDigits, int(destType.Scale), sizePlain)
 	}
 	return transformedNumArr, arraySize(len(arrayNum), totalElemSize, so)
 }
