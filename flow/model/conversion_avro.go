@@ -122,7 +122,7 @@ func GetAvroSchemaDefinition(
 		}
 
 		if qField.Nullable {
-			avroType, err = avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), avroType})
+			avroType, err = qvalue.NullableAvroSchema(avroType)
 			if err != nil {
 				return nil, err
 			}
