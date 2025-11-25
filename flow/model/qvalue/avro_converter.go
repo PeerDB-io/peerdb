@@ -156,6 +156,10 @@ func GetAvroSchemaFromQValueKind(
 	}
 }
 
+func NullableAvroSchema(schema avro.Schema) (avro.Schema, error) {
+	return avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), schema})
+}
+
 func getAvroNumericSchema(
 	ctx context.Context,
 	env map[string]string,
@@ -361,7 +365,7 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration, so sizeOpt) (any, i
 	return t, constSize(8, so)
 }
 
-func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, fixedSize int64, so sizeOpt) (any, int64) {
+func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, avroVal int64, so sizeOpt) (any, int64) {
 	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
 	switch c.TargetDWH {
 	case protos.DBType_BIGQUERY:
@@ -372,7 +376,7 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, fix
 			if c.Nullable {
 				return nil, so.nullableSize()
 			} else {
-				return time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), constSize(fixedSize, so)
+				return time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), varIntSize(0, so)
 			}
 		}
 	case protos.DBType_SNOWFLAKE:
@@ -381,19 +385,20 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, fix
 		s := t.Format(format)
 		return s, stringSize(s, so)
 	}
-	return t, constSize(fixedSize, so)
+	return t, varIntSize(avroVal, so)
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time, so sizeOpt) (any, int64) {
-	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700", 8, so)
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700", t.UnixMicro(), so)
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time, so sizeOpt) (any, int64) {
-	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999", 8, so)
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999", t.UnixMicro(), so)
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time, so sizeOpt) (any, int64) {
-	return c.processGeneralTime(t, "2006-01-02", 4, so)
+	// Date is days since epoch, encoded as Avro int (varint)
+	return c.processGeneralTime(t, "2006-01-02", int64(t.Unix()/86400), so)
 }
 
 func (c *QValueAvroConverter) processNullableUnion(
@@ -604,7 +609,13 @@ func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time, so sizeOpt
 		return transformedTimeArr, arraySize(len(arrayDate), totalElemSize, so)
 	}
 
-	return arrayDate, fixedArraySize(len(arrayDate), 4, so)
+	// Date is days since epoch, encoded as Avro int (varint)
+	totalElemSize := int64(0)
+	for _, t := range arrayDate {
+		days := int32(t.Unix() / 86400)
+		totalElemSize += varIntSize(int64(days), sizePlain)
+	}
+	return arrayDate, arraySize(len(arrayDate), totalElemSize, so)
 }
 
 func (c *QValueAvroConverter) processHStore(hstore string) (any, error) {
@@ -820,9 +831,12 @@ func arraySize(count int, totalElemSize int64, so sizeOpt) int64 {
 	if so == sizeSkip {
 		return 0
 	}
-	size := so.nullableSize() + varIntSize(int64(count), sizePlain) + totalElemSize
+	// Avro array encoding: block header (negative count + byte size) + elements + termination (varint 0)
+	// Block header: varint(-count) + varint(totalElemSize)
+	size := so.nullableSize()
 	if count > 0 {
-		size += 1 // array termination byte
+		size += varIntSize(int64(-count), sizePlain) + varIntSize(totalElemSize, sizePlain) + totalElemSize
 	}
+	size += 1 // array termination byte (varint 0)
 	return size
 }
