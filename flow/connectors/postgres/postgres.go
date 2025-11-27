@@ -1135,27 +1135,133 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	defer shared.RollbackTx(tableSchemaModifyTx, c.logger)
 
 	for _, schemaDelta := range schemaDeltas {
-		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+		if schemaDelta == nil {
+			c.logger.Warn("Skipping nil schema delta")
 			continue
+		}
+
+		// Skip if no schema changes
+		if len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0 && len(schemaDelta.TypeChangedColumns) == 0 {
+			continue
+		}
+
+		dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+		if err != nil {
+			return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+		}
+
+		for _, droppedColumn := range schemaDelta.DroppedColumns {
+			// Never drop PeerDB system columns - they are managed by PeerDB
+			// System columns start with _PEERDB_ prefix
+			if strings.HasPrefix(droppedColumn, "_PEERDB_") {
+				c.logger.Warn("Skipping drop of PeerDB system column",
+					slog.String("columnName", droppedColumn),
+					slog.String("srcTableName", schemaDelta.SrcTableName),
+					slog.String("dstTableName", schemaDelta.DstTableName),
+					slog.String("reason", "PeerDB system columns cannot be dropped"))
+				continue
+			}
+
+			dropSQL := fmt.Sprintf(
+				"ALTER TABLE %s.%s DROP COLUMN IF EXISTS %s",
+				utils.QuoteIdentifier(dstSchemaTable.Schema),
+				utils.QuoteIdentifier(dstSchemaTable.Table),
+				utils.QuoteIdentifier(droppedColumn))
+			_, err = c.execWithLoggingTx(ctx, dropSQL, tableSchemaModifyTx)
+			if err != nil {
+				c.logger.Error("Failed to drop column",
+					slog.String("columnName", droppedColumn),
+					slog.String("dstTableName", schemaDelta.DstTableName),
+					slog.Any("error", err))
+				return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
+					schemaDelta.DstTableName, err)
+			}
+		}
+
+		for _, typeChange := range schemaDelta.TypeChangedColumns {
+			// Never change type of PeerDB system columns
+			if strings.HasPrefix(typeChange.ColumnName, "_PEERDB_") {
+				continue
+			}
+
+			newType := typeChange.NewType
+			if schemaDelta.System == protos.TypeSystem_Q {
+				newType = qValueKindToPostgresType(typeChange.NewType)
+			}
+
+			// Build ALTER COLUMN statement
+			alterSQL := fmt.Sprintf(
+				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE %s",
+				utils.QuoteIdentifier(dstSchemaTable.Schema),
+				utils.QuoteIdentifier(dstSchemaTable.Table),
+				utils.QuoteIdentifier(typeChange.ColumnName),
+				newType)
+
+			_, err = c.execWithLoggingTx(ctx, alterSQL, tableSchemaModifyTx)
+			if err != nil {
+				c.logger.Error("Failed to change column type",
+					slog.String("columnName", typeChange.ColumnName),
+					slog.String("oldType", typeChange.OldType),
+					slog.String("newType", typeChange.NewType),
+					slog.String("dstTableName", schemaDelta.DstTableName),
+					slog.Any("error", err))
+			} else {
+				c.logger.Info("Successfully changed column type",
+					slog.String("columnName", typeChange.ColumnName),
+					slog.String("oldType", typeChange.OldType),
+					slog.String("newType", typeChange.NewType),
+					slog.String("srcTableName", schemaDelta.SrcTableName),
+					slog.String("dstTableName", schemaDelta.DstTableName))
+
+				// Update default value if provided
+				if typeChange.NewDefaultValue != "" {
+					defaultSQL := fmt.Sprintf(
+						"ALTER TABLE %s.%s ALTER COLUMN %s SET DEFAULT %s",
+						utils.QuoteIdentifier(dstSchemaTable.Schema),
+						utils.QuoteIdentifier(dstSchemaTable.Table),
+						utils.QuoteIdentifier(typeChange.ColumnName),
+						typeChange.NewDefaultValue)
+
+					_, err = c.execWithLoggingTx(ctx, defaultSQL, tableSchemaModifyTx)
+					if err != nil {
+						c.logger.Warn("Failed to set default value after type change",
+							slog.String("columnName", typeChange.ColumnName),
+							slog.String("defaultValue", typeChange.NewDefaultValue),
+							slog.Any("error", err))
+					}
+				}
+			}
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			columnType := addedColumn.Type
 			if schemaDelta.System == protos.TypeSystem_Q {
-				columnType = qValueKindToPostgresType(columnType)
+				columnType = qValueKindToPostgresType(addedColumn.Type)
 			}
 
-			dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
-			if err != nil {
-				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+			// Build column definition with type and default value
+			columnDef := fmt.Sprintf("%s %s", utils.QuoteIdentifier(addedColumn.Name), columnType)
+			if addedColumn.DefaultValue != "" {
+				// Include DEFAULT value if present
+				columnDef += fmt.Sprintf(" DEFAULT %s", addedColumn.DefaultValue)
+			} else if !addedColumn.Nullable {
+				// If NOT NULL without DEFAULT, PostgreSQL will require it
+				columnDef += " NOT NULL"
 			}
 
-			_, err = c.execWithLoggingTx(ctx, fmt.Sprintf(
-				"ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS %s %s",
+			addSQL := fmt.Sprintf(
+				"ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS %s",
 				utils.QuoteIdentifier(dstSchemaTable.Schema),
 				utils.QuoteIdentifier(dstSchemaTable.Table),
-				utils.QuoteIdentifier(addedColumn.Name), columnType), tableSchemaModifyTx)
+				columnDef)
+
+			_, err = c.execWithLoggingTx(ctx, addSQL, tableSchemaModifyTx)
 			if err != nil {
+				c.logger.Error("Failed to add column",
+					slog.String("columnName", addedColumn.Name),
+					slog.String("columnType", addedColumn.Type),
+					slog.String("dstTableName", schemaDelta.DstTableName),
+					slog.Any("error", err))
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
@@ -1168,6 +1274,9 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	}
 
 	if err := tableSchemaModifyTx.Commit(ctx); err != nil {
+		c.logger.Error("Failed to commit schema modification transaction",
+			slog.String("flowJobName", flowJobName),
+			slog.Any("error", err))
 		return fmt.Errorf("failed to commit transaction for table schema modification: %w", err)
 	}
 	return nil

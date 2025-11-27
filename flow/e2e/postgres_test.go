@@ -1286,3 +1286,157 @@ func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s PeerFlowE2ETestSuitePG) Test_Indexes_Triggers_Constraints_PG() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_idx_trig_const")
+	dstTableName := s.attachSchemaSuffix("test_idx_trig_const_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE OR REPLACE FUNCTION %s.update_timestamp()
+		RETURNS TRIGGER AS $$
+		BEGIN
+			NEW.updated_at = NOW();
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql`, Schema(s)))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL,
+			email TEXT,
+			age INT,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`, srcTableName))
+	require.NoError(s.t, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE INDEX idx_name ON %s(name)`, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE UNIQUE INDEX idx_email ON %s(email) WHERE email IS NOT NULL`, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE INDEX idx_created_at ON %s(created_at DESC)`, srcTableName))
+	require.NoError(s.t, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TRIGGER update_updated_at
+		BEFORE UPDATE ON %s
+		FOR EACH ROW
+		EXECUTE FUNCTION %s.update_timestamp()`, srcTableName, Schema(s)))
+	require.NoError(s.t, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s ADD CONSTRAINT check_name_length 
+		CHECK (char_length(name) >= 3)`, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s ADD CONSTRAINT check_age_positive 
+		CHECK (age > 0 AND age < 150)`, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s ADD CONSTRAINT check_email_format 
+		CHECK (email IS NULL OR email LIKE '%%@%%')`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_idx_trig_const"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.DoInitialSnapshot = true
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for initial setup", func() bool {
+		var exists bool
+		err := s.Conn().QueryRow(s.t.Context(), `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_catalog.pg_tables 
+				WHERE schemaname = $1 AND tablename = $2
+			)`, Schema(s), "test_idx_trig_const_dst").Scan(&exists)
+		return err == nil && exists
+	})
+	s.t.Log("Verifying indexes were synced...")
+	indexQuery := `
+		SELECT indexname 
+		FROM pg_indexes 
+		WHERE schemaname = $1 AND tablename = $2 AND indexname != $3
+		ORDER BY indexname
+	`
+	rows, err := s.Conn().Query(s.t.Context(), indexQuery, Schema(s), "test_idx_trig_const_dst", "test_idx_trig_const_dst_pkey")
+	require.NoError(s.t, err)
+	defer rows.Close()
+
+	indexNames := make(map[string]bool)
+	for rows.Next() {
+		var indexName string
+		require.NoError(s.t, rows.Scan(&indexName))
+		indexNames[indexName] = true
+	}
+
+	require.True(s.t, indexNames["idx_name"], "idx_name should be synced")
+	require.True(s.t, indexNames["idx_email"], "idx_email should be synced")
+	require.True(s.t, indexNames["idx_created_at"], "idx_created_at should be synced")
+
+	s.t.Log("Verifying trigger was synced...")
+	triggerQuery := `
+		SELECT t.tgname
+		FROM pg_trigger t
+		JOIN pg_class c ON c.oid = t.tgrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 
+			AND c.relname = $2
+			AND NOT t.tgisinternal
+	`
+	var triggerName string
+	err = s.Conn().QueryRow(s.t.Context(), triggerQuery, Schema(s), "test_idx_trig_const_dst").Scan(&triggerName)
+	require.NoError(s.t, err)
+	require.Equal(s.t, "update_updated_at", triggerName, "update_updated_at trigger should be synced")
+
+	s.t.Log("Verifying constraints were synced...")
+	constraintQuery := `
+		SELECT con.conname
+		FROM pg_constraint con
+		JOIN pg_class c ON c.oid = con.conrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 
+			AND c.relname = $2
+			AND con.contype::text = 'c'
+		ORDER BY con.conname
+	`
+	rows, err = s.Conn().Query(s.t.Context(), constraintQuery, Schema(s), "test_idx_trig_const_dst")
+	require.NoError(s.t, err)
+	defer rows.Close()
+
+	constraintNames := make(map[string]bool)
+	for rows.Next() {
+		var constraintName string
+		require.NoError(s.t, rows.Scan(&constraintName))
+		constraintNames[constraintName] = true
+	}
+
+	require.True(s.t, constraintNames["check_name_length"], "check_name_length should be synced")
+	require.True(s.t, constraintNames["check_age_positive"], "check_age_positive should be synced")
+	require.True(s.t, constraintNames["check_email_format"], "check_email_format should be synced")
+
+	s.t.Log("All indexes, triggers, and constraints were successfully synced!")
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(name, email, age) VALUES ('test', 'test@example.com', 25)`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting for data sync", srcTableName, dstTableName, "id,name,email,age")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
