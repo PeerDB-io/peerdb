@@ -5,7 +5,8 @@ import { ColumnsItem } from '@/grpc_generated/route';
 import { Checkbox } from '@/lib/Checkbox';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
-import { Dispatch, Fragment, SetStateAction } from 'react';
+import { Dispatch, Fragment, SetStateAction, useMemo } from 'react';
+import InfoPopover from '@/components/InfoPopover';
 
 interface ColumnProps {
   columns: ColumnsItem[];
@@ -13,7 +14,7 @@ interface ColumnProps {
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   disabled?: boolean;
-  showOrdering: boolean;
+  showNullable: boolean;
 }
 export default function ColumnBox({
   columns,
@@ -21,7 +22,7 @@ export default function ColumnBox({
   rows,
   setRows,
   disabled,
-  showOrdering,
+  showNullable,
 }: ColumnProps) {
   // Helper to update a specific row
   const updateRow = (updater: (row: TableMapRow) => TableMapRow) => {
@@ -75,30 +76,40 @@ export default function ColumnBox({
     });
   };
 
+  const nullableEnabledMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    tableRow.columns.forEach((col) => {
+      map.set(col.sourceName, col.nullableEnabled ?? false);
+    });
+    return map;
+  }, [tableRow.columns]);
+
   const getNullableEnabled = (columnName: string): boolean => {
-    return (
-      tableRow.columns.find((col) => col.sourceName === columnName)
-        ?.nullableEnabled ?? false
-    );
+    return nullableEnabledMap.get(columnName) ?? false;
   };
 
   return (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: showOrdering
+        gridTemplateColumns: showNullable
           ? 'minmax(0, 2fr) minmax(0, 1fr) auto'
           : 'minmax(0, 2fr) minmax(0, 1fr)',
         alignItems: 'center',
-        columnGap: '10rem',
+        columnGap: '2.5rem',
         width: '80%',
       }}
     >
-      <div style={{ fontSize: 12, fontWeight: 500 }}>Name</div>
+      <div style={{ fontSize: 12, fontWeight: 500, textAlign: 'left' }}>Name</div>
       <div style={{ fontSize: 12, fontWeight: 500 }}>Type</div>
-      {showOrdering &&
-        <div style={{ fontSize: 12, fontWeight: 500 }}>Nullable</div>
-      }
+      {showNullable && (
+        <div style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.25rem', justifyContent: 'flex-end' }}>
+          Nullable
+          <InfoPopover
+            tips="Enabling nullable columns wraps types in Nullable() which may impact query performance and storage in Clickhouse."
+          />
+        </div>
+      )}
 
       {columns.map((column) => {
         const partOfOrderingKey = rows
@@ -149,11 +160,11 @@ export default function ColumnBox({
               {column.type}
             </div>
 
-            {showOrdering && (
+            {showNullable && (
               <Checkbox
                 style={{
                   cursor: isIncluded && !disabled ? 'pointer' : 'default',
-                  justifySelf: 'flex-start',
+                  justifySelf: 'flex-end',
                 }}
                 disabled={disabled || !isIncluded}
                 checked={isIncluded ? nullableEnabled : false}

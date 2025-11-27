@@ -530,7 +530,7 @@ export default function SchemaBox({
                               rows={rows}
                               setRows={setRows}
                               disabled={row.editingDisabled}
-                              showOrdering={
+                              showNullable={
                                 peerType?.toString() ===
                                 DBType[DBType.CLICKHOUSE].toString()
                               }
