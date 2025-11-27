@@ -1,5 +1,6 @@
 'use client';
 
+import { humanizeThresholds } from '@/app/utils/momentOptions';
 import TimeLabel from '@/components/TimeComponent';
 import {
   CDCBatch,
@@ -13,7 +14,6 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useCallback, useEffect, useState } from 'react';
-import { humanizeThresholds } from '@/app/utils/momentOptions';
 import { RowDataFormatter } from './rowsDisplay';
 
 type SyncStatusTableProps = { mirrorName: string };

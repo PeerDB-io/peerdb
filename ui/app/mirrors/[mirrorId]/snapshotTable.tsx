@@ -1,5 +1,6 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
+import { humanizeThresholds } from '@/app/utils/momentOptions';
 import TimeLabel from '@/components/TimeComponent';
 import { CloneTableSummary } from '@/grpc_generated/route';
 import { Badge } from '@/lib/Badge/Badge';
@@ -11,7 +12,6 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
-import { humanizeThresholds } from '@/app/utils/momentOptions';
 import { TableCloneSummary } from './snapshot';
 
 const ROWS_PER_PAGE = 5;
@@ -227,7 +227,8 @@ export default function SnapshotTable({
           {clone.cloneTableSummary.fetchCompleted ? (
             <TableCell>
               <Label>
-                {clone.avgTimePerPartition?.humanize(humanizeThresholds) || 'N/A'}
+                {clone.avgTimePerPartition?.humanize(humanizeThresholds) ||
+                  'N/A'}
               </Label>
             </TableCell>
           ) : (
