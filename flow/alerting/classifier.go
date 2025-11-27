@@ -660,6 +660,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 286: // ChangeStreamHistoryLost
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
+		case 13436: // NotPrimaryOrSecondary
+			return ErrorNotifyConnectivity, mongoErrorInfo
 		default:
 			return ErrorOther, mongoErrorInfo
 		}
