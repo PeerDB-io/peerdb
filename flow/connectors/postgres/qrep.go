@@ -73,13 +73,16 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 
 	partitions, err := c.getPartitions(ctx, getPartitionsTx, config, last)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get partitions: %w", err)
+	}
 
 	// commit transaction
 	if err := getPartitionsTx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return partitions, err
+	return partitions, nil
 }
 
 func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
