@@ -6,7 +6,7 @@ import {
   blankSSHConfig,
   sshSetting,
 } from '@/app/peers/create/[peerType]/helpers/ssh';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
 import {
   AwsIAMAuthConfigType,
@@ -30,6 +30,7 @@ interface MySqlProps {
 }
 
 export default function MySqlForm({ settings, setter, config }: MySqlProps) {
+  const selectTheme = useSelectTheme();
   const [showSSH, setShowSSH] = useState(false);
   const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
 
@@ -104,7 +105,7 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
                       val && setting.stateHandler(val.value, setter)
                     }
                     options={setting.options}
-                    theme={SelectTheme}
+                    theme={selectTheme}
                   />
                 }
               />{' '}

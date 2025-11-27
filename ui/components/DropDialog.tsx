@@ -151,7 +151,7 @@ export default function DropDialog({
       triggerButton={
         <Button variant='drop'>
           {mode === 'ALERT' ? (
-            <Label as='label' style={{ color: 'coral' }}>
+            <Label as='label' colorSet='destructive' colorName='lowContrast'>
               Delete
             </Label>
           ) : (
@@ -196,7 +196,8 @@ export default function DropDialog({
         {msg && (
           <Label
             as='label'
-            style={{ color: msg.includes('success') ? 'green' : '#dc3545' }}
+            colorSet={msg.includes('success') ? 'positive' : 'destructive'}
+            colorName='lowContrast'
           >
             {msg}
           </Label>

@@ -1,7 +1,7 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { kaSetting } from '@/app/peers/create/[peerType]/helpers/ka';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
 import { handleFieldChange } from '@/components/PeerForms/common';
 import { Label } from '@/lib/Label';
@@ -16,6 +16,7 @@ interface KafkaProps {
 }
 
 export default function KafkaForm({ setter }: KafkaProps) {
+  const selectTheme = useSelectTheme();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', rowGap: '0.5rem' }}>
       {kaSetting.map((setting, index) => {
@@ -60,7 +61,7 @@ export default function KafkaForm({ setter }: KafkaProps) {
                   val && setting.stateHandler(val.value, setter)
                 }
                 options={setting.options}
-                theme={SelectTheme}
+                theme={selectTheme}
               />
             }
           />
