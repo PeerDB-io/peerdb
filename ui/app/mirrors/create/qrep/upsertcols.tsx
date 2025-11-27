@@ -1,96 +1,93 @@
 'use client';
 import { Dispatch, SetStateAction, useEffect, useState } from 'react';
-import ReactSelect from 'react-select';
 
-import SelectTheme from '@/app/styles/select';
 import {
   QRepConfig,
   QRepWriteMode,
   QRepWriteType,
 } from '@/grpc_generated/flow';
-import { Badge } from '@/lib/Badge';
-import { Icon } from '@/lib/Icon';
 import { MirrorSetting } from '../helpers/common';
 
 interface UpsertColsProps {
-  columns: { value: string; label: string }[];
   loading: boolean;
   setter: Dispatch<SetStateAction<QRepConfig>>;
   setting: MirrorSetting;
 }
 
 export default function UpsertColsDisplay({
-  columns,
   loading,
   setter,
   setting,
 }: UpsertColsProps) {
-  const [uniqueColumnsSet, setUniqueColumnsSet] = useState<Set<string>>(
-    new Set<string>()
-  );
+  const [upsertColumnsText, setUpsertColumnsText] = useState<string>('');
 
-  const handleUniqueColumns = (
-    col: string,
-    setting: MirrorSetting,
-    action: 'add' | 'remove'
-  ) => {
-    if (action === 'add') setUniqueColumnsSet((prev) => new Set(prev).add(col));
-    else if (action === 'remove') {
-      setUniqueColumnsSet((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(col);
-        return newSet;
-      });
-    }
-    const uniqueColsArr = Array.from(uniqueColumnsSet);
-    setting.stateHandler(uniqueColsArr, setter);
+  const handleTextChange = (value: string) => {
+    setUpsertColumnsText(value);
+
+    // Parse comma-separated values and trim whitespace
+    const columnsArray = value
+      .split(',')
+      .map((col) => col.trim())
+      .filter((col) => col.length > 0);
+
+    setting.stateHandler(columnsArray, setter);
   };
 
   useEffect(() => {
-    const uniqueColsArr = Array.from(uniqueColumnsSet);
+    // Parse comma-separated values and update the config
+    const columnsArray = upsertColumnsText
+      .split(',')
+      .map((col) => col.trim())
+      .filter((col) => col.length > 0);
+
     setter((curr) => {
       let defaultMode: QRepWriteMode = {
         writeType: QRepWriteType.QREP_WRITE_MODE_APPEND,
         upsertKeyColumns: [],
       };
       let currWriteMode = (curr as QRepConfig).writeMode || defaultMode;
-      currWriteMode.upsertKeyColumns = uniqueColsArr as string[];
+      currWriteMode.upsertKeyColumns = columnsArray;
       return {
         ...curr,
         writeMode: currWriteMode,
       };
     });
-  }, [uniqueColumnsSet, setter]);
+  }, [upsertColumnsText, setter]);
+
   return (
-    <>
-      <ReactSelect
-        menuPlacement='top'
-        placeholder={'Select unique columns'}
-        onChange={(val, action) => {
-          val && handleUniqueColumns(val.value, setting, 'add');
+    <div style={{ marginTop: '1rem' }}>
+      <input
+        type='text'
+        placeholder='Enter column names separated by commas (e.g., id, email, created_at)'
+        value={upsertColumnsText}
+        onChange={(e) => handleTextChange(e.target.value)}
+        disabled={loading}
+        style={{
+          width: '100%',
+          padding: '8px 12px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          fontSize: '14px',
+          backgroundColor: loading ? '#f5f5f5' : 'white',
         }}
-        isLoading={loading}
-        options={columns}
-        theme={SelectTheme}
       />
-      <div
-        style={{ display: 'flex', marginTop: '0.5rem', alignItems: 'center' }}
-      >
-        {Array.from(uniqueColumnsSet).map((col: string) => {
-          return (
-            <Badge key={col} variant='normal' type='default'>
-              {col}
-              <button
-                className='IconButton'
-                onClick={() => handleUniqueColumns(col, setting, 'remove')}
-                aria-label='remove col'
-              >
-                <Icon name='cancel' />
-              </button>
-            </Badge>
-          );
-        })}
-      </div>
-    </>
+      {upsertColumnsText && (
+        <div
+          style={{
+            marginTop: '8px',
+            fontSize: '12px',
+            color: '#666',
+            fontStyle: 'italic',
+          }}
+        >
+          Columns:{' '}
+          {upsertColumnsText
+            .split(',')
+            .map((col) => col.trim())
+            .filter((col) => col.length > 0)
+            .join(', ')}
+        </div>
+      )}
+    </div>
   );
 }
