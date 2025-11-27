@@ -1,5 +1,5 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { PartitionStatus, TimeAggregateType } from '@/grpc_generated/route';
 import { useTheme } from '@/lib/AppTheme';
@@ -17,6 +17,7 @@ type QRepGraphProps = {
 function QrepGraph({ syncs }: QRepGraphProps) {
   const theme = useTheme();
   const isDarkMode = theme.theme === 'dark';
+  const selectTheme = useSelectTheme();
   const [aggregateType, setAggregateType] = useState<TimeAggregateType>(
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
@@ -82,7 +83,7 @@ function QrepGraph({ syncs }: QRepGraphProps) {
           options={timeOptions}
           defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setAggregateType(val.value)}
-          theme={SelectTheme}
+          theme={selectTheme}
         />
       </div>
       <div style={{ height: '3rem', marginTop: '1rem' }}>

@@ -9,15 +9,15 @@ import {
 import ReactSelect from 'react-select';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import { notifySortingKey } from '@/app/utils/notify';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { ColumnSetting } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
-import { ToastContainer } from 'react-toastify';
 import {
   engineOptionStyles,
   sortingKeyPillContainerStyle,
@@ -74,6 +74,7 @@ export default function SelectSortingKeys({
   tableRow,
   setRows,
 }: SortingKeysProps) {
+  const selectTheme = useSelectTheme();
   const sortingKeysSelections = useMemo(
     () => SortedSelection(tableRow, (setting) => setting.ordering),
     [tableRow]
@@ -218,7 +219,7 @@ export default function SelectSortingKeys({
         rowGap: '0.5rem',
       }}
     >
-      <ToastContainer containerId='sorting_key_warning' />
+      <ThemedToastContainer containerId='sorting_key_warning' />
       <RowWithCheckbox
         label={
           <Label as='label' style={{ fontSize: 13 }}>
@@ -251,7 +252,7 @@ export default function SelectSortingKeys({
             value={null}
             styles={engineOptionStyles}
             options={columns.map((col) => ({ value: col, label: col }))}
-            theme={SelectTheme}
+            theme={selectTheme}
             isClearable
           />
           <div style={sortingKeyPillContainerStyle}>
@@ -302,7 +303,7 @@ export default function SelectSortingKeys({
             value={null}
             styles={engineOptionStyles}
             options={columns.map((col) => ({ value: col, label: col }))}
-            theme={SelectTheme}
+            theme={selectTheme}
             isClearable
           />
           <div style={sortingKeyPillContainerStyle}>

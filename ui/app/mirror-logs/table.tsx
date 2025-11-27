@@ -1,6 +1,6 @@
 'use client';
 
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import LogsTable from '@/components/LogsTable';
 import { ListMirrorNamesResponse } from '@/grpc_generated/route';
 import { ProgressCircle } from '@/lib/ProgressCircle';
@@ -10,6 +10,7 @@ import { fetcher } from '../utils/swr';
 import useLocalStorage from '../utils/useLocalStorage';
 
 export default function LogsView() {
+  const selectTheme = useSelectTheme();
   const [mirrorName, setMirrorName] = useLocalStorage(
     'peerdbMirrorNameFilterForLogs',
     ''
@@ -48,7 +49,7 @@ export default function LogsView() {
               setMirrorName(selectedOption?.value ?? '')
             }
             placeholder='Filter by mirror'
-            theme={SelectTheme}
+            theme={selectTheme}
           />
         </div>
         <div style={{ width: 'fit-content' }}>
@@ -62,7 +63,7 @@ export default function LogsView() {
               setLogLevel(selectedOption?.value ?? 'all')
             }
             placeholder='Filter by log type'
-            theme={SelectTheme}
+            theme={selectTheme}
           />
         </div>
       </div>

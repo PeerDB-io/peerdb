@@ -6,7 +6,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { SupabaseListProjectsResponse } from '../dto/PeersDTO';
-import { ProjectCardStyle, ProjectNameStyle } from './styles';
+import { ProjectNameStyle, useProjectCardStyle } from './styles';
 
 interface ProjectCardProps {
   project: SupabaseListProjectsResponse;
@@ -23,6 +23,7 @@ function formatProjectStatus(status: string) {
 export default function ProjectCard({ project }: ProjectCardProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const projectCardStyle = useProjectCardStyle();
   const peerFormLink = `/peers/create/SUPABASE?host=${encodeURIComponent(project.database.host)}&name=${encodeURIComponent(project.name.toLowerCase().replaceAll('-', '_'))}&db=postgres`;
   const goToPeerForm = () => {
     setIsLoading(true);
@@ -30,7 +31,7 @@ export default function ProjectCard({ project }: ProjectCardProps) {
   };
 
   return (
-    <Button style={ProjectCardStyle} onClick={goToPeerForm}>
+    <Button style={projectCardStyle} onClick={goToPeerForm}>
       {isLoading && <ProgressCircle variant='determinate_progress_circle' />}
       <p style={ProjectNameStyle}>{project.name}</p>
       <div

@@ -1,5 +1,5 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { TimeAggregateType } from '@/grpc_generated/route';
 import { useTheme } from '@/lib/AppTheme';
@@ -39,6 +39,7 @@ const CdcSyncHistoryError = () => {
 type CdcGraphProps = { mirrorName: string };
 
 export default function CdcGraph({ mirrorName }: CdcGraphProps) {
+  const selectTheme = useSelectTheme();
   const [aggregateType, setAggregateType] = useState<TimeAggregateType>(
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
@@ -124,7 +125,7 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
           options={timeOptions}
           defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setAggregateType(val.value)}
-          theme={SelectTheme}
+          theme={selectTheme}
         />
       </div>
       <div style={{ height: '3rem' }}>

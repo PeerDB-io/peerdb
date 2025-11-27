@@ -211,6 +211,10 @@ services:
       PEERDB_ALLOWED_TARGETS:
       PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
       PEERDB_EXPERIMENTAL_ENABLE_SCRIPTING: true
+      # Fix file watching on macOS Docker volumes
+      WATCHPACK_POLLING: true
+      # Increase polling interval to avoid catching incomplete writes (in ms)
+      WATCHPACK_POLLING_INTERVAL: 1000
     depends_on:
       - flow-api
 

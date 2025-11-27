@@ -32,7 +32,7 @@ ENV HOSTNAME=0.0.0.0
 ENV NODE_ENV=development
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-CMD ["npm", "run", "dev"]
+CMD ["npx", "next", "dev", "--webpack"]
 
 # Runner stage for production
 FROM base AS runner

@@ -1,12 +1,12 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { blankEventhubSetting } from '@/app/peers/create/[peerType]/helpers/eh';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { EventHubConfig, EventHubGroupConfig } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { useEffect, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
 import EventhubsConfig from './EventhubConfig';
 interface EventhubsProps {
   groupConfig: EventHubGroupConfig;
@@ -75,7 +75,7 @@ export default function EventhubsForm({ groupConfig, setter }: EventhubsProps) {
       >
         <Icon name='add' /> Namespace
       </Button>
-      <ToastContainer containerId='for eventhubs' />
+      <ThemedToastContainer containerId='for eventhubs' />
     </div>
   );
 }

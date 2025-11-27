@@ -1,6 +1,7 @@
+'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { esSetting } from '@/app/peers/create/[peerType]/helpers/es';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
 import {
   ElasticsearchAuthType,
@@ -21,6 +22,7 @@ export default function ElasticsearchConfigForm({
   config,
   setter,
 }: ElasticsearchProps) {
+  const selectTheme = useSelectTheme();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', rowGap: '0.5rem' }}>
       {esSetting.map((setting, index) => {
@@ -35,7 +37,7 @@ export default function ElasticsearchConfigForm({
                   val && setting.stateHandler(val.value, setter)
                 }
                 options={setting.options}
-                theme={SelectTheme}
+                theme={selectTheme}
               />
             }
           />
