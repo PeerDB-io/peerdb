@@ -9,14 +9,12 @@ import {
 import { MirrorSetting } from '../helpers/common';
 
 interface UpsertColsProps {
-  columns: { value: string; label: string }[];
   loading: boolean;
   setter: Dispatch<SetStateAction<QRepConfig>>;
   setting: MirrorSetting;
 }
 
 export default function UpsertColsDisplay({
-  columns,
   loading,
   setter,
   setting,

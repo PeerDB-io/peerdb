@@ -64,9 +64,6 @@ export default function QRepConfigForm({
   const [sourceTables, setSourceTables] = useState<
     { value: string; label: string }[]
   >([]);
-  const [allColumns, setAllColumns] = useState<
-    { value: string; label: string }[]
-  >([]);
   const [watermarkColumns, setWatermarkColumns] = useState<
     { value: string; label: string }[]
   >([]);
@@ -122,12 +119,6 @@ export default function QRepConfigForm({
           const types = allowedTypesForWatermarkColumn.get(sourceType);
           return !types || types.has(col.type);
         });
-        setAllColumns(
-          cols.map((col) => ({
-            value: col.name,
-            label: `${col.name} (${col.type})`,
-          }))
-        );
         setWatermarkColumns(
           filteredCols.map((col) => ({
             value: col.name,
@@ -218,7 +209,6 @@ export default function QRepConfigForm({
                         />
                       ) : setting.label === 'Upsert Key Columns' ? (
                         <UpsertColsDisplay
-                          columns={allColumns}
                           loading={loading}
                           setter={setter}
                           setting={setting}
