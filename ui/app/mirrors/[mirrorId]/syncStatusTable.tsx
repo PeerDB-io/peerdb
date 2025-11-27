@@ -1,5 +1,6 @@
 'use client';
 
+import { humanizeThresholds } from '@/app/utils/momentOptions';
 import TimeLabel from '@/components/TimeComponent';
 import {
   CDCBatch,
@@ -31,7 +32,9 @@ function TimeWithDurationOrRunning({
         <TimeLabel timeVal={moment(endTime).format('YYYY-MM-DD HH:mm:ss')} />
         <Label>
           (
-          {moment.duration(moment(endTime).diff(startTime)).humanize({ ss: 1 })}
+          {moment
+            .duration(moment(endTime).diff(startTime))
+            .humanize(humanizeThresholds)}
           )
         </Label>
       </>

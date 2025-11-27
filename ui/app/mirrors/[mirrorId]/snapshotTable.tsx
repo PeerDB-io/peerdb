@@ -1,5 +1,6 @@
 'use client';
 import { useSelectTheme } from '@/app/styles/select';
+import { humanizeThresholds } from '@/app/utils/momentOptions';
 import TimeLabel from '@/components/TimeComponent';
 import { CloneTableSummary } from '@/grpc_generated/route';
 import { Badge } from '@/lib/Badge/Badge';
@@ -229,7 +230,8 @@ export default function SnapshotTable({
           {clone.cloneTableSummary.fetchCompleted ? (
             <TableCell>
               <Label>
-                {clone.avgTimePerPartition?.humanize({ ss: 1 }) || 'N/A'}
+                {clone.avgTimePerPartition?.humanize(humanizeThresholds) ||
+                  'N/A'}
               </Label>
             </TableCell>
           ) : (
