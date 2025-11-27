@@ -1793,7 +1793,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 				logger.Warn("failed to get source database variant", slog.Any("error", variantErr))
 			}
 			srcClose(ctx)
-		} else {
+		} else if !errors.Is(err, errors.ErrUnsupported) {
 			logger.Warn("failed to get source connector to detect database variant", slog.Any("error", err))
 		}
 	}
