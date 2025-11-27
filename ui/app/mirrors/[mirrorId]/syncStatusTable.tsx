@@ -13,6 +13,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useCallback, useEffect, useState } from 'react';
+import { humanizeThresholds } from '@/app/utils/momentOptions';
 import { RowDataFormatter } from './rowsDisplay';
 
 type SyncStatusTableProps = { mirrorName: string };
@@ -30,7 +31,9 @@ function TimeWithDurationOrRunning({
         <TimeLabel timeVal={moment(endTime).format('YYYY-MM-DD HH:mm:ss')} />
         <Label>
           (
-          {moment.duration(moment(endTime).diff(startTime)).humanize({ ss: 1 })}
+          {moment
+            .duration(moment(endTime).diff(startTime))
+            .humanize(humanizeThresholds)}
           )
         </Label>
       </>
