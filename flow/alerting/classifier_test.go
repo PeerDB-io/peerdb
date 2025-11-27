@@ -605,7 +605,7 @@ func TestTemporalUnknownErrorShouldBeOther(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
+func TestMongoShutdownInProgressErrorShouldBeIgnored(t *testing.T) {
 	// Simulate a MongoDB shutdown in progress error (quiesce mode)
 	de := driver.Error{
 		Code: 0,
@@ -622,6 +622,17 @@ func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "0",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
+	//nolint:lll
+	err := errors.New("change stream error: connection pool for abc.123.mongodb.net:27017 was cleared because another operation failed with: (InterruptedDueToReplStateChange) operation was interrupted")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "POOL_CLEARED_ERROR(11602)",
 	}, errInfo, "Unexpected error info")
 }
 
