@@ -289,7 +289,11 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 					qrow = append(qrow, types.QValueUInt256{Val: *v})
 				}
 			case *time.Time:
-				qrow = append(qrow, types.QValueTimestamp{Val: *v})
+				if batch.Schema.Fields[idx].Type == types.QValueKindTime {
+					qrow = append(qrow, types.QValueTime{Val: v.Sub(v.Truncate(time.Hour * 24))})
+				} else {
+					qrow = append(qrow, types.QValueTimestamp{Val: *v})
+				}
 			case *[]time.Time:
 				qrow = append(qrow, types.QValueArrayTimestamp{Val: *v})
 			case **decimal.Decimal:
