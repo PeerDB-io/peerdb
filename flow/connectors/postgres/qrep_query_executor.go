@@ -25,19 +25,20 @@ import (
 type QRepQueryExecutor struct {
 	*PostgresConnector
 	logger      log.Logger
+	env         map[string]string
 	snapshot    string
 	flowJobName string
 	partitionID string
 	version     uint32
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, version uint32,
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, version, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID)
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, version uint32,
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
 	snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
@@ -46,6 +47,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, ve
 	}
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
+		env:               env,
 		snapshot:          snapshot,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
@@ -69,7 +71,7 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 	tx pgx.Tx,
 	cursorName string,
 ) (types.QRecordSchema, *types.NullableSchemaDebug, error) {
-	laxMode, err := internal.PeerDBNullableLax(ctx, nil)
+	laxMode, err := internal.PeerDBNullableLax(ctx, qe.env)
 	if err != nil {
 		return types.QRecordSchema{}, nil, err
 	}
@@ -80,11 +82,6 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 	}
 	fds := rows.FieldDescriptions()
 	rows.Close()
-
-	type attId struct {
-		relid uint32
-		num   uint16
-	}
 
 	tableOIDset := make(map[uint32]struct{})
 	qfields := make([]types.QField, len(fds))
@@ -147,35 +144,8 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 
 	// Query pg_attribute - different queries for lax vs strict
 	if laxMode {
-		// Query ALL columns from pg_attribute with full info
-		rows, err := tx.Query(ctx, `
-			SELECT a.attrelid, a.attnum, a.attname, a.attnotnull, a.atttypid, a.attinhcount, a.attislocal
-			FROM pg_attribute a
-			WHERE a.attrelid = ANY($1) AND a.attnum > 0 AND NOT a.attisdropped
-			ORDER BY a.attrelid, a.attnum`,
-			tableOIDs)
-		if err != nil {
-			return types.QRecordSchema{}, nil, fmt.Errorf("failed to query pg_attribute: %w", err)
-		}
-
-		var row types.PgAttributeDebug
-		if _, err := pgx.ForEachRow(rows, []any{
-			&row.AttRelID, &row.AttNum, &row.AttName, &row.AttNotNull, &row.AttTypID, &row.AttInhCount, &row.AttIsLocal,
-		}, func() error {
-			schemaDebug.PgAttributeRows = append(schemaDebug.PgAttributeRows, row)
-
-			// Compute strict nullable: if NOT attnotnull and matches a field, mark it nullable
-			if !row.AttNotNull {
-				key := attId{relid: row.AttRelID, num: uint16(row.AttNum)}
-				if indices, ok := attIdToFieldIdx[key]; ok {
-					for _, idx := range indices {
-						schemaDebug.StrictNullable[idx] = true
-					}
-				}
-			}
-			return nil
-		}); err != nil {
-			return types.QRecordSchema{}, nil, fmt.Errorf("failed to process pg_attribute: %w", err)
+		if err := qe.populateLaxModeDebugInfo(ctx, tx, tableOIDs, schemaDebug, attIdToFieldIdx); err != nil {
+			return types.QRecordSchema{}, nil, err
 		}
 	} else {
 		// Strict mode: minimal query, just need nullable columns
@@ -198,6 +168,111 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 	}
 
 	return types.NewQRecordSchema(qfields), schemaDebug, nil
+}
+
+type attId struct {
+	relid uint32
+	num   uint16
+}
+
+// populateLaxModeDebugInfo populates debug info for diagnosing nullable mismatches.
+// The aim is to capture enough data that the customer can change the schema in any way
+// after the snapshot transaction is done and we still have a way to debug.
+func (qe *QRepQueryExecutor) populateLaxModeDebugInfo(
+	ctx context.Context,
+	tx pgx.Tx,
+	tableOIDs []uint32,
+	schemaDebug *types.NullableSchemaDebug,
+	attIdToFieldIdx map[attId][]int,
+) error {
+	// First, expand tableOIDs to include all parent tables (for full column info)
+	allTableOIDs := make(map[uint32]struct{})
+	for _, oid := range tableOIDs {
+		allTableOIDs[oid] = struct{}{}
+	}
+	parentOIDByTableOID := make(map[uint32]uint32)
+
+	// Iteratively find all parent tables
+	oidsToQuery := tableOIDs
+	for len(oidsToQuery) > 0 {
+		rows, err := tx.Query(ctx, `SELECT inhrelid, inhparent FROM pg_inherits WHERE inhrelid = ANY($1)`, oidsToQuery)
+		if err != nil {
+			return fmt.Errorf("failed to query pg_inherits: %w", err)
+		}
+		var childOID, parentOID uint32
+		var nextOids []uint32
+		if _, err := pgx.ForEachRow(rows, []any{&childOID, &parentOID}, func() error {
+			parentOIDByTableOID[childOID] = parentOID
+			if _, seen := allTableOIDs[parentOID]; !seen {
+				allTableOIDs[parentOID] = struct{}{}
+				nextOids = append(nextOids, parentOID)
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to process pg_inherits: %w", err)
+		}
+		oidsToQuery = nextOids
+	}
+
+	allOIDSlice := slices.Collect(maps.Keys(allTableOIDs))
+
+	// Query pg_attribute for ALL tables (children + parents)
+	rows, err := tx.Query(ctx, `
+		SELECT a.attrelid, a.attnum, a.attname, a.attnotnull, a.atttypid, a.attinhcount, a.attislocal
+		FROM pg_attribute a
+		WHERE a.attrelid = ANY($1) AND a.attnum > 0 AND NOT a.attisdropped
+		ORDER BY a.attrelid, a.attnum`,
+		allOIDSlice)
+	if err != nil {
+		return fmt.Errorf("failed to query pg_attribute: %w", err)
+	}
+
+	var row types.PgAttributeDebug
+	if _, err := pgx.ForEachRow(rows, []any{
+		&row.AttRelID, &row.AttNum, &row.AttName, &row.AttNotNull, &row.AttTypID, &row.AttInhCount, &row.AttIsLocal,
+	}, func() error {
+		schemaDebug.PgAttributeRows = append(schemaDebug.PgAttributeRows, row)
+
+		// Compute strict nullable: if NOT attnotnull and matches a field, mark it nullable
+		if !row.AttNotNull {
+			key := attId{relid: row.AttRelID, num: uint16(row.AttNum)}
+			if indices, ok := attIdToFieldIdx[key]; ok {
+				for _, idx := range indices {
+					schemaDebug.StrictNullable[idx] = true
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to process pg_attribute: %w", err)
+	}
+
+	// Query table names and schemas for all tables
+	rows, err = tx.Query(ctx, `
+		SELECT c.oid, c.relname, n.nspname
+		FROM pg_class c
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE c.oid = ANY($1)`,
+		allOIDSlice)
+	if err != nil {
+		return fmt.Errorf("failed to query pg_class: %w", err)
+	}
+
+	var oid uint32
+	var tableName, schemaName string
+	if _, err := pgx.ForEachRow(rows, []any{&oid, &tableName, &schemaName}, func() error {
+		schemaDebug.Tables = append(schemaDebug.Tables, types.TableDebug{
+			OID:        oid,
+			TableName:  tableName,
+			SchemaName: schemaName,
+			ParentOID:  parentOIDByTableOID[oid],
+		})
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to process pg_class: %w", err)
+	}
+
+	return nil
 }
 
 func (qe *QRepQueryExecutor) processRowsStream(

@@ -57,6 +57,14 @@ type PgAttributeDebug struct {
 	AttIsLocal  bool
 }
 
+// TableDebug captures table metadata including parent OID for debugging
+type TableDebug struct {
+	OID        uint32
+	TableName  string
+	SchemaName string
+	ParentOID  uint32 // 0 if no parent
+}
+
 // NullableSchemaDebug captures ALL raw data for debugging nullable mismatches
 type NullableSchemaDebug struct {
 	// All field descriptions from pgx
@@ -68,4 +76,6 @@ type NullableSchemaDebug struct {
 	// Per-field: would this column be nullable under strict mode?
 	// Index matches qfields order. True = nullable, False = NOT nullable under strict
 	StrictNullable []bool
+	// Table metadata including names, schemas, and inheritance chain
+	Tables []TableDebug
 }

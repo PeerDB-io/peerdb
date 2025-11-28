@@ -207,11 +207,12 @@ func (t *NullMismatchTracker) LogInto(logger log.Logger) {
 		return
 	}
 
-	// Dump the ENTIRE schema debug info - all pgx fields and all pg_attribute rows
+	// Dump the ENTIRE schema debug info - all pgx fields, pg_attribute rows, and table metadata
 	logger.Warn("Null values in columns that would be non-nullable under strict mode",
 		slog.Any("mismatched_columns", cols),
 		slog.Any("queried_table_oids", t.schemaDebug.QueriedTableOIDs),
 		slog.Any("pgx_field_descriptions", t.schemaDebug.PgxFields),
 		slog.Any("pg_attribute_rows", t.schemaDebug.PgAttributeRows),
+		slog.Any("tables_with_inheritance", t.schemaDebug.Tables),
 	)
 }
