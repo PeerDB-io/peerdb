@@ -513,11 +513,13 @@ message CancelTableAdditionInput {
   string flow_job_name = 1;
   repeated peerdb_flow.TableMapping currently_replicating_tables = 2;
   string idempotency_key = 3;
+  bool assume_table_removal_will_not_happen = 4;
 }
 
 message CancelTableAdditionOutput {
   string flow_job_name = 1;
   repeated peerdb_flow.TableMapping tables_after_cancellation = 2;
+  string run_id = 3;
 }
 
 service FlowService {

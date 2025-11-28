@@ -18,7 +18,7 @@ func (h *FlowRequestHandler) CancelTableAddition(
 	ctx context.Context,
 	req *protos.CancelTableAdditionInput,
 ) (*protos.CancelTableAdditionOutput, APIError) {
-	flowStatus, err := internal.GetWorkflowStatus(ctx, h.pool, shared.GetWorkflowID(req.FlowJobName))
+	flowStatus, err := internal.GetWorkflowStatusByName(ctx, h.pool, req.FlowJobName)
 	if err != nil {
 		return nil, NewInternalApiError(
 			fmt.Errorf("failed to get workflow status for flow %s: %w", req.FlowJobName, err))
