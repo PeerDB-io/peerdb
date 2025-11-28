@@ -231,6 +231,9 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		return 0, err
 	}
 
+	// Create null mismatch tracker if in nullable lax mode
+	avroConverter.NullMismatchTracker = model.NewNullMismatchTracker(p.stream.SchemaDebug())
+
 	logger.Info("writing records to OCF start",
 		slog.Int("channelLen", len(p.stream.Records)))
 
@@ -280,6 +283,10 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()),
 		slog.String("compression", string(p.avroCompressionCodec)),
 	)
+
+	if avroConverter.NullMismatchTracker != nil {
+		avroConverter.NullMismatchTracker.LogInto(logger)
+	}
 
 	if err := p.stream.Err(); err != nil {
 		logger.Error("Failed to get record from stream", slog.Any("error", err))

@@ -37,3 +37,35 @@ func (q QRecordSchema) GetColumnNames() []string {
 	}
 	return names
 }
+
+// PgxFieldDebug captures raw pgx FieldDescription data for debugging
+type PgxFieldDebug struct {
+	Name                 string
+	TableOID             uint32
+	TableAttributeNumber uint16
+	DataTypeOID          uint32
+}
+
+// PgAttributeDebug captures a row from pg_attribute query for debugging
+type PgAttributeDebug struct {
+	AttRelID    uint32
+	AttNum      int16
+	AttName     string
+	AttNotNull  bool
+	AttTypID    uint32
+	AttInhCount int32
+	AttIsLocal  bool
+}
+
+// NullableSchemaDebug captures ALL raw data for debugging nullable mismatches
+type NullableSchemaDebug struct {
+	// All field descriptions from pgx
+	PgxFields []PgxFieldDebug
+	// All rows returned from pg_attribute query (for all table OIDs)
+	PgAttributeRows []PgAttributeDebug
+	// The table OIDs we queried
+	QueriedTableOIDs []uint32
+	// Per-field: would this column be nullable under strict mode?
+	// Index matches qfields order. True = nullable, False = NOT nullable under strict
+	StrictNullable []bool
+}

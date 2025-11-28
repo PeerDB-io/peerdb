@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync/atomic"
 
@@ -21,6 +22,7 @@ type QRecordAvroConverter struct {
 	ColNames                 []string
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
+	NullMismatchTracker      *NullMismatchTracker
 }
 
 func NewQRecordAvroConverter(
@@ -64,6 +66,12 @@ func (qac *QRecordAvroConverter) Convert(
 		if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
 			val = typeConversion.ValueConversion(val)
 		}
+
+		// Record the cases where the value is null AND strict mode would say not nullable
+		if val.Value() == nil && qac.NullMismatchTracker != nil {
+			qac.NullMismatchTracker.RecordNull(idx)
+		}
+
 		avroVal, size, err := qvalue.QValueToAvro(
 			ctx, val,
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
@@ -160,4 +168,50 @@ func ConstructColumnNameAvroFieldMap(fields []types.QField) map[string]string {
 		m[field.Name] = qvalue.ConvertToAvroCompatibleName(field.Name) + "_" + strconv.FormatInt(int64(i), 10)
 	}
 	return m
+}
+
+// NullMismatchTracker detects null values in columns that would be non-nullable under strict mode
+type NullMismatchTracker struct {
+	mismatchedCols []bool
+	schemaDebug    *types.NullableSchemaDebug
+}
+
+func NewNullMismatchTracker(
+	schemaDebug *types.NullableSchemaDebug,
+) *NullMismatchTracker {
+	if schemaDebug == nil {
+		return nil // Not in lax mode
+	}
+	return &NullMismatchTracker{
+		schemaDebug:    schemaDebug,
+		mismatchedCols: make([]bool, len(schemaDebug.StrictNullable)),
+	}
+}
+
+func (t *NullMismatchTracker) RecordNull(fieldIdx int) {
+	if fieldIdx < len(t.schemaDebug.StrictNullable) && !t.schemaDebug.StrictNullable[fieldIdx] {
+		t.mismatchedCols[fieldIdx] = true
+	}
+}
+
+func (t *NullMismatchTracker) LogInto(logger log.Logger) {
+	// Collect mismatched column names
+	var cols []string
+	for idx, mismatched := range t.mismatchedCols {
+		if mismatched && idx < len(t.schemaDebug.PgxFields) {
+			cols = append(cols, t.schemaDebug.PgxFields[idx].Name)
+		}
+	}
+
+	if len(cols) == 0 {
+		return
+	}
+
+	// Dump the ENTIRE schema debug info - all pgx fields and all pg_attribute rows
+	logger.Warn("Null values in columns that would be non-nullable under strict mode",
+		slog.Any("mismatched_columns", cols),
+		slog.Any("queried_table_oids", t.schemaDebug.QueriedTableOIDs),
+		slog.Any("pgx_field_descriptions", t.schemaDebug.PgxFields),
+		slog.Any("pg_attribute_rows", t.schemaDebug.PgAttributeRows),
+	)
 }

@@ -15,6 +15,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -67,29 +68,53 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 	ctx context.Context,
 	tx pgx.Tx,
 	cursorName string,
-) (types.QRecordSchema, error) {
+) (types.QRecordSchema, *types.NullableSchemaDebug, error) {
+	laxMode, err := internal.PeerDBNullableLax(ctx, nil)
+	if err != nil {
+		return types.QRecordSchema{}, nil, err
+	}
+
+	rows, err := tx.Query(ctx, "FETCH 0 FROM "+cursorName)
+	if err != nil {
+		return types.QRecordSchema{}, nil, fmt.Errorf("failed to fetch 0 for field descriptions: %w", err)
+	}
+	fds := rows.FieldDescriptions()
+	rows.Close()
+
 	type attId struct {
 		relid uint32
 		num   uint16
 	}
 
-	rows, err := tx.Query(ctx, "FETCH 0 FROM "+cursorName)
-	if err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to fetch 0 for field descriptions: %w", err)
-	}
-	fds := rows.FieldDescriptions()
 	tableOIDset := make(map[uint32]struct{})
-	nullPointers := make(map[attId]*bool, len(fds))
 	qfields := make([]types.QField, len(fds))
+
+	// In lax mode: track debug info and map attIds to field indices
+	// In strict mode: track pointers to nullable fields
+	var schemaDebug *types.NullableSchemaDebug
+	var attIdToFieldIdx map[attId][]int // lax mode
+	var nullPointers map[attId]*bool    // strict mode
+
+	if laxMode {
+		schemaDebug = &types.NullableSchemaDebug{
+			PgxFields:      make([]types.PgxFieldDebug, len(fds)),
+			StrictNullable: make([]bool, len(fds)),
+		}
+		attIdToFieldIdx = make(map[attId][]int, len(fds))
+	} else {
+		nullPointers = make(map[attId]*bool, len(fds))
+	}
+
 	for i, fd := range fds {
 		tableOIDset[fd.TableOID] = struct{}{}
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping, qe.version)
+
 		if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
 			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = types.QField{
 				Name:      fd.Name,
 				Type:      ctype,
-				Nullable:  false,
+				Nullable:  laxMode, // lax=true, strict=false (until pg_attribute says otherwise)
 				Precision: precision,
 				Scale:     scale,
 			}
@@ -97,33 +122,82 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 			qfields[i] = types.QField{
 				Name:     fd.Name,
 				Type:     ctype,
-				Nullable: false,
+				Nullable: laxMode,
 			}
 		}
-		nullPointers[attId{
-			relid: fd.TableOID,
-			num:   fd.TableAttributeNumber,
-		}] = &qfields[i].Nullable
-	}
-	rows.Close()
-	tableOIDs := slices.Collect(maps.Keys(tableOIDset))
 
-	rows, err = tx.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
-	if err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to query schema for field descriptions: %w", err)
-	}
-
-	var att attId
-	if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
-		if nullPointer, ok := nullPointers[att]; ok {
-			*nullPointer = true
+		key := attId{relid: fd.TableOID, num: fd.TableAttributeNumber}
+		if laxMode {
+			schemaDebug.PgxFields[i] = types.PgxFieldDebug{
+				Name:                 fd.Name,
+				TableOID:             fd.TableOID,
+				TableAttributeNumber: fd.TableAttributeNumber,
+				DataTypeOID:          fd.DataTypeOID,
+			}
+			attIdToFieldIdx[key] = append(attIdToFieldIdx[key], i)
+		} else {
+			nullPointers[key] = &qfields[i].Nullable
 		}
-		return nil
-	}); err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to process schema for field descriptions: %w", err)
 	}
 
-	return types.NewQRecordSchema(qfields), nil
+	tableOIDs := slices.Collect(maps.Keys(tableOIDset))
+	if laxMode {
+		schemaDebug.QueriedTableOIDs = tableOIDs
+	}
+
+	// Query pg_attribute - different queries for lax vs strict
+	if laxMode {
+		// Query ALL columns from pg_attribute with full info
+		rows, err := tx.Query(ctx, `
+			SELECT a.attrelid, a.attnum, a.attname, a.attnotnull, a.atttypid, a.attinhcount, a.attislocal
+			FROM pg_attribute a
+			WHERE a.attrelid = ANY($1) AND a.attnum > 0 AND NOT a.attisdropped
+			ORDER BY a.attrelid, a.attnum`,
+			tableOIDs)
+		if err != nil {
+			return types.QRecordSchema{}, nil, fmt.Errorf("failed to query pg_attribute: %w", err)
+		}
+
+		var row types.PgAttributeDebug
+		if _, err := pgx.ForEachRow(rows, []any{
+			&row.AttRelID, &row.AttNum, &row.AttName, &row.AttNotNull, &row.AttTypID, &row.AttInhCount, &row.AttIsLocal,
+		}, func() error {
+			schemaDebug.PgAttributeRows = append(schemaDebug.PgAttributeRows, row)
+
+			// Compute strict nullable: if NOT attnotnull and matches a field, mark it nullable
+			if !row.AttNotNull {
+				key := attId{relid: row.AttRelID, num: uint16(row.AttNum)}
+				if indices, ok := attIdToFieldIdx[key]; ok {
+					for _, idx := range indices {
+						schemaDebug.StrictNullable[idx] = true
+					}
+				}
+			}
+			return nil
+		}); err != nil {
+			return types.QRecordSchema{}, nil, fmt.Errorf("failed to process pg_attribute: %w", err)
+		}
+	} else {
+		// Strict mode: minimal query, just need nullable columns
+		rows, err := tx.Query(ctx,
+			"SELECT a.attrelid, a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull",
+			tableOIDs)
+		if err != nil {
+			return types.QRecordSchema{}, nil, fmt.Errorf("failed to query pg_attribute: %w", err)
+		}
+
+		var att attId
+		if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
+			if nullPointer, ok := nullPointers[att]; ok {
+				*nullPointer = true
+			}
+			return nil
+		}); err != nil {
+			return types.QRecordSchema{}, nil, fmt.Errorf("failed to process pg_attribute: %w", err)
+		}
+	}
+
+	return types.NewQRecordSchema(qfields), schemaDebug, nil
 }
 
 func (qe *QRepQueryExecutor) processRowsStream(

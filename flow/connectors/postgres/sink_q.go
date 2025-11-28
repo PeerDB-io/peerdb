@@ -62,11 +62,12 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		slog.Int("channelLen", len(stream.Records)))
 
 	if !stream.IsSchemaSet() {
-		schema, err := qe.cursorToSchema(ctx, tx, cursorName)
+		schema, schemaDebug, err := qe.cursorToSchema(ctx, tx, cursorName)
 		if err != nil {
 			return 0, 0, err
 		}
 		stream.SetSchema(schema)
+		stream.SetSchemaDebug(schemaDebug)
 	}
 
 	var totalNumRows int64
