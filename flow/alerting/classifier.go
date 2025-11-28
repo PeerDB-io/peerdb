@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"regexp"
@@ -35,8 +36,9 @@ const (
 )
 
 const (
-	MongoDBShutdownInProgress          = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
-	MongoIncompleteReadOfMessageHeader = "incomplete read of message header"
+	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
+	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
+	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
 )
 
 var (
@@ -52,6 +54,7 @@ var (
 	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
 	MySqlRdsBinlogFileNotFoundRe      = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
+	MongoPoolClearedErrorRe           = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
 
 func (e ErrorAction) String() string {
@@ -641,9 +644,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
-		// this often happens on Mongo Atlas as part of maintenance, and should recover, but we notify if exceed default threshold
+		// this often happens on Mongo Atlas as part of maintenance and should recover
 		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
-		if mongoCmdErr.HasErrorMessage(MongoDBShutdownInProgress) {
+		if mongoCmdErr.HasErrorMessage(MongoShutdownInProgress) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		}
 
@@ -662,6 +665,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 286: // ChangeStreamHistoryLost
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
+		case 11600, //  InterruptedAtShutdown
+			11601, // Interrupted
+			11602: // InterruptedDueToReplStateChange
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 13436: // NotPrimaryOrSecondary
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		default:
@@ -707,19 +714,27 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	// MongoDB can leak error without properly encapsulate it into a pre-defined error type
-	// so here we use string matching as a catch-all to avoid false alarms
-	if strings.Contains(err.Error(), MongoDBShutdownInProgress) {
-		return ErrorIgnoreConnTemporary, ErrorInfo{
+	// MongoDB can leak error without properly encapsulate it into a pre-defined error type.
+	// Use string matching as a catch-all for poolClearedErrors. These errors occur when a
+	// connection pool is cleared due to another operation failure; they are always retryable
+	if MongoPoolClearedErrorRe.MatchString(err.Error()) {
+		mongoErrorInfo := ErrorInfo{
 			Source: ErrorSourceMongoDB,
-			Code:   strconv.Itoa(91), // ShutdownInProgress
+			Code:   "POOL_CLEARED_ERROR",
 		}
-	}
-	if strings.Contains(err.Error(), MongoIncompleteReadOfMessageHeader) {
-		return ErrorRetryRecoverable, ErrorInfo{
-			Source: ErrorSourceMongoDB,
-			Code:   "CONNECTION_ERROR",
+		if strings.Contains(err.Error(), MongoShutdownInProgress) {
+			mongoErrorInfo.Code += fmt.Sprintf("(%d)", 91)
+			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		}
+		if strings.Contains(err.Error(), MongoInterruptedDueToReplStateChange) {
+			mongoErrorInfo.Code += fmt.Sprintf("(%d)", 11602)
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+		if strings.Contains(err.Error(), MongoIncompleteReadOfMessageHeader) {
+			mongoErrorInfo.Code += "(CONNECTION_ERROR)"
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+		return ErrorRetryRecoverable, mongoErrorInfo
 	}
 
 	var chException *clickhouse.Exception
