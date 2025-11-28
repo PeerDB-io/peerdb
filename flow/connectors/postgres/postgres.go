@@ -453,16 +453,22 @@ func pullCore[Items model.Items](
 				return
 			}
 			// Use cursor like QRep does, instead of direct SELECT
+			tx, err := c.conn.Begin(ctx)
+			if err != nil {
+				c.logger.Error(fmt.Sprintf("TEST: failed to begin tx: %v", err))
+				return
+			}
+			defer tx.Rollback(ctx)
+
 			cursorName := "test_cursor_debug"
 			query := fmt.Sprintf("SELECT * FROM %s.posts", nspname)
-			_, err = c.conn.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query))
+			_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query))
 			if err != nil {
 				c.logger.Error(fmt.Sprintf("TEST: failed to declare cursor: %v", err))
 				return
 			}
-			defer c.conn.Exec(ctx, fmt.Sprintf("CLOSE %s", cursorName))
 
-			rows, err := c.conn.Query(ctx, fmt.Sprintf("FETCH 0 FROM %s", cursorName))
+			rows, err := tx.Query(ctx, fmt.Sprintf("FETCH 0 FROM %s", cursorName))
 			if err != nil {
 				c.logger.Error(fmt.Sprintf("TEST: failed to fetch from cursor for field descriptions: %v", err))
 				return
@@ -495,7 +501,7 @@ func pullCore[Items model.Items](
 			rows.Close()
 			tableOIDs := slices.Collect(maps.Keys(tableOIDset))
 
-			rows, err = c.conn.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
+			rows, err = tx.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
 			if err != nil {
 				c.logger.Error(fmt.Sprintf("TEST: failed to query schema for field descriptions: %v", err))
 				return
@@ -517,7 +523,7 @@ func pullCore[Items model.Items](
 			for _, oid := range tableOIDs {
 				var attnum int16
 				var attnotnull bool
-				err := c.conn.QueryRow(ctx,
+				err := tx.QueryRow(ctx,
 					"SELECT attnum, attnotnull FROM pg_attribute WHERE attrelid = $1 AND attname = 'catalog_variant_id'",
 					oid).Scan(&attnum, &attnotnull)
 				if err != nil {
