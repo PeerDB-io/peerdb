@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/workflow"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"go.temporal.io/sdk/workflow"
-	"google.golang.org/protobuf/proto"
 )
 
 // Do not rename this local activity, unless you know exactly what you are doing.
