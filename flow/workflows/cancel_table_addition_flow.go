@@ -28,7 +28,8 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	getFlowConfigCtx := workflow.WithActivityOptions(ctx, getFlowConfigOptions)
 
 	var flowConfigFetchOutput *protos.GetFlowConfigAndWorkflowIdFromCatalogOutput
-	err := workflow.ExecuteActivity(getFlowConfigCtx, cancelTableAddition.GetFlowConfigAndWorkflowIdFromCatalog, flowJobName).Get(ctx, &flowConfigFetchOutput)
+	err := workflow.ExecuteActivity(getFlowConfigCtx,
+		cancelTableAddition.GetFlowConfigAndWorkflowIdFromCatalog, flowJobName).Get(ctx, &flowConfigFetchOutput)
 	if err != nil {
 		logger.Error("Failed to get flow config from catalog", "error", err)
 		return nil, err
@@ -173,7 +174,8 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 	cleanupCurrentParentMirrorCtx := workflow.WithActivityOptions(ctx, cleanupCurrentParentMirrorOptions)
 
-	err = workflow.ExecuteActivity(cleanupCurrentParentMirrorCtx, cancelTableAddition.CleanupCurrentParentMirror, flowJobName, originalWorkflowId).Get(ctx, nil)
+	err = workflow.ExecuteActivity(cleanupCurrentParentMirrorCtx,
+		cancelTableAddition.CleanupCurrentParentMirror, flowJobName, originalWorkflowId).Get(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to cleanup current parent mirror", "error", err)
 		return nil, err

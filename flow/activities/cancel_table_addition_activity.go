@@ -46,11 +46,10 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesInQrepRunsForTableAdditi
 		return nil, fmt.Errorf("failed to get run ID of latest running peer flow for workflow %s: %w", workflowId, err)
 	}
 
-	slog.Info("Fetching completed tables from qrep_runs for table addition cancellation",
+	slog.InfoContext(ctx, "Fetching completed tables from qrep_runs for table addition cancellation",
 		slog.String("flowName", flowJobName),
 		slog.String("originalRunId", originalRunId))
 
-	// listworkflows by rootrunid = peerflow.runid and workflow type = QRepFlowWorkflow
 	listResp, err := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
 		Query: fmt.Sprintf("RootRunId = '%s' AND WorkflowType = 'QRepFlowWorkflow'", originalRunId),
 	})
@@ -58,22 +57,16 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesInQrepRunsForTableAdditi
 		return nil, fmt.Errorf("failed to list qrep workflows for flow %s: %w", flowJobName, err)
 	}
 
-	slog.Info("List response", slog.Any("listResp", listResp))
-
 	if len(listResp.Executions) == 0 {
-		slog.Info("No QRep workflows found for flow, returning empty completed tables list",
+		slog.InfoContext(ctx, "No QRep workflows found for flow, returning empty completed tables list",
 			slog.String("flowName", flowJobName))
 		return []string{}, nil
 	}
 
-	var runIds []string
+	runIds := make([]string, 0, len(listResp.Executions))
 	for _, execution := range listResp.Executions {
 		runIds = append(runIds, execution.Execution.RunId)
 	}
-
-	slog.Info("Run IDs obtained for QRep workflows",
-		slog.String("flowName", flowJobName),
-		slog.Any("runIds", runIds))
 
 	rows, err := a.CatalogPool.Query(ctx, `
 		WITH latest_runs AS (
@@ -245,7 +238,7 @@ func (a *CancelTableAdditionActivity) UpdateCdcJobEntry(
 			connectionConfigs.FlowJobName, err)
 	}
 
-	slog.Info("Successfully updated CDC job entry in catalog",
+	slog.InfoContext(ctx, "Successfully updated CDC job entry in catalog",
 		slog.String("flowName", connectionConfigs.FlowJobName),
 		slog.String("workflowID", workflowID))
 
@@ -269,14 +262,14 @@ func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Con
 	if err != nil {
 		var notFoundErr *serviceerror.NotFound
 		if errors.As(err, &notFoundErr) {
-			slog.Info("Workflow already not found during cleanup of current parent mirror",
+			slog.InfoContext(ctx, "Workflow already not found during cleanup of current parent mirror",
 				slog.String("flowName", flowJobName),
 				slog.String("workflowId", workflowId))
 		} else {
 			return fmt.Errorf("failed to terminate parent workflow %s: %w", workflowId, err)
 		}
 	} else {
-		slog.Info("Successfully terminated parent workflow",
+		slog.InfoContext(ctx, "Successfully terminated parent workflow",
 			slog.String("flowName", flowJobName),
 			slog.String("workflowId", workflowId))
 	}
@@ -286,7 +279,7 @@ func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Con
 		Query: fmt.Sprintf("RootRunId = '%s'", originalRunId),
 	})
 	if err != nil {
-		slog.Warn("Failed to list child workflows, continuing with parent termination",
+		slog.WarnContext(ctx, "Failed to list child workflows during cleanup, continuing",
 			slog.String("flowName", flowJobName),
 			slog.String("workflowId", workflowId),
 			slog.String("error", err.Error()))
@@ -304,24 +297,24 @@ func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Con
 			if childErr != nil {
 				var notFoundErr *serviceerror.NotFound
 				if errors.As(childErr, &notFoundErr) {
-					slog.Info("Child workflow already not found during cleanup",
+					slog.InfoContext(ctx, "Child workflow already not found during cleanup",
 						slog.String("flowName", flowJobName),
 						slog.String("childWorkflowId", execution.Execution.WorkflowId))
 				} else {
-					slog.Warn("Failed to terminate child workflow, continuing",
+					slog.WarnContext(ctx, "Failed to terminate child workflow, continuing",
 						slog.String("flowName", flowJobName),
 						slog.String("childWorkflowId", execution.Execution.WorkflowId),
 						slog.String("error", childErr.Error()))
 				}
 			} else {
-				slog.Info("Successfully terminated child workflow",
+				slog.InfoContext(ctx, "Successfully terminated child workflow",
 					slog.String("flowName", flowJobName),
 					slog.String("childWorkflowId", execution.Execution.WorkflowId))
 			}
 		}
 	}
 
-	slog.Info("Successfully cleaned up current parent mirror and flow from catalog",
+	slog.InfoContext(ctx, "Successfully cleaned up current parent mirror and flow from catalog",
 		slog.String("flowName", flowJobName))
 	return nil
 }
@@ -340,7 +333,7 @@ func (a *CancelTableAdditionActivity) WaitForNewRunningMirrorToBeInRunningState(
 		return fmt.Errorf("expected flow %s to be in RUNNING state, but found %s", flowJobName, flowStatus.String())
 	}
 
-	slog.Info("New mirror flow is in RUNNING state", slog.String("flowName", flowJobName))
+	slog.InfoContext(ctx, "New mirror flow is in RUNNING state", slog.String("flowName", flowJobName))
 	return nil
 }
 
@@ -361,7 +354,7 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 	}
 
 	if peerType != protos.DBType_POSTGRES {
-		slog.Info("Source peer is not Postgres, skipping publication table removal",
+		slog.InfoContext(ctx, "Source peer is not Postgres, skipping publication table removal",
 			slog.String("flowName", flowJobName),
 			slog.String("sourcePeerName", sourcePeerName),
 			slog.String("peerType", peerType.String()))
@@ -371,7 +364,7 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 
 	if publicationNameInConfig == "" {
 		publicationName := connpostgres.GetDefaultPublicationName(flowJobName)
-		slog.Info("Publication name not set in config, using default",
+		slog.InfoContext(ctx, "Publication name not set in config, using default",
 			slog.String("flowName", flowJobName),
 			slog.String("publicationName", publicationName))
 
@@ -400,20 +393,19 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 			return fmt.Errorf("failed to remove tables from publication %s: %w", publicationName, err)
 		}
 
-		slog.Info("Successfully removed cancelled tables from publication",
+		slog.InfoContext(ctx, "Successfully removed cancelled tables from publication",
 			slog.String("flowName", flowJobName),
 			slog.String("publicationName", publicationName))
 
 		return nil
 	} else {
 		// skip because it is user-provided publication which we do not touch.
-		slog.Info("Publication name set in config, skipping publication table removal",
+		slog.InfoContext(ctx, "Publication name set in config, skipping publication table removal",
 			slog.String("flowName", flowJobName),
 			slog.String("publicationName", publicationNameInConfig))
 
 		return nil
 	}
-
 }
 
 func (a *CancelTableAdditionActivity) StartNewCDCFlow(
@@ -440,7 +432,7 @@ func (a *CancelTableAdditionActivity) StartNewCDCFlow(
 		return fmt.Errorf("failed to start CDC workflow: %w", err)
 	}
 
-	slog.Info("Successfully started new CDC workflow",
+	slog.InfoContext(ctx, "Successfully started new CDC workflow",
 		slog.String("flowName", flowConfig.FlowJobName),
 		slog.String("workflowID", workflowID),
 		slog.String("runID", run.GetRunID()))
