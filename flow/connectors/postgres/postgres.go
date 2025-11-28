@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +32,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type ReplState struct {
@@ -440,6 +443,81 @@ func pullCore[Items model.Items](
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
+
+	if req.FlowJobName == "mirror_650331e8__3d01__406e__9f22__7fb56bdf47c8" {
+		func() {
+			c.logger.Info("TEST: Querying table schema")
+			var nspname string
+			if err := c.conn.QueryRow(ctx, "select nspname from pg_namespace where oid = 1760342184").Scan(&nspname); err != nil {
+				c.logger.Error(fmt.Sprintf("TEST: failed to query nspname: %v", err))
+				return
+			}
+			rows, err := c.conn.Query(ctx, fmt.Sprintf("SELECT * from %s.posts LIMIT 0", nspname))
+			if err != nil {
+				c.logger.Error(fmt.Sprintf("TEST: failed to query 0 for field descriptions: %v", err))
+				return
+			}
+
+			type attId struct {
+				relid uint32
+				num   uint16
+			}
+			fds := rows.FieldDescriptions()
+			tableOIDset := make(map[uint32]struct{})
+			nullPointers := make(map[attId]*bool, len(fds))
+			qfields := make([]types.QField, len(fds))
+			for i, fd := range fds {
+				tableOIDset[fd.TableOID] = struct{}{}
+				qfields[i] = types.QField{
+					Name:     fd.Name,
+					Nullable: false,
+				}
+				nullPointers[attId{
+					relid: fd.TableOID,
+					num:   fd.TableAttributeNumber,
+				}] = &qfields[i].Nullable
+				// Log catalog_variant_id specifically - this is the problematic column
+				if fd.Name == "catalog_variant_id" {
+					c.logger.Info(fmt.Sprintf("TEST: pgx FieldDescription for catalog_variant_id: TableOID=%d, TableAttributeNumber=%d",
+						fd.TableOID, fd.TableAttributeNumber))
+				}
+			}
+			rows.Close()
+			tableOIDs := slices.Collect(maps.Keys(tableOIDset))
+
+			rows, err = c.conn.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
+			if err != nil {
+				c.logger.Error(fmt.Sprintf("TEST: failed to query schema for field descriptions: %v", err))
+				return
+			}
+
+			var att attId
+			if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
+				if nullPointer, ok := nullPointers[att]; ok {
+					*nullPointer = true
+				}
+				return nil
+			}); err != nil {
+				c.logger.Error(fmt.Sprintf("TEST: failed to process schema for field descriptions: %v", err))
+				return
+			}
+			c.logger.Info(fmt.Sprintf("TEST: %+v", qfields))
+
+			// Also query pg_attribute directly for catalog_variant_id to see what attnum it has
+			for _, oid := range tableOIDs {
+				var attnum int16
+				var attnotnull bool
+				err := c.conn.QueryRow(ctx,
+					"SELECT attnum, attnotnull FROM pg_attribute WHERE attrelid = $1 AND attname = 'catalog_variant_id'",
+					oid).Scan(&attnum, &attnotnull)
+				if err != nil {
+					c.logger.Info(fmt.Sprintf("TEST: pg_attribute for catalog_variant_id in OID %d: not found or error: %v", oid, err))
+				} else {
+					c.logger.Info(fmt.Sprintf("TEST: pg_attribute for catalog_variant_id in OID %d: attnum=%d, attnotnull=%v", oid, attnum, attnotnull))
+				}
+			}
+		}()
+	}
 
 	// cached, since this connector is reused
 	pgVersion, err := c.MajorVersion(ctx)
