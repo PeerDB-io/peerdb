@@ -8,11 +8,14 @@ import (
 	"sync/atomic"
 
 	"github.com/hamba/avro/v2"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -195,7 +198,7 @@ func (t *NullMismatchTracker) RecordNull(fieldIdx int) {
 	}
 }
 
-func (t *NullMismatchTracker) LogInto(logger log.Logger) {
+func (t *NullMismatchTracker) LogIfMismatch(ctx context.Context, logger log.Logger) {
 	// Collect mismatched column names
 	var cols []string
 	for idx, mismatched := range t.mismatchedCols {
@@ -216,4 +219,8 @@ func (t *NullMismatchTracker) LogInto(logger log.Logger) {
 		slog.Any("pg_attribute_rows", t.schemaDebug.PgAttributeRows),
 		slog.Any("tables_with_inheritance", t.schemaDebug.Tables),
 	)
+
+	otel_metrics.CodeNotificationCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String("message", "Null values in columns that would be non-nullable under strict mode"),
+	)))
 }

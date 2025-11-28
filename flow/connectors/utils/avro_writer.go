@@ -285,7 +285,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	)
 
 	if avroConverter.NullMismatchTracker != nil {
-		avroConverter.NullMismatchTracker.LogInto(logger)
+		avroConverter.NullMismatchTracker.LogIfMismatch(ctx, logger)
 	}
 
 	if err := p.stream.Err(); err != nil {
