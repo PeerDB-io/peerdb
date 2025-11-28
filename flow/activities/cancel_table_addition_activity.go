@@ -427,7 +427,6 @@ func (a *CancelTableAdditionActivity) StartNewCDCFlow(
 	})
 	defer shutdown()
 
-	// Start the new CDC workflow as a regular workflow (not child)
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                       workflowID,
 		TaskQueue:                string(shared.PeerFlowTaskQueue),
@@ -436,7 +435,6 @@ func (a *CancelTableAdditionActivity) StartNewCDCFlow(
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // allow reuse for retries
 	}
 
-	// Start the CDCFlowWorkflow as a regular workflow
 	run, err := a.TemporalClient.ExecuteWorkflow(ctx, workflowOptions, "CDCFlowWorkflow", flowConfig, state)
 	if err != nil {
 		return fmt.Errorf("failed to start CDC workflow: %w", err)
