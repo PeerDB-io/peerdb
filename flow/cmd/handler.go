@@ -178,15 +178,19 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// No running workflow, do the validations and start a new one
 
 	// Insert the table mappings into the DB
-	tableMappingsBytes, err := internal.TableMappingsToBytes(req.TableMappings)
+	tableMappingsBytes, err := internal.TableMappingsToBytes(req.ConnectionConfigs.TableMappings)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("unable to marshal table mappings: %w", err))
 	}
 
-	stmt := `INSERT INTO table_mappings (flow_name, version, table_mapping) VALUES ($1, $2, $3)
-	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mapping = EXCLUDED.table_mapping`
-	version := 1
+	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings) VALUES ($1, $2, $3)
+	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mappings = EXCLUDED.table_mappings`
+	slog.Info("YOOOO QUERY ", slog.String("stmt", stmt))
+	version := 0
 	_, err = h.pool.Exec(ctx, stmt, cfg.FlowJobName, version, tableMappingsBytes)
+	if err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("unable to insert table mappings: %w", err))
+	}
 
 	// Use idempotent validation that skips mirror existence check
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs)

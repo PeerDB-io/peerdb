@@ -66,7 +66,9 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	// fetch connection configs from DB
+	slog.Info("!!!!! YO")
 	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, connectionConfigs.FlowJobName, connectionConfigs.TableMappingVersion)
+	slog.Info("!!!!! YO2 ")
 	if err != nil {
 		return nil, NewInternalApiError(err)
 	}

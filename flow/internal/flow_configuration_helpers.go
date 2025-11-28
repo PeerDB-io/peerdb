@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 
 	"google.golang.org/protobuf/proto"
 
@@ -60,31 +61,34 @@ func FetchTableMappingsFromDB(ctx context.Context, flowJobName string, version u
 	if err != nil {
 		return nil, err
 	}
-	rows, err := pool.Query(ctx,
-		"select table_mappings from table_mappings where flow_name = $1 AND version = $2",
+
+	row := pool.QueryRow(ctx,
+		`select table_mappings
+	 from table_mappings
+	 where flow_name = $1
+	   and version   = $2`,
 		flowJobName, version,
 	)
-	if err != nil {
-		return nil, err
-	}
 
+	slog.Info("!!!!! stmt", slog.String("flow_name", flowJobName), slog.Int("version", int(version)))
 	var tableMappingsBytes [][]byte
-	var tableMappings []*protos.TableMapping = []*protos.TableMapping{}
-
-	err = rows.Scan([]any{&tableMappingsBytes})
-	if err != nil {
+	if err := row.Scan(&tableMappingsBytes); err != nil {
 		return nil, fmt.Errorf("failed to deserialize table mapping schema proto: %w", err)
 	}
 
-	for _, tableMappingBytes := range tableMappingsBytes {
+	//var tableMappings []*protos.TableMapping
 
-		var tableMapping *protos.TableMapping
-		if err := proto.Unmarshal(tableMappingBytes, tableMapping); err != nil {
+	var tableMappings []*protos.TableMapping = []*protos.TableMapping{}
+	slog.Info("!!!!! YO3 ", slog.Int("len", len(tableMappingsBytes)))
+
+	for _, tableMappingBytes := range tableMappingsBytes {
+		var tableMapping protos.TableMapping
+		slog.Info("!!!!! YO - in loop ")
+		if err := proto.Unmarshal(tableMappingBytes, &tableMapping); err != nil {
 			return nil, err
 		}
 
-		tableMappings = append(tableMappings, tableMapping)
+		tableMappings = append(tableMappings, &tableMapping)
 	}
-
 	return tableMappings, nil
 }

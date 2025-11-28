@@ -58,7 +58,7 @@ message FlowConnectionConfigs {
 
   // config for the CDC flow itself
   // currently, TableMappings, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
-  //repeated TableMapping table_mappings = 4;
+  repeated TableMapping table_mappings = 4;
   uint32 max_batch_size = 5;
   uint64 idle_timeout_seconds = 6;
   string cdc_staging_path = 7;

@@ -11,7 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	peerdb_mysql "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
 
 func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
