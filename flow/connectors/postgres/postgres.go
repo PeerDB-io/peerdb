@@ -452,9 +452,19 @@ func pullCore[Items model.Items](
 				c.logger.Error(fmt.Sprintf("TEST: failed to query nspname: %v", err))
 				return
 			}
-			rows, err := c.conn.Query(ctx, fmt.Sprintf("SELECT * from %s.posts LIMIT 0", nspname))
+			// Use cursor like QRep does, instead of direct SELECT
+			cursorName := "test_cursor_debug"
+			query := fmt.Sprintf("SELECT * FROM %s.posts", nspname)
+			_, err = c.conn.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query))
 			if err != nil {
-				c.logger.Error(fmt.Sprintf("TEST: failed to query 0 for field descriptions: %v", err))
+				c.logger.Error(fmt.Sprintf("TEST: failed to declare cursor: %v", err))
+				return
+			}
+			defer c.conn.Exec(ctx, fmt.Sprintf("CLOSE %s", cursorName))
+
+			rows, err := c.conn.Query(ctx, fmt.Sprintf("FETCH 0 FROM %s", cursorName))
+			if err != nil {
+				c.logger.Error(fmt.Sprintf("TEST: failed to fetch from cursor for field descriptions: %v", err))
 				return
 			}
 
