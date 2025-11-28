@@ -7,15 +7,20 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
+	tEnums "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
 type CancelTableAdditionActivity struct {
@@ -25,24 +30,64 @@ type CancelTableAdditionActivity struct {
 	OtelManager    *otel_metrics.OtelManager
 }
 
-/* GetCompletedTablesInQrepRuns gets the list of source tables whose latest QRep run is completed */
-func (a *CancelTableAdditionActivity) GetCompletedTablesInQrepRuns(ctx context.Context, flowJobName string) ([]string, error) {
+/* GetCompletedTablesInQrepRunsForTableAddition gets the list of source tables whose latest QRep run is completed */
+func (a *CancelTableAdditionActivity) GetCompletedTablesInQrepRunsForTableAddition(
+	ctx context.Context,
+	flowJobName string,
+	workflowId string,
+) ([]string, error) {
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "fetching completed tables from qrep_runs"
 	})
 	defer shutdown()
+
+	originalRunId, err := a.getRunIDOfLatestRunningPeerFlow(ctx, workflowId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get run ID of latest running peer flow for workflow %s: %w", workflowId, err)
+	}
+
+	slog.Info("Fetching completed tables from qrep_runs for table addition cancellation",
+		slog.String("flowName", flowJobName),
+		slog.String("originalRunId", originalRunId))
+
+	// listworkflows by rootrunid = peerflow.runid and workflow type = QRepFlowWorkflow
+	listResp, err := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+		Query: fmt.Sprintf("RootRunId = '%s' AND WorkflowType = 'QRepFlowWorkflow'", originalRunId),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list qrep workflows for flow %s: %w", flowJobName, err)
+	}
+
+	slog.Info("List response", slog.Any("listResp", listResp))
+
+	if len(listResp.Executions) == 0 {
+		slog.Info("No QRep workflows found for flow, returning empty completed tables list",
+			slog.String("flowName", flowJobName))
+		return []string{}, nil
+	}
+
+	var runIds []string
+	for _, execution := range listResp.Executions {
+		runIds = append(runIds, execution.Execution.RunId)
+	}
+
+	slog.Info("Run IDs obtained for QRep workflows",
+		slog.String("flowName", flowJobName),
+		slog.Any("runIds", runIds))
+
 	rows, err := a.CatalogPool.Query(ctx, `
 		WITH latest_runs AS (
-            SELECT 
-                source_table,
-                consolidate_complete,
-                ROW_NUMBER() OVER (PARTITION BY source_table ORDER BY id DESC) as rn
-            FROM peerdb_stats.qrep_runs 
-            WHERE parent_mirror_name = $1
-        )
-        SELECT source_table 
-        FROM latest_runs 
-        WHERE rn = 1 AND consolidate_complete = true`, flowJobName)
+			SELECT 
+				source_table,
+				consolidate_complete,
+				ROW_NUMBER() OVER (PARTITION BY source_table ORDER BY id DESC) as rn
+			FROM peerdb_stats.qrep_runs 
+			WHERE parent_mirror_name = $1
+			AND run_uuid = ANY($2)
+		)
+		SELECT source_table 
+		FROM latest_runs 
+		WHERE rn = 1 AND consolidate_complete = true`, flowJobName, runIds)
 	if err != nil {
 		return nil, err
 	}
@@ -153,14 +198,15 @@ func (a *CancelTableAdditionActivity) CleanupIncompleteTablesInStats(
 	return nil
 }
 
-func (a *CancelTableAdditionActivity) GetFlowConfigFromCatalog(
+func (a *CancelTableAdditionActivity) GetFlowConfigAndWorkflowIdFromCatalog(
 	ctx context.Context,
 	flowJobName string,
-) (*protos.FlowConnectionConfigsCore, error) {
+) (*protos.GetFlowConfigAndWorkflowIdFromCatalogOutput, error) {
 	var configBytes []byte
+	var workflowID string
 	err := a.CatalogPool.QueryRow(ctx,
-		"SELECT config_proto FROM flows WHERE name = $1",
-		flowJobName).Scan(&configBytes)
+		"SELECT workflow_id, config_proto FROM flows WHERE name = $1",
+		flowJobName).Scan(&workflowID, &configBytes)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("flow job %s not found", flowJobName)
@@ -173,78 +219,119 @@ func (a *CancelTableAdditionActivity) GetFlowConfigFromCatalog(
 		return nil, fmt.Errorf("unable to unmarshal flow config for flow %s: %w", flowJobName, err)
 	}
 
-	return &config, nil
+	return &protos.GetFlowConfigAndWorkflowIdFromCatalogOutput{
+		FlowConnectionConfigs: &config,
+		OriginalWorkflowId:    workflowID,
+	}, nil
 }
 
-func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Context, flowJobName string) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
-		return "cleaning up current parent mirror and flow from catalog"
-	})
-	defer shutdown()
-	workflowID := shared.GetWorkflowID(flowJobName)
-	err := a.TemporalClient.TerminateWorkflow(ctx, workflowID, "", "Canceling due to table addition cancellation")
-	if err != nil {
-		if err.Error() != "workflow execution already completed" {
-			return fmt.Errorf("failed to cancel peerflow workflow %s: %w", workflowID, err)
-		}
-	}
-
-	// terminate all child workflows
-	listResp, err := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
-		Query: fmt.Sprintf("RootWorkflowId = '%s'", workflowID),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list child workflows for %s: %w", workflowID, err)
-	}
-
-	for _, execution := range listResp.Executions {
-		if execution.Execution.WorkflowId == workflowID {
-			// skip root workflow
-			continue
-		}
-		err := a.TemporalClient.TerminateWorkflow(
-			ctx, execution.Execution.WorkflowId, execution.Execution.RunId,
-			"Canceling child workflow due to table addition cancellation")
-		if err != nil && err.Error() != "workflow execution already completed" {
-			return fmt.Errorf("failed to cancel child workflow %s: %w", execution.Execution.WorkflowId, err)
-		}
-	}
-
-	// delete from flows table in catalog
-	_, err = a.CatalogPool.Exec(ctx, "DELETE FROM flows WHERE name = $1", flowJobName)
-	if err != nil {
-		return fmt.Errorf("failed to delete flow %s from catalog: %w", flowJobName, err)
-	}
-
-	internal.LoggerFromCtx(ctx).Info("Successfully cleaned up current parent mirror and flow from catalog",
-		slog.String("flowName", flowJobName))
-	return nil
-}
-
-func (a *CancelTableAdditionActivity) CreateCdcJobEntry(
+func (a *CancelTableAdditionActivity) UpdateCdcJobEntry(
 	ctx context.Context,
 	connectionConfigs *protos.FlowConnectionConfigsCore,
 	workflowID string,
 ) error {
-	// idempotent=false so that in an outlandish case when the flow entry is somehow there,
-	//  we have a chance to manually clean it up because its configs are wrong
-	err := shared.CreateCdcJobEntry(ctx, a.CatalogPool, connectionConfigs, workflowID, false)
+	cfgBytes, err := proto.Marshal(connectionConfigs)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
 
-	internal.LoggerFromCtx(ctx).Info("Successfully created CDC job entry in catalog",
+	if _, err = a.CatalogPool.Exec(ctx,
+		`UPDATE flows 
+		SET status = $1, config_proto = $2 
+		WHERE name = $3`,
+		protos.FlowStatus_STATUS_RUNNING, cfgBytes, connectionConfigs.FlowJobName,
+	); err != nil {
+		return fmt.Errorf("unable to update flows table for flow %s: %w",
+			connectionConfigs.FlowJobName, err)
+	}
+
+	slog.Info("Successfully updated CDC job entry in catalog",
 		slog.String("flowName", connectionConfigs.FlowJobName),
 		slog.String("workflowID", workflowID))
 
 	return nil
 }
 
+func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Context, flowJobName string, workflowId string) error {
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "cleaning up current parent mirror and flow from catalog"
+	})
+	defer shutdown()
+
+	// Describe to get latest run
+	originalRunId, err := a.getRunIDOfLatestRunningPeerFlow(ctx, workflowId)
+	if err != nil {
+		return fmt.Errorf("failed to get run ID of latest running peer flow for workflow %s: %w", workflowId, err)
+	}
+
+	// Terminate the parent workflow
+	err = a.TemporalClient.TerminateWorkflow(ctx, workflowId, "", "Canceling due to table addition cancellation")
+	if err != nil {
+		var notFoundErr *serviceerror.NotFound
+		if errors.As(err, &notFoundErr) {
+			slog.Info("Workflow already not found during cleanup of current parent mirror",
+				slog.String("flowName", flowJobName),
+				slog.String("workflowId", workflowId))
+		} else {
+			return fmt.Errorf("failed to terminate parent workflow %s: %w", workflowId, err)
+		}
+	} else {
+		slog.Info("Successfully terminated parent workflow",
+			slog.String("flowName", flowJobName),
+			slog.String("workflowId", workflowId))
+	}
+
+	// Terminate all child workflows just to be sure
+	listResp, err := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+		Query: fmt.Sprintf("RootRunId = '%s'", originalRunId),
+	})
+	if err != nil {
+		slog.Warn("Failed to list child workflows, continuing with parent termination",
+			slog.String("flowName", flowJobName),
+			slog.String("workflowId", workflowId),
+			slog.String("error", err.Error()))
+	} else {
+		for _, execution := range listResp.Executions {
+			if execution.Execution.WorkflowId == workflowId {
+				// Skip the root workflow itself
+				continue
+			}
+
+			childErr := a.TemporalClient.TerminateWorkflow(ctx,
+				execution.Execution.WorkflowId,
+				execution.Execution.RunId,
+				"Canceling child workflow due to table addition cancellation")
+			if childErr != nil {
+				var notFoundErr *serviceerror.NotFound
+				if errors.As(childErr, &notFoundErr) {
+					slog.Info("Child workflow already not found during cleanup",
+						slog.String("flowName", flowJobName),
+						slog.String("childWorkflowId", execution.Execution.WorkflowId))
+				} else {
+					slog.Warn("Failed to terminate child workflow, continuing",
+						slog.String("flowName", flowJobName),
+						slog.String("childWorkflowId", execution.Execution.WorkflowId),
+						slog.String("error", childErr.Error()))
+				}
+			} else {
+				slog.Info("Successfully terminated child workflow",
+					slog.String("flowName", flowJobName),
+					slog.String("childWorkflowId", execution.Execution.WorkflowId))
+			}
+		}
+	}
+
+	slog.Info("Successfully cleaned up current parent mirror and flow from catalog",
+		slog.String("flowName", flowJobName))
+	return nil
+}
+
 func (a *CancelTableAdditionActivity) WaitForNewRunningMirrorToBeInRunningState(
 	ctx context.Context,
 	flowJobName string,
+	workflowId string,
 ) error {
-	flowStatus, err := internal.GetWorkflowStatus(ctx, a.CatalogPool, shared.GetWorkflowID(flowJobName))
+	flowStatus, err := internal.GetWorkflowStatus(ctx, a.CatalogPool, workflowId)
 	if err != nil {
 		return fmt.Errorf("failed to get workflow status for flow %s: %w", flowJobName, err)
 	}
@@ -253,6 +340,129 @@ func (a *CancelTableAdditionActivity) WaitForNewRunningMirrorToBeInRunningState(
 		return fmt.Errorf("expected flow %s to be in RUNNING state, but found %s", flowJobName, flowStatus.String())
 	}
 
-	internal.LoggerFromCtx(ctx).Info("New mirror flow is in RUNNING state", slog.String("flowName", flowJobName))
+	slog.Info("New mirror flow is in RUNNING state", slog.String("flowName", flowJobName))
 	return nil
+}
+
+func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfApplicable(
+	ctx context.Context,
+	flowJobName string,
+	sourcePeerName string,
+	publicationNameInConfig string,
+	finalListOfTables []*protos.TableMapping,
+) error {
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "removing cancelled tables from publication"
+	})
+	defer shutdown()
+	peerType, err := connectors.LoadPeerType(ctx, a.CatalogPool, sourcePeerName)
+	if err != nil {
+		return fmt.Errorf("failed to load peer type for peer %s: %w", sourcePeerName, err)
+	}
+
+	if peerType != protos.DBType_POSTGRES {
+		slog.Info("Source peer is not Postgres, skipping publication table removal",
+			slog.String("flowName", flowJobName),
+			slog.String("sourcePeerName", sourcePeerName),
+			slog.String("peerType", peerType.String()))
+
+		return nil
+	}
+
+	if publicationNameInConfig == "" {
+		publicationName := connpostgres.GetDefaultPublicationName(flowJobName)
+		slog.Info("Publication name not set in config, using default",
+			slog.String("flowName", flowJobName),
+			slog.String("publicationName", publicationName))
+
+		conn, connClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, sourcePeerName)
+		if err != nil {
+			return fmt.Errorf("failed to get connector for peer %s: %w", sourcePeerName, err)
+		}
+		defer connClose(ctx)
+
+		schemaQualifiedTablesInPublication, err := conn.GetTablesFromPublication(ctx, publicationName, finalListOfTables)
+		if err != nil {
+			return fmt.Errorf("failed to get tables from publication %s: %w", publicationName, err)
+		}
+
+		var publicationTablesMapping []*protos.TableMapping
+		for _, schemaQualifiedTable := range schemaQualifiedTablesInPublication {
+			publicationTablesMapping = append(publicationTablesMapping, &protos.TableMapping{
+				SourceTableIdentifier: schemaQualifiedTable.Schema + "." + schemaQualifiedTable.Table,
+			})
+		}
+		err = conn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{
+			FlowJobName:    flowJobName,
+			TablesToRemove: publicationTablesMapping,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to remove tables from publication %s: %w", publicationName, err)
+		}
+
+		slog.Info("Successfully removed cancelled tables from publication",
+			slog.String("flowName", flowJobName),
+			slog.String("publicationName", publicationName))
+
+		return nil
+	} else {
+		// skip because it is user-provided publication which we do not touch.
+		slog.Info("Publication name set in config, skipping publication table removal",
+			slog.String("flowName", flowJobName),
+			slog.String("publicationName", publicationNameInConfig))
+
+		return nil
+	}
+
+}
+
+func (a *CancelTableAdditionActivity) StartNewCDCFlow(
+	ctx context.Context,
+	flowConfig *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+	workflowID string,
+) error {
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "creating job entry and starting new CDC flow"
+	})
+	defer shutdown()
+
+	// Start the new CDC workflow as a regular workflow (not child)
+	workflowOptions := client.StartWorkflowOptions{
+		ID:                       workflowID,
+		TaskQueue:                string(shared.PeerFlowTaskQueue),
+		TypedSearchAttributes:    shared.NewSearchAttributes(flowConfig.FlowJobName),
+		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,  // idempotent behavior
+		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE, // allow reuse for retries
+	}
+
+	// Start the CDCFlowWorkflow as a regular workflow
+	run, err := a.TemporalClient.ExecuteWorkflow(ctx, workflowOptions, "CDCFlowWorkflow", flowConfig, state)
+	if err != nil {
+		return fmt.Errorf("failed to start CDC workflow: %w", err)
+	}
+
+	slog.Info("Successfully started new CDC workflow",
+		slog.String("flowName", flowConfig.FlowJobName),
+		slog.String("workflowID", workflowID),
+		slog.String("runID", run.GetRunID()))
+
+	return nil
+}
+
+func (a *CancelTableAdditionActivity) getRunIDOfLatestRunningPeerFlow(ctx context.Context, workflowId string) (string, error) {
+	// Describe to get latest run
+	describeResp, err := a.TemporalClient.DescribeWorkflowExecution(ctx, workflowId, "")
+	if err != nil {
+		var notFoundErr *serviceerror.NotFound
+		if errors.As(err, &notFoundErr) {
+			return "", fmt.Errorf("workflow %s not found: %w", workflowId, err)
+		} else {
+			return "", fmt.Errorf("failed to describe workflow %s: %w", workflowId, err)
+		}
+	}
+	if describeResp == nil || describeResp.WorkflowExecutionInfo == nil || describeResp.WorkflowExecutionInfo.Execution == nil {
+		return "", fmt.Errorf("invalid describe response for workflow %s", workflowId)
+	}
+	return describeResp.WorkflowExecutionInfo.Execution.RunId, nil
 }

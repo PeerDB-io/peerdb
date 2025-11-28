@@ -631,3 +631,8 @@ message GetDefaultPartitionKeyForTablesInput {
 message GetDefaultPartitionKeyForTablesOutput {
   map<string, string> table_default_partition_key_mapping = 1;
 }
+
+message GetFlowConfigAndWorkflowIdFromCatalogOutput {
+  FlowConnectionConfigsCore flow_connection_configs = 1;
+  string original_workflow_id = 2;
+}

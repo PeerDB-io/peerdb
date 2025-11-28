@@ -33,6 +33,27 @@ func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
 	return flowStatus, nil
 }
 
+func GetWorkflowStatusByName(ctx context.Context, pool shared.CatalogPool,
+	flowName string,
+) (protos.FlowStatus, error) {
+	var flowStatus protos.FlowStatus
+	err := pool.QueryRow(ctx, "SELECT status FROM flows WHERE name = $1", flowName).Scan(&flowStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			slog.WarnContext(ctx, "workflowId not found in catalog, will raise an error",
+				slog.String("flowName", flowName))
+			return protos.FlowStatus_STATUS_UNKNOWN, fmt.Errorf("workflowId not found in catalog: %w", err)
+		}
+		slog.ErrorContext(ctx, "failed to get status for flow from catalog",
+			slog.Any("error", err),
+			slog.String("flowName", flowName))
+		return flowStatus, fmt.Errorf("failed ot get status for flow from catalog: %w", err)
+	} else if flowStatus == protos.FlowStatus_STATUS_UNKNOWN {
+		slog.WarnContext(ctx, "flow status from catalog is unknown", slog.String("floflowNamewID", flowName))
+	}
+	return flowStatus, nil
+}
+
 func UpdateFlowStatusInCatalog(ctx context.Context, pool shared.CatalogPool,
 	workflowID string, status protos.FlowStatus,
 ) (protos.FlowStatus, error) {
