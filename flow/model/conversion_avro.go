@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+//nolint:govet // field alignment not worth readability cost
 type QRecordAvroConverter struct {
 	logger                   log.Logger
 	Schema                   *QRecordAvroSchemaDefinition
@@ -172,8 +173,8 @@ func ConstructColumnNameAvroFieldMap(fields []types.QField) map[string]string {
 
 // NullMismatchTracker detects null values in columns that would be non-nullable under strict mode
 type NullMismatchTracker struct {
-	mismatchedCols []bool
 	schemaDebug    *types.NullableSchemaDebug
+	mismatchedCols []bool
 }
 
 func NewNullMismatchTracker(

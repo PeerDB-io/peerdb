@@ -390,7 +390,8 @@ func corePullQRepRecords(
 		return 0, 0, err
 	}
 
-	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+	executor, err := c.NewQRepQueryExecutorSnapshot(
+		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}

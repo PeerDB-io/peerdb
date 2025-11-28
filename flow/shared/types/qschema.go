@@ -48,20 +48,20 @@ type PgxFieldDebug struct {
 
 // PgAttributeDebug captures a row from pg_attribute query for debugging
 type PgAttributeDebug struct {
-	AttRelID    uint32
-	AttNum      int16
 	AttName     string
-	AttNotNull  bool
+	AttRelID    uint32
 	AttTypID    uint32
 	AttInhCount int32
+	AttNum      int16
+	AttNotNull  bool
 	AttIsLocal  bool
 }
 
 // TableDebug captures table metadata including parent OID for debugging
 type TableDebug struct {
-	OID        uint32
 	TableName  string
 	SchemaName string
+	OID        uint32
 	ParentOID  uint32 // 0 if no parent
 }
 
