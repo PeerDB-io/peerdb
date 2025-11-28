@@ -74,7 +74,6 @@ export default function StatTable({ peerName }: { peerName: string }) {
             </TableRow>
           }
           toolbar={{
-            left: <></>,
             right: (
               <SearchField
                 placeholder='Search by query'

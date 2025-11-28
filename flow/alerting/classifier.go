@@ -659,6 +659,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		switch mongoCmdErr.Code {
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 18: // AuthenticationFailed
+			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 91: // ShutdownInProgress
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 286: // ChangeStreamHistoryLost
@@ -667,6 +669,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			11601, // Interrupted
 			11602: // InterruptedDueToReplStateChange
 			return ErrorRetryRecoverable, mongoErrorInfo
+		case 13436: // NotPrimaryOrSecondary
+			return ErrorNotifyConnectivity, mongoErrorInfo
 		default:
 			return ErrorOther, mongoErrorInfo
 		}

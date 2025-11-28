@@ -1,5 +1,5 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import { timeOptions } from '@/app/utils/graph';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import {
@@ -70,6 +70,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   const [showLsn, setShowLsn] = useState(false);
   const theme = useTheme();
   const isDarkMode = theme.theme === 'dark';
+  const selectTheme = useSelectTheme();
   const chartRef = useRef<ChartJS<'line'> | null>(null);
 
   useEffect(() => {
@@ -238,7 +239,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
               ? { value: selectedSlot, label: selectedSlot }
               : undefined
           }
-          theme={SelectTheme}
+          theme={selectTheme}
         />
         <input
           type='button'
@@ -253,7 +254,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
           )}
           defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setTimeSince(val.value)}
-          theme={SelectTheme}
+          theme={selectTheme}
         />
       </div>
       {loading ? (
