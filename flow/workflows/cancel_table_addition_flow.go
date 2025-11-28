@@ -277,6 +277,6 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	return &protos.CancelTableAdditionOutput{
 		FlowJobName:             flowJobName,
 		TablesAfterCancellation: finalListOfTables,
-		OperationId:             workflowInfo.WorkflowExecution.RunID,
+		RunId:                   workflowInfo.WorkflowExecution.RunID,
 	}, nil
 }
