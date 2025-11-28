@@ -432,8 +432,8 @@ func (a *CancelTableAdditionActivity) StartNewCDCFlow(
 		ID:                       workflowID,
 		TaskQueue:                string(shared.PeerFlowTaskQueue),
 		TypedSearchAttributes:    shared.NewSearchAttributes(flowConfig.FlowJobName),
-		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,  // idempotent behavior
-		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE, // allow reuse for retries
+		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, // idempotent behavior
+		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // allow reuse for retries
 	}
 
 	// Start the CDCFlowWorkflow as a regular workflow
