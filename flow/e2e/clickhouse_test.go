@@ -1625,20 +1625,20 @@ func (s ClickHouseSuite) Test_PgVector() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Test_NullableLax tests PEERDB_NULLABLE_LAX with multi-level inheritance and attnum gaps
+// Test_AvroNullableLax tests PEERDB_AVRO_NULLABLE_LAX with multi-level inheritance and attnum gaps
 // Need to modify code to trigger logging as the logging was added for the issue we were unable to reproduce
-func (s ClickHouseSuite) Test_NullableLax() {
+func (s ClickHouseSuite) Test_AvroNullableLax() {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
 	}
 
-	srcTableName := "test_nullable_lax"
+	srcTableName := "test_avro_nullable_lax"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
-	dstTableName := "test_nullable_lax"
+	dstTableName := "test_avro_nullable_lax"
 
 	// Create grandparent -> parent -> child inheritance with dropped columns to create attnum gaps
-	grandparentName := s.attachSchemaSuffix("test_nullable_lax_grandparent")
-	parentName := s.attachSchemaSuffix("test_nullable_lax_parent")
+	grandparentName := s.attachSchemaSuffix("test_avro_nullable_lax_grandparent")
+	parentName := s.attachSchemaSuffix("test_avro_nullable_lax_parent")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (id INTEGER NOT NULL, to_drop TEXT, name TEXT)`, grandparentName)))
@@ -1663,7 +1663,7 @@ func (s ClickHouseSuite) Test_NullableLax() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE_LAX": "true"}
+	flowConnConfig.Env = map[string]string{"PEERDB_AVRO_NULLABLE_LAX": "true"}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)

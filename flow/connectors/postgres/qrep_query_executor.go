@@ -71,7 +71,7 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 	tx pgx.Tx,
 	cursorName string,
 ) (types.QRecordSchema, *types.NullableSchemaDebug, error) {
-	laxMode, err := internal.PeerDBNullableLax(ctx, qe.env)
+	laxMode, err := internal.PeerDBAvroNullableLax(ctx, qe.env)
 	if err != nil {
 		return types.QRecordSchema{}, nil, err
 	}

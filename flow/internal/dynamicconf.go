@@ -120,7 +120,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_NULLABLE_LAX",
+		Name:             "PEERDB_AVRO_NULLABLE_LAX",
 		Description:      "Make all columns nullable in initial load Avro schema (disables strict nullable checking)",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
@@ -612,8 +612,8 @@ func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
 }
 
-func PeerDBNullableLax(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE_LAX")
+func PeerDBAvroNullableLax(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_AVRO_NULLABLE_LAX")
 }
 
 func PeerDBBinaryFormat(ctx context.Context, env map[string]string) (BinaryFormat, error) {
