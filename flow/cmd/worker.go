@@ -115,6 +115,13 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		TemporalClient: c,
 	})
 
+	w.RegisterActivity(&activities.CancelTableAdditionActivity{
+		CatalogPool:    conn,
+		Alerter:        alerting.NewAlerter(ctx, conn, otelManager),
+		OtelManager:    otelManager,
+		TemporalClient: c,
+	})
+
 	return &WorkerSetupResponse{
 		Client:      c,
 		Worker:      w,

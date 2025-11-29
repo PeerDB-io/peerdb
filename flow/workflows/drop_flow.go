@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
 func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput) error {
@@ -123,8 +124,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 }
 
 func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
-	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
-		state := CDCFlowWorkflowState{DropFlowInput: input}
+	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (cdc_state.CDCFlowWorkflowState, error) {
+		state := cdc_state.CDCFlowWorkflowState{DropFlowInput: input}
 		if input.Resync {
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_RESYNC
 			state.ActiveSignal = model.ResyncSignal
@@ -142,7 +143,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		status = protos.FlowStatus_STATUS_RESYNC
 	}
 	logger := workflow.GetLogger(ctx)
-	syncStatusToCatalogWithFlowName(ctx, logger, status, input.FlowJobName)
+	cdc_state.SyncStatusToCatalogWithFlowName(ctx, logger, status, input.FlowJobName)
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
 	logger.Info("performing cleanup for flow",

@@ -509,6 +509,19 @@ message GetFlowTagsResponse {
   repeated FlowTag tags = 2;
 }
 
+message CancelTableAdditionInput {
+  string flow_job_name = 1;
+  repeated peerdb_flow.TableMapping currently_replicating_tables = 2;
+  string idempotency_key = 3;
+  bool assume_table_removal_will_not_happen = 4;
+}
+
+message CancelTableAdditionOutput {
+  string flow_job_name = 1;
+  repeated peerdb_flow.TableMapping tables_after_cancellation = 2;
+  string run_id = 3;
+}
+
 service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
@@ -791,6 +804,13 @@ service FlowService {
       returns (TotalRowsSyncedByMirrorResponse) {
     option (google.api.http) = {
       get : "/v1/mirrors/total_rows_synced/{flow_job_name}"
+    };
+  }
+
+  rpc CancelTableAddition(CancelTableAdditionInput) returns (CancelTableAdditionOutput) {
+    option (google.api.http) = {
+      post : "/v1/flows/cdc/cancel_table_addition",
+      body : "*"
     };
   }
 }
