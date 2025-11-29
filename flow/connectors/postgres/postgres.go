@@ -948,7 +948,7 @@ func (c *PostgresConnector) GetSelectedColumns(
 func (c *PostgresConnector) GetTablesFromPublication(
 	ctx context.Context,
 	publicationName string,
-	excludedTables []*protos.TableMapping,
+	excludedTables []*utils.SchemaTable,
 ) ([]*utils.SchemaTable, error) {
 	var getTablesSQL string
 	var args []any
@@ -961,12 +961,7 @@ func (c *PostgresConnector) GetTablesFromPublication(
 		// Get tables that are in publication but NOT in the filter list
 		schemas := make([]string, len(excludedTables))
 		tables := make([]string, len(excludedTables))
-
-		for i, tm := range excludedTables {
-			schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing table identifier %s: %w", tm.SourceTableIdentifier, err)
-			}
+		for i, schemaTable := range excludedTables {
 			schemas[i] = schemaTable.Schema
 			tables[i] = schemaTable.Table
 		}

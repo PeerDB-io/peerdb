@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
@@ -374,7 +375,15 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 		}
 		defer connClose(ctx)
 
-		schemaQualifiedTablesInPublication, err := conn.GetTablesFromPublication(ctx, publicationName, finalListOfTables)
+		var schemaQualifiedTables []*utils.SchemaTable
+		for _, tm := range finalListOfTables {
+			schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
+			if err != nil {
+				return fmt.Errorf("error parsing table identifier %s: %w", tm.SourceTableIdentifier, err)
+			}
+			schemaQualifiedTables = append(schemaQualifiedTables, schemaTable)
+		}
+		schemaQualifiedTablesInPublication, err := conn.GetTablesFromPublication(ctx, publicationName, schemaQualifiedTables)
 		if err != nil {
 			return fmt.Errorf("failed to get tables from publication %s: %w", publicationName, err)
 		}
