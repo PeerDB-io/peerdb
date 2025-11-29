@@ -203,6 +203,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 	createChunkedSubstream := func(done *atomic.Bool) (*model.QRecordStream, *model.QRecordAvroChunkSizeTracker) {
 		substream := model.NewQRecordStream(0)
 		substream.SetSchema(schema)
+		substream.SetSchemaDebug(stream.SchemaDebug())
 		sizeTracker := model.QRecordAvroChunkSizeTracker{TrackUncompressed: trackUncompressed}
 		go func() {
 			recordsDone := true

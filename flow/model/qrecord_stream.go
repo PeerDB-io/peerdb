@@ -8,6 +8,7 @@ import (
 type QRecordStream struct {
 	schemaLatch *concurrency.Latch[types.QRecordSchema]
 	Records     chan []types.QValue
+	schemaDebug *types.NullableSchemaDebug
 	err         error
 }
 
@@ -29,6 +30,14 @@ func (s *QRecordStream) SetSchema(schema types.QRecordSchema) {
 
 func (s *QRecordStream) IsSchemaSet() bool {
 	return s.schemaLatch.IsSet()
+}
+
+func (s *QRecordStream) SetSchemaDebug(debug *types.NullableSchemaDebug) {
+	s.schemaDebug = debug
+}
+
+func (s *QRecordStream) SchemaDebug() *types.NullableSchemaDebug {
+	return s.schemaDebug
 }
 
 func (s *QRecordStream) SchemaChan() <-chan struct{} {
