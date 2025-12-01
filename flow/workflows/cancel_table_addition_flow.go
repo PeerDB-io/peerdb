@@ -55,8 +55,8 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 			"flowName", flowJobName,
 			"removedTables", removedTables)
 		if !input.AssumeTableRemovalWillNotHappen {
-			return nil, fmt.Errorf("cannot cancel table addition because the following tables were removed during the operation: %v; "+
-				"please set assume_table_removal_will_not_happen to true to override and proceed with cancellation",
+			return nil, fmt.Errorf("cannot cancel table addition because the following tables are expected to be removed during the operation and cleanup for that is not implemented: %v; "+
+				"if you're certain this won't happen, set assume_table_removal_will_not_happen to true to override and proceed with cancellation",
 				removedTables)
 		}
 		logger.Warn("Proceeding with cancellation despite removed tables as per override flag",
