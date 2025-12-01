@@ -966,16 +966,16 @@ func (c *PostgresConnector) GetTablesFromPublication(
 			tables[i] = schemaTable.Table
 		}
 		getTablesSQL = `
-			SELECT schemaname, tablename 
-			FROM pg_publication_tables 
-			WHERE pubname = $1 
-			AND (schemaname, tablename) NOT IN (
-				SELECT a.val AS schemaname, b.val AS tablename
-				FROM unnest($2::text[]) WITH ORDINALITY AS a(val, idx)
-				FULL JOIN unnest($3::text[]) WITH ORDINALITY AS b(val, idx)
-				USING (idx)
-			)
-			ORDER BY schemaname, tablename`
+            SELECT schemaname, tablename 
+            FROM pg_publication_tables 
+            WHERE pubname = $1 
+            AND (schemaname, tablename) NOT IN (
+                SELECT a.val AS schemaname, b.val AS tablename
+                FROM unnest($2::text[]) WITH ORDINALITY AS a(val, idx)
+                FULL JOIN unnest($3::text[]) WITH ORDINALITY AS b(val, idx)
+                USING (idx)
+            )
+            ORDER BY schemaname, tablename`
 		args = []any{publicationName, schemas, tables}
 	}
 
@@ -983,28 +983,23 @@ func (c *PostgresConnector) GetTablesFromPublication(
 	if err != nil {
 		return nil, fmt.Errorf("error getting tables from publication %s: %w", publicationName, err)
 	}
-	defer rows.Close()
 
-	var tables []*utils.SchemaTable
-	for rows.Next() {
+	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*utils.SchemaTable, error) {
 		var schemaName, tableName string
-		if err := rows.Scan(&schemaName, &tableName); err != nil {
+		if err := row.Scan(&schemaName, &tableName); err != nil {
 			return nil, fmt.Errorf("error scanning row while getting tables from publication %s: %w", publicationName, err)
 		}
-		schemaTable := &utils.SchemaTable{
+		return &utils.SchemaTable{
 			Schema: schemaName,
 			Table:  tableName,
-		}
-		tables = append(tables, schemaTable)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over rows while getting tables from publication %s: %w", publicationName, err)
+		}, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error collecting rows while getting tables from publication %s: %w", publicationName, err)
 	}
 
 	return tables, nil
 }
-
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,

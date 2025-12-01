@@ -634,5 +634,5 @@ message GetDefaultPartitionKeyForTablesOutput {
 
 message GetFlowConfigAndWorkflowIdFromCatalogOutput {
   FlowConnectionConfigsCore flow_connection_configs = 1;
-  string original_workflow_id = 2;
+  string workflow_id = 2;
 }

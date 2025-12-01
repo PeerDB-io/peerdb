@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,11 +12,54 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	tp "github.com/Shopify/toxiproxy/v2/client"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"google.golang.org/protobuf/proto"
 )
+
+func (s APITestSuite) insertIntoSourceTables(tables []string, id int, value string) {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		for _, table := range tables {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf("INSERT INTO %s(id, val) values (%d,'%s')", table, id, value)))
+		}
+	case *MongoSource:
+		for _, table := range tables {
+			// Extract table name from schema.table format
+			parts := strings.Split(table, ".")
+			tableName := parts[len(parts)-1]
+
+			res, err := s.Source().(*MongoSource).AdminClient().
+				Database(Schema(s)).Collection(tableName).
+				InsertOne(s.t.Context(), bson.D{
+					bson.E{Key: "id", Value: id},
+					bson.E{Key: "val", Value: value},
+				}, options.InsertOne())
+			require.NoError(s.t, err)
+			require.True(s.t, res.Acknowledged)
+		}
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+}
+
+func (s APITestSuite) createSourceTables(tables []string) {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		for _, table := range tables {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", table)))
+		}
+	case *MongoSource:
+		// MongoDB collections are created automatically on first insert
+		// No explicit creation needed
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+}
 
 /*
 removeOneTable pauses the flow, removes the specified table, and waits for the flow to be running again,
@@ -133,46 +177,96 @@ func (s APITestSuite) checkQrepRuns(
 	flowJobName string,
 	expectedTables []includedTable,
 ) {
-	for _, tableEntry := range expectedTables {
-		var actualCount int
-		queryErr := s.pg.PostgresConnector.Conn().QueryRow(s.t.Context(),
-			`SELECT COUNT(*) FROM peerdb_stats.qrep_runs 
-            WHERE parent_mirror_name=$1 AND source_table = $2 AND consolidate_complete = true`,
-			flowJobName,
-			tableEntry.tableName,
-		).Scan(&actualCount)
-		require.NoError(s.t, queryErr,
-			fmt.Sprintf("error querying qrep_runs for table %s", tableEntry.tableName))
-		require.Equal(s.t, tableEntry.entries, actualCount,
-			fmt.Sprintf("expected %d qrep_runs entries for table %s, got %d",
-				tableEntry.entries, tableEntry.tableName, actualCount))
+	rows, err := s.pg.PostgresConnector.Conn().Query(s.t.Context(),
+		`SELECT source_table, COUNT(*) as entry_count
+        FROM peerdb_stats.qrep_runs 
+        WHERE parent_mirror_name = $1 AND consolidate_complete = true
+        GROUP BY source_table
+        ORDER BY source_table`,
+		flowJobName,
+	)
+	require.NoError(s.t, err)
+
+	type qrepRunEntry struct {
+		tableName string
+		count     int
 	}
+	actualEntries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (qrepRunEntry, error) {
+		var entry qrepRunEntry
+		err := row.Scan(&entry.tableName, &entry.count)
+		return entry, err
+	})
+	require.NoError(s.t, err)
+
+	actualMap := make(map[string]int)
+	for _, entry := range actualEntries {
+		actualMap[entry.tableName] = entry.count
+	}
+
+	expectedMap := make(map[string]int)
+	for _, table := range expectedTables {
+		if table.entries > 0 {
+			expectedMap[table.tableName] = table.entries
+		}
+	}
+
+	require.Equal(s.t, expectedMap, actualMap,
+		"qrep_runs entries do not match expected tables and counts")
+
+	var incompleteCount int
+	err = s.pg.PostgresConnector.Conn().QueryRow(s.t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_runs 
+        WHERE parent_mirror_name = $1 AND consolidate_complete = false`,
+		flowJobName,
+	).Scan(&incompleteCount)
+	require.NoError(s.t, err)
+	require.Equal(s.t, 0, incompleteCount,
+		"expected no incomplete qrep_runs for flow %s", flowJobName)
 }
 
 func (s APITestSuite) checkQrepPartitions(
 	flowJobName string,
 	expectedTables []includedTable,
 ) {
-	for _, tableEntry := range expectedTables {
-		var actualCount int
-		queryErr := s.pg.PostgresConnector.Conn().QueryRow(s.t.Context(),
-			`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions qp
-            JOIN peerdb_stats.qrep_runs qr ON qr.parent_mirror_name = qp.parent_mirror_name AND qr.run_uuid = qp.run_uuid
-            WHERE qr.parent_mirror_name = $1 AND qr.source_table = $2 AND qr.consolidate_complete = true`,
-			flowJobName,
-			tableEntry.tableName,
-		).Scan(&actualCount)
-		require.NoError(s.t, queryErr,
-			fmt.Sprintf("error querying qrep_partitions for table %s", tableEntry.tableName))
 
-		if tableEntry.entries > 0 {
-			require.Greater(s.t, actualCount, 0,
-				fmt.Sprintf("expected qrep_partitions entries for table %s, got %d",
-					tableEntry.tableName, actualCount))
+	rows, err := s.pg.PostgresConnector.Conn().Query(s.t.Context(),
+		`SELECT qr.source_table, COUNT(DISTINCT qp.partition_uuid) as partition_count
+        FROM peerdb_stats.qrep_partitions qp
+        JOIN peerdb_stats.qrep_runs qr ON qr.parent_mirror_name = qp.parent_mirror_name AND qr.run_uuid = qp.run_uuid
+        WHERE qr.parent_mirror_name = $1 AND qr.consolidate_complete = true
+        GROUP BY qr.source_table
+        ORDER BY qr.source_table`,
+		flowJobName,
+	)
+	require.NoError(s.t, err)
+
+	type partitionEntry struct {
+		tableName      string
+		partitionCount int
+	}
+	actualEntries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (partitionEntry, error) {
+		var entry partitionEntry
+		err := row.Scan(&entry.tableName, &entry.partitionCount)
+		return entry, err
+	})
+	require.NoError(s.t, err)
+
+	actualTables := make(map[string]int)
+	for _, entry := range actualEntries {
+		actualTables[entry.tableName] = entry.partitionCount
+	}
+
+	for _, table := range expectedTables {
+		if table.entries > 0 {
+			partitionCount, exists := actualTables[table.tableName]
+			require.True(s.t, exists,
+				"expected qrep_partitions entries for table %s", table.tableName)
+			require.Greater(s.t, partitionCount, 0,
+				"expected positive partition count for table %s", table.tableName)
 		} else {
-			require.Equal(s.t, 0, actualCount,
-				fmt.Sprintf("expected no qrep_partitions entries for table %s, got %d",
-					tableEntry.tableName, actualCount))
+			_, exists := actualTables[table.tableName]
+			require.False(s.t, exists,
+				"expected no qrep_partitions entries for table %s", table.tableName)
 		}
 	}
 }
@@ -181,91 +275,56 @@ func (s APITestSuite) checkTableSchemaMapping(
 	flowJobName string,
 	expectedTables []includedTable,
 ) {
-	for _, tableEntry := range expectedTables {
-		destinationTableName := tableEntry.tableName
-		var actualCount int
-		queryErr := s.pg.PostgresConnector.Conn().QueryRow(s.t.Context(),
-			`SELECT COUNT(*) FROM table_schema_mapping 
-            WHERE flow_name = $1 AND table_name = $2`,
-			flowJobName,
-			destinationTableName,
-		).Scan(&actualCount)
-		require.NoError(s.t, queryErr,
-			fmt.Sprintf("error querying table_schema_mapping for table %s", destinationTableName))
+	rows, err := s.pg.PostgresConnector.Conn().Query(s.t.Context(),
+		`SELECT table_name, COUNT(*) as entry_count FROM table_schema_mapping 
+        WHERE flow_name = $1
+        GROUP BY table_name
+        ORDER BY table_name`,
+		flowJobName,
+	)
+	require.NoError(s.t, err)
 
-		if tableEntry.entries > 0 {
-			require.Equal(s.t, 1, actualCount,
-				fmt.Sprintf("expected 1 table_schema_mapping entry for table %s, got %d",
-					destinationTableName, actualCount))
-		} else {
-			require.Equal(s.t, 0, actualCount,
-				fmt.Sprintf("expected no table_schema_mapping entry for table %s, got %d",
-					destinationTableName, actualCount))
+	type schemaMappingEntry struct {
+		tableName string
+		count     int
+	}
+
+	actualEntries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (schemaMappingEntry, error) {
+		var entry schemaMappingEntry
+		err := row.Scan(&entry.tableName, &entry.count)
+		return entry, err
+	})
+	require.NoError(s.t, err)
+
+	actualMap := make(map[string]int)
+	for _, entry := range actualEntries {
+		actualMap[entry.tableName] = entry.count
+	}
+
+	expectedMap := make(map[string]int)
+	for _, table := range expectedTables {
+		if table.entries > 0 {
+			expectedMap[table.tableName] = table.entries
 		}
 	}
+	require.Equal(s.t, expectedMap, actualMap,
+		"table_schema_mapping entries do not match expected tables and counts. "+
+			"Expected: %v, Actual: %v", expectedMap, actualMap)
 }
-
 func (s APITestSuite) testCancelTableAddition(
 	assumeTableRemovalWillNotHappen bool, withRemoval bool) {
 	var cols string
+	tables := []string{"t1", "t2", "t3", "t4", "t5", "t6"}
+	attachedTables := make([]string, len(tables))
+	for i, t := range tables {
+		attachedTables[i] = AttachSchema(s, t)
+	}
+	s.createSourceTables(attachedTables)
+	s.insertIntoSourceTables(attachedTables, 1, "first")
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t1"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t2"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t3"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t4"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t5"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t6"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t1"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t2"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t3"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t4"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t5"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t6"))))
 		cols = "id,val"
 	case *MongoSource:
-		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t1").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t2").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t3").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t4").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t5").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t6").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
 		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
@@ -451,7 +510,7 @@ func (s APITestSuite) testCancelTableAddition(
 			{tableName: AttachSchema(s, "t4"), entries: 1},
 		},
 	)
-	s.checkQrepRuns(
+	s.checkQrepPartitions(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
 			{tableName: AttachSchema(s, "t1"), entries: 1},
@@ -493,54 +552,12 @@ func (s APITestSuite) testCancelTableAddition(
 	require.NoError(s.t, err)
 
 	// insert a row into all original tables
-	switch s.source.(type) {
-	case *PostgresSource, *MySqlSource:
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t1"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t2"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t3"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t4"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t5"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t6"))))
-	case *MongoSource:
-		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t1").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t2").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t3").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t4").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t5").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t6").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-	default:
-		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	tables = []string{"t1", "t2", "t3", "t4", "t5", "t6"}
+	attachedTables = make([]string, len(tables))
+	for i, t := range tables {
+		attachedTables[i] = AttachSchema(s, t)
 	}
+	s.insertIntoSourceTables(attachedTables, 2, "second")
 
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t1", "t1", cols)
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t2", "t2", cols)
@@ -568,29 +585,18 @@ func (s APITestSuite) TestCancelTableAddition_NoRemovalAssumedWithRemoval() {
 
 // Tests that table addition cancellation doesn't get confused by the canceled table having a previous initial load and a previous successful addition then removal
 func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
+	tables := []string{"t1", "t2"}
+	attachedTables := make([]string, len(tables))
+	for i, t := range tables {
+		attachedTables[i] = AttachSchema(s, t)
+	}
+	s.createSourceTables(attachedTables)
+	s.insertIntoSourceTables(attachedTables, 1, "first")
 	var cols string
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t1"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t2"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t1"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t2"))))
 		cols = "id,val"
 	case *MongoSource:
-		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t1").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t2").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
 		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
@@ -718,26 +724,7 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	require.NoError(s.t, err)
 
 	// insert a row into all original tables
-	switch s.source.(type) {
-	case *PostgresSource, *MySqlSource:
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t1"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t2"))))
-	case *MongoSource:
-		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t1").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t2").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-	default:
-		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
-	}
+	s.insertIntoSourceTables([]string{AttachSchema(s, "t1"), AttachSchema(s, "t2")}, 2, "second")
 
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t1", "t1", cols)
 
@@ -746,30 +733,20 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
 func (s APITestSuite) TestCancelAddCancel() {
+	tables := []string{"t1", "t2"}
+	attachedTables := make([]string, len(tables))
+	for i, t := range tables {
+		attachedTables[i] = AttachSchema(s, t)
+	}
+	s.createSourceTables(attachedTables)
+	s.insertIntoSourceTables(attachedTables, 1, "first")
 	var cols string
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t1"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t2"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t1"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t2"))))
 		cols = "id,val"
 	case *MongoSource:
-		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t1").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t2").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
 		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
@@ -969,26 +946,7 @@ func (s APITestSuite) TestCancelAddCancel() {
 	require.NoError(s.t, err)
 
 	// insert a row into all original tables
-	switch s.source.(type) {
-	case *PostgresSource, *MySqlSource:
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t1"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "t2"))))
-	case *MongoSource:
-		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t1").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("t2").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-	default:
-		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
-	}
+	s.insertIntoSourceTables([]string{AttachSchema(s, "t1"), AttachSchema(s, "t2")}, 2, "second")
 
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t1", "t1", cols)
 
@@ -1000,28 +958,17 @@ func (s APITestSuite) TestCancelAddCancel() {
 }
 func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 	var cols string
+	tables := []string{"original", "added"}
+	attachedTables := make([]string, len(tables))
+	for i, t := range tables {
+		attachedTables[i] = AttachSchema(s, t)
+	}
+	s.createSourceTables(attachedTables)
+	s.insertIntoSourceTables(attachedTables, 1, "first")
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "original"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "added"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "original"))))
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "added"))))
 		cols = "id,val"
 	case *MongoSource:
-		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("original").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("added").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
 		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
@@ -1054,21 +1001,8 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
-
 	// insert CDC row
-	switch s.source.(type) {
-	case *PostgresSource, *MySqlSource:
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "original"))))
-	case *MongoSource:
-		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("original").
-			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
-		require.NoError(s.t, err)
-		require.True(s.t, res.Acknowledged)
-	default:
-		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
-	}
+	s.insertIntoSourceTables([]string{AttachSchema(s, "original")}, 2, "second")
 
 	originalConfig := s.ch.Peer().GetClickhouseConfig()
 	badClickHouseConfig := proto.Clone(originalConfig).(*protos.ClickhouseConfig)
@@ -1205,14 +1139,19 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 
 	var cols string
 	// Create tables in PostgreSQL
-	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t1"))))
-	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "t2"))))
-	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t1"))))
-	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "t2"))))
+	tables := []string{"t1", "t2"}
+	attachedTables := make([]string, len(tables))
+	for i, t := range tables {
+		attachedTables[i] = AttachSchema(s, t)
+	}
+	for _, table := range attachedTables {
+		require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", table)))
+	}
+	for _, table := range attachedTables {
+		require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", table)))
+	}
 	cols = "id,val"
 
 	// Create peer for the proxy connection
