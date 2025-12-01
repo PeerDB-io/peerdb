@@ -689,7 +689,7 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 		flowConnConfig.FlowJobName,
 		[]includedTable{
 			{tableName: AttachSchema(s, "t1"), entries: 1},
-			{tableName: AttachSchema(s, "t2"), entries: 2},
+			{tableName: AttachSchema(s, "t2"), entries: 2}, // initial snapshot and first add but not the second add
 		},
 	)
 	s.checkTableSchemaMapping(
