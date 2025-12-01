@@ -31,8 +31,8 @@ type CancelTableAdditionActivity struct {
 	OtelManager    *otel_metrics.OtelManager
 }
 
-/* GetCompletedTablesInQrepRunsForTableAddition gets the list of source tables whose latest QRep run is completed */
-func (a *CancelTableAdditionActivity) GetCompletedTablesInQrepRunsForTableAddition(
+/* GetCompletedTablesFromQrepRuns gets the list of source tables whose latest QRep run is completed */
+func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 	ctx context.Context,
 	flowJobName string,
 	workflowId string,
@@ -42,17 +42,17 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesInQrepRunsForTableAdditi
 	})
 	defer shutdown()
 
-	originalRunId, err := a.getRunIDOfLatestRunningPeerFlow(ctx, workflowId)
+	peerflowRunId, err := a.getRunIDOfLatestRunningPeerFlow(ctx, workflowId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get run ID of latest running peer flow for workflow %s: %w", workflowId, err)
 	}
 
 	slog.InfoContext(ctx, "Fetching completed tables from qrep_runs for table addition cancellation",
 		slog.String("flowName", flowJobName),
-		slog.String("originalRunId", originalRunId))
+		slog.String("originalRunId", peerflowRunId))
 
 	listResp, err := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
-		Query: fmt.Sprintf("RootRunId = '%s' AND WorkflowType = 'QRepFlowWorkflow'", originalRunId),
+		Query: fmt.Sprintf("RootRunId = '%s' AND WorkflowType = 'QRepFlowWorkflow'", peerflowRunId),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list qrep workflows for flow %s: %w", flowJobName, err)
@@ -253,7 +253,7 @@ func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Con
 	defer shutdown()
 
 	// Describe to get latest run
-	originalRunId, err := a.getRunIDOfLatestRunningPeerFlow(ctx, workflowId)
+	peerflowRunId, err := a.getRunIDOfLatestRunningPeerFlow(ctx, workflowId)
 	if err != nil {
 		return fmt.Errorf("failed to get run ID of latest running peer flow for workflow %s: %w", workflowId, err)
 	}
@@ -277,7 +277,7 @@ func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Con
 
 	// Terminate all child workflows just to be sure
 	listResp, err := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
-		Query: fmt.Sprintf("RootRunId = '%s'", originalRunId),
+		Query: fmt.Sprintf("RootRunId = '%s'", peerflowRunId),
 	})
 	if err != nil {
 		slog.WarnContext(ctx, "Failed to list child workflows during cleanup, continuing",
