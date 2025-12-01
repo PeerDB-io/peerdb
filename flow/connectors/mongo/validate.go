@@ -2,7 +2,9 @@ package connmongo
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 )
@@ -26,6 +28,13 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 
 	if err := shared_mongo.ValidateOplogRetention(ctx, c.client); err != nil {
 		return err
+	}
+
+	for _, tableMapping := range cfg.TableMappings {
+		_, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		if parseErr != nil {
+			return fmt.Errorf("invalid source table identifier: %w", parseErr)
+		}
 	}
 
 	return nil

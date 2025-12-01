@@ -2,6 +2,7 @@ package connclickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -67,7 +68,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	for _, tableMapping := range cfg.TableMappings {
 		dstTableName := tableMapping.DestinationTableIdentifier
 		if dstTableName == "" {
-			return fmt.Errorf("destination table identifier is empty")
+			return errors.New("destination table identifier is empty")
 		}
 		if _, ok := processedMapping[dstTableName]; !ok {
 			// if destination table is not a key, that means source table was not a key in the original schema mapping(?)
