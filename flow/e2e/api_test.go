@@ -536,6 +536,10 @@ func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
 		s.t.Skip("only for MongoDB")
 	}
 
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	err := adminClient.Database(Schema(s)).CreateCollection(s.t.Context(), "t1")
+	require.NoError(s.t, err)
+
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "mongo_validation_" + s.suffix,
 		TableNameMapping: map[string]string{AttachSchema(s, "t1"): "t1"},
@@ -544,8 +548,7 @@ func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	// test retention hours (< 24 hours) validation failure
-	adminClient := s.Source().(*MongoSource).AdminClient()
-	err := adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
+	err = adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
 		bson.E{Key: "replSetResizeOplog", Value: 1},
 		bson.E{Key: "minRetentionHours", Value: mongo.MinOplogRetentionHours - 1},
 	}).Err()
