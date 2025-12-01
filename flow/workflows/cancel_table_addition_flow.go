@@ -35,7 +35,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 		return nil, err
 	}
 	flowConfig := flowConfigFetchOutput.FlowConnectionConfigs
-	originalWorkflowId := flowConfigFetchOutput.OriginalWorkflowId
+	originalWorkflowId := flowConfigFetchOutput.WorkflowId
 	logger.Info("Retrieved flow config", "flowName", flowJobName, "tableCount", len(flowConfig.TableMappings))
 
 	currentlyReplicatingTableSet := make(map[string]bool)
@@ -62,7 +62,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 
 	// Get snapshotted tables from qrep_runs
-	getSnapshottedCompletedTablesOptions := workflow.ActivityOptions{
+	getCompletedTablesFromQrepRunsOptions := workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute * 15,
 		HeartbeatTimeout:    2 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -71,11 +71,11 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 			MaximumInterval:    time.Minute * 2,
 		},
 	}
-	getSnapshottedTablesCtx := workflow.WithActivityOptions(ctx, getSnapshottedCompletedTablesOptions)
+	getCompletedTablesFromQrepRunsCtx := workflow.WithActivityOptions(ctx, getCompletedTablesFromQrepRunsOptions)
 
 	var snapshottedSourceTables []string
 	err = workflow.ExecuteActivity(
-		getSnapshottedTablesCtx,
+		getCompletedTablesFromQrepRunsCtx,
 		cancelTableAddition.GetCompletedTablesFromQrepRuns,
 		flowJobName,
 		originalWorkflowId,
@@ -129,7 +129,6 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 
 	// update table mappings for upcoming request
 	flowConfig.TableMappings = finalListOfTables
-	flowConfig.DoInitialSnapshot = false
 
 	state := cdc_state.NewCDCFlowWorkflowState(ctx, logger, flowConfig)
 	// update table OIDs for upcoming request
