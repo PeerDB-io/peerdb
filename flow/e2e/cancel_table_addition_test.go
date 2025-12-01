@@ -547,6 +547,7 @@ func (s APITestSuite) testCancelTableAddition(
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t3", "t3", cols)
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t4", "t4", cols)
 
+	// Batch finished without erroring on t5 and t6 that don't have a target table anymore
 	s.checkMetadataLastSyncStateValues(env, flowConnConfig, "batch id check after cdc", 1, 1)
 
 	env.Cancel(s.t.Context())
