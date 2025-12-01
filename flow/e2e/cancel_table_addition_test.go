@@ -1045,7 +1045,6 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	RequireEqualTables(s.ch, "original", cols)
-	// add table
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
