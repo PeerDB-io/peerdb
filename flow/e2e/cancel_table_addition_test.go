@@ -566,6 +566,7 @@ func (s APITestSuite) TestCancelTableAddition_NoRemovalAssumedWithRemoval() {
 	s.testCancelTableAddition(true, true)
 }
 
+// Tests that table addition cancellation doesn't get confused by the canceled table having a previous initial load and a previous successful addition then removal
 func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	var cols string
 	switch s.source.(type) {
