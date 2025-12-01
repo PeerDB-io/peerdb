@@ -18,6 +18,7 @@ interface TableMappingProps {
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   peerType?: DBType;
+  sourcePeerType?: DBType;
   // schema -> omitted source table mapping
   alreadySelectedTablesMapping: Map<string, TableMapping[]>;
   initialLoadOnly: boolean;
@@ -28,6 +29,7 @@ export default function TablePicker({
   rows,
   setRows,
   peerType,
+  sourcePeerType,
   alreadySelectedTablesMapping,
   initialLoadOnly,
 }: TableMappingProps) {
@@ -99,6 +101,7 @@ export default function TablePicker({
               tableColumns={tableColumns}
               setTableColumns={setTableColumns}
               peerType={peerType}
+              sourcePeerType={sourcePeerType}
               alreadySelectedTables={alreadySelectedTablesMapping.get(schema)}
               initialLoadOnly={initialLoadOnly}
             />

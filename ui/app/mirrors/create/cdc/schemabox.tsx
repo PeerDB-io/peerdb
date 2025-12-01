@@ -31,6 +31,7 @@ import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
 import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
+import SkipJsonFields from './skipJsonFields';
 import SelectSortingKeys from './sortingkey';
 import {
   columnBoxDividerStyle,
@@ -50,6 +51,7 @@ interface SchemaBoxProps {
     SetStateAction<{ tableName: string; columns: ColumnsItem[] }[]>
   >;
   peerType?: DBType;
+  sourcePeerType?: DBType;
   alreadySelectedTables: TableMapping[] | undefined;
   initialLoadOnly?: boolean;
 }
@@ -57,6 +59,7 @@ interface SchemaBoxProps {
 export default function SchemaBox({
   sourcePeer,
   peerType,
+  sourcePeerType,
   schema,
   rows,
   setRows,
@@ -565,6 +568,13 @@ export default function SchemaBox({
                                   setRows={setRows}
                                   peerType={peerType}
                                 />
+                                {sourcePeerType?.toString() ===
+                                  DBType[DBType.MONGO].toString() && (
+                                  <SkipJsonFields
+                                    tableRow={row}
+                                    setRows={setRows}
+                                  />
+                                )}
                               </div>
                             )}
                           </>
