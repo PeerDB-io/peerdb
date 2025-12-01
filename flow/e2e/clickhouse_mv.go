@@ -13,6 +13,7 @@ type ClickHouseMVManager struct {
 	config    *protos.ClickhouseConfig
 	tableName string
 	mvName    string
+	suffix    string
 }
 
 // NewClickHouseMVManager creates a new ClickHouseMVManager instance
@@ -21,20 +22,21 @@ func newClickHouseMVManager(config *protos.ClickhouseConfig, tableName string, s
 		config:    config,
 		tableName: tableName,
 		mvName:    fmt.Sprintf("%s_mv_%s", tableName, suffix),
+		suffix:    suffix,
 	}
 }
 
 // CreateBadMV creates a materialized view on the configured table
 // that will fail when data is inserted.
 // Source schema is assumed to correspond to (id UInt64, val String).
-func (m *ClickHouseMVManager) CreateBadMV(ctx context.Context, suffix string) error {
+func (m *ClickHouseMVManager) CreateBadMV(ctx context.Context) error {
 	ch, err := connclickhouse.Connect(ctx, nil, m.config)
 	if err != nil {
 		return err
 	}
 	defer ch.Close()
 
-	targetName := fmt.Sprintf("%s_mv_target_%s", m.tableName, suffix)
+	targetName := fmt.Sprintf("%s_mv_target_%s", m.tableName, m.suffix)
 	// Create target table for the MV: val is UInt32 (incompatible with arbitrary strings)
 	targetTableSQL := fmt.Sprintf(`
         CREATE TABLE IF NOT EXISTS %s (
@@ -75,7 +77,7 @@ func (m *ClickHouseMVManager) DropBadMV(ctx context.Context) error {
 	}
 	defer ch.Close()
 
-	dropMVSQL := fmt.Sprintf("DROP MATERIALIZED VIEW IF EXISTS %s", m.mvName)
+	dropMVSQL := fmt.Sprintf("DROP VIEW IF EXISTS %s", m.mvName)
 	err = ch.Exec(ctx, dropMVSQL)
 	if err != nil {
 		return fmt.Errorf("failed to drop materialized view: %w", err)
@@ -84,6 +86,6 @@ func (m *ClickHouseMVManager) DropBadMV(ctx context.Context) error {
 	return nil
 }
 
-func (s ClickHouseSuite) NewMVManager(tableName string) *ClickHouseMVManager {
-	return newClickHouseMVManager(s.Peer().GetClickhouseConfig(), tableName, s.suffix)
+func (s ClickHouseSuite) NewMVManager(tableName string, suffix string) *ClickHouseMVManager {
+	return newClickHouseMVManager(s.Peer().GetClickhouseConfig(), tableName, suffix)
 }
