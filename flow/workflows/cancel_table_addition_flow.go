@@ -180,7 +180,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 
 	logger.Info("Starting CDC flow with updated configuration and OID mappings",
 		"flowName", flowJobName, "snapshottedTables", len(finalListOfTables))
-	// Start new CDC flow as a regular workflow via activity
+	// Start new CDC flow as a regular workflow (not child) via activity
 	createFlowOptions := workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute * 5,
 	}
