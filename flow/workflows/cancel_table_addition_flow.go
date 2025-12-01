@@ -96,7 +96,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 
 	finalListOfTables := make([]*protos.TableMapping, 0)
-	// final list of tables = tables in catalog + tables in this table addition that have completed snapshotting
+	// final list of tables = tables in catalog (still before addition/removal) + tables in this table addition that have completed snapshotting
 	finalListOfTables = append(finalListOfTables, flowConfig.TableMappings...)
 	for _, mapping := range input.CurrentlyReplicatingTables {
 		if snapshottedTableSet[mapping.SourceTableIdentifier] {
