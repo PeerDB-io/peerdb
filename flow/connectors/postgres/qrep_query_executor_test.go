@@ -11,8 +11,8 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -28,7 +28,7 @@ func setupDB(t *testing.T, testName string) (*PostgresConnector, string) {
 
 	// Create the schema
 	_, err = connector.conn.Exec(t.Context(),
-		"CREATE SCHEMA "+utils.QuoteIdentifier(schemaName))
+		"CREATE SCHEMA "+common.QuoteIdentifier(schemaName))
 	require.NoError(t, err, "error while creating schema")
 
 	return connector, schemaName
@@ -38,7 +38,7 @@ func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
 	t.Helper()
 
 	_, err := conn.Exec(t.Context(),
-		fmt.Sprintf("DROP SCHEMA %s CASCADE", utils.QuoteIdentifier(schemaName)))
+		fmt.Sprintf("DROP SCHEMA %s CASCADE", common.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while dropping schema")
 }
 
@@ -51,17 +51,17 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	defer teardownDB(t, conn, schemaName)
 
 	_, err := conn.Exec(ctx,
-		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT)", utils.QuoteIdentifier(schemaName)))
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT)", common.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while creating table")
 
 	_, err = conn.Exec(ctx,
-		fmt.Sprintf("INSERT INTO %s.test(data) VALUES ('testdata')", utils.QuoteIdentifier(schemaName)))
+		fmt.Sprintf("INSERT INTO %s.test(data) VALUES ('testdata')", common.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while inserting data")
 
 	qe, err := connector.NewQRepQueryExecutor(ctx, nil, shared.InternalVersion_Latest, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 
-	batch, err := qe.ExecuteAndProcessQuery(t.Context(), fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
+	batch, err := qe.ExecuteAndProcessQuery(t.Context(), fmt.Sprintf("SELECT * FROM %s.test", common.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while executing query")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 	require.Equal(t, "testdata", batch.Records[0][1].Value(), "expected 'testdata'")
@@ -106,7 +106,7 @@ func TestSupportedDataTypes(t *testing.T) {
 		col_jsonb_arr JSONB[],
 		col_jsonb_arr_empty JSONB[],
 		col_jsonb_arr_null JSONB[]
-	);`, utils.QuoteIdentifier(schemaName))
+	);`, common.QuoteIdentifier(schemaName))
 
 	_, err := conn.Exec(ctx, query)
 	require.NoError(t, err, "error while creating table")
@@ -139,7 +139,7 @@ func TestSupportedDataTypes(t *testing.T) {
 		col_jsonb_arr,
 		col_jsonb_arr_empty,
 		col_jsonb_arr_null
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`, utils.QuoteIdentifier(schemaName))
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`, common.QuoteIdentifier(schemaName))
 
 	savedTime := time.Now().UTC()
 	savedUUID := uuid.New()
@@ -179,7 +179,7 @@ func TestSupportedDataTypes(t *testing.T) {
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 	// Select the row back out of the table
 	batch, err := qe.ExecuteAndProcessQuery(t.Context(),
-		fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
+		fmt.Sprintf("SELECT * FROM %s.test", common.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while processing rows")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 
@@ -654,7 +654,7 @@ func TestStringDataTypes(t *testing.T) {
 
 			query := fmt.Sprintf(
 				"CREATE TABLE %s.test(col %[2]s, col_arr %[2]s[])",
-				utils.QuoteIdentifier(schemaName), tc.Type,
+				common.QuoteIdentifier(schemaName), tc.Type,
 			)
 			_, err := conn.Exec(ctx, query)
 			require.NoError(t, err)
@@ -669,7 +669,7 @@ func TestStringDataTypes(t *testing.T) {
 			}
 			query = fmt.Sprintf(
 				"INSERT INTO %s.test(col, col_arr) VALUES (%s, %s)",
-				utils.QuoteIdentifier(schemaName), literal, arrayLiteral,
+				common.QuoteIdentifier(schemaName), literal, arrayLiteral,
 			)
 			_, err = conn.Exec(ctx, query)
 			require.NoError(t, err)
@@ -678,7 +678,7 @@ func TestStringDataTypes(t *testing.T) {
 			require.NoError(t, err)
 			// Select the row back out of the table
 			batch, err := qe.ExecuteAndProcessQuery(t.Context(),
-				fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
+				fmt.Sprintf("SELECT * FROM %s.test", common.QuoteIdentifier(schemaName)))
 			require.NoError(t, err)
 			require.Len(t, batch.Records, 1)
 

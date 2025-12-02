@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -83,7 +84,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 	primaryKeyColumnCasts := make(map[string]string, len(normalizedTableSchema.PrimaryKeyColumns))
 	for _, column := range normalizedTableSchema.Columns {
 		genericColumnType := column.Type
-		quotedCol := utils.QuoteIdentifier(column.Name)
+		quotedCol := common.QuoteIdentifier(column.Name)
 		stringCol := utils.QuoteLiteral(column.Name)
 		columnNames = append(columnNames, quotedCol)
 		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
@@ -95,19 +96,19 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 		}
 	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
-	parsedDstTable, _ := utils.ParseSchemaTable(dstTableName)
+	parsedDstTable, _ := common.ParseTableIdentifier(dstTableName)
 
 	insertColumnsSQL := strings.Join(columnNames, ",")
 	updateColumnsSQLArray := make([]string, 0, columnCount)
 	for _, column := range normalizedTableSchema.Columns {
-		quotedCol := utils.QuoteIdentifier(column.Name)
+		quotedCol := common.QuoteIdentifier(column.Name)
 		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
 	}
 	updateColumnsSQL := strings.Join(updateColumnsSQLArray, ",")
 	deleteWhereClauseArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, columnCast := range primaryKeyColumnCasts {
 		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf(`%s.%s=%s`,
-			parsedDstTable.String(), utils.QuoteIdentifier(columnName), columnCast))
+			parsedDstTable.String(), common.QuoteIdentifier(columnName), columnCast))
 	}
 	deleteWhereClauseSQL := strings.Join(deleteWhereClauseArray, " AND ")
 
@@ -115,9 +116,9 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 	deleteUpdate := fmt.Sprintf(`DELETE FROM %s USING `, parsedDstTable.String())
 	if n.peerdbCols.SoftDeleteColName != "" {
 		deleteUpdate = fmt.Sprintf(`UPDATE %s SET %s=TRUE`,
-			parsedDstTable.String(), utils.QuoteIdentifier(n.peerdbCols.SoftDeleteColName))
+			parsedDstTable.String(), common.QuoteIdentifier(n.peerdbCols.SoftDeleteColName))
 		if n.peerdbCols.SyncedAtColName != "" {
-			deleteUpdate += fmt.Sprintf(`,%s=CURRENT_TIMESTAMP`, utils.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
+			deleteUpdate += fmt.Sprintf(`,%s=CURRENT_TIMESTAMP`, common.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
 		}
 		deleteUpdate += " FROM"
 	}
@@ -141,13 +142,13 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	quotedColumnNames := make([]string, columnCount)
 
 	flattenedCastsSQLArray := make([]string, 0, columnCount)
-	parsedDstTable, _ := utils.ParseSchemaTable(dstTableName)
+	parsedDstTable, _ := common.ParseTableIdentifier(dstTableName)
 
 	primaryKeyColumnCasts := make(map[string]string)
 	primaryKeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for i, column := range normalizedTableSchema.Columns {
 		genericColumnType := column.Type
-		quotedCol := utils.QuoteIdentifier(column.Name)
+		quotedCol := common.QuoteIdentifier(column.Name)
 		stringCol := utils.QuoteLiteral(column.Name)
 		quotedColumnNames[i] = quotedCol
 		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
@@ -168,7 +169,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns)
 	// append synced_at column
 	if n.peerdbCols.SyncedAtColName != "" {
-		quotedColumnNames = append(quotedColumnNames, utils.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
+		quotedColumnNames = append(quotedColumnNames, common.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
 		insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
 	}
 	insertColumnsSQL := strings.Join(quotedColumnNames, ",")
@@ -176,7 +177,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 
 	if n.peerdbCols.SoftDeleteColName != "" {
 		softDeleteInsertColumnsSQL := strings.Join(
-			append(quotedColumnNames, utils.QuoteIdentifier(n.peerdbCols.SoftDeleteColName)), ",")
+			append(quotedColumnNames, common.QuoteIdentifier(n.peerdbCols.SoftDeleteColName)), ",")
 		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), ",")
 
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
@@ -188,9 +189,9 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	conflictPart := "DELETE"
 	if n.peerdbCols.SoftDeleteColName != "" {
 		colName := n.peerdbCols.SoftDeleteColName
-		conflictPart = fmt.Sprintf(`UPDATE SET %s=TRUE`, utils.QuoteIdentifier(colName))
+		conflictPart = fmt.Sprintf(`UPDATE SET %s=TRUE`, common.QuoteIdentifier(colName))
 		if n.peerdbCols.SyncedAtColName != "" {
-			conflictPart += fmt.Sprintf(`,%s=CURRENT_TIMESTAMP`, utils.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
+			conflictPart += fmt.Sprintf(`,%s=CURRENT_TIMESTAMP`, common.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
 		}
 	}
 
@@ -222,7 +223,7 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, u
 	for _, cols := range unchangedToastColumns {
 		unchangedColsArray := strings.Split(cols, ",")
 		for i, unchangedToastCol := range unchangedColsArray {
-			unchangedColsArray[i] = utils.QuoteIdentifier(unchangedToastCol)
+			unchangedColsArray[i] = common.QuoteIdentifier(unchangedToastCol)
 		}
 		otherCols := shared.ArrayMinus(quotedCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols))
@@ -231,11 +232,11 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, u
 		}
 		// set the synced at column to the current timestamp
 		if n.peerdbCols.SyncedAtColName != "" {
-			tmpArray = append(tmpArray, utils.QuoteIdentifier(n.peerdbCols.SyncedAtColName)+`=CURRENT_TIMESTAMP`)
+			tmpArray = append(tmpArray, common.QuoteIdentifier(n.peerdbCols.SyncedAtColName)+`=CURRENT_TIMESTAMP`)
 		}
 		// set soft-deleted to false, tackles insert after soft-delete
 		if handleSoftDelete {
-			tmpArray = append(tmpArray, utils.QuoteIdentifier(n.peerdbCols.SoftDeleteColName)+`=FALSE`)
+			tmpArray = append(tmpArray, common.QuoteIdentifier(n.peerdbCols.SoftDeleteColName)+`=FALSE`)
 		}
 
 		quotedCols := utils.QuoteLiteral(cols)
@@ -249,7 +250,7 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, u
 		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
 		// and then set soft-delete to true.
 		if handleSoftDelete {
-			tmpArray[len(tmpArray)-1] = utils.QuoteIdentifier(n.peerdbCols.SoftDeleteColName) + `=TRUE`
+			tmpArray[len(tmpArray)-1] = common.QuoteIdentifier(n.peerdbCols.SoftDeleteColName) + `=TRUE`
 			ssep := strings.Join(tmpArray, ", ")
 			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 			src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns=%s

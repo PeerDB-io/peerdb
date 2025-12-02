@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -516,15 +517,15 @@ func (c *MySqlConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
 
-func (c *MySqlConnector) GetTableSizeEstimatedBytes(ctx context.Context, fullyQualifiedTable string) (int64, error) {
-	schemaTable, err := utils.ParseSchemaTable(fullyQualifiedTable)
+func (c *MySqlConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableIdentifier string) (int64, error) {
+	parsedTable, err := common.ParseTableIdentifier(tableIdentifier)
 	if err != nil {
 		return 0, err
 	}
 	query := fmt.Sprintf(
 		"SELECT data_length FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s'",
-		mysql.Escape(schemaTable.Schema),
-		mysql.Escape(schemaTable.Table),
+		mysql.Escape(parsedTable.Namespace),
+		mysql.Escape(parsedTable.Table),
 	)
 
 	rs, err := c.Execute(ctx, query)

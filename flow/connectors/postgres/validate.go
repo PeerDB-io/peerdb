@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -27,7 +28,7 @@ func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
 
 func (c *PostgresConnector) CheckSourceTables(
 	ctx context.Context,
-	tableNames []*utils.SchemaTable,
+	tableNames []*common.QualifiedTable,
 	tableMappings []*protos.TableMapping,
 	pubName string,
 	noCDC bool,
@@ -41,7 +42,7 @@ func (c *PostgresConnector) CheckSourceTables(
 	for idx, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
-			utils.QuoteLiteral(parsedTable.Schema), utils.QuoteLiteral(parsedTable.Table)))
+			utils.QuoteLiteral(parsedTable.Namespace), utils.QuoteLiteral(parsedTable.Table)))
 
 		selectedColumnsStr := "*"
 		if excludedColumns := tableMappings[idx].Exclude; len(excludedColumns) != 0 {
@@ -51,7 +52,7 @@ func (c *PostgresConnector) CheckSourceTables(
 			}
 
 			for i, col := range selectedColumns {
-				selectedColumns[i] = utils.QuoteIdentifier(col)
+				selectedColumns[i] = common.QuoteIdentifier(col)
 			}
 
 			selectedColumnsStr = strings.Join(selectedColumns, ", ")
@@ -96,7 +97,7 @@ func (c *PostgresConnector) CheckSourceTables(
 				if err := row.Scan(&schema, &table); err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("%s.%s", utils.QuoteIdentifier(schema), utils.QuoteIdentifier(table)), nil
+				return fmt.Sprintf("%s.%s", common.QuoteIdentifier(schema), common.QuoteIdentifier(table)), nil
 			})
 			if err != nil {
 				return err
@@ -227,9 +228,9 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
+	sourceTables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		parsedTable, parseErr := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
 		}
