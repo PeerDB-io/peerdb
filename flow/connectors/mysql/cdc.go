@@ -785,7 +785,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 	schema *protos.TableSchema,
 	exclusion map[string]struct{},
 ) ([]*protos.FieldDescription, error) {
-	fields := make([]*protos.FieldDescription, len(tableMap.ColumnName))
+	newFds := make([]*protos.FieldDescription, len(tableMap.ColumnName))
 
 	// Build a set of existing column names for quick lookup
 	existingCols := make(map[string]*protos.FieldDescription, len(schema.Columns))
@@ -806,7 +806,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 		}
 
 		if fd, exists := existingCols[colName]; exists {
-			fields[idx] = fd
+			newFds[idx] = fd
 		} else {
 			// New column detected - get type from TABLE_MAP_EVENT
 			var charset uint16
@@ -845,7 +845,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			}
 
 			addedColumns = append(addedColumns, newFd)
-			fields[idx] = newFd
+			newFds[idx] = newFd
 
 			c.logger.Info("Detected new column from TABLE_MAP_EVENT",
 				slog.String("table", sourceTableName),
@@ -878,5 +878,5 @@ func (c *MySqlConnector) processTableMapEventSchema(
 		}
 	}
 
-	return fields, nil
+	return newFds, nil
 }
