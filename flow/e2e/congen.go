@@ -72,7 +72,6 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(s Suite) 
 
 	ret := &protos.FlowConnectionConfigs{
 		FlowJobName:        c.FlowJobName,
-		TableMappings:      tblMappings,
 		SourceName:         s.Source().GeneratePeer(t).Name,
 		DestinationName:    c.Destination,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
