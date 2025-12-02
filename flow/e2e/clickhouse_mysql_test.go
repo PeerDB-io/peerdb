@@ -779,7 +779,9 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	// 3. Insert another row into original table (gh-ost would capture this via binlog and apply to ghost)
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(2)`, srcTableName)))
 	// Simulate gh-ost applying it to ghost table
-	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`, ghostTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
+		ghostTableName)))
 	EnvWaitForEqualTablesWithNames(env, s, "pre-cutover row", srcTable, dstTable, "id,c1")
 
 	// 4. gh-ost atomic cut-over: rename both tables simultaneously
@@ -788,7 +790,9 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	`, srcTableName, oldTableName, ghostTableName, srcTableName)))
 
 	// 5. Insert a row with the new columns populated (this goes to the new table, formerly ghost)
-	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(3, 300, 400, x'deadbeef', 'hello text', 123.45, 12345.67, 123456.789012)`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(3, 300, 400, x'deadbeef', 'hello text', 123.45, 12345.67, 123456.789012)`,
+		srcTableName)))
 	EnvWaitForEqualTablesWithNames(env, s, "post-cutover row", srcTable, dstTable,
 		"id,c1,coalesce(c2,0) c2,coalesce(c3,0) c3,coalesce(c4,'') c4,coalesce(c5,'') c5,coalesce(c6,0) c6,coalesce(c7,0) c7,coalesce(c8,0) c8")
 

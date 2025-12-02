@@ -520,11 +520,10 @@ func (c *MySqlConnector) PullRecords(
 				setMap := ev.Table.SetStrValueMap()
 
 				// Process TABLE_MAP_EVENT schema to detect new columns
-				// and build efficient column index mapping
-				var colIndexToFd map[int]*protos.FieldDescription
+				var fields []*protos.FieldDescription
 				if ev.Table.ColumnName != nil {
 					var err error
-					colIndexToFd, err = c.processTableMapEventSchema(
+					fields, err = c.processTableMapEventSchema(
 						ctx, catalogPool, req, ev.Table,
 						sourceTableName, destinationTableName, schema, exclusion,
 					)
@@ -534,8 +533,11 @@ func (c *MySqlConnector) PullRecords(
 				}
 
 				getFd := func(idx int) *protos.FieldDescription {
-					if colIndexToFd != nil {
-						return colIndexToFd[idx]
+					if fields != nil {
+						if idx < len(fields) {
+							return fields[idx]
+						}
+						return nil
 					}
 					if idx < len(schema.Columns) {
 						return schema.Columns[idx]
@@ -772,7 +774,7 @@ func posToOffsetText(pos mysql.Position) string {
 
 // processTableMapEventSchema compares the TABLE_MAP_EVENT schema against the cached schema
 // and returns a TableSchemaDelta if new columns are detected (e.g., after gh-ost migration).
-// It also returns a map from binlog column index to FieldDescription for efficient row processing.
+// It also returns a slice mapping binlog column index to FieldDescription for efficient row processing.
 func (c *MySqlConnector) processTableMapEventSchema(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
@@ -782,8 +784,8 @@ func (c *MySqlConnector) processTableMapEventSchema(
 	destinationTableName string,
 	schema *protos.TableSchema,
 	exclusion map[string]struct{},
-) (colIndexToFd map[int]*protos.FieldDescription, err error) {
-	colIndexToFd = make(map[int]*protos.FieldDescription, len(tableMap.ColumnName))
+) ([]*protos.FieldDescription, error) {
+	fields := make([]*protos.FieldDescription, len(tableMap.ColumnName))
 
 	// Build a set of existing column names for quick lookup
 	existingCols := make(map[string]*protos.FieldDescription, len(schema.Columns))
@@ -804,7 +806,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 		}
 
 		if fd, exists := existingCols[colName]; exists {
-			colIndexToFd[idx] = fd
+			fields[idx] = fd
 		} else {
 			// New column detected - get type from TABLE_MAP_EVENT
 			var charset uint16
@@ -843,7 +845,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			}
 
 			addedColumns = append(addedColumns, newFd)
-			colIndexToFd[idx] = newFd
+			fields[idx] = newFd
 
 			c.logger.Info("Detected new column from TABLE_MAP_EVENT",
 				slog.String("table", sourceTableName),
@@ -876,5 +878,5 @@ func (c *MySqlConnector) processTableMapEventSchema(
 		}
 	}
 
-	return colIndexToFd, nil
+	return fields, nil
 }
