@@ -1114,7 +1114,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 }
 
 // replayTableSchemaDeltaCore changes a destination table to match the schema at source
-// This could involve adding or dropping multiple columns.
+// This could involve adding or dropping multiple columns, indexes, and triggers.
 func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	_ map[string]string,
@@ -1135,19 +1135,20 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	defer shared.RollbackTx(tableSchemaModifyTx, c.logger)
 
 	for _, schemaDelta := range schemaDeltas {
-		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+		if schemaDelta == nil {
 			continue
 		}
 
+		dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+		if err != nil {
+			return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+		}
+
+		// Handle column additions
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			columnType := addedColumn.Type
 			if schemaDelta.System == protos.TypeSystem_Q {
 				columnType = qValueKindToPostgresType(columnType)
-			}
-
-			dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
-			if err != nil {
-				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
 			}
 
 			_, err = c.execWithLoggingTx(ctx, fmt.Sprintf(
@@ -1162,6 +1163,87 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s",
 				addedColumn.Name, addedColumn.Type),
 				slog.String("srcTableName", schemaDelta.SrcTableName),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
+		}
+
+		// Handle trigger drops (must happen before index drops)
+		for _, droppedTrigger := range schemaDelta.DroppedTriggers {
+			dropTriggerSQL := fmt.Sprintf("DROP TRIGGER IF EXISTS %s ON %s.%s",
+				utils.QuoteIdentifier(droppedTrigger),
+				utils.QuoteIdentifier(dstSchemaTable.Schema),
+				utils.QuoteIdentifier(dstSchemaTable.Table))
+
+			_, err = c.execWithLoggingTx(ctx, dropTriggerSQL, tableSchemaModifyTx)
+			if err != nil {
+				return fmt.Errorf("failed to drop trigger %s for table %s: %w",
+					droppedTrigger, schemaDelta.DstTableName, err)
+			}
+			c.logger.Info(fmt.Sprintf("[schema delta replay] dropped trigger %s", droppedTrigger),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
+		}
+
+		// Handle index drops
+		for _, droppedIndex := range schemaDelta.DroppedIndexes {
+			dropIndexSQL := fmt.Sprintf("DROP INDEX IF EXISTS %s.%s",
+				utils.QuoteIdentifier(dstSchemaTable.Schema),
+				utils.QuoteIdentifier(droppedIndex))
+
+			_, err = c.execWithLoggingTx(ctx, dropIndexSQL, tableSchemaModifyTx)
+			if err != nil {
+				return fmt.Errorf("failed to drop index %s for table %s: %w",
+					droppedIndex, schemaDelta.DstTableName, err)
+			}
+			c.logger.Info(fmt.Sprintf("[schema delta replay] dropped index %s", droppedIndex),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
+		}
+
+		// Handle index additions
+		for _, addedIndex := range schemaDelta.AddedIndexes {
+			// Skip primary key indexes as they are part of the table definition
+			if addedIndex.IsPrimary {
+				continue
+			}
+
+			// The index definition from pg_get_indexdef includes the schema-qualified table name
+			// and index name. Format: CREATE [UNIQUE] INDEX index_name ON schema.table USING ...
+			indexDef := addedIndex.IndexDef
+
+			// Replace the table name in the definition
+			indexDef = strings.Replace(indexDef,
+				" ON "+schemaDelta.SrcTableName+" ",
+				" ON "+schemaDelta.DstTableName+" ",
+				1)
+
+			_, err = c.execWithLoggingTx(ctx, indexDef, tableSchemaModifyTx)
+			if err != nil {
+				return fmt.Errorf("failed to create index %s for table %s: %w",
+					addedIndex.IndexName, schemaDelta.DstTableName, err)
+			}
+			c.logger.Info(fmt.Sprintf("[schema delta replay] created index %s (unique: %v)",
+				addedIndex.IndexName, addedIndex.IsUnique),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
+		}
+
+		// Handle trigger additions
+		for _, addedTrigger := range schemaDelta.AddedTriggers {
+			// The trigger definition from pg_get_triggerdef includes the full CREATE TRIGGER statement
+			// We need to replace the source table name with the destination table name
+			triggerDef := strings.Replace(addedTrigger.TriggerDef,
+				" ON "+schemaDelta.SrcTableName+" ",
+				" ON "+schemaDelta.DstTableName+" ",
+				1)
+
+			_, err = c.execWithLoggingTx(ctx, triggerDef, tableSchemaModifyTx)
+			if err != nil {
+				return fmt.Errorf("failed to create trigger %s for table %s: %w",
+					addedTrigger.TriggerName, schemaDelta.DstTableName, err)
+			}
+			c.logger.Info(fmt.Sprintf("[schema delta replay] created trigger %s (timing: %s, events: %s)",
+				addedTrigger.TriggerName, addedTrigger.Timing, addedTrigger.Events),
 				slog.String("dstTableName", schemaDelta.DstTableName),
 			)
 		}
