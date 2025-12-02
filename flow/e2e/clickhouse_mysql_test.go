@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -663,6 +664,196 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	t := s.T()
+	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
+	if !ok {
+		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
+	}
+
+	srcTable := "test_mysql_ghost_schema"
+	dstTable := "test_mysql_ghost_schema_dst"
+	srcTableName := AttachSchema(s, srcTable)
+	dstTableName := s.DestinationTable(dstTable)
+
+	// Ghost table names (like gh-ost creates)
+	ghostTable := "_" + srcTable + "_gho"
+	ghostTableName := AttachSchema(s, ghostTable)
+	oldTable := "_" + srcTable + "_del"
+	oldTableName := AttachSchema(s, oldTable)
+
+	// Create initial table with id and c1
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			c1 BIGINT
+		)
+	`, srcTableName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      AddSuffix(s, srcTable),
+		TableNameMapping: map[string]string{AttachSchema(s, srcTable): dstTable},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// Insert initial row
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(1)`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "initial row", srcTable, dstTable, "id,c1")
+
+	// Verify initial schema
+	expectedTableSchema := &protos.TableSchema{
+		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         ExpectedDestinationIdentifier(s, "id"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c1"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_IS_DELETED",
+				Type:         string(types.QValueKindBoolean),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_SYNCED_AT",
+				Type:         string(types.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+		},
+	}
+	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+	EnvNoError(t, env, err)
+	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+
+	// ============================================
+	// Simulate gh-ost migration: add columns to test type detection
+	// - c2: BIGINT (basic signed integer)
+	// - c3: INT UNSIGNED (tests unsigned flag)
+	// - c4: BLOB (tests binary charset -> QValueKindBytes)
+	// - c5: TEXT (tests non-binary charset -> QValueKindString)
+	// - c6: DECIMAL (no precision/scale -> typmod -1)
+	// - c7: DECIMAL(10,2) (tests precision/scale extraction)
+	// - c8: DECIMAL(18,6) (tests different precision/scale)
+	// ============================================
+
+	// 1. gh-ost creates ghost table with new schema (original + new columns)
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL PRIMARY KEY,
+			c1 BIGINT,
+			c2 BIGINT,
+			c3 INT UNSIGNED,
+			c4 BLOB,
+			c5 TEXT,
+			c6 DECIMAL,
+			c7 DECIMAL(10,2),
+			c8 DECIMAL(18,6)
+		)
+	`, ghostTableName)))
+
+	// 2. gh-ost copies existing data to ghost table (we simulate this)
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (id, c1, c2, c3, c4, c5, c6, c7, c8) SELECT id, c1, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM %s
+	`, ghostTableName, srcTableName)))
+
+	// 3. Insert another row into original table (gh-ost would capture this via binlog and apply to ghost)
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(2)`, srcTableName)))
+	// Simulate gh-ost applying it to ghost table
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`, ghostTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "pre-cutover row", srcTable, dstTable, "id,c1")
+
+	// 4. gh-ost atomic cut-over: rename both tables simultaneously
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		RENAME TABLE %s TO %s, %s TO %s
+	`, srcTableName, oldTableName, ghostTableName, srcTableName)))
+
+	// 5. Insert a row with the new columns populated (this goes to the new table, formerly ghost)
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(3, 300, 400, x'deadbeef', 'hello text', 123.45, 12345.67, 123456.789012)`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "post-cutover row", srcTable, dstTable,
+		"id,c1,coalesce(c2,0) c2,coalesce(c3,0) c3,coalesce(c4,'') c4,coalesce(c5,'') c5,coalesce(c6,0) c6,coalesce(c7,0) c7,coalesce(c8,0) c8")
+
+	// Verify schema was updated to include new columns with correct types and typmods
+	expectedTableSchema = &protos.TableSchema{
+		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         ExpectedDestinationIdentifier(s, "id"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c1"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_SYNCED_AT",
+				Type:         string(types.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c2"),
+				Type:         string(types.QValueKindInt64), // BIGINT
+				TypeModifier: -1,
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c3"),
+				Type:         string(types.QValueKindUInt32), // INT UNSIGNED
+				TypeModifier: -1,
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c4"),
+				Type:         string(types.QValueKindBytes), // BLOB (binary charset)
+				TypeModifier: -1,
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c5"),
+				Type:         string(types.QValueKindString), // TEXT (non-binary charset)
+				TypeModifier: -1,
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c6"),
+				Type:         string(types.QValueKindNumeric), // DECIMAL (default 10,0)
+				TypeModifier: datatypes.MakeNumericTypmod(10, 0),
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c7"),
+				Type:         string(types.QValueKindNumeric), // DECIMAL(10,2)
+				TypeModifier: datatypes.MakeNumericTypmod(10, 2),
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c8"),
+				Type:         string(types.QValueKindNumeric), // DECIMAL(18,6)
+				TypeModifier: datatypes.MakeNumericTypmod(18, 6),
+			},
+		},
+	}
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+	EnvNoError(t, env, err)
+	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvEqualTablesWithNames(env, s, srcTable, dstTable,
+		"id,c1,coalesce(c2,0) c2,coalesce(c3,0) c3,coalesce(c4,'') c4,coalesce(c5,'') c5,coalesce(c6,0) c6,coalesce(c7,0) c7,coalesce(c8,0) c8")
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)

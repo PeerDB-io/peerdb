@@ -518,24 +518,24 @@ func (c *MySqlConnector) PullRecords(
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()
+
+				// Process TABLE_MAP_EVENT schema to detect new columns
+				// and build efficient column index mapping
+				var colIndexToFd map[int]*protos.FieldDescription
+				if ev.Table.ColumnName != nil {
+					var err error
+					colIndexToFd, err = c.processTableMapEventSchema(
+						ctx, catalogPool, req, ev.Table,
+						sourceTableName, destinationTableName, schema, exclusion,
+					)
+					if err != nil {
+						return err
+					}
+				}
+
 				getFd := func(idx int) *protos.FieldDescription {
-					if ev.Table.ColumnName != nil {
-						unsafeName := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
-						if _, excluded := exclusion[unsafeName]; !excluded {
-							schemaIdx := slices.IndexFunc(schema.Columns, func(col *protos.FieldDescription) bool {
-								return col.Name == unsafeName
-							})
-							if schemaIdx == -1 {
-								if !skewLossReported {
-									skewLossReported = true
-									c.logger.Warn("Unknown column name received, ignoring",
-										slog.String("name", string(ev.Table.ColumnName[idx])))
-								}
-							} else {
-								return schema.Columns[schemaIdx]
-							}
-						}
-						return nil
+					if colIndexToFd != nil {
+						return colIndexToFd[idx]
 					}
 					if idx < len(schema.Columns) {
 						return schema.Columns[idx]
@@ -768,4 +768,113 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 
 func posToOffsetText(pos mysql.Position) string {
 	return fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+}
+
+// processTableMapEventSchema compares the TABLE_MAP_EVENT schema against the cached schema
+// and returns a TableSchemaDelta if new columns are detected (e.g., after gh-ost migration).
+// It also returns a map from binlog column index to FieldDescription for efficient row processing.
+func (c *MySqlConnector) processTableMapEventSchema(
+	ctx context.Context,
+	catalogPool shared.CatalogPool,
+	req *model.PullRecordsRequest[model.RecordItems],
+	tableMap *replication.TableMapEvent,
+	sourceTableName string,
+	destinationTableName string,
+	schema *protos.TableSchema,
+	exclusion map[string]struct{},
+) (colIndexToFd map[int]*protos.FieldDescription, err error) {
+	colIndexToFd = make(map[int]*protos.FieldDescription, len(tableMap.ColumnName))
+
+	// Build a set of existing column names for quick lookup
+	existingCols := make(map[string]*protos.FieldDescription, len(schema.Columns))
+	for _, col := range schema.Columns {
+		existingCols[col.Name] = col
+	}
+
+	// Get metadata maps for type conversion
+	unsignedMap := tableMap.UnsignedMap()
+	collationMap := tableMap.CollationMap()
+
+	var addedColumns []*protos.FieldDescription
+
+	for idx, colNameBytes := range tableMap.ColumnName {
+		colName := shared.UnsafeFastReadOnlyBytesToString(colNameBytes)
+		if _, excluded := exclusion[colName]; excluded {
+			continue
+		}
+
+		if fd, exists := existingCols[colName]; exists {
+			colIndexToFd[idx] = fd
+		} else {
+			// New column detected - get type from TABLE_MAP_EVENT
+			var charset uint16
+			if collation, ok := collationMap[idx]; ok {
+				charset = uint16(collation)
+			}
+			mytype := tableMap.ColumnType[idx]
+			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset)
+			if err != nil {
+				c.logger.Warn("Unknown MySQL type for new column, skipping",
+					slog.String("table", sourceTableName),
+					slog.String("column", colName),
+					slog.Any("error", err))
+				continue
+			}
+
+			// Get nullable info
+			_, nullable := tableMap.Nullable(idx)
+
+			// Extract precision/scale for DECIMAL types from ColumnMeta
+			// ColumnMeta stores: high byte = precision, low byte = scale
+			typmod := int32(-1)
+			if (mytype == mysql.MYSQL_TYPE_DECIMAL || mytype == mysql.MYSQL_TYPE_NEWDECIMAL) &&
+				idx < len(tableMap.ColumnMeta) {
+				meta := tableMap.ColumnMeta[idx]
+				precision := int32(meta >> 8)
+				scale := int32(meta & 0xFF)
+				typmod = datatypes.MakeNumericTypmod(precision, scale)
+			}
+
+			newFd := &protos.FieldDescription{
+				Name:         colName,
+				Type:         string(qkind),
+				TypeModifier: typmod,
+				Nullable:     nullable,
+			}
+
+			addedColumns = append(addedColumns, newFd)
+			colIndexToFd[idx] = newFd
+
+			c.logger.Info("Detected new column from TABLE_MAP_EVENT",
+				slog.String("table", sourceTableName),
+				slog.String("column", colName),
+				slog.String("type", string(qkind)))
+		}
+	}
+
+	// If new columns were detected, emit schema delta and update cached schema
+	if len(addedColumns) > 0 {
+		tableSchemaDelta := &protos.TableSchemaDelta{
+			SrcTableName:    sourceTableName,
+			DstTableName:    destinationTableName,
+			AddedColumns:    addedColumns,
+			System:          protos.TypeSystem_Q,
+			NullableEnabled: schema.NullableEnabled,
+		}
+
+		c.logger.Info("Schema change detected from TABLE_MAP_EVENT",
+			slog.String("table", destinationTableName),
+			slog.Any("addedColumns", addedColumns))
+
+		// Update cached schema
+		schema.Columns = append(schema.Columns, addedColumns...)
+
+		// Emit schema delta
+		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+		if err := monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta); err != nil {
+			return nil, err
+		}
+	}
+
+	return colIndexToFd, nil
 }
