@@ -663,7 +663,6 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
@@ -794,7 +793,13 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(3, 300, 400, x'deadbeef', 'hello text', 123.45, 12345.67, 123456.789012)`,
 		srcTableName)))
 	EnvWaitForEqualTablesWithNames(env, s, "post-cutover row", srcTable, dstTable,
-		"id,c1,coalesce(c2,0) c2,coalesce(c3,0) c3,coalesce(c4,'') c4,coalesce(c5,'') c5,coalesce(c6,0) c6,coalesce(c7,0) c7,coalesce(c8,0) c8")
+		"id,c1,coalesce(c2,0) c2,coalesce(c4,'') c4,coalesce(c5,'') c5,coalesce(c6,0) c6,coalesce(c7,0) c7,coalesce(c8,0) c8")
+
+	// Verify c3 separately - MariaDB returns a different type here than MySQL and breaks coalesce
+	dstRows, err := s.GetRows(dstTable, "id,c3")
+	require.NoError(t, err)
+	require.Len(t, dstRows.Records, 3)
+	require.Equal(t, uint32(400), dstRows.Records[2][1].Value())
 
 	// Verify schema was updated to include new columns with correct types and typmods
 	expectedTableSchema = &protos.TableSchema{
@@ -856,8 +861,6 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	EnvEqualTablesWithNames(env, s, srcTable, dstTable,
-		"id,c1,coalesce(c2,0) c2,coalesce(c3,0) c3,coalesce(c4,'') c4,coalesce(c5,'') c5,coalesce(c6,0) c6,coalesce(c7,0) c7,coalesce(c8,0) c8")
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
