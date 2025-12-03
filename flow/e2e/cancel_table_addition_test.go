@@ -781,7 +781,7 @@ func (s APITestSuite) TestCancelAddCancel() {
 		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
 			{
 				Name: "_id",
-				Type: "Int64",
+				Type: "String",
 			},
 			{
 				Name: "doc",
@@ -1226,7 +1226,7 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
 			{
 				Name: "_id",
-				Type: "Int64",
+				Type: "String",
 			},
 			{
 				Name: "doc",
