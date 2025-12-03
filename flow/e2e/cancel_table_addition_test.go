@@ -377,7 +377,7 @@ func (s APITestSuite) testCancelTableAddition(
 		err = s.ch.CreateRMTTable("t5", []TestClickHouseColumn{
 			{
 				Name: "_id",
-				Type: "Int64",
+				Type: "String",
 			},
 			{
 				Name: "doc",
