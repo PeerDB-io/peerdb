@@ -80,12 +80,12 @@ func (m *ClickHouseMVManager) CreateBadMV(ctx context.Context) error {
         FROM %s`, m.mvName, targetName, m.tableName)
 	if m.isSourceMongo {
 		mvSQL = fmt.Sprintf(`
-		CREATE MATERIALIZED VIEW IF NOT EXISTS %s TO %s
-		AS
-		SELECT
-			_id,
-			toUInt32(doc) AS doc
-		FROM %s`, m.mvName, targetName, m.tableName)
+    CREATE MATERIALIZED VIEW IF NOT EXISTS %s TO %s
+    AS
+    SELECT
+        _id,
+        throwIf(1, 'Intentional MV failure') AS doc
+    FROM %s`, m.mvName, targetName, m.tableName)
 	}
 
 	err = ch.Exec(ctx, mvSQL)
