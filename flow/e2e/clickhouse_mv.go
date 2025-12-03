@@ -10,11 +10,10 @@ import (
 
 // ClickHouseMVManager manages materialized views for ClickHouse testing
 type ClickHouseMVManager struct {
-	config        *protos.ClickhouseConfig
-	tableName     string
-	mvName        string
-	suffix        string
-	isSourceMongo bool
+	config    *protos.ClickhouseConfig
+	tableName string
+	mvName    string
+	suffix    string
 }
 
 // NewClickHouseMVManager creates a new ClickHouseMVManager instance
@@ -22,14 +21,12 @@ func newClickHouseMVManager(
 	config *protos.ClickhouseConfig,
 	tableName string,
 	suffix string,
-	isSourceMongo bool,
 ) *ClickHouseMVManager {
 	return &ClickHouseMVManager{
-		config:        config,
-		tableName:     tableName,
-		mvName:        fmt.Sprintf("%s_mv_%s", tableName, suffix),
-		suffix:        suffix,
-		isSourceMongo: isSourceMongo,
+		config:    config,
+		tableName: tableName,
+		mvName:    fmt.Sprintf("%s_mv_%s", tableName, suffix),
+		suffix:    suffix,
 	}
 }
 
@@ -52,18 +49,6 @@ func (m *ClickHouseMVManager) CreateBadMV(ctx context.Context) error {
         )
         ENGINE = MergeTree()
         ORDER BY id`, targetName)
-	if m.isSourceMongo {
-		// Mongo mirrors always have fixed schema in ClickHouse:
-		// _id and doc fields
-		targetTableSQL = fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			_id   String,
-			doc UInt32
-		)
-		ENGINE = MergeTree()
-		ORDER BY _id`, targetName)
-	}
-
 	err = ch.Exec(ctx, targetTableSQL)
 	if err != nil {
 		return fmt.Errorf("failed to create MV target table: %w", err)
@@ -75,19 +60,9 @@ func (m *ClickHouseMVManager) CreateBadMV(ctx context.Context) error {
         CREATE MATERIALIZED VIEW IF NOT EXISTS %s TO %s
         AS
         SELECT
-            id,
-            toUInt32(val) AS val
+            1 as id,
+			throwIf(1, 'Intentional MV failure') as val
         FROM %s`, m.mvName, targetName, m.tableName)
-	if m.isSourceMongo {
-		mvSQL = fmt.Sprintf(`
-    CREATE MATERIALIZED VIEW IF NOT EXISTS %s TO %s
-    AS
-    SELECT
-        _id,
-        throwIf(1, 'Intentional MV failure') AS doc
-    FROM %s`, m.mvName, targetName, m.tableName)
-	}
-
 	err = ch.Exec(ctx, mvSQL)
 	if err != nil {
 		return fmt.Errorf("failed to create materialized view: %w", err)
@@ -114,11 +89,9 @@ func (m *ClickHouseMVManager) DropBadMV(ctx context.Context) error {
 }
 
 func (s ClickHouseSuite) NewMVManager(tableName string, suffix string) *ClickHouseMVManager {
-	_, isSourceMongo := s.source.(*MongoSource)
 	return newClickHouseMVManager(
 		s.Peer().GetClickhouseConfig(),
 		tableName,
 		suffix,
-		isSourceMongo,
 	)
 }
