@@ -10,19 +10,26 @@ import (
 
 // ClickHouseMVManager manages materialized views for ClickHouse testing
 type ClickHouseMVManager struct {
-	config    *protos.ClickhouseConfig
-	tableName string
-	mvName    string
-	suffix    string
+	config        *protos.ClickhouseConfig
+	tableName     string
+	mvName        string
+	suffix        string
+	isSourceMongo bool
 }
 
 // NewClickHouseMVManager creates a new ClickHouseMVManager instance
-func newClickHouseMVManager(config *protos.ClickhouseConfig, tableName string, suffix string) *ClickHouseMVManager {
+func newClickHouseMVManager(
+	config *protos.ClickhouseConfig,
+	tableName string,
+	suffix string,
+	isSourceMongo bool,
+) *ClickHouseMVManager {
 	return &ClickHouseMVManager{
-		config:    config,
-		tableName: tableName,
-		mvName:    fmt.Sprintf("%s_mv_%s", tableName, suffix),
-		suffix:    suffix,
+		config:        config,
+		tableName:     tableName,
+		mvName:        fmt.Sprintf("%s_mv_%s", tableName, suffix),
+		suffix:        suffix,
+		isSourceMongo: isSourceMongo,
 	}
 }
 
@@ -45,6 +52,17 @@ func (m *ClickHouseMVManager) CreateBadMV(ctx context.Context) error {
         )
         ENGINE = MergeTree()
         ORDER BY id`, targetName)
+	if m.isSourceMongo {
+		// Mongo mirrors always have fixed schema in ClickHouse:
+		// _id and doc fields
+		targetTableSQL = fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			_id   String,
+			doc UInt32
+		)
+		ENGINE = MergeTree()
+		ORDER BY _id`, targetName)
+	}
 
 	err = ch.Exec(ctx, targetTableSQL)
 	if err != nil {
@@ -60,6 +78,15 @@ func (m *ClickHouseMVManager) CreateBadMV(ctx context.Context) error {
             id,
             toUInt32(val) AS val
         FROM %s`, m.mvName, targetName, m.tableName)
+	if m.isSourceMongo {
+		mvSQL = fmt.Sprintf(`
+		CREATE MATERIALIZED VIEW IF NOT EXISTS %s TO %s
+		AS
+		SELECT
+			_id,
+			toUInt32(doc) AS doc
+		FROM %s`, m.mvName, targetName, m.tableName)
+	}
 
 	err = ch.Exec(ctx, mvSQL)
 	if err != nil {
@@ -77,7 +104,7 @@ func (m *ClickHouseMVManager) DropBadMV(ctx context.Context) error {
 	}
 	defer ch.Close()
 
-	dropMVSQL := fmt.Sprintf("DROP VIEW IF EXISTS %s", m.mvName)
+	dropMVSQL := "DROP VIEW IF EXISTS " + m.mvName
 	err = ch.Exec(ctx, dropMVSQL)
 	if err != nil {
 		return fmt.Errorf("failed to drop materialized view: %w", err)
@@ -87,5 +114,11 @@ func (m *ClickHouseMVManager) DropBadMV(ctx context.Context) error {
 }
 
 func (s ClickHouseSuite) NewMVManager(tableName string, suffix string) *ClickHouseMVManager {
-	return newClickHouseMVManager(s.Peer().GetClickhouseConfig(), tableName, suffix)
+	_, isSourceMongo := s.source.(*MongoSource)
+	return newClickHouseMVManager(
+		s.Peer().GetClickhouseConfig(),
+		tableName,
+		suffix,
+		isSourceMongo,
+	)
 }

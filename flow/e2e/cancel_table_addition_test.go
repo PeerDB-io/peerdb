@@ -6,17 +6,18 @@ import (
 	"sync"
 	"time"
 
-	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
-	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	tp "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"google.golang.org/protobuf/proto"
+
+	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func (s APITestSuite) insertIntoSourceTables(tables []string, id int, value string) {
@@ -78,8 +79,7 @@ func (s APITestSuite) removeOneTable(
 	})
 	require.NoError(s.t, err)
 
-	EnvWaitFor(s.t, env, 3*time.Minute, fmt.Sprintf(
-		"wait for pause for remove %s", tableToRemove.SourceTableIdentifier), func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for remove "+tableToRemove.SourceTableIdentifier, func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
@@ -124,7 +124,7 @@ func (s APITestSuite) addOneTable(
 	})
 	require.NoError(s.t, err)
 
-	EnvWaitFor(s.t, env, 3*time.Minute, fmt.Sprintf("wait for pause for add %s", tableToAdd.SourceTableIdentifier), func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add "+tableToAdd.SourceTableIdentifier, func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
@@ -146,26 +146,20 @@ func (s APITestSuite) addOneTable(
 func (s APITestSuite) checkPublicationTables(
 	publicationName string,
 	includedTables []*utils.SchemaTable,
-	cancelledTables []*utils.SchemaTable,
 ) {
-
 	pubTables, err := s.pg.PostgresConnector.GetTablesFromPublication(
 		s.t.Context(), publicationName, nil)
 	require.NoError(s.t, err, "error getting publication tables for included tables")
-	var pubTableSet = make(map[string]struct{})
+	pubTableSet := make(map[string]struct{})
 	for _, table := range pubTables {
 		pubTableSet[table.String()] = struct{}{}
-	}
-	for _, table := range cancelledTables {
-		_, exists := pubTableSet[table.String()]
-		require.False(s.t, exists,
-			"expected publication to not contain cancelled table %s", table.String())
 	}
 	for _, table := range includedTables {
 		_, exists := pubTableSet[table.String()]
 		require.True(s.t, exists,
 			"expected publication to contain included table %s", table.String())
 	}
+	require.Len(s.t, pubTableSet, len(includedTables))
 }
 
 type includedTable struct {
@@ -228,7 +222,6 @@ func (s APITestSuite) checkQrepPartitions(
 	flowJobName string,
 	expectedTables []includedTable,
 ) {
-
 	rows, err := s.pg.PostgresConnector.Conn().Query(s.t.Context(),
 		`SELECT qr.source_table, COUNT(DISTINCT qp.partition_uuid) as partition_count
         FROM peerdb_stats.qrep_partitions qp
@@ -261,7 +254,7 @@ func (s APITestSuite) checkQrepPartitions(
 			partitionCount, exists := actualTables[table.tableName]
 			require.True(s.t, exists,
 				"expected qrep_partitions entries for table %s", table.tableName)
-			require.Greater(s.t, partitionCount, 0,
+			require.Positive(s.t, partitionCount,
 				"expected positive partition count for table %s", table.tableName)
 		} else {
 			_, exists := actualTables[table.tableName]
@@ -311,8 +304,10 @@ func (s APITestSuite) checkTableSchemaMapping(
 		"table_schema_mapping entries do not match expected tables and counts. "+
 			"Expected: %v, Actual: %v", expectedMap, actualMap)
 }
+
 func (s APITestSuite) testCancelTableAddition(
-	assumeTableRemovalWillNotHappen bool, withRemoval bool) {
+	assumeTableRemovalWillNotHappen bool, withRemoval bool,
+) {
 	var cols string
 	tables := []string{"t1", "t2", "t3", "t4", "t5", "t6"}
 	attachedTables := make([]string, len(tables))
@@ -378,16 +373,29 @@ func (s APITestSuite) testCancelTableAddition(
 	})
 
 	t5Mv := s.ch.NewMVManager("t5", s.suffix)
-	err = s.ch.CreateRMTTable("t5", []TestClickHouseColumn{
-		{
-			Name: "id",
-			Type: "Int64",
-		},
-		{
-			Name: "val",
-			Type: "String",
-		},
-	}, "id")
+	if _, ok := s.source.(*MongoSource); ok {
+		err = s.ch.CreateRMTTable("t5", []TestClickHouseColumn{
+			{
+				Name: "_id",
+				Type: "Int64",
+			},
+			{
+				Name: "doc",
+				Type: "JSON",
+			},
+		}, "id")
+	} else {
+		err = s.ch.CreateRMTTable("t5", []TestClickHouseColumn{
+			{
+				Name: "id",
+				Type: "Int64",
+			},
+			{
+				Name: "val",
+				Type: "String",
+			},
+		}, "id")
+	}
 	require.NoError(s.t, err)
 	err = t5Mv.CreateBadMV(s.t.Context())
 	require.NoError(s.t, err)
@@ -464,8 +472,7 @@ func (s APITestSuite) testCancelTableAddition(
 		currentlyReplicatingTables = append(currentlyReplicatingTables, &protos.TableMapping{
 			SourceTableIdentifier:      AttachSchema(s, "t2"),
 			DestinationTableIdentifier: "t2",
-		})
-		currentlyReplicatingTables = append(currentlyReplicatingTables, &protos.TableMapping{
+		}, &protos.TableMapping{
 			SourceTableIdentifier:      AttachSchema(s, "t3"),
 			DestinationTableIdentifier: "t3",
 		})
@@ -486,7 +493,7 @@ func (s APITestSuite) testCancelTableAddition(
 		require.NoError(s.t, err)
 	}
 
-	var outputSourceTables []string
+	outputSourceTables := make([]string, 0, len(output.TablesAfterCancellation))
 	for _, table := range output.TablesAfterCancellation {
 		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
 	}
@@ -538,10 +545,6 @@ func (s APITestSuite) testCancelTableAddition(
 				{Schema: Schema(s), Table: "t3"},
 				{Schema: Schema(s), Table: "t4"},
 			},
-			[]*utils.SchemaTable{
-				{Schema: Schema(s), Table: "t5"},
-				{Schema: Schema(s), Table: "t6"},
-			},
 		)
 	}
 
@@ -583,7 +586,8 @@ func (s APITestSuite) TestCancelTableAddition_NoRemovalAssumedWithRemoval() {
 	s.testCancelTableAddition(true, true)
 }
 
-// Tests that table addition cancellation doesn't get confused by the canceled table having a previous initial load and a previous successful addition then removal
+// Tests that table addition cancellation doesn't get confused
+// by the canceled table having a previous initial load and a previous successful addition then removal
 func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	tables := []string{"t1", "t2"}
 	attachedTables := make([]string, len(tables))
@@ -674,7 +678,7 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	})
 	require.NoError(s.t, err)
 
-	var outputSourceTables []string
+	outputSourceTables := make([]string, 0, len(output.TablesAfterCancellation))
 	for _, table := range output.TablesAfterCancellation {
 		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
 	}
@@ -712,9 +716,6 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 			publicationName,
 			[]*utils.SchemaTable{
 				{Schema: Schema(s), Table: "t1"},
-			},
-			[]*utils.SchemaTable{
-				{Schema: Schema(s), Table: "t2"},
 			},
 		)
 	}
@@ -775,16 +776,29 @@ func (s APITestSuite) TestCancelAddCancel() {
 	EnvWaitForEqualTables(env, s.ch, "t1", "t1", cols)
 
 	t2Mv1 := s.ch.NewMVManager("t2", "first")
-	err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
-		{
-			Name: "id",
-			Type: "Int64",
-		},
-		{
-			Name: "val",
-			Type: "String",
-		},
-	}, "id")
+	if _, ok := s.source.(*MongoSource); ok {
+		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
+			{
+				Name: "_id",
+				Type: "Int64",
+			},
+			{
+				Name: "doc",
+				Type: "JSON",
+			},
+		}, "id")
+	} else {
+		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
+			{
+				Name: "id",
+				Type: "Int64",
+			},
+			{
+				Name: "val",
+				Type: "String",
+			},
+		}, "id")
+	}
 	require.NoError(s.t, err)
 	err = t2Mv1.CreateBadMV(s.t.Context())
 	require.NoError(s.t, err)
@@ -816,7 +830,7 @@ func (s APITestSuite) TestCancelAddCancel() {
 	require.NoError(s.t, err)
 
 	firstRunId := output.RunId
-	var outputSourceTables []string
+	outputSourceTables := make([]string, 0, len(output.TablesAfterCancellation))
 	for _, table := range output.TablesAfterCancellation {
 		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
 	}
@@ -954,8 +968,8 @@ func (s APITestSuite) TestCancelAddCancel() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
-
 }
+
 func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 	var cols string
 	tables := []string{"original", "added"}
@@ -1057,7 +1071,7 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 	})
 
 	expectedTables := []string{AttachSchema(s, "original")}
-	var outputSourceTables []string
+	outputSourceTables := make([]string, 0, len(output.TablesAfterCancellation))
 	for _, table := range output.TablesAfterCancellation {
 		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
 	}
@@ -1207,16 +1221,29 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 	})
 
 	// Create table t2 in ClickHouse and bad MV
-	err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
-		{
-			Name: "id",
-			Type: "Int64",
-		},
-		{
-			Name: "val",
-			Type: "String",
-		},
-	}, "id")
+	if _, ok := s.source.(*MongoSource); ok {
+		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
+			{
+				Name: "_id",
+				Type: "Int64",
+			},
+			{
+				Name: "doc",
+				Type: "JSON",
+			},
+		}, "id")
+	} else {
+		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
+			{
+				Name: "id",
+				Type: "Int64",
+			},
+			{
+				Name: "val",
+				Type: "String",
+			},
+		}, "id")
+	}
 	require.NoError(s.t, err)
 
 	t2Mv := s.ch.NewMVManager("t2", suffix)
@@ -1323,7 +1350,7 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 
 	// Expected tables after cancellation: only t1
 	expectedTables := []string{AttachSchema(s, "t1")}
-	var output1SourceTables []string
+	output1SourceTables := make([]string, 0, len(output1.TablesAfterCancellation))
 	for _, table := range output1.TablesAfterCancellation {
 		output1SourceTables = append(output1SourceTables, table.SourceTableIdentifier)
 	}
@@ -1363,9 +1390,6 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 		publicationName,
 		[]*utils.SchemaTable{
 			{Schema: Schema(s), Table: "t1"},
-		},
-		[]*utils.SchemaTable{
-			{Schema: Schema(s), Table: "t2"},
 		},
 	)
 

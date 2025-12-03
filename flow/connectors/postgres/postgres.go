@@ -1000,6 +1000,7 @@ func (c *PostgresConnector) GetTablesFromPublication(
 
 	return tables, nil
 }
+
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,

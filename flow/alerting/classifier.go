@@ -826,7 +826,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
 		}
-		var normalizationErr *exceptions.NormalizationError
+		var normalizationErr *exceptions.TableRemovalInCancellationError
 		if isClickHouseMvError(chException) {
 			return ErrorNotifyMVOrView, chErrorInfo
 		} else if errors.As(err, &normalizationErr) {

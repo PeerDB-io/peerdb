@@ -31,7 +31,10 @@ type CancelTableAdditionActivity struct {
 	OtelManager    *otel_metrics.OtelManager
 }
 
-/* GetCompletedTablesFromQrepRuns gets the list of source tables whose latest QRep run is completed */
+/*
+GetCompletedTablesFromQrepRuns gets the list of tables in the addition request
+whose snapshot has completed
+*/
 func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 	ctx context.Context,
 	flowJobName string,
@@ -70,32 +73,21 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 	}
 
 	rows, err := a.CatalogPool.Query(ctx, `
-		WITH latest_runs AS (
-			SELECT 
-				source_table,
-				consolidate_complete,
-				ROW_NUMBER() OVER (PARTITION BY source_table ORDER BY id DESC) as rn
-			FROM peerdb_stats.qrep_runs 
-			WHERE parent_mirror_name = $1
-			AND run_uuid = ANY($2)
-		)
-		SELECT source_table 
-		FROM latest_runs 
-		WHERE rn = 1 AND consolidate_complete = true`, flowJobName, runIds)
+    SELECT DISTINCT source_table 
+    FROM peerdb_stats.qrep_runs 
+    WHERE parent_mirror_name = $1 
+    AND run_uuid = ANY($2) 
+    AND consolidate_complete = true`, flowJobName, runIds)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var completedTables []string
-	for rows.Next() {
+	completedTables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
 		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			return nil, err
-		}
-		completedTables = append(completedTables, tableName)
-	}
-	if err := rows.Err(); err != nil {
+		err := row.Scan(&tableName)
+		return tableName, err
+	})
+	if err != nil {
 		return nil, err
 	}
 

@@ -8,6 +8,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
@@ -52,9 +53,13 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 
 	if len(removedTables) > 0 {
 		if !input.AssumeTableRemovalWillNotHappen {
-			return nil, fmt.Errorf("cannot cancel table addition because the following tables are expected to be removed during the operation and cleanup for that is not implemented: %v; "+
-				"if you're certain this won't happen, set assume_table_removal_will_not_happen to true to override and proceed with cancellation",
+			baseErr := fmt.Errorf(
+				"cannot cancel table addition because the following tables are expected to be removed "+
+					"during the operation and cleanup for that is not implemented: %v; "+
+					"if you're certain this won't happen, set assume_table_removal_will_not_happen to true "+
+					"to override and proceed with cancellation",
 				removedTables)
+			return nil, exceptions.NewRemovedTablesInCancellationError(baseErr)
 		}
 		logger.Warn("Proceeding with cancellation despite removed tables as per override flag",
 			"flowName", flowJobName,
@@ -131,13 +136,9 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	flowConfig.TableMappings = finalListOfTables
 
 	state := cdc_state.NewCDCFlowWorkflowState(ctx, logger, flowConfig)
-	// update table OIDs for upcoming request
-	if len(tableOIDs) > 0 {
-		state.SyncFlowOptions.SrcTableIdNameMapping = tableOIDs
-		logger.Info("Set source table ID name mapping in state",
-			"flowName", flowJobName, "mappingCount", len(tableOIDs))
-	}
-
+	state.SyncFlowOptions.SrcTableIdNameMapping = tableOIDs
+	logger.Info("Set source table ID name mapping in state",
+		"flowName", flowJobName, "mappingCount", len(tableOIDs))
 	// this allows us to skip setup and snapshot
 	state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 

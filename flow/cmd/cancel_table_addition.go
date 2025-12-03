@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -48,6 +50,10 @@ func (h *FlowRequestHandler) CancelTableAddition(
 	var output *protos.CancelTableAdditionOutput
 	err = cancelTableAdditionFuture.Get(ctx, &output)
 	if err != nil {
+		var tableRemovalErr *exceptions.TableRemovalInCancellationError
+		if errors.As(err, &tableRemovalErr) {
+			return nil, NewFailedPreconditionApiError(err)
+		}
 		return nil, NewInternalApiError(fmt.Errorf("cancel table addition workflow failed: %w", err))
 	}
 
