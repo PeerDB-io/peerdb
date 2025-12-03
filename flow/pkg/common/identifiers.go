@@ -33,7 +33,7 @@ func ParseTableIdentifier(tableIdentifier string) (*QualifiedTable, error) {
 //
 //	tblname := "my_table"
 //	data := "my_data"
-//	quoted := pq.QuoteIdentifier(tblname)
+//	quoted := common.QuoteIdentifier(tblname)
 //	err := db.Exec(fmt.Sprintf("INSERT INTO %s VALUES ($1)", quoted), data)
 //
 // Any double quotes in name will be escaped.  The quoted identifier will be
