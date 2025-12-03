@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func (s APITestSuite) insertIntoSourceTables(tables []string, id int, value string) {
@@ -486,9 +485,8 @@ func (s APITestSuite) testCancelTableAddition(
 	})
 
 	if !assumeTableRemovalWillNotHappen && withRemoval {
-		var tableRemovalErr *exceptions.TableRemovalInCancellationError
-		require.ErrorAs(s.t, err, &tableRemovalErr,
-			"expected TableRemovalInCancellationError for table removal scenario")
+		require.ErrorContains(s.t, err, "assume_table_removal_will_not_happen")
+		require.ErrorContains(s.t, err, "TableRemovalInCancellationError")
 		env.Cancel(s.t.Context())
 		RequireEnvCanceled(s.t, env)
 		return
