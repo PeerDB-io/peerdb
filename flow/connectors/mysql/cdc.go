@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -60,7 +61,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 ) (*protos.TableSchema, error) {
-	schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
+	qualifiedTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +73,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 
 	rs, err := c.Execute(ctx, fmt.Sprintf(`select column_name, column_type, column_key, is_nullable, numeric_precision, numeric_scale
 		from information_schema.columns where table_schema = '%s' and table_name = '%s' order by ordinal_position`,
-		mysql.Escape(schemaTable.Schema), mysql.Escape(schemaTable.Table)))
+		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
 	if err != nil {
 		return nil, err
 	}

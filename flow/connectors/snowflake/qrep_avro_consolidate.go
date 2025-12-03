@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type SnowflakeAvroConsolidateHandler struct {
@@ -146,7 +147,7 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 }
 
 func (s *SnowflakeAvroConsolidateHandler) handleAppendMode(ctx context.Context) error {
-	parsedDstTable, _ := utils.ParseSchemaTable(s.dstTableName)
+	parsedDstTable, _ := common.ParseTableIdentifier(s.dstTableName)
 	copyCmd := s.getCopyTransformation(snowflakeSchemaTableNormalize(parsedDstTable))
 	s.connector.logger.Info("running copy command: " + copyCmd)
 	if _, err := s.connector.ExecContext(ctx, copyCmd); err != nil {
@@ -175,7 +176,7 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 	upsertKeys := make([]string, 0, len(upsertKeyCols))
 	partitionKeyCols := make([]string, 0, len(upsertKeyCols))
 	for _, key := range upsertKeyCols {
-		quotedKey := utils.QuoteIdentifier(key)
+		quotedKey := common.QuoteIdentifier(key)
 		upsertKeys = append(upsertKeys, fmt.Sprintf("dst.%s = src.%s", quotedKey, quotedKey))
 		partitionKeyCols = append(partitionKeyCols, quotedKey)
 	}
@@ -185,7 +186,7 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 	insertColumnsClauses := make([]string, 0, len(s.allColNames))
 	insertValuesClauses := make([]string, 0, len(s.allColNames))
 	for _, column := range s.allColNames {
-		quotedColumn := utils.QuoteIdentifier(column)
+		quotedColumn := common.QuoteIdentifier(column)
 		updateSetClauses = append(updateSetClauses, fmt.Sprintf("%s = src.%s", quotedColumn, quotedColumn))
 		insertColumnsClauses = append(insertColumnsClauses, quotedColumn)
 		insertValuesClauses = append(insertValuesClauses, "src."+quotedColumn)

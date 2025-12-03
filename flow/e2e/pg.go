@@ -16,10 +16,10 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -198,32 +198,32 @@ func (s *PostgresSource) Exec(ctx context.Context, sql string) error {
 }
 
 func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, nil, shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		ctx,
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, common.QuoteIdentifier(table)),
 	)
 }
 
 // to avoid fetching rows from "child" tables ala Postgres table inheritance
 func (s *PostgresSource) GetRowsOnly(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, nil, shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		ctx,
-		fmt.Sprintf(`SELECT %s FROM ONLY e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
+		fmt.Sprintf(`SELECT %s FROM ONLY e2e_test_%s.%s ORDER BY id`, cols, suffix, common.QuoteIdentifier(table)),
 	)
 }
 
 func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableIdentifier string, selectedColumns []string) error {
-	schemaTable, err := utils.ParseSchemaTable(tableIdentifier)
+	schemaTable, err := common.ParseTableIdentifier(tableIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to parse table identifier %s: %w", tableIdentifier, err)
 	}
@@ -235,7 +235,7 @@ func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableI
 
 	columns := make([]string, len(selectedColumns))
 	for i, col := range selectedColumns {
-		columns[i] = utils.QuoteIdentifier(col)
+		columns[i] = common.QuoteIdentifier(col)
 	}
 	columnStr := strings.Join(columns, ", ")
 
@@ -248,7 +248,7 @@ func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableI
 }
 
 func (s *PostgresSource) Query(ctx context.Context, query string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, nil, shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}

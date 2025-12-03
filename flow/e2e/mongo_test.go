@@ -209,6 +209,9 @@ func (s MongoClickhouseSuite) Test_CDC() {
 	flowConnConfig.DoInitialSnapshot = true
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
+	err := adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable)
+	require.NoError(t, err)
+
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
 	tc := NewTemporalClient(t)
@@ -643,6 +646,10 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 	flowConnConfig.DoInitialSnapshot = true
 
 	db := s.Source().(*MongoSource).AdminClient().Database(srcDatabase)
+	err := db.CreateCollection(t.Context(), srcTable1)
+	require.NoError(t, err)
+	err = db.CreateCollection(t.Context(), srcTable2)
+	require.NoError(t, err)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)

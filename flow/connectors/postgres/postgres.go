@@ -28,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -243,7 +244,8 @@ func (c *PostgresConnector) MaybeStartReplication(
 
 		c.replLock.Lock()
 		defer c.replLock.Unlock()
-		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), utils.QuoteIdentifier(slotName), startLSN, replicationOpts); err != nil {
+		if err := pglogrepl.StartReplication(
+			ctx, c.replConn.PgConn(), common.QuoteIdentifier(slotName), startLSN, replicationOpts); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
 			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
@@ -321,9 +323,9 @@ func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
 func (c *PostgresConnector) NeedsSetupMetadataTables(ctx context.Context) (bool, error) {
-	result, err := c.tableExists(ctx, &utils.SchemaTable{
-		Schema: c.metadataSchema,
-		Table:  mirrorJobsTableIdentifier,
+	result, err := c.tableExists(ctx, &common.QualifiedTable{
+		Namespace: c.metadataSchema,
+		Table:     mirrorJobsTableIdentifier,
 	})
 	return !result, err
 }
@@ -900,7 +902,7 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) GetSelectedColumns(
 	ctx context.Context,
-	sourceTable *utils.SchemaTable,
+	sourceTable *common.QualifiedTable,
 	excludedColumns []string,
 ) ([]string, error) {
 	quotedExcludedColumns := make([]string, 0, len(excludedColumns))
@@ -922,7 +924,7 @@ func (c *PostgresConnector) GetSelectedColumns(
 		AND a.attnum > 0
 		AND NOT a.attisdropped ` + excludedColumnsSQL
 
-	rows, err := c.conn.Query(ctx, getColumnsSQL, sourceTable.Schema, sourceTable.Table)
+	rows, err := c.conn.Query(ctx, getColumnsSQL, sourceTable.Namespace, sourceTable.Table)
 	if err != nil {
 		c.logger.Error("error getting selected columns",
 			slog.Any("error", err),
@@ -950,7 +952,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	system protos.TypeSystem,
 	version uint32,
 ) (*protos.TableSchema, error) {
-	schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
+	schemaTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -997,7 +999,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		}
 
 		for i, col := range selectedColumns {
-			selectedColumns[i] = utils.QuoteIdentifier(col)
+			selectedColumns[i] = common.QuoteIdentifier(col)
 		}
 		selectedColumnsStr = strings.Join(selectedColumns, ",")
 	}
@@ -1079,7 +1081,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
-	parsedNormalizedTable, err := utils.ParseSchemaTable(tableIdentifier)
+	parsedNormalizedTable, err := common.ParseTableIdentifier(tableIdentifier)
 	if err != nil {
 		return false, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
@@ -1095,8 +1097,8 @@ func (c *PostgresConnector) SetupNormalizedTable(
 		}
 
 		err := c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
-			utils.QuoteIdentifier(parsedNormalizedTable.Schema),
-			utils.QuoteIdentifier(parsedNormalizedTable.Table)))
+			common.QuoteIdentifier(parsedNormalizedTable.Namespace),
+			common.QuoteIdentifier(parsedNormalizedTable.Table)))
 		if err != nil {
 			return false, fmt.Errorf("error while dropping _resync table: %w", err)
 		}
@@ -1145,16 +1147,16 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 				columnType = qValueKindToPostgresType(columnType)
 			}
 
-			dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+			dstSchemaTable, err := common.ParseTableIdentifier(schemaDelta.DstTableName)
 			if err != nil {
 				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
 			}
 
 			_, err = c.execWithLoggingTx(ctx, fmt.Sprintf(
 				"ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS %s %s",
-				utils.QuoteIdentifier(dstSchemaTable.Schema),
-				utils.QuoteIdentifier(dstSchemaTable.Table),
-				utils.QuoteIdentifier(addedColumn.Name), columnType), tableSchemaModifyTx)
+				common.QuoteIdentifier(dstSchemaTable.Namespace),
+				common.QuoteIdentifier(dstSchemaTable.Table),
+				common.QuoteIdentifier(addedColumn.Name), columnType), tableSchemaModifyTx)
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
@@ -1180,7 +1182,7 @@ func (c *PostgresConnector) EnsurePullability(
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	tableIdentifierMapping := make(map[string]*protos.PostgresTableIdentifier)
 	for _, tableName := range req.SourceTableIdentifiers {
-		schemaTable, err := utils.ParseSchemaTable(tableName)
+		schemaTable, err := common.ParseTableIdentifier(tableName)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing schema and table: %w", err)
 		}
@@ -1364,9 +1366,9 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
 
-	mirrorJobsTableExists, err := c.tableExists(ctx, &utils.SchemaTable{
-		Schema: c.metadataSchema,
-		Table:  mirrorJobsTableIdentifier,
+	mirrorJobsTableExists, err := c.tableExists(ctx, &common.QualifiedTable{
+		Namespace: c.metadataSchema,
+		Table:     mirrorJobsTableIdentifier,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to check if job metadata table exists: %w", err)
@@ -1595,12 +1597,12 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		}
 	} else {
 		for _, additionalSrcTable := range additionalSrcTables {
-			schemaTable, err := utils.ParseSchemaTable(additionalSrcTable)
+			schemaTable, err := common.ParseTableIdentifier(additionalSrcTable)
 			if err != nil {
 				return err
 			}
 			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
-				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
+				common.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already added to our publication
 			if err != nil && !shared.IsSQLStateError(err, pgerrcode.DuplicateObject) {
@@ -1627,12 +1629,12 @@ func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req
 
 	if req.PublicationName == "" {
 		for _, tableToRemove := range tablesToRemove {
-			schemaTable, err := utils.ParseSchemaTable(tableToRemove)
+			schemaTable, err := common.ParseTableIdentifier(tableToRemove)
 			if err != nil {
 				return err
 			}
 			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s",
-				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
+				common.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already removed from our publication
 			if err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject) {
@@ -1662,13 +1664,13 @@ func (c *PostgresConnector) RenameTables(
 	defer shared.RollbackTx(renameTablesTx, c.logger)
 
 	for _, renameRequest := range req.RenameTableOptions {
-		srcTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
+		srcTable, err := common.ParseTableIdentifier(renameRequest.CurrentName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
 		}
 		src := srcTable.String()
 
-		resyncTableExists, err := c.checkIfTableExistsWithTx(ctx, srcTable.Schema, srcTable.Table, renameTablesTx)
+		resyncTableExists, err := c.checkIfTableExistsWithTx(ctx, srcTable.Namespace, srcTable.Table, renameTablesTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if _resync table exists: %w", err)
 		}
@@ -1678,14 +1680,14 @@ func (c *PostgresConnector) RenameTables(
 			continue
 		}
 
-		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
+		dstTable, err := common.ParseTableIdentifier(renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
 		}
 		dst := dstTable.String()
 
 		// if original table does not exist, skip soft delete transfer
-		originalTableExists, err := c.checkIfTableExistsWithTx(ctx, dstTable.Schema, dstTable.Table, renameTablesTx)
+		originalTableExists, err := c.checkIfTableExistsWithTx(ctx, dstTable.Namespace, dstTable.Table, renameTablesTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if source table exists: %w", err)
 		}
@@ -1695,15 +1697,15 @@ func (c *PostgresConnector) RenameTables(
 			if req.SoftDeleteColName != "" {
 				columnNames := make([]string, 0, len(tableSchema.Columns))
 				for _, col := range tableSchema.Columns {
-					columnNames = append(columnNames, utils.QuoteIdentifier(col.Name))
+					columnNames = append(columnNames, common.QuoteIdentifier(col.Name))
 				}
 
 				var pkeyColCompare strings.Builder
 				for _, col := range tableSchema.PrimaryKeyColumns {
 					pkeyColCompare.WriteString("original_table.")
-					pkeyColCompare.WriteString(utils.QuoteIdentifier(col))
+					pkeyColCompare.WriteString(common.QuoteIdentifier(col))
 					pkeyColCompare.WriteString(" = resync_table.")
-					pkeyColCompare.WriteString(utils.QuoteIdentifier(col))
+					pkeyColCompare.WriteString(common.QuoteIdentifier(col))
 					pkeyColCompare.WriteString(" AND ")
 				}
 				pkeyColCompareStr := strings.TrimSuffix(pkeyColCompare.String(), " AND ")
@@ -1714,7 +1716,7 @@ func (c *PostgresConnector) RenameTables(
 					fmt.Sprintf(
 						"INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table "+
 							"WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
-						src, fmt.Sprintf("%s,%s", allCols, utils.QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
+						src, fmt.Sprintf("%s,%s", allCols, common.QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
 						dst, src, pkeyColCompareStr), renameTablesTx)
 				if err != nil {
 					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
@@ -1734,7 +1736,7 @@ func (c *PostgresConnector) RenameTables(
 
 		// rename the src table to dst
 		if _, err := c.execWithLoggingTx(ctx,
-			fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, utils.QuoteIdentifier(dstTable.Table)),
+			fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, common.QuoteIdentifier(dstTable.Table)),
 			renameTablesTx,
 		); err != nil {
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
@@ -1760,7 +1762,7 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 	for _, tableName := range req.DestinationTableNames {
 		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			utils.QuoteIdentifier(rawTableIdentifier), utils.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
+			common.QuoteIdentifier(rawTableIdentifier), utils.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
 			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
@@ -1843,10 +1845,10 @@ func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.Data
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
 
-func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, fullyQualifiedTableName string) (int64, error) {
+func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableIdentifier string) (int64, error) {
 	tableSizeQuery := "SELECT pg_relation_size(to_regclass($1))"
 	var tableSizeBytes pgtype.Int8
-	if err := c.conn.QueryRow(ctx, tableSizeQuery, fullyQualifiedTableName).Scan(&tableSizeBytes); err != nil {
+	if err := c.conn.QueryRow(ctx, tableSizeQuery, tableIdentifier).Scan(&tableSizeBytes); err != nil {
 		return 0, err
 	}
 	if !tableSizeBytes.Valid {

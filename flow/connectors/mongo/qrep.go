@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -44,11 +45,11 @@ func (c *MongoConnector) GetQRepPartitions(
 	}
 
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	parseWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+	parseWatermarkTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
-	collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
+	collection := c.client.Database(parseWatermarkTable.Namespace).Collection(parseWatermarkTable.Table)
 
 	c.logger.Info("[mongo] fetching count of documents for partitioning",
 		slog.String("watermark_table", config.WatermarkTable))
@@ -153,11 +154,11 @@ func (c *MongoConnector) PullQRepRecords(
 ) (int64, int64, error) {
 	var totalRecords int64
 
-	parseWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+	parseWatermarkTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		return 0, 0, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
-	collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
+	collection := c.client.Database(parseWatermarkTable.Namespace).Collection(parseWatermarkTable.Table)
 
 	stream.SetSchema(GetDefaultSchema(config.Version))
 

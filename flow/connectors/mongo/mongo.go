@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -188,12 +189,12 @@ func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, err
 	return float64(serverStatus.OplogTruncation.OplogMinRetentionHours), nil
 }
 
-func (c *MongoConnector) GetTableSizeEstimatedBytes(ctx context.Context, fullyQualifiedTable string) (int64, error) {
-	databaseTable, err := utils.ParseSchemaTable(fullyQualifiedTable)
+func (c *MongoConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableIdentifier string) (int64, error) {
+	parsedTable, err := common.ParseTableIdentifier(tableIdentifier)
 	if err != nil {
 		return 0, err
 	}
-	collStats, err := peerdb_mongo.GetCollStats(ctx, c.client, databaseTable.Schema, databaseTable.Table)
+	collStats, err := peerdb_mongo.GetCollStats(ctx, c.client, parsedTable.Namespace, parsedTable.Table)
 	if err != nil {
 		return 0, err
 	}

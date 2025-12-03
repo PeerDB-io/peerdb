@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -102,12 +103,12 @@ const (
 )
 
 // getRelIDForTable returns the relation ID for a table.
-func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *utils.SchemaTable) (uint32, error) {
+func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *common.QualifiedTable) (uint32, error) {
 	var relID pgtype.Uint32
 	err := c.conn.QueryRow(ctx,
 		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
 		 ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
-		schemaTable.Schema, schemaTable.Table).Scan(&relID)
+		schemaTable.Namespace, schemaTable.Table).Scan(&relID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, shared.ErrTableDoesNotExist
@@ -122,7 +123,7 @@ func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *u
 func (c *PostgresConnector) getReplicaIdentityType(
 	ctx context.Context,
 	relID uint32,
-	schemaTable *utils.SchemaTable,
+	schemaTable *common.QualifiedTable,
 ) (ReplicaIdentityType, error) {
 	var replicaIdentity rune
 	err := c.conn.QueryRow(ctx,
@@ -146,7 +147,7 @@ func (c *PostgresConnector) getUniqueColumns(
 	ctx context.Context,
 	relID uint32,
 	replicaIdentity ReplicaIdentityType,
-	schemaTable *utils.SchemaTable,
+	schemaTable *common.QualifiedTable,
 ) ([]string, error) {
 	if replicaIdentity == ReplicaIdentityIndex {
 		return c.getReplicaIdentityIndexColumns(ctx, relID, schemaTable)
@@ -172,7 +173,7 @@ func (c *PostgresConnector) getUniqueColumns(
 func (c *PostgresConnector) getReplicaIdentityIndexColumns(
 	ctx context.Context,
 	relID uint32,
-	schemaTable *utils.SchemaTable,
+	schemaTable *common.QualifiedTable,
 ) ([]string, error) {
 	var indexRelID uint32
 	// Fetch the OID of the index used as the replica identity
@@ -222,7 +223,7 @@ func (c *PostgresConnector) getNullableColumns(ctx context.Context, relID uint32
 	return nullableCols, err
 }
 
-func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.SchemaTable) (bool, error) {
+func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *common.QualifiedTable) (bool, error) {
 	var exists pgtype.Bool
 	if err := c.conn.QueryRow(ctx,
 		`SELECT EXISTS (
@@ -230,7 +231,7 @@ func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.
 			WHERE schemaname = $1
 			AND tablename = $2
 		)`,
-		schemaTable.Schema,
+		schemaTable.Namespace,
 		schemaTable.Table,
 	).Scan(&exists); err != nil {
 		return false, fmt.Errorf("error checking if table exists: %w", err)
@@ -490,7 +491,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	if !s.PublicationExists {
 		srcTableNames := make([]string, 0, len(tableNameMapping))
 		for srcTableName := range tableNameMapping {
-			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
+			parsedSrcTableName, err := common.ParseTableIdentifier(srcTableName)
 			if err != nil {
 				return model.SetupReplicationResult{}, fmt.Errorf("[publication-creation] source table identifier %s is invalid", srcTableName)
 			}
@@ -542,7 +543,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			}
 		}
 
-		createSlotCommand := fmt.Sprintf("CREATE_REPLICATION_SLOT %s LOGICAL pgoutput%s", utils.QuoteIdentifier(slot), optionsString)
+		createSlotCommand := fmt.Sprintf("CREATE_REPLICATION_SLOT %s LOGICAL pgoutput%s", common.QuoteIdentifier(slot), optionsString)
 
 		c.logger.Info("Creating replication slot", slog.String("slot", slot))
 		// CreateReplicationSlot does not support failover options and uses Postgres syntax that makes it tricky to drop in
@@ -594,7 +595,7 @@ func getRawTableIdentifier(jobName string) string {
 
 func generateCreateTableSQLForNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
-	dstSchemaTable *utils.SchemaTable,
+	dstSchemaTable *common.QualifiedTable,
 	tableSchema *protos.TableSchema,
 ) string {
 	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
@@ -613,24 +614,24 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s%s", utils.QuoteIdentifier(column.Name), pgColumnType, notNull))
+			fmt.Sprintf("%s %s%s", common.QuoteIdentifier(column.Name), pgColumnType, notNull))
 	}
 
 	if config.SoftDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			utils.QuoteIdentifier(config.SoftDeleteColName)+` BOOL DEFAULT FALSE`)
+			common.QuoteIdentifier(config.SoftDeleteColName)+` BOOL DEFAULT FALSE`)
 	}
 
 	if config.SyncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			utils.QuoteIdentifier(config.SyncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
+			common.QuoteIdentifier(config.SyncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
 	}
 
 	// add composite primary key to the table
 	if len(tableSchema.PrimaryKeyColumns) > 0 && !tableSchema.IsReplicaIdentityFull {
 		primaryKeyColsQuoted := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
 		for _, primaryKeyCol := range tableSchema.PrimaryKeyColumns {
-			primaryKeyColsQuoted = append(primaryKeyColsQuoted, utils.QuoteIdentifier(primaryKeyCol))
+			primaryKeyColsQuoted = append(primaryKeyColsQuoted, common.QuoteIdentifier(primaryKeyCol))
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s)",
 			strings.Join(primaryKeyColsQuoted, ",")))

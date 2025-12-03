@@ -334,7 +334,7 @@ type DatabaseVariantConnector interface {
 type TableSizeEstimatorConnector interface {
 	Connector
 
-	GetTableSizeEstimatedBytes(ctx context.Context, tableName string) (int64, error)
+	GetTableSizeEstimatedBytes(ctx context.Context, tableIdentifier string) (int64, error)
 }
 
 func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (protos.DBType, error) {

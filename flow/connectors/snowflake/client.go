@@ -12,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -32,8 +33,8 @@ func SnowflakeQuotelessIdentifierNormalize(identifier string) string {
 	return identifier
 }
 
-func snowflakeSchemaTableNormalize(schemaTable *utils.SchemaTable) string {
-	return fmt.Sprintf(`%s.%s`, SnowflakeIdentifierNormalize(schemaTable.Schema),
+func snowflakeSchemaTableNormalize(schemaTable *common.QualifiedTable) string {
+	return fmt.Sprintf(`%s.%s`, SnowflakeIdentifierNormalize(schemaTable.Namespace),
 		SnowflakeIdentifierNormalize(schemaTable.Table))
 }
 

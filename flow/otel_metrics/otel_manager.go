@@ -76,6 +76,7 @@ const (
 	LogRetentionGaugeName                = "log_retention"
 	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
+	CodeNotificationCounterName          = "code_notification"
 )
 
 type Metrics struct {
@@ -229,6 +230,12 @@ func (om *OtelManager) GetOrInitFloat64Gauge(name string, opts ...metric.Float64
 func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
 	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
 }
+
+// CodeNotificationCounter is a global counter for emitting notifications for one-off things we want to know about with the least effort.
+// In ClickPipes, there is a generic (non-paging) alert set up on this, so just emit it in the code with a unique message
+// and it'll show up on Slack.
+// It is intentionally global for ease of use, all others are supposed to be passed through as usual.
+var CodeNotificationCounter metric.Int64Counter = noop.Int64Counter{}
 
 func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	slog.DebugContext(ctx, "Setting up all metrics")
@@ -546,6 +553,12 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
 		metric.WithDescription(
 			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
+	); err != nil {
+		return err
+	}
+
+	if CodeNotificationCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CodeNotificationCounterName),
+		metric.WithDescription("One-off notifications with unique `message` attribute, triggers generic non-paging alert"),
 	); err != nil {
 		return err
 	}

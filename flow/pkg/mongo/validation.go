@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -105,6 +106,27 @@ func ValidateOplogRetention(ctx context.Context, client *mongo.Client) error {
 		// TODO: run validation on shard
 		return nil
 	}
+}
+
+func ValidateCollections(ctx context.Context, client *mongo.Client, tables []*common.QualifiedTable) error {
+	databaseCollectionsMapping := make(map[string][]string)
+
+	for _, t := range tables {
+		databaseCollectionsMapping[t.Namespace] = append(databaseCollectionsMapping[t.Namespace], t.Table)
+	}
+
+	for database, collections := range databaseCollectionsMapping {
+		allCollections, err := GetCollectionNames(ctx, client, database)
+		if err != nil {
+			return fmt.Errorf("failed to get collections: %w", err)
+		}
+		for _, col := range collections {
+			if !slices.Contains(allCollections, col) {
+				return fmt.Errorf("collection %s.%s does not exist", database, col)
+			}
+		}
+	}
+	return nil
 }
 
 func GetTopologyType(ctx context.Context, client *mongo.Client) (string, error) {
