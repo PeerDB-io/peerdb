@@ -15,9 +15,9 @@ import (
 
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func (s APITestSuite) insertIntoSourceTables(tables []string, id int, value string) {
@@ -145,7 +145,7 @@ func (s APITestSuite) addOneTable(
 
 func (s APITestSuite) checkPublicationTables(
 	publicationName string,
-	includedTables []*utils.SchemaTable,
+	includedTables []*common.QualifiedTable,
 ) {
 	pubTables, err := s.pg.PostgresConnector.GetTablesFromPublication(
 		s.t.Context(), publicationName, nil)
@@ -539,11 +539,11 @@ func (s APITestSuite) testCancelTableAddition(
 	if _, ok := s.source.(*PostgresSource); ok {
 		s.checkPublicationTables(
 			publicationName,
-			[]*utils.SchemaTable{
-				{Schema: Schema(s), Table: "t1"},
-				{Schema: Schema(s), Table: "t2"},
-				{Schema: Schema(s), Table: "t3"},
-				{Schema: Schema(s), Table: "t4"},
+			[]*common.QualifiedTable{
+				{Namespace: Schema(s), Table: "t1"},
+				{Namespace: Schema(s), Table: "t2"},
+				{Namespace: Schema(s), Table: "t3"},
+				{Namespace: Schema(s), Table: "t4"},
 			},
 		)
 	}
@@ -714,8 +714,8 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	if _, ok := s.source.(*PostgresSource); ok {
 		s.checkPublicationTables(
 			publicationName,
-			[]*utils.SchemaTable{
-				{Schema: Schema(s), Table: "t1"},
+			[]*common.QualifiedTable{
+				{Namespace: Schema(s), Table: "t1"},
 			},
 		)
 	}
@@ -1388,8 +1388,8 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 	publicationName := connpostgres.GetDefaultPublicationName(flowConnConfig.FlowJobName)
 	s.checkPublicationTables(
 		publicationName,
-		[]*utils.SchemaTable{
-			{Schema: Schema(s), Table: "t1"},
+		[]*common.QualifiedTable{
+			{Namespace: Schema(s), Table: "t1"},
 		},
 	)
 

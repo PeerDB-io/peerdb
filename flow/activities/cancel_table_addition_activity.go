@@ -16,10 +16,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
@@ -367,9 +367,9 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 		}
 		defer connClose(ctx)
 
-		var schemaQualifiedTables []*utils.SchemaTable
+		var schemaQualifiedTables []*common.QualifiedTable
 		for _, tm := range finalListOfTables {
-			schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
+			schemaTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 			if err != nil {
 				return fmt.Errorf("error parsing table identifier %s: %w", tm.SourceTableIdentifier, err)
 			}
@@ -383,7 +383,7 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 		var publicationTablesMapping []*protos.TableMapping
 		for _, schemaQualifiedTable := range schemaQualifiedTablesInPublication {
 			publicationTablesMapping = append(publicationTablesMapping, &protos.TableMapping{
-				SourceTableIdentifier: schemaQualifiedTable.Schema + "." + schemaQualifiedTable.Table,
+				SourceTableIdentifier: schemaQualifiedTable.Namespace + "." + schemaQualifiedTable.Table,
 			})
 		}
 		err = conn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{

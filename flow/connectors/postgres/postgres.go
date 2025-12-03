@@ -948,8 +948,8 @@ func (c *PostgresConnector) GetSelectedColumns(
 func (c *PostgresConnector) GetTablesFromPublication(
 	ctx context.Context,
 	publicationName string,
-	excludedTables []*utils.SchemaTable,
-) ([]*utils.SchemaTable, error) {
+	excludedTables []*common.QualifiedTable,
+) ([]*common.QualifiedTable, error) {
 	var getTablesSQL string
 	var args []any
 
@@ -962,7 +962,7 @@ func (c *PostgresConnector) GetTablesFromPublication(
 		schemas := make([]string, len(excludedTables))
 		tables := make([]string, len(excludedTables))
 		for i, schemaTable := range excludedTables {
-			schemas[i] = schemaTable.Schema
+			schemas[i] = schemaTable.Namespace
 			tables[i] = schemaTable.Table
 		}
 		getTablesSQL = `
@@ -984,14 +984,14 @@ func (c *PostgresConnector) GetTablesFromPublication(
 		return nil, fmt.Errorf("error getting tables from publication %s: %w", publicationName, err)
 	}
 
-	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*utils.SchemaTable, error) {
+	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*common.QualifiedTable, error) {
 		var schemaName, tableName string
 		if err := row.Scan(&schemaName, &tableName); err != nil {
 			return nil, fmt.Errorf("error scanning row while getting tables from publication %s: %w", publicationName, err)
 		}
-		return &utils.SchemaTable{
-			Schema: schemaName,
-			Table:  tableName,
+		return &common.QualifiedTable{
+			Namespace: schemaName,
+			Table:     tableName,
 		}, nil
 	})
 	if err != nil {
