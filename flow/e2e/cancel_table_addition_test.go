@@ -384,7 +384,7 @@ func (s APITestSuite) testCancelTableAddition(
 				Name: "doc",
 				Type: "JSON",
 			},
-		}, "id")
+		}, "_id")
 	} else {
 		err = s.ch.CreateRMTTable("t5", []TestClickHouseColumn{
 			{
@@ -789,7 +789,7 @@ func (s APITestSuite) TestCancelAddCancel() {
 				Name: "doc",
 				Type: "JSON",
 			},
-		}, "id")
+		}, "_id")
 	} else {
 		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
 			{
@@ -1139,7 +1139,7 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 	// docker run -d \
 	//   --name peerdb-toxiproxy \
 	//   -p 18474:8474 \
-	//   -p 9904:9902 \
+	//   -p 9904:9904 \
 	//   ghcr.io/shopify/toxiproxy:2.11.0
 
 	if _, ok := s.source.(*PostgresSource); !ok {
@@ -1234,7 +1234,7 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 				Name: "doc",
 				Type: "JSON",
 			},
-		}, "id")
+		}, "_id")
 	} else {
 		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
 			{
