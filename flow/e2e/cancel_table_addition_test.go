@@ -347,6 +347,9 @@ func (s APITestSuite) testCancelTableAddition(
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	if _, ok := s.source.(*MongoSource); ok {
+		flowConnConfig.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "true"
+	}
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
@@ -617,6 +620,9 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	if _, ok := s.source.(*MongoSource); ok {
+		flowConnConfig.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "true"
+	}
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
@@ -763,6 +769,9 @@ func (s APITestSuite) TestCancelAddCancel() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	if _, ok := s.source.(*MongoSource); ok {
+		flowConnConfig.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "true"
+	}
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
@@ -996,6 +1005,9 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	if _, ok := s.source.(*MongoSource); ok {
+		flowConnConfig.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "true"
+	}
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
