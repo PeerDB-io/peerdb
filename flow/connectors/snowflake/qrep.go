@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -50,7 +51,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 }
 
 func (c *SnowflakeConnector) getTableSchema(ctx context.Context, tableName string) ([]*sql.ColumnType, error) {
-	schematable, err := utils.ParseSchemaTable(tableName)
+	schematable, err := common.ParseTableIdentifier(tableName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse table '%s'", tableName)
 	}
@@ -178,12 +179,12 @@ func (c *SnowflakeConnector) CleanupQRepFlow(ctx context.Context, config *protos
 
 func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName string) ([]SnowflakeTableColumn, error) {
 	// parse the table name to get the schema and table name
-	schemaTable, err := utils.ParseSchemaTable(tableName)
+	schemaTable, err := common.ParseTableIdentifier(tableName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
-	fq := fmt.Sprintf("%s.%s", strings.ToUpper(schemaTable.Schema), strings.ToUpper(schemaTable.Table))
+	fq := fmt.Sprintf("%s.%s", strings.ToUpper(schemaTable.Namespace), strings.ToUpper(schemaTable.Table))
 
 	channel := make(chan string, 1)
 	ctxWithOpt := gosnowflake.WithQueryIDChan(ctx, channel)
@@ -234,7 +235,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 	}
 
 	if len(cols) == 0 {
-		return nil, fmt.Errorf("cannot load schema: table %s.%s does not exist", schemaTable.Schema, schemaTable.Table)
+		return nil, fmt.Errorf("cannot load schema: table %s.%s does not exist", schemaTable.Namespace, schemaTable.Table)
 	}
 
 	return cols, nil

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -27,7 +27,7 @@ type mergeStmtGenerator struct {
 }
 
 func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[string]string, dstTable string) (string, error) {
-	parsedDstTable, _ := utils.ParseSchemaTable(dstTable)
+	parsedDstTable, _ := common.ParseTableIdentifier(dstTable)
 	normalizedTableSchema := m.tableSchemaMapping[dstTable]
 	unchangedToastColumns := m.unchangedToastColumnsMap[dstTable]
 	columns := normalizedTableSchema.Columns

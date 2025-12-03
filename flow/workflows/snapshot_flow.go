@@ -12,9 +12,9 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/activities"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -153,7 +153,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		).Get(ctx, &tableSchema)
 	}
 
-	parsedSrcTable, err := utils.ParseSchemaTable(srcName)
+	parsedSrcTable, err := common.ParseTableIdentifier(srcName)
 	if err != nil {
 		s.logger.Error("unable to parse source table", slog.Any("error", err), cloneLog)
 		return fmt.Errorf("unable to parse source table: %w", err)
@@ -166,7 +166,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		quotedColumns := make([]string, 0, len(tableSchema.Columns))
 		for _, col := range tableSchema.Columns {
 			if !slices.Contains(mapping.Exclude, col.Name) {
-				quotedColumns = append(quotedColumns, utils.QuoteIdentifier(col.Name))
+				quotedColumns = append(quotedColumns, common.QuoteIdentifier(col.Name))
 			}
 		}
 		from = strings.Join(quotedColumns, ",")
@@ -203,7 +203,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		query = fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
 	} else {
 		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, srcTableEscaped, utils.QuoteIdentifier(mapping.PartitionKey))
+			from, srcTableEscaped, common.QuoteIdentifier(mapping.PartitionKey))
 	}
 
 	// ensure document IDs are synchronized across initial load and CDC

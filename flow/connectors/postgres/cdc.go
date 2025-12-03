@@ -31,6 +31,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -125,12 +126,12 @@ func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, ta
 		return schema, nil
 	}
 
-	schemaTable, err := utils.ParseSchemaTable(tableName)
+	schemaTable, err := common.ParseTableIdentifier(tableName)
 	if err != nil {
 		return "", err
 	}
-	p.schemaNameForRelID[relID] = schemaTable.Schema
-	return schemaTable.Schema, nil
+	p.schemaNameForRelID[relID] = schemaTable.Namespace
+	return schemaTable.Namespace, nil
 }
 
 func getChildToParentRelIDMap(ctx context.Context,

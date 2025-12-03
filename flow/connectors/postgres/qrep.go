@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -168,12 +169,12 @@ func (c *PostgresConnector) getPartitions(
 ) ([]*protos.QRepPartition, error) {
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	numPartitions := int64(config.NumPartitionsOverride)
-	schemaTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+	schemaTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
 	watermarkTable := schemaTable.String()
-	watermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
+	watermarkColumn := common.QuoteIdentifier(config.WatermarkColumn)
 
 	var lastRangeEnd any
 	if last != nil && last.Range != nil {
@@ -232,9 +233,9 @@ func (c *PostgresConnector) getMinMaxValues(
 	last *protos.QRepPartition,
 ) (any, any, error) {
 	var minValue, maxValue any
-	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
+	quotedWatermarkColumn := common.QuoteIdentifier(config.WatermarkColumn)
 
-	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+	parsedWatermarkTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
@@ -436,7 +437,7 @@ func syncQRepRecords(
 	partition *protos.QRepPartition,
 	sink QRepSyncSink,
 ) (int64, shared.QRepWarnings, error) {
-	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
+	dstTable, err := common.ParseTableIdentifier(config.DestinationTableIdentifier)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to parse destination table identifier: %w", err)
 	}
@@ -447,7 +448,7 @@ func syncQRepRecords(
 	}
 
 	if !exists {
-		return 0, nil, fmt.Errorf("table %s does not exist, used schema: %s", dstTable.Table, dstTable.Schema)
+		return 0, nil, fmt.Errorf("table %s does not exist, used schema: %s", dstTable.Table, dstTable.Namespace)
 	}
 
 	c.logger.Info("SyncRecords called and initial checks complete.")
@@ -497,7 +498,7 @@ func syncQRepRecords(
 			}
 		}
 
-		numRowsSynced, err = sink.CopyInto(ctx, c, tx, pgx.Identifier{dstTable.Schema, dstTable.Table})
+		numRowsSynced, err = sink.CopyInto(ctx, c, tx, pgx.Identifier{dstTable.Namespace, dstTable.Table})
 		if err != nil {
 			return -1, nil, fmt.Errorf("failed to copy records into destination table: %w", err)
 		}
@@ -505,9 +506,9 @@ func syncQRepRecords(
 		if syncedAtCol != "" {
 			updateSyncedAtStmt := fmt.Sprintf(
 				`UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL;`,
-				pgx.Identifier{dstTable.Schema, dstTable.Table}.Sanitize(),
-				utils.QuoteIdentifier(syncedAtCol),
-				utils.QuoteIdentifier(syncedAtCol),
+				pgx.Identifier{dstTable.Namespace, dstTable.Table}.Sanitize(),
+				common.QuoteIdentifier(syncedAtCol),
+				common.QuoteIdentifier(syncedAtCol),
 			)
 			if _, err := tx.Exec(ctx, updateSyncedAtStmt); err != nil {
 				return -1, nil, fmt.Errorf("failed to update synced_at column: %w", err)
@@ -517,7 +518,7 @@ func syncQRepRecords(
 		// Step 2.1: Create a temp staging table
 		stagingTableName := "_peerdb_staging_" + shared.RandomString(8)
 		stagingTableIdentifier := pgx.Identifier{stagingTableName}
-		dstTableIdentifier := pgx.Identifier{dstTable.Schema, dstTable.Table}
+		dstTableIdentifier := pgx.Identifier{dstTable.Namespace, dstTable.Table}
 
 		// From PG docs: The cost of setting a large value in sessions that do not actually need many
 		// temporary buffers is only a buffer descriptor, or about 64 bytes, per increment in temp_buffers.
@@ -558,14 +559,14 @@ func syncQRepRecords(
 		selectStrArray := make([]string, 0, len(columnNames))
 		for _, col := range columnNames {
 			_, ok := upsertMatchCols[col]
-			quotedCol := utils.QuoteIdentifier(col)
+			quotedCol := common.QuoteIdentifier(col)
 			if !ok {
 				setClauseArray = append(setClauseArray, fmt.Sprintf(`%s = EXCLUDED.%s`, quotedCol, quotedCol))
 			}
 			selectStrArray = append(selectStrArray, quotedCol)
 		}
 		setClauseArray = append(setClauseArray,
-			utils.QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
+			common.QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
 		setClause := strings.Join(setClauseArray, ",")
 		selectSQL := strings.Join(selectStrArray, ",")
 
@@ -574,7 +575,7 @@ func syncQRepRecords(
 			`INSERT INTO %s (%s, %s) SELECT %s, CURRENT_TIMESTAMP FROM %s ON CONFLICT (%s) DO UPDATE SET %s;`,
 			dstTableIdentifier.Sanitize(),
 			selectSQL,
-			utils.QuoteIdentifier(syncedAtCol),
+			common.QuoteIdentifier(syncedAtCol),
 			selectSQL,
 			stagingTableIdentifier.Sanitize(),
 			strings.Join(writeMode.UpsertKeyColumns, ", "),

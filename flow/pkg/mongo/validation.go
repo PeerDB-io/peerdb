@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -107,15 +108,11 @@ func ValidateOplogRetention(ctx context.Context, client *mongo.Client) error {
 	}
 }
 
-func ValidateCollections(ctx context.Context, client *mongo.Client, sourceTableIdentifiers []string) error {
+func ValidateCollections(ctx context.Context, client *mongo.Client, tables []*common.QualifiedTable) error {
 	databaseCollectionsMapping := make(map[string][]string)
 
-	for _, sourceTableIdentifier := range sourceTableIdentifiers {
-		database, collection, hasDot := strings.Cut(sourceTableIdentifier, ".")
-		if !hasDot || database == "" || collection == "" || strings.ContainsRune(collection, '.') {
-			return fmt.Errorf("invalid source table identifier: %s", sourceTableIdentifier)
-		}
-		databaseCollectionsMapping[database] = append(databaseCollectionsMapping[database], collection)
+	for _, t := range tables {
+		databaseCollectionsMapping[t.Namespace] = append(databaseCollectionsMapping[t.Namespace], t.Table)
 	}
 
 	for database, collections := range databaseCollectionsMapping {

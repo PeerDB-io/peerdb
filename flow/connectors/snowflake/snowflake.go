@@ -23,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -307,13 +308,13 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 ) (bool, error) {
-	normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
+	normalizedSchemaTable, err := common.ParseTableIdentifier(tableIdentifier)
 	if err != nil {
 		return false, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
 	tableAlreadyExists, err := c.checkIfTableExists(
 		ctx,
-		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Schema),
+		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Namespace),
 		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Table),
 	)
 	if err != nil {
@@ -654,7 +655,7 @@ func (c *SnowflakeConnector) checkIfTableExists(
 func generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
-	dstSchemaTable *utils.SchemaTable,
+	dstSchemaTable *common.QualifiedTable,
 	tableSchema *protos.TableSchema,
 ) string {
 	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
@@ -733,14 +734,14 @@ func (c *SnowflakeConnector) RenameTables(
 	}()
 
 	for _, renameRequest := range req.RenameTableOptions {
-		srcTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
+		srcTable, err := common.ParseTableIdentifier(renameRequest.CurrentName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
 		}
 
 		resyncTableExists, err := c.checkIfTableExists(
 			ctx,
-			SnowflakeQuotelessIdentifierNormalize(srcTable.Schema),
+			SnowflakeQuotelessIdentifierNormalize(srcTable.Namespace),
 			SnowflakeQuotelessIdentifierNormalize(srcTable.Table),
 		)
 		if err != nil {
@@ -752,7 +753,7 @@ func (c *SnowflakeConnector) RenameTables(
 			continue
 		}
 
-		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
+		dstTable, err := common.ParseTableIdentifier(renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
 		}
@@ -761,7 +762,7 @@ func (c *SnowflakeConnector) RenameTables(
 		dst := snowflakeSchemaTableNormalize(dstTable)
 
 		originalTableExists, err := c.checkIfTableExists(ctx,
-			SnowflakeQuotelessIdentifierNormalize(dstTable.Schema),
+			SnowflakeQuotelessIdentifierNormalize(dstTable.Namespace),
 			SnowflakeQuotelessIdentifierNormalize(dstTable.Table),
 		)
 		if err != nil {
