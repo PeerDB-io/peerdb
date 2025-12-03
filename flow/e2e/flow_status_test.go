@@ -100,7 +100,7 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 		cols = "id,val"
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("status_test").
+			Database(Schema(s)).Collection("valid").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)

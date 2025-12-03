@@ -23,7 +23,7 @@ func (t *SchemaTable) MySQL() string {
 // ParseSchemaTable parses a table name into schema and table name.
 func ParseSchemaTable(tableName string) (*SchemaTable, error) {
 	schema, table, hasDot := strings.Cut(tableName, ".")
-	if !hasDot || schema == "" || table == "" || strings.ContainsRune(table, '.') {
+	if !hasDot || strings.ContainsRune(table, '.') {
 		return nil, fmt.Errorf("invalid table name: %s", tableName)
 	}
 

@@ -28,13 +28,5 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return err
 	}
 
-	sourceTableIdentifiers := make([]string, 0, len(cfg.TableMappings))
-	for _, tm := range cfg.TableMappings {
-		sourceTableIdentifiers = append(sourceTableIdentifiers, tm.SourceTableIdentifier)
-	}
-	if err := shared_mongo.ValidateCollections(ctx, c.client, sourceTableIdentifiers); err != nil {
-		return err
-	}
-
 	return nil
 }

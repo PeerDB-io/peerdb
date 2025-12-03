@@ -303,59 +303,6 @@ func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	require.NotNil(s.t, response)
 }
 
-func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
-	tests := []struct {
-		name                       string
-		sourceTableIdentifier      string
-		destinationTableIdentifier string
-	}{
-		{
-			name:                  "empty source (dot only)",
-			sourceTableIdentifier: ".",
-		},
-		{
-			name:                       "empty source schema",
-			sourceTableIdentifier:      ".table",
-			destinationTableIdentifier: "valid_dest",
-		},
-		{
-			name:                       "empty source table",
-			sourceTableIdentifier:      "schema.",
-			destinationTableIdentifier: "valid_dest",
-		},
-		{
-			name:                       "empty destination",
-			sourceTableIdentifier:      "public.valid_src",
-			destinationTableIdentifier: "",
-		},
-	}
-
-	for _, tc := range tests {
-		s.t.Run(tc.name, func(t *testing.T) {
-			flowConnConfig := &protos.FlowConnectionConfigs{
-				FlowJobName:     "invalid_mapping_test_" + s.suffix,
-				SourceName:      s.source.GeneratePeer(t).Name,
-				DestinationName: s.ch.Peer().Name,
-				TableMappings: []*protos.TableMapping{
-					{
-						SourceTableIdentifier:      tc.sourceTableIdentifier,
-						DestinationTableIdentifier: tc.destinationTableIdentifier,
-					},
-				},
-				DoInitialSnapshot: true,
-			}
-
-			response, err := s.ValidateCDCMirror(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-			require.Error(t, err, "expected validation to fail for %s", tc.name)
-			require.Nil(t, response)
-
-			st, ok := status.FromError(err)
-			require.True(t, ok, "expected gRPC status error")
-			require.Equal(t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition error code")
-		})
-	}
-}
-
 func (s APITestSuite) TestSchemaEndpoints() {
 	tableName := "listing"
 	peer := s.source.GeneratePeer(s.t)
@@ -536,10 +483,6 @@ func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
 		s.t.Skip("only for MongoDB")
 	}
 
-	adminClient := s.Source().(*MongoSource).AdminClient()
-	err := adminClient.Database(Schema(s)).CreateCollection(s.t.Context(), "t1")
-	require.NoError(s.t, err)
-
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "mongo_validation_" + s.suffix,
 		TableNameMapping: map[string]string{AttachSchema(s, "t1"): "t1"},
@@ -548,7 +491,8 @@ func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	// test retention hours (< 24 hours) validation failure
-	err = adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	err := adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
 		bson.E{Key: "replSetResizeOplog", Value: 1},
 		bson.E{Key: "minRetentionHours", Value: mongo.MinOplogRetentionHours - 1},
 	}).Err()

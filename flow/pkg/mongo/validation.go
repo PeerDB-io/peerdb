@@ -107,31 +107,6 @@ func ValidateOplogRetention(ctx context.Context, client *mongo.Client) error {
 	}
 }
 
-func ValidateCollections(ctx context.Context, client *mongo.Client, sourceTableIdentifiers []string) error {
-	databaseCollectionsMapping := make(map[string][]string)
-
-	for _, sourceTableIdentifier := range sourceTableIdentifiers {
-		database, collection, hasDot := strings.Cut(sourceTableIdentifier, ".")
-		if !hasDot || database == "" || collection == "" || strings.ContainsRune(collection, '.') {
-			return fmt.Errorf("invalid source table identifier: %s", sourceTableIdentifier)
-		}
-		databaseCollectionsMapping[database] = append(databaseCollectionsMapping[database], collection)
-	}
-
-	for database, collections := range databaseCollectionsMapping {
-		allCollections, err := GetCollectionNames(ctx, client, database)
-		if err != nil {
-			return fmt.Errorf("failed to get collections: %w", err)
-		}
-		for _, col := range collections {
-			if !slices.Contains(allCollections, col) {
-				return fmt.Errorf("collection %s.%s does not exist", database, col)
-			}
-		}
-	}
-	return nil
-}
-
 func GetTopologyType(ctx context.Context, client *mongo.Client) (string, error) {
 	hello, err := GetHelloResponse(ctx, client)
 	if err != nil {
