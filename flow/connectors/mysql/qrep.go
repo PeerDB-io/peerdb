@@ -143,8 +143,10 @@ func (c *MySqlConnector) GetQRepPartitions(
 		numPartitions = adjustedPartitions.AdjustedNumPartitions
 	}
 
-	watermarkMyType := rs.Fields[1].Type
-	watermarkQKind, err := qkindFromMysql(rs.Fields[1])
+	watermarkField := rs.Fields[1]
+	watermarkMyType := watermarkField.Type
+	watermarkUnsigned := (watermarkField.Flag & mysql.UNSIGNED_FLAG) != 0
+	watermarkQKind, err := qkindFromMysqlType(watermarkField.Type, watermarkUnsigned, watermarkField.Charset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert mysql type to qvaluekind: %w", err)
 	}

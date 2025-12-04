@@ -24,9 +24,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
-	unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
-	switch field.Type {
+func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16) (types.QValueKind, error) {
+	switch mytype {
 	case mysql.MYSQL_TYPE_TINY:
 		if unsigned {
 			return types.QValueKindUInt8, nil
@@ -75,7 +74,7 @@ func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 	case mysql.MYSQL_TYPE_SET:
 		return types.QValueKindString, nil
 	case mysql.MYSQL_TYPE_TINY_BLOB, mysql.MYSQL_TYPE_MEDIUM_BLOB, mysql.MYSQL_TYPE_LONG_BLOB, mysql.MYSQL_TYPE_BLOB:
-		if field.Charset == 0x3f { // binary https://dev.mysql.com/doc/dev/mysql-server/8.4.3/page_protocol_basic_character_set.html
+		if charset == 0x3f { // binary https://dev.mysql.com/doc/dev/mysql-server/8.4.3/page_protocol_basic_character_set.html
 			return types.QValueKindBytes, nil
 		} else {
 			return types.QValueKindString, nil
@@ -87,7 +86,7 @@ func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 	case mysql.MYSQL_TYPE_VECTOR:
 		return types.QValueKindArrayFloat32, nil
 	default:
-		return types.QValueKind(""), fmt.Errorf("unknown mysql type %d", field.Type)
+		return types.QValueKind(""), fmt.Errorf("unknown mysql type %d", mytype)
 	}
 }
 
@@ -110,7 +109,8 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 			}
 		} else {
 			var err error
-			qkind, err = qkindFromMysql(field)
+			unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
+			qkind, err = qkindFromMysqlType(field.Type, unsigned, field.Charset)
 			if err != nil {
 				return types.QRecordSchema{}, err
 			}
