@@ -34,6 +34,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
 func init() {
@@ -811,9 +812,9 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 	})
 }
 
-func EnvGetWorkflowState(t *testing.T, env WorkflowRun) peerflow.CDCFlowWorkflowState {
+func EnvGetWorkflowState(t *testing.T, env WorkflowRun) cdc_state.CDCFlowWorkflowState {
 	t.Helper()
-	var state peerflow.CDCFlowWorkflowState
+	var state cdc_state.CDCFlowWorkflowState
 	val, err := env.Query(t.Context(), shared.CDCFlowStateQuery)
 	EnvNoError(t, env, err)
 	EnvNoError(t, env, val.Get(&state))

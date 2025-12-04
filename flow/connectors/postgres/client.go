@@ -800,7 +800,7 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (NullableLSN, err
 	return NullableLSN{LSN: lsn}, nil
 }
 
-func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
+func GetDefaultPublicationName(jobName string) string {
 	return "peerflow_pub_" + jobName
 }
 

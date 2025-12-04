@@ -146,6 +146,17 @@ func (s ClickHouseSuite) CreateRMTTable(tableName string, columns []TestClickHou
 	return ch.Exec(s.t.Context(), createTableQuery)
 }
 
+func (s ClickHouseSuite) DropTable(tableName string) error {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+
+	dropTableQuery := fmt.Sprintf("DROP TABLE IF EXISTS `%s`", tableName)
+	return ch.Exec(s.t.Context(), dropTableQuery)
+}
+
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	peer := s.Peer()
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, peer.GetClickhouseConfig())

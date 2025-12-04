@@ -416,7 +416,7 @@ func pullCore[Items model.Items](
 		slotName = req.OverrideReplicationSlotName
 	}
 
-	publicationName := c.getDefaultPublicationName(req.FlowJobName)
+	publicationName := GetDefaultPublicationName(req.FlowJobName)
 	if req.OverridePublicationName != "" {
 		publicationName = req.OverridePublicationName
 	}
@@ -945,6 +945,62 @@ func (c *PostgresConnector) GetSelectedColumns(
 	return columns, nil
 }
 
+func (c *PostgresConnector) GetTablesFromPublication(
+	ctx context.Context,
+	publicationName string,
+	excludedTables []*common.QualifiedTable,
+) ([]*common.QualifiedTable, error) {
+	var getTablesSQL string
+	var args []any
+
+	if len(excludedTables) == 0 {
+		// No filter - get all tables from publication
+		getTablesSQL = `SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = $1 ORDER BY schemaname, tablename`
+		args = []any{publicationName}
+	} else {
+		// Get tables that are in publication but NOT in the filter list
+		schemas := make([]string, len(excludedTables))
+		tables := make([]string, len(excludedTables))
+		for i, schemaTable := range excludedTables {
+			schemas[i] = schemaTable.Namespace
+			tables[i] = schemaTable.Table
+		}
+		getTablesSQL = `
+            SELECT schemaname, tablename 
+            FROM pg_publication_tables 
+            WHERE pubname = $1 
+            AND (schemaname, tablename) NOT IN (
+                SELECT a.val AS schemaname, b.val AS tablename
+                FROM unnest($2::text[]) WITH ORDINALITY AS a(val, idx)
+                FULL JOIN unnest($3::text[]) WITH ORDINALITY AS b(val, idx)
+                USING (idx)
+            )
+            ORDER BY schemaname, tablename`
+		args = []any{publicationName, schemas, tables}
+	}
+
+	rows, err := c.conn.Query(ctx, getTablesSQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("error getting tables from publication %s: %w", publicationName, err)
+	}
+
+	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*common.QualifiedTable, error) {
+		var schemaName, tableName string
+		if err := row.Scan(&schemaName, &tableName); err != nil {
+			return nil, fmt.Errorf("error scanning row while getting tables from publication %s: %w", publicationName, err)
+		}
+		return &common.QualifiedTable{
+			Namespace: schemaName,
+			Table:     tableName,
+		}, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error collecting rows while getting tables from publication %s: %w", publicationName, err)
+	}
+
+	return tables, nil
+}
+
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
@@ -1292,7 +1348,7 @@ func (c *PostgresConnector) SetupReplication(
 		slotName = req.ExistingReplicationSlotName
 	}
 
-	publicationName := c.getDefaultPublicationName(req.FlowJobName)
+	publicationName := GetDefaultPublicationName(req.FlowJobName)
 	if req.ExistingPublicationName != "" {
 		publicationName = req.ExistingPublicationName
 	}
@@ -1330,7 +1386,7 @@ func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("error dropping replication slot: %w", err)
 	}
 
-	publicationName := c.getDefaultPublicationName(jobName)
+	publicationName := GetDefaultPublicationName(jobName)
 
 	// check if publication exists manually,
 	// as drop publication if exists requires permissions
@@ -1602,14 +1658,14 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 				return err
 			}
 			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
-				common.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
+				common.QuoteIdentifier(GetDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already added to our publication
 			if err != nil && !shared.IsSQLStateError(err, pgerrcode.DuplicateObject) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("added table to publication",
-				slog.String("publication", c.getDefaultPublicationName(req.FlowJobName)),
+				slog.String("publication", GetDefaultPublicationName(req.FlowJobName)),
 				slog.String("table", additionalSrcTable))
 		}
 	}
@@ -1634,14 +1690,14 @@ func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req
 				return err
 			}
 			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s",
-				common.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
+				common.QuoteIdentifier(GetDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already removed from our publication
 			if err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("removed table from publication",
-				slog.String("publication", c.getDefaultPublicationName(req.FlowJobName)),
+				slog.String("publication", GetDefaultPublicationName(req.FlowJobName)),
 				slog.String("table", tableToRemove))
 		}
 	} else {
