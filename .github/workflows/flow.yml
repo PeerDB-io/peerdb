@@ -41,12 +41,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      mysql:
-        image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
-        ports:
-          - 3306:3306
-        env:
-          MYSQL_ROOT_PASSWORD: cipass
       redpanda:
         image: redpandadata/redpanda@sha256:5e6ef104f48f430c25b5ddf1e1bef83394086d51ad6e752b78d10a018f74833d
         ports:
@@ -146,9 +140,15 @@ jobs:
           mask-aws-account-id: true
           output-credentials: true
 
-      - name: MariaDB
-        if: matrix.db-version.mysql == 'maria'
-        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
+      - name: MySQL
+        run: |
+          if [ "${{ matrix.db-version.mysql }}" = "mysql-gtid" ]; then
+            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:9.5
+          elif [ "${{ matrix.db-version.mysql }}" = "mysql-pos" ]; then
+            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:5.7 --log_bin=mysql-bin --server-id=1 --bind-address=::
+          elif [ "${{ matrix.db-version.mysql }}" = "maria" ]; then
+            docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
+          fi
 
       - name: Mongo
         run: |
@@ -510,15 +510,3 @@ jobs:
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-
-  finish:
-    needs: [flow_test]
-    if: needs.flow_test.result != 'skipped'
-    runs-on: ubuntu-latest
-    steps:
-      - name: check all tests passed
-        run: |
-          if [[ "${{ needs.flow_test.result }}" != "success" ]]; then
-            echo "One or more tests failed"
-            exit 1
-          fi

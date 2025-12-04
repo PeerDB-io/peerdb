@@ -265,8 +265,15 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_Vector() {
-	if mysource, ok := s.source.(*MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 		s.t.Skip("only applies to mysql")
+	}
+
+	if cmp, err := mysource.CompareServerVersion(s.t.Context(), "9.0.0"); err != nil {
+		s.t.Fatal(err)
+	} else if cmp < 0 {
+		s.t.Skip("VECTOR type is only supported in MySQL 9.0+")
 	}
 
 	srcTableName := "test_vector"
