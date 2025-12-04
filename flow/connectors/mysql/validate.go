@@ -68,7 +68,7 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 				c.logger.Warn("Falling back to MySQL 5.7 check")
 				return mysql_validation.CheckMySQL5BinlogSettings(conn, c.logger)
 			} else {
-				return mysql_validation.CheckMySQL8BinlogSettings(conn, c.logger)
+				return mysql_validation.CheckMySQL8BinlogSettings(conn, c.logger, requireRowMetadata)
 			}
 		default:
 			return fmt.Errorf("unsupported MySQL flavor: %s", c.config.Flavor.String())
