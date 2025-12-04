@@ -40,7 +40,7 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 	flowJobName string,
 	workflowId string,
 ) ([]string, error) {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "fetching completed tables from qrep_runs"
 	})
 	defer shutdown()
@@ -103,7 +103,7 @@ func (a *CancelTableAdditionActivity) GetTableOIDsFromCatalog(
 		return nil, fmt.Errorf("no table mappings provided for GetTableOIDsFromCatalog for flow %s", flowJobName)
 	}
 
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "fetching table OIDs from catalog"
 	})
 	defer shutdown()
@@ -138,7 +138,7 @@ func (a *CancelTableAdditionActivity) CleanupIncompleteTablesInStats(
 	flowJobName string,
 	completedTables []*protos.TableMapping,
 ) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "cleaning up qrep stats for incomplete tables"
 	})
 	defer shutdown()
@@ -239,7 +239,7 @@ func (a *CancelTableAdditionActivity) UpdateCdcJobEntry(
 }
 
 func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Context, flowJobName string, workflowId string) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "cleaning up current parent mirror and flow from catalog"
 	})
 	defer shutdown()
@@ -337,7 +337,7 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 	publicationNameInConfig string,
 	finalListOfTables []*protos.TableMapping,
 ) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "removing cancelled tables from publication"
 	})
 	defer shutdown()
@@ -415,7 +415,7 @@ func (a *CancelTableAdditionActivity) StartNewCDCFlow(
 	state *cdc_state.CDCFlowWorkflowState,
 	workflowID string,
 ) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "creating job entry and starting new CDC flow"
 	})
 	defer shutdown()
