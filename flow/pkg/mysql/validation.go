@@ -117,7 +117,12 @@ func CheckMySQL8BinlogSettings(conn *client.Conn, logger log.Logger) error {
 	}
 	binlogRowMetadata := string(row[3].AsString())
 	if binlogRowMetadata != "FULL" {
-		return errors.New("binlog_row_metadata must be set to 'FULL', currently " + binlogRowMetadata)
+		if isAzure, err := IsAzureFlexibleServer(conn); err == nil && isAzure {
+			logger.Warn("binlog_row_metadata is not FULL, but Azure Flexible Server does not support editing binlog_row_metadata. " +
+				"Skipping check (column exclusion will be ignored).")
+		} else {
+			return errors.New("binlog_row_metadata must be set to 'FULL', currently " + binlogRowMetadata)
+		}
 	}
 	if checkRowValueOptions {
 		binlogRowValueOptions := string(row[4].AsString())
@@ -243,4 +248,13 @@ func IsVitess(conn *client.Conn) (bool, error) {
 		return false, fmt.Errorf("failed to check if Vitess: %w", err)
 	}
 	return true, nil // is a Vitess server
+}
+
+// check if the server is an Azure Flexible Server by checking for azure_server_name variable
+func IsAzureFlexibleServer(conn *client.Conn) (bool, error) {
+	rs, err := conn.Execute("SHOW VARIABLES WHERE Variable_name = 'azure_server_name'")
+	if err != nil {
+		return false, fmt.Errorf("failed to check for azure_server_name: %w", err)
+	}
+	return len(rs.Values) > 0, nil
 }
