@@ -120,9 +120,10 @@ func (s *SetupFlowExecution) ensurePullability(
 
 	// create EnsurePullabilityInput for the srcTableName
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
-		PeerName:         config.SourceName,
-		FlowJobName:      s.cdcFlowName,
-		CheckConstraints: checkConstraints,
+		PeerName:            config.SourceName,
+		FlowJobName:         s.cdcFlowName,
+		CheckConstraints:    checkConstraints,
+		TableMappingVersion: config.TableMappingVersion,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
@@ -190,11 +191,12 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	})
 
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
-		PeerName: flowConnectionConfigs.SourceName,
-		FlowName: s.cdcFlowName,
-		System:   flowConnectionConfigs.System,
-		Env:      flowConnectionConfigs.Env,
-		Version:  flowConnectionConfigs.Version,
+		PeerName:            flowConnectionConfigs.SourceName,
+		FlowName:            s.cdcFlowName,
+		System:              flowConnectionConfigs.System,
+		Env:                 flowConnectionConfigs.Env,
+		Version:             flowConnectionConfigs.Version,
+		TableMappingVersion: flowConnectionConfigs.TableMappingVersion,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil); err != nil {

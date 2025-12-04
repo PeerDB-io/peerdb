@@ -287,7 +287,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	if err != nil {
 		return err
 	}
-	defer pool.Pool.Close()
+	//defer pool.Pool.Close()
 
 	cfg, err := internal.FetchConfigFromDB(configCtx, pool, s.config.FlowJobName)
 	if err != nil {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -183,17 +184,19 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, NewInternalApiError(fmt.Errorf("unable to marshal table mappings: %w", err))
 	}
 
-	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings) VALUES ($1, $2, $3)
+	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings, json_blob) VALUES ($1, $2, $3, $4)
 	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mappings = EXCLUDED.table_mappings`
 	slog.Info("YOOOO QUERY ", slog.String("stmt", stmt))
-	version := 0
-	_, err = h.pool.Exec(ctx, stmt, cfg.FlowJobName, version, tableMappingsBytes)
+	version := 12
+	jsonBlob, _ := json.MarshalIndent(req.ConnectionConfigs.TableMappings, "", "  ")
+	_, err = h.pool.Exec(ctx, stmt, cfg.FlowJobName, version, tableMappingsBytes, jsonBlob)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("unable to insert table mappings: %w", err))
 	}
 
 	// Use idempotent validation that skips mirror existence check
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs)
+	connectionConfigsCore.TableMappingVersion = uint32(version)
 	if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
 		slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
@@ -221,11 +224,13 @@ func (h *FlowRequestHandler) createCDCFlow(
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // but creating the same id as a completed one is allowed
 	}
 
+	slog.Info("!!!!!!!!!! HEHE1")
 	if err := h.createCdcJobEntry(ctx, connectionConfigs, workflowID, true); err != nil {
 		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
+	slog.Info("!!!!!!!!!! HEHE")
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, connectionConfigs, nil); err != nil {
 		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)

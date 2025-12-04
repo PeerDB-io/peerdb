@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -56,6 +57,52 @@ func TableMappingsToBytes(tableMappings []*protos.TableMapping) ([][]byte, error
 	return tableMappingsBytes, nil
 }
 
+func AddTableToTableMappings(
+	ctx context.Context, flowJobName string, tableMapping []*protos.TableMapping, version uint32,
+) (*uint32, error) {
+	logger := LoggerFromCtx(ctx)
+	pool, err := GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction to add table to table mappings: %w", err)
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	existingTableMappings, err := FetchTableMappingsFromDB(ctx, flowJobName, version)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load existing table mappings: %w", err)
+	}
+
+	slog.Info("Y0$$$")
+
+	existingTableMappings = append(existingTableMappings, tableMapping...)
+	slog.Info("Updated table mappings", slog.Int("num_mappings", len(existingTableMappings)), slog.Any("mappings", existingTableMappings))
+	slog.Info("Y0$$$$$$$")
+
+	tableMappingsBytes, err := TableMappingsToBytes(existingTableMappings)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal table mappings: %w", err)
+	}
+	version += 1
+
+	jsonBlob, _ := json.MarshalIndent(existingTableMappings, "", "  ")
+	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings, json_blob) VALUES ($1, $2, $3, $4)
+	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mappings = EXCLUDED.table_mappings`
+	_, err = tx.Exec(ctx, stmt, flowJobName, version, tableMappingsBytes, jsonBlob)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute statement to add table to table mappings: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction to add table to table mappings: %w", err)
+	}
+
+	return &version, nil
+}
+
 func FetchTableMappingsFromDB(ctx context.Context, flowJobName string, version uint32) ([]*protos.TableMapping, error) {
 	pool, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
@@ -70,7 +117,7 @@ func FetchTableMappingsFromDB(ctx context.Context, flowJobName string, version u
 		flowJobName, version,
 	)
 
-	slog.Info("!!!!! stmt", slog.String("flow_name", flowJobName), slog.Int("version", int(version)))
+	slog.Info("!!!!! Fetching TABLE MAPPINGS", slog.String("flow_name", flowJobName), slog.Int("version", int(version)))
 	var tableMappingsBytes [][]byte
 	if err := row.Scan(&tableMappingsBytes); err != nil {
 		return nil, fmt.Errorf("failed to deserialize table mapping schema proto: %w", err)

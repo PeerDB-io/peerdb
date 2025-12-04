@@ -63,7 +63,7 @@ func (a *SnapshotActivity) SetupReplication(
 
 	conn, connClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("!!!failed to get connector: %w", err))
 	}
 
 	configCtx := context.Background()

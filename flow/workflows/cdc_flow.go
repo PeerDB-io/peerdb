@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -118,6 +119,9 @@ func updateFlowConfigWithLatestSettings(
 	cloneCfg := proto.CloneOf(cfg)
 	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
+	slog.Info("updating flow config with latest settings",
+		slog.Any("tablemappingversion", state.SyncFlowOptions.TableMappingVersion),
+	)
 	cloneCfg.TableMappingVersion = state.SyncFlowOptions.TableMappingVersion
 	if state.SnapshotNumRowsPerPartition > 0 {
 		cloneCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
@@ -218,6 +222,11 @@ func processCDCFlowConfigUpdate(
 
 	// MIGRATION: Move `tableMapping` to the DB
 	if len(state.SyncFlowOptions.TableMappings) > 0 {
+		slog.Info("migrating TableMappings to catalog storage",
+			slog.String("flowName", cfg.FlowJobName),
+			slog.Int("numMappings", len(state.SyncFlowOptions.TableMappings)),
+			slog.Any("mappings", state.SyncFlowOptions.TableMappings),
+		)
 		migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
 		})
@@ -232,6 +241,7 @@ func processCDCFlowConfigUpdate(
 		}
 		state.SyncFlowOptions.TableMappings = nil
 		state.SyncFlowOptions.TableMappingVersion = 1
+		cfg.TableMappingVersion = 1
 	}
 
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
@@ -313,6 +323,7 @@ func processTableAdditions(
 
 	var res *CDCFlowWorkflowResult
 	var addTablesFlowErr error
+	version := cfg.TableMappingVersion
 	addTablesSelector.AddFuture(alterPublicationAddAdditionalTablesFuture, func(f workflow.Future) {
 		addTablesFlowErr = f.Get(alterPublicationAddAdditionalTablesCtx, f)
 		if addTablesFlowErr == nil {
@@ -322,6 +333,20 @@ func processTableAdditions(
 			additionalTablesCfg := proto.CloneOf(cfg)
 			additionalTablesCfg.DoInitialSnapshot = !flowConfigUpdate.SkipInitialSnapshotForTableAdditions
 			additionalTablesCfg.InitialSnapshotOnly = true
+			addTableMappingsCtx := context.Background()
+			defer addTableMappingsCtx.Done()
+			slog.Info("$$$ Adding table mappings for additional tables", slog.Any("tables", flowConfigUpdate.AdditionalTables))
+			newTableMappingVersion, err := internal.AddTableToTableMappings(
+				addTableMappingsCtx, additionalTablesCfg.FlowJobName, flowConfigUpdate.AdditionalTables,
+				additionalTablesCfg.TableMappingVersion,
+			)
+			if err != nil {
+				addTablesFlowErr = fmt.Errorf("failed to update flow config table mappings for additional tables: %w", err)
+				slog.Error("!!!!!!!! failed to update flow config table mappings for additional tables", slog.Any("error", addTablesFlowErr))
+			}
+			version = *newTableMappingVersion
+			additionalTablesCfg.TableMappingVersion = version
+
 			// TODO: thought - maybe we need to pass additionalTables and then in the
 			// CDCWorkflow we persist them to the DB and send an incremented `tableMappingVersion`
 			// to the new workflow?
@@ -366,9 +391,15 @@ func processTableAdditions(
 
 	// additional tables should also be resynced, we don't know how much was done so far
 	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
+	//state.SyncFlowOptions.TableMappingVersion = version
+	//TODO - ADD VERSION??
+	slog.Info("UPDATING VERSION !!!! from processTableAdditions", slog.Any("prevVersion", cfg.TableMappingVersion), slog.Any("version", version))
+	cfg.TableMappingVersion = version
 
 	for res == nil {
+		slog.Info("IN LOOOP - waiting for additional tables to be added", slog.Any("res", res))
 		addTablesSelector.Select(ctx)
+		slog.Info("IN LOOOP - additional tables were be added", slog.Any("res", res))
 		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 			if state.ActiveSignal == model.ResyncSignal {
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
@@ -385,6 +416,8 @@ func processTableAdditions(
 			return fmt.Errorf("failed to execute child CDCFlow for additional tables: %w", addTablesFlowErr)
 		}
 	}
+	slog.Info("UPDATING VERSION !!!! from processTableAdditions", slog.Any("prevVersion", cfg.TableMappingVersion), slog.Any("version", version))
+	cfg.TableMappingVersion = version
 
 	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
 
@@ -593,10 +626,12 @@ func CDCFlowWorkflow(
 				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return state, err
 			}
+			slog.Info("!!!!!!!!!! ABC123")
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 
+			slog.Info("!!!!!!!!!! ABC124")
 			if state.FlowConfigUpdate != nil {
 				if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
 					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)

@@ -122,12 +122,12 @@ func (a *FlowableActivity) applySchemaDeltas(
 
 	if len(schemaDeltas) > 0 {
 		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
-			PeerName:      config.SourceName,
-			TableMappings: filteredTableMappings,
-			FlowName:      config.FlowJobName,
-			System:        config.System,
-			Env:           config.Env,
-			Version:       config.Version,
+			PeerName:                 config.SourceName,
+			SchemaDeltaTableMappings: filteredTableMappings,
+			FlowName:                 config.FlowJobName,
+			System:                   config.System,
+			Env:                      config.Env,
+			Version:                  config.Version,
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}

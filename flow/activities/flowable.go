@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -128,16 +129,17 @@ func (a *FlowableActivity) EnsurePullability(
 	defer srcClose(ctx)
 
 	// We can fetch from the DB, as we are in the activity
-	cfg, err := internal.FetchConfigFromDB(ctx, a.CatalogPool, config.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
-	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, cfg.TableMappingVersion)
+	//cfg, err := internal.FetchConfigFromDB(ctx, a.CatalogPool, config.FlowJobName)
+	//if err != nil {
+	//return nil, err
+	//}
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
 	if err != nil {
 		return nil, err
 	}
 
-	config.SourceTableIdentifiers = slices.Sorted(maps.Keys(internal.TableNameMapping(tableMappings, cfg.Resync)))
+	resync := false // THIS WILL NEED TO COME FROM SOMEWHERE
+	config.SourceTableIdentifiers = slices.Sorted(maps.Keys(internal.TableNameMapping(tableMappings, resync)))
 
 	output, err := srcConn.EnsurePullability(ctx, config)
 	if err != nil {
@@ -188,13 +190,12 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 	defer srcClose(ctx)
 
-	cfg, err := internal.FetchConfigFromDB(ctx, a.CatalogPool, config.FlowName)
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowName, config.TableMappingVersion)
 	if err != nil {
 		return err
 	}
-	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
-	if err != nil {
-		return err
+	if len(config.SchemaDeltaTableMappings) != 0 {
+		tableMappings = config.SchemaDeltaTableMappings
 	}
 	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, tableMappings)
 	if err != nil {
@@ -265,11 +266,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, err
 	}
 
-	cfg, err := internal.FetchConfigFromDB(ctx, a.CatalogPool, config.FlowName)
-	if err != nil {
-		return nil, err
-	}
-	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowName, config.TableMappingVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -323,18 +320,12 @@ func (a *FlowableActivity) SyncFlow(
 	var syncingBatchID atomic.Int64
 	var syncState atomic.Pointer[string]
 
-	cfg, err := internal.FetchConfigFromDB(ctx, a.CatalogPool, config.FlowJobName)
-	if err != nil {
-		return err
-	}
-
-	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
 	if err != nil {
 		return err
 	}
 
 	// Override config with DB values to deal with the large fields.
-	config = cfg
 	options.TableMappings = tableMappings
 
 	syncState.Store(shared.Ptr("setup"))
@@ -932,6 +923,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
+	return nil
 	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Starting scheduled tasks")
 	defer shared.Interval(ctx, 20*time.Second, func() {
@@ -1931,6 +1923,7 @@ func (a *FlowableActivity) MigrateTableMappingsToCatalog(
 	ctx context.Context,
 	flowJobName string, tableMappings []*protos.TableMapping, version uint32,
 ) error {
+	slog.Info("!!!!!!!!!!!!!!!!! CALLING MIGRATE MAPPINGS TO CATALOG")
 	logger := internal.LoggerFromCtx(ctx)
 	tx, err := a.CatalogPool.Begin(ctx)
 	if err != nil {
@@ -1943,9 +1936,10 @@ func (a *FlowableActivity) MigrateTableMappingsToCatalog(
 		return fmt.Errorf("unable to marshal table mappings: %w", err)
 	}
 
-	stmt := `INSERT INTO table_mappings (flow_name, version, table_mapping) VALUES ($1, $2, $3)
-	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mapping = EXCLUDED.table_mapping`
-	_, err = tx.Exec(ctx, stmt, flowJobName, version, tableMappingsBytes)
+	jsonBlob, _ := json.MarshalIndent(tableMappings, "", "  ")
+	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings, json_blob) VALUES ($1, $2, $3, $4)
+	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mappings = EXCLUDED.table_mappings`
+	_, err = tx.Exec(ctx, stmt, flowJobName, version, tableMappingsBytes, jsonBlob)
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction to migrate table mappings to catalog: %w", err)
