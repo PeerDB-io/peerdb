@@ -227,7 +227,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		return nil
 	}
 
-	shutDown := shared.Interval(ctx, time.Minute, func() {
+	shutDown := common.Interval(ctx, time.Minute, func() {
 		read := c.deltaBytesRead.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	})

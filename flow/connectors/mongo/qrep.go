@@ -164,7 +164,7 @@ func (c *MongoConnector) PullQRepRecords(
 
 	c.totalBytesRead.Store(0)
 	c.deltaBytesRead.Store(0)
-	shutDown := shared.Interval(ctx, time.Minute, func() {
+	shutDown := common.Interval(ctx, time.Minute, func() {
 		read := c.deltaBytesRead.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	})
@@ -240,7 +240,7 @@ func (c *MongoConnector) PullQRepRecords(
 
 func GetDefaultSchema(internalVersion uint32) types.QRecordSchema {
 	fullDocumentColumnName := DefaultFullDocumentColumnName
-	if internalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+	if internalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
 	schema := make([]types.QField, 0, 2)

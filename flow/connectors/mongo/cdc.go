@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -49,7 +50,7 @@ func (c *MongoConnector) GetTableSchema(
 		Nullable:     false,
 	}
 	fullDocumentColumnName := DefaultFullDocumentColumnName
-	if internalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+	if internalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
 	dataFieldDescription := &protos.FieldDescription{
@@ -123,7 +124,7 @@ func (c *MongoConnector) PullRecords(
 	defer req.RecordStream.Close()
 
 	fullDocumentColumnName := DefaultFullDocumentColumnName
-	if req.InternalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
 
@@ -190,7 +191,7 @@ func (c *MongoConnector) PullRecords(
 	// after the first record arrives, we switch to configured idleTimeout
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 
-	reportBytesShutdown := shared.Interval(ctx, time.Second*10, func() {
+	reportBytesShutdown := common.Interval(ctx, time.Second*10, func() {
 		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)

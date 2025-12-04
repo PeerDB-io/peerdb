@@ -40,21 +40,6 @@ const (
 	Destination PeerType = "destination"
 )
 
-func heartbeatRoutine(
-	ctx context.Context,
-	message func() string,
-) func() {
-	counter := 0
-	return shared.Interval(
-		ctx,
-		15*time.Second,
-		func() {
-			counter += 1
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("heartbeat #%d: %s", counter, message()))
-		},
-	)
-}
-
 func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowName string) (map[string]*protos.TableSchema, error) {
 	rows, err := a.CatalogPool.Query(ctx, "select table_name, table_schema from table_schema_mapping where flow_name = $1", flowName)
 	if err != nil {
