@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -99,7 +100,7 @@ func (a *SnapshotActivity) SetupReplication(
 }
 
 func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flowName string, peer string, env map[string]string) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "maintaining transaction snapshot"
 	})
 	defer shutdown()

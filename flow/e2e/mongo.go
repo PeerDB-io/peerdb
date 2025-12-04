@@ -66,7 +66,7 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 	}
 
 	recordBatch := &model.QRecordBatch{
-		Schema:  connmongo.GetDefaultSchema(shared.IntervalVersion_MongoDBFullDocumentColumnToDoc),
+		Schema:  connmongo.GetDefaultSchema(shared.InternalVersion_MongoDBFullDocumentColumnToDoc),
 		Records: nil,
 	}
 

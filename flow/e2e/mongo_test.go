@@ -351,8 +351,8 @@ func (s MongoClickhouseSuite) Test_Document_With_Dots_In_Keys() {
 	flowConnConfigOld.DoInitialSnapshot = true
 
 	flowConnConfigOld.Env["PEERDB_FORCE_INTERNAL_VERSION"] = strconv.FormatUint(
-		uint64(shared.IntervalVersion_MongoDBFullDocumentColumnToDoc), 10)
-	flowConnConfigOld.Version = shared.IntervalVersion_MongoDBFullDocumentColumnToDoc
+		uint64(shared.InternalVersion_MongoDBFullDocumentColumnToDoc), 10)
+	flowConnConfigOld.Version = shared.InternalVersion_MongoDBFullDocumentColumnToDoc
 
 	collectionOld := adminClient.Database(srcDatabase).Collection(srcTableOld)
 

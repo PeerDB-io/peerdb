@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -186,7 +187,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 		}
 		logger.Info(message, slog.String("file", filePath), slog.Int64("size", stats.Size()))
 	}
-	shutdown := shared.Interval(ctx, time.Minute, func() { printFileStats("writing to temporary Avro file") })
+	shutdown := common.Interval(ctx, time.Minute, func() { printFileStats("writing to temporary Avro file") })
 	defer shutdown()
 
 	numRecords, err := p.WriteOCF(ctx, env, file, nil, nil)
@@ -240,7 +241,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	numRows := atomic.Int64{}
 	writeStart := time.Now()
 
-	shutdown := shared.Interval(ctx, time.Minute, func() {
+	shutdown := common.Interval(ctx, time.Minute, func() {
 		logger.Info("written records to OCF",
 			slog.Int64("records", numRows.Load()),
 			slog.Int("channelLen", len(p.stream.Records)),

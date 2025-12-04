@@ -32,6 +32,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
@@ -161,7 +162,7 @@ func (a *FlowableActivity) SetupTableSchema(
 	ctx context.Context,
 	config *protos.SetupTableSchemaBatchInput,
 ) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "getting table schema"
 	})
 	defer shutdown()
@@ -214,7 +215,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	numTablesSetup := atomic.Uint32{}
 	numTablesToSetup := atomic.Int32{}
 
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("setting up normalized tables - %d of %d done", numTablesSetup.Load(), numTablesToSetup.Load())
 	})
 	defer shutdown()
@@ -293,7 +294,7 @@ func (a *FlowableActivity) SyncFlow(
 	var syncingBatchID atomic.Int64
 	var syncState atomic.Pointer[string]
 	syncState.Store(shared.Ptr("setup"))
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
 		sBatchID := syncingBatchID.Load()
 		nBatchID := normalizingBatchID.Load()
@@ -498,7 +499,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	last *protos.QRepPartition,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "getting partitions for job"
 	})
 	defer shutdown()
@@ -562,7 +563,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "replicating partitions for job"
 	})
 	defer shutdown()
@@ -732,7 +733,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
 	runUUID string,
 ) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "consolidating partitions for job"
 	})
 	defer shutdown()
@@ -889,7 +890,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Starting scheduled tasks")
-	defer shared.Interval(ctx, 20*time.Second, func() {
+	defer common.Interval(ctx, 20*time.Second, func() {
 		activity.RecordHeartbeat(ctx, "Running scheduled tasks")
 	})()
 	wrapWithLog := func(name string, fn func() error) func() {
@@ -902,22 +903,22 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 			logger.Info(name+" completed", slog.Duration("duration", time.Since(now)))
 		}
 	}
-	defer shared.Interval(ctx, 10*time.Minute, wrapWithLog("SendWALHeartbeat", func() error {
+	defer common.Interval(ctx, 10*time.Minute, wrapWithLog("SendWALHeartbeat", func() error {
 		return a.SendWALHeartbeat(ctx)
 	}))()
-	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordMetricsCritical", func() error {
+	defer common.Interval(ctx, 1*time.Minute, wrapWithLog("RecordMetricsCritical", func() error {
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 50*time.Second)
 		defer cancelFunc()
 		return a.RecordMetricsCritical(timeoutCtx)
 	}))()
-	defer shared.Interval(ctx, 2*time.Minute, wrapWithLog("RecordMetricsAggregates", func() error {
+	defer common.Interval(ctx, 2*time.Minute, wrapWithLog("RecordMetricsAggregates", func() error {
 		if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
 			return a.RecordMetricsAggregates(ctx)
 		}
 		logger.Info("metrics aggregates recording is disabled")
 		return nil
 	}))()
-	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
+	defer common.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
 		return a.RecordSlotSizes(ctx)
 	}))()
 	<-ctx.Done()
@@ -1363,7 +1364,7 @@ var activeFlowStatuses = map[protos.FlowStatus]struct{}{
 func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
 ) (bool, error) {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "scanning for new rows"
 	})
 	defer shutdown()
@@ -1413,7 +1414,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "renaming tables for job"
 	})
 	defer shutdown()
@@ -1524,7 +1525,7 @@ func (a *FlowableActivity) updateTableSchemaMappingForResync(
 }
 
 func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "deleting mirror stats"
 	})
 	defer shutdown()
@@ -1557,7 +1558,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) (int64, error) {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "syncing xmin"
 	})
 	defer shutdown()
@@ -1836,7 +1837,7 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 	oidToTableNameMapping map[uint32]string,
 	tableMappings []*protos.TableMapping,
 ) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "migrating oids to table schema"
 	})
 	defer shutdown()

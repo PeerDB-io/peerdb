@@ -509,7 +509,7 @@ func PullCdcRecords[Items model.Items](
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
 	}()
-	shutdown := shared.Interval(ctx, time.Minute, func() {
+	shutdown := common.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
 		logger.Info("pulling records",

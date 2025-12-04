@@ -20,7 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -470,7 +470,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	// This is for cases where currently normalizing can take a looooong time
 	// there is no other indication of progress, so we log every 5 minutes.
-	periodicLogger := shared.Interval(ctx, 5*time.Minute, func() {
+	periodicLogger := common.Interval(ctx, 5*time.Minute, func() {
 		c.logger.Info("[clickhouse-cdc] inserting batches...",
 			slog.Int64("lastNormBatchID", lastNormBatchID),
 			slog.Int64("endBatchID", endBatchID),
