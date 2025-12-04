@@ -27,20 +27,26 @@ func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	if myVersion == "" {
 		t.Skip()
 	}
-	mode, isMySQL := strings.CutPrefix(myVersion, "mysql-")
-	replicationMode := protos.MySqlReplicationMechanism_MYSQL_GTID
-	if mode == "pos" {
+	var replicationMode protos.MySqlReplicationMechanism
+	var mysqlFlavor protos.MySqlFlavor
+	switch myVersion {
+	case "9.5":
+		replicationMode = protos.MySqlReplicationMechanism_MYSQL_GTID
+		mysqlFlavor = protos.MySqlFlavor_MYSQL_MYSQL
+	case "8.4":
 		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+		mysqlFlavor = protos.MySqlFlavor_MYSQL_MYSQL
+	case "maria":
+		replicationMode = protos.MySqlReplicationMechanism_MYSQL_GTID
+		mysqlFlavor = protos.MySqlFlavor_MYSQL_MARIA
+	default:
+		t.Error("unexpected mysql version", myVersion)
 	}
-	if !isMySQL && myVersion != "maria" {
-		t.Error("unknown mysql version", myVersion)
-	}
-	return SetupMyCore(t, suffix, !isMySQL, replicationMode)
+	return SetupMyCore(t, suffix, replicationMode, mysqlFlavor)
 }
 
-func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism protos.MySqlReplicationMechanism) (*MySqlSource, error) {
+func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicationMechanism, flavor protos.MySqlFlavor) (*MySqlSource, error) {
 	t.Helper()
-
 	config := &protos.MySqlConfig{
 		Host:                 "localhost",
 		Port:                 3306,
@@ -50,11 +56,8 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 		Setup:                nil,
 		Compression:          0,
 		DisableTls:           true,
-		Flavor:               protos.MySqlFlavor_MYSQL_MYSQL,
-		ReplicationMechanism: replicationMechanism,
-	}
-	if isMaria {
-		config.Flavor = protos.MySqlFlavor_MYSQL_MARIA
+		Flavor:               flavor,
+		ReplicationMechanism: replication,
 	}
 
 	connector, err := connmysql.NewMySqlConnector(t.Context(), config)
@@ -76,11 +79,14 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 		return nil, err
 	}
 
-	if !isMaria {
-		if _, err := connector.Execute(t.Context(), "select get_lock('settings',-1)"); err != nil {
-			connector.Close()
-			return nil, err
-		}
+	setupSql := []string{
+		"set global binlog_format=row",
+		"set global binlog_row_image=full",
+		"set global binlog_row_metadata=full",
+		"set global max_connections=500",
+	}
+
+	if flavor != protos.MySqlFlavor_MYSQL_MARIA {
 		rs, err := connector.Execute(t.Context(), "select @@gtid_mode")
 		if err != nil {
 			connector.Close()
@@ -91,36 +97,41 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 			connector.Close()
 			return nil, err
 		}
-		if !strings.EqualFold(gtidMode, "on") {
-			for _, sql := range []string{
-				"set global binlog_row_metadata=full",
-				"set global enforce_gtid_consistency=on",
-				"set global gtid_mode=off_permissive",
-				"set global gtid_mode=on_permissive",
-				"set global gtid_mode=on",
-				"set global max_connections=500",
-			} {
-				if _, err := connector.Execute(t.Context(), sql); err != nil {
-					connector.Close()
-					return nil, err
-				}
+		if replication == protos.MySqlReplicationMechanism_MYSQL_GTID {
+			if strings.EqualFold(gtidMode, "off") {
+				// The value of @@GLOBAL.GTID_MODE can only be changed one step at a time:
+				// OFF <-> OFF_PERMISSIVE <-> ON_PERMISSIVE <-> ON
+				setupSql = append(setupSql,
+					"select get_lock('settings',-1)",
+					"set global enforce_gtid_consistency=on",
+					"set global gtid_mode=off_permissive",
+					"set global gtid_mode=on_permissive",
+					"set global gtid_mode=on",
+					"do release_lock('settings')",
+				)
 			}
+		} else if replication == protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
+			if strings.EqualFold(gtidMode, "on") {
+				// The value of @@GLOBAL.GTID_MODE can only be changed one step at a time:
+				// ON <-> ON_PERMISSIVE <-> OFF_PERMISSIVE <-> OFF
+				setupSql = append(setupSql,
+					"select get_lock('settings',-1)",
+					"set global enforce_gtid_consistency=off",
+					"set global gtid_mode=on_permissive",
+					"set global gtid_mode=off_permissive",
+					"set global gtid_mode=off",
+					"do release_lock('settings')",
+				)
+			}
+		} else {
+			return nil, fmt.Errorf("unexpected replication mechanism: %v", replication)
 		}
-		if _, err := connector.Execute(t.Context(), "do release_lock('settings')"); err != nil {
+	}
+
+	for _, sql := range setupSql {
+		if _, err := connector.Execute(t.Context(), sql); err != nil {
 			connector.Close()
-			return nil, err
-		}
-	} else {
-		for _, sql := range []string{
-			"set global binlog_format=row",
-			"set binlog_format=row",
-			"set global binlog_row_metadata=full",
-			"set global max_connections=500",
-		} {
-			if _, err := connector.Execute(t.Context(), sql); err != nil {
-				connector.Close()
-				return nil, err
-			}
+			return nil, fmt.Errorf("error executing %s: %v", sql, err)
 		}
 	}
 

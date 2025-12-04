@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
-        db-version: [{pg: 16, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 17, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 18, mysql: 'maria', mongo: '8.0'}]
+        db-version: [{pg: 16, mysql: '8.4', mongo: '6.0'}, {pg: 17, mysql: '9.5', mongo: '7.0'}, {pg: 18, mysql: 'maria', mongo: '8.0'}]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -42,7 +42,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       mysql:
-        image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
+        image: ${{ matrix.db-version.mysql != 'maria' && format('mysql:{0}', matrix.db-version.mysql) || '' }}
         ports:
           - 3306:3306
         env:
@@ -501,15 +501,3 @@ jobs:
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-
-  finish:
-    needs: [flow_test]
-    if: needs.flow_test.result != 'skipped'
-    runs-on: ubuntu-latest
-    steps:
-      - name: check all tests passed
-        run: |
-          if [[ "${{ needs.flow_test.result }}" != "success" ]]; then
-            echo "One or more tests failed"
-            exit 1
-          fi
