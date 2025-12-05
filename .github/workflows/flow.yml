@@ -412,13 +412,14 @@ jobs:
           go install gotest.tools/gotestsum@latest
       - name: run tests
         run: |
-          temporal server start-dev --namespace default --headless &
           mkdir coverage
+          mkdir -p ../logs
+          temporal server start-dev --namespace default --headless > ../logs/temporal.log 2>&1 &
           go build -cover -ldflags="-s -w" -o peer-flow
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
-          ./peer-flow worker &
-          ./peer-flow snapshot-worker &
-          ./peer-flow api --port 8112 --gateway-port 8113 &
+          ./peer-flow worker > ../logs/peer-flow-worker.log 2>&1 &
+          ./peer-flow snapshot-worker > ../logs/peer-flow-snapshot-worker.log 2>&1 &
+          ./peer-flow api --port 8112 --gateway-port 8113 > ../logs/peer-flow-api.log 2>&1 &
           gotestsum --format standard-quiet --no-color --junitfile ../test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
@@ -489,6 +490,14 @@ jobs:
           FLOW_TESTS_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+
+      - name: Upload peer-flow logs
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+        with:
+          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
+          path: logs/
+          retention-days: 30
 
       - name: Upload test results to Codecov
         if: success() || failure()
