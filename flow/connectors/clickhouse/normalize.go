@@ -212,6 +212,10 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 			}
 
+			if clickHouseType == "JSON" && tableMapping != nil && len(tableMapping.Exclude) > 0 {
+				clickHouseType = buildJSONExclude(colName, tableMapping.Exclude)
+			}
+
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
 		}
 
@@ -290,6 +294,29 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		result[idx] = builder.String()
 	}
 	return result, nil
+}
+
+// buildJSONExclude builds a JSON type with SKIP clauses for fields matching the
+// column prefix. e.g., for colName="doc" and excludeFields=["doc.password",
+// "doc.user.ssn", "other_col"], it returns JSON(SKIP password, SKIP `user.ssn`)
+func buildJSONExclude(colName string, excludeFields []string) string {
+	prefix := colName + "."
+	var parts []string
+
+	for _, field := range excludeFields {
+		field = strings.TrimSpace(field)
+		if strings.HasPrefix(field, prefix) {
+			jsonField := strings.TrimPrefix(field, prefix)
+			if jsonField != "" {
+				parts = append(parts, "SKIP "+peerdb_clickhouse.QuoteIdentifier(jsonField))
+			}
+		}
+	}
+
+	if len(parts) == 0 {
+		return "JSON"
+	}
+	return fmt.Sprintf("JSON(%s)", strings.Join(parts, ","))
 }
 
 // getOrderedOrderByColumns returns columns to be used for ordering in destination table operations.
