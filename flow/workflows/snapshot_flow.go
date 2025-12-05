@@ -64,6 +64,8 @@ func (s *SnapshotFlowExecution) setupReplication(
 		ExistingPublicationName:     s.config.PublicationName,
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
 		Env:                         s.config.Env,
+		TableMappingVersion:         s.config.TableMappingVersion,
+		Resync:                      s.config.Resync,
 	}
 
 	var res *protos.SetupReplicationOutput
@@ -281,22 +283,10 @@ func (s *SnapshotFlowExecution) cloneTables(
 		return err
 	}
 
-	configCtx := context.Background()
-	defer configCtx.Done()
-	pool, err := internal.GetCatalogConnectionPoolFromEnv(configCtx)
-	if err != nil {
-		return err
-	}
-	//defer pool.Pool.Close()
-
-	cfg, err := internal.FetchConfigFromDB(configCtx, pool, s.config.FlowJobName)
-	if err != nil {
-		return err
-	}
-
+	slog.Info("!!!! in snapshot flow - with config", slog.Any("config", s.config))
 	tableMappingsCtx := context.Background()
 	defer tableMappingsCtx.Done()
-	tableMappings, err := internal.FetchTableMappingsFromDB(tableMappingsCtx, cfg.FlowJobName, cfg.TableMappingVersion)
+	tableMappings, err := internal.FetchTableMappingsFromDB(tableMappingsCtx, s.config.FlowJobName, s.config.TableMappingVersion)
 	if err != nil {
 		return err
 	}

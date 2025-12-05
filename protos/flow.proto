@@ -214,6 +214,8 @@ message SetupReplicationInput {
   string existing_replication_slot_name = 7;
   string peer_name = 8;
   string destination_name = 9;
+  uint32 table_mapping_version = 10;
+  bool resync = 11;
 }
 
 message SetupReplicationOutput {

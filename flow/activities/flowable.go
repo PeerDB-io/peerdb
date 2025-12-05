@@ -266,6 +266,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, err
 	}
 
+	slog.Info("FETCHING TABLE MAPPINGS FROM DB", slog.Any("cfg", config))
 	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowName, config.TableMappingVersion)
 	if err != nil {
 		return nil, err

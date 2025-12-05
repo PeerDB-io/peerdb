@@ -181,6 +181,7 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigsCore,
 ) error {
 	s.Info("fetching table schema for peer flow")
+	s.Info("fetching table schema for peer flow", slog.Any("cfg", flowConnectionConfigs))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
@@ -206,12 +207,13 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 
 	s.Info("setting up normalized tables on destination peer", slog.String("destination", flowConnectionConfigs.DestinationName))
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
-		PeerName:          flowConnectionConfigs.DestinationName,
-		SoftDeleteColName: flowConnectionConfigs.SoftDeleteColName,
-		SyncedAtColName:   flowConnectionConfigs.SyncedAtColName,
-		FlowName:          flowConnectionConfigs.FlowJobName,
-		Env:               flowConnectionConfigs.Env,
-		IsResync:          flowConnectionConfigs.Resync,
+		PeerName:            flowConnectionConfigs.DestinationName,
+		SoftDeleteColName:   flowConnectionConfigs.SoftDeleteColName,
+		SyncedAtColName:     flowConnectionConfigs.SyncedAtColName,
+		FlowName:            flowConnectionConfigs.FlowJobName,
+		Env:                 flowConnectionConfigs.Env,
+		IsResync:            flowConnectionConfigs.Resync,
+		TableMappingVersion: flowConnectionConfigs.TableMappingVersion,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {

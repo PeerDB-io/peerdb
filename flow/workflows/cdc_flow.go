@@ -744,6 +744,7 @@ func CDCFlowWorkflow(
 		// Resync will rely rely on the `cfg.Resync` flag to rename the tables
 		// during the snapshot process. This is how we're able to also remove the need
 		// to sync the config back into the DB / not rely on the `state.TableMappings`.
+		slog.Info("STARTING SETUP FLOW!!!!", slog.Any("cfg", cfg))
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
 
 		var setupFlowOutput *protos.SetupFlowOutput
