@@ -1880,7 +1880,7 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 
 		return nil
 	}); err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
+		return a.Alerter.LogFlowError(ctx, flowName, err)
 	}
 
 	return nil
