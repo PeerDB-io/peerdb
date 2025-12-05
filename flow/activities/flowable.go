@@ -1845,7 +1845,7 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 	logger := internal.LoggerFromCtx(ctx)
 	migrationName := shared.POSTGRES_TABLE_OID_MIGRATION
 
-	return internal.RunMigrationOnce(ctx, a.CatalogPool, logger, flowName, migrationName, func(ctx context.Context) error {
+	if err := internal.RunMigrationOnce(ctx, a.CatalogPool, logger, flowName, migrationName, func(ctx context.Context) error {
 		logger.Info("starting PostgreSQL table OIDs migration",
 			slog.String("flowName", flowName),
 			slog.Int("tableCount", len(oidToTableNameMapping)))
@@ -1879,5 +1879,9 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 			slog.Int("tableCount", len(oidToTableNameMapping)))
 
 		return nil
-	})
+	}); err != nil {
+		a.Alerter.LogFlowError(ctx, flowName, err)
+	}
+
+	return nil
 }
