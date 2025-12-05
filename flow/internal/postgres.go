@@ -74,31 +74,22 @@ func LoadTableSchemaFromCatalog(
 	return tableSchema, proto.Unmarshal(tableSchemaBytes, tableSchema)
 }
 
-func UpdateTableOIDsInTableSchemaInCatalog(
+func UpdateTableSchemasInCatalog(
 	ctx context.Context,
 	pool shared.CatalogPool,
 	logger log.Logger,
 	flowName string,
-	tableOIDs map[string]uint32, // map[destinationTableName]tableOID
+	destinationTableSourceSchemaMap map[string]*protos.TableSchema, // map[destinationTableName]tableSchema
 ) error {
-	if len(tableOIDs) == 0 {
-		logger.Info("no table OIDs to update, skipping migration",
+	if len(destinationTableSourceSchemaMap) == 0 {
+		logger.Info("no schema deltas to update, skipping migration",
 			slog.String("flowName", flowName))
 		return nil
 	}
 
-	logger.Info("updating table OIDs in catalog",
+	logger.Info("updating schema deltas in catalog",
 		slog.String("flowName", flowName),
-		slog.Int("numTables", len(tableOIDs)))
-
-	tableNames := make([]string, 0, len(tableOIDs))
-	for tableName := range tableOIDs {
-		tableNames = append(tableNames, tableName)
-	}
-	tableSchemas, err := LoadTableSchemasFromCatalog(ctx, pool, flowName, tableNames)
-	if err != nil {
-		return fmt.Errorf("failed to load table schemas from catalog: %w", err)
-	}
+		slog.Int("numTables", len(destinationTableSourceSchemaMap)))
 
 	tx, err := pool.Pool.Begin(ctx)
 	if err != nil {
@@ -107,19 +98,10 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	defer shared.RollbackTx(tx, logger)
 
 	batch := &pgx.Batch{}
-	for tableName, tableOID := range tableOIDs {
-		tableSchema, exists := tableSchemas[tableName]
-		if !exists {
-			logger.Error("table schema not found in catalog",
-				slog.String("flowName", flowName),
-				slog.String("tableName", tableName))
-			return fmt.Errorf("table schema not found for table: %s", tableName)
-		}
-
-		tableSchema.TableOid = tableOID
+	for tableName, tableSchema := range destinationTableSourceSchemaMap {
 		tableSchemaBytes, err := proto.Marshal(tableSchema)
 		if err != nil {
-			return fmt.Errorf("unable to marshal updated table schema for %s: %w", tableName, err)
+			return fmt.Errorf("unable to marshal table schema for %s: %w", tableName, err)
 		}
 
 		batch.Queue(
@@ -127,16 +109,15 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 			tableSchemaBytes, flowName, tableName,
 		)
 
-		logger.Info("queued table OID update",
+		logger.Info("queued schema delta update",
 			slog.String("flowName", flowName),
-			slog.String("tableName", tableName),
-			slog.Uint64("tableOID", uint64(tableOID)))
+			slog.String("tableName", tableName))
 	}
 
 	results := tx.SendBatch(ctx, batch)
 	defer results.Close() // Ensure resources are freed in case of early return
 
-	for i := range len(tableOIDs) {
+	for i := range len(destinationTableSourceSchemaMap) {
 		if _, err := results.Exec(); err != nil {
 			logger.Error("failed to update table schema in catalog",
 				slog.Any("error", err),
@@ -157,9 +138,9 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	logger.Info("successfully updated all table OIDs in catalog",
+	logger.Info("successfully updated all schema deltas in catalog",
 		slog.String("flowName", flowName),
-		slog.Int("numTables", len(tableOIDs)))
+		slog.Int("numTables", len(destinationTableSourceSchemaMap)))
 
 	return nil
 }

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sync/atomic"
 	"time"
 
@@ -64,31 +63,57 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 
 func (a *FlowableActivity) applySchemaDeltas(
 	ctx context.Context,
-	config *protos.FlowConnectionConfigsCore,
-	options *protos.SyncFlowOptions,
+	flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
-	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
-	for _, tableMapping := range options.TableMappings {
-		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
-			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
-				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
-		}) {
-			filteredTableMappings = append(filteredTableMappings, tableMapping)
-		}
+	logger := internal.LoggerFromCtx(ctx)
+	destinationNameListInDeltas := make([]string, 0, len(schemaDeltas))
+	for _, tableSchemaDelta := range schemaDeltas {
+		destinationNameListInDeltas = append(destinationNameListInDeltas, tableSchemaDelta.DstTableName)
 	}
+	logger.Info("loading table schemas from catalog for applying schema deltas",
+		slog.Int("numDeltas", len(schemaDeltas)),
+		slog.String("flowJobName", flowJobName),
+	)
+	schemasInCatalog, err := internal.LoadTableSchemasFromCatalog(ctx, a.CatalogPool, flowJobName, destinationNameListInDeltas)
+	if err != nil {
+		return fmt.Errorf("failed to load table schemas from catalog for applying schema deltas: %w", err)
+	}
+	for _, tableSchemaDelta := range schemaDeltas {
+		columnsInCatalog := schemasInCatalog[tableSchemaDelta.DstTableName].GetColumns()
+		addedColumns := tableSchemaDelta.GetAddedColumns()
 
-	if len(schemaDeltas) > 0 {
-		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
-			PeerName:      config.SourceName,
-			TableMappings: filteredTableMappings,
-			FlowName:      config.FlowJobName,
-			System:        config.System,
-			Env:           config.Env,
-			Version:       config.Version,
-		}); err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
+		// Create a map to track existing column names to avoid duplicates
+		existingColumnNames := make(map[string]bool)
+		for _, col := range columnsInCatalog {
+			existingColumnNames[col.Name] = true
 		}
+
+		// Only add columns that don't already exist
+		var newColumnsToAdd []*protos.FieldDescription
+		for _, addedCol := range addedColumns {
+			if !existingColumnNames[addedCol.Name] {
+				newColumnsToAdd = append(newColumnsToAdd, addedCol)
+				existingColumnNames[addedCol.Name] = true
+			}
+		}
+		updatedColumnsInCatalog := append(columnsInCatalog, newColumnsToAdd...)
+		schemasInCatalog[tableSchemaDelta.DstTableName].Columns = updatedColumnsInCatalog
+	}
+	logger.Info("applying schema deltas to catalog",
+		slog.Int("numTables", len(schemasInCatalog)),
+		slog.Int("numDeltas", len(schemaDeltas)),
+		slog.String("flowJobName", flowJobName),
+	)
+	err = internal.UpdateTableSchemasInCatalog(
+		ctx,
+		a.CatalogPool,
+		logger,
+		flowJobName,
+		schemasInCatalog,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update table schemas in catalog: %w", err)
 	}
 	return nil
 }
@@ -223,7 +248,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
+		return nil, a.applySchemaDeltas(ctx, config.FlowJobName, recordBatchSync.SchemaDeltas)
 	}
 
 	var res *model.SyncResponse
@@ -319,7 +344,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
 	syncState.Store(shared.Ptr("updating schema"))
-	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
+	if err := a.applySchemaDeltas(ctx, config.FlowJobName, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
 

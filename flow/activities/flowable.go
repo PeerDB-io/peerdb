@@ -1862,13 +1862,29 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 			}
 			destinationTableOidMap[destinationTableIdentifier] = oid
 		}
+		tableNames := make([]string, 0, len(destinationTableOidMap))
+		for tableName := range destinationTableOidMap {
+			tableNames = append(tableNames, tableName)
+		}
+		tableSchemas, err := internal.LoadTableSchemasFromCatalog(ctx, a.CatalogPool, flowName, tableNames)
+		if err != nil {
+			return fmt.Errorf("failed to load table schemas from catalog: %w", err)
+		}
 
-		err := internal.UpdateTableOIDsInTableSchemaInCatalog(
+		for destinationTableName, oid := range destinationTableOidMap {
+			schema, ok := tableSchemas[destinationTableName]
+			if !ok {
+				return fmt.Errorf("table schema not found for table %s", destinationTableName)
+			}
+			schema.TableOid = oid
+		}
+
+		err = internal.UpdateTableSchemasInCatalog(
 			ctx,
 			a.CatalogPool,
 			logger,
 			flowName,
-			destinationTableOidMap,
+			tableSchemas,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to update table OIDs in catalog: %w", err)
