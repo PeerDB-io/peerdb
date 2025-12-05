@@ -11,6 +11,7 @@ import (
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -220,8 +221,14 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_Enum() {
-	if _, ok := s.source.(*MySqlSource); !ok {
+	if mySource, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
+	} else {
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("only applies to mysql versions with binlog_row_metadata")
+		}
 	}
 
 	srcTableName := "test_my_enum"
@@ -676,8 +683,14 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
-	if _, ok := s.source.(*MySqlSource); !ok {
+	if mySource, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
+	} else {
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("only applies to mysql versions with binlog_row_metadata support")
+		}
 	}
 
 	t := s.T()

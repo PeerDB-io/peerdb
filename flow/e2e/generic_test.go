@@ -12,6 +12,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -196,6 +197,14 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
 	if !ok {
 		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
+	}
+
+	if mySource, isMysql := s.Source().(*MySqlSource); isMysql {
+		cmp, err := mySource.CompareServerVersion(t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(t, err)
+		if cmp < 0 {
+			t.Skip("skipping test because DROP COLUMN support requires binlog_row_metadata")
+		}
 	}
 
 	srcTable := "test_simple_schema_changes"

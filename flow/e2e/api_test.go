@@ -445,7 +445,11 @@ func (s APITestSuite) TestSchemaEndpoints() {
 		require.Len(s.t, columns.Columns, 2)
 		require.Equal(s.t, "id", columns.Columns[0].Name)
 		require.True(s.t, columns.Columns[0].IsKey)
+		cmp, err := source.CompareServerVersion(s.t.Context(), "8")
+		require.NoError(s.t, err)
 		if source.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+			require.Equal(s.t, "int(11)", columns.Columns[0].Type)
+		} else if cmp < 0 {
 			require.Equal(s.t, "int(11)", columns.Columns[0].Type)
 		} else {
 			require.Equal(s.t, "int", columns.Columns[0].Type)

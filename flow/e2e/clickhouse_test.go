@@ -25,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -1463,8 +1464,17 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 }
 
 func (s ClickHouseSuite) Test_JSON_CH() {
-	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		s.t.Skip("skip maria, where JSON is not a supported data type")
+	mysqlUtf8mb4Support := true
+	if mySource, ok := s.source.(*MySqlSource); ok {
+		if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+			s.t.Skip("skip maria, where JSON is not a supported data type")
+		} else {
+			cmp, err := mySource.CompareServerVersion(s.t.Context(), "8")
+			require.NoError(s.t, err)
+			if cmp < 0 {
+				mysqlUtf8mb4Support = false
+			}
+		}
 	}
 
 	// TODO: fix and enable failing test cases
@@ -1492,7 +1502,12 @@ func (s ClickHouseSuite) Test_JSON_CH() {
 		},
 		{
 			Desc:  "obj with special chars as values",
-			Value: `'{"path": "/home/user", "unicode": "🚀", "quote": "check \"quoted\"", "newline": "line1\nline2"}'`,
+			Value: `'{"path": "/home/user","quote": "check \"quoted\"", "newline": "line1\nline2"}'`,
+		},
+		{
+			Desc:  "obj with emoji",
+			Value: `'{"unicode": "🚀"}'`,
+			Skip:  !mysqlUtf8mb4Support,
 		},
 		{
 			Desc:  "empty object",
@@ -1723,8 +1738,12 @@ func (s ClickHouseSuite) Test_PgVector_Version0() {
 }
 
 func (s ClickHouseSuite) Test_Column_Exclusion() {
-	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		s.t.Skip("skip maria, testing minimal row metadata on maria")
+	if mySource, isMysql := s.source.(*MySqlSource); isMysql {
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("not applicable to mysql versions that don't support binlog_row_metadata")
+		}
 	}
 
 	tc := NewTemporalClient(s.t)
