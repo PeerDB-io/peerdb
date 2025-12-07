@@ -3,7 +3,7 @@ use std::error::Error;
 use base64::prelude::{BASE64_STANDARD, Engine as _};
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
-use pgwire::types::ToSqlText;
+use pgwire::types::{ToSqlText, format::FormatOptions};
 use postgres_types::{IsNull, ToSql, Type};
 use uuid::{Uuid, fmt::Hyphenated};
 
@@ -207,9 +207,9 @@ impl ToSql for ArrayValue {
 }
 
 macro_rules! array_to_sql_text {
-    ($arr:expr, $ty:expr, $out:expr) => {{
+    ($arr:expr, $ty:expr, $out:expr, $options:expr) => {{
         for v in $arr {
-            v.to_sql_text($ty, $out)?;
+            v.to_sql_text($ty, $out, $options)?;
             $out.put_slice(b",");
         }
     }};
@@ -220,22 +220,23 @@ impl ToSqlText for ArrayValue {
         &self,
         ty: &Type,
         out: &mut BytesMut,
+        options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         // We start array values with '{'
         out.put_slice(b"{");
 
         match self {
-            ArrayValue::Bool(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::TinyInt(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::SmallInt(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::Integer(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::BigInt(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::Float(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::Double(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::Numeric(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::Char(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::VarChar(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::Text(arr) => array_to_sql_text!(arr, ty, out),
+            ArrayValue::Bool(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::TinyInt(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::SmallInt(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::Integer(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::BigInt(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::Float(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::Double(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::Numeric(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::Char(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::VarChar(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::Text(arr) => array_to_sql_text!(arr, ty, out, options),
             ArrayValue::Binary(_arr) => todo!("implement encoding array of binary"),
             ArrayValue::VarBinary(_arr) => todo!("implement encoding array of varbinary"),
             ArrayValue::Uuid(arr) => {
@@ -246,11 +247,11 @@ impl ToSqlText for ArrayValue {
                     out.put_slice(b"',");
                 }
             }
-            ArrayValue::Date(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::Time(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::TimeWithTimeZone(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::Timestamp(arr) => array_to_sql_text!(arr, ty, out),
-            ArrayValue::TimestampWithTimeZone(arr) => array_to_sql_text!(arr, ty, out),
+            ArrayValue::Date(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::Time(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::TimeWithTimeZone(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::Timestamp(arr) => array_to_sql_text!(arr, ty, out, options),
+            ArrayValue::TimestampWithTimeZone(arr) => array_to_sql_text!(arr, ty, out, options),
             ArrayValue::Empty => {}
         }
 

@@ -55,10 +55,10 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
     }
 }
 
-pub fn sendable_stream_to_query_response<'a>(
+pub fn sendable_stream_to_query_response(
     schema: Schema,
     record_stream: SendableStream,
-) -> PgWireResult<Response<'a>> {
+) -> PgWireResult<Response> {
     let schema_copy = schema.clone();
 
     let data_row_stream = record_stream
@@ -76,7 +76,7 @@ pub fn sendable_stream_to_query_response<'a>(
     Ok(Response::Query(QueryResponse::new(schema, data_row_stream)))
 }
 
-pub fn records_to_query_response<'a>(records: Records) -> PgWireResult<Response<'a>> {
+pub fn records_to_query_response(records: Records) -> PgWireResult<Response> {
     let schema_copy = records.schema.clone();
 
     let data_row_stream = stream::iter(records.records)
