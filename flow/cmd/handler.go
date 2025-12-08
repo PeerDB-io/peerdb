@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -179,17 +178,10 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// No running workflow, do the validations and start a new one
 
 	// Insert the table mappings into the DB
-	tableMappingsBytes, err := internal.TableMappingsToBytes(req.ConnectionConfigs.TableMappings)
-	if err != nil {
-		return nil, NewInternalApiError(fmt.Errorf("unable to marshal table mappings: %w", err))
-	}
 
-	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings, json_blob) VALUES ($1, $2, $3, $4)
-	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mappings = EXCLUDED.table_mappings`
-	slog.Info("YOOOO QUERY ", slog.String("stmt", stmt))
 	version := 12
-	jsonBlob, _ := json.MarshalIndent(req.ConnectionConfigs.TableMappings, "", "  ")
-	_, err = h.pool.Exec(ctx, stmt, cfg.FlowJobName, version, tableMappingsBytes, jsonBlob)
+	err = internal.InsertTableMappingsToDB(ctx, cfg.FlowJobName, req.ConnectionConfigs.TableMappings, uint32(version))
+
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("unable to insert table mappings: %w", err))
 	}

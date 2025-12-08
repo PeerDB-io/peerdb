@@ -221,11 +221,21 @@ func processCDCFlowConfigUpdate(
 	}
 
 	// MIGRATION: Move `tableMapping` to the DB
+
+	if len(state.SyncFlowOptions.TableMappings) > 0 &&
+		(state.SyncFlowOptions.TableMappingVersion > 0 || cfg.TableMappingVersion > 0) {
+		// means we have already migrated so we just need to wipe the flow options.
+		// these are here as part of the add tables flow.
+		state.SyncFlowOptions.TableMappings = nil
+	}
+
 	if len(state.SyncFlowOptions.TableMappings) > 0 {
-		slog.Info("migrating TableMappings to catalog storage",
+		logger.Info("migrating TableMappings to catalog storage",
 			slog.String("flowName", cfg.FlowJobName),
 			slog.Int("numMappings", len(state.SyncFlowOptions.TableMappings)),
 			slog.Any("mappings", state.SyncFlowOptions.TableMappings),
+			slog.Any("cfgTableMappingVersion", cfg.TableMappingVersion),
+			slog.Any("state", state),
 		)
 		migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
@@ -323,7 +333,10 @@ func processTableAdditions(
 
 	var res *CDCFlowWorkflowResult
 	var addTablesFlowErr error
-	version := cfg.TableMappingVersion
+	tableMappingAdditionVersions := &internal.TableMappingVersionIDs{
+		FullTableMappingVersion: cfg.TableMappingVersion,
+	}
+
 	addTablesSelector.AddFuture(alterPublicationAddAdditionalTablesFuture, func(f workflow.Future) {
 		addTablesFlowErr = f.Get(alterPublicationAddAdditionalTablesCtx, f)
 		if addTablesFlowErr == nil {
@@ -336,7 +349,7 @@ func processTableAdditions(
 			addTableMappingsCtx := context.Background()
 			defer addTableMappingsCtx.Done()
 			slog.Info("$$$ Adding table mappings for additional tables", slog.Any("tables", flowConfigUpdate.AdditionalTables))
-			newTableMappingVersion, err := internal.AddTableToTableMappings(
+			tableMappingVersions, err := internal.AddTableToTableMappings(
 				addTableMappingsCtx, additionalTablesCfg.FlowJobName, flowConfigUpdate.AdditionalTables,
 				additionalTablesCfg.TableMappingVersion,
 			)
@@ -344,13 +357,8 @@ func processTableAdditions(
 				addTablesFlowErr = fmt.Errorf("failed to update flow config table mappings for additional tables: %w", err)
 				slog.Error("!!!!!!!! failed to update flow config table mappings for additional tables", slog.Any("error", addTablesFlowErr))
 			}
-			version = *newTableMappingVersion
-			additionalTablesCfg.TableMappingVersion = version
-
-			// TODO: thought - maybe we need to pass additionalTables and then in the
-			// CDCWorkflow we persist them to the DB and send an incremented `tableMappingVersion`
-			// to the new workflow?
-			//additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
+			tableMappingAdditionVersions = tableMappingVersions
+			additionalTablesCfg.TableMappingVersion = tableMappingVersions.PartialTableMappingVersion
 
 			additionalTablesCfg.Resync = false
 			if state.SnapshotNumRowsPerPartition > 0 {
@@ -393,8 +401,11 @@ func processTableAdditions(
 	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 	//state.SyncFlowOptions.TableMappingVersion = version
 	//TODO - ADD VERSION??
-	slog.Info("UPDATING VERSION !!!! from processTableAdditions", slog.Any("prevVersion", cfg.TableMappingVersion), slog.Any("version", version))
-	cfg.TableMappingVersion = version
+	slog.Info("UPDATING VERSION !!!! from processTableAdditions",
+		slog.Any("prevVersion", cfg.TableMappingVersion),
+		slog.Any("additionalTableMappingVersions", tableMappingAdditionVersions),
+	)
+	cfg.TableMappingVersion = tableMappingAdditionVersions.FullTableMappingVersion
 
 	for res == nil {
 		slog.Info("IN LOOOP - waiting for additional tables to be added", slog.Any("res", res))
@@ -416,8 +427,8 @@ func processTableAdditions(
 			return fmt.Errorf("failed to execute child CDCFlow for additional tables: %w", addTablesFlowErr)
 		}
 	}
-	slog.Info("UPDATING VERSION !!!! from processTableAdditions", slog.Any("prevVersion", cfg.TableMappingVersion), slog.Any("version", version))
-	cfg.TableMappingVersion = version
+	slog.Info("UPDATING VERSION (2) !!!! from processTableAdditions", slog.Any("prevVersion", cfg.TableMappingVersion), slog.Any("version", tableMappingAdditionVersions))
+	cfg.TableMappingVersion = tableMappingAdditionVersions.FullTableMappingVersion
 
 	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
 
@@ -489,7 +500,7 @@ func processTableRemovals(
 
 	// remove the tables from the sync flow options
 	// do this first in case resync comes in
-	removedTables := make(map[string]struct{}, len(state.FlowConfigUpdate.RemovedTables))
+	removedTables := make(map[string]any, len(state.FlowConfigUpdate.RemovedTables))
 	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
 		removedTables[removedTable.SourceTableIdentifier] = struct{}{}
 	}
@@ -501,6 +512,18 @@ func processTableRemovals(
 		_, removed := removedTables[tm.SourceTableIdentifier]
 		return removed
 	})
+
+	//create a new TableMappingVersion since we have removed tables
+	ctxForTableMapping := context.Background()
+	defer ctxForTableMapping.Done()
+	version, err := internal.RemoveTableFromTableMappings(ctxForTableMapping, cfg.FlowJobName, removedTables, cfg.TableMappingVersion)
+	if err != nil {
+		return fmt.Errorf("failed to update flow config table mappings for removed tables: %w", err)
+	}
+	slog.Info("UPDATING VERSION !!!! from processTableRemovals",
+		slog.Any("prevVersion", cfg.TableMappingVersion), slog.Any("newVersion", version),
+	)
+	cfg.TableMappingVersion = *version
 
 	for !done {
 		removeTablesSelector.Select(ctx)
