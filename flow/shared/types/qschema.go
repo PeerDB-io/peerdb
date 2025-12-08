@@ -6,11 +6,14 @@ import (
 )
 
 type QField struct {
-	Name      string
-	Type      QValueKind
-	Precision int16
-	Scale     int16
-	Nullable  bool
+	Name string
+	Type QValueKind
+	// OriginalType is the original source type as a string
+	// Useful for custom type mappings, like BigQuery RECORD
+	OriginalType string
+	Precision    int16
+	Scale        int16
+	Nullable     bool
 }
 
 type QRecordSchema struct {

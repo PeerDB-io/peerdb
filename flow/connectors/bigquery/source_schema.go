@@ -66,12 +66,11 @@ func (c *BigQueryConnector) GetColumns(ctx context.Context, _ uint32, dataset st
 
 	columns := make([]*protos.ColumnsItem, 0, len(metadata.Schema))
 	for _, field := range metadata.Schema {
-		colType := string(field.Type)
 		qkind := string(BigQueryTypeToQValueKind(field))
 
 		columns = append(columns, &protos.ColumnsItem{
 			Name:  field.Name,
-			Type:  colType,
+			Type:  fieldNormalizedTypeName(field),
 			IsKey: slices.Contains(primaryKeys, field.Name),
 			Qkind: qkind,
 		})
