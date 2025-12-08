@@ -134,11 +134,45 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKin
 	case bigquery.JSONFieldType:
 		return types.QValueKindJSON
 	case bigquery.RecordFieldType:
-		// RECORD/STRUCT types are represented as String in ClickHouse
+		// We treat RECORD as STRING or ARRAY<STRING>
+		// In the future, we can consider mapping to JSON.
+
+		if fieldSchema.Repeated {
+			return types.QValueKindArrayString
+		}
+
 		return types.QValueKindString
 	default:
 		return types.QValueKindInvalid
 	}
+}
+
+func fieldNormalizedTypeName(field *bigquery.FieldSchema) string {
+	typeName := createTableCompatibleTypeName(field.Type)
+
+	switch field.Type {
+	case bigquery.StringFieldType, bigquery.BytesFieldType:
+		if field.MaxLength == 0 {
+			break
+		}
+
+		typeName = fmt.Sprintf("%s(%d)", typeName, field.MaxLength)
+	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
+		if field.Precision == 0 {
+			break
+		}
+		if field.Scale > 0 {
+			typeName = fmt.Sprintf("%s(%d,%d)", typeName, field.Precision, field.Scale)
+		} else {
+			typeName = fmt.Sprintf("%s(%d)", typeName, field.Precision)
+		}
+	}
+
+	if field.Repeated {
+		typeName = fmt.Sprintf("ARRAY<%s>", typeName)
+	}
+
+	return typeName
 }
 
 func createTableCompatibleTypeName(schemaType bigquery.FieldType) string {
