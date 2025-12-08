@@ -150,7 +150,7 @@ impl QueryParser for NexusQueryParser {
         &self,
         _client: &C,
         sql: &str,
-        _types: &[Type],
+        _types: &[Option<Type>],
     ) -> PgWireResult<Self::Statement>
     where
         C: ClientInfo + Unpin + Send + Sync,
