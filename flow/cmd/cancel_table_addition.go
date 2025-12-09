@@ -36,7 +36,7 @@ func (h *FlowRequestHandler) CancelTableAddition(
 	// Start the cancel table addition workflow
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                       workflowID,
-		TaskQueue:                string(shared.PeerFlowTaskQueue),
+		TaskQueue:                h.peerflowTaskQueueID,
 		TypedSearchAttributes:    shared.NewSearchAttributes(req.FlowJobName),
 		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,
