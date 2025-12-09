@@ -319,7 +319,9 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		return nil, nil, fmt.Errorf("failed to fetch flow config from db: %w", err)
 	}
 
-	jobs := make([]*bigquery.Job, 0, len(cfg.TableMappings))
+	_ = c.LogFlowInfo(ctx, flowName, "Starting snapshot BigQuery export to GCS staging bucket")
+
+	jobs := make(map[string]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
 		uri := fmt.Sprintf("%s/%s/*.avro", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
 		gcsRef := bigquery.NewGCSReference(uri)
@@ -337,14 +339,16 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
 		}
-		jobs = append(jobs, job)
+		jobs[tm.SourceTableIdentifier] = job
 	}
-	for _, job := range jobs {
+	for sourceTableIdentifier, job := range jobs {
 		if status, err := job.Wait(ctx); err != nil {
 			return nil, nil, fmt.Errorf("error waiting for export job to complete: %w", err)
 		} else if err := status.Err(); err != nil {
 			return nil, nil, fmt.Errorf("export job completed with error: %w", err)
 		}
+
+		_ = c.LogFlowInfo(ctx, flowName, fmt.Sprintf("Exported snapshot data to GCS for table %s", sourceTableIdentifier))
 	}
 
 	return nil, cfg.SnapshotStagingPath, nil
