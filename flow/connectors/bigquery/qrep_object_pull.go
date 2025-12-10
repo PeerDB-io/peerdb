@@ -23,7 +23,7 @@ import (
 
 // PullQRepObjects pulls QRep objects from GCS based on the provided configuration and partition information.
 // It streams the objects to the provided QObjectStream and returns the total number of rows and bytes processed.
-// Total number of rows is estimated based on the size of the first object and the average row size.
+// Total number of rows is not known at this time. It will be calculated during sync with an info back from ClickHouse.
 func (c *BigQueryConnector) PullQRepObjects(
 	ctx context.Context,
 	_ *otel_metrics.OtelManager,
@@ -65,10 +65,6 @@ func (c *BigQueryConnector) PullQRepObjects(
 	urlHeaders := make(http.Header)
 
 	var totalBytes int64
-	var totalRows int64
-
-	var projectedRowSizeHasBeenCalculated bool
-	var projectedRowSize uint64
 
 	processObject := func(attrs *storage.ObjectAttrs) error {
 		if token == nil || !token.IsValid() {
@@ -86,19 +82,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 			Headers: urlHeaders,
 		}
 
-		if !projectedRowSizeHasBeenCalculated {
-			// estimate the row size based on the first object
-			projectedRowSize = avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
-			c.logger.Info("projected Avro row size", slog.Uint64("bytes", projectedRowSize))
-
-			projectedRowSizeHasBeenCalculated = true
-		}
-
 		totalBytes += attrs.Size
-
-		if projectedRowSize > 0 {
-			totalRows += int64(float64(attrs.Size) / float64(projectedRowSize))
-		}
 
 		return nil
 	}
@@ -121,9 +105,8 @@ func (c *BigQueryConnector) PullQRepObjects(
 		c.logger.Info("finished pulling single downloadable object",
 			slog.String("bucket", bucketName),
 			slog.String("prefix", prefix),
-			slog.Int64("totalRows", totalRows),
 			slog.Int64("totalBytes", totalBytes))
-		return totalRows, totalBytes, nil
+		return 0, totalBytes, nil
 	}
 
 	it := bucket.Objects(ctx, &storage.Query{
@@ -139,7 +122,6 @@ func (c *BigQueryConnector) PullQRepObjects(
 			c.logger.Debug("finished listing objects in bucket",
 				slog.String("bucket", bucketName),
 				slog.String("prefix", prefix),
-				slog.Int64("totalRows", totalRows),
 				slog.Int64("totalBytes", totalBytes))
 			break
 		}
@@ -161,10 +143,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 	c.logger.Info("finished pulling downloadable objects",
 		slog.String("bucket", bucketName),
 		slog.String("prefix", prefix),
-		slog.Int64("totalRows", totalRows),
 		slog.Int64("totalBytes", totalBytes))
 
-	return totalRows, totalBytes, nil
+	return 0, totalBytes, nil
 }
 
 func (c *BigQueryConnector) GetQRepPartitions(

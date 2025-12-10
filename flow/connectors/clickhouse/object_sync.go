@@ -4,20 +4,101 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+// objectBatch holds a group of objects that can be inserted together
+// (same headers, cumulative size within limit)
+type objectBatch struct {
+	objects []*model.Object
+	size    int64
+}
+
+func (b *objectBatch) headers() http.Header {
+	return b.objects[len(b.objects)-1].Headers
+}
+
+const defaultBatchFlushInterval = 5 * time.Second
+
+// collectAndBatchObjects collects objects from stream and groups them into batches
+// based on size limits. It returns a channel that receives batches as they become
+// ready (either full or after a flush interval).
+// The channel is closed when the stream is exhausted or context is cancelled.
+// Note: All objects in a batch are assumed to have the same headers; the batch
+// uses headers from the most recent object.
+func collectAndBatchObjects(
+	ctx context.Context,
+	stream *model.QObjectStream,
+	maxBatchSize int64,
+	flushInterval time.Duration,
+) <-chan *objectBatch {
+	batches := make(chan *objectBatch)
+
+	go func() {
+		defer close(batches)
+
+		var currentBatch *objectBatch
+		ticker := time.NewTicker(flushInterval)
+		defer ticker.Stop()
+
+		flushCurrentBatch := func() {
+			if currentBatch != nil {
+				select {
+				case batches <- currentBatch:
+				case <-ctx.Done():
+					return
+				}
+				currentBatch = nil
+			}
+			ticker.Reset(flushInterval)
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Flush on interval even if batch is not full
+				flushCurrentBatch()
+			case object, ok := <-stream.Objects:
+				if !ok {
+					// Stream closed, flush remaining batch
+					flushCurrentBatch()
+					return
+				}
+
+				// Check if we can add to current batch (size limit check only)
+				if currentBatch != nil && currentBatch.size+object.Size <= maxBatchSize {
+					currentBatch.objects = append(currentBatch.objects, object)
+					currentBatch.size += object.Size
+				} else {
+					flushCurrentBatch()
+					currentBatch = &objectBatch{
+						objects: []*model.Object{object},
+						size:    object.Size,
+					}
+				}
+			}
+		}
+	}()
+
+	return batches
+}
+
 // SyncQRepObjects syncs data from downloadable objects (URLs) to ClickHouse
 // Supports all ClickHouse formats based on the stream's Format field
+// Objects are batched by matching headers and size limits to reduce INSERT operations
 func (c *ClickHouseConnector) SyncQRepObjects(
 	ctx context.Context,
 	config *protos.QRepConfig,
@@ -41,54 +122,74 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 	c.logger.Info("Starting SyncQRepObjects",
 		slog.String("dstTable", dstTableName),
 		slog.String("partitionId", partition.PartitionId),
-		slog.String("qobject_stream_format", string(format)))
-	slog.String("format", normalizedFormat)
+		slog.String("qobject_stream_format", string(format)),
+		slog.String("format", normalizedFormat))
 
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
+	// Get batch size limit from config
+	maxBatchSize, err := internal.PeerDBS3BytesPerAvroFile(ctx, config.Env)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to get batch size config: %w", err)
+	}
+
+	// Collect and batch objects from stream (non-blocking, returns channel)
+	batches := collectAndBatchObjects(ctx, stream, maxBatchSize, defaultBatchFlushInterval)
+
+	c.logger.Info("Started batching objects for processing",
+		slog.Int64("maxBatchSize", maxBatchSize),
+		slog.Duration("flushInterval", defaultBatchFlushInterval))
+
 	columnNameFieldMap := c.constructColumnNameFieldMap(schema.Fields)
 
 	var totalRecords int64
+	var totalBatches int
 	warnings := shared.QRepWarnings{}
 
-	// Process each downloadable object
-	for object := range stream.Objects {
+	// Process batches as they arrive from the channel
+	for batch := range batches {
 		if err := ctx.Err(); err != nil {
 			return 0, nil, err
 		}
 
-		c.logger.Debug("Processing downloadable object",
-			slog.String("url", object.URL),
-			slog.Int64("size", object.Size))
+		c.logger.Debug("Processing batch",
+			slog.Int("batchIndex", totalBatches),
+			slog.Int("objectCount", len(batch.objects)),
+			slog.Int64("batchSize", batch.size))
 
-		// we should generate insert query once and use query params to insert multiple files
-		// query param should be used for headers as well
-		recordsInserted, err := c.insertFromURLWithMapping(
+		recordsInserted, err := c.insertFromURLBatch(
 			ctx,
 			config,
-			object,
+			batch,
 			schema,
 			columnNameFieldMap,
 			normalizedFormat,
 			fieldExpressionConverters...,
 		)
 		if err != nil {
-			c.logger.Error("Failed to insert from URL",
-				slog.String("url", object.URL),
+			// Log all URLs in the failed batch
+			urls := make([]string, len(batch.objects))
+			for i, obj := range batch.objects {
+				urls[i] = obj.URL
+			}
+			c.logger.Error("Failed to insert batch",
+				slog.Any("urls", urls),
 				slog.Any("error", err))
-			return 0, nil, fmt.Errorf("failed to insert from URL %s: %w", object.URL, err)
+			return 0, nil, fmt.Errorf("failed to insert batch: %w", err)
 		}
 
 		totalRecords += recordsInserted
-		c.logger.Info("Successfully processed object",
-			slog.String("url", object.URL),
+		totalBatches++
+		c.logger.Info("Successfully processed batch",
+			slog.Int("batchIndex", totalBatches-1),
+			slog.Int("objectCount", len(batch.objects)),
 			slog.Int64("recordsInserted", recordsInserted))
 	}
 
-	// Check for stream errors
+	// Check for stream errors after processing all batches
 	if err := stream.Err(); err != nil {
 		return 0, nil, fmt.Errorf("stream error: %w", err)
 	}
@@ -101,7 +202,8 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 	c.logger.Info("Completed SyncQRepObjects",
 		slog.String("dstTable", dstTableName),
 		slog.String("partitionId", partition.PartitionId),
-		slog.Int64("totalRecords", totalRecords))
+		slog.Int64("totalRecords", totalRecords),
+		slog.Int("totalBatches", totalBatches))
 
 	return totalRecords, warnings, nil
 }
@@ -116,17 +218,18 @@ func (c *ClickHouseConnector) constructColumnNameFieldMap(fields []types.QField)
 	return columnNameFieldMap
 }
 
-// insertFromURLWithMapping inserts data from a URL using proper column mapping
-func (c *ClickHouseConnector) insertFromURLWithMapping(
+// insertFromURLBatch inserts data from a batch of URLs using proper column mapping
+// Uses ClickHouse's brace expansion for multiple URLs: url('{url1,url2}', ...)
+func (c *ClickHouseConnector) insertFromURLBatch(
 	ctx context.Context,
 	config *protos.QRepConfig,
-	object *model.Object,
+	batch *objectBatch,
 	schema types.QRecordSchema,
 	columnNameFieldMap map[string]string,
 	format string,
 	fieldExpressionConverters ...fieldExpressionConverter,
 ) (int64, error) {
-	urlTableFunction := c.buildURLTableFunction(object, format)
+	urlTableFunction := c.buildURLTableFunction(batch, format)
 
 	insertConfig := &insertFromTableFunctionConfig{
 		destinationTable:          config.DestinationTableIdentifier,
@@ -145,7 +248,7 @@ func (c *ClickHouseConnector) insertFromURLWithMapping(
 	}
 
 	c.logger.Debug("Executing URL table function query",
-		slog.String("url", object.URL),
+		slog.Int("urlCount", len(batch.objects)),
 		slog.String("format", format),
 		slog.String("query", query))
 
@@ -162,18 +265,34 @@ func (c *ClickHouseConnector) insertFromURLWithMapping(
 }
 
 // buildURLTableFunction builds a ClickHouse URL table function with headers and format
-func (c *ClickHouseConnector) buildURLTableFunction(object *model.Object, format string) string {
+// Supports multiple URLs using brace expansion: url('{url1,url2,url3}', ...)
+func (c *ClickHouseConnector) buildURLTableFunction(batch *objectBatch, format string) string {
 	var expr strings.Builder
 
 	// Start with url function: url(URL, [headers(...), ] format)
 	expr.WriteString("url(")
-	expr.WriteString(peerdb_clickhouse.QuoteLiteral(object.URL))
 
-	// Add headers if present
-	if len(object.Headers) > 0 {
+	// Build URL string - use brace expansion for multiple URLs
+	if len(batch.objects) == 1 {
+		expr.WriteString(peerdb_clickhouse.QuoteLiteral(batch.objects[0].URL))
+	} else {
+		// Multiple URLs: use brace expansion {url1,url2,url3}
+		var urlList strings.Builder
+		urlList.WriteString("{")
+		for i, obj := range batch.objects {
+			if i > 0 {
+				urlList.WriteString(",")
+			}
+			urlList.WriteString(obj.URL)
+		}
+		urlList.WriteString("}")
+		expr.WriteString(peerdb_clickhouse.QuoteLiteral(urlList.String()))
+	}
+
+	if headers := batch.headers(); len(headers) > 0 {
 		expr.WriteString(", headers(")
 		first := true
-		for name, values := range object.Headers {
+		for name, values := range headers {
 			// Use the first value for each header name
 			if len(values) == 0 {
 				continue
