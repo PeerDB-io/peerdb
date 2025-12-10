@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/google/uuid"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -337,6 +338,13 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		extractor := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table).ExtractorTo(gcsRef)
 		job, err := extractor.Run(ctx)
 		if err != nil {
+			var apiErr *googleapi.Error
+			if errors.As(err, &apiErr) {
+				if apiErr.Code == 403 {
+					_ = c.LogFlowInfo(ctx, flowName, fmt.Sprintf("Permission denied error when starting export job for table %s: %s", tm.SourceTableIdentifier, apiErr.Message))
+				}
+			}
+
 			return nil, nil, fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
 		}
 		jobs[tm.SourceTableIdentifier] = job
@@ -348,7 +356,7 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 			return nil, nil, fmt.Errorf("export job completed with error: %w", err)
 		}
 
-		_ = c.LogFlowInfo(ctx, flowName, fmt.Sprintf("Exported snapshot data to GCS for table %s", sourceTableIdentifier))
+		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTableIdentifier)
 	}
 
 	return nil, cfg.SnapshotStagingPath, nil
