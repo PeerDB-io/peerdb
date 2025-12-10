@@ -28,7 +28,10 @@ use pgwire::{
         ClientInfo, ClientPortalStore, PgWireServerHandlers, Type,
         auth::{
             AuthSource, LoginInfo, Password, ServerParameterProvider, StartupHandler,
-            scram::{SASLScramAuthStartupHandler, gen_salted_password},
+            sasl::{
+                SASLAuthStartupHandler,
+                scram::{ScramAuth, gen_salted_password},
+            },
         },
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler},
@@ -65,6 +68,7 @@ use {
 
 mod cursor;
 
+#[derive(Debug)]
 pub struct FixedPasswordAuthSource {
     password: String,
 }
@@ -114,11 +118,11 @@ impl NexusBackend {
     }
 
     // execute a statement on a peer
-    async fn process_execution<'a>(
+    async fn process_execution(
         &self,
         result: QueryOutput,
         peer_holder: Option<Box<Peer>>,
-    ) -> PgWireResult<Vec<Response<'a>>> {
+    ) -> PgWireResult<Vec<Response>> {
         match result {
             QueryOutput::AffectedRows(rows) => {
                 Ok(vec![Response::Execution(Tag::new("OK").with_rows(rows))])
@@ -165,7 +169,7 @@ impl NexusBackend {
     fn handle_mirror_existence(
         if_not_exists: bool,
         flow_name: &str,
-    ) -> PgWireResult<Vec<Response<'static>>> {
+    ) -> PgWireResult<Vec<Response>> {
         if if_not_exists {
             let existing_mirror_success = "MIRROR ALREADY EXISTS";
             Ok(vec![Response::Execution(Tag::new(existing_mirror_success))])
@@ -209,10 +213,10 @@ impl NexusBackend {
         }
     }
 
-    async fn handle_drop_mirror<'a>(
+    async fn handle_drop_mirror(
         &self,
         drop_mirror_stmt: &NexusStatement,
-    ) -> PgWireResult<Vec<Response<'a>>> {
+    ) -> PgWireResult<Vec<Response>> {
         match drop_mirror_stmt {
             NexusStatement::PeerDDL { stmt: _, ddl } => match ddl.as_ref() {
                 PeerDDL::DropMirror {
@@ -254,10 +258,10 @@ impl NexusBackend {
         }
     }
 
-    async fn handle_create_mirror_for_select<'a>(
+    async fn handle_create_mirror_for_select(
         &self,
         create_mirror_stmt: &NexusStatement,
-    ) -> PgWireResult<Vec<Response<'a>>> {
+    ) -> PgWireResult<Vec<Response>> {
         match create_mirror_stmt {
             NexusStatement::PeerDDL { stmt: _, ddl } => match ddl.as_ref() {
                 PeerDDL::CreateMirrorForSelect {
@@ -303,10 +307,7 @@ impl NexusBackend {
         }
     }
 
-    async fn handle_query<'a>(
-        &self,
-        nexus_stmt: NexusStatement,
-    ) -> PgWireResult<Vec<Response<'a>>> {
+    async fn handle_query(&self, nexus_stmt: NexusStatement) -> PgWireResult<Vec<Response>> {
         match nexus_stmt {
             NexusStatement::PeerDDL { stmt: _, ref ddl } => match ddl.as_ref() {
                 PeerDDL::CreatePeer { peer, .. } => {
@@ -769,7 +770,7 @@ impl NexusBackend {
 
 #[async_trait]
 impl SimpleQueryHandler for NexusBackend {
-    async fn do_query<'a, C>(&self, _client: &mut C, sql: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, sql: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -784,41 +785,48 @@ impl SimpleQueryHandler for NexusBackend {
 fn parameter_to_string(portal: &Portal<NexusParsedStatement>, idx: usize) -> PgWireResult<String> {
     // the index is managed from portal's parameters count so it's safe to
     // unwrap here.
-    let param_type = portal.statement.parameter_types.get(idx).unwrap();
-    match param_type {
-        &Type::VARCHAR | &Type::TEXT => Ok(format!(
-            "'{}'",
-            portal
-                .parameter::<String>(idx, param_type)?
-                .map(|s| s.replace('\'', "''"))
-                .as_deref()
-                .unwrap_or("")
-        )),
-        &Type::BOOL => Ok(portal
-            .parameter::<bool>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        &Type::INT4 => Ok(portal
-            .parameter::<i32>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        &Type::INT8 => Ok(portal
-            .parameter::<i64>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        &Type::FLOAT4 => Ok(portal
-            .parameter::<f32>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        &Type::FLOAT8 => Ok(portal
-            .parameter::<f64>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+    if let Some(param_type) = portal.statement.parameter_types.get(idx).unwrap() {
+        match param_type {
+            &Type::VARCHAR | &Type::TEXT => Ok(format!(
+                "'{}'",
+                portal
+                    .parameter::<String>(idx, param_type)?
+                    .map(|s| s.replace('\'', "''"))
+                    .as_deref()
+                    .unwrap_or("")
+            )),
+            &Type::BOOL => Ok(portal
+                .parameter::<bool>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            &Type::INT4 => Ok(portal
+                .parameter::<i32>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            &Type::INT8 => Ok(portal
+                .parameter::<i64>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            &Type::FLOAT4 => Ok(portal
+                .parameter::<f32>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            &Type::FLOAT8 => Ok(portal
+                .parameter::<f64>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "22023".to_owned(),
+                "unsupported_parameter_value".to_owned(),
+            )))),
+        }
+    } else {
+        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
             "ERROR".to_owned(),
             "22023".to_owned(),
-            "unsupported_parameter_value".to_owned(),
-        )))),
+            "missing_parameter_value".to_owned(),
+        ))))
     }
 }
 
@@ -831,12 +839,12 @@ impl ExtendedQueryHandler for NexusBackend {
         Arc::new(self.query_parser.clone())
     }
 
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         _client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
@@ -889,7 +897,18 @@ impl ExtendedQueryHandler for NexusBackend {
     {
         Ok(
             if let Some(schema) = self.do_describe(&target.statement).await? {
-                DescribeStatementResponse::new(target.parameter_types.clone(), (*schema).clone())
+                DescribeStatementResponse::new(
+                    target
+                        .parameter_types
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, typ)| {
+                            typ.clone()
+                                .unwrap_or_else(|| schema[idx].datatype().clone())
+                        })
+                        .collect::<Vec<_>>(),
+                    (*schema).clone(),
+                )
             } else {
                 DescribeStatementResponse::no_data()
             },
@@ -1120,10 +1139,10 @@ impl PgWireServerHandlers for Handlers {
     }
 
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        Arc::new(SASLScramAuthStartupHandler::new(
-            self.authenticator.0.clone(),
-            self.authenticator.1.clone(),
-        ))
+        Arc::new(
+            SASLAuthStartupHandler::new(self.authenticator.1.clone())
+                .with_scram(ScramAuth::new(self.authenticator.0.clone())),
+        )
     }
 }
 

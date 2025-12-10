@@ -183,7 +183,8 @@ func (c *BigQueryConnector) GetQRepPartitions(
 	var currentPartition *protos.QRepPartition
 	var currentPartitionTotalSize uint64
 
-	var projectedMaximumPartitionSize *uint64
+	var projectedMaximumPartitionSize uint64
+	var projectedPartitionSizeCalculated bool
 
 	for {
 		attrs, err := it.Next()
@@ -205,12 +206,12 @@ func (c *BigQueryConnector) GetQRepPartitions(
 			continue
 		}
 
-		if projectedMaximumPartitionSize == nil {
+		if !projectedPartitionSizeCalculated {
 			rowSize := avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
-			partitionSize := uint64(config.NumRowsPerPartition) * rowSize
-			projectedMaximumPartitionSize = &partitionSize
+			projectedMaximumPartitionSize = uint64(config.NumRowsPerPartition) * rowSize
+			projectedPartitionSizeCalculated = true
 
-			c.logger.Info("estimated avro object average row size", slog.Uint64("size", partitionSize))
+			c.logger.Info("estimated avro object average row size", slog.Uint64("size", projectedMaximumPartitionSize))
 		}
 
 		if currentPartition == nil {
@@ -231,7 +232,7 @@ func (c *BigQueryConnector) GetQRepPartitions(
 		currentPartitionTotalSize += uint64(attrs.Size)
 		currentPartition.Range.GetObjectIdRange().End = attrs.Name
 
-		if currentPartitionTotalSize >= *projectedMaximumPartitionSize {
+		if currentPartitionTotalSize >= projectedMaximumPartitionSize {
 			partitions = append(partitions, currentPartition)
 			currentPartition = nil
 			currentPartitionTotalSize = 0
@@ -270,11 +271,12 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 		}
 
 		qField := types.QField{
-			Name:      field.Name,
-			Type:      qValueKind,
-			Nullable:  !field.Required,
-			Precision: int16(field.Precision),
-			Scale:     int16(field.Scale),
+			Name:         field.Name,
+			Type:         qValueKind,
+			OriginalType: string(field.Type),
+			Nullable:     !field.Required,
+			Precision:    int16(field.Precision),
+			Scale:        int16(field.Scale),
 		}
 
 		fields = append(fields, qField)
