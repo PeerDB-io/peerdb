@@ -499,6 +499,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
+			// Handle Neon disk quota exceeded errors
+			if strings.Contains(pgErr.Message, "Disk quota exceeded") {
+				return ErrorNotifyConnectivity, pgErrorInfo
+			}
+
 			// Handle Neon's custom WAL reading error
 			if pgErr.Routine == "NeonWALPageRead" && strings.Contains(pgErr.Message, "server closed the connection unexpectedly") {
 				return ErrorNotifyConnectivity, pgErrorInfo
