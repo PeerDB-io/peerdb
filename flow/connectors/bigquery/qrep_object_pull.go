@@ -36,7 +36,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 ) (int64, int64, error) {
 	defer close(stream.Objects)
 
-	stream.SetFormat(model.QObjectStreamBigQueryExportAvroFormat)
+	stream.SetFormat(model.QObjectStreamBigQueryExportParquetFormat)
 
 	schema, err := c.getQRepSchema(ctx, config)
 	if err != nil {
@@ -231,7 +231,7 @@ func (c *BigQueryConnector) GetQRepPartitions(
 		}
 
 		if !projectedPartitionSizeCalculated {
-			rowSize := avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
+			rowSize := parquetObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
 			projectedMaximumPartitionSize = uint64(adjustedPartitions.AdjustedNumRowsPerPartition) * rowSize
 			projectedPartitionSizeCalculated = true
 
@@ -324,8 +324,6 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	flowName string,
 	_ map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
-	return nil, nil, nil
-
 	cfg, err := internal.FetchConfigFromDB(ctx, c.catalogPool, flowName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch flow config from db: %w", err)
@@ -335,11 +333,11 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 
 	jobs := make(map[string]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
-		uri := fmt.Sprintf("%s/%s/*.avro", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
+		uri := fmt.Sprintf("%s/%s/*.parquet", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
 		gcsRef := bigquery.NewGCSReference(uri)
-		gcsRef.DestinationFormat = bigquery.Avro
-		gcsRef.AvroOptions = &bigquery.AvroOptions{UseAvroLogicalTypes: true}
-		gcsRef.Compression = bigquery.Deflate
+		gcsRef.DestinationFormat = bigquery.Parquet
+		gcsRef.ParquetOptions = &bigquery.ParquetOptions{EnumAsString: true}
+		gcsRef.Compression = bigquery.Gzip
 
 		dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
 		if err != nil {

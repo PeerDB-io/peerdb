@@ -115,6 +115,7 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 	normalizedFormat := model.QObjectStreamFormatNormalized(format)
 
 	var fieldExpressionConverters []fieldExpressionConverter
+	fieldExpressionConverters = append(fieldExpressionConverters, objectSyncBigQueryExportFieldExpressionConverters...)
 	if format == model.QObjectStreamBigQueryExportAvroFormat {
 		fieldExpressionConverters = objectSyncBigQueryAvroExportFieldExpressionConverters
 	}
