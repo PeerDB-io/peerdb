@@ -31,13 +31,15 @@ async function handleDropMirror(
   dropArgs: dropMirrorArgs,
   setLoading: Dispatch<SetStateAction<boolean>>,
   setMsg: Dispatch<SetStateAction<string>>,
-  dropStats: boolean
+  dropStats: boolean,
+  skipDestDrop: boolean
 ) {
   setLoading(true);
   const res = await changeFlowState(
     dropArgs.flowJobName,
     FlowStatus.STATUS_TERMINATING,
-    dropStats
+    dropStats,
+    skipDestDrop
   );
   setLoading(false);
   if (res.status !== 200) {
@@ -60,6 +62,7 @@ export default function DropDialog({
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [dropStats, setDropStats] = useState(true);
+  const [skipDestDrop, setSkipDestDrop] = useState(false);
 
   const handleDropPeer = async (dropArgs: dropPeerArgs) => {
     if (!dropArgs.peerName) {
@@ -133,7 +136,8 @@ export default function DropDialog({
           dropArgs as dropMirrorArgs,
           setLoading,
           setMsg,
-          dropStats
+          dropStats,
+          skipDestDrop
         );
       case 'PEER':
         return handleDropPeer(dropArgs as dropPeerArgs);
@@ -175,6 +179,17 @@ export default function DropDialog({
               <Checkbox
                 checked={dropStats}
                 onCheckedChange={(state: boolean) => setDropStats(state)}
+              />
+            }
+          />
+        )}
+        {mode === 'MIRROR' && (
+          <RowWithCheckbox
+            label={<Label>Skip destination drop</Label>}
+            action={
+              <Checkbox
+                checked={skipDestDrop}
+                onCheckedChange={(state: boolean) => setSkipDestDrop(state)}
               />
             }
           />
