@@ -236,7 +236,7 @@ func (c *BigQueryConnector) GetQRepPartitions(
 			projectedPartitionSizeCalculated = true
 
 			c.logger.Info(
-				"[bigquery] estimated avro object average row size",
+				"[bigquery] estimated parquet object average row size",
 				slog.Uint64("size", projectedMaximumPartitionSize),
 			)
 		}
