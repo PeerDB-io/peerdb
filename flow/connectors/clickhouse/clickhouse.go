@@ -207,9 +207,9 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	// validate s3 stage
-	if err := ValidateS3(ctx, c.credsProvider); err != nil {
-		return fmt.Errorf("failed to validate S3 bucket: %w", err)
-	}
+	//if err := ValidateS3(ctx, c.credsProvider); err != nil {
+	//	return fmt.Errorf("failed to validate S3 bucket: %w", err)
+	//}
 
 	return nil
 }

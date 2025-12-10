@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/google/uuid"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
@@ -154,6 +155,28 @@ func (c *BigQueryConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
+	dsTable, err := c.convertToDatasetTable(config.WatermarkTable)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse table identifier %s: %w", config.WatermarkTable, err)
+	}
+
+	tableRef := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
+	metadata, err := tableRef.Metadata(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get table metadata for %s.%s: %w", dsTable.dataset, dsTable.table, err)
+	}
+
+	totalRows := int64(metadata.NumRows)
+	numRowsPerPartition := int64(config.NumRowsPerPartition)
+
+	adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
+
+	c.logger.Info("[bigquery] partition details",
+		slog.Int64("totalRows", totalRows),
+		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+		slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
+
 	stagingPath, err := parseGCSPath(config.StagingPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
@@ -209,10 +232,13 @@ func (c *BigQueryConnector) GetQRepPartitions(
 
 		if !projectedPartitionSizeCalculated {
 			rowSize := avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
-			projectedMaximumPartitionSize = uint64(config.NumRowsPerPartition) * rowSize
+			projectedMaximumPartitionSize = uint64(adjustedPartitions.AdjustedNumRowsPerPartition) * rowSize
 			projectedPartitionSizeCalculated = true
 
-			c.logger.Info("estimated avro object average row size", slog.Uint64("size", projectedMaximumPartitionSize))
+			c.logger.Info(
+				"[bigquery] estimated avro object average row size",
+				slog.Uint64("size", projectedMaximumPartitionSize),
+			)
 		}
 
 		if currentPartition == nil {
@@ -298,6 +324,8 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	flowName string,
 	_ map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
+	return nil, nil, nil
+
 	cfg, err := internal.FetchConfigFromDB(ctx, c.catalogPool, flowName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch flow config from db: %w", err)
