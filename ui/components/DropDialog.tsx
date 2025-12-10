@@ -185,7 +185,9 @@ export default function DropDialog({
         )}
         {mode === 'MIRROR' && (
           <RowWithCheckbox
-            label={<Label>Skip destination drop</Label>}
+            label={
+              <Label>Skip destination metadata (such as _peerdb_raw table)</Label>
+            }
             action={
               <Checkbox
                 checked={skipDestDrop}
