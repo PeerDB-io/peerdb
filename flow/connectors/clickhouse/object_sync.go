@@ -112,32 +112,24 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to get format from stream: %w", err)
 	}
-	normalizedFormat := model.QObjectStreamFormatNormalized(format)
-
-	var fieldExpressionConverters []fieldExpressionConverter
-	fieldExpressionConverters = append(fieldExpressionConverters, objectSyncBigQueryExportFieldExpressionConverters...)
-	if format == model.QObjectStreamBigQueryExportAvroFormat {
-		fieldExpressionConverters = objectSyncBigQueryAvroExportFieldExpressionConverters
-	}
 
 	c.logger.Info("Starting SyncQRepObjects",
 		slog.String("dstTable", dstTableName),
 		slog.String("partitionId", partition.PartitionId),
-		slog.String("qobject_stream_format", string(format)),
-		slog.String("format", normalizedFormat))
+		slog.String("format", string(format)))
 
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	// Get batch size limit from config
+	// For ClickHouse records sync we have Avro file size limits.
+	// We reuse the same value as a good heuristic for batching inserts.
 	maxBatchSize, err := internal.PeerDBS3BytesPerAvroFile(ctx, config.Env)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to get batch size config: %w", err)
 	}
 
-	// Collect and batch objects from stream (non-blocking, returns channel)
 	batches := collectAndBatchObjects(ctx, stream, maxBatchSize, defaultBatchFlushInterval)
 
 	c.logger.Info("Started batching objects for processing",
@@ -150,7 +142,6 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 	var totalBatches int
 	warnings := shared.QRepWarnings{}
 
-	// Process batches as they arrive from the channel
 	for batch := range batches {
 		if err := ctx.Err(); err != nil {
 			return 0, nil, err
@@ -167,11 +158,10 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 			batch,
 			schema,
 			columnNameFieldMap,
-			normalizedFormat,
-			fieldExpressionConverters...,
+			string(format),
+			objectSyncBigQueryExportFieldExpressionConverters...,
 		)
 		if err != nil {
-			// Log all URLs in the failed batch
 			urls := make([]string, len(batch.objects))
 			for i, obj := range batch.objects {
 				urls[i] = obj.URL
@@ -190,7 +180,6 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 			slog.Int64("recordsInserted", recordsInserted))
 	}
 
-	// Check for stream errors after processing all batches
 	if err := stream.Err(); err != nil {
 		return 0, nil, fmt.Errorf("stream error: %w", err)
 	}
