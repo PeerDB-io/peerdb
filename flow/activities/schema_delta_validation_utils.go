@@ -77,12 +77,6 @@ func reportUnexpectedSchemaDiffs(
 
 		var issues []string
 
-		// Build column maps for comparison
-		baseColumnMap := make(map[string]*protos.FieldDescription)
-		for _, col := range baseSchema.Columns {
-			baseColumnMap[col.Name] = col
-		}
-
 		v1ColumnMap := make(map[string]*protos.FieldDescription)
 		for _, col := range schemaV1.Columns {
 			v1ColumnMap[col.Name] = col

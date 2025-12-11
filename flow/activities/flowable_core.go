@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -167,7 +168,7 @@ func applySchemaDeltaV2(
 		if schema == nil {
 			return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
 		}
-		schemasCopy[tableName] = proto.Clone(schema).(*protos.TableSchema)
+		schemasCopy[tableName] = proto.CloneOf(schema)
 	}
 
 	ddlTableNames := make([]string, 0, len(schemaDeltas))
@@ -180,20 +181,22 @@ func applySchemaDeltaV2(
 		for name := range schemasCopy {
 			matchedTables = append(matchedTables, name)
 		}
-		logger.Warn(fmt.Sprintf("not all tables are found, expected: %v, actual, %v", ddlTableNames, matchedTables))
+		logger.Warn("not all tables are found",
+			slog.String("expected", strings.Join(ddlTableNames, ", ")),
+			slog.String("actual", strings.Join(matchedTables, ", ")))
 	}
 
 	for _, schemaDelta := range schemaDeltas {
 		schema := schemasCopy[schemaDelta.DstTableName]
-		columnNames := make(map[string]bool, len(schema.GetColumns()))
+		columnNames := make(map[string]struct{}, len(schema.GetColumns()))
 		for _, col := range schema.GetColumns() {
-			columnNames[col.Name] = true
+			columnNames[col.Name] = struct{}{}
 		}
 		for _, newCol := range schemaDelta.GetAddedColumns() {
 			// only add columns that don't already exists
-			if !columnNames[newCol.Name] {
+			if _, exists := columnNames[newCol.Name]; !exists {
 				schema.Columns = append(schema.Columns, newCol)
-				columnNames[newCol.Name] = true
+				columnNames[newCol.Name] = struct{}{}
 			} else {
 				logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' in table %s", newCol.Name, schemaDelta.DstTableName))
 			}
