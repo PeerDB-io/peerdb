@@ -6,12 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -563,6 +565,105 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName2]))
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+// Test_Schema_Change_Lost_Column_Bug addresses a race condition where a column added to the
+// source table without a subsequent DML operation can be "lost" during schema evolution.
+// The scenario:
+//  1. CDC mirror is running with a small batch size
+//  2. ALTER TABLE adds good_column + INSERT (relation message sent for good_column)
+//  3. ALTER TABLE adds lost_column (NO subsequent DML, so no relation message yet)
+//  4. PeerDB syncs: adds good_column to destination, then applySchemaDelta updates catalog
+//     with latest source db schema (which includes lost_column)
+//  5. Next INSERT triggers relation message, adds lost_column to schemaDeltas
+//  6. PeerDB compares against catalog (which has lost_column) -> no delta detected
+//  7. Error: lost_column doesn't exist on destination but we try to insert data for it
+func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
+	t := s.T()
+	_, ok := s.Source().(*PostgresSource)
+	if !ok {
+		t.Skip("test only applies to postgres")
+	}
+
+	srcTable := "test_lost_column_bug"
+	dstTable := "test_lost_column_bug_dst"
+	srcTableName := AttachSchema(s, srcTable)
+	dstTableName := s.DestinationTable(dstTable)
+
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY)`,
+		srcTableName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.Env = map[string]string{"PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG": "true"}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN good_column text NOT NULL`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (good_column) values ('good1')`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN lost_column text`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "wait for first row synced", srcTable, dstTable, "id,good_column")
+
+	// Verify catalog schema after first sync
+	expectedCatalogSchema := &protos.TableSchema{
+		TableIdentifier:       srcTableName,
+		PrimaryKeyColumns:     []string{"id"},
+		IsReplicaIdentityFull: false,
+		NullableEnabled:       false,
+		System:                protos.TypeSystem_Q,
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "id",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: -1,
+				Nullable:     false,
+			},
+			{
+				Name:         "good_column",
+				Type:         string(types.QValueKindString),
+				TypeModifier: -1,
+				Nullable:     false,
+			},
+		},
+	}
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	EnvNoError(t, env, err)
+	catalogSchemas, err := internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	EnvNoError(t, env, err)
+	assert.Len(t, catalogSchemas, 1)
+	catalogSchema := catalogSchemas[dstTableName]
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedCatalogSchema, catalogSchema))
+
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (good_column, lost_column) VALUES ('good2', 'lost2')`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "wait for second row synced", srcTable, dstTable, "id,good_column,lost_column")
+
+	// Verify schema after second sync
+	expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
+		Name:         "lost_column",
+		Type:         string(types.QValueKindString),
+		TypeModifier: -1,
+		Nullable:     true,
+	})
+	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	EnvNoError(t, env, err)
+	assert.Len(t, catalogSchemas, 1)
+	catalogSchema = catalogSchemas[dstTableName]
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedCatalogSchema, catalogSchema))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
