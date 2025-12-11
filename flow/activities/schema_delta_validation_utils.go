@@ -92,10 +92,15 @@ func reportUnexpectedSchemaDiffs(
 			v1Col, existsInV1 := v1ColumnMap[baseCol.Name]
 			v2Col, existsInV2 := v2ColumnMap[baseCol.Name]
 
-			if !existsInV1 {
-				issues = append(issues, fmt.Sprintf("existing column '%s' missing in v1", baseCol.Name))
-			}
-			if !existsInV2 {
+			// Column missing in v1 is expected:
+			// - in applySchemaDeltaV1, we were syncing catalog with schema from source.
+			//   DROP COLUMN DDLs are ignored and do not trigger a schema fetch,
+			//   but subsequent ADD COLUMN DDLs would fetch the latest schema from source
+			//   with dropped columns removed.
+			// - in applySchemaDeltaV2, we never fetch schema from source, therefore it's
+			//   expected that deleted columns are in v2, but not in v1.
+			// Only report error if column exists in v1 but not in v2.
+			if existsInV1 && !existsInV2 {
 				issues = append(issues, fmt.Sprintf("existing column '%s' missing in v2", baseCol.Name))
 			}
 

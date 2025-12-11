@@ -686,6 +686,111 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 	RequireEnvCanceled(t, env)
 }
 
+func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
+	t := s.T()
+
+	srcTable := "test_ddl_drop_column"
+	dstTable := "test_ddl_drop_column_dst"
+	srcTableName := AttachSchema(s, srcTable)
+	dstTableName := s.DestinationTable(dstTable)
+
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (id int PRIMARY KEY, col_to_drop_first text NOT NULL, col_to_drop_second text)`,
+		srcTableName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.Env = map[string]string{"PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG": "true"}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s DROP COLUMN col_to_drop_first`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, col_to_drop_second) VALUES (1, 'drop2b')`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s DROP COLUMN col_to_drop_second`, srcTableName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "wait for first row synced", srcTable, dstTable, "id")
+
+	_, isPostgres := s.Source().(*PostgresSource)
+	_, isMySQL := s.Source().(*MySqlSource)
+
+	// for integer, postgres reports typmod -1 while mysql reports precision-based typmod (precision=10, scale=0)
+	var integerTypmod int32
+	if isPostgres {
+		integerTypmod = -1
+	} else if isMySQL {
+		integerTypmod = 655364
+	}
+
+	// dropped columns persist in catalog
+	expectedCatalogSchema := &protos.TableSchema{
+		TableIdentifier:       srcTableName,
+		PrimaryKeyColumns:     []string{"id"},
+		IsReplicaIdentityFull: false,
+		NullableEnabled:       false,
+		System:                protos.TypeSystem_Q,
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "id",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: integerTypmod,
+				Nullable:     false,
+			},
+			{
+				Name:         "col_to_drop_first",
+				Type:         string(types.QValueKindString),
+				TypeModifier: -1,
+				Nullable:     false,
+			},
+			{
+				Name:         "col_to_drop_second",
+				Type:         string(types.QValueKindString),
+				TypeModifier: -1,
+				Nullable:     true,
+			},
+		},
+	}
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	EnvNoError(t, env, err)
+	catalogSchemas, err := internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	EnvNoError(t, env, err)
+	assert.Len(t, catalogSchemas, 1)
+	catalogSchema := catalogSchemas[dstTableName]
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedCatalogSchema, catalogSchema))
+
+	// Add a column to validate previously drop columns are handled correctly after schema deltas are applied
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN col_to_add text`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, col_to_add) VALUES (2, 'add2')`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "wait for second row synced", srcTable, dstTable, "id, col_to_add")
+
+	expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
+		Name:         "col_to_add",
+		Type:         string(types.QValueKindString),
+		TypeModifier: -1,
+		Nullable:     true,
+	})
+
+	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	EnvNoError(t, env, err)
+	assert.Len(t, catalogSchemas, 1)
+	catalogSchema = catalogSchemas[dstTableName]
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedCatalogSchema, catalogSchema))
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	t := s.T()
 

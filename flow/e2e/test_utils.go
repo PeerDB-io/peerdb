@@ -776,9 +776,11 @@ func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual
 	}
 	if expected.NullableEnabled != actual.NullableEnabled {
 		t.Logf("expected nullable enabled to be %t, got %t", expected.NullableEnabled, actual.NullableEnabled)
+		return false
 	}
 	if expected.System != actual.System {
 		t.Logf("expected system to be %s, got %s", expected.System, actual.System)
+		return false
 	}
 	if slices.Compare(expected.PrimaryKeyColumns, actual.PrimaryKeyColumns) != 0 {
 		t.Logf("expected primary keys columns %v, got %v", expected.PrimaryKeyColumns, actual.PrimaryKeyColumns)
