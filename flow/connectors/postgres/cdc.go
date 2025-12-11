@@ -1170,8 +1170,6 @@ func processRelationMessage[Items model.Items](
 				p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
 					column.Name, schemaDelta.SrcTableName))
 			}
-			// present in previous and current relation messages, but data types have changed.
-			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
 			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
 				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
