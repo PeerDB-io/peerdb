@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -71,9 +70,9 @@ func (a *FlowableActivity) applySchemaDeltas(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	ddlTableNames := make([]string, 0, len(schemaDeltas))
+	dstTableNamesInDeltas := make([]string, 0, len(schemaDeltas))
 	for _, schemaDelta := range schemaDeltas {
-		ddlTableNames = append(ddlTableNames, schemaDelta.DstTableName)
+		dstTableNamesInDeltas = append(dstTableNamesInDeltas, schemaDelta.DstTableName)
 	}
 
 	applyV2, err := internal.PeerDBApplySchemaDeltaToCatalogEnabled(ctx, config.Env)
@@ -88,7 +87,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 			a.CatalogPool,
 			logger,
 			config.FlowJobName,
-			ddlTableNames,
+			dstTableNamesInDeltas,
 			// use a closure to keep ReadModifyWriteTableSchemasToCatalog's `modifyFn` flexible
 			func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
 				return applySchemaDeltaV2(ctx, schemas, schemaDeltas)
@@ -100,7 +99,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 		return nil
 	} else {
 		skipValidate := false
-		baseSchema, err := internal.LoadTableSchemasFromCatalog(ctx, a.CatalogPool, config.FlowJobName, ddlTableNames)
+		baseSchema, err := internal.LoadTableSchemasFromCatalog(ctx, a.CatalogPool, config.FlowJobName, dstTableNamesInDeltas)
 		if err != nil {
 			logger.Warn("skipping v2 validation: cannot load base schemas", slog.Any("error", err))
 			skipValidate = true
@@ -111,7 +110,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 		}
 
 		if !skipValidate {
-			validateV2AgainstV1(ctx, a.CatalogPool, config.FlowJobName, baseSchema, schemaDeltas, ddlTableNames)
+			validateV2AgainstV1(ctx, a.CatalogPool, config.FlowJobName, baseSchema, schemaDeltas, dstTableNamesInDeltas)
 		}
 	}
 	return nil
@@ -163,46 +162,36 @@ func applySchemaDeltaV2(
 ) (map[string]*protos.TableSchema, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
-	schemasCopy := make(map[string]*protos.TableSchema, len(schemasInCatalog))
+	// deep copy to avoid mutating input
+	schemasInCatalogCopy := make(map[string]*protos.TableSchema, len(schemasInCatalog))
 	for tableName, schema := range schemasInCatalog {
 		if schema == nil {
 			return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
 		}
-		schemasCopy[tableName] = proto.CloneOf(schema)
-	}
-
-	ddlTableNames := make([]string, 0, len(schemaDeltas))
-	for _, schemaDelta := range schemaDeltas {
-		ddlTableNames = append(ddlTableNames, schemaDelta.DstTableName)
-	}
-
-	if len(schemasCopy) != len(ddlTableNames) {
-		matchedTables := make([]string, 0, len(schemasCopy))
-		for name := range schemasCopy {
-			matchedTables = append(matchedTables, name)
-		}
-		logger.Warn("not all tables are found",
-			slog.String("expected", strings.Join(ddlTableNames, ", ")),
-			slog.String("actual", strings.Join(matchedTables, ", ")))
+		schemasInCatalogCopy[tableName] = proto.CloneOf(schema)
 	}
 
 	for _, schemaDelta := range schemaDeltas {
-		schema := schemasCopy[schemaDelta.DstTableName]
-		columnNames := make(map[string]struct{}, len(schema.GetColumns()))
-		for _, col := range schema.GetColumns() {
-			columnNames[col.Name] = struct{}{}
-		}
-		for _, newCol := range schemaDelta.GetAddedColumns() {
-			// only add columns that don't already exists
-			if _, exists := columnNames[newCol.Name]; !exists {
-				schema.Columns = append(schema.Columns, newCol)
-				columnNames[newCol.Name] = struct{}{}
-			} else {
-				logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' in table %s", newCol.Name, schemaDelta.DstTableName))
+		if schema, exists := schemasInCatalogCopy[schemaDelta.DstTableName]; exists {
+			columnNames := make(map[string]struct{}, len(schema.GetColumns()))
+			for _, col := range schema.GetColumns() {
+				columnNames[col.Name] = struct{}{}
 			}
+			for _, newCol := range schemaDelta.GetAddedColumns() {
+				// only add columns that don't already exist
+				if _, exists := columnNames[newCol.Name]; !exists {
+					schema.Columns = append(schema.Columns, newCol)
+					columnNames[newCol.Name] = struct{}{}
+				} else {
+					logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
+						newCol.Name, newCol.Type, schemaDelta.DstTableName))
+				}
+			}
+		} else {
+			logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
 		}
 	}
-	return schemasCopy, nil
+	return schemasInCatalogCopy, nil
 }
 
 func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](

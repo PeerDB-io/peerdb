@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/log"
@@ -93,6 +94,15 @@ func ReadModifyWriteTableSchemasToCatalog(
 	if err != nil {
 		return fmt.Errorf("failed to load table schemas from catalog: %w", err)
 	}
+	if len(tableSchemas) != len(tableNames) {
+		filteredTableNames := make([]string, 0, len(tableSchemas))
+		for name := range tableSchemas {
+			filteredTableNames = append(filteredTableNames, name)
+		}
+		logger.Warn("not all tables are found in catalog",
+			slog.String("expected", strings.Join(tableNames, ", ")),
+			slog.String("actual", strings.Join(filteredTableNames, ", ")))
+	}
 
 	// modify
 	modifiedTableSchemas, err := modifyFn(tableSchemas)
@@ -142,6 +152,7 @@ func ReadModifyWriteTableSchemasToCatalog(
 	return nil
 }
 
+// TODO: use ReadModifyWriteTableSchemasToCatalog to guarantee transactionality
 func UpdateTableOIDsInTableSchemaInCatalog(
 	ctx context.Context,
 	pool shared.CatalogPool,
