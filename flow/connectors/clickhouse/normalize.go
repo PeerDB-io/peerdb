@@ -246,6 +246,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			orderByStr := strings.Join(orderByColumns, ",")
 			fmt.Fprintf(&stmtBuilder, " PRIMARY KEY (%[1]s) ORDER BY (%[1]s)", orderByStr)
 		} else {
+			// ClickHouse 25.12+ requires a non-empty ORDER BY for ReplacingMergeTree, this seems to be a breaking change
 			stmtBuilder.WriteString(" ORDER BY tuple()")
 		}
 
