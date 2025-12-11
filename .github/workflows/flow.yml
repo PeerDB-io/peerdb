@@ -238,11 +238,10 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - name: get latest version of ClickHouse
+      - name: set ClickHouse version
         id: ch-version
         run: |
-          VERSION=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)
-          echo "ch_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "ch_version=v25.11.1.558-stable" >> $GITHUB_OUTPUT
 
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: cache-clickhouse
