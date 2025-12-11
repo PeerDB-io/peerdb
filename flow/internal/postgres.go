@@ -74,6 +74,74 @@ func LoadTableSchemaFromCatalog(
 	return tableSchema, proto.Unmarshal(tableSchemaBytes, tableSchema)
 }
 
+func ReadModifyWriteTableSchemasToCatalog(
+	ctx context.Context,
+	catalogPool shared.CatalogPool,
+	logger log.Logger,
+	flowName string,
+	tableNames []string,
+	modifyFn func(map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error),
+) error {
+	tx, err := catalogPool.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	// read
+	tableSchemas, err := LoadTableSchemasFromCatalog(ctx, tx, flowName, tableNames)
+	if err != nil {
+		return fmt.Errorf("failed to load table schemas from catalog: %w", err)
+	}
+
+	// modify
+	modifiedTableSchemas, err := modifyFn(tableSchemas)
+	if err != nil {
+		return fmt.Errorf("failed to modify table schemas from catalog: %w", err)
+	}
+
+	// write (in batch)
+	batch := &pgx.Batch{}
+	for tableName, tableSchema := range modifiedTableSchemas {
+		tableSchemaBytes, err := proto.Marshal(tableSchema)
+		if err != nil {
+			return fmt.Errorf("unable to marshal table schema for %s: %w", tableName, err)
+		}
+		batch.Queue(
+			"UPDATE table_schema_mapping SET table_schema=$1 WHERE flow_name=$2 AND table_name=$3",
+			tableSchemaBytes, flowName, tableName,
+		)
+		logger.Info("queued schema delta update",
+			slog.String("flowName", flowName),
+			slog.String("tableName", tableName))
+	}
+	results := tx.SendBatch(ctx, batch)
+	defer results.Close() // Ensure resources are freed in case of early return
+
+	for tableName := range modifiedTableSchemas {
+		if _, err := results.Exec(); err != nil {
+			logger.Error("failed to update table schema in catalog",
+				slog.Any("error", err),
+				slog.String("flowName", flowName),
+				slog.String("tableName", tableName))
+			return fmt.Errorf("failed to update table schema in catalog: %w", err)
+		}
+	}
+
+	// Close results before committing
+	if err := results.Close(); err != nil {
+		logger.Error("failed to close batch results",
+			slog.Any("error", err),
+			slog.String("flowName", flowName))
+		return fmt.Errorf("failed to close batch results: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
 func UpdateTableOIDsInTableSchemaInCatalog(
 	ctx context.Context,
 	pool shared.CatalogPool,
@@ -164,9 +232,14 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	return nil
 }
 
+// support both catalog pool and pgx.Tx
+type CatalogQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 func LoadTableSchemasFromCatalog(
 	ctx context.Context,
-	pool shared.CatalogPool,
+	querier CatalogQuerier,
 	flowName string,
 	tableNames []string,
 ) (map[string]*protos.TableSchema, error) {
@@ -174,7 +247,7 @@ func LoadTableSchemasFromCatalog(
 		return make(map[string]*protos.TableSchema), nil
 	}
 
-	rows, err := pool.Pool.Query(
+	rows, err := querier.Query(
 		ctx,
 		"SELECT table_name, table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_name = ANY($2)",
 		flowName,
