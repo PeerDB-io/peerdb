@@ -583,10 +583,6 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 //  7. Error: lost_column doesn't exist on destination but we try to insert data for it
 func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 	t := s.T()
-	_, ok := s.Source().(*PostgresSource)
-	if !ok {
-		t.Skip("test only applies to postgres")
-	}
 
 	srcTable := "test_lost_column_bug"
 	dstTable := "test_lost_column_bug_dst"
@@ -594,7 +590,7 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 	dstTableName := s.DestinationTable(dstTable)
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY)`,
+		CREATE TABLE IF NOT EXISTS %s (id int PRIMARY KEY)`,
 		srcTableName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -612,12 +608,22 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
 		`ALTER TABLE %s ADD COLUMN good_column text NOT NULL`, srcTableName)))
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (good_column) values ('good1')`, srcTableName)))
+		`INSERT INTO %s (id, good_column) values (1, 'good1')`, srcTableName)))
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
 		`ALTER TABLE %s ADD COLUMN lost_column text`, srcTableName)))
 	EnvWaitForEqualTablesWithNames(env, s, "wait for first row synced", srcTable, dstTable, "id,good_column")
 
-	// Verify catalog schema after first sync
+	_, isPostgres := s.Source().(*PostgresSource)
+	_, isMySQL := s.Source().(*MySqlSource)
+
+	// for integer, postgres reports typmod -1 while mysql reports precision-based typmod (precision=10, scale=0)
+	var integerTypmod int32
+	if isPostgres {
+		integerTypmod = -1
+	} else if isMySQL {
+		integerTypmod = 655364
+	}
+
 	expectedCatalogSchema := &protos.TableSchema{
 		TableIdentifier:       srcTableName,
 		PrimaryKeyColumns:     []string{"id"},
@@ -628,7 +634,7 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 			{
 				Name:         "id",
 				Type:         string(types.QValueKindInt32),
-				TypeModifier: -1,
+				TypeModifier: integerTypmod,
 				Nullable:     false,
 			},
 			{
@@ -638,6 +644,15 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 				Nullable:     false,
 			},
 		},
+	}
+	if isMySQL {
+		// For MySQL, schema changes are not buffered, so lost_column appears in catalog immediately
+		expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
+			Name:         "lost_column",
+			Type:         string(types.QValueKindString),
+			TypeModifier: -1,
+			Nullable:     true,
+		})
 	}
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
@@ -649,16 +664,18 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedCatalogSchema, catalogSchema))
 
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (good_column, lost_column) VALUES ('good2', 'lost2')`, srcTableName)))
+		`INSERT INTO %s (id, good_column, lost_column) VALUES (2, 'good2', 'lost2')`, srcTableName)))
 	EnvWaitForEqualTablesWithNames(env, s, "wait for second row synced", srcTable, dstTable, "id,good_column,lost_column")
 
-	// Verify schema after second sync
-	expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
-		Name:         "lost_column",
-		Type:         string(types.QValueKindString),
-		TypeModifier: -1,
-		Nullable:     true,
-	})
+	if isPostgres {
+		// For Postgres, lost_column is added only after the second INSERT triggers a relation message
+		expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
+			Name:         "lost_column",
+			Type:         string(types.QValueKindString),
+			TypeModifier: -1,
+			Nullable:     true,
+		})
+	}
 	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
 	EnvNoError(t, env, err)
 	assert.Len(t, catalogSchemas, 1)
