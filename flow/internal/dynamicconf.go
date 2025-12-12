@@ -411,6 +411,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG",
+		Description:      "Apply schema deltas to catalog instead of fetching latest schema from source",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -750,4 +758,8 @@ func PeerDBPostgresWalSenderTimeout(ctx context.Context, env map[string]string) 
 
 func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED")
+}
+
+func PeerDBApplySchemaDeltaToCatalogEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG")
 }
