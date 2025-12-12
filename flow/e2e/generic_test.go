@@ -689,6 +689,16 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 	t := s.T()
 
+	_, isPostgres := s.Source().(*PostgresSource)
+	mySource, isMySQL := s.Source().(*MySqlSource)
+	if isMySQL {
+		cmp, err := mySource.CompareServerVersion(t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(t, err)
+		if cmp < 0 {
+			t.Skip("skipping test because drop column is not supported")
+		}
+	}
+
 	srcTable := "test_ddl_drop_column"
 	dstTable := "test_ddl_drop_column_dst"
 	srcTableName := AttachSchema(s, srcTable)
@@ -718,9 +728,6 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 		`ALTER TABLE %s DROP COLUMN col_to_drop_second`, srcTableName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "wait for first row synced", srcTable, dstTable, "id")
-
-	_, isPostgres := s.Source().(*PostgresSource)
-	_, isMySQL := s.Source().(*MySqlSource)
 
 	// for integer, postgres reports typmod -1 while mysql reports precision-based typmod (precision=10, scale=0)
 	var integerTypmod int32
