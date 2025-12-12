@@ -3,11 +3,11 @@ module github.com/PeerDB-io/peerdb/flow/pkg
 go 1.25.0
 
 require (
-	github.com/ClickHouse/ch-go v0.68.0
-	github.com/ClickHouse/clickhouse-go/v2 v2.40.3
+	github.com/ClickHouse/ch-go v0.69.0
+	github.com/ClickHouse/clickhouse-go/v2 v2.41.0
 	github.com/go-mysql-org/go-mysql v1.13.0
-	go.mongodb.org/mongo-driver/v2 v2.3.0
-	go.temporal.io/sdk v1.36.0
+	go.mongodb.org/mongo-driver/v2 v2.4.0
+	go.temporal.io/sdk v1.38.0
 )
 
 require (
