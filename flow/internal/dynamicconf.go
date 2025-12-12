@@ -43,7 +43,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_GROUP_NORMALIZE",
 		Description:      "Controls whether normalize applies to one batch at a time, or all pending batches",
-		DefaultValue:     "1",
+		DefaultValue:     "4",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
