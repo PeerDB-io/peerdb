@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/google/uuid"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
@@ -24,7 +25,7 @@ import (
 
 // PullQRepObjects pulls QRep objects from GCS based on the provided configuration and partition information.
 // It streams the objects to the provided QObjectStream and returns the total number of rows and bytes processed.
-// Total number of rows is estimated based on the size of the first object and the average row size.
+// Total number of rows is not known at this time. It will be calculated during sync with an info back from ClickHouse.
 func (c *BigQueryConnector) PullQRepObjects(
 	ctx context.Context,
 	_ *otel_metrics.OtelManager,
@@ -35,7 +36,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 ) (int64, int64, error) {
 	defer close(stream.Objects)
 
-	stream.SetFormat(model.QObjectStreamBigQueryExportAvroFormat)
+	stream.SetFormat(model.QObjectStreamBigQueryExportParquetFormat)
 
 	schema, err := c.getQRepSchema(ctx, config)
 	if err != nil {
@@ -66,10 +67,6 @@ func (c *BigQueryConnector) PullQRepObjects(
 	urlHeaders := make(http.Header)
 
 	var totalBytes int64
-	var totalRows int64
-
-	var projectedRowSizeHasBeenCalculated bool
-	var projectedRowSize uint64
 
 	processObject := func(attrs *storage.ObjectAttrs) error {
 		if token == nil || !token.IsValid() {
@@ -87,19 +84,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 			Headers: urlHeaders,
 		}
 
-		if !projectedRowSizeHasBeenCalculated {
-			// estimate the row size based on the first object
-			projectedRowSize = avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
-			c.logger.Info("projected Avro row size", slog.Uint64("bytes", projectedRowSize))
-
-			projectedRowSizeHasBeenCalculated = true
-		}
-
 		totalBytes += attrs.Size
-
-		if projectedRowSize > 0 {
-			totalRows += int64(float64(attrs.Size) / float64(projectedRowSize))
-		}
 
 		return nil
 	}
@@ -122,9 +107,8 @@ func (c *BigQueryConnector) PullQRepObjects(
 		c.logger.Info("finished pulling single downloadable object",
 			slog.String("bucket", bucketName),
 			slog.String("prefix", prefix),
-			slog.Int64("totalRows", totalRows),
 			slog.Int64("totalBytes", totalBytes))
-		return totalRows, totalBytes, nil
+		return 0, totalBytes, nil
 	}
 
 	it := bucket.Objects(ctx, &storage.Query{
@@ -140,7 +124,6 @@ func (c *BigQueryConnector) PullQRepObjects(
 			c.logger.Debug("finished listing objects in bucket",
 				slog.String("bucket", bucketName),
 				slog.String("prefix", prefix),
-				slog.Int64("totalRows", totalRows),
 				slog.Int64("totalBytes", totalBytes))
 			break
 		}
@@ -162,10 +145,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 	c.logger.Info("finished pulling downloadable objects",
 		slog.String("bucket", bucketName),
 		slog.String("prefix", prefix),
-		slog.Int64("totalRows", totalRows),
 		slog.Int64("totalBytes", totalBytes))
 
-	return totalRows, totalBytes, nil
+	return 0, totalBytes, nil
 }
 
 func (c *BigQueryConnector) GetQRepPartitions(
@@ -173,6 +155,28 @@ func (c *BigQueryConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
+	dsTable, err := c.convertToDatasetTable(config.WatermarkTable)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse table identifier %s: %w", config.WatermarkTable, err)
+	}
+
+	tableRef := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
+	metadata, err := tableRef.Metadata(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get table metadata for %s.%s: %w", dsTable.dataset, dsTable.table, err)
+	}
+
+	totalRows := int64(metadata.NumRows)
+	numRowsPerPartition := int64(config.NumRowsPerPartition)
+
+	adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
+
+	c.logger.Info("[bigquery] partition details",
+		slog.Int64("totalRows", totalRows),
+		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+		slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
+
 	stagingPath, err := parseGCSPath(config.StagingPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
@@ -227,11 +231,14 @@ func (c *BigQueryConnector) GetQRepPartitions(
 		}
 
 		if !projectedPartitionSizeCalculated {
-			rowSize := avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
-			projectedMaximumPartitionSize = uint64(config.NumRowsPerPartition) * rowSize
+			rowSize := parquetObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
+			projectedMaximumPartitionSize = uint64(adjustedPartitions.AdjustedNumRowsPerPartition) * rowSize
 			projectedPartitionSizeCalculated = true
 
-			c.logger.Info("estimated avro object average row size", slog.Uint64("size", projectedMaximumPartitionSize))
+			c.logger.Info(
+				"[bigquery] estimated parquet object average row size",
+				slog.Uint64("size", projectedMaximumPartitionSize),
+			)
 		}
 
 		if currentPartition == nil {
@@ -326,11 +333,11 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 
 	jobs := make(map[string]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
-		uri := fmt.Sprintf("%s/%s/*.avro", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
+		uri := fmt.Sprintf("%s/%s/*.parquet", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
 		gcsRef := bigquery.NewGCSReference(uri)
-		gcsRef.DestinationFormat = bigquery.Avro
-		gcsRef.AvroOptions = &bigquery.AvroOptions{UseAvroLogicalTypes: true}
-		gcsRef.Compression = bigquery.Deflate
+		gcsRef.DestinationFormat = bigquery.Parquet
+		gcsRef.ParquetOptions = &bigquery.ParquetOptions{EnumAsString: true}
+		gcsRef.Compression = bigquery.Gzip
 
 		dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
 		if err != nil {

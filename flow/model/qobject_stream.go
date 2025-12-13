@@ -10,20 +10,10 @@ import (
 type QObjectStreamFormat string
 
 const (
-	// QObjectStreamBigQueryExportAvroFormat is a representation of Avro format with some BigQuery Avro export
-	// specific conventions. For more details, see:
-	// https://cloud.google.com/bigquery/docs/exporting-data#avro_export_details
-	QObjectStreamBigQueryExportAvroFormat QObjectStreamFormat = "bigquery_export_avro"
+	// QObjectStreamBigQueryExportParquetFormat is the Parquet format used by BigQuery export.
+	// More details: https://docs.cloud.google.com/bigquery/docs/exporting-data#parquet_export_details
+	QObjectStreamBigQueryExportParquetFormat QObjectStreamFormat = "parquet"
 )
-
-func QObjectStreamFormatNormalized(format QObjectStreamFormat) string {
-	switch format {
-	case QObjectStreamBigQueryExportAvroFormat:
-		return "avro"
-	default:
-		return "unknown"
-	}
-}
 
 type Object struct {
 	Headers http.Header
