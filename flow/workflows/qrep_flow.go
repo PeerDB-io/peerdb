@@ -15,7 +15,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
-	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
 type QRepFlowExecution struct {
@@ -488,7 +487,7 @@ func updateStatus(ctx workflow.Context, logger log.Logger, state *protos.QRepFlo
 	state.CurrentFlowStatus = status
 	// update the status in the catalog only if this is the root workflow
 	if workflow.GetInfo(ctx).ParentWorkflowExecution == nil {
-		cdc_state.SyncStatusToCatalog(ctx, logger, status)
+		syncStatusToCatalog(ctx, logger, status)
 	}
 }
 
