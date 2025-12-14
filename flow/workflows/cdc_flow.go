@@ -23,6 +23,21 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
+func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
+	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 1 * time.Minute,
+	})
+
+	if err := workflow.ExecuteLocalActivity(
+		updateCtx,
+		updateFlowStatusInCatalogActivity,
+		workflow.GetInfo(ctx).WorkflowExecution.ID,
+		status,
+	).Get(updateCtx, nil); err != nil {
+		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
+	}
+}
+
 func GetUUID(ctx workflow.Context) string {
 	return GetSideEffect(ctx, func(_ workflow.Context) string {
 		return uuid.NewString()
