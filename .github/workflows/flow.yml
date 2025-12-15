@@ -42,7 +42,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:5e6ef104f48f430c25b5ddf1e1bef83394086d51ad6e752b78d10a018f74833d
+        image: redpandadata/redpanda@sha256:4c9f57a51e1d185ed61f2850c290b6e109d80d61345ab623fd4bc7cfa0a114ac
         ports:
           - 9092:9092
           - 9644:9644
@@ -69,7 +69,7 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:5c11355ae47107808cb49da35d72b5088820d1dd002cce4da38fd377f0c9b739
+        image: linuxserver/openssh-server:latest@sha256:3d63be67c9b82423c5efa15ad1cf42f89e6c0d40bb269374b69649a5fa7d261a
         ports:
           - 2222:2222
         env:
@@ -185,7 +185,7 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
         id: cache-minio
         with:
           path: ./minio
@@ -196,7 +196,7 @@ jobs:
         run: |
           curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
         id: cache-minio-client
         with:
           path: ./mc
@@ -243,7 +243,7 @@ jobs:
         run: |
           echo "ch_version=v25.11.1.558-stable" >> $GITHUB_OUTPUT
 
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
         id: cache-clickhouse
         with:
           path: ./clickhouse
@@ -492,7 +492,7 @@ jobs:
 
       - name: Upload peer-flow logs
         if: always()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
           path: logs/
