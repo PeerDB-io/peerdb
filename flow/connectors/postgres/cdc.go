@@ -715,11 +715,11 @@ func PullCdcRecords[Items model.Items](
 								return err
 							}
 
-							latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
+							latestRecord, found, err := cdcRecordsStorage.Get(tablePkeyVal)
 							if err != nil {
 								return err
 							}
-							if ok {
+							if found {
 								// iterate through unchanged toast cols and set them in new record
 								updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
 								for _, col := range updatedCols {

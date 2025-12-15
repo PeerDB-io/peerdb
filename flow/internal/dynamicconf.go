@@ -419,6 +419,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_DISABLE_CDC_TOAST_TRACKING",
+		Description:      "Disable TOAST column tracking in CDC when REPLICA IDENTITY FULL is not enabled.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -762,4 +770,8 @@ func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]st
 
 func PeerDBApplySchemaDeltaToCatalogEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG")
+}
+
+func PeerDBDisableCDCToastTracking(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_DISABLE_CDC_TOAST_TRACKING")
 }

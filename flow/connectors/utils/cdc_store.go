@@ -43,6 +43,7 @@ type cdcStore[Items model.Items] struct {
 	memThresholdBytes         uint64
 	numRecordsSwitchThreshold int
 	numRecords                atomic.Int32
+	trackingDisabled          bool
 }
 
 func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, flowJobName string) (*cdcStore[Items], error) {
@@ -53,6 +54,10 @@ func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, 
 	memPercent, err := internal.PeerDBCDCDiskSpillMemPercentThreshold(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill memory percent threshold: %w", err)
+	}
+	trackingDisabled, err := internal.PeerDBDisableCDCToastTracking(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get CDC toast tracking disabled flag: %w", err)
 	}
 
 	return &cdcStore[Items]{
@@ -69,9 +74,10 @@ func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, 
 			}
 			return 0
 		}(),
-		thresholdReason: "",
-		memStats:        []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}},
-		logger:          internal.LoggerFromCtx(ctx),
+		thresholdReason:  "",
+		memStats:         []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}},
+		logger:           internal.LoggerFromCtx(ctx),
+		trackingDisabled: trackingDisabled,
 	}, nil
 }
 
@@ -174,6 +180,11 @@ func (c *cdcStore[T]) diskSpillThresholdsExceeded() bool {
 
 // TODO remove logger from here and use c.logger instead
 func (c *cdcStore[T]) Set(key model.TableWithPkey, rec model.Record[T]) error {
+	if c.trackingDisabled {
+		c.numRecords.Add(1)
+		return nil
+	}
+
 	if key.TableName != "" {
 		_, ok := c.inMemoryRecords[key]
 		if ok || !c.diskSpillThresholdsExceeded() {
@@ -212,6 +223,10 @@ func (c *cdcStore[T]) Set(key model.TableWithPkey, rec model.Record[T]) error {
 
 // bool is to indicate if a record is found or not [similar to ok]
 func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error) {
+	if c.trackingDisabled {
+		return nil, false, nil
+	}
+
 	rec, ok := c.inMemoryRecords[key]
 	if ok {
 		return rec, true, nil
