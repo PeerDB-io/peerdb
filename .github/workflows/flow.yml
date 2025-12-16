@@ -24,9 +24,9 @@ jobs:
       matrix:
         runner: [ubuntu-latest-16-cores]
         db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'v25.8.10.7-lts'},
-          {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'v25.9.4.58-stable'},
-          {pg: 18, mysql: 'maria', mongo: '8.0', ch: 'v25.11.1.558-stable'},
+          {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
+          {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
+          {pg: 18, mysql: 'maria', mongo: '8.0', ch: 'latest'},
         ]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -245,7 +245,15 @@ jobs:
       - name: set ClickHouse version
         id: ch-version
         run: |
-          echo "ch_version=${{ matrix.db-version.ch }}" >> $GITHUB_OUTPUT
+          if [ "${{ matrix.db-version.ch }}" = "lts" ]; then
+            echo "ch_version=v25.8.11.66-lts" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.db-version.ch }}" = "stable" ]; then
+            echo "ch_version=v25.11.1.558-stable" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.db-version.ch }}" = "latest" ]; then
+            # note: latest tag does not always reflect the latest version (could be an update on an lts),
+            # but that is okay as we are only using it to invalidate the cache.
+            echo "ch_version=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)" >> $GITHUB_OUTPUT
+          fi
 
       - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
         id: cache-clickhouse
@@ -256,10 +264,20 @@ jobs:
       - name: Install ClickHouse
         if: steps.cache-clickhouse.outputs.cache-hit != 'true'
         run: |
-          curl https://clickhouse.com | sh
+          if [[ "${{ matrix.db-version.ch }}" = 'latest' ]]; then
+            curl https://clickhouse.com | sh
+          else
+            VERSION="${{ steps.ch-version.outputs.ch_version }}"
+            VERSION_NUM=$(echo ${VERSION#v} | cut -d'-' -f1)
+            curl -sL https://github.com/ClickHouse/ClickHouse/releases/download/$VERSION/clickhouse-common-static-$VERSION_NUM-amd64.tgz | tar -xzf -
+            mv "clickhouse-common-static-$VERSION_NUM/usr/bin/clickhouse" ./clickhouse
+            rm -rf "clickhouse-common-static-$VERSION_NUM"
+            chmod +x clickhouse
+          fi
 
       - name: Run ClickHouse
         run: |
+          ./clickhouse --version
           cat > config1.xml <<EOF
           <clickhouse>
             <profiles><default></default></profiles>
