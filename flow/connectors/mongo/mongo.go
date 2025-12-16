@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -126,7 +127,9 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 		return nil, fmt.Errorf("error parsing uri: %w", err)
 	}
 
-	if connStr.HasAuthParameters() {
+	if connStr.Username != "" || connStr.Password != "" ||
+		// handle the edge case where '@' or ':@' in uri but no username/password provided
+		strings.Contains(connStr.Original[len(connStr.Scheme+"://"):len(connStr.Scheme+"://")+2], "@") {
 		return nil, errors.New("connection string should not contain username and password")
 	}
 
