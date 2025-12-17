@@ -505,8 +505,10 @@ func PullCdcRecords[Items model.Items](
 			slog.Int64("bytes", totalFetchedBytes.Load()),
 			slog.Int("channelLen", records.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
-		if err := cdcRecordsStorage.Close(); err != nil {
-			logger.Warn("failed to clean up records storage", slog.Any("error", err))
+		if cdcRecordsStorage != nil {
+			if err := cdcRecordsStorage.Close(); err != nil {
+				logger.Warn("failed to clean up records storage", slog.Any("error", err))
+			}
 		}
 	}()
 
