@@ -545,6 +545,8 @@ func PullCdcRecords[Items model.Items](
 			return err
 		}
 
+		totalRecords++
+
 		if totalRecords == 1 {
 			records.SignalAsNotEmpty()
 			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
