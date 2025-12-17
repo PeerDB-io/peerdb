@@ -3025,3 +3025,58 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_Composite_PKey() {
+	srcTableName := "test_composite_pkey_ordering"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_composite_pkey_ordering"
+
+	orderedPk := "b, a, c"
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+		    id int,
+			a INT NOT NULL,
+			b INT NOT NULL,
+			c INT NOT NULL,
+			PRIMARY KEY (%s)
+		)
+	`, srcFullName, orderedPk))
+	require.NoError(s.t, err)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (0,1,2,3)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_composite_pkey_order"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, orderedPk)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (4,5,6,7)`, srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, orderedPk)
+
+	var sortingKey string
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	var dstTableSuffix string
+	if s.cluster {
+		dstTableSuffix = "_shard"
+	}
+	rows := ch.QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT sorting_key FROM system.tables WHERE database=%s AND name=%s",
+			clickhouse.QuoteLiteral(s.connector.Config.Database),
+			clickhouse.QuoteLiteral(dstTableName+dstTableSuffix)))
+	require.NoError(s.t, rows.Err())
+	require.NoError(s.t, rows.Scan(&sortingKey))
+	require.NoError(s.t, ch.Close())
+
+	require.Equal(s.t, orderedPk, sortingKey, "sort key should preserve source primary key column order")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
