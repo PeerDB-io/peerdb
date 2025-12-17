@@ -136,7 +136,7 @@ func TestNullKeyDoesntStore(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok)
 
-	require.Equal(t, 1, cdcRecordsStore.Len())
+	require.Equal(t, 1, int(cdcRecordsStore.numRecords.Load()))
 
 	require.NoError(t, cdcRecordsStore.Close())
 }

@@ -65,6 +65,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_QUEUES,
 	},
 	{
+		Name:             "PEERDB_CDC_STORE_ENABLED",
+		Description:      "Controls whether to enable the store for recovering unchanged Postgres TOAST values within a CDC batch",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD",
 		Description:      "CDC: number of records beyond which records are written to disk instead",
 		DefaultValue:     "1000000",
@@ -590,6 +598,10 @@ func PeerDBQueueFlushTimeoutSeconds(ctx context.Context, env map[string]string) 
 
 func PeerDBQueueParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_QUEUE_PARALLELISM")
+}
+
+func PeerDBCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CDC_STORE_ENABLED")
 }
 
 func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context, env map[string]string) (int64, error) {
