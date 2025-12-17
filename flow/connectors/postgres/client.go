@@ -195,7 +195,7 @@ func (c *PostgresConnector) getColumnNamesForIndex(ctx context.Context, indexOID
 	rows, err := c.conn.Query(ctx,
 		`SELECT a.attname FROM pg_index i
 		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-		 WHERE i.indexrelid = $1 ORDER BY a.attname ASC`,
+		 WHERE i.indexrelid = $1 ORDER BY array_position(i.indkey, a.attnum::int2)`,
 		indexOID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting columns for index %v: %w", indexOID, err)
