@@ -2,6 +2,7 @@ package exceptions
 
 import (
 	"fmt"
+	"strings"
 )
 
 type MySQLIncompatibleColumnTypeError struct {
@@ -41,4 +42,31 @@ func NewMySQLUnsupportedBinlogRowMetadataError(schema string, table string) *MyS
 func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
 	return fmt.Sprintf("Detected binlog_row_metadata change from FULL to MINIMAL while processing %s.%s",
 		e.SchemaName, e.TableName)
+}
+
+type MySQLStreamingTransientError struct {
+	error
+}
+
+func (e *MySQLStreamingTransientError) Error() string {
+	return "MySQL streaming transient error: " + e.error.Error()
+}
+
+func (e *MySQLStreamingTransientError) Unwrap() error {
+	return e.error
+}
+
+func AsMySQLStreamingTransientError(err error) *MySQLStreamingTransientError {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "first record does not look like a TLS handshake"):
+		return &MySQLStreamingTransientError{error: err}
+	case strings.Contains(msg, "context deadline exceeded"):
+		return &MySQLStreamingTransientError{err}
+	default:
+		return nil
+	}
 }
