@@ -53,6 +53,7 @@ var (
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
 	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
+	PostgresSpillFileMissingRe        = regexp.MustCompile(`Unable to restore changes for xid \d+`)
 	MySqlRdsBinlogFileNotFoundRe      = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe           = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
@@ -446,7 +447,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			pgerrcode.UndefinedTable,
 			pgerrcode.CannotConnectNow,
 			pgerrcode.ConfigurationLimitExceeded,
-			pgerrcode.DiskFull:
+			pgerrcode.DiskFull,
+			pgerrcode.DuplicateFile:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
 		case pgerrcode.UndefinedObject:
@@ -465,6 +467,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.UndefinedFile:
 			// Handle WAL segment removed errors
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+			// Handles missing spill-to-disk file during logical decoding (transient error)
+			if PostgresSpillFileMissingRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
@@ -569,8 +575,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.QueryCanceled:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
-		case pgerrcode.DuplicateFile,
-			pgerrcode.DeadlockDetected,
+		case pgerrcode.DeadlockDetected,
 			pgerrcode.SerializationFailure,
 			pgerrcode.IdleInTransactionSessionTimeout:
 			return ErrorRetryRecoverable, pgErrorInfo
