@@ -719,6 +719,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var mongoWaitQueueError topology.WaitQueueTimeoutError
+	if errors.As(err, &mongoWaitQueueError) {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "WAIT_QUEUE_TIMEOUT_ERROR",
+		}
+	}
+
 	// MongoDB can leak error without properly encapsulate it into a pre-defined error type.
 	// Use string matching as a catch-all for poolClearedErrors. These errors occur when a
 	// connection pool is cleared due to another operation failure; they are always retryable
