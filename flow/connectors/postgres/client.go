@@ -182,9 +182,9 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(
 		relID).Scan(&indexRelID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("no replica identity index for table %s", schemaTable)
+			return nil, exceptions.NewReplicaIdentityIndexError(schemaTable.String())
 		}
-		return nil, fmt.Errorf("error finding replica identity index for table %s: %w", schemaTable, err)
+		return nil, fmt.Errorf("error querying replica identity index for table %s: %w", schemaTable, err)
 	}
 
 	return c.getColumnNamesForIndex(ctx, indexRelID)

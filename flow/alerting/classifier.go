@@ -921,6 +921,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var postgresReplicaIdentityIndexError *exceptions.ReplicaIdentityIndexError
+	if errors.As(err, &postgresReplicaIdentityIndexError) {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  postgresReplicaIdentityIndexError.Table,
+				ErrorAttributeKeyColumn: "n\a",
+			},
+		}
+	}
+
 	return ErrorOther, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "UNKNOWN",
