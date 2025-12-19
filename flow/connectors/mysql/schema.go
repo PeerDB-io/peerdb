@@ -58,7 +58,7 @@ func (c *MySqlConnector) GetTablesInSchema(
 		SELECT table_name, data_length + index_length
 		FROM information_schema.tables
 		WHERE table_schema = '%s'
-		AND table_type = 'BASE TABLE'
+		  AND table_type = 'BASE TABLE'
 		ORDER BY table_name`, gomysql.Escape(schema)))
 	if err != nil {
 		return nil, err
