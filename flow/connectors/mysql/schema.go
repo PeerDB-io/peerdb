@@ -88,7 +88,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		SELECT column_name, column_type, column_key
 		FROM information_schema.columns
 		WHERE table_schema = '%s'
-		AND table_name = '%s'
+		  AND table_name = '%s'
 		ORDER BY column_name`,
 		gomysql.Escape(schema), gomysql.Escape(table)))
 	if err != nil {
