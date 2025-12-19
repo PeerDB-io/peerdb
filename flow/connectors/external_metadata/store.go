@@ -51,14 +51,6 @@ func NewPostgresMetadataFromCatalog(logger log.Logger, pool shared.CatalogPool) 
 	}
 }
 
-func (p *PostgresMetadata) Ping(ctx context.Context) error {
-	if err := p.pool.Ping(ctx); err != nil {
-		return fmt.Errorf("metadata db ping failed: %w", err)
-	}
-
-	return nil
-}
-
 func (p *PostgresMetadata) LogFlowInfo(ctx context.Context, flowName string, info string) error {
 	_, err := p.pool.Exec(ctx,
 		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
