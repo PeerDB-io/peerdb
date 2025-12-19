@@ -789,9 +789,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case chproto.ErrUnknownDatabase,
 			chproto.ErrAuthenticationFailed:
 			return ErrorNotifyConnectivity, chErrorInfo
-		case chproto.ErrKeeperException,
-			chproto.ErrUnfinished,
-			chproto.ErrAborted:
+		case chproto.ErrKeeperException:
+			if chException.Message == "Session expired" || strings.HasPrefix(chException.Message, "Coordination error: Connection loss") {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
+			return ErrorInternalClickHouse, chErrorInfo
+		case chproto.ErrUnfinished:
+			return ErrorRetryRecoverable, chErrorInfo
+		case chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
 			return ErrorIgnoreConnTemporary, chErrorInfo
