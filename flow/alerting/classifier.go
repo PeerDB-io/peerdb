@@ -197,6 +197,10 @@ var (
 	ErrorNotifyPostgresSlotMemalloc = ErrorClass{
 		Class: "NOTIFY_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
 	}
+	// This RDS specific error is seen when we try to create a replication slot on a read-replica
+	ErrNotifyPostgresCreatingSlotOnReader = ErrorClass{
+		Class: "NOTIFY_POSTGRES_CREATING_SLOT_ON_READER", action: NotifyUser,
+	}
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
@@ -522,6 +526,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// Usually a single occurrence then reconnect immediately helps
 			if strings.Contains(pgErr.Message, "pfree called with invalid pointer") {
 				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			// Usually a single occurrence then reconnect immediately helps
+			if strings.Contains(pgErr.Message, "pfree called with invalid pointer") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			if strings.Contains(pgErr.Message, "Create the replication slot from the writer node instead") {
+				return ErrNotifyPostgresCreatingSlotOnReader, pgErrorInfo
 			}
 
 			// Fall through for other internal errors
