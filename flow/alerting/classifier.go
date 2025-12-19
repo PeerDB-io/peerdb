@@ -909,6 +909,21 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var mysqlStreamingError *exceptions.MySQLStreamingError
+	if errors.As(err, &mysqlStreamingError) {
+		if mysqlStreamingError.Retryable {
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourceMySQL,
+				Code:   "STREAMING_TRANSIENT_ERROR",
+			}
+		} else {
+			return ErrorOther, ErrorInfo{
+				Source: ErrorSourceMySQL,
+				Code:   "UNKNOWN",
+			}
+		}
+	}
+
 	var postgresPrimaryKeyModifiedError *exceptions.PrimaryKeyModifiedError
 	if errors.As(err, &postgresPrimaryKeyModifiedError) {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
