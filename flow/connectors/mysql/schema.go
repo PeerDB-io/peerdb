@@ -16,7 +16,7 @@ func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesRes
 		SELECT concat(table_schema, '.', table_name)
 		FROM information_schema.tables
 		WHERE table_schema NOT IN ('information_schema', 'performance_schema', 'sys')
-		AND table_type = 'BASE TABLE'`)
+		  AND table_type = 'BASE TABLE'`)
 	if err != nil {
 		return nil, err
 	}
