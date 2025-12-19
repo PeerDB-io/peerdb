@@ -1,6 +1,8 @@
 package exceptions
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -60,13 +62,14 @@ func AsMySQLStreamingTransientError(err error) *MySQLStreamingTransientError {
 	if err == nil {
 		return nil
 	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "first record does not look like a TLS handshake"):
-		return &MySQLStreamingTransientError{error: err}
-	case strings.Contains(msg, "context deadline exceeded"):
+
+	if errors.Is(err, context.DeadlineExceeded) {
 		return &MySQLStreamingTransientError{err}
-	default:
-		return nil
 	}
+
+	if strings.Contains(err.Error(), "first record does not look like a TLS handshake") {
+		return &MySQLStreamingTransientError{err}
+	}
+
+	return nil
 }
