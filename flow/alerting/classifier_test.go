@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -667,8 +668,8 @@ func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
 }
 
 func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
-	err := exceptions.AsMySQLStreamingTransientError(
-		errors.New("writeAuthHandshake: tls: first record does not look like a TLS handshake"))
+	err := exceptions.NewMySQLStreamingError(
+		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"})
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -676,7 +677,16 @@ func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
 		Code:   "STREAMING_TRANSIENT_ERROR",
 	}, errInfo, "Unexpected error info")
 
-	err = exceptions.AsMySQLStreamingTransientError(context.DeadlineExceeded)
+	err = exceptions.NewMySQLStreamingError(
+		tls.RecordHeaderError{Msg: "unsupported SSLv2 handshake received"})
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNKNOWN",
+	}, errInfo, "Unexpected error info")
+
+	err = exceptions.NewMySQLStreamingError(context.DeadlineExceeded)
 	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{

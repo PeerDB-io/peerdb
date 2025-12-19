@@ -2,9 +2,9 @@ package exceptions
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 type MySQLIncompatibleColumnTypeError struct {
@@ -46,30 +46,30 @@ func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
 		e.SchemaName, e.TableName)
 }
 
-type MySQLStreamingTransientError struct {
+type MySQLStreamingError struct {
 	error
+	Retryable bool
 }
 
-func (e *MySQLStreamingTransientError) Error() string {
-	return "MySQL streaming transient error: " + e.error.Error()
-}
-
-func (e *MySQLStreamingTransientError) Unwrap() error {
-	return e.error
-}
-
-func AsMySQLStreamingTransientError(err error) *MySQLStreamingTransientError {
-	if err == nil {
-		return nil
-	}
-
+func NewMySQLStreamingError(err error) *MySQLStreamingError {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return &MySQLStreamingTransientError{err}
+		return &MySQLStreamingError{err, true}
 	}
 
-	if strings.Contains(err.Error(), "first record does not look like a TLS handshake") {
-		return &MySQLStreamingTransientError{err}
+	var recordHeaderError tls.RecordHeaderError
+	if errors.As(err, &recordHeaderError) {
+		if recordHeaderError.Msg == "first record does not look like a TLS handshake" {
+			return &MySQLStreamingError{err, true}
+		}
 	}
 
-	return nil
+	return &MySQLStreamingError{err, false}
+}
+
+func (e *MySQLStreamingError) Error() string {
+	return "MySQL streaming error: " + e.error.Error()
+}
+
+func (e *MySQLStreamingError) Unwrap() error {
+	return e.error
 }

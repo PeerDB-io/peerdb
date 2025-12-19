@@ -909,11 +909,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var mysqlStreamingTransientError *exceptions.MySQLStreamingTransientError
-	if errors.As(err, &mysqlStreamingTransientError) {
-		return ErrorRetryRecoverable, ErrorInfo{
-			Source: ErrorSourceMySQL,
-			Code:   "STREAMING_TRANSIENT_ERROR",
+	var mysqlStreamingError *exceptions.MySQLStreamingError
+	if errors.As(err, &mysqlStreamingError) {
+		if mysqlStreamingError.Retryable {
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourceMySQL,
+				Code:   "STREAMING_TRANSIENT_ERROR",
+			}
+		} else {
+			return ErrorOther, ErrorInfo{
+				Source: ErrorSourceMySQL,
+				Code:   "UNKNOWN",
+			}
 		}
 	}
 

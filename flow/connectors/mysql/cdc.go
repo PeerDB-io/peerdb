@@ -273,10 +273,7 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 	stream, err := syncer.StartSync(pos)
 	if err != nil {
 		syncer.Close()
-		if transientErr := exceptions.AsMySQLStreamingTransientError(err); transientErr != nil {
-			err = transientErr
-		}
-		return nil, nil, nil, mysql.Position{}, err
+		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLStreamingError(err)
 	}
 	return syncer, stream, nil, pos, nil
 }
@@ -292,10 +289,7 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
 		syncer.Close()
-		if transientErr := exceptions.AsMySQLStreamingTransientError(err); transientErr != nil {
-			err = transientErr
-		}
-		return nil, nil, nil, mysql.Position{}, err
+		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLStreamingError(err)
 	}
 	return syncer, stream, gset, mysql.Position{}, nil
 }
