@@ -470,7 +470,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.UndefinedFile:
 			// Handle WAL segment removed errors
-			// There is a bug in PG (Neon) where replication can try read a segment that hasn't been created yet but will show up
+			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
@@ -500,7 +500,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// Handle WAL segment removed errors
-			// There is a bug in PG (Neon) where replication can try read a segment that hasn't been created yet but will show up
+			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
