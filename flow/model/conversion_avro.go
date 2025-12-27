@@ -199,21 +199,31 @@ func (t *NullMismatchTracker) RecordNull(fieldIdx int) {
 }
 
 func (t *NullMismatchTracker) LogIfMismatch(ctx context.Context, logger log.Logger) {
-	// Collect mismatched column names
-	var cols []string
+	// Categorize mismatched columns by the reason they were marked non-nullable
+	var lookupFailedCols []string // pg_attribute lookup failed (table OID or attnum mismatch)
+	var notNullInPgCols []string  // Found in pg_attribute but marked NOT NULL
+
 	for idx, mismatched := range t.mismatchedCols {
-		if mismatched && idx < len(t.schemaDebug.PgxFields) {
-			cols = append(cols, t.schemaDebug.PgxFields[idx].Name)
+		if !mismatched || idx >= len(t.schemaDebug.PgxFields) {
+			continue
+		}
+
+		colName := t.schemaDebug.PgxFields[idx].Name
+		if idx < len(t.schemaDebug.MatchFound) && !t.schemaDebug.MatchFound[idx] {
+			lookupFailedCols = append(lookupFailedCols, colName)
+		} else {
+			notNullInPgCols = append(notNullInPgCols, colName)
 		}
 	}
 
-	if len(cols) == 0 {
+	if len(lookupFailedCols) == 0 && len(notNullInPgCols) == 0 {
 		return
 	}
 
 	// Dump the ENTIRE schema debug info - all pgx fields, pg_attribute rows, and table metadata
 	logger.Warn("Null values in columns that would be non-nullable under strict mode",
-		slog.Any("mismatched_columns", cols),
+		slog.Any("lookup_failed_columns", lookupFailedCols),
+		slog.Any("not_null_in_pg_attribute_columns", notNullInPgCols),
 		slog.Any("queried_table_oids", t.schemaDebug.QueriedTableOIDs),
 		slog.Any("pgx_field_descriptions", t.schemaDebug.PgxFields),
 		slog.Any("pg_attribute_rows", t.schemaDebug.PgAttributeRows),
