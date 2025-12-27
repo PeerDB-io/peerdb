@@ -188,6 +188,23 @@ func TestPostgresPfreeInvalidPointerErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresUnrecognizedSIMessageIDErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate shared invalidation message corruption error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "FATAL",
+			Code:     pgerrcode.InternalError,
+			Message:  "unrecognized SI message ID: -60",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("ReceiveMessage failed: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a ClickHouse access entity not found error
 	for idx, msg := range []string{

@@ -530,8 +530,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
-			// Usually a single occurrence then reconnect immediately helps
-			if strings.Contains(pgErr.Message, "pfree called with invalid pointer") {
+			// Shared invalidation message corruption - usually transient, reconnect helps
+			// https://github.com/postgres/postgres/blob/e82e9aaa6a2942505c2c328426778787e4976ea6/src/backend/utils/cache/inval.c#L901
+			if strings.Contains(pgErr.Message, "unrecognized SI message ID:") {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
