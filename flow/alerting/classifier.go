@@ -208,6 +208,9 @@ var (
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
 	}
+	ErrorNotifyClickHouseSupportIsDisabledError = ErrorClass{
+		Class: "NOTIFY_CLICKHOUSE_SUPPORT_IS_DISABLED_ERROR", action: NotifyUser,
+	}
 	// Catch-all for unclassified errors
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
@@ -861,6 +864,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(chException.Message, "Replicated DDL queries are disabled") {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
+		case chproto.ErrSupportIsDisabled:
+			return ErrorNotifyClickHouseSupportIsDisabledError, chErrorInfo
 		}
 		var normalizationErr *exceptions.NormalizationError
 		if isClickHouseMvError(chException) {
