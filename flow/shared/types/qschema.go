@@ -79,6 +79,9 @@ type NullableSchemaDebug struct {
 	// Per-field: would this column be nullable under strict mode?
 	// Index matches qfields order. True = nullable, False = NOT nullable under strict
 	StrictNullable []bool
+	// Per-field: did we find a matching row in pg_attribute?
+	// Index matches qfields order. False means lookup failed (table OID or attnum mismatch)
+	MatchFound []bool
 	// Table metadata including names, schemas, and inheritance chain
 	Tables []TableDebug
 }

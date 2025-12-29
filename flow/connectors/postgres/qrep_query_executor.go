@@ -96,6 +96,7 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 		schemaDebug = &types.NullableSchemaDebug{
 			PgxFields:      make([]types.PgxFieldDebug, len(fds)),
 			StrictNullable: make([]bool, len(fds)),
+			MatchFound:     make([]bool, len(fds)),
 		}
 		attIdToFieldIdx = make(map[attId][]int, len(fds))
 	} else {
@@ -233,11 +234,14 @@ func (qe *QRepQueryExecutor) populateLaxModeDebugInfo(
 	}, func() error {
 		schemaDebug.PgAttributeRows = append(schemaDebug.PgAttributeRows, row)
 
-		// Compute strict nullable: if NOT attnotnull and matches a field, mark it nullable
-		if !row.AttNotNull {
-			key := attId{relid: row.AttRelID, num: uint16(row.AttNum)}
-			if indices, ok := attIdToFieldIdx[key]; ok {
-				for _, idx := range indices {
+		// Check if this pg_attribute row matches any pgx field
+		key := attId{relid: row.AttRelID, num: uint16(row.AttNum)}
+		if indices, ok := attIdToFieldIdx[key]; ok {
+			for _, idx := range indices {
+				// Mark that we found a match in pg_attribute for this field
+				schemaDebug.MatchFound[idx] = true
+				// Compute strict nullable: if NOT attnotnull, mark it nullable
+				if !row.AttNotNull {
 					schemaDebug.StrictNullable[idx] = true
 				}
 			}
