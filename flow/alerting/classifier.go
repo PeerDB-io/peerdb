@@ -699,6 +699,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		case 13436: // NotPrimaryOrSecondary
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 133: // FailedToSatisfyReadPreference
+			return ErrorNotifyConnectivity, mongoErrorInfo
 		default:
 			return ErrorOther, mongoErrorInfo
 		}
