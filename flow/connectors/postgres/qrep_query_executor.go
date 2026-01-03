@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -458,8 +457,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 ) (int64, int64, error) {
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 
-	qe.logger.Warn("!!!!!!!!!!!!!!!!! SLEEPING 15 SECONDS BEFORE STEP 1 (BeginTx)")
-	time.Sleep(15 * time.Second)
 	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,
@@ -469,8 +466,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 		return 0, 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
-	qe.logger.Warn("!!!!!!!!!!!!!!!!! SLEEPING 15 SECONDS BEFORE STEP 2 (ExecuteQueryWithTx)")
-	time.Sleep(15 * time.Second)
 	return sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
 }
 
