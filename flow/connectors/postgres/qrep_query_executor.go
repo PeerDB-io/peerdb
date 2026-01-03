@@ -454,7 +454,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	args ...any,
 ) (int64, int64, error) {
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
-	defer sink.Close(nil)
 
 	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
@@ -462,16 +461,10 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	})
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
-		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
-		sink.Close(err)
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
-	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
-	if err != nil {
-		sink.Close(err)
-	}
-	return totalRecords, totalBytes, err
+	return sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
 }
 
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
@@ -482,7 +475,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 ) (int64, int64, int64, error) {
 	var currentSnapshotXmin pgtype.Int8
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
-	defer sink.Close(nil)
 
 	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
@@ -490,21 +482,15 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	})
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
-		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
-		sink.Close(err)
-		return 0, 0, currentSnapshotXmin.Int64, err
+		return 0, 0, currentSnapshotXmin.Int64, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
 	if err := tx.QueryRow(ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to get current snapshot xmin", slog.Any("error", err))
-		sink.Close(err)
 		return 0, 0, currentSnapshotXmin.Int64, err
 	}
 
 	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
-	if err != nil {
-		sink.Close(err)
-	}
 	return totalRecords, totalBytes, currentSnapshotXmin.Int64, err
 }
 

@@ -33,7 +33,6 @@ const (
 )
 
 type QRepPullSink interface {
-	Close(error)
 	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...any) (int64, int64, error)
 }
 
