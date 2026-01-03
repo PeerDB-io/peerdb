@@ -523,6 +523,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, stream)
+		stream.Close(err)
 		if err != nil {
 			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", err)
 		}
@@ -568,7 +569,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 }
 
 // replicateXminPartition replicates a XminPartition from the source to the destination.
-func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConnectorCore](
+func replicateXminPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.QRepConfig,
@@ -611,6 +612,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		var numRecords int64
 		var numBytes int64
 		numRecords, numBytes, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, dstPeer.Type, partition, stream)
+		stream.Close(pullErr)
 		if pullErr != nil {
 			logger.Warn("[xmin] failed to pull records", slog.Any("error", pullErr))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
