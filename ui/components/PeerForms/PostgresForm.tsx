@@ -92,11 +92,11 @@ export default function PostgresForm({
             (config.authType === PostgresAuthType.POSTGRES_IAM_AUTH &&
               setting.field === 'awsAuth.authType')) ? (
           <RowWithSelect
+            key={id}
             label={<Label>{setting.label}</Label>}
             action={
               <div>
                 <ReactSelect
-                  key={id}
                   defaultValue={setting.options?.find(
                     ({ value }) => value === setting.default
                   )}
