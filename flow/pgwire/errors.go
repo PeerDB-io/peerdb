@@ -3,16 +3,15 @@ package pgwire
 import (
 	"errors"
 	"io"
-	"net"
 	"time"
 
-	"github.com/jackc/pgproto3/v2"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 )
 
 // writeErrorResponse converts an error to a PostgreSQL ErrorResponse and writes it to the connection
-// Sets write deadline to prevent blocking on slow/dead clients
-func writeErrorResponse(w io.Writer, err error) error {
+// If timeout is 0, uses the default from env var
+func writeErrorResponse(w io.Writer, err error, timeout time.Duration) error {
 	var pgErr *pgconn.PgError
 	var er *pgproto3.ErrorResponse
 
@@ -46,54 +45,25 @@ func writeErrorResponse(w io.Writer, err error) error {
 		}
 	}
 
-	buf, encErr := er.Encode(nil)
-	if encErr != nil {
-		return encErr
-	}
-
-	// Set write deadline if this is a net.Conn
-	if netConn, ok := w.(net.Conn); ok {
-		_ = netConn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-		defer func() {
-			_ = netConn.SetWriteDeadline(time.Time{})
-		}()
-	}
-
-	_, writeErr := w.Write(buf)
-	return writeErr
+	return writeBackendMessage(w, er, timeout)
 }
 
 // writeErrorAndReady writes an error response followed by ReadyForQuery
-func writeErrorAndReady(w io.Writer, err error, txStatus byte) error {
-	if err := writeErrorResponse(w, err); err != nil {
+// If timeout is 0, uses the default from env var
+func writeErrorAndReady(w io.Writer, err error, txStatus byte, timeout time.Duration) error {
+	if err := writeErrorResponse(w, err, timeout); err != nil {
 		return err
 	}
 
-	return writeReadyForQuery(w, txStatus)
+	return writeReadyForQuery(w, txStatus, timeout)
 }
 
 // writeProtoError writes a protocol error with a specific code
-// Sets write deadline to prevent blocking on slow/dead clients
-func writeProtoError(w io.Writer, code, message string) error {
-	er := &pgproto3.ErrorResponse{
+// If timeout is 0, uses the default from env var
+func writeProtoError(w io.Writer, code, message string, timeout time.Duration) error {
+	return writeBackendMessage(w, &pgproto3.ErrorResponse{
 		Severity: "ERROR",
 		Code:     code,
 		Message:  message,
-	}
-
-	buf, err := er.Encode(nil)
-	if err != nil {
-		return err
-	}
-
-	// Set write deadline if this is a net.Conn
-	if netConn, ok := w.(net.Conn); ok {
-		_ = netConn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-		defer func() {
-			_ = netConn.SetWriteDeadline(time.Time{})
-		}()
-	}
-
-	_, err = w.Write(buf)
-	return err
+	}, timeout)
 }

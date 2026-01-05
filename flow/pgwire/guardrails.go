@@ -1,6 +1,7 @@
 package pgwire
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -9,61 +10,30 @@ import (
 type Guardrails struct {
 	MaxRows      int64
 	MaxBytes     int64
-	DenyList     []string
-	AllowList    []string
 	currentRows  int64
 	currentBytes int64
 }
 
-// Default dangerous keywords that are denied unless explicitly allowed
-var defaultDangerousKeywords = []string{
-	"COPY",   // Protocol not supported, can execute programs with TO PROGRAM
-	"DO",     // Can execute arbitrary PL/pgSQL code
-	"VACUUM", // Administrative operation
-	"ANALYZE", "CLUSTER", "REINDEX", // Administrative operations
-	"REFRESH", // Can trigger expensive operations
-	"LISTEN", "UNLISTEN", "NOTIFY", // Async messaging (may not be appropriate for proxy)
+// blockedCommands are statements that are always denied
+var blockedCommands = []string{
+	"COPY",     // Protocol not supported + TO PROGRAM security risk
+	"VACUUM",   // Maintenance op, I/O impact, VACUUM FULL rewrites tables
+	"ANALYZE",  // Writes to system catalogs
+	"CLUSTER",  // Rewrites entire tables
+	"REINDEX",  // Rebuilds indexes, can lock tables
+	"REFRESH",  // REFRESH MATERIALIZED VIEW modifies stored data
+	"LISTEN",   // Async messaging not supported by proxy
+	"NOTIFY",   // Async messaging not supported by proxy
+	"UNLISTEN", // Async messaging not supported by proxy
+	"DO",       // Anonymous PL/pgSQL blocks, can execute dynamic SQL
+	"LOCK",     // Can lock tables, potential for blocking/deadlocks
 }
 
 // NewGuardrails creates a new Guardrails instance
-// Dangerous keywords are added to deny list by default unless explicitly allowed
-func NewGuardrails(maxRows, maxBytes int64, denyList, allowList []string) *Guardrails {
-	// Build final deny list: start with user's deny list
-	finalDenyList := make([]string, 0, len(denyList)+len(defaultDangerousKeywords))
-	finalDenyList = append(finalDenyList, denyList...)
-
-	// Add default dangerous keywords unless they're explicitly allowed
-	for _, dangerous := range defaultDangerousKeywords {
-		// Check if explicitly allowed
-		allowed := false
-		for _, allowedKeyword := range allowList {
-			if strings.EqualFold(dangerous, strings.TrimSpace(allowedKeyword)) {
-				allowed = true
-				break
-			}
-		}
-
-		if !allowed {
-			// Check if already in deny list
-			alreadyDenied := false
-			for _, denied := range denyList {
-				if strings.EqualFold(dangerous, strings.TrimSpace(denied)) {
-					alreadyDenied = true
-					break
-				}
-			}
-
-			if !alreadyDenied {
-				finalDenyList = append(finalDenyList, dangerous)
-			}
-		}
-	}
-
+func NewGuardrails(maxRows, maxBytes int64) *Guardrails {
 	return &Guardrails{
-		MaxRows:   maxRows,
-		MaxBytes:  maxBytes,
-		DenyList:  finalDenyList,
-		AllowList: allowList,
+		MaxRows:  maxRows,
+		MaxBytes: maxBytes,
 	}
 }
 
@@ -73,48 +43,37 @@ func (g *Guardrails) Reset() {
 	g.currentBytes = 0
 }
 
-// CheckQuery validates a query against the deny/allow lists
-// IMPORTANT: Checks each statement individually to prevent bypassing via multi-statement queries
+// CheckQuery validates a query for security
 func (g *Guardrails) CheckQuery(query string) error {
 	trimmed := strings.TrimSpace(query)
 	if trimmed == "" {
 		return nil
 	}
 
-	// Split into individual statements to prevent bypassing allow/deny lists
-	// e.g., "SELECT 1; DROP TABLE x;" must check both statements
-	statements := splitSQL(query)
+	// Check for read-only bypass attempts
+	lower := strings.ToLower(trimmed)
+	if strings.Contains(lower, "default_transaction_read_only") {
+		return errors.New("cannot modify read-only mode")
+	}
+	if strings.Contains(lower, "set_config") {
+		return errors.New("set_config is not allowed")
+	}
+	// Block READ WRITE transactions (BEGIN/START TRANSACTION/SET TRANSACTION READ WRITE)
+	if strings.Contains(lower, "read write") {
+		return errors.New("READ WRITE transactions not allowed")
+	}
 
+	// Check each statement against blocked commands
+	statements := splitSQL(query)
 	for _, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
 		}
-
-		// Get the first keyword from this statement
 		keyword := getStatementPrefix(stmt)
-		if keyword == "" {
-			continue
-		}
-
-		// If allow list is set, only allow statements with allowed keywords
-		if len(g.AllowList) > 0 {
-			allowed := false
-			for _, allowedKeyword := range g.AllowList {
-				if strings.EqualFold(keyword, strings.TrimSpace(allowedKeyword)) {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				return fmt.Errorf("statement not in allow list: %s", keyword)
-			}
-		}
-
-		// Check deny list
-		for _, deniedKeyword := range g.DenyList {
-			if strings.EqualFold(keyword, strings.TrimSpace(deniedKeyword)) {
-				return fmt.Errorf("statement denied: %s", keyword)
+		for _, blocked := range blockedCommands {
+			if strings.EqualFold(keyword, blocked) {
+				return fmt.Errorf("statement denied: %s", blocked)
 			}
 		}
 	}

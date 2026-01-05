@@ -88,12 +88,7 @@ require (
 	github.com/gogo/googleapis v1.4.1
 )
 
-require (
-	github.com/jackc/pgproto3/v2 v2.3.3
-	github.com/quasilyte/go-ruleguard/dsl v0.3.23
-)
-
-require github.com/jackc/chunkreader/v2 v2.0.0 // indirect
+require github.com/quasilyte/go-ruleguard/dsl v0.3.23
 
 require (
 	cel.dev/expr v0.24.0 // indirect

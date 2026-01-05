@@ -9,47 +9,45 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // Server is the main PgWire proxy server
 type Server struct {
-	config      *ServerConfig
 	listener    net.Listener
-	sessions    sync.Map // [2]uint32{pid, secret} -> *Session for cancel handling
+	catalogPool shared.CatalogPool
 	logger      *slog.Logger
-	activeConns atomic.Int32
 	shutdownCh  chan struct{}
+	sessions    sync.Map
 	wg          sync.WaitGroup
+	activeConns atomic.Int32
+	port        uint16
 }
 
 // NewServer creates a new PgWire proxy server
-func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	logger := slog.Default()
-
+func NewServer(catalogPool shared.CatalogPool, port uint16) *Server {
 	return &Server{
-		config:     config,
-		logger:     logger,
-		shutdownCh: make(chan struct{}),
-	}, nil
+		catalogPool: catalogPool,
+		logger:      slog.Default(),
+		port:        port,
+		shutdownCh:  make(chan struct{}),
+	}
 }
 
 // ListenAndServe starts the server and blocks until shutdown
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	listenAddress := fmt.Sprintf(":%d", s.port)
+
 	// Create TCP listener
-	listener, err := net.Listen("tcp", s.config.ListenAddress)
+	listener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", s.config.ListenAddress, err)
+		return fmt.Errorf("failed to listen on %s: %w", listenAddress, err)
 	}
 	s.listener = listener
 
 	s.logger.InfoContext(ctx, "PgWire proxy server listening",
-		slog.String("address", s.config.ListenAddress),
-		slog.Bool("tls", s.config.EnableTLS),
-		slog.Int("max_connections", s.config.MaxConnections),
+		slog.String("address", listenAddress),
 	)
 
 	// Handle shutdown signal
@@ -77,15 +75,6 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 				s.logger.ErrorContext(ctx, "Failed to accept connection", slog.Any("error", err))
 				continue
 			}
-		}
-
-		// Check connection limit
-		if int(s.activeConns.Load()) >= s.config.MaxConnections {
-			s.logger.WarnContext(ctx, "Connection limit reached, rejecting connection",
-				slog.String("remote_addr", conn.RemoteAddr().String()),
-			)
-			_ = conn.Close()
-			continue
 		}
 
 		// Handle connection in goroutine
@@ -118,15 +107,14 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	// Set connection deadline to prevent hanging on startup
 	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 
-	session := NewSession(conn, s.config, s.logger)
+	session := NewSession(conn, s.catalogPool, s.logger)
 
 	// Handle the session - this will set pid/secret and register for cancels
 	if err := session.Handle(ctx, s); err != nil {
 		// Check if it's a cancel request during startup
-		// Cancel requests are returned as a typed error
 		var cancelErr *CancelRequestError
 		if errors.As(err, &cancelErr) {
-			s.handleCancelRequest(cancelErr.PID, cancelErr.Secret)
+			s.handleCancelRequest(cancelErr.ProcessID, cancelErr.SecretKey)
 			return
 		}
 		session.logger.ErrorContext(ctx, "Session error", slog.Any("error", err))
@@ -147,7 +135,12 @@ func (s *Server) handleCancelRequest(pid, secret uint32) {
 
 		// Send cancel to upstream using pgconn's CancelRequest
 		if session.upstream != nil {
-			_ = session.upstream.PgConn().CancelRequest(ctx)
+			if err := session.upstream.PgConn().CancelRequest(ctx); err != nil {
+				s.logger.WarnContext(ctx, "Cancel request failed",
+					slog.Uint64("pid", uint64(pid)),
+					slog.Any("error", err),
+				)
+			}
 		}
 	} else {
 		s.logger.WarnContext(ctx, "Cancel request for unknown session",

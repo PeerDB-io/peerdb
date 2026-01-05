@@ -202,3 +202,32 @@ func PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx context.Context) bool {
 	}
 	return enabled
 }
+
+// PEERDB_PGWIRE_ENABLED enables the pgwire proxy server
+func PeerDBPgwireEnabled() bool {
+	return GetEnvBool("PEERDB_PGWIRE_ENABLED", false)
+}
+
+// PEERDB_PGWIRE_QUERY_TIMEOUT_SECONDS is the query timeout in seconds
+func PeerDBPgwireQueryTimeoutSeconds() int {
+	return getEnvConvert("PEERDB_PGWIRE_QUERY_TIMEOUT_SECONDS", 30, strconv.Atoi)
+}
+
+// PEERDB_PGWIRE_WRITE_TIMEOUT_SECONDS is the write deadline timeout in seconds
+func PeerDBPgwireWriteTimeoutSeconds() int {
+	return getEnvConvert("PEERDB_PGWIRE_WRITE_TIMEOUT_SECONDS", 30, strconv.Atoi)
+}
+
+// PEERDB_PGWIRE_MAX_ROWS is the maximum number of rows per query
+func PeerDBPgwireMaxRows() int64 {
+	return getEnvConvert("PEERDB_PGWIRE_MAX_ROWS", int64(10000), func(s string) (int64, error) {
+		return strconv.ParseInt(s, 10, 64)
+	})
+}
+
+// PEERDB_PGWIRE_MAX_BYTES is the maximum bytes per query
+func PeerDBPgwireMaxBytes() int64 {
+	return getEnvConvert("PEERDB_PGWIRE_MAX_BYTES", int64(100*1024*1024), func(s string) (int64, error) {
+		return strconv.ParseInt(s, 10, 64)
+	})
+}

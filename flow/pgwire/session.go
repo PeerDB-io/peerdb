@@ -7,50 +7,139 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/jackc/pgproto3/v2"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgproto3"
+
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 var sessionIDCounter atomic.Uint32
 
 // Session represents a client session
 type Session struct {
-	id         uint32
-	clientConn net.Conn
-	backend    *pgproto3.Backend
-	upstream   *pgx.Conn
-	pid        uint32
-	secret     uint32
-	config     *ServerConfig
-	logger     *slog.Logger
-	metrics    *SessionMetrics
-	guardrails *Guardrails
+	clientConn   net.Conn
+	catalogPool  shared.CatalogPool
+	backend      *pgproto3.Backend
+	upstream     *pgx.Conn
+	logger       *slog.Logger
+	guardrails   *Guardrails
+	peerName     string
+	queryTimeout time.Duration
+	idleTimeout  time.Duration
+	writeTimeout time.Duration
+	pid          uint32
+	secret       uint32
+	id           uint32
+}
+
+// startupConfig holds parsed configuration from startup parameters
+type startupConfig struct {
+	maxRows      int64
+	maxBytes     int64
+	queryTimeout time.Duration
+	idleTimeout  time.Duration
+	writeTimeout time.Duration
+}
+
+// parseStartupOptions parses PostgreSQL options string (-c key=value format)
+// and extracts peerdb.* parameters
+func parseStartupOptions(options string) map[string]string {
+	result := make(map[string]string)
+	if options == "" {
+		return result
+	}
+
+	// Split on -c, handling the format: -c key=value -c key2=value2
+	parts := strings.Split(options, "-c")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		// Split on first = sign
+		if idx := strings.Index(part, "="); idx > 0 {
+			key := strings.TrimSpace(part[:idx])
+			value := strings.TrimSpace(part[idx+1:])
+			result[key] = value
+		}
+	}
+
+	return result
+}
+
+// parseStartupConfig extracts guardrail config from startup parameters
+func parseStartupConfig(params map[string]string) *startupConfig {
+	cfg := &startupConfig{
+		maxRows:      internal.PeerDBPgwireMaxRows(),
+		maxBytes:     internal.PeerDBPgwireMaxBytes(),
+		queryTimeout: time.Duration(internal.PeerDBPgwireQueryTimeoutSeconds()) * time.Second,
+		writeTimeout: time.Duration(internal.PeerDBPgwireWriteTimeoutSeconds()) * time.Second,
+		idleTimeout:  30 * time.Minute,
+	}
+
+	// Parse options string for -c parameters
+	options := parseStartupOptions(params["options"])
+
+	// Check for peerdb.max_rows
+	if v, ok := options["peerdb.max_rows"]; ok {
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.maxRows = parsed
+		}
+	}
+
+	// Check for peerdb.max_bytes
+	if v, ok := options["peerdb.max_bytes"]; ok {
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.maxBytes = parsed
+		}
+	}
+
+	// Check for peerdb.query_timeout (in seconds)
+	if v, ok := options["peerdb.query_timeout"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.queryTimeout = time.Duration(parsed) * time.Second
+		}
+	}
+
+	// Check for peerdb.write_timeout (in seconds)
+	if v, ok := options["peerdb.write_timeout"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.writeTimeout = time.Duration(parsed) * time.Second
+		}
+	}
+
+	// Check for peerdb.idle_timeout (in seconds)
+	if v, ok := options["peerdb.idle_timeout"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.idleTimeout = time.Duration(parsed) * time.Second
+		}
+	}
+
+	return cfg
 }
 
 // NewSession creates a new session
-func NewSession(clientConn net.Conn, config *ServerConfig, logger *slog.Logger) *Session {
+func NewSession(clientConn net.Conn, catalogPool shared.CatalogPool, logger *slog.Logger) *Session {
 	id := sessionIDCounter.Add(1)
 
 	return &Session{
-		id:         id,
-		clientConn: clientConn,
-		config:     config,
+		id:          id,
+		clientConn:  clientConn,
+		catalogPool: catalogPool,
 		logger: logger.With(
 			slog.Uint64("session_id", uint64(id)),
 			slog.String("client_addr", clientConn.RemoteAddr().String()),
 		),
-		metrics: &SessionMetrics{
-			ConnectionTime: time.Now(),
-		},
-		guardrails: NewGuardrails(
-			config.MaxRows,
-			config.MaxBytes,
-			config.DenyStatements,
-			config.AllowStatements,
-		),
+		// guardrails, queryTimeout, idleTimeout are set in Handle() after parsing startup params
 	}
 }
 
@@ -66,60 +155,71 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 		if s.upstream != nil {
 			_ = s.upstream.Close(context.Background())
 		}
-		// Check for nil before closing
 		if s.clientConn != nil {
 			_ = s.clientConn.Close()
 		}
 
-		s.logger.InfoContext(ctx, "Session ended",
-			slog.Int64("queries", s.metrics.QueriesTotal),
-			slog.Int64("rows_sent", s.metrics.RowsSent),
-			slog.Int64("bytes_sent", s.metrics.BytesSent),
-			slog.Int64("errors", s.metrics.ErrorsTotal),
-			slog.Duration("duration", time.Since(s.metrics.ConnectionTime)),
-		)
+		s.logger.InfoContext(ctx, "Session ended")
 	}()
 
 	s.logger.InfoContext(ctx, "New session started")
 
-	// Handle SSL negotiation and startup using the correct acceptStartup function
-	var startup *pgproto3.StartupMessage
-	var cancel *CancelRequest
-	var err error
-	// acceptStartup may return a new connection (for TLS upgrade) or nil on error
-	newConn, backend, startup, cancel, err := acceptStartup(s.clientConn, s.config.TLSConfig)
+	// Handle SSL negotiation and startup
+	newConn, backend, startup, err := acceptStartup(s.clientConn)
 	if err != nil {
+		// Check if it's a cancel request - return as-is to be handled by server
+		var cancelErr *CancelRequestError
+		if errors.As(err, &cancelErr) {
+			s.logger.InfoContext(ctx, "Cancel request during startup",
+				slog.Uint64("pid", uint64(cancelErr.ProcessID)),
+				slog.Uint64("secret", uint64(cancelErr.SecretKey)))
+			return err
+		}
 		s.logger.ErrorContext(ctx, "Startup failed", slog.Any("error", err))
 		return err
 	}
-	// Only update connection if successful
 	s.clientConn = newConn
 	s.backend = backend
 
-	// Check if it's a cancel request - return to be handled by server
-	if cancel != nil {
-		s.logger.InfoContext(ctx, "Cancel request during startup",
-			slog.Uint64("pid", uint64(cancel.ProcessID)),
-			slog.Uint64("secret", uint64(cancel.SecretKey)))
-		// Return a typed error that the server can detect
-		return &CancelRequestError{
-			PID:    cancel.ProcessID,
-			Secret: cancel.SecretKey,
-		}
-	}
+	// Extract peer name from database parameter
+	s.peerName = startup.Parameters["database"]
+	s.logger = s.logger.With(slog.String("peer", s.peerName))
+
+	// Parse startup parameters for guardrails config
+	cfg := parseStartupConfig(startup.Parameters)
+	s.queryTimeout = cfg.queryTimeout
+	s.idleTimeout = cfg.idleTimeout
+	s.writeTimeout = cfg.writeTimeout
+	s.guardrails = NewGuardrails(cfg.maxRows, cfg.maxBytes)
 
 	s.logger.InfoContext(ctx, "Received startup message",
 		slog.String("user", startup.Parameters["user"]),
 		slog.String("database", startup.Parameters["database"]),
 		slog.String("application_name", startup.Parameters["application_name"]),
+		slog.Int64("max_rows", cfg.maxRows),
+		slog.Int64("max_bytes", cfg.maxBytes),
+		slog.Duration("query_timeout", cfg.queryTimeout),
+		slog.Duration("idle_timeout", cfg.idleTimeout),
+		slog.Duration("write_timeout", cfg.writeTimeout),
 	)
 
+	// Resolve peer to PostgresConfig
+	pgConfig, err := s.resolvePeer(ctx)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to resolve peer", slog.Any("error", err))
+		if werr := writeProtoError(s.clientConn, "3D000", err.Error(), s.writeTimeout); werr != nil {
+			s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+		}
+		return err
+	}
+
 	// Create upstream connection
-	queryTimeoutStr := fmt.Sprintf("%dms", s.config.QueryTimeout.Milliseconds())
-	s.upstream, err = createUpstreamConnection(ctx, s.config.UpstreamDSN, queryTimeoutStr)
+	s.upstream, err = createUpstreamConnection(ctx, pgConfig, s.queryTimeout)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to connect to upstream", slog.Any("error", err))
-		_ = writeErrorAndReady(s.clientConn, errors.New("failed to connect to upstream database"), 'I')
+		if werr := writeErrorAndReady(s.clientConn, errors.New("failed to connect to upstream database"), 'I', s.writeTimeout); werr != nil {
+			s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+		}
 		return err
 	}
 
@@ -138,28 +238,53 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 	serverParams := queryServerParameters(ctx, s.upstream)
 
 	// Send greeting to client with actual server parameters
-	if err := sendGreeting(s.clientConn, s.pid, s.secret, serverParams, s.txStatus()); err != nil {
+	if err := sendGreeting(s.clientConn, s.pid, s.secret, serverParams, s.txStatus(), s.writeTimeout); err != nil {
 		s.logger.ErrorContext(ctx, "Failed to send greeting", slog.Any("error", err))
 		return err
 	}
 
 	// Clear connection deadlines after successful handshake
-	// The initial deadline was set in server.go to prevent hanging during startup
-	// Now we clear both read and write deadlines for the main message loop
 	_ = s.clientConn.SetDeadline(time.Time{})
 
 	// Main message loop
 	return s.messageLoop(ctx)
 }
 
+// resolvePeer resolves the peer name to a PostgresConfig
+func (s *Session) resolvePeer(ctx context.Context) (*protos.PostgresConfig, error) {
+	if s.peerName == "" {
+		return nil, errors.New("database name (peer name) is required")
+	}
+
+	// Special case: "catalog" connects to the PeerDB catalog database
+	if s.peerName == "catalog" {
+		return internal.GetCatalogPostgresConfigFromEnv(ctx), nil
+	}
+
+	// Load peer from catalog
+	peer, err := connectors.LoadPeer(ctx, s.catalogPool, s.peerName)
+	if err != nil {
+		return nil, fmt.Errorf("peer '%s' not found", s.peerName)
+	}
+
+	// Validate peer type
+	if peer.Type != protos.DBType_POSTGRES {
+		return nil, fmt.Errorf("peer '%s' is type %s, only PostgreSQL supported", s.peerName, peer.Type)
+	}
+
+	pgConfig := peer.GetPostgresConfig()
+	if pgConfig == nil {
+		return nil, fmt.Errorf("peer '%s' has no PostgreSQL configuration", s.peerName)
+	}
+
+	return pgConfig, nil
+}
+
 // messageLoop processes client messages
 func (s *Session) messageLoop(ctx context.Context) error {
-	// Use configured idle timeout (defaulted to 30 minutes in config validation)
-	idleTimeout := s.config.IdleTimeout
-
 	for {
 		// Set read deadline for idle timeout
-		_ = s.clientConn.SetReadDeadline(time.Now().Add(idleTimeout))
+		_ = s.clientConn.SetReadDeadline(time.Now().Add(s.idleTimeout))
 
 		msg, err := s.backend.Receive()
 		if err != nil {
@@ -170,7 +295,9 @@ func (s *Session) messageLoop(ctx context.Context) error {
 			// Check if it's a timeout error
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				s.logger.InfoContext(ctx, "Client idle timeout")
-				_ = writeProtoError(s.clientConn, "57P05", "idle timeout exceeded")
+				if werr := writeProtoError(s.clientConn, "57P05", "idle timeout exceeded", s.writeTimeout); werr != nil {
+					s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+				}
 				return err
 			}
 			s.logger.ErrorContext(ctx, "Error receiving message", slog.Any("error", err))
@@ -181,9 +308,7 @@ func (s *Session) messageLoop(ctx context.Context) error {
 		switch m := msg.(type) {
 		case *pgproto3.Query:
 			if err := s.handleQuery(ctx, m.String); err != nil {
-				s.metrics.ErrorsTotal++
 				s.logger.ErrorContext(ctx, "Query failed", slog.Any("error", err))
-				// Error already sent in handleQuery, just continue
 			}
 
 		case *pgproto3.Terminate:
@@ -193,8 +318,13 @@ func (s *Session) messageLoop(ctx context.Context) error {
 		default:
 			// Reject extended protocol and other unsupported messages
 			s.logger.WarnContext(ctx, "Unsupported message type", slog.String("type", fmt.Sprintf("%T", m)))
-			_ = writeProtoError(s.clientConn, "0A000", fmt.Sprintf("extended protocol not supported: %T", m))
-			_ = writeReadyForQuery(s.clientConn, s.txStatus())
+			errMsg := fmt.Sprintf("extended protocol not supported: %T", m)
+			if werr := writeProtoError(s.clientConn, "0A000", errMsg, s.writeTimeout); werr != nil {
+				s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+			}
+			if werr := writeReadyForQuery(s.clientConn, s.txStatus(), s.writeTimeout); werr != nil {
+				s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+			}
 		}
 	}
 }
@@ -202,7 +332,6 @@ func (s *Session) messageLoop(ctx context.Context) error {
 // handleQuery processes a query message
 func (s *Session) handleQuery(ctx context.Context, query string) error {
 	startTime := time.Now()
-	s.metrics.QueriesTotal++
 
 	// Reset guardrails for new query
 	s.guardrails.Reset()
@@ -212,8 +341,10 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 		s.logger.WarnContext(ctx, "Query blocked by guardrails",
 			slog.String("query", truncateQuery(query, 100)),
 			slog.Any("error", err))
-		_ = writeProtoError(s.clientConn, "54000", err.Error())
-		return writeReadyForQuery(s.clientConn, s.txStatus())
+		if werr := writeProtoError(s.clientConn, "54000", err.Error(), s.writeTimeout); werr != nil {
+			s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+		}
+		return writeReadyForQuery(s.clientConn, s.txStatus(), s.writeTimeout)
 	}
 
 	s.logger.InfoContext(ctx, "Executing query",
@@ -221,7 +352,7 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 	)
 
 	// Create query context with timeout
-	queryCtx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout)
 	defer cancel()
 
 	// Execute query using pgconn Exec to properly handle multi-statement queries
@@ -252,7 +383,7 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 			rowDesc := &pgproto3.RowDescription{
 				Fields: protoFields,
 			}
-			if err := writeBackendMessage(s.clientConn, rowDesc); err != nil {
+			if err := writeBackendMessage(s.clientConn, rowDesc, s.writeTimeout); err != nil {
 				return err
 			}
 
@@ -261,16 +392,17 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 				// Check row limit BEFORE processing
 				if err := s.guardrails.AddRow(); err != nil {
 					s.logger.WarnContext(ctx, "Row limit exceeded", slog.Any("error", err))
-					_ = writeProtoError(s.clientConn, "54000", err.Error())
-					return writeReadyForQuery(s.clientConn, s.txStatus())
+					if werr := writeProtoError(s.clientConn, "54000", err.Error(), s.writeTimeout); werr != nil {
+						s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+					}
+					return writeReadyForQuery(s.clientConn, s.txStatus(), s.writeTimeout)
 				}
 
 				row := resultReader.Values()
 
 				// Check byte limit - include wire protocol overhead
-				// DataRow wire format: 1 byte message type + 4 bytes length + 2 bytes field count + per-field overhead
 				const perFieldOverhead = 4 // int32 length prefix per field
-				const dataRowOverhead = 6  // message type (1) + message length (4) + field count (2, though actually int16)
+				const dataRowOverhead = 6  // message type (1) + message length (4) + field count (2)
 
 				rowBytes := int64(dataRowOverhead)
 				for _, val := range row {
@@ -278,31 +410,31 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 					if val != nil {
 						rowBytes += int64(len(val))
 					}
-					// NULL values are encoded as -1 in the length field, but we count the overhead
 				}
 
 				if err := s.guardrails.AddBytes(rowBytes); err != nil {
 					s.logger.WarnContext(ctx, "Byte limit exceeded", slog.Any("error", err))
-					_ = writeProtoError(s.clientConn, "54000", err.Error())
-					return writeReadyForQuery(s.clientConn, s.txStatus())
+					if werr := writeProtoError(s.clientConn, "54000", err.Error(), s.writeTimeout); werr != nil {
+						s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+					}
+					return writeReadyForQuery(s.clientConn, s.txStatus(), s.writeTimeout)
 				}
 
 				// Send DataRow - row is [][]byte in the right format
 				dataRow := &pgproto3.DataRow{Values: row}
-				if err := writeBackendMessage(s.clientConn, dataRow); err != nil {
+				if err := writeBackendMessage(s.clientConn, dataRow, s.writeTimeout); err != nil {
 					return err
 				}
-
-				s.metrics.RowsSent++
-				s.metrics.BytesSent += rowBytes
 			}
 		}
 
 		// Close the result reader to get the CommandTag
 		commandTag, err := resultReader.Close()
 		if err != nil {
-			_ = writeErrorResponse(s.clientConn, err)
-			return writeReadyForQuery(s.clientConn, s.txStatus())
+			if werr := writeErrorResponse(s.clientConn, err, s.writeTimeout); werr != nil {
+				s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+			}
+			return writeReadyForQuery(s.clientConn, s.txStatus(), s.writeTimeout)
 		}
 
 		// Send EmptyQueryResponse for empty statements, CommandComplete otherwise
@@ -310,7 +442,7 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 		if commandTagStr == "" {
 			// Empty query - send EmptyQueryResponse per protocol
 			emptyResp := &pgproto3.EmptyQueryResponse{}
-			if err := writeBackendMessage(s.clientConn, emptyResp); err != nil {
+			if err := writeBackendMessage(s.clientConn, emptyResp, s.writeTimeout); err != nil {
 				return err
 			}
 		} else {
@@ -318,7 +450,7 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 			cmdComplete := &pgproto3.CommandComplete{
 				CommandTag: []byte(commandTagStr),
 			}
-			if err := writeBackendMessage(s.clientConn, cmdComplete); err != nil {
+			if err := writeBackendMessage(s.clientConn, cmdComplete, s.writeTimeout); err != nil {
 				return err
 			}
 		}
@@ -326,12 +458,14 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 
 	// Check for errors after all results are processed
 	if err := multiResult.Close(); err != nil {
-		_ = writeErrorResponse(s.clientConn, err)
-		return writeReadyForQuery(s.clientConn, s.txStatus())
+		if werr := writeErrorResponse(s.clientConn, err, s.writeTimeout); werr != nil {
+			s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+		}
+		return writeReadyForQuery(s.clientConn, s.txStatus(), s.writeTimeout)
 	}
 
 	// Send ReadyForQuery once after all result sets are processed
-	if err := writeReadyForQuery(s.clientConn, s.txStatus()); err != nil {
+	if err := writeReadyForQuery(s.clientConn, s.txStatus(), s.writeTimeout); err != nil {
 		return err
 	}
 

@@ -28,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/middleware"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pgwire"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -37,6 +38,7 @@ type APIServerParams struct {
 	TemporalNamespace string
 	Port              uint16
 	GatewayPort       uint16
+	PgwirePort        uint16
 	EnableOtelMetrics bool
 }
 
@@ -287,6 +289,18 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 			log.Fatalf("failed to serve http: %v", err)
 		}
 	}()
+
+	// Start PgWire proxy if enabled
+	if internal.PeerDBPgwireEnabled() {
+		go func() {
+			slog.InfoContext(ctx, "Starting PgWire proxy server", slog.Uint64("port", uint64(args.PgwirePort)))
+
+			server := pgwire.NewServer(catalogPool, args.PgwirePort)
+			if err := server.ListenAndServe(ctx); err != nil {
+				slog.ErrorContext(ctx, "PgWire proxy error", slog.Any("error", err))
+			}
+		}()
+	}
 
 	// somewhat unrelated here, but needed a process which isn't replicated
 	go recryptDatabase(

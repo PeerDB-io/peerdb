@@ -3,12 +3,19 @@ package pgwire
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 // createUpstreamConnection creates a new connection to the upstream PostgreSQL database
-func createUpstreamConnection(ctx context.Context, dsn string, queryTimeout string) (*pgx.Conn, error) {
+func createUpstreamConnection(ctx context.Context, pgConfig *protos.PostgresConfig, queryTimeout time.Duration) (*pgx.Conn, error) {
+	// Build DSN from PostgresConfig
+	dsn := internal.GetPGConnectionString(pgConfig, "")
+
 	// Parse the DSN
 	connConfig, err := pgx.ParseConfig(dsn)
 	if err != nil {
@@ -24,8 +31,10 @@ func createUpstreamConnection(ctx context.Context, dsn string, queryTimeout stri
 	}
 
 	// Set timeout and session parameters
-	connConfig.RuntimeParams["statement_timeout"] = queryTimeout
-	connConfig.RuntimeParams["idle_in_transaction_session_timeout"] = queryTimeout
+	queryTimeoutStr := fmt.Sprintf("%dms", queryTimeout.Milliseconds())
+	connConfig.RuntimeParams["statement_timeout"] = queryTimeoutStr
+	connConfig.RuntimeParams["idle_in_transaction_session_timeout"] = queryTimeoutStr
+	connConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	connConfig.RuntimeParams["timezone"] = "UTC"
 	connConfig.RuntimeParams["DateStyle"] = "ISO, MDY"
 	connConfig.RuntimeParams["standard_conforming_strings"] = "on"
@@ -56,30 +65,26 @@ func getBackendKeyData(conn *pgx.Conn) (uint32, uint32) {
 func queryServerParameters(ctx context.Context, conn *pgx.Conn) map[string]string {
 	params := make(map[string]string)
 
-	// Query for key server parameters that clients expect
-	// Per PostgreSQL protocol, these are the most important ones
-	queries := []struct {
-		param string
-		query string
-	}{
-		{"server_version", "SHOW server_version"},
-		{"server_encoding", "SHOW server_encoding"},
-		{"client_encoding", "SHOW client_encoding"},
-		{"DateStyle", "SHOW DateStyle"},
-		{"TimeZone", "SHOW TimeZone"},
-		{"integer_datetimes", "SHOW integer_datetimes"},
-		{"standard_conforming_strings", "SHOW standard_conforming_strings"},
-		{"application_name", "SHOW application_name"},
+	// Query all parameters in a single round-trip via pg_settings
+	rows, err := conn.Query(ctx, `
+		SELECT name, setting FROM pg_settings
+		WHERE name IN (
+			'server_version', 'server_encoding', 'client_encoding',
+			'DateStyle', 'TimeZone', 'integer_datetimes',
+			'standard_conforming_strings', 'application_name'
+		)
+	`)
+	if err != nil {
+		return params
 	}
+	defer rows.Close()
 
-	for _, q := range queries {
-		var value string
-		err := conn.QueryRow(ctx, q.query).Scan(&value)
-		if err != nil {
-			// Log but don't fail - we'll use defaults
+	for rows.Next() {
+		var name, setting string
+		if err := rows.Scan(&name, &setting); err != nil {
 			continue
 		}
-		params[q.param] = value
+		params[name] = setting
 	}
 
 	return params

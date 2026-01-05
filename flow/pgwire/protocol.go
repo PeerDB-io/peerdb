@@ -1,117 +1,80 @@
 package pgwire
 
 import (
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
 	"time"
 
-	"github.com/jackc/pgproto3/v2"
+	"github.com/jackc/pgx/v5/pgproto3"
+
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-// CancelRequest represents a cancel request from a client
-type CancelRequest struct {
-	ProcessID uint32
-	SecretKey uint32
+// defaultWriteTimeout returns the default write deadline from env var
+func defaultWriteTimeout() time.Duration {
+	return time.Duration(internal.PeerDBPgwireWriteTimeoutSeconds()) * time.Second
 }
 
-// CancelRequestError is a typed error returned when a cancel request is received during startup
+// CancelRequestError is returned when a cancel request is received during startup
 type CancelRequestError struct {
-	PID    uint32
-	Secret uint32
+	ProcessID uint32
+	SecretKey uint32
 }
 
 func (e *CancelRequestError) Error() string {
 	return "cancel request received"
 }
 
-// acceptStartup handles SSL negotiation and startup message in one clean loop
-// This is the correct way to handle the startup phase on the server side
-// Returns a CancelRequest if the client sent a cancel request instead of a startup
-func acceptStartup(conn net.Conn, tlsConfig *tls.Config) (net.Conn, *pgproto3.Backend, *pgproto3.StartupMessage, *CancelRequest, error) {
-	backend := pgproto3.NewBackend(pgproto3.NewChunkReader(conn), conn)
+// acceptStartup handles SSL negotiation and startup message
+// TLS is not supported - network is assumed to be secure
+// Returns CancelRequestError if the client sent a cancel request instead of a startup
+func acceptStartup(conn net.Conn) (net.Conn, *pgproto3.Backend, *pgproto3.StartupMessage, error) {
+	backend := pgproto3.NewBackend(conn, conn)
 
 	for {
 		msg, err := backend.ReceiveStartupMessage()
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to receive startup message: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to receive startup message: %w", err)
 		}
 
 		switch m := msg.(type) {
 		case *pgproto3.SSLRequest:
-			if tlsConfig != nil {
-				// Send 'S' to indicate we support SSL
-				if _, err := conn.Write([]byte{'S'}); err != nil {
-					return nil, nil, nil, nil, fmt.Errorf("failed to send SSL acknowledgment: %w", err)
-				}
-
-				// Upgrade connection to TLS
-				tlsConn := tls.Server(conn, tlsConfig)
-				if err := tlsConn.Handshake(); err != nil {
-					return nil, nil, nil, nil, fmt.Errorf("TLS handshake failed: %w", err)
-				}
-
-				// Create new backend on TLS connection
-				backend = pgproto3.NewBackend(pgproto3.NewChunkReader(tlsConn), tlsConn)
-				conn = tlsConn
-				// Loop to receive actual StartupMessage
-			} else {
-				// Send 'N' to indicate we don't support SSL
-				if _, err := conn.Write([]byte{'N'}); err != nil {
-					return nil, nil, nil, nil, fmt.Errorf("failed to send SSL rejection: %w", err)
-				}
-				// Loop to receive actual StartupMessage
+			// TLS not supported - network is tailscale-guarded
+			if _, err := conn.Write([]byte{'N'}); err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to send SSL rejection: %w", err)
 			}
+			// Loop to receive actual StartupMessage
 
 		case *pgproto3.GSSEncRequest:
 			// We don't support GSS encryption - respond with 'N'
-			// This is safe and allows clients to fall back to other methods
 			if _, err := conn.Write([]byte{'N'}); err != nil {
-				return nil, nil, nil, nil, fmt.Errorf("failed to send GSSENC rejection: %w", err)
+				return nil, nil, nil, fmt.Errorf("failed to send GSSENC rejection: %w", err)
 			}
 			// Loop to receive actual StartupMessage
 
 		case *pgproto3.CancelRequest:
-			// Return typed cancel request to let the server handle it
-			cancel := &CancelRequest{
-				ProcessID: uint32(m.ProcessID),
-				SecretKey: uint32(m.SecretKey),
+			// Return as error to let the server handle it
+			return conn, backend, nil, &CancelRequestError{
+				ProcessID: m.ProcessID,
+				SecretKey: m.SecretKey,
 			}
-			return conn, backend, nil, cancel, nil
 
 		case *pgproto3.StartupMessage:
 			// This is what we're waiting for
-			return conn, backend, m, nil, nil
+			return conn, backend, m, nil
 
 		default:
-			return nil, nil, nil, nil, fmt.Errorf("unexpected startup message type: %T", m)
+			return nil, nil, nil, fmt.Errorf("unexpected startup message type: %T", m)
 		}
 	}
 }
 
 // sendGreeting sends the complete startup greeting sequence to the client
-func sendGreeting(conn io.Writer, pid, secret uint32, params map[string]string, txStatus byte) error {
-	write := func(m pgproto3.BackendMessage) error {
-		buf, err := m.Encode(nil)
-		if err != nil {
-			return err
-		}
-
-		// Set write deadline if this is a net.Conn
-		if netConn, ok := conn.(net.Conn); ok {
-			_ = netConn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-			defer func() {
-				_ = netConn.SetWriteDeadline(time.Time{})
-			}()
-		}
-
-		_, err = conn.Write(buf)
-		return err
-	}
-
+// If writeTimeout is 0, uses the default from env var
+func sendGreeting(conn io.Writer, pid, secret uint32, params map[string]string, txStatus byte, writeTimeout time.Duration) error {
 	// 1. AuthenticationOk
-	if err := write(&pgproto3.AuthenticationOk{}); err != nil {
+	if err := writeBackendMessage(conn, &pgproto3.AuthenticationOk{}, writeTimeout); err != nil {
 		return fmt.Errorf("failed to send AuthenticationOk: %w", err)
 	}
 
@@ -136,21 +99,21 @@ func sendGreeting(conn io.Writer, pid, secret uint32, params map[string]string, 
 	}
 
 	for k, v := range finalParams {
-		if err := write(&pgproto3.ParameterStatus{Name: k, Value: v}); err != nil {
+		if err := writeBackendMessage(conn, &pgproto3.ParameterStatus{Name: k, Value: v}, writeTimeout); err != nil {
 			return fmt.Errorf("failed to send ParameterStatus: %w", err)
 		}
 	}
 
 	// 3. BackendKeyData (for cancel support)
-	if err := write(&pgproto3.BackendKeyData{
+	if err := writeBackendMessage(conn, &pgproto3.BackendKeyData{
 		ProcessID: pid,
 		SecretKey: secret,
-	}); err != nil {
+	}, writeTimeout); err != nil {
 		return fmt.Errorf("failed to send BackendKeyData: %w", err)
 	}
 
 	// 4. ReadyForQuery
-	if err := write(&pgproto3.ReadyForQuery{TxStatus: txStatus}); err != nil {
+	if err := writeBackendMessage(conn, &pgproto3.ReadyForQuery{TxStatus: txStatus}, writeTimeout); err != nil {
 		return fmt.Errorf("failed to send ReadyForQuery: %w", err)
 	}
 
@@ -159,18 +122,22 @@ func sendGreeting(conn io.Writer, pid, secret uint32, params map[string]string, 
 
 // writeBackendMessage is a helper to encode and write a backend message
 // Sets write deadline to prevent blocking on slow/dead clients
-func writeBackendMessage(conn io.Writer, msg pgproto3.BackendMessage) error {
+// If timeout is 0, uses the default from env var
+func writeBackendMessage(conn io.Writer, msg pgproto3.BackendMessage, timeout time.Duration) error {
 	buf, err := msg.Encode(nil)
 	if err != nil {
 		return err
 	}
 
+	if timeout == 0 {
+		timeout = defaultWriteTimeout()
+	}
+
 	// Set write deadline if this is a net.Conn
 	if netConn, ok := conn.(net.Conn); ok {
-		_ = netConn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+		_ = netConn.SetWriteDeadline(time.Now().Add(timeout))
 		defer func() {
-			// Clear deadline after write
-			_ = netConn.SetWriteDeadline(time.Time{})
+			_ = netConn.SetWriteDeadline(time.Time{}) // Clear deadline after write
 		}()
 	}
 
@@ -179,6 +146,6 @@ func writeBackendMessage(conn io.Writer, msg pgproto3.BackendMessage) error {
 }
 
 // writeReadyForQuery sends a ReadyForQuery message
-func writeReadyForQuery(conn io.Writer, txStatus byte) error {
-	return writeBackendMessage(conn, &pgproto3.ReadyForQuery{TxStatus: txStatus})
+func writeReadyForQuery(conn io.Writer, txStatus byte, timeout time.Duration) error {
+	return writeBackendMessage(conn, &pgproto3.ReadyForQuery{TxStatus: txStatus}, timeout)
 }

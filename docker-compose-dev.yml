@@ -127,11 +127,13 @@ services:
     ports:
       - 8112:8112
       - 8113:8113
+      - 5732:5732
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
       PEERDB_ALLOWED_TARGETS:
       PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
       PEERDB_API_REQUEST_LOGGING_ENABLED: true
+      PEERDB_PGWIRE_ENABLED: true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

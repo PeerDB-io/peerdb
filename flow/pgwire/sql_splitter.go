@@ -180,13 +180,8 @@ func splitSQL(sql string) []string {
 }
 
 // getStatementPrefix returns the first SQL keyword from a statement
-// For WITH statements, it returns the actual DML/DDL keyword (e.g., "WITH...DELETE" returns "DELETE")
 func getStatementPrefix(stmt string) string {
-	// Skip leading whitespace and comments
 	stmt = strings.TrimSpace(stmt)
-	if stmt == "" {
-		return ""
-	}
 
 	// Skip leading comments
 	for {
@@ -196,7 +191,7 @@ func getStatementPrefix(stmt string) string {
 				stmt = strings.TrimSpace(stmt[idx+1:])
 				continue
 			}
-			return ""
+			return "" // comment-only statement
 		}
 		if strings.HasPrefix(stmt, "/*") {
 			// Skip to */
@@ -204,63 +199,17 @@ func getStatementPrefix(stmt string) string {
 				stmt = strings.TrimSpace(stmt[idx+2:])
 				continue
 			}
-			return ""
+			return "" // unclosed comment
 		}
 		break
 	}
 
 	// Extract first word
-	firstKeyword := extractKeyword(stmt)
-	if firstKeyword == "" {
-		return ""
-	}
-
-	// Special handling for WITH statements - need to find the actual DML/DDL keyword
-	if firstKeyword == "WITH" {
-		// Try to find the actual action keyword after the CTE
-		// This is approximate: we look for keywords after a closing paren at depth 0
-		actionKeyword := extractActionFromWith(stmt)
-		if actionKeyword != "" {
-			return actionKeyword
-		}
-		// Fall back to WITH if we can't determine the action
-		return "WITH"
-	}
-
-	return firstKeyword
-}
-
-// extractKeyword extracts the first SQL keyword from a string, skipping whitespace and comments
-func extractKeyword(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-
-	// Skip any leading comments
-	for {
-		if strings.HasPrefix(s, "--") {
-			if idx := strings.Index(s, "\n"); idx >= 0 {
-				s = strings.TrimSpace(s[idx+1:])
-				continue
-			}
-			return ""
-		}
-		if strings.HasPrefix(s, "/*") {
-			if idx := strings.Index(s, "*/"); idx >= 0 {
-				s = strings.TrimSpace(s[idx+2:])
-				continue
-			}
-			return ""
-		}
-		break
-	}
-
-	// Extract word
-	var i int
-	for i = 0; i < len(s); i++ {
-		ch := s[i]
+	i := len(stmt)
+	for j := range len(stmt) {
+		ch := stmt[j]
 		if !unicode.IsLetter(rune(ch)) && !unicode.IsDigit(rune(ch)) && ch != '_' {
+			i = j
 			break
 		}
 	}
@@ -269,98 +218,5 @@ func extractKeyword(s string) string {
 		return ""
 	}
 
-	return strings.ToUpper(s[:i])
-}
-
-// extractActionFromWith attempts to find the DML/DDL keyword in a WITH statement
-// e.g., "WITH cte AS (...) DELETE FROM t" should return "DELETE"
-func extractActionFromWith(stmt string) string {
-	// Simple heuristic: scan for keywords after we've seen a complete CTE definition
-	// We track paren depth and look for keywords at depth 0 after the CTE
-
-	stmt = strings.ToUpper(stmt)
-	depth := 0
-	inString := false
-	inDollarQuote := false
-	i := 0
-
-	// Skip past "WITH"
-	for i < len(stmt) && unicode.IsSpace(rune(stmt[i])) {
-		i++
-	}
-	if i+4 <= len(stmt) && stmt[i:i+4] == "WITH" {
-		i += 4
-	}
-
-	// Scan through the statement tracking paren depth
-	var currentWord strings.Builder
-	sawCTEParen := false
-
-	for i < len(stmt) {
-		ch := stmt[i]
-
-		// Track string literals (simplified - doesn't handle all cases)
-		if ch == '\'' && !inDollarQuote {
-			inString = !inString
-			i++
-			continue
-		}
-		if ch == '$' && !inString {
-			// Simplified dollar quote detection
-			inDollarQuote = !inDollarQuote
-			i++
-			continue
-		}
-
-		if !inString && !inDollarQuote {
-			if ch == '(' {
-				depth++
-				sawCTEParen = true
-				currentWord.Reset()
-				i++
-				continue
-			}
-			if ch == ')' {
-				depth--
-				currentWord.Reset()
-				i++
-				continue
-			}
-
-			// At depth 0 after seeing a CTE paren, look for keywords
-			if depth == 0 && sawCTEParen {
-				if unicode.IsLetter(rune(ch)) || unicode.IsDigit(rune(ch)) || ch == '_' {
-					currentWord.WriteByte(ch)
-				} else {
-					word := currentWord.String()
-					if word != "" && isActionKeyword(word) {
-						return word
-					}
-					currentWord.Reset()
-				}
-			}
-		}
-
-		i++
-	}
-
-	// Check final word
-	word := currentWord.String()
-	if word != "" && isActionKeyword(word) {
-		return word
-	}
-
-	return ""
-}
-
-// isActionKeyword returns true if the keyword is a DML/DDL action keyword
-func isActionKeyword(keyword string) bool {
-	switch keyword {
-	case "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE",
-		"CREATE", "ALTER", "DROP",
-		"GRANT", "REVOKE",
-		"MERGE", "COPY":
-		return true
-	}
-	return false
+	return strings.ToUpper(stmt[:i])
 }
