@@ -1,4 +1,4 @@
-import { CSSProperties } from 'styled-components';
+import { CSSProperties } from 'react';
 
 export const tableStyle: CSSProperties = {
   maxHeight: '35vh',
