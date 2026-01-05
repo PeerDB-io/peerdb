@@ -5,8 +5,7 @@ import ResyncDialog from '@/components/ResyncDialog';
 import { FlowStatus } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
-import { useEffect, useState } from 'react';
-import { CSSProperties } from 'react';
+import { CSSProperties, useEffect, useState } from 'react';
 import { useTheme as useStyledTheme } from 'styled-components';
 import PauseOrResumeButton from './PauseOrResumeButton';
 
