@@ -6,7 +6,8 @@ import { FlowStatus } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { useEffect, useState } from 'react';
-import { CSSProperties, useTheme as useStyledTheme } from 'styled-components';
+import { CSSProperties } from 'react';
+import { useTheme as useStyledTheme } from 'styled-components';
 import PauseOrResumeButton from './PauseOrResumeButton';
 
 type MirrorActionsProps = {
