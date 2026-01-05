@@ -7,14 +7,14 @@ import (
 )
 
 // GlobalHelp returns help for help() - overview of shell methods and wire commands.
-func GlobalHelp() string {
-	var sb strings.Builder
-	sb.WriteString("Shell Commands:\n")
-	sb.WriteString("  show collections    - list collections in current database\n")
-	sb.WriteString("  show databases      - list all databases\n")
-	sb.WriteString("  show dbs            - alias for show databases\n")
-
-	sb.WriteString("\nShell Methods:\n")
+func GlobalHelp() []string {
+	var lines []string
+	lines = append(lines, "Shell Commands:")
+	lines = append(lines, "  show collections    - list collections in current database")
+	lines = append(lines, "  show databases      - list all databases")
+	lines = append(lines, "  show dbs            - alias for show databases")
+	lines = append(lines, "")
+	lines = append(lines, "Shell Methods:")
 
 	// Group by scope
 	var dbMethods, collMethods []string
@@ -28,11 +28,10 @@ func GlobalHelp() string {
 	sort.Strings(dbMethods)
 	sort.Strings(collMethods)
 
-	sb.WriteString("  db.<method>(): ")
-	sb.WriteString(strings.Join(dbMethods, ", "))
-	sb.WriteString("\n  db.<coll>.<method>(): ")
-	sb.WriteString(strings.Join(collMethods, ", "))
-	sb.WriteString("\n\nWire Commands:\n")
+	lines = append(lines, "  db.<method>(): "+strings.Join(dbMethods, ", "))
+	lines = append(lines, "  db.<coll>.<method>(): "+strings.Join(collMethods, ", "))
+	lines = append(lines, "")
+	lines = append(lines, "Wire Commands:")
 
 	// Sort sections
 	sections := make([]string, 0, len(AllowedCommands))
@@ -47,30 +46,28 @@ func GlobalHelp() string {
 		for i, cmd := range cmds {
 			names[i] = cmd.Name
 		}
-		sb.WriteString(fmt.Sprintf("  %s: %s\n", section, strings.Join(names, ", ")))
+		lines = append(lines, fmt.Sprintf("  %s: %s", section, strings.Join(names, ", ")))
 	}
 
-	sb.WriteString("\nUse db.help(), db.<coll>.help(), db.<coll>.find().help() for details.\n")
-	return sb.String()
+	lines = append(lines, "")
+	lines = append(lines, "Use db.help(), db.<coll>.help(), db.<coll>.find().help() for details.")
+	return lines
 }
 
 // DatabaseHelp returns help for db.help() - database-level methods.
-func DatabaseHelp() string {
-	var sb strings.Builder
-	sb.WriteString("Database Methods:\n")
-
+func DatabaseHelp() []string {
+	lines := []string{"Database Methods:"}
 	for _, spec := range Registry {
 		if spec.Scope == "database" {
-			fmt.Fprintf(&sb, "  db.%s(%s)\n", spec.Name, formatArgs(spec.Args))
+			lines = append(lines, fmt.Sprintf("  db.%s(%s)", spec.Name, formatArgs(spec.Args)))
 		}
 	}
-	return sb.String()
+	return lines
 }
 
 // CollectionHelp returns help for db.coll.help() - collection-level methods.
-func CollectionHelp() string {
-	var sb strings.Builder
-	sb.WriteString("Collection Methods:\n")
+func CollectionHelp() []string {
+	lines := []string{"Collection Methods:"}
 
 	// Collect and sort by display name
 	var specs []MethodSpec
@@ -84,25 +81,25 @@ func CollectionHelp() string {
 	})
 
 	for _, spec := range specs {
-		fmt.Fprintf(&sb, "  .%s(%s)\n", spec.Name, formatArgs(spec.Args))
+		lines = append(lines, fmt.Sprintf("  .%s(%s)", spec.Name, formatArgs(spec.Args)))
 	}
-	sb.WriteString("\nUse db.<coll>.<method>().help() for available chainers.\n")
-	return sb.String()
+	lines = append(lines, "")
+	lines = append(lines, "Use db.<coll>.<method>().help() for available chainers.")
+	return lines
 }
 
 // MethodHelp returns help for db.coll.find().help() - chainers for a specific method.
-func MethodHelp(method string) string {
+func MethodHelp(method string) []string {
 	spec, ok := Registry[strings.ToLower(method)]
 	if !ok {
-		return fmt.Sprintf("Unknown method: %s\n", method)
+		return []string{fmt.Sprintf("Unknown method: %s", method)}
 	}
 
-	var sb strings.Builder
-	sb.WriteString(spec.Name + "() chainers:\n")
+	lines := []string{spec.Name + "() chainers:"}
 
 	if len(spec.Chainers) == 0 {
-		sb.WriteString("  (none)\n")
-		return sb.String()
+		lines = append(lines, "  (none)")
+		return lines
 	}
 
 	// Collect and sort chainers by name
@@ -115,9 +112,9 @@ func MethodHelp(method string) string {
 	})
 
 	for _, chainer := range chainers {
-		fmt.Fprintf(&sb, "  .%s(%s)\n", chainer.Name, formatArgs(chainer.Args))
+		lines = append(lines, fmt.Sprintf("  .%s(%s)", chainer.Name, formatArgs(chainer.Args)))
 	}
-	return sb.String()
+	return lines
 }
 
 // formatArgs formats argument kinds for display.

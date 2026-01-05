@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgproto3"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -64,8 +63,12 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 	}
 
 	// Handle help requests - return one row per line for better display in psql
-	if spec.HelpText != "" {
-		return NewMongoHelpIterator(spec.HelpText), nil
+	if len(spec.HelpText) > 0 {
+		rows := make([][]string, len(spec.HelpText))
+		for i, line := range spec.HelpText {
+			rows[i] = []string{line}
+		}
+		return NewFormattedIterator([]string{"help"}, rows), nil
 	}
 
 	// Add comment for cancel support only on commands that support it
@@ -87,6 +90,24 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 		if err != nil {
 			return nil, wrapMongoError(err)
 		}
+		// If formatter is set, collect all docs and format
+		if spec.Formatter != nil {
+			var docs []bson.D
+			for cursor.Next(ctx) {
+				var doc bson.D
+				if err := cursor.Decode(&doc); err != nil {
+					cursor.Close(ctx)
+					return nil, wrapMongoError(err)
+				}
+				docs = append(docs, doc)
+			}
+			if err := cursor.Err(); err != nil {
+				cursor.Close(ctx)
+				return nil, wrapMongoError(err)
+			}
+			cursor.Close(ctx)
+			return NewFormattedIterator(spec.Formatter(docs)), nil
+		}
 		return &MongoCursorIterator{cursor: cursor, consumed: false}, nil
 
 	default: // ResultScalar
@@ -98,6 +119,10 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 		var doc bson.D
 		if err := result.Decode(&doc); err != nil {
 			return nil, wrapMongoError(err)
+		}
+		// If formatter is set, apply it
+		if spec.Formatter != nil {
+			return NewFormattedIterator(spec.Formatter([]bson.D{doc})), nil
 		}
 		return &MongoScalarIterator{doc: doc, consumed: false}, nil
 	}
@@ -328,28 +353,28 @@ func (it *MongoScalarIterator) CloseAll() error {
 	return nil
 }
 
-// textFieldDescription is used for help output (plain text, not JSON)
-var textFieldDescription = []FieldDescription{{
-	Name:        "help",
-	DataTypeOID: 25, // TEXT OID
-	Format:      0,  // Text format
-}}
-
-// MongoHelpIterator implements ResultIterator for help text (one row per line)
-type MongoHelpIterator struct {
-	lines    []string
+// FormattedIterator is a generic iterator for formatted columnar output
+type FormattedIterator struct {
+	columns  []FieldDescription
+	rows     [][]string
 	consumed bool
 	index    int
 }
 
-// NewMongoHelpIterator creates a help iterator from help text
-func NewMongoHelpIterator(helpText string) *MongoHelpIterator {
-	lines := strings.Split(strings.TrimSuffix(helpText, "\n"), "\n")
-	return &MongoHelpIterator{lines: lines}
+// NewFormattedIterator creates an iterator from column names and rows
+func NewFormattedIterator(columns []string, rows [][]string) *FormattedIterator {
+	fields := make([]FieldDescription, len(columns))
+	for i, name := range columns {
+		fields[i] = FieldDescription{
+			Name:        name,
+			DataTypeOID: 25, // TEXT
+			Format:      0,
+		}
+	}
+	return &FormattedIterator{columns: fields, rows: rows}
 }
 
-// NextResult advances to the next result set (only one for help)
-func (it *MongoHelpIterator) NextResult() bool {
+func (it *FormattedIterator) NextResult() bool {
 	if it.consumed {
 		return false
 	}
@@ -357,42 +382,34 @@ func (it *MongoHelpIterator) NextResult() bool {
 	return true
 }
 
-// FieldDescriptions returns the single text column
-func (it *MongoHelpIterator) FieldDescriptions() []FieldDescription {
-	return textFieldDescription
+func (it *FormattedIterator) FieldDescriptions() []FieldDescription {
+	return it.columns
 }
 
-// NextRow advances to the next line
-func (it *MongoHelpIterator) NextRow() bool {
-	if it.index >= len(it.lines) {
+func (it *FormattedIterator) NextRow() bool {
+	if it.index >= len(it.rows) {
 		return false
 	}
 	it.index++
 	return true
 }
 
-// RowValues returns the current line as text
-func (it *MongoHelpIterator) RowValues() [][]byte {
-	if it.index == 0 || it.index > len(it.lines) {
+func (it *FormattedIterator) RowValues() [][]byte {
+	if it.index == 0 || it.index > len(it.rows) {
 		return nil
 	}
-	return [][]byte{[]byte(it.lines[it.index-1])}
+	row := it.rows[it.index-1]
+	values := make([][]byte, len(row))
+	for i, cell := range row {
+		values[i] = []byte(cell)
+	}
+	return values
 }
 
-// CommandTag returns the row count
-func (it *MongoHelpIterator) CommandTag() string {
-	return fmt.Sprintf("SELECT %d", len(it.lines))
+func (it *FormattedIterator) CommandTag() string {
+	return fmt.Sprintf("SELECT %d", len(it.rows))
 }
 
-// Err returns nil (no errors for help)
-func (it *MongoHelpIterator) Err() error {
-	return nil
-}
-
-// Close is a no-op for help results
-func (it *MongoHelpIterator) Close() {}
-
-// CloseAll is a no-op for help results
-func (it *MongoHelpIterator) CloseAll() error {
-	return nil
-}
+func (it *FormattedIterator) Err() error      { return nil }
+func (it *FormattedIterator) Close()          {}
+func (it *FormattedIterator) CloseAll() error { return nil }

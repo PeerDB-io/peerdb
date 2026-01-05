@@ -942,7 +942,7 @@ func TestCompile_Queries(t *testing.T) {
 
 			// Check for help responses
 			if tt.wantHelp {
-				if got.HelpText == "" {
+				if len(got.HelpText) == 0 {
 					t.Error("Compile() expected HelpText to be non-empty")
 				}
 				return

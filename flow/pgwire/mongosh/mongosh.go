@@ -24,6 +24,11 @@ const (
 // ExecHints provides optional execution hints derived from shell sugar.
 type ExecHints = command.ExecHints
 
+// Formatter transforms MongoDB results into columnar output.
+// It receives the raw result (either a cursor's documents or a scalar document)
+// and returns column names and rows of cell values.
+type Formatter func(docs []bson.D) (columns []string, rows [][]string)
+
 // ExecSpec represents the compiled output of a MongoDB shell statement.
 //
 //nolint:govet // fieldalignment: readability preferred
@@ -32,8 +37,9 @@ type ExecSpec struct {
 	ResultKind ResultKind // whether result is Cursor or Scalar
 	Hints      ExecHints  // optional execution hints
 	Collection string     // target collection (if any)
-	HelpText   string     // populated for help() requests
+	HelpText   []string   // populated for help() requests
 	AdminDB    bool       // if true, run against admin database instead of connection database
+	Formatter  Formatter  // optional formatter for columnar output
 }
 
 // ErrorKind represents the type of compilation error.
@@ -121,6 +127,21 @@ func tryShellCommand(input string) (ExecSpec, bool) {
 				{Key: "authorizedCollections", Value: true},
 			},
 			ResultKind: ResultCursor,
+			// Each doc: {"name": "collection_name", "type": "collection"}
+			Formatter: func(docs []bson.D) ([]string, [][]string) {
+				rows := make([][]string, 0, len(docs))
+				for _, doc := range docs {
+					for _, elem := range doc {
+						if elem.Key == "name" {
+							if name, ok := elem.Value.(string); ok {
+								rows = append(rows, []string{name})
+							}
+							break
+						}
+					}
+				}
+				return []string{"name"}, rows
+			},
 		}, true
 	}
 
@@ -133,6 +154,31 @@ func tryShellCommand(input string) (ExecSpec, bool) {
 			},
 			ResultKind: ResultScalar,
 			AdminDB:    true,
+			// Response: {"databases": [{"name": "db1"}, {"name": "db2"}], "ok": 1}
+			Formatter: func(docs []bson.D) ([]string, [][]string) {
+				if len(docs) == 0 {
+					return []string{"name"}, nil
+				}
+				var rows [][]string
+				for _, elem := range docs[0] {
+					if elem.Key == "databases" {
+						if arr, ok := elem.Value.(bson.A); ok {
+							for _, item := range arr {
+								if d, ok := item.(bson.D); ok {
+									for _, field := range d {
+										if field.Key == "name" {
+											if name, ok := field.Value.(string); ok {
+												rows = append(rows, []string{name})
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				return []string{"name"}, rows
+			},
 		}, true
 	}
 
@@ -191,7 +237,7 @@ func Compile(input string) (ExecSpec, error) {
 	}, nil
 }
 
-func helpFor(context string) string {
+func helpFor(context string) []string {
 	switch context {
 	case "database":
 		return command.DatabaseHelp()

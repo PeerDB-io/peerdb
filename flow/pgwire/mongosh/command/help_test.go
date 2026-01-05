@@ -1,12 +1,13 @@
 package command
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestGlobalHelp(t *testing.T) {
-	help := GlobalHelp()
+	help := strings.Join(GlobalHelp(), "\n")
 
 	// Should contain shell methods
 	if !strings.Contains(help, "Shell Methods:") {
@@ -28,16 +29,16 @@ func TestGlobalHelp(t *testing.T) {
 func TestDatabaseHelp(t *testing.T) {
 	help := DatabaseHelp()
 
-	if !strings.Contains(help, "Database Methods:") {
+	if !slices.Contains(help, "Database Methods:") {
 		t.Error("expected 'Database Methods:' header")
 	}
-	if !strings.Contains(help, "runCommand") {
+	if !strings.Contains(strings.Join(help, "\n"), "runCommand") {
 		t.Error("expected 'runCommand' in database methods")
 	}
 }
 
 func TestCollectionHelp(t *testing.T) {
-	help := CollectionHelp()
+	help := strings.Join(CollectionHelp(), "\n")
 
 	if !strings.Contains(help, "Collection Methods:") {
 		t.Error("expected 'Collection Methods:' header")
@@ -52,7 +53,7 @@ func TestCollectionHelp(t *testing.T) {
 }
 
 func TestMethodHelp(t *testing.T) {
-	help := MethodHelp("find")
+	help := strings.Join(MethodHelp("find"), "\n")
 
 	if !strings.Contains(help, "find() chainers:") {
 		t.Error("expected 'find() chainers:' header")
@@ -67,7 +68,7 @@ func TestMethodHelp(t *testing.T) {
 }
 
 func TestMethodHelp_Unknown(t *testing.T) {
-	help := MethodHelp("unknown")
+	help := strings.Join(MethodHelp("unknown"), "\n")
 	if !strings.Contains(help, "Unknown method") {
 		t.Error("expected 'Unknown method' for unknown method")
 	}
