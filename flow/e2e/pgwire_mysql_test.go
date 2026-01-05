@@ -580,6 +580,19 @@ func (s PgwireMySQLSuite) Test_Error_ColumnNotExists() {
 	require.Contains(s.t, output, "column")
 }
 
+func (s PgwireMySQLSuite) Test_Error_PsqlBackslashD() {
+	// psql \d and \dt commands query pg_catalog - should get helpful error
+	output, err := s.psql(`\d`)
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "PostgreSQL catalog queries not supported")
+	require.Contains(s.t, output, "SHOW TABLES")
+
+	output, err = s.psql(`\dt`)
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "PostgreSQL catalog queries not supported")
+	require.Contains(s.t, output, "SHOW TABLES")
+}
+
 // ========================================
 // Result Guardrails
 // ========================================

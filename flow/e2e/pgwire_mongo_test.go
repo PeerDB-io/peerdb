@@ -366,6 +366,19 @@ func (s PgwireMongoSuite) Test_Error_SyntaxError() {
 	require.Error(s.t, err)
 }
 
+func (s PgwireMongoSuite) Test_Error_PsqlBackslashD() {
+	// psql \d and \dt commands query pg_catalog - should get helpful error
+	output, err := s.psql(`\d`)
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "PostgreSQL catalog queries not supported")
+	require.Contains(s.t, output, "show collections")
+
+	output, err = s.psql(`\dt`)
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "PostgreSQL catalog queries not supported")
+	require.Contains(s.t, output, "show collections")
+}
+
 func (s PgwireMongoSuite) Test_Error_EmptyCollection() {
 	// Querying non-existent collection should return empty result, not error
 	output, err := s.psql(`db.nonexistent_collection.find({})`)

@@ -170,6 +170,11 @@ func (u *MySQLUpstream) CheckQuery(query string) error {
 		return nil
 	}
 
+	// Detect psql \d commands which query pg_catalog
+	if SqlSelectPgCatalogRe.MatchString(query) {
+		return errors.New("PostgreSQL catalog queries not supported; use 'SHOW TABLES' or 'SHOW DATABASES'")
+	}
+
 	// Parse with TiDB parser
 	p := parser.New()
 	stmts, _, err := p.Parse(query, "", "")

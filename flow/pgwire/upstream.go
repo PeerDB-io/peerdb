@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -14,6 +15,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
+
+// SqlSelectPgCatalogRe detects psql \d \dt \dt+ commands which query pg_catalog
+var SqlSelectPgCatalogRe = regexp.MustCompile(`(?is)^\s*SELECT\b.*\bpg_catalog\b`)
 
 // Upstream abstracts database connections for the pgwire proxy
 type Upstream interface {

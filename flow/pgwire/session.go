@@ -312,7 +312,7 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 	// Check query against upstream-specific security rules
 	if err := s.upstream.CheckQuery(query); err != nil {
 		s.logger.WarnContext(ctx, "Query blocked by guardrails",
-			slog.String("query", truncateQuery(query, 100)),
+			slog.String("query", truncateQuery(query, 1000)),
 			slog.Any("error", err))
 		if werr := writeProtoError(s.clientConn, "54000", err.Error(), s.writeTimeout); werr != nil {
 			s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
@@ -321,7 +321,7 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 	}
 
 	s.logger.InfoContext(ctx, "Executing query",
-		slog.String("query", truncateQuery(query, 200)),
+		slog.String("query", truncateQuery(query, 1000)),
 	)
 
 	// Create query context with timeout

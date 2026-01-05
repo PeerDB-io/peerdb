@@ -2,6 +2,7 @@ package pgwire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"slices"
@@ -204,6 +205,10 @@ func (u *MongoUpstream) Close() error {
 
 // CheckQuery validates a query by attempting to compile it
 func (u *MongoUpstream) CheckQuery(query string) error {
+	// Detect psql \d commands which query pg_catalog
+	if SqlSelectPgCatalogRe.MatchString(query) {
+		return errors.New("PostgreSQL catalog queries not supported; use 'show collections' or 'show databases'")
+	}
 	_, err := mongosh.Compile(query)
 	return err
 }
