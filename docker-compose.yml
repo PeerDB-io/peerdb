@@ -70,7 +70,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.29@sha256:5b3502a3b685f9eff1b925af90c57c9e3dbeccbef367cc28a2a9712c63379312
+    image: temporalio/auto-setup:1.29@sha256:8240e81d9b6946e8cc9b86714a04733cec32b1332b8523961ad47700861036f7
     ports:
       - 7233:7233
     volumes:
