@@ -67,14 +67,14 @@ func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicatio
 	}
 
 	if _, err := connector.Execute(
-		t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS \"e2e_test_%s\"", suffix),
+		t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS `e2e_test_%s`", suffix),
 	); err != nil {
 		connector.Close()
 		return nil, err
 	}
 
 	if _, err := connector.Execute(
-		t.Context(), fmt.Sprintf("CREATE DATABASE \"e2e_test_%s\"", suffix),
+		t.Context(), fmt.Sprintf("CREATE DATABASE `e2e_test_%s`", suffix),
 	); err != nil {
 		connector.Close()
 		return nil, err
