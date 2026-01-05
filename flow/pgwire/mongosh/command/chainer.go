@@ -1,7 +1,7 @@
 package command
 
 import (
-	"fmt"
+	"errors"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
@@ -26,7 +26,7 @@ var skipChainer = ChainerSpec{
 		}
 		skip, ok := args[0].(int)
 		if !ok {
-			return nil, fmt.Errorf("skip must be an integer")
+			return nil, errors.New("skip must be an integer")
 		}
 		return Upsert(cmd, "skip", skip), nil
 	},
@@ -41,7 +41,7 @@ var limitChainer = ChainerSpec{
 		}
 		limit, ok := args[0].(int)
 		if !ok {
-			return nil, fmt.Errorf("limit must be an integer")
+			return nil, errors.New("limit must be an integer")
 		}
 		hints.Limit = intPtr(limit)
 		cmd = Upsert(cmd, "limit", limit)
@@ -68,7 +68,7 @@ var batchSizeChainer = ChainerSpec{
 		}
 		size, ok := args[0].(int)
 		if !ok {
-			return nil, fmt.Errorf("batchSize must be an integer")
+			return nil, errors.New("batchSize must be an integer")
 		}
 		hints.BatchSize = intPtr(size)
 
@@ -96,7 +96,7 @@ var singleBatchChainer = ChainerSpec{
 		}
 		single, ok := args[0].(bool)
 		if !ok {
-			return nil, fmt.Errorf("singleBatch must be a boolean")
+			return nil, errors.New("singleBatch must be a boolean")
 		}
 		hints.SingleBatch = boolPtr(single)
 		return Upsert(cmd, "singleBatch", single), nil
@@ -112,7 +112,7 @@ var maxTimeMSChainer = ChainerSpec{
 		}
 		msInt, ok := args[0].(int)
 		if !ok {
-			return nil, fmt.Errorf("maxTimeMS must be an integer")
+			return nil, errors.New("maxTimeMS must be an integer")
 		}
 		ms := int64(msInt)
 		hints.MaxTimeMS = int64Ptr(ms)
@@ -129,7 +129,7 @@ var allowDiskUseChainer = ChainerSpec{
 		}
 		allow, ok := args[0].(bool)
 		if !ok {
-			return nil, fmt.Errorf("allowDiskUse must be a boolean")
+			return nil, errors.New("allowDiskUse must be a boolean")
 		}
 		hints.AllowDiskUse = boolPtr(allow)
 		return Upsert(cmd, "allowDiskUse", allow), nil

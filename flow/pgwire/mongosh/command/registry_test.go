@@ -55,7 +55,7 @@ func TestFindSpec(t *testing.T) {
 	_, err = limitChainer.Apply(cmd, &testHints, []any{10})
 	require.NoError(t, err, "limit chainer failed")
 	require.NotNil(t, testHints.Limit)
-	require.EqualValues(t, 10, *testHints.Limit, "limit not set in hints")
+	require.Equal(t, 10, *testHints.Limit, "limit not set in hints")
 }
 
 func TestAggregateSpec(t *testing.T) {

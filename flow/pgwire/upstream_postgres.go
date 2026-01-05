@@ -185,8 +185,10 @@ func (u *PostgresUpstream) CheckQuery(query string) error {
 }
 
 // PostgresResultIterator implements ResultIterator for PostgreSQL
+//
+//nolint:govet // fieldalignment: readability preferred
 type PostgresResultIterator struct {
-	multiResult *pgconn.MultiResultReader
+	multiResult  *pgconn.MultiResultReader
 	resultReader *pgconn.ResultReader
 	commandTag   string
 	err          error

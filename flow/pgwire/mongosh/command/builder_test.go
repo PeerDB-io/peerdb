@@ -7,6 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
+//nolint:govet // fieldalignment: test code, readability preferred
 func TestUpsert(t *testing.T) {
 	tests := []struct {
 		name     string

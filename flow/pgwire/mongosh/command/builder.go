@@ -1,7 +1,7 @@
 package command
 
 import (
-	"fmt"
+	"errors"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
@@ -119,7 +119,7 @@ func DistinctBase() BuildFunc {
 		if len(args) > 0 && args[0] != nil {
 			cmd = append(cmd, bson.E{Key: "key", Value: args[0]})
 		} else {
-			return nil, ExecHints{}, ResultScalar, fmt.Errorf("distinct requires a field name")
+			return nil, ExecHints{}, ResultScalar, errors.New("distinct requires a field name")
 		}
 		if len(args) > 1 && args[1] != nil {
 			cmd = append(cmd, bson.E{Key: "query", Value: args[1]})
@@ -154,11 +154,11 @@ func EstimatedDocumentCountBase() BuildFunc {
 func PassCommand() BuildFunc {
 	return func(collection string, args []any) (bson.D, ExecHints, ResultKind, error) {
 		if len(args) == 0 || args[0] == nil {
-			return nil, ExecHints{}, ResultScalar, fmt.Errorf("runCommand requires a command document")
+			return nil, ExecHints{}, ResultScalar, errors.New("runCommand requires a command document")
 		}
 		cmd, ok := args[0].(bson.D)
 		if !ok {
-			return nil, ExecHints{}, ResultScalar, fmt.Errorf("runCommand requires a command document")
+			return nil, ExecHints{}, ResultScalar, errors.New("runCommand requires a command document")
 		}
 		return cmd, ExecHints{}, ResultScalar, nil
 	}

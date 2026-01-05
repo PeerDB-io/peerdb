@@ -2,6 +2,7 @@ package parser
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,9 +12,11 @@ import (
 )
 
 // keyValue represents a key-value pair
+//
+//nolint:govet // fieldalignment: small struct, readability preferred
 type keyValue struct {
 	Key   string
-	Value interface{}
+	Value any
 }
 
 // orderedMap is a slice of key-value pairs that preserves insertion order
@@ -25,7 +28,7 @@ func (om orderedMap) MarshalJSON() ([]byte, error) {
 		return []byte("{}"), nil
 	}
 
-	var parts []string
+	parts := make([]string, 0, len(om))
 	for _, kv := range om {
 		// Marshal key
 		keyJSON, err := json.Marshal(kv.Key)
@@ -99,32 +102,34 @@ func evalLiteral(expr ast.Expression) (any, error) {
 		// Build an ordered list of key-value pairs
 		pairs := make([]keyValue, 0, len(e.Value))
 		for _, prop := range e.Value {
-			if prop, ok := prop.(*ast.PropertyKeyed); ok {
-				// Get the key
-				var key string
-				switch k := prop.Key.(type) {
-				case *ast.StringLiteral:
-					key = string(k.Value)
-				case *ast.Identifier:
-					key = string(k.Name)
-				default:
-					// Try to evaluate the key
-					val, err := evalLiteral(k)
-					if err != nil {
-						return nil, err
-					}
-					key = fmt.Sprint(val)
-				}
-
-				// Get the value
-				val, err := evalLiteral(prop.Value)
+			prop, ok := prop.(*ast.PropertyKeyed)
+			if !ok {
+				continue
+			}
+			// Get the key
+			var key string
+			switch k := prop.Key.(type) {
+			case *ast.StringLiteral:
+				key = string(k.Value)
+			case *ast.Identifier:
+				key = string(k.Name)
+			default:
+				// Try to evaluate the key
+				val, err := evalLiteral(k)
 				if err != nil {
 					return nil, err
 				}
-
-				// Add key-value pair
-				pairs = append(pairs, keyValue{key, val})
+				key = fmt.Sprint(val)
 			}
+
+			// Get the value
+			val, err := evalLiteral(prop.Value)
+			if err != nil {
+				return nil, err
+			}
+
+			// Add key-value pair
+			pairs = append(pairs, keyValue{key, val})
 		}
 		// Return as an orderedMap that preserves field order
 		return orderedMap(pairs), nil
@@ -347,9 +352,9 @@ func evalBSONConstructor(call *ast.CallExpression) (any, error) {
 		}
 		switch v := arg.(type) {
 		case float64:
-			return map[string]any{"$numberDouble": fmt.Sprint(v)}, nil
+			return map[string]any{"$numberDouble": strconv.FormatFloat(v, 'f', -1, 64)}, nil
 		case int64:
-			return map[string]any{"$numberDouble": fmt.Sprint(v)}, nil
+			return map[string]any{"$numberDouble": strconv.FormatInt(v, 10)}, nil
 		case string:
 			return map[string]any{"$numberDouble": v}, nil
 		}
@@ -367,9 +372,9 @@ func evalBSONConstructor(call *ast.CallExpression) (any, error) {
 		case string:
 			return map[string]any{"$numberDecimal": v}, nil
 		case float64:
-			return map[string]any{"$numberDecimal": fmt.Sprint(v)}, nil
+			return map[string]any{"$numberDecimal": strconv.FormatFloat(v, 'f', -1, 64)}, nil
 		case int64:
-			return map[string]any{"$numberDecimal": fmt.Sprint(v)}, nil
+			return map[string]any{"$numberDecimal": strconv.FormatInt(v, 10)}, nil
 		}
 		return nil, fmt.Errorf("%s() argument must be a number or string, got %T", fnName, arg)
 
@@ -437,7 +442,7 @@ func evalNewExpression(expr *ast.NewExpression) (any, error) {
 
 	case "RegExp":
 		if len(expr.ArgumentList) < 1 {
-			return nil, fmt.Errorf("new RegExp() requires at least 1 argument")
+			return nil, errors.New("new RegExp() requires at least 1 argument")
 		}
 		pattern, err := evalLiteral(expr.ArgumentList[0])
 		if err != nil {

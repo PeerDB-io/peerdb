@@ -3,6 +3,7 @@ package pgwire
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -104,7 +105,7 @@ func authenticateSCRAM(conn net.Conn, writeTimeout time.Duration) error {
 	}
 
 	if !conv.Valid() {
-		return fmt.Errorf("authentication failed")
+		return errors.New("authentication failed")
 	}
 
 	// Send server-final-message

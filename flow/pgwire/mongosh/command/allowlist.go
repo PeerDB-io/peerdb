@@ -1,6 +1,7 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -17,7 +18,10 @@ type AllowedCommand struct {
 // AllowedCommands defines allowed MongoDB commands by category.
 var AllowedCommands = map[string][]AllowedCommand{
 	"Query": {
-		{"find", nil, []string{"filter", "projection", "sort", "skip", "limit", "batchSize", "singleBatch", "hint", "maxTimeMS", "readConcern", "collation", "allowDiskUse", "let"}},
+		{"find", nil, []string{
+			"filter", "projection", "sort", "skip", "limit", "batchSize", "singleBatch",
+			"hint", "maxTimeMS", "readConcern", "collation", "allowDiskUse", "let",
+		}},
 		{"aggregate", []string{"pipeline"}, []string{"cursor", "allowDiskUse", "maxTimeMS", "readConcern", "collation", "hint", "let"}},
 		{"count", nil, []string{"query", "limit", "skip", "hint", "maxTimeMS", "readConcern", "collation"}},
 		{"distinct", []string{"key"}, []string{"query", "readConcern", "collation", "hint"}},
@@ -92,7 +96,7 @@ func IsCommandAllowed(cmd string) bool {
 // ValidateCommand validates a built command against the allow list.
 func ValidateCommand(cmd bson.D) error {
 	if len(cmd) == 0 {
-		return fmt.Errorf("empty command")
+		return errors.New("empty command")
 	}
 	if !IsCommandAllowed(cmd[0].Key) {
 		return fmt.Errorf("command %s is not allowed", cmd[0].Key)
@@ -110,7 +114,7 @@ func checkMultipleStatements(input string) error {
 	stringChar := byte(0)
 	escaped := false
 
-	for i := 0; i < len(input); i++ {
+	for i := range len(input) {
 		ch := input[i]
 
 		if escaped {
@@ -129,7 +133,7 @@ func checkMultipleStatements(input string) error {
 			} else if ch == ';' {
 				remaining := strings.TrimSpace(input[i+1:])
 				if remaining != "" {
-					return fmt.Errorf("multiple statements not supported")
+					return errors.New("multiple statements not supported")
 				}
 			}
 		} else {

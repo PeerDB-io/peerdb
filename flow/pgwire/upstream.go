@@ -2,6 +2,7 @@ package pgwire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -88,7 +89,7 @@ func (e *UpstreamError) Error() string {
 // NewUpstream creates an upstream connection based on peer configuration
 func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName string, queryTimeout time.Duration) (Upstream, error) {
 	if peerName == "" {
-		return nil, fmt.Errorf("database name (peer name) is required")
+		return nil, errors.New("database name (peer name) is required")
 	}
 
 	// Special case: "catalog" connects to the PeerDB catalog database

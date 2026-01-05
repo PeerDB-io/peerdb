@@ -1,6 +1,8 @@
 package parser
 
 // Statement represents a parsed MongoDB shell statement.
+//
+//nolint:govet // fieldalignment: readability preferred
 type Statement struct {
 	Type             string    // "collection" or "database"
 	Database         string    // database name (if specified)

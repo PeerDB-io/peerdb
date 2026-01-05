@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
+	"slices"
 
 	"github.com/jackc/pgx/v5/pgproto3"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -43,7 +43,7 @@ func NewMongoUpstream(ctx context.Context, config *protos.MongoConfig, database 
 	}
 
 	// Generate secret for cancel routing and unique comment tag
-	secret := rand.Uint32()
+	secret := rand.Uint32() //nolint:gosec // not security-critical, used for cancel routing
 	commentTag := fmt.Sprintf("peerdb-%08x", secret)
 
 	return &MongoUpstream{
@@ -67,7 +67,7 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 	}
 
 	// Add $comment for cancel support - allows us to find this operation via currentOp
-	cmd := append(spec.Command, bson.E{Key: "$comment", Value: u.commentTag})
+	cmd := slices.Concat(spec.Command, bson.D{{Key: "$comment", Value: u.commentTag}})
 
 	db := u.conn.Client().Database(u.database)
 
@@ -181,6 +181,8 @@ var jsonFieldDescription = []FieldDescription{{
 }}
 
 // MongoCursorIterator implements ResultIterator for cursor results
+//
+//nolint:govet // fieldalignment: readability preferred
 type MongoCursorIterator struct {
 	cursor   *mongo.Cursor
 	consumed bool

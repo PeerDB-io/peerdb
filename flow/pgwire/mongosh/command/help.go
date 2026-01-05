@@ -99,14 +99,14 @@ func MethodHelp(method string) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s() chainers:\n", method))
+	sb.WriteString(method + "() chainers:\n")
 
 	if len(spec.Chainers) == 0 {
 		sb.WriteString("  (none)\n")
 		return sb.String()
 	}
 
-	var chainers []string
+	chainers := make([]string, 0, len(spec.Chainers))
 	for name := range spec.Chainers {
 		chainers = append(chainers, name)
 	}
@@ -125,7 +125,7 @@ func formatArgs(args []ArgKind) string {
 		return ""
 	}
 
-	var parts []string
+	parts := make([]string, 0, len(args))
 	optional := false
 	for _, arg := range args {
 		if arg == ArgOptional {

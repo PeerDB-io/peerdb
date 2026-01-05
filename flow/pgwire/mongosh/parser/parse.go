@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -41,7 +42,7 @@ func extractStatement(expr ast.Expression) (*Statement, error) {
 
 	// Validate the head starts with "db"
 	if len(head) == 0 || head[0] != "db" {
-		return nil, fmt.Errorf("statement must start with 'db'")
+		return nil, errors.New("statement must start with 'db'")
 	}
 
 	// Build the statement based on the structure
@@ -51,7 +52,7 @@ func extractStatement(expr ast.Expression) (*Statement, error) {
 
 	// Check for explain() wrapper: db.collection.explain().method()
 	// In this case, calls[0] is "explain" and calls[1] is the actual method
-	if len(calls) >= 2 && strings.ToLower(calls[0].name) == "explain" {
+	if len(calls) >= 2 && strings.EqualFold(calls[0].name, "explain") {
 		stmt.IsExplain = true
 		stmt.ExplainVerbosity = "queryPlanner" // default
 		if len(calls[0].args) > 0 {
@@ -67,7 +68,7 @@ func extractStatement(expr ast.Expression) (*Statement, error) {
 
 	// Determine if this is a database or collection method
 	if len(calls) == 0 {
-		return nil, fmt.Errorf("expected method call")
+		return nil, errors.New("expected method call")
 	}
 
 	// Check the structure based on head length
@@ -87,9 +88,8 @@ func extractStatement(expr ast.Expression) (*Statement, error) {
 				return nil, fmt.Errorf("database method %s does not support chainers", stmt.Method)
 			}
 		} else {
-			return nil, fmt.Errorf("invalid statement structure: missing method")
+			return nil, errors.New("invalid statement structure: missing method")
 		}
-
 	} else if len(head) == 2 {
 		// head is [db, X] where X could be:
 		// - a collection name (e.g., users in db.users.find())
@@ -138,7 +138,6 @@ func extractStatement(expr ast.Expression) (*Statement, error) {
 				return nil, fmt.Errorf("database method %s does not support chainers", stmt.Method)
 			}
 		}
-
 	} else if len(head) == 3 {
 		// db.collection.method as head, with potential chainers
 		// This means the method name was part of the head path
@@ -187,7 +186,7 @@ func extractStatement(expr ast.Expression) (*Statement, error) {
 			}
 		}
 	} else {
-		return nil, fmt.Errorf("invalid statement structure")
+		return nil, errors.New("invalid statement structure")
 	}
 
 	// Normalize method names to lowercase
@@ -272,7 +271,7 @@ func extractCallChain(expr ast.Expression) ([]string, []call, error) {
 			}
 			keyStr, ok := key.(string)
 			if !ok {
-				return nil, nil, fmt.Errorf("bracket expression must evaluate to string")
+				return nil, nil, errors.New("bracket expression must evaluate to string")
 			}
 			head = append([]string{keyStr}, head...)
 			expr = e.Left

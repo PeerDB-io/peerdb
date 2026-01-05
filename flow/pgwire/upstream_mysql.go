@@ -101,7 +101,7 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 
 	// Use MySQL connection ID as pid, generate random secret
 	pid := uint32(connectionID)
-	secret := rand.Uint32()
+	secret := rand.Uint32() //nolint:gosec // not security-critical, used for cancel routing
 
 	return &MySQLUpstream{
 		conn:         conn,
@@ -227,12 +227,13 @@ func checkMySQLStatement(stmt ast.StmtNode) error {
 func checkSetOprStatement(s *ast.SetOprStmt) error {
 	if s.SelectList != nil {
 		for _, sel := range s.SelectList.Selects {
-			if selectStmt, ok := sel.(*ast.SelectStmt); ok {
-				if err := checkSelectStatement(selectStmt); err != nil {
+			switch sel := sel.(type) {
+			case *ast.SelectStmt:
+				if err := checkSelectStatement(sel); err != nil {
 					return err
 				}
-			} else if setOpr, ok := sel.(*ast.SetOprSelectList); ok {
-				for _, nested := range setOpr.Selects {
+			case *ast.SetOprSelectList:
+				for _, nested := range sel.Selects {
 					if nestedSelect, ok := nested.(*ast.SelectStmt); ok {
 						if err := checkSelectStatement(nestedSelect); err != nil {
 							return err
@@ -428,6 +429,8 @@ func mysqlTypeToOID(mysqlType uint8) uint32 {
 }
 
 // MySQLResultIterator implements ResultIterator for MySQL
+//
+//nolint:govet // fieldalignment: readability preferred
 type MySQLResultIterator struct {
 	result   *mysql.Result
 	rowIndex int
@@ -506,7 +509,7 @@ func (it *MySQLResultIterator) CommandTag() string {
 	}
 
 	// For SELECT queries, return SELECT with row count
-	if it.result.Fields != nil && len(it.result.Fields) > 0 {
+	if len(it.result.Fields) > 0 {
 		return fmt.Sprintf("SELECT %d", len(it.result.Values))
 	}
 

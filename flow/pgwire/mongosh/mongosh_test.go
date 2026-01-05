@@ -11,6 +11,8 @@ import (
 )
 
 // TestCompile_Queries tests compilation of mongosh queries.
+//
+//nolint:govet // fieldalignment: test code, readability preferred
 func TestCompile_Queries(t *testing.T) {
 	type wantError struct {
 		Kind ErrorKind
@@ -1019,7 +1021,7 @@ func TestCompile_AllLiteralTypes(t *testing.T) {
 		v := getFilterValue(t, `db.test.find({"v": Double(27.83)})`)
 		n, ok := v.(float64)
 		require.True(t, ok, "expected float64, got %T", v)
-		require.Equal(t, 27.83, n)
+		require.InDelta(t, 27.83, n, 0.0001)
 	})
 
 	t.Run("Decimal128", func(t *testing.T) {
@@ -1081,7 +1083,7 @@ func TestCompile_AllLiteralTypes(t *testing.T) {
 		v := getFilterValue(t, `db.test.find({"v": 0.1})`)
 		f, ok := v.(float64)
 		require.True(t, ok, "expected float64, got %T", v)
-		require.Equal(t, 0.1, f)
+		require.InDelta(t, 0.1, f, 0.0001)
 	})
 
 	t.Run("emptyArray", func(t *testing.T) {

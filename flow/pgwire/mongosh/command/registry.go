@@ -10,11 +10,11 @@ import (
 type ArgKind int
 
 const (
-	ArgJSON ArgKind = iota // object/array JSON region
-	ArgString              // string argument
-	ArgInt                 // integer argument
-	ArgBool                // boolean argument
-	ArgOptional            // marks an optional argument
+	ArgJSON     ArgKind = iota // object/array JSON region
+	ArgString                  // string argument
+	ArgInt                     // integer argument
+	ArgBool                    // boolean argument
+	ArgOptional                // marks an optional argument
 )
 
 // ResultKind indicates whether a command returns a cursor or a scalar value.
@@ -46,6 +46,8 @@ type ExecHints struct {
 }
 
 // ChainerSpec defines how a chainer modifies a command.
+//
+//nolint:govet // fieldalignment: readability preferred
 type ChainerSpec struct {
 	Name  string    // Chainer name
 	Args  []ArgKind // Expected argument kinds
@@ -57,10 +59,12 @@ type ChainerSpec struct {
 type BuildFunc func(collection string, args []any) (cmd bson.D, hints ExecHints, kind ResultKind, err error)
 
 // MethodSpec defines how a method builds a MongoDB command.
+//
+//nolint:govet // fieldalignment: readability preferred
 type MethodSpec struct {
-	Scope    string                  // "collection" or "database"
-	Args     []ArgKind               // Expected argument kinds
-	Build    BuildFunc               // Command builder function
+	Scope    string                 // "collection" or "database"
+	Args     []ArgKind              // Expected argument kinds
+	Build    BuildFunc              // Command builder function
 	Chainers map[string]ChainerSpec // Allowed chainers for this method
 }
 
@@ -166,9 +170,9 @@ var countDocumentsSpec = MethodSpec{
 }
 
 var estimatedDocumentCountSpec = MethodSpec{
-	Scope:    "collection",
-	Args:     []ArgKind{},
-	Build:    EstimatedDocumentCountBase(),
+	Scope: "collection",
+	Args:  []ArgKind{},
+	Build: EstimatedDocumentCountBase(),
 	Chainers: map[string]ChainerSpec{
 		"maxtimems": maxTimeMSChainer,
 	},

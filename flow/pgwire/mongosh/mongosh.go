@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"github.com/PeerDB-io/peerdb/flow/pgwire/mongosh/parser"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/PeerDB-io/peerdb/flow/pgwire/mongosh/command"
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"github.com/PeerDB-io/peerdb/flow/pgwire/mongosh/parser"
 )
 
 // ResultKind indicates whether a command returns a cursor or a scalar value.
@@ -30,6 +31,8 @@ type Namespace struct {
 }
 
 // ExecSpec represents the compiled output of a MongoDB shell statement.
+//
+//nolint:govet // fieldalignment: readability preferred
 type ExecSpec struct {
 	Command    bson.D     // normalized command document
 	ResultKind ResultKind // whether result is Cursor or Scalar
@@ -73,11 +76,17 @@ func (e ErrorKind) String() string {
 }
 
 // CompileError represents a rich compilation error with context.
+//
+//nolint:govet // fieldalignment: readability preferred
 type CompileError struct {
 	Kind     ErrorKind
 	Detail   string
 	Position int
 	Hint     string
+}
+
+func NewCompileError(kind ErrorKind, detail string) *CompileError {
+	return &CompileError{Kind: kind, Detail: detail}
 }
 
 func (e *CompileError) Error() string {
@@ -89,10 +98,6 @@ func (e *CompileError) Error() string {
 		msg = fmt.Sprintf("%s; %s", msg, e.Hint)
 	}
 	return msg
-}
-
-func NewCompileError(kind ErrorKind, detail string) *CompileError {
-	return &CompileError{Kind: kind, Detail: detail}
 }
 
 func (e *CompileError) WithPosition(pos int) *CompileError {
