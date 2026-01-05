@@ -388,12 +388,16 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(ctx context.Context, so
 	columnSelects := make([]string, 0, len(metadata.Schema))
 	for _, field := range metadata.Schema {
 		quotedName := fmt.Sprintf("`%s`", field.Name)
-		if field.Type == bigquery.JSONFieldType {
+		columnSelect := quotedName
+		switch field.Type {
+		case bigquery.JSONFieldType:
 			// Cast JSON to STRING since Parquet doesn't support JSON type
-			columnSelects = append(columnSelects, fmt.Sprintf("TO_JSON_STRING(%s) AS %s", quotedName, quotedName))
-		} else {
-			columnSelects = append(columnSelects, quotedName)
+			columnSelect = fmt.Sprintf("TO_JSON_STRING(%s) AS %s", quotedName, quotedName)
+		case bigquery.GeographyFieldType:
+			// Cast Geography to STRING since Parquet + ClickHouse doesn't support Geography type nicely
+			columnSelect = fmt.Sprintf("ST_AsText(%s) AS %s", quotedName, quotedName)
 		}
+		columnSelects = append(columnSelects, columnSelect)
 	}
 
 	uri := fmt.Sprintf("%s/%s/*.parquet", snapshotStagingPath, url.PathEscape(sourceTableIdentifier))
