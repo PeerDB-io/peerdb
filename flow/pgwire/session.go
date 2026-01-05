@@ -203,6 +203,13 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 		slog.Duration("write_timeout", cfg.writeTimeout),
 	)
 
+	// Authenticate client using SCRAM-SHA-256
+	if err := authenticateSCRAM(s.clientConn, s.writeTimeout); err != nil {
+		s.logger.WarnContext(ctx, "Authentication failed", slog.Any("error", err))
+		_ = writeProtoError(s.clientConn, "28P01", "password authentication failed", s.writeTimeout)
+		return err
+	}
+
 	// Resolve peer to PostgresConfig
 	pgConfig, err := s.resolvePeer(ctx)
 	if err != nil {

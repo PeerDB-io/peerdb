@@ -231,3 +231,8 @@ func PeerDBPgwireMaxBytes() int64 {
 		return strconv.ParseInt(s, 10, 64)
 	})
 }
+
+// PeerDBPgwirePassword returns the password for pgwire SCRAM-SHA-256 authentication
+func PeerDBPgwirePassword() string {
+	return GetEnvString("PEERDB_PGWIRE_PASSWORD", "peerdb")
+}

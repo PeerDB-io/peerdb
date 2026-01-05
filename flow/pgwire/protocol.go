@@ -27,7 +27,6 @@ func (e *CancelRequestError) Error() string {
 }
 
 // acceptStartup handles SSL negotiation and startup message
-// TLS is not supported - network is assumed to be secure
 // Returns CancelRequestError if the client sent a cancel request instead of a startup
 func acceptStartup(conn net.Conn) (net.Conn, *pgproto3.Backend, *pgproto3.StartupMessage, error) {
 	backend := pgproto3.NewBackend(conn, conn)
@@ -40,7 +39,7 @@ func acceptStartup(conn net.Conn) (net.Conn, *pgproto3.Backend, *pgproto3.Startu
 
 		switch m := msg.(type) {
 		case *pgproto3.SSLRequest:
-			// TLS not supported - network is tailscale-guarded
+			// TLS not supported - network is assumed to be secure
 			if _, err := conn.Write([]byte{'N'}); err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to send SSL rejection: %w", err)
 			}
