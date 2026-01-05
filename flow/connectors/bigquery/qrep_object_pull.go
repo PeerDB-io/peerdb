@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
@@ -331,19 +332,13 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 
 	jobs := make(map[string]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
-		uri := fmt.Sprintf("%s/%s/*.parquet", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
-		gcsRef := bigquery.NewGCSReference(uri)
-		gcsRef.DestinationFormat = bigquery.Parquet
-		gcsRef.ParquetOptions = &bigquery.ParquetOptions{EnumAsString: true}
-		gcsRef.Compression = bigquery.Gzip
-
-		dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
+		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, cfg.SnapshotStagingPath)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse table identifier %s: %w", tm.SourceTableIdentifier, err)
+			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
 		}
 
-		extractor := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table).ExtractorTo(gcsRef)
-		job, err := extractor.Run(ctx)
+		q := c.client.Query(exportSQL)
+		job, err := q.Run(ctx)
 		if err != nil {
 			var apiErr *googleapi.Error
 			if errors.As(err, &apiErr) {
@@ -371,6 +366,51 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	}
 
 	return nil, cfg.SnapshotStagingPath, nil
+}
+
+// bigQueryExportQueryStatement builds the EXPORT DATA SQL statement for exporting data from BigQuery to GCS in Parquet format.
+// BigQuery SDK does not support query_statement overrides for export jobs.
+// Parquet export does not support JSON columns, so we need to cast them.
+// Therefore, we build a custom EXPORT DATA statement with the necessary casting.
+// See: https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/export-statements#syntax
+func (c *BigQueryConnector) bigQueryExportQueryStatement(ctx context.Context, sourceTableIdentifier, snapshotStagingPath string) (string, error) {
+	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
+	}
+
+	tableRef := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
+	metadata, err := tableRef.Metadata(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get table metadata for %s: %w", sourceTableIdentifier, err)
+	}
+
+	columnSelects := make([]string, 0, len(metadata.Schema))
+	for _, field := range metadata.Schema {
+		quotedName := fmt.Sprintf("`%s`", field.Name)
+		if field.Type == bigquery.JSONFieldType {
+			// Cast JSON to STRING since Parquet doesn't support JSON type
+			columnSelects = append(columnSelects, fmt.Sprintf("TO_JSON_STRING(%s) AS %s", quotedName, quotedName))
+		} else {
+			columnSelects = append(columnSelects, quotedName)
+		}
+	}
+
+	uri := fmt.Sprintf("%s/%s/*.parquet", snapshotStagingPath, url.PathEscape(sourceTableIdentifier))
+
+	exportSQL := fmt.Sprintf(`EXPORT DATA OPTIONS(
+			uri='%s',
+			format='PARQUET',
+			compression='GZIP',
+			overwrite=true
+		) AS
+		SELECT %s FROM %s`,
+		uri,
+		strings.Join(columnSelects, ", "),
+		sourceTableIdentifier,
+	)
+
+	return exportSQL, nil
 }
 
 func (c *BigQueryConnector) FinishExport(v any) error {
