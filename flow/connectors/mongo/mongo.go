@@ -81,6 +81,10 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	return mc, nil
 }
 
+func (c *MongoConnector) Client() *mongo.Client {
+	return c.client
+}
+
 func (c *MongoConnector) Close() error {
 	var errs []error
 	if c != nil && c.client != nil {

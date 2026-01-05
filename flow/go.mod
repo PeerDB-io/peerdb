@@ -29,6 +29,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.38.9
 	github.com/aws/smithy-go v1.23.1
 	github.com/cockroachdb/pebble/v2 v2.1.1
+	github.com/dop251/goja v0.0.0-20251201205617-2bb4c724c0f9
 	github.com/elastic/go-elasticsearch/v8 v8.19.0
 	github.com/go-mysql-org/go-mysql v1.13.0
 	github.com/google/uuid v1.6.0
@@ -56,6 +57,7 @@ require (
 	github.com/twmb/franz-go/plugin/kslog v1.0.0
 	github.com/twpayne/go-geos v0.20.1
 	github.com/urfave/cli/v3 v3.5.0
+	github.com/xdg-go/scram v1.1.2
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	github.com/yuin/gopher-lua v1.1.1
 	go.mongodb.org/mongo-driver/v2 v2.4.0
@@ -179,6 +181,7 @@ require (
 	github.com/go-openapi/swag/stringutils v0.25.1 // indirect
 	github.com/go-openapi/swag/typeutils v0.25.1 // indirect
 	github.com/go-openapi/swag/yamlutils v0.25.1 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
@@ -258,7 +261,6 @@ require (
 	github.com/valyala/fastjson v1.6.4 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
-	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
