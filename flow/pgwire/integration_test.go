@@ -608,6 +608,49 @@ func TestGuardrailsRowLimit(t *testing.T) {
 		}
 		require.Equal(t, 2, count)
 	})
+
+	t.Run("ConnectionUsableAfterLimitExceeded", func(t *testing.T) {
+		dsn := buildDSN(map[string]string{"max_rows": "3"})
+
+		cfg, err := pgx.ParseConfig(dsn)
+		require.NoError(t, err)
+		cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+		conn, err := pgx.ConnectConfig(context.Background(), cfg)
+		require.NoError(t, err)
+		defer conn.Close(context.Background())
+
+		// First query exceeds limit - use Query and iterate to properly drain
+		rows, err := conn.Query(context.Background(), "SELECT * FROM generate_series(1, 10)")
+		require.NoError(t, err, "Query should start successfully")
+
+		var rowErr error
+		for rows.Next() {
+			// iterate until error
+		}
+		rowErr = rows.Err()
+		rows.Close()
+
+		require.Error(t, rowErr, "Query should fail due to row limit")
+		require.Contains(t, rowErr.Error(), "row limit")
+
+		// Connection should still be usable for subsequent queries
+		var result int
+		err = conn.QueryRow(context.Background(), "SELECT 42").Scan(&result)
+		require.NoError(t, err, "Connection should still be usable after limit exceeded")
+		require.Equal(t, 42, result)
+
+		// And another query within limits should work
+		rows, err = conn.Query(context.Background(), "SELECT * FROM generate_series(1, 2)")
+		require.NoError(t, err, "Query within limit should succeed")
+		defer rows.Close()
+
+		var count int
+		for rows.Next() {
+			count++
+		}
+		require.Equal(t, 2, count)
+	})
 }
 
 // TestGuardrailsByteLimit tests byte limit enforcement

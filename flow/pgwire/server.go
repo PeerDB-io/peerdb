@@ -135,7 +135,7 @@ func (s *Server) handleCancelRequest(pid, secret uint32) {
 
 		// Send cancel to upstream using pgconn's CancelRequest
 		if session.upstream != nil {
-			if err := session.upstream.PgConn().CancelRequest(ctx); err != nil {
+			if err := session.upstream.Conn().PgConn().CancelRequest(ctx); err != nil {
 				s.logger.WarnContext(ctx, "Cancel request failed",
 					slog.Uint64("pid", uint64(pid)),
 					slog.Any("error", err),

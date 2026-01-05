@@ -20,7 +20,7 @@ const scramIterations = 4096
 func authenticateSCRAM(conn net.Conn, writeTimeout time.Duration) error {
 	password := internal.PeerDBPgwirePassword()
 
-	// 1. Send AuthenticationSASL with SCRAM-SHA-256
+	// Send AuthenticationSASL requesting SCRAM-SHA-256
 	authSASL := &pgproto3.AuthenticationSASL{
 		AuthMechanisms: []string{"SCRAM-SHA-256"},
 	}
@@ -28,8 +28,12 @@ func authenticateSCRAM(conn net.Conn, writeTimeout time.Duration) error {
 		return fmt.Errorf("failed to send AuthenticationSASL: %w", err)
 	}
 
-	// 2. Receive SASLInitialResponse (client-first-message)
+	// Receive SASLInitialResponse containing client-first-message.
+	// SetAuthType tells pgproto3 to decode the 'p' message as SASLInitialResponse.
 	backend := pgproto3.NewBackend(conn, conn)
+	if err := backend.SetAuthType(pgproto3.AuthTypeSASL); err != nil {
+		return fmt.Errorf("failed to set auth type: %w", err)
+	}
 	msg, err := backend.Receive()
 	if err != nil {
 		return fmt.Errorf("failed to receive SASL response: %w", err)
@@ -42,15 +46,13 @@ func authenticateSCRAM(conn net.Conn, writeTimeout time.Duration) error {
 		return fmt.Errorf("unsupported auth mechanism: %s", initialResp.AuthMechanism)
 	}
 
-	// 3. Create SCRAM server conversation
-	// Generate random salt (16 bytes, base64 encoded)
+	// Generate random salt and derive stored credentials from password
 	saltBytes := make([]byte, 16)
 	if _, err := rand.Read(saltBytes); err != nil {
 		return fmt.Errorf("failed to generate salt: %w", err)
 	}
 	salt := base64.StdEncoding.EncodeToString(saltBytes)
 
-	// Create stored credentials from password
 	client, err := scram.SHA256.NewClient("", password, "")
 	if err != nil {
 		return fmt.Errorf("failed to create SCRAM client: %w", err)
@@ -60,7 +62,7 @@ func authenticateSCRAM(conn net.Conn, writeTimeout time.Duration) error {
 		Iters: scramIterations,
 	})
 
-	// Create server with credential lookup (ignores username, uses fixed password)
+	// Create SCRAM server (credential lookup ignores username, uses fixed password)
 	server, err := scram.SHA256.NewServer(func(_ string) (scram.StoredCredentials, error) {
 		return storedCreds, nil
 	})
@@ -69,10 +71,10 @@ func authenticateSCRAM(conn net.Conn, writeTimeout time.Duration) error {
 	}
 	conv := server.NewConversation()
 
-	// 4. Process client-first, send server-first
+	// Process client-first-message, send server-first-message
 	serverFirst, err := conv.Step(string(initialResp.Data))
 	if err != nil {
-		return fmt.Errorf("SCRAM step 1 failed: %w", err)
+		return fmt.Errorf("SCRAM client-first failed: %w", err)
 	}
 
 	authContinue := &pgproto3.AuthenticationSASLContinue{
@@ -82,7 +84,10 @@ func authenticateSCRAM(conn net.Conn, writeTimeout time.Duration) error {
 		return fmt.Errorf("failed to send AuthenticationSASLContinue: %w", err)
 	}
 
-	// 5. Receive client-final
+	// Receive SASLResponse containing client-final-message
+	if err := backend.SetAuthType(pgproto3.AuthTypeSASLContinue); err != nil {
+		return fmt.Errorf("failed to set auth type: %w", err)
+	}
 	msg, err = backend.Receive()
 	if err != nil {
 		return fmt.Errorf("failed to receive SASL response: %w", err)
@@ -92,16 +97,17 @@ func authenticateSCRAM(conn net.Conn, writeTimeout time.Duration) error {
 		return fmt.Errorf("expected SASLResponse, got %T", msg)
 	}
 
-	// 6. Process client-final, send server-final
+	// Process client-final-message, verify authentication
 	serverFinal, err := conv.Step(string(saslResp.Data))
 	if err != nil {
-		return fmt.Errorf("SCRAM step 2 failed: %w", err)
+		return fmt.Errorf("SCRAM client-final failed: %w", err)
 	}
 
 	if !conv.Valid() {
 		return fmt.Errorf("authentication failed")
 	}
 
+	// Send server-final-message
 	authFinal := &pgproto3.AuthenticationSASLFinal{
 		Data: []byte(serverFinal),
 	}

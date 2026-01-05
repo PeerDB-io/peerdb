@@ -12,10 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgproto3"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -28,7 +28,7 @@ type Session struct {
 	clientConn   net.Conn
 	catalogPool  shared.CatalogPool
 	backend      *pgproto3.Backend
-	upstream     *pgx.Conn
+	upstream     *connpostgres.PostgresConnector
 	logger       *slog.Logger
 	guardrails   *Guardrails
 	peerName     string
@@ -153,7 +153,7 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 		}
 
 		if s.upstream != nil {
-			_ = s.upstream.Close(context.Background())
+			_ = s.upstream.Close()
 		}
 		if s.clientConn != nil {
 			_ = s.clientConn.Close()
@@ -221,7 +221,7 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 	}
 
 	// Create upstream connection
-	s.upstream, err = createUpstreamConnection(ctx, pgConfig, s.queryTimeout)
+	s.upstream, err = connpostgres.NewPostgresConnector(ctx, nil, pgConfig)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to connect to upstream", slog.Any("error", err))
 		if werr := writeErrorAndReady(s.clientConn, errors.New("failed to connect to upstream database"), 'I', s.writeTimeout); werr != nil {
@@ -230,8 +230,21 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 		return err
 	}
 
+	// Set pgwire-specific runtime params (read-only mode, timeouts)
+	_, err = s.upstream.Conn().Exec(ctx, fmt.Sprintf(
+		"SET statement_timeout = '%dms'; SET idle_in_transaction_session_timeout = '%dms'; SET default_transaction_read_only = on",
+		s.queryTimeout.Milliseconds(), s.queryTimeout.Milliseconds(),
+	))
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to set session parameters", slog.Any("error", err))
+		if werr := writeErrorAndReady(s.clientConn, errors.New("failed to configure upstream session"), 'I', s.writeTimeout); werr != nil {
+			s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
+		}
+		return err
+	}
+
 	// Get backend key data for cancel support
-	s.pid, s.secret = getBackendKeyData(s.upstream)
+	s.pid, s.secret = getBackendKeyData(s.upstream.Conn())
 
 	// Register session for cancel handling with compound key
 	key := [2]uint32{s.pid, s.secret}
@@ -242,7 +255,7 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 	)
 
 	// Query upstream for actual server parameters
-	serverParams := queryServerParameters(ctx, s.upstream)
+	serverParams := queryServerParameters(ctx, s.upstream.Conn())
 
 	// Send greeting to client with actual server parameters
 	if err := sendGreeting(s.clientConn, s.pid, s.secret, serverParams, s.txStatus(), s.writeTimeout); err != nil {
@@ -363,8 +376,7 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 	defer cancel()
 
 	// Execute query using pgconn Exec to properly handle multi-statement queries
-	// CRITICAL: Stream results incrementally to avoid OOM on large result sets
-	multiResult := s.upstream.PgConn().Exec(queryCtx, query)
+	multiResult := s.upstream.Conn().PgConn().Exec(queryCtx, query)
 
 	// Process each result set incrementally without buffering all rows
 	for multiResult.NextResult() {
@@ -399,6 +411,9 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 				// Check row limit BEFORE processing
 				if err := s.guardrails.AddRow(); err != nil {
 					s.logger.WarnContext(ctx, "Row limit exceeded", slog.Any("error", err))
+					cancel()
+					resultReader.Close()
+					multiResult.Close() // Drain remaining results to free upstream connection
 					if werr := writeProtoError(s.clientConn, "54000", err.Error(), s.writeTimeout); werr != nil {
 						s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
 					}
@@ -421,6 +436,9 @@ func (s *Session) handleQuery(ctx context.Context, query string) error {
 
 				if err := s.guardrails.AddBytes(rowBytes); err != nil {
 					s.logger.WarnContext(ctx, "Byte limit exceeded", slog.Any("error", err))
+					cancel()
+					resultReader.Close()
+					multiResult.Close() // Drain remaining results to free upstream connection
 					if werr := writeProtoError(s.clientConn, "54000", err.Error(), s.writeTimeout); werr != nil {
 						s.logger.WarnContext(ctx, "Failed to write to client", slog.Any("error", werr))
 					}
@@ -491,7 +509,7 @@ func (s *Session) txStatus() byte {
 	if s.upstream == nil {
 		return 'I' // idle
 	}
-	return s.upstream.PgConn().TxStatus()
+	return s.upstream.Conn().PgConn().TxStatus()
 }
 
 // truncateQuery truncates a query string for logging
