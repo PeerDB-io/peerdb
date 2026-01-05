@@ -73,7 +73,7 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:3d63be67c9b82423c5efa15ad1cf42f89e6c0d40bb269374b69649a5fa7d261a
+        image: linuxserver/openssh-server:latest@sha256:f6ed4e429022c33a7590059b262b59d689c7ec48a0027179fad8ae3a1ad6222d
         ports:
           - 2222:2222
         env:
