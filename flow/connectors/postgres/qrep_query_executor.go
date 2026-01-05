@@ -96,6 +96,7 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 		schemaDebug = &types.NullableSchemaDebug{
 			PgxFields:      make([]types.PgxFieldDebug, len(fds)),
 			StrictNullable: make([]bool, len(fds)),
+			MatchFound:     make([]bool, len(fds)),
 		}
 		attIdToFieldIdx = make(map[attId][]int, len(fds))
 	} else {
@@ -233,11 +234,14 @@ func (qe *QRepQueryExecutor) populateLaxModeDebugInfo(
 	}, func() error {
 		schemaDebug.PgAttributeRows = append(schemaDebug.PgAttributeRows, row)
 
-		// Compute strict nullable: if NOT attnotnull and matches a field, mark it nullable
-		if !row.AttNotNull {
-			key := attId{relid: row.AttRelID, num: uint16(row.AttNum)}
-			if indices, ok := attIdToFieldIdx[key]; ok {
-				for _, idx := range indices {
+		// Check if this pg_attribute row matches any pgx field
+		key := attId{relid: row.AttRelID, num: uint16(row.AttNum)}
+		if indices, ok := attIdToFieldIdx[key]; ok {
+			for _, idx := range indices {
+				// Mark that we found a match in pg_attribute for this field
+				schemaDebug.MatchFound[idx] = true
+				// Compute strict nullable: if NOT attnotnull, mark it nullable
+				if !row.AttNotNull {
 					schemaDebug.StrictNullable[idx] = true
 				}
 			}
@@ -381,7 +385,9 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
 		defer close(errors)
-		if _, _, err := qe.ExecuteAndProcessQueryStream(ctx, stream, protos.DBType_DBTYPE_UNKNOWN, query, args...); err != nil {
+		_, _, err := qe.ExecuteAndProcessQueryStream(ctx, stream, protos.DBType_DBTYPE_UNKNOWN, query, args...)
+		stream.Close(err)
+		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
 			errorsError = err
 		}
@@ -450,7 +456,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	args ...any,
 ) (int64, int64, error) {
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
-	defer sink.Close(nil)
 
 	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
@@ -458,16 +463,10 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	})
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
-		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
-		sink.Close(err)
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
-	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
-	if err != nil {
-		sink.Close(err)
-	}
-	return totalRecords, totalBytes, err
+	return sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
 }
 
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
@@ -478,7 +477,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 ) (int64, int64, int64, error) {
 	var currentSnapshotXmin pgtype.Int8
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
-	defer sink.Close(nil)
 
 	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
@@ -486,21 +484,15 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	})
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
-		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
-		sink.Close(err)
-		return 0, 0, currentSnapshotXmin.Int64, err
+		return 0, 0, currentSnapshotXmin.Int64, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
 	if err := tx.QueryRow(ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to get current snapshot xmin", slog.Any("error", err))
-		sink.Close(err)
 		return 0, 0, currentSnapshotXmin.Int64, err
 	}
 
 	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
-	if err != nil {
-		sink.Close(err)
-	}
 	return totalRecords, totalBytes, currentSnapshotXmin.Int64, err
 }
 

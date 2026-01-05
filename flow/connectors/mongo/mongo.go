@@ -126,7 +126,7 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 		return nil, fmt.Errorf("error parsing uri: %w", err)
 	}
 
-	if connStr.HasAuthParameters() {
+	if connStr.UsernameSet {
 		return nil, errors.New("connection string should not contain username and password")
 	}
 

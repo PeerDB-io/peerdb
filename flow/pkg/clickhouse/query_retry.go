@@ -42,7 +42,7 @@ func isRetryableException(err error) bool {
 		_, yes := retryableExceptions[chproto.Error(ex.Code)]
 		return yes
 	}
-	return errors.Is(err, io.EOF)
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func Exec(ctx context.Context, logger log.Logger,

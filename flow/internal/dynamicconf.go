@@ -43,7 +43,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_GROUP_NORMALIZE",
 		Description:      "Controls whether normalize applies to one batch at a time, or all pending batches",
-		DefaultValue:     "1",
+		DefaultValue:     "4",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -63,6 +63,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_QUEUES,
+	},
+	{
+		Name:             "PEERDB_CDC_STORE_ENABLED",
+		Description:      "Controls whether to enable the store for recovering unchanged Postgres TOAST values within a CDC batch",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
 		Name:             "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD",
@@ -411,6 +419,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG",
+		Description:      "Apply schema deltas to catalog instead of fetching latest schema from source",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -584,6 +600,10 @@ func PeerDBQueueParallelism(ctx context.Context, env map[string]string) (int64, 
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_QUEUE_PARALLELISM")
 }
 
+func PeerDBCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CDC_STORE_ENABLED")
+}
+
 func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD")
 }
@@ -750,4 +770,8 @@ func PeerDBPostgresWalSenderTimeout(ctx context.Context, env map[string]string) 
 
 func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED")
+}
+
+func PeerDBApplySchemaDeltaToCatalogEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG")
 }

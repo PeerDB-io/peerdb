@@ -425,8 +425,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	groupBatches, err := internal.PeerDBGroupNormalize(ctx, req.Env)
 	if err != nil || groupBatches <= 0 {
-		c.logger.Error("failed to lookup PEERDB_GROUP_NORMALIZE, only normalizing 1 batch")
-		groupBatches = 1
+		c.logger.Error("failed to lookup PEERDB_GROUP_NORMALIZE, only normalizing 4 batches")
+		groupBatches = 4
 	}
 
 	endBatchID := min(req.SyncBatchID, lastNormBatchID+groupBatches)

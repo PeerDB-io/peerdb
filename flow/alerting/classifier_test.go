@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -187,6 +188,23 @@ func TestPostgresPfreeInvalidPointerErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresUnrecognizedSIMessageIDErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate shared invalidation message corruption error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "FATAL",
+			Code:     pgerrcode.InternalError,
+			Message:  "unrecognized SI message ID: -60",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("ReceiveMessage failed: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a ClickHouse access entity not found error
 	for idx, msg := range []string{
@@ -305,6 +323,22 @@ func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.InvalidParameterValue,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresCreatingSlotOnReader(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InternalError,
+		Message: `ERROR: Creating logical replication slot peerflow_slot_mirror_1cd7f87b__d143__4cea__a247__a2acc5f5b746
+		is not supported on the Multi-AZ DB cluster reader node.
+		Create the replication slot from the writer node instead. (SQLSTATE XX000)`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("slot error: [slot] error creating replication slot: %w", err))
+	assert.Equal(t, ErrNotifyPostgresCreatingSlotOnReader, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
 	}, errInfo, "Unexpected error info")
 }
 
@@ -663,5 +697,33 @@ func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "1105",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
+	err := exceptions.NewMySQLStreamingError(
+		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"})
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "STREAMING_TRANSIENT_ERROR",
+	}, errInfo, "Unexpected error info")
+
+	err = exceptions.NewMySQLStreamingError(
+		tls.RecordHeaderError{Msg: "unsupported SSLv2 handshake received"})
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNKNOWN",
+	}, errInfo, "Unexpected error info")
+
+	err = exceptions.NewMySQLStreamingError(context.DeadlineExceeded)
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "STREAMING_TRANSIENT_ERROR",
 	}, errInfo, "Unexpected error info")
 }

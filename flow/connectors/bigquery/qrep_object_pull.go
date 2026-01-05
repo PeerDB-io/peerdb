@@ -34,8 +34,6 @@ func (c *BigQueryConnector) PullQRepObjects(
 	partition *protos.QRepPartition,
 	stream *model.QObjectStream,
 ) (int64, int64, error) {
-	defer close(stream.Objects)
-
 	stream.SetFormat(model.QObjectStreamBigQueryExportParquetFormat)
 
 	schema, err := c.getQRepSchema(ctx, config)

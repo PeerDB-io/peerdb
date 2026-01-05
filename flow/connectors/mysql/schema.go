@@ -12,8 +12,11 @@ import (
 )
 
 func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
-	rs, err := c.Execute(ctx, `select concat(table_schema, '.', table_name) from information_schema.tables
-		where table_schema not in ('information_schema', 'performance_schema', 'sys')`)
+	rs, err := c.Execute(ctx, `
+		SELECT concat(table_schema, '.', table_name)
+		FROM information_schema.tables
+		WHERE table_schema NOT IN ('information_schema', 'performance_schema', 'sys')
+		  AND table_type = 'BASE TABLE'`)
 	if err != nil {
 		return nil, err
 	}
@@ -51,8 +54,12 @@ func (c *MySqlConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasRes
 func (c *MySqlConnector) GetTablesInSchema(
 	ctx context.Context, schema string, cdcEnabled bool,
 ) (*protos.SchemaTablesResponse, error) {
-	rs, err := c.Execute(ctx, fmt.Sprintf(`select table_name, data_length + index_length
-		from information_schema.tables where table_schema = '%s' order by table_name`, gomysql.Escape(schema)))
+	rs, err := c.Execute(ctx, fmt.Sprintf(`
+		SELECT table_name, data_length + index_length
+		FROM information_schema.tables
+		WHERE table_schema = '%s'
+		  AND table_type = 'BASE TABLE'
+		ORDER BY table_name`, gomysql.Escape(schema)))
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +84,12 @@ func (c *MySqlConnector) GetTablesInSchema(
 }
 
 func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error) {
-	rs, err := c.Execute(ctx, fmt.Sprintf(`select column_name, column_type, column_key
-		from information_schema.columns where table_schema = '%s' and table_name = '%s' order by column_name`,
+	rs, err := c.Execute(ctx, fmt.Sprintf(`
+		SELECT column_name, column_type, column_key
+		FROM information_schema.columns
+		WHERE table_schema = '%s'
+		  AND table_name = '%s'
+		ORDER BY column_name`,
 		gomysql.Escape(schema), gomysql.Escape(table)))
 	if err != nil {
 		return nil, err

@@ -464,6 +464,44 @@ func (s APITestSuite) TestSchemaEndpoints() {
 	}
 }
 
+func (s APITestSuite) TestGetTablesExcludeViews() {
+	tableName := "test_table"
+	viewName := "test_view"
+
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) VALUES (1, 'foo')", AttachSchema(s, tableName))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE VIEW %s AS SELECT * FROM %s", AttachSchema(s, viewName), AttachSchema(s, tableName))))
+	case *MongoSource:
+		adminClient := s.Source().(*MongoSource).AdminClient()
+		res, err := adminClient.Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "foo"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		require.NoError(s.t, adminClient.Database(Schema(s)).CreateView(s.t.Context(), viewName, tableName, bson.A{}))
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	peer := s.source.GeneratePeer(s.t)
+	tablesInSchema, err := s.GetTablesInSchema(s.t.Context(), &protos.SchemaTablesRequest{
+		PeerName:   peer.Name,
+		SchemaName: Schema(s),
+	})
+	require.NoError(s.t, err)
+
+	tableNames := make([]string, len(tablesInSchema.Tables))
+	for i, table := range tablesInSchema.Tables {
+		tableNames[i] = table.TableName
+	}
+	require.Contains(s.t, tableNames, tableName, "table should be in the list")
+	require.NotContains(s.t, tableNames, viewName, "view should not be in the list")
+}
+
 func (s APITestSuite) TestScripts() {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only run with pg so only one test against scripts runs")

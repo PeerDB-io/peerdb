@@ -763,6 +763,73 @@ func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
 		slices.Compare(xTypmods, yTypmods) == 0
 }
 
+func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual *protos.TableSchema) bool {
+	t.Helper()
+
+	if expected.TableIdentifier != actual.TableIdentifier {
+		t.Logf("expected table identifier %s, got %s", expected.TableIdentifier, actual.TableIdentifier)
+		return false
+	}
+	if expected.IsReplicaIdentityFull != actual.IsReplicaIdentityFull {
+		t.Logf("expected replica identity full to be %t, got %t", expected.IsReplicaIdentityFull, actual.IsReplicaIdentityFull)
+		return false
+	}
+	if expected.NullableEnabled != actual.NullableEnabled {
+		t.Logf("expected nullable enabled to be %t, got %t", expected.NullableEnabled, actual.NullableEnabled)
+		return false
+	}
+	if expected.System != actual.System {
+		t.Logf("expected system to be %s, got %s", expected.System, actual.System)
+		return false
+	}
+	if slices.Compare(expected.PrimaryKeyColumns, actual.PrimaryKeyColumns) != 0 {
+		t.Logf("expected primary keys columns %v, got %v", expected.PrimaryKeyColumns, actual.PrimaryKeyColumns)
+		return false
+	}
+
+	sortAndExtractColumns := func(cols []*protos.FieldDescription) ([]string, []string, []int32, []bool) {
+		sorted := slices.Clone(cols)
+		slices.SortFunc(sorted, func(a, b *protos.FieldDescription) int {
+			return strings.Compare(a.Name, b.Name)
+		})
+
+		colNames := make([]string, 0, len(sorted))
+		colTypes := make([]string, 0, len(sorted))
+		colTypmods := make([]int32, 0, len(sorted))
+		colNullables := make([]bool, 0, len(sorted))
+
+		for _, col := range sorted {
+			colNames = append(colNames, col.Name)
+			colTypes = append(colTypes, col.Type)
+			colTypmods = append(colTypmods, col.TypeModifier)
+			colNullables = append(colNullables, col.Nullable)
+		}
+		return colNames, colTypes, colTypmods, colNullables
+	}
+
+	expectedColNames, expectedColTypes, expectedTypmods, expectedNullables := sortAndExtractColumns(expected.Columns)
+	actualColNames, actualColTypes, actualTypmods, actualNullables := sortAndExtractColumns(actual.Columns)
+
+	if !slices.Equal(expectedColNames, actualColNames) {
+		t.Logf("expected columns names %v, got %v", expectedColNames, actualColNames)
+		return false
+	}
+	if !slices.Equal(expectedColTypes, actualColTypes) {
+		t.Logf("expected column types %v, got %v", expectedColTypes, actualColTypes)
+		return false
+	}
+	if !slices.Equal(expectedTypmods, actualTypmods) {
+		t.Logf("expected column typmods %v, got %v", expectedTypmods, actualTypmods)
+		return false
+	}
+	if !slices.Equal(expectedNullables, actualNullables) {
+		t.Logf("expected nullables %v, got %v", expectedNullables, actualNullables)
+		return false
+	}
+
+	return true
+}
+
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {
 	t.Helper()
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, q, other))

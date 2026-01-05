@@ -53,6 +53,7 @@ var (
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
 	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
+	PostgresSpillFileMissingRe        = regexp.MustCompile(`Unable to restore changes for xid \d+`)
 	MySqlRdsBinlogFileNotFoundRe      = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe           = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
@@ -196,12 +197,19 @@ var (
 	ErrorNotifyPostgresSlotMemalloc = ErrorClass{
 		Class: "NOTIFY_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
 	}
+	// This RDS specific error is seen when we try to create a replication slot on a read-replica
+	ErrNotifyPostgresCreatingSlotOnReader = ErrorClass{
+		Class: "NOTIFY_POSTGRES_CREATING_SLOT_ON_READER", action: NotifyUser,
+	}
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
+	}
+	ErrorNotifyClickHouseSupportIsDisabledError = ErrorClass{
+		Class: "NOTIFY_CLICKHOUSE_SUPPORT_IS_DISABLED_ERROR", action: NotifyUser,
 	}
 	// Catch-all for unclassified errors
 	ErrorOther = ErrorClass{
@@ -446,7 +454,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			pgerrcode.UndefinedTable,
 			pgerrcode.CannotConnectNow,
 			pgerrcode.ConfigurationLimitExceeded,
-			pgerrcode.DiskFull:
+			pgerrcode.DiskFull,
+			pgerrcode.DuplicateFile:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
 		case pgerrcode.UndefinedObject:
@@ -464,7 +473,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.UndefinedFile:
 			// Handle WAL segment removed errors
+			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+			// Handles missing spill-to-disk file during logical decoding (transient error)
+			if PostgresSpillFileMissingRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
@@ -489,6 +503,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// Handle WAL segment removed errors
+			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
@@ -516,6 +531,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// Usually a single occurrence then reconnect immediately helps
 			if strings.Contains(pgErr.Message, "pfree called with invalid pointer") {
 				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			// Shared invalidation message corruption - usually transient, reconnect helps
+			// https://github.com/postgres/postgres/blob/e82e9aaa6a2942505c2c328426778787e4976ea6/src/backend/utils/cache/inval.c#L901
+			if strings.Contains(pgErr.Message, "unrecognized SI message ID:") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			if strings.Contains(pgErr.Message, "Create the replication slot from the writer node instead") {
+				return ErrNotifyPostgresCreatingSlotOnReader, pgErrorInfo
 			}
 
 			// Fall through for other internal errors
@@ -569,8 +594,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.QueryCanceled:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
-		case pgerrcode.DuplicateFile,
-			pgerrcode.DeadlockDetected,
+		case pgerrcode.DeadlockDetected,
 			pgerrcode.SerializationFailure,
 			pgerrcode.IdleInTransactionSessionTimeout:
 			return ErrorRetryRecoverable, pgErrorInfo
@@ -676,6 +700,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		case 13436: // NotPrimaryOrSecondary
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 133: // FailedToSatisfyReadPreference
+			return ErrorNotifyConnectivity, mongoErrorInfo
 		default:
 			return ErrorOther, mongoErrorInfo
 		}
@@ -716,6 +742,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "CONNECTION_ERROR",
+		}
+	}
+
+	var mongoWaitQueueError topology.WaitQueueTimeoutError
+	if errors.As(err, &mongoWaitQueueError) {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "WAIT_QUEUE_TIMEOUT_ERROR",
 		}
 	}
 
@@ -763,9 +797,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case chproto.ErrUnknownDatabase,
 			chproto.ErrAuthenticationFailed:
 			return ErrorNotifyConnectivity, chErrorInfo
-		case chproto.ErrKeeperException,
-			chproto.ErrUnfinished,
-			chproto.ErrAborted:
+		case chproto.ErrKeeperException:
+			if chException.Message == "Session expired" || strings.HasPrefix(chException.Message, "Coordination error: Connection loss") {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
+			return ErrorInternalClickHouse, chErrorInfo
+		case chproto.ErrUnfinished:
+			return ErrorRetryRecoverable, chErrorInfo
+		case chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
 			return ErrorIgnoreConnTemporary, chErrorInfo
@@ -830,6 +869,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(chException.Message, "Replicated DDL queries are disabled") {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
+		case chproto.ErrSupportIsDisabled:
+			return ErrorNotifyClickHouseSupportIsDisabledError, chErrorInfo
 		}
 		var normalizationErr *exceptions.NormalizationError
 		if isClickHouseMvError(chException) {
@@ -896,6 +937,21 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var mysqlStreamingError *exceptions.MySQLStreamingError
+	if errors.As(err, &mysqlStreamingError) {
+		if mysqlStreamingError.Retryable {
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourceMySQL,
+				Code:   "STREAMING_TRANSIENT_ERROR",
+			}
+		} else {
+			return ErrorOther, ErrorInfo{
+				Source: ErrorSourceMySQL,
+				Code:   "UNKNOWN",
+			}
+		}
+	}
+
 	var postgresPrimaryKeyModifiedError *exceptions.PrimaryKeyModifiedError
 	if errors.As(err, &postgresPrimaryKeyModifiedError) {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
@@ -904,6 +960,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresPrimaryKeyModifiedError.TableName,
 				ErrorAttributeKeyColumn: postgresPrimaryKeyModifiedError.ColumnName,
+			},
+		}
+	}
+
+	var postgresReplicaIdentityIndexError *exceptions.ReplicaIdentityIndexError
+	if errors.As(err, &postgresReplicaIdentityIndexError) {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  postgresReplicaIdentityIndexError.Table,
+				ErrorAttributeKeyColumn: "n\a",
 			},
 		}
 	}
