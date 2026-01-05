@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -156,7 +157,7 @@ func TestPgwireMySQL(t *testing.T) {
 }
 
 // ========================================
-// Basic Connectivity Tests
+// Basic Connectivity
 // ========================================
 
 func (s PgwireMySQLSuite) Test_BasicConnectivity_SimpleSelect() {
@@ -178,7 +179,7 @@ func (s PgwireMySQLSuite) Test_BasicConnectivity_CurrentDatabase() {
 }
 
 // ========================================
-// Data Types Tests
+// Data Types
 // ========================================
 
 func (s PgwireMySQLSuite) Test_DataTypes() {
@@ -207,7 +208,7 @@ func (s PgwireMySQLSuite) Test_DataTypes() {
 }
 
 // ========================================
-// Query Complexity Tests
+// Query Complexity
 // ========================================
 
 func (s PgwireMySQLSuite) Test_QueryComplexity_MultipleRows() {
@@ -276,7 +277,7 @@ func (s PgwireMySQLSuite) Test_QueryComplexity_UnionAll() {
 }
 
 // ========================================
-// SHOW/DESCRIBE/EXPLAIN Tests
+// SHOW/DESCRIBE/EXPLAIN
 // ========================================
 
 func (s PgwireMySQLSuite) Test_Show_Tables() {
@@ -330,7 +331,7 @@ func (s PgwireMySQLSuite) Test_Explain_Select() {
 }
 
 // ========================================
-// Transaction Tests
+// Transactions
 // ========================================
 
 func (s PgwireMySQLSuite) Test_Transaction_BeginCommit() {
@@ -558,7 +559,7 @@ func (s PgwireMySQLSuite) Test_ExplainNonSelectBlocked() {
 }
 
 // ========================================
-// Error Handling Tests
+// Error Handling
 // ========================================
 
 func (s PgwireMySQLSuite) Test_Error_SyntaxError() {
@@ -609,7 +610,7 @@ func (s PgwireMySQLSuite) Test_Guardrails_ByteLimitExceeded() {
 }
 
 // ========================================
-// Special Cases
+// Null Handling and Special Values
 // ========================================
 
 func (s PgwireMySQLSuite) Test_Special_EmptyResult() {
@@ -637,7 +638,7 @@ func (s PgwireMySQLSuite) Test_Special_Quotes() {
 }
 
 // ========================================
-// Empty Query Tests
+// Empty Query
 // ========================================
 
 func (s PgwireMySQLSuite) Test_EmptyQuery() {
@@ -666,7 +667,7 @@ func (s PgwireMySQLSuite) Test_EmptyQuery() {
 }
 
 // ========================================
-// Mid-Batch Error Tests
+// Mid-Batch Error
 // ========================================
 
 func (s PgwireMySQLSuite) Test_MidBatchError() {
@@ -690,7 +691,7 @@ func (s PgwireMySQLSuite) Test_MidBatchError() {
 }
 
 // ========================================
-// Cancel Request Tests
+// Cancel Request
 // ========================================
 
 func (s PgwireMySQLSuite) Test_CancelRequest() {
@@ -729,7 +730,7 @@ func (s PgwireMySQLSuite) Test_CancelRequest() {
 }
 
 // ========================================
-// Connection Usable After Limit Tests
+// Connection Recovery After Limit
 // ========================================
 
 func (s PgwireMySQLSuite) Test_ConnectionUsableAfterLimitExceeded() {
@@ -794,4 +795,70 @@ func (s PgwireMySQLSuite) Test_Connection_Reuse() {
 		require.NoError(s.t, err)
 		require.Equal(s.t, i, result)
 	}
+}
+
+// ========================================
+// Concurrent Connections
+// ========================================
+
+func (s PgwireMySQLSuite) Test_ConcurrentConnections() {
+	const numConns = 5
+	var wg sync.WaitGroup
+	errors := make(chan error, numConns)
+
+	for i := range numConns {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			output, err := s.psql(fmt.Sprintf("SELECT %d", id))
+			if err != nil {
+				errors <- fmt.Errorf("connection %d failed: %w (output: %s)", id, err, output)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	for err := range errors {
+		require.NoError(s.t, err)
+	}
+}
+
+// ========================================
+// Sequential Connections
+// ========================================
+
+func (s PgwireMySQLSuite) Test_MultipleSequentialConnections() {
+	for i := range 10 {
+		output, err := s.psql(fmt.Sprintf("SELECT %d", i))
+		require.NoError(s.t, err, "Sequential connection %d should succeed", i)
+		require.Equal(s.t, fmt.Sprintf("%d", i), output)
+	}
+}
+
+// ========================================
+// Idle Timeout
+// ========================================
+
+func (s PgwireMySQLSuite) Test_IdleTimeout_Short() {
+	dsn := pgwireDSN(s.peer.Name, map[string]string{"idle_timeout": "1"})
+
+	cfg, err := pgx.ParseConfig(dsn)
+	require.NoError(s.t, err)
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+	require.NoError(s.t, err)
+	defer conn.Close(s.t.Context())
+
+	var result int
+	err = conn.QueryRow(s.t.Context(), "SELECT 1").Scan(&result)
+	require.NoError(s.t, err, "First query should succeed")
+	require.Equal(s.t, 1, result)
+
+	time.Sleep(1500 * time.Millisecond)
+
+	err = conn.QueryRow(s.t.Context(), "SELECT 2").Scan(&result)
+	require.Error(s.t, err, "Query should fail after idle timeout")
 }

@@ -206,6 +206,65 @@ func (s PgwirePostgresSuite) Test_QueryComplexity_WindowFunction() {
 	require.Equal(s.t, "1|1\n2|2\n3|3", output)
 }
 
+func (s PgwirePostgresSuite) Test_QueryComplexity_WindowFunctionLag() {
+	output, err := s.psql(`
+		SELECT i, LAG(i, 1) OVER (ORDER BY i) AS prev
+		FROM generate_series(1, 3) AS t(i)
+	`)
+	require.NoError(s.t, err)
+	lines := strings.Split(output, "\n")
+	require.Equal(s.t, "1|", lines[0])
+	require.Equal(s.t, "2|1", lines[1])
+	require.Equal(s.t, "3|2", lines[2])
+}
+
+func (s PgwirePostgresSuite) Test_QueryComplexity_MultipleCTEs() {
+	output, err := s.psql(`
+		WITH
+			doubled AS (SELECT i * 2 AS val FROM generate_series(1, 3) AS t(i)),
+			tripled AS (SELECT i * 3 AS val FROM generate_series(1, 3) AS t(i))
+		SELECT * FROM doubled UNION ALL SELECT * FROM tripled ORDER BY val
+	`)
+	require.NoError(s.t, err)
+	require.Contains(s.t, output, "2")
+	require.Contains(s.t, output, "9")
+}
+
+func (s PgwirePostgresSuite) Test_QueryComplexity_BooleanLogic() {
+	tests := []struct {
+		name, sql, expected string
+	}{
+		{"And", "SELECT TRUE AND TRUE", "t"},
+		{"Or", "SELECT FALSE OR TRUE", "t"},
+		{"Not", "SELECT NOT FALSE", "t"},
+		{"Comparison", "SELECT 5 > 3", "t"},
+		{"Between", "SELECT 5 BETWEEN 1 AND 10", "t"},
+		{"In", "SELECT 3 IN (1, 2, 3)", "t"},
+	}
+
+	for _, tt := range tests {
+		s.t.Run(tt.name, func(t *testing.T) {
+			output, err := s.psql(tt.sql)
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, output)
+		})
+	}
+}
+
+func (s PgwirePostgresSuite) Test_QueryComplexity_EmptyResults() {
+	s.t.Run("NoRows", func(t *testing.T) {
+		output, err := s.psql("SELECT 1 WHERE FALSE")
+		require.NoError(t, err)
+		require.Empty(t, output)
+	})
+
+	s.t.Run("EmptyResultSet", func(t *testing.T) {
+		output, err := s.psql("SELECT COUNT(*) FROM (SELECT 1 WHERE FALSE) sq")
+		require.NoError(t, err)
+		require.Equal(t, "0", output)
+	})
+}
+
 // ========================================
 // Transactions
 // ========================================
@@ -249,6 +308,11 @@ func (s PgwirePostgresSuite) Test_Error_TableNotExists() {
 
 func (s PgwirePostgresSuite) Test_Error_ColumnNotExists() {
 	_, err := s.psql("SELECT nonexistent_column FROM pg_class LIMIT 1")
+	require.Error(s.t, err)
+}
+
+func (s PgwirePostgresSuite) Test_Error_TypeMismatch() {
+	_, err := s.psql("SELECT 1 WHERE 1 = 'not_a_number'")
 	require.Error(s.t, err)
 }
 
@@ -305,6 +369,12 @@ func (s PgwirePostgresSuite) Test_NullHandling_NullCoalesce() {
 	require.Equal(s.t, "default", output)
 }
 
+func (s PgwirePostgresSuite) Test_NullHandling_IsNull() {
+	output, err := s.psql("SELECT NULL IS NULL")
+	require.NoError(s.t, err)
+	require.Equal(s.t, "t", output)
+}
+
 // ========================================
 // Special Characters
 // ========================================
@@ -349,6 +419,23 @@ func (s PgwirePostgresSuite) Test_MultiStatement_ThreeSelects() {
 	require.Contains(s.t, output, "third")
 }
 
+func (s PgwirePostgresSuite) Test_MultiStatement_TransactionWithMultipleSelects() {
+	output, err := s.psql("BEGIN; SELECT 1 AS a; SELECT 2 AS b; COMMIT;")
+	require.NoError(s.t, err)
+	require.Contains(s.t, output, "1")
+	require.Contains(s.t, output, "2")
+}
+
+func (s PgwirePostgresSuite) Test_MultiStatement_MixedStatementsWithResults() {
+	output, err := s.psql(`
+		SELECT 'setup' AS step;
+		SELECT val FROM (VALUES (1, 'a'), (2, 'b')) AS t(id, val) ORDER BY id;
+	`)
+	require.NoError(s.t, err)
+	require.Contains(s.t, output, "a")
+	require.Contains(s.t, output, "b")
+}
+
 // ========================================
 // Read-Only Enforcement
 // ========================================
@@ -373,6 +460,13 @@ func (s PgwirePostgresSuite) Test_ReadOnly_BypassAttemptBlocked() {
 
 func (s PgwirePostgresSuite) Test_ReadOnly_SetConfigBlocked() {
 	output, err := s.psql("SELECT set_config('work_mem', '64MB', false)")
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "set_config")
+}
+
+func (s PgwirePostgresSuite) Test_ReadOnly_ObfuscatedSetConfigBlocked() {
+	// Attempt to bypass by obfuscating the setting name via string concatenation
+	output, err := s.psql("SELECT set_config('default_transaction' || '_read_only', 'off', false)")
 	require.Error(s.t, err)
 	require.Contains(s.t, output, "set_config")
 }
@@ -498,6 +592,61 @@ func (s PgwirePostgresSuite) Test_Guardrails_ConnectionUsableAfterLimitExceeded(
 	require.Equal(s.t, 42, result)
 }
 
+func (s PgwirePostgresSuite) Test_Guardrails_NoOOM() {
+	if testing.Short() {
+		s.t.Skip("Skipping stress test in short mode")
+	}
+
+	dsn := pgwireDSN(s.peer.Name, map[string]string{"max_rows": "100"})
+
+	cfg, err := pgx.ParseConfig(dsn)
+	require.NoError(s.t, err)
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+	require.NoError(s.t, err)
+	defer conn.Close(s.t.Context())
+
+	// This would generate 2 million rows, but we limit to 100
+	_, err = conn.Exec(s.t.Context(), "SELECT * FROM generate_series(1, 2000000)")
+	require.Error(s.t, err, "Query should fail due to row limit")
+	require.Contains(s.t, err.Error(), "row limit")
+}
+
+func (s PgwirePostgresSuite) Test_Guardrails_ByteLimitWithNulls() {
+	s.t.Run("NullsCountOverhead", func(t *testing.T) {
+		dsn := pgwireDSN(s.peer.Name, map[string]string{"max_bytes": "100"})
+
+		cfg, err := pgx.ParseConfig(dsn)
+		require.NoError(t, err)
+		cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+		conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+		require.NoError(t, err)
+		defer conn.Close(s.t.Context())
+
+		_, err = conn.Exec(s.t.Context(), "SELECT NULL, NULL, NULL FROM generate_series(1, 20)")
+		require.Error(t, err, "Should hit byte limit even with NULLs")
+		require.Contains(t, err.Error(), "byte limit")
+	})
+
+	s.t.Run("LongTextExceedsLimit", func(t *testing.T) {
+		dsn := pgwireDSN(s.peer.Name, map[string]string{"max_bytes": "100"})
+
+		cfg, err := pgx.ParseConfig(dsn)
+		require.NoError(t, err)
+		cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+		conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+		require.NoError(t, err)
+		defer conn.Close(s.t.Context())
+
+		_, err = conn.Exec(s.t.Context(), "SELECT repeat('a', 50) FROM generate_series(1, 5)")
+		require.Error(t, err, "Should hit byte limit with long text")
+		require.Contains(t, err.Error(), "byte limit")
+	})
+}
+
 // ========================================
 // Empty Query
 // ========================================
@@ -588,6 +737,25 @@ func (s PgwirePostgresSuite) Test_ExtendedProtocol_SimpleProtocolStillWorks() {
 	require.Equal(s.t, 42, result)
 }
 
+func (s PgwirePostgresSuite) Test_ExtendedProtocol_ParameterizedQueryRejected() {
+	dsn := pgwireDSN(s.peer.Name, nil)
+
+	cfg, err := pgx.ParseConfig(dsn)
+	require.NoError(s.t, err)
+	// QueryExecModeExec uses extended protocol
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeExec
+
+	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+	require.NoError(s.t, err)
+	defer conn.Close(s.t.Context())
+
+	// Try a simple query with this mode - should fail
+	var result int
+	err = conn.QueryRow(s.t.Context(), "SELECT 1").Scan(&result)
+	require.Error(s.t, err, "Extended protocol should be rejected")
+	require.Contains(s.t, err.Error(), "extended protocol not supported")
+}
+
 // ========================================
 // Cancel Request
 // ========================================
@@ -623,6 +791,34 @@ func (s PgwirePostgresSuite) Test_CancelRequest() {
 			t.Fatal("Query should have been canceled within 5 seconds")
 		}
 	})
+}
+
+func (s PgwirePostgresSuite) Test_CancelRequest_SpuriousCancelRequest() {
+	dsn := pgwireDSN(s.peer.Name, nil)
+
+	cfg, err := pgx.ParseConfig(dsn)
+	require.NoError(s.t, err)
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+	require.NoError(s.t, err)
+	defer conn.Close(s.t.Context())
+
+	cfg2, err := pgx.ParseConfig(dsn)
+	require.NoError(s.t, err)
+	cfg2.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	conn2, err := pgx.ConnectConfig(s.t.Context(), cfg2)
+	require.NoError(s.t, err)
+	defer conn2.Close(s.t.Context())
+
+	// Send cancel from conn2 (wrong connection) - should have no effect
+	err = conn2.PgConn().CancelRequest(s.t.Context())
+	require.NoError(s.t, err)
+
+	// Original connection should still work fine
+	var result int
+	err = conn.QueryRow(s.t.Context(), "SELECT 1").Scan(&result)
+	require.NoError(s.t, err)
+	require.Equal(s.t, 1, result)
 }
 
 // ========================================
@@ -723,254 +919,4 @@ func (s PgwirePostgresSuite) Test_IdleTimeout_Short() {
 
 	err = conn.QueryRow(s.t.Context(), "SELECT 2").Scan(&result)
 	require.Error(s.t, err, "Query should fail after idle timeout")
-}
-
-// ========================================
-// HIGH PRIORITY: Security Tests
-// ========================================
-
-func (s PgwirePostgresSuite) Test_ReadOnly_ObfuscatedSetConfigBlocked() {
-	// Attempt to bypass by obfuscating the setting name via string concatenation
-	output, err := s.psql("SELECT set_config('default_transaction' || '_read_only', 'off', false)")
-	require.Error(s.t, err)
-	require.Contains(s.t, output, "set_config")
-}
-
-func (s PgwirePostgresSuite) Test_Guardrails_NoOOM() {
-	if testing.Short() {
-		s.t.Skip("Skipping stress test in short mode")
-	}
-
-	dsn := pgwireDSN(s.peer.Name, map[string]string{"max_rows": "100"})
-
-	cfg, err := pgx.ParseConfig(dsn)
-	require.NoError(s.t, err)
-	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-
-	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
-	require.NoError(s.t, err)
-	defer conn.Close(s.t.Context())
-
-	// This would generate 2 million rows, but we limit to 100
-	_, err = conn.Exec(s.t.Context(), "SELECT * FROM generate_series(1, 2000000)")
-	require.Error(s.t, err, "Query should fail due to row limit")
-	require.Contains(s.t, err.Error(), "row limit")
-}
-
-func (s PgwirePostgresSuite) Test_ParameterStatusFidelity() {
-	dsn := pgwireDSN(s.peer.Name, nil)
-	cfg, err := pgx.ParseConfig(dsn)
-	require.NoError(s.t, err)
-	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-
-	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
-	require.NoError(s.t, err)
-	defer conn.Close(s.t.Context())
-
-	essentialParams := []string{
-		"server_version",
-		"server_encoding",
-		"client_encoding",
-		"DateStyle",
-		"TimeZone",
-		"integer_datetimes",
-		"standard_conforming_strings",
-	}
-
-	ctx := s.t.Context()
-	for _, param := range essentialParams {
-		var value string
-		query := "SHOW " + param
-		err := conn.QueryRow(ctx, query).Scan(&value)
-		require.NoError(s.t, err, "Should be able to query %s", param)
-		require.NotEmpty(s.t, value, "Parameter %s should have a value", param)
-		s.t.Logf("Parameter %s = %s", param, value)
-	}
-
-	// Verify specific values
-	var clientEncoding string
-	err = conn.QueryRow(ctx, "SHOW client_encoding").Scan(&clientEncoding)
-	require.NoError(s.t, err)
-	require.Equal(s.t, "UTF8", clientEncoding, "client_encoding should be UTF8")
-
-	var integerDatetimes string
-	err = conn.QueryRow(ctx, "SHOW integer_datetimes").Scan(&integerDatetimes)
-	require.NoError(s.t, err)
-	require.Equal(s.t, "on", integerDatetimes, "integer_datetimes should be on")
-}
-
-func (s PgwirePostgresSuite) Test_ExtendedProtocol_ParameterizedQueryRejected() {
-	dsn := pgwireDSN(s.peer.Name, nil)
-
-	cfg, err := pgx.ParseConfig(dsn)
-	require.NoError(s.t, err)
-	// QueryExecModeExec uses extended protocol
-	cfg.DefaultQueryExecMode = pgx.QueryExecModeExec
-
-	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
-	require.NoError(s.t, err)
-	defer conn.Close(s.t.Context())
-
-	// Try a simple query with this mode - should fail
-	var result int
-	err = conn.QueryRow(s.t.Context(), "SELECT 1").Scan(&result)
-	require.Error(s.t, err, "Extended protocol should be rejected")
-	require.Contains(s.t, err.Error(), "extended protocol not supported")
-}
-
-func (s PgwirePostgresSuite) Test_CancelRequest_SpuriousCancelRequest() {
-	dsn := pgwireDSN(s.peer.Name, nil)
-
-	cfg, err := pgx.ParseConfig(dsn)
-	require.NoError(s.t, err)
-	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
-	require.NoError(s.t, err)
-	defer conn.Close(s.t.Context())
-
-	cfg2, err := pgx.ParseConfig(dsn)
-	require.NoError(s.t, err)
-	cfg2.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-	conn2, err := pgx.ConnectConfig(s.t.Context(), cfg2)
-	require.NoError(s.t, err)
-	defer conn2.Close(s.t.Context())
-
-	// Send cancel from conn2 (wrong connection) - should have no effect
-	err = conn2.PgConn().CancelRequest(s.t.Context())
-	require.NoError(s.t, err)
-
-	// Original connection should still work fine
-	var result int
-	err = conn.QueryRow(s.t.Context(), "SELECT 1").Scan(&result)
-	require.NoError(s.t, err)
-	require.Equal(s.t, 1, result)
-}
-
-// ========================================
-// MEDIUM PRIORITY: Guardrails Edge Cases
-// ========================================
-
-func (s PgwirePostgresSuite) Test_Guardrails_ByteLimitWithNulls() {
-	s.t.Run("NullsCountOverhead", func(t *testing.T) {
-		dsn := pgwireDSN(s.peer.Name, map[string]string{"max_bytes": "100"})
-
-		cfg, err := pgx.ParseConfig(dsn)
-		require.NoError(t, err)
-		cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-
-		conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
-		require.NoError(t, err)
-		defer conn.Close(s.t.Context())
-
-		_, err = conn.Exec(s.t.Context(), "SELECT NULL, NULL, NULL FROM generate_series(1, 20)")
-		require.Error(t, err, "Should hit byte limit even with NULLs")
-		require.Contains(t, err.Error(), "byte limit")
-	})
-
-	s.t.Run("LongTextExceedsLimit", func(t *testing.T) {
-		dsn := pgwireDSN(s.peer.Name, map[string]string{"max_bytes": "100"})
-
-		cfg, err := pgx.ParseConfig(dsn)
-		require.NoError(t, err)
-		cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-
-		conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
-		require.NoError(t, err)
-		defer conn.Close(s.t.Context())
-
-		_, err = conn.Exec(s.t.Context(), "SELECT repeat('a', 50) FROM generate_series(1, 5)")
-		require.Error(t, err, "Should hit byte limit with long text")
-		require.Contains(t, err.Error(), "byte limit")
-	})
-}
-
-// ========================================
-// MEDIUM PRIORITY: Query Features
-// ========================================
-
-func (s PgwirePostgresSuite) Test_BooleanLogic() {
-	tests := []struct {
-		name, sql, expected string
-	}{
-		{"And", "SELECT TRUE AND TRUE", "t"},
-		{"Or", "SELECT FALSE OR TRUE", "t"},
-		{"Not", "SELECT NOT FALSE", "t"},
-		{"Comparison", "SELECT 5 > 3", "t"},
-		{"Between", "SELECT 5 BETWEEN 1 AND 10", "t"},
-		{"In", "SELECT 3 IN (1, 2, 3)", "t"},
-	}
-
-	for _, tt := range tests {
-		s.t.Run(tt.name, func(t *testing.T) {
-			output, err := s.psql(tt.sql)
-			require.NoError(t, err)
-			require.Equal(t, tt.expected, output)
-		})
-	}
-}
-
-func (s PgwirePostgresSuite) Test_QueryComplexity_WindowFunctionLag() {
-	output, err := s.psql(`
-		SELECT i, LAG(i, 1) OVER (ORDER BY i) AS prev
-		FROM generate_series(1, 3) AS t(i)
-	`)
-	require.NoError(s.t, err)
-	lines := strings.Split(output, "\n")
-	require.Equal(s.t, "1|", lines[0])
-	require.Equal(s.t, "2|1", lines[1])
-	require.Equal(s.t, "3|2", lines[2])
-}
-
-func (s PgwirePostgresSuite) Test_QueryComplexity_MultipleCTEs() {
-	output, err := s.psql(`
-		WITH
-			doubled AS (SELECT i * 2 AS val FROM generate_series(1, 3) AS t(i)),
-			tripled AS (SELECT i * 3 AS val FROM generate_series(1, 3) AS t(i))
-		SELECT * FROM doubled UNION ALL SELECT * FROM tripled ORDER BY val
-	`)
-	require.NoError(s.t, err)
-	require.Contains(s.t, output, "2")
-	require.Contains(s.t, output, "9")
-}
-
-func (s PgwirePostgresSuite) Test_NullHandling_IsNull() {
-	output, err := s.psql("SELECT NULL IS NULL")
-	require.NoError(s.t, err)
-	require.Equal(s.t, "t", output)
-}
-
-func (s PgwirePostgresSuite) Test_Error_TypeMismatch() {
-	_, err := s.psql("SELECT 1 WHERE 1 = 'not_a_number'")
-	require.Error(s.t, err)
-}
-
-func (s PgwirePostgresSuite) Test_EmptyResults() {
-	s.t.Run("NoRows", func(t *testing.T) {
-		output, err := s.psql("SELECT 1 WHERE FALSE")
-		require.NoError(t, err)
-		require.Empty(t, output)
-	})
-
-	s.t.Run("EmptyResultSet", func(t *testing.T) {
-		output, err := s.psql("SELECT COUNT(*) FROM (SELECT 1 WHERE FALSE) sq")
-		require.NoError(t, err)
-		require.Equal(t, "0", output)
-	})
-}
-
-func (s PgwirePostgresSuite) Test_MultiStatement_TransactionWithMultipleSelects() {
-	output, err := s.psql("BEGIN; SELECT 1 AS a; SELECT 2 AS b; COMMIT;")
-	require.NoError(s.t, err)
-	require.Contains(s.t, output, "1")
-	require.Contains(s.t, output, "2")
-}
-
-func (s PgwirePostgresSuite) Test_MultiStatement_MixedStatementsWithResults() {
-	output, err := s.psql(`
-		SELECT 'setup' AS step;
-		SELECT val FROM (VALUES (1, 'a'), (2, 'b')) AS t(id, val) ORDER BY id;
-	`)
-	require.NoError(s.t, err)
-	require.Contains(s.t, output, "a")
-	require.Contains(s.t, output, "b")
 }

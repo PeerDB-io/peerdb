@@ -149,7 +149,7 @@ func (s PgwireMongoSuite) queryWithOptions(query string, options map[string]stri
 }
 
 // ========================================
-// Basic Connectivity Tests
+// Basic Connectivity
 // ========================================
 
 func (s PgwireMongoSuite) Test_BasicConnectivity_Ping() {
@@ -172,7 +172,7 @@ func (s PgwireMongoSuite) Test_BasicConnectivity_ShowDatabases() {
 }
 
 // ========================================
-// Find Operations Tests
+// Find Operations
 // ========================================
 
 func (s PgwireMongoSuite) Test_Find_AllDocuments() {
@@ -240,7 +240,7 @@ func (s PgwireMongoSuite) Test_Find_WithChainers() {
 }
 
 // ========================================
-// Data Types Tests
+// Data Types
 // ========================================
 
 func (s PgwireMongoSuite) Test_DataTypes() {
@@ -281,7 +281,7 @@ func (s PgwireMongoSuite) Test_DataTypes() {
 }
 
 // ========================================
-// Aggregation Tests
+// Aggregation
 // ========================================
 
 func (s PgwireMongoSuite) Test_Aggregate_Match() {
@@ -310,7 +310,7 @@ func (s PgwireMongoSuite) Test_Aggregate_Pipeline() {
 }
 
 // ========================================
-// Query Operators Tests
+// Query Operators
 // ========================================
 
 func (s PgwireMongoSuite) Test_Operators_Comparison() {
@@ -358,7 +358,7 @@ func (s PgwireMongoSuite) Test_Operators_Logical() {
 }
 
 // ========================================
-// Error Handling Tests
+// Error Handling
 // ========================================
 
 func (s PgwireMongoSuite) Test_Error_SyntaxError() {
@@ -375,7 +375,7 @@ func (s PgwireMongoSuite) Test_Error_EmptyCollection() {
 }
 
 // ========================================
-// Denied Operations Tests
+// Denied Operations
 // ========================================
 
 func (s PgwireMongoSuite) Test_DeniedOperations() {
@@ -421,7 +421,7 @@ func (s PgwireMongoSuite) Test_DeniedChainers() {
 }
 
 // ========================================
-// Guardrails Tests
+// Guardrails
 // ========================================
 
 func (s PgwireMongoSuite) Test_Guardrails_MaxRows() {
@@ -532,7 +532,7 @@ func (s PgwireMongoSuite) Test_Guardrails_ResumeAfterByteLimit() {
 }
 
 // ========================================
-// Cancel Request Tests
+// Cancel Request
 // ========================================
 
 func (s PgwireMongoSuite) Test_CancelRequest() {
@@ -586,7 +586,7 @@ func (s PgwireMongoSuite) Test_CancelRequest() {
 }
 
 // ========================================
-// Help Commands Tests
+// Help Commands
 // ========================================
 
 func (s PgwireMongoSuite) Test_Help() {
@@ -610,7 +610,7 @@ func (s PgwireMongoSuite) Test_Help() {
 }
 
 // ========================================
-// Large Results Tests
+// Large Results
 // ========================================
 
 func (s PgwireMongoSuite) Test_LargeResults() {
@@ -631,7 +631,7 @@ func (s PgwireMongoSuite) Test_LargeResults() {
 }
 
 // ========================================
-// Misc Commands Tests
+// Misc Commands
 // ========================================
 
 func (s PgwireMongoSuite) Test_CountDocuments() {
@@ -668,7 +668,7 @@ func (s PgwireMongoSuite) Test_Distinct() {
 }
 
 // ========================================
-// Empty Query Tests
+// Empty Query
 // ========================================
 
 func (s PgwireMongoSuite) Test_EmptyQuery() {
@@ -697,10 +697,10 @@ func (s PgwireMongoSuite) Test_EmptyQuery() {
 }
 
 // ========================================
-// Error Handling and Recovery Tests
+// Connection Recovery
 // ========================================
 
-func (s PgwireMongoSuite) Test_ErrorRecovery() {
+func (s PgwireMongoSuite) Test_ConnectionRecovery() {
 	s.t.Run("SyntaxErrorInQuery", func(t *testing.T) {
 		// Syntax error should return an error
 		_, err := s.psql(`db.coll.find({invalid syntax here`)
@@ -734,7 +734,7 @@ func (s PgwireMongoSuite) Test_ErrorRecovery() {
 }
 
 // ========================================
-// Concurrent Connections Tests
+// Concurrent Connections
 // ========================================
 
 func (s PgwireMongoSuite) Test_ConcurrentConnections() {
@@ -762,7 +762,7 @@ func (s PgwireMongoSuite) Test_ConcurrentConnections() {
 }
 
 // ========================================
-// Sequential Connections Tests
+// Sequential Connections
 // ========================================
 
 func (s PgwireMongoSuite) Test_MultipleSequentialConnections() {
@@ -774,7 +774,7 @@ func (s PgwireMongoSuite) Test_MultipleSequentialConnections() {
 }
 
 // ========================================
-// Idle Timeout Tests
+// Idle Timeout
 // ========================================
 
 func (s PgwireMongoSuite) Test_IdleTimeout_Short() {
