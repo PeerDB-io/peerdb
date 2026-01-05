@@ -2,42 +2,123 @@ package pgwire
 
 import (
 	"context"
+	"fmt"
+	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgproto3"
+
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-// getBackendKeyData extracts the backend PID and secret key from the connection
-func getBackendKeyData(conn *pgx.Conn) (uint32, uint32) {
-	pgConn := conn.PgConn()
-	return pgConn.PID(), pgConn.SecretKey()
+// Upstream abstracts database connections for the pgwire proxy
+type Upstream interface {
+	// Exec executes a query and returns results for streaming to client
+	Exec(ctx context.Context, query string) (ResultIterator, error)
+
+	// TxStatus returns the transaction status byte ('I', 'T', or 'E')
+	TxStatus() byte
+
+	// ServerParameters returns parameters to send in the startup greeting
+	ServerParameters(ctx context.Context) map[string]string
+
+	// BackendKeyData returns (pid, secret) for cancel request routing
+	BackendKeyData() (uint32, uint32)
+
+	// Cancel cancels the currently running query
+	Cancel(ctx context.Context) error
+
+	// Close closes the upstream connection
+	Close() error
+
+	// CheckQuery validates a query against security rules (blocked commands, bypass attempts)
+	// This is database-specific as SQL parsing differs between dialects
+	CheckQuery(query string) error
 }
 
-// queryServerParameters queries the upstream server for actual parameter values
-// This ensures we report the real server parameters to the client
-func queryServerParameters(ctx context.Context, conn *pgx.Conn) map[string]string {
-	params := make(map[string]string)
+// ResultIterator streams query results
+type ResultIterator interface {
+	// NextResult advances to the next result set (for multi-statement queries)
+	NextResult() bool
 
-	// Query all parameters in a single round-trip via pg_settings
-	rows, err := conn.Query(ctx, `
-		SELECT name, setting FROM pg_settings
-		WHERE name IN (
-			'server_version', 'server_encoding', 'client_encoding',
-			'DateStyle', 'TimeZone', 'integer_datetimes',
-			'standard_conforming_strings', 'application_name'
-		)
-	`)
+	// FieldDescriptions returns column metadata for current result
+	FieldDescriptions() []FieldDescription
+
+	// NextRow advances to next row, returns false when done
+	NextRow() bool
+
+	// RowValues returns current row's values as text-encoded bytes
+	RowValues() [][]byte
+
+	// CommandTag returns the command tag (e.g., "SELECT 5", "UPDATE 3")
+	CommandTag() string
+
+	// Err returns any error encountered during iteration
+	Err() error
+
+	// Close releases resources for current result set
+	Close()
+
+	// CloseAll closes entire multi-result and returns any final error
+	CloseAll() error
+}
+
+// FieldDescription describes a column in a result set
+type FieldDescription struct {
+	Name                 string
+	TableOID             uint32
+	TableAttributeNumber uint16
+	DataTypeOID          uint32
+	DataTypeSize         int16
+	TypeModifier         int32
+	Format               int16
+}
+
+// UpstreamError wraps a pgproto3.ErrorResponse for database-agnostic error handling
+type UpstreamError struct {
+	Resp *pgproto3.ErrorResponse
+}
+
+func (e *UpstreamError) Error() string {
+	return e.Resp.Message
+}
+
+// NewUpstream creates an upstream connection based on peer configuration
+func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName string, queryTimeout time.Duration) (Upstream, error) {
+	if peerName == "" {
+		return nil, fmt.Errorf("database name (peer name) is required")
+	}
+
+	// Special case: "catalog" connects to the PeerDB catalog database
+	if peerName == "catalog" {
+		pgConfig := internal.GetCatalogPostgresConfigFromEnv(ctx)
+		return NewPostgresUpstream(ctx, pgConfig, queryTimeout)
+	}
+
+	// Load peer from catalog
+	peer, err := connectors.LoadPeer(ctx, catalogPool, peerName)
 	if err != nil {
-		return params
+		return nil, fmt.Errorf("peer '%s' not found", peerName)
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var name, setting string
-		if err := rows.Scan(&name, &setting); err != nil {
-			continue
+	switch peer.Type {
+	case protos.DBType_POSTGRES:
+		pgConfig := peer.GetPostgresConfig()
+		if pgConfig == nil {
+			return nil, fmt.Errorf("peer '%s' has no PostgreSQL configuration", peerName)
 		}
-		params[name] = setting
-	}
+		return NewPostgresUpstream(ctx, pgConfig, queryTimeout)
 
-	return params
+	case protos.DBType_MYSQL:
+		mysqlConfig := peer.GetMysqlConfig()
+		if mysqlConfig == nil {
+			return nil, fmt.Errorf("peer '%s' has no MySQL configuration", peerName)
+		}
+		return NewMySQLUpstream(ctx, mysqlConfig, queryTimeout)
+
+	default:
+		return nil, fmt.Errorf("peer '%s' is type %s, only PostgreSQL and MySQL are supported", peerName, peer.Type)
+	}
 }

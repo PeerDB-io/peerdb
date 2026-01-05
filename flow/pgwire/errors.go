@@ -5,57 +5,28 @@ import (
 	"io"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 )
 
 // writeErrorResponse converts an error to a PostgreSQL ErrorResponse and writes it to the connection
+// Expects errors to be wrapped as UpstreamError by upstream implementations
 // If timeout is 0, uses the default from env var
 func writeErrorResponse(w io.Writer, err error, timeout time.Duration) error {
-	var pgErr *pgconn.PgError
-	var er *pgproto3.ErrorResponse
+	var upstreamErr *UpstreamError
+	var resp *pgproto3.ErrorResponse
 
-	if errors.As(err, &pgErr) {
-		// Convert pgconn.PgError to ErrorResponse with all fields
-		er = &pgproto3.ErrorResponse{
-			Severity:         pgErr.Severity,
-			Code:             pgErr.Code,
-			Message:          pgErr.Message,
-			Detail:           pgErr.Detail,
-			Hint:             pgErr.Hint,
-			Position:         pgErr.Position,
-			InternalPosition: pgErr.InternalPosition,
-			InternalQuery:    pgErr.InternalQuery,
-			Where:            pgErr.Where,
-			SchemaName:       pgErr.SchemaName,
-			TableName:        pgErr.TableName,
-			ColumnName:       pgErr.ColumnName,
-			DataTypeName:     pgErr.DataTypeName,
-			ConstraintName:   pgErr.ConstraintName,
-			File:             pgErr.File,
-			Line:             pgErr.Line,
-			Routine:          pgErr.Routine,
-		}
+	if errors.As(err, &upstreamErr) {
+		resp = upstreamErr.Resp
 	} else {
-		// Generic error
-		er = &pgproto3.ErrorResponse{
+		// Fallback for non-upstream errors
+		resp = &pgproto3.ErrorResponse{
 			Severity: "ERROR",
-			Code:     "XX000", // internal_error
+			Code:     "XX000",
 			Message:  err.Error(),
 		}
 	}
 
-	return writeBackendMessage(w, er, timeout)
-}
-
-// writeErrorAndReady writes an error response followed by ReadyForQuery
-// If timeout is 0, uses the default from env var
-func writeErrorAndReady(w io.Writer, err error, txStatus byte, timeout time.Duration) error {
-	if err := writeErrorResponse(w, err, timeout); err != nil {
-		return err
-	}
-
-	return writeReadyForQuery(w, txStatus, timeout)
+	return writeBackendMessage(w, resp, timeout)
 }
 
 // writeProtoError writes a protocol error with a specific code
