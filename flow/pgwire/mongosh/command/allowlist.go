@@ -153,11 +153,9 @@ func checkMultipleStatements(input string) error {
 					return errors.New("multiple statements not supported")
 				}
 			}
-		} else {
-			if ch == stringChar {
-				inString = false
-				stringChar = 0
-			}
+		} else if ch == stringChar {
+			inString = false
+			stringChar = 0
 		}
 	}
 

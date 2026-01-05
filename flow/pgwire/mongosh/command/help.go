@@ -8,13 +8,14 @@ import (
 
 // GlobalHelp returns help for help() - overview of shell methods and wire commands.
 func GlobalHelp() []string {
-	var lines []string
-	lines = append(lines, "Shell Commands:")
-	lines = append(lines, "  show collections    - list collections in current database")
-	lines = append(lines, "  show databases      - list all databases")
-	lines = append(lines, "  show dbs            - alias for show databases")
-	lines = append(lines, "")
-	lines = append(lines, "Shell Methods:")
+	lines := []string{
+		"Shell Commands:",
+		"  show collections    - list collections in current database",
+		"  show databases      - list all databases",
+		"  show dbs            - alias for show databases",
+		"",
+		"Shell Methods:",
+	}
 
 	// Group by scope
 	var dbMethods, collMethods []string
@@ -28,10 +29,12 @@ func GlobalHelp() []string {
 	sort.Strings(dbMethods)
 	sort.Strings(collMethods)
 
-	lines = append(lines, "  db.<method>(): "+strings.Join(dbMethods, ", "))
-	lines = append(lines, "  db.<coll>.<method>(): "+strings.Join(collMethods, ", "))
-	lines = append(lines, "")
-	lines = append(lines, "Wire Commands:")
+	lines = append(lines,
+		"  db.<method>(): "+strings.Join(dbMethods, ", "),
+		"  db.<coll>.<method>(): "+strings.Join(collMethods, ", "),
+		"",
+		"Wire Commands:",
+	)
 
 	// Sort sections
 	sections := make([]string, 0, len(AllowedCommands))
@@ -46,11 +49,13 @@ func GlobalHelp() []string {
 		for i, cmd := range cmds {
 			names[i] = cmd.Name
 		}
-		lines = append(lines, fmt.Sprintf("  %s: %s", section, strings.Join(names, ", ")))
+		lines = append(lines, "  "+section+": "+strings.Join(names, ", "))
 	}
 
-	lines = append(lines, "")
-	lines = append(lines, "Use db.help(), db.<coll>.help(), db.<coll>.find().help() for details.")
+	lines = append(lines,
+		"",
+		"Use db.help(), db.<coll>.help(), db.<coll>.find().help() for details.",
+	)
 	return lines
 }
 
@@ -83,8 +88,10 @@ func CollectionHelp() []string {
 	for _, spec := range specs {
 		lines = append(lines, fmt.Sprintf("  .%s(%s)", spec.Name, formatArgs(spec.Args)))
 	}
-	lines = append(lines, "")
-	lines = append(lines, "Use db.<coll>.<method>().help() for available chainers.")
+	lines = append(lines,
+		"",
+		"Use db.<coll>.<method>().help() for available chainers.",
+	)
 	return lines
 }
 
@@ -92,7 +99,7 @@ func CollectionHelp() []string {
 func MethodHelp(method string) []string {
 	spec, ok := Registry[strings.ToLower(method)]
 	if !ok {
-		return []string{fmt.Sprintf("Unknown method: %s", method)}
+		return []string{"Unknown method: " + method}
 	}
 
 	lines := []string{spec.Name + "() chainers:"}

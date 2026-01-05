@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -833,7 +834,7 @@ func (s PgwireMySQLSuite) Test_MultipleSequentialConnections() {
 	for i := range 10 {
 		output, err := s.psql(fmt.Sprintf("SELECT %d", i))
 		require.NoError(s.t, err, "Sequential connection %d should succeed", i)
-		require.Equal(s.t, fmt.Sprintf("%d", i), output)
+		require.Equal(s.t, strconv.Itoa(i), output)
 	}
 }
 
