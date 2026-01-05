@@ -151,7 +151,7 @@ func (s *MySqlSource) Connector() connectors.Connector {
 func (s *MySqlSource) Teardown(t *testing.T, ctx context.Context, suffix string) {
 	t.Helper()
 	if _, err := s.MySqlConnector.Execute(
-		ctx, fmt.Sprintf("DROP DATABASE IF EXISTS \"e2e_test_%s\"", suffix),
+		ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `e2e_test_%s`", suffix),
 	); err != nil {
 		t.Log("failed to drop mysql database", err)
 		s.MySqlConnector.Close()
