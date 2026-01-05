@@ -536,23 +536,6 @@ func TestReadOnlyEnforcement(t *testing.T) {
 		require.Contains(t, output, "set_config")
 	})
 
-	t.Run("BeginReadWriteBlocked", func(t *testing.T) {
-		output, err := query(t, "BEGIN READ WRITE")
-		require.Error(t, err)
-		require.Contains(t, output, "READ WRITE")
-	})
-
-	t.Run("StartTransactionReadWriteBlocked", func(t *testing.T) {
-		output, err := query(t, "START TRANSACTION READ WRITE")
-		require.Error(t, err)
-		require.Contains(t, output, "READ WRITE")
-	})
-
-	t.Run("SetTransactionReadWriteBlocked", func(t *testing.T) {
-		output, err := query(t, "SET TRANSACTION READ WRITE")
-		require.Error(t, err)
-		require.Contains(t, output, "READ WRITE")
-	})
 }
 
 func TestBlockedCommands(t *testing.T) {

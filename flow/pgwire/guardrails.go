@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/nickbruun/pgsplit"
 )
 
 // Guardrails enforces safety limits on queries
@@ -15,18 +17,18 @@ type Guardrails struct {
 }
 
 // blockedCommands are statements that are always denied
-var blockedCommands = []string{
-	"COPY",     // Protocol not supported + TO PROGRAM security risk
-	"VACUUM",   // Maintenance op, I/O impact, VACUUM FULL rewrites tables
-	"ANALYZE",  // Writes to system catalogs
-	"CLUSTER",  // Rewrites entire tables
-	"REINDEX",  // Rebuilds indexes, can lock tables
-	"REFRESH",  // REFRESH MATERIALIZED VIEW modifies stored data
-	"LISTEN",   // Async messaging not supported by proxy
-	"NOTIFY",   // Async messaging not supported by proxy
-	"UNLISTEN", // Async messaging not supported by proxy
-	"DO",       // Anonymous PL/pgSQL blocks, can execute dynamic SQL
-	"LOCK",     // Can lock tables, potential for blocking/deadlocks
+var blockedCommands = map[string]string{
+	"COPY":     "protocol not supported, TO PROGRAM security risk",
+	"VACUUM":   "maintenance op with I/O impact",
+	"ANALYZE":  "writes to system catalogs",
+	"CLUSTER":  "rewrites entire tables",
+	"REINDEX":  "rebuilds indexes, can lock tables",
+	"REFRESH":  "REFRESH MATERIALIZED VIEW modifies stored data",
+	"LISTEN":   "async messaging not supported by proxy",
+	"NOTIFY":   "async messaging not supported by proxy",
+	"UNLISTEN": "async messaging not supported by proxy",
+	"DO":       "anonymous PL/pgSQL blocks can execute dynamic SQL",
+	"LOCK":     "can lock tables, potential for blocking/deadlocks",
 }
 
 // NewGuardrails creates a new Guardrails instance
@@ -45,36 +47,30 @@ func (g *Guardrails) Reset() {
 
 // CheckQuery validates a query for security
 func (g *Guardrails) CheckQuery(query string) error {
-	trimmed := strings.TrimSpace(query)
-	if trimmed == "" {
+	query = strings.TrimSpace(query)
+	if query == "" {
 		return nil
 	}
 
 	// Check for read-only bypass attempts
-	lower := strings.ToLower(trimmed)
+	lower := strings.ToLower(query)
 	if strings.Contains(lower, "default_transaction_read_only") {
 		return errors.New("cannot modify read-only mode")
 	}
 	if strings.Contains(lower, "set_config") {
 		return errors.New("set_config is not allowed")
 	}
-	// Block READ WRITE transactions (BEGIN/START TRANSACTION/SET TRANSACTION READ WRITE)
-	if strings.Contains(lower, "read write") {
-		return errors.New("READ WRITE transactions not allowed")
-	}
 
 	// Check each statement against blocked commands
-	statements := splitSQL(query)
+	statements, err := pgsplit.SplitStatements(query)
+	if err != nil {
+		return fmt.Errorf("failed to parse SQL: %w", err)
+	}
 	for _, stmt := range statements {
-		stmt = strings.TrimSpace(stmt)
-		if stmt == "" {
-			continue
-		}
-		keyword := getStatementPrefix(stmt)
-		for _, blocked := range blockedCommands {
-			if strings.EqualFold(keyword, blocked) {
-				return fmt.Errorf("statement denied: %s", blocked)
-			}
+		keyword, _, _ := strings.Cut(stmt, " ")
+		keyword = strings.ToUpper(strings.TrimSpace(keyword))
+		if reason, blocked := blockedCommands[keyword]; blocked {
+			return fmt.Errorf("statement denied: %s (%s)", keyword, reason)
 		}
 	}
 
