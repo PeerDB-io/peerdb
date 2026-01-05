@@ -62,6 +62,7 @@ type BuildFunc func(collection string, args []any) (cmd bson.D, hints ExecHints,
 //
 //nolint:govet // fieldalignment: readability preferred
 type MethodSpec struct {
+	Name     string                 // Display name (e.g., "findOne" not "findone")
 	Scope    string                 // "collection" or "database"
 	Args     []ArgKind              // Expected argument kinds
 	Build    BuildFunc              // Command builder function
@@ -90,6 +91,7 @@ func init() {
 }
 
 var findSpec = MethodSpec{
+	Name:  "find",
 	Scope: "collection",
 	Args:  []ArgKind{ArgJSON, ArgOptional, ArgJSON},
 	Build: FindBase(false),
@@ -104,6 +106,7 @@ var findSpec = MethodSpec{
 }
 
 var findOneSpec = MethodSpec{
+	Name:  "findOne",
 	Scope: "collection",
 	Args:  []ArgKind{ArgJSON, ArgOptional, ArgJSON},
 	Build: FindBase(true),
@@ -113,6 +116,7 @@ var findOneSpec = MethodSpec{
 }
 
 var aggregateSpec = MethodSpec{
+	Name:  "aggregate",
 	Scope: "collection",
 	Args:  []ArgKind{ArgJSON},
 	Build: AggregateBase(true),
@@ -124,6 +128,7 @@ var aggregateSpec = MethodSpec{
 }
 
 var distinctSpec = MethodSpec{
+	Name:  "distinct",
 	Scope: "collection",
 	Args:  []ArgKind{ArgString, ArgOptional, ArgJSON, ArgOptional, ArgJSON},
 	Build: DistinctBase(),
@@ -133,6 +138,7 @@ var distinctSpec = MethodSpec{
 }
 
 var getIndexesSpec = MethodSpec{
+	Name:     "getIndexes",
 	Scope:    "collection",
 	Args:     []ArgKind{},
 	Build:    GetIndexesBase(),
@@ -140,6 +146,7 @@ var getIndexesSpec = MethodSpec{
 }
 
 var statsSpec = MethodSpec{
+	Name:     "stats",
 	Scope:    "collection",
 	Args:     []ArgKind{ArgOptional, ArgJSON},
 	Build:    CollStats("storageStats"),
@@ -147,6 +154,7 @@ var statsSpec = MethodSpec{
 }
 
 var isCappedSpec = MethodSpec{
+	Name:     "isCapped",
 	Scope:    "collection",
 	Args:     []ArgKind{},
 	Build:    CollStats("storageStats"),
@@ -154,6 +162,7 @@ var isCappedSpec = MethodSpec{
 }
 
 var latencyStatsSpec = MethodSpec{
+	Name:     "latencyStats",
 	Scope:    "collection",
 	Args:     []ArgKind{ArgOptional, ArgJSON},
 	Build:    CollStats("latencyStats"),
@@ -161,6 +170,7 @@ var latencyStatsSpec = MethodSpec{
 }
 
 var countDocumentsSpec = MethodSpec{
+	Name:  "countDocuments",
 	Scope: "collection",
 	Args:  []ArgKind{ArgJSON},
 	Build: AggregateCount(),
@@ -170,6 +180,7 @@ var countDocumentsSpec = MethodSpec{
 }
 
 var estimatedDocumentCountSpec = MethodSpec{
+	Name:  "estimatedDocumentCount",
 	Scope: "collection",
 	Args:  []ArgKind{},
 	Build: EstimatedDocumentCountBase(),
@@ -179,6 +190,7 @@ var estimatedDocumentCountSpec = MethodSpec{
 }
 
 var runCommandSpec = MethodSpec{
+	Name:     "runCommand",
 	Scope:    "database",
 	Args:     []ArgKind{ArgJSON},
 	Build:    PassCommand(),

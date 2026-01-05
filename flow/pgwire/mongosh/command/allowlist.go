@@ -143,10 +143,11 @@ func checkMultipleStatements(input string) error {
 		}
 
 		if !inString {
-			if ch == '"' || ch == '\'' || ch == '`' {
+			switch ch {
+			case '"', '\'', '`':
 				inString = true
 				stringChar = ch
-			} else if ch == ';' {
+			case ';':
 				remaining := strings.TrimSpace(input[i+1:])
 				if remaining != "" {
 					return errors.New("multiple statements not supported")

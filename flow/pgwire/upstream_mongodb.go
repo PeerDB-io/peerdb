@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgproto3"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -62,9 +63,9 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 		return nil, wrapMongoError(err)
 	}
 
-	// Handle help requests - return help text as a single row
+	// Handle help requests - return one row per line for better display in psql
 	if spec.HelpText != "" {
-		return &MongoScalarIterator{doc: bson.D{{Key: "help", Value: spec.HelpText}}, consumed: false}, nil
+		return NewMongoHelpIterator(spec.HelpText), nil
 	}
 
 	// Add comment for cancel support only on commands that support it
@@ -324,5 +325,74 @@ func (it *MongoScalarIterator) Close() {}
 
 // CloseAll is a no-op for scalar results
 func (it *MongoScalarIterator) CloseAll() error {
+	return nil
+}
+
+// textFieldDescription is used for help output (plain text, not JSON)
+var textFieldDescription = []FieldDescription{{
+	Name:        "help",
+	DataTypeOID: 25, // TEXT OID
+	Format:      0,  // Text format
+}}
+
+// MongoHelpIterator implements ResultIterator for help text (one row per line)
+type MongoHelpIterator struct {
+	lines    []string
+	consumed bool
+	index    int
+}
+
+// NewMongoHelpIterator creates a help iterator from help text
+func NewMongoHelpIterator(helpText string) *MongoHelpIterator {
+	lines := strings.Split(strings.TrimSuffix(helpText, "\n"), "\n")
+	return &MongoHelpIterator{lines: lines}
+}
+
+// NextResult advances to the next result set (only one for help)
+func (it *MongoHelpIterator) NextResult() bool {
+	if it.consumed {
+		return false
+	}
+	it.consumed = true
+	return true
+}
+
+// FieldDescriptions returns the single text column
+func (it *MongoHelpIterator) FieldDescriptions() []FieldDescription {
+	return textFieldDescription
+}
+
+// NextRow advances to the next line
+func (it *MongoHelpIterator) NextRow() bool {
+	if it.index >= len(it.lines) {
+		return false
+	}
+	it.index++
+	return true
+}
+
+// RowValues returns the current line as text
+func (it *MongoHelpIterator) RowValues() [][]byte {
+	if it.index == 0 || it.index > len(it.lines) {
+		return nil
+	}
+	return [][]byte{[]byte(it.lines[it.index-1])}
+}
+
+// CommandTag returns the row count
+func (it *MongoHelpIterator) CommandTag() string {
+	return fmt.Sprintf("SELECT %d", len(it.lines))
+}
+
+// Err returns nil (no errors for help)
+func (it *MongoHelpIterator) Err() error {
+	return nil
+}
+
+// Close is a no-op for help results
+func (it *MongoHelpIterator) Close() {}
+
+// CloseAll is a no-op for help results
+func (it *MongoHelpIterator) CloseAll() error {
 	return nil
 }

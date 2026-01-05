@@ -9,15 +9,20 @@ import (
 // GlobalHelp returns help for help() - overview of shell methods and wire commands.
 func GlobalHelp() string {
 	var sb strings.Builder
-	sb.WriteString("Shell Methods:\n")
+	sb.WriteString("Shell Commands:\n")
+	sb.WriteString("  show collections    - list collections in current database\n")
+	sb.WriteString("  show databases      - list all databases\n")
+	sb.WriteString("  show dbs            - alias for show databases\n")
+
+	sb.WriteString("\nShell Methods:\n")
 
 	// Group by scope
 	var dbMethods, collMethods []string
-	for name, spec := range Registry {
+	for _, spec := range Registry {
 		if spec.Scope == "database" {
-			dbMethods = append(dbMethods, name)
+			dbMethods = append(dbMethods, spec.Name)
 		} else {
-			collMethods = append(collMethods, name)
+			collMethods = append(collMethods, spec.Name)
 		}
 	}
 	sort.Strings(dbMethods)
@@ -54,9 +59,9 @@ func DatabaseHelp() string {
 	var sb strings.Builder
 	sb.WriteString("Database Methods:\n")
 
-	for name, spec := range Registry {
+	for _, spec := range Registry {
 		if spec.Scope == "database" {
-			sb.WriteString(fmt.Sprintf("  db.%s(%s)\n", name, formatArgs(spec.Args)))
+			fmt.Fprintf(&sb, "  db.%s(%s)\n", spec.Name, formatArgs(spec.Args))
 		}
 	}
 	return sb.String()
@@ -67,27 +72,21 @@ func CollectionHelp() string {
 	var sb strings.Builder
 	sb.WriteString("Collection Methods:\n")
 
-	var methods []string
-	for name, spec := range Registry {
+	// Collect and sort by display name
+	var specs []MethodSpec
+	for _, spec := range Registry {
 		if spec.Scope == "collection" {
-			methods = append(methods, name)
+			specs = append(specs, spec)
 		}
 	}
-	sort.Strings(methods)
+	sort.Slice(specs, func(i, j int) bool {
+		return specs[i].Name < specs[j].Name
+	})
 
-	for _, name := range methods {
-		spec := Registry[name]
-		sb.WriteString(fmt.Sprintf("  .%s(%s)", name, formatArgs(spec.Args)))
-		if len(spec.Chainers) > 0 {
-			var chainers []string
-			for c := range spec.Chainers {
-				chainers = append(chainers, c)
-			}
-			sort.Strings(chainers)
-			sb.WriteString(fmt.Sprintf(" [%s]", strings.Join(chainers, ", ")))
-		}
-		sb.WriteString("\n")
+	for _, spec := range specs {
+		fmt.Fprintf(&sb, "  .%s(%s)\n", spec.Name, formatArgs(spec.Args))
 	}
+	sb.WriteString("\nUse db.<coll>.<method>().help() for available chainers.\n")
 	return sb.String()
 }
 
@@ -99,22 +98,24 @@ func MethodHelp(method string) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(method + "() chainers:\n")
+	sb.WriteString(spec.Name + "() chainers:\n")
 
 	if len(spec.Chainers) == 0 {
 		sb.WriteString("  (none)\n")
 		return sb.String()
 	}
 
-	chainers := make([]string, 0, len(spec.Chainers))
-	for name := range spec.Chainers {
-		chainers = append(chainers, name)
+	// Collect and sort chainers by name
+	chainers := make([]ChainerSpec, 0, len(spec.Chainers))
+	for _, chainer := range spec.Chainers {
+		chainers = append(chainers, chainer)
 	}
-	sort.Strings(chainers)
+	sort.Slice(chainers, func(i, j int) bool {
+		return chainers[i].Name < chainers[j].Name
+	})
 
-	for _, name := range chainers {
-		chainer := spec.Chainers[name]
-		sb.WriteString(fmt.Sprintf("  .%s(%s)\n", name, formatArgs(chainer.Args)))
+	for _, chainer := range chainers {
+		fmt.Fprintf(&sb, "  .%s(%s)\n", chainer.Name, formatArgs(chainer.Args))
 	}
 	return sb.String()
 }

@@ -31,8 +31,8 @@ func TestDatabaseHelp(t *testing.T) {
 	if !strings.Contains(help, "Database Methods:") {
 		t.Error("expected 'Database Methods:' header")
 	}
-	if !strings.Contains(help, "runcommand") {
-		t.Error("expected 'runcommand' in database methods")
+	if !strings.Contains(help, "runCommand") {
+		t.Error("expected 'runCommand' in database methods")
 	}
 }
 
