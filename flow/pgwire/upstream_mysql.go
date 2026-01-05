@@ -10,6 +10,9 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -45,12 +48,13 @@ type MySQLUpstream struct {
 	secret       uint32
 }
 
-// mysqlBlockedCommands are statements that are always denied for MySQL
-var mysqlBlockedCommands = map[string]string{
-	"LOAD":  "LOAD DATA - file access security risk",
-	"RESET": "admin command",
-	"FLUSH": "admin command",
-	"PURGE": "binary log purge - admin command",
+// mysqlDeniedFunctions are functions that are denied even in SELECT statements
+var mysqlDeniedFunctions = map[string]struct{}{
+	"load_file":    {},
+	"get_lock":     {},
+	"release_lock": {},
+	"is_free_lock": {},
+	"is_used_lock": {},
 }
 
 // NewMySQLUpstream creates a new MySQL upstream connection
@@ -70,6 +74,29 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 	var connectionID uint64
 	if len(rs.Values) > 0 && len(rs.Values[0]) > 0 {
 		connectionID = rs.Values[0][0].AsUint64()
+	}
+
+	// Set session parameters for read-only mode and timeouts
+	timeoutSec := int(queryTimeout.Seconds())
+	if timeoutSec < 1 {
+		timeoutSec = 1
+	}
+
+	_, err = conn.Execute(ctx, "SET SESSION TRANSACTION READ ONLY")
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to set read-only mode: %w", err)
+	}
+
+	_, err = conn.Execute(ctx, fmt.Sprintf(
+		"SET SESSION max_execution_time = %d, "+
+			"lock_wait_timeout = %d, "+
+			"innodb_lock_wait_timeout = %d",
+		queryTimeout.Milliseconds(), timeoutSec, timeoutSec,
+	))
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to set session parameters: %w", err)
 	}
 
 	// Use MySQL connection ID as pid, generate random secret
@@ -135,39 +162,254 @@ func (u *MySQLUpstream) Close() error {
 	return u.conn.Close()
 }
 
-// CheckQuery validates a query against MySQL security rules
+// CheckQuery validates a query against MySQL security rules using an allowlist approach.
+// Only SELECT, SHOW, DESCRIBE, EXPLAIN, and transaction control statements are allowed.
 func (u *MySQLUpstream) CheckQuery(query string) error {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil
 	}
 
-	lower := strings.ToLower(query)
-
-	// Check for INTO OUTFILE/DUMPFILE patterns (security risk)
-	if strings.Contains(lower, "into outfile") || strings.Contains(lower, "into dumpfile") {
-		return errors.New("INTO OUTFILE/DUMPFILE is not allowed")
+	// Parse with TiDB parser
+	p := parser.New()
+	stmts, _, err := p.Parse(query, "", "")
+	if err != nil {
+		return fmt.Errorf("failed to parse SQL: %w", err)
 	}
 
-	// Simple semicolon-based statement splitting for MySQL
-	// (MySQL doesn't have PostgreSQL's dollar-quoting complexity)
-	stmts := strings.Split(query, ";")
 	for _, stmt := range stmts {
-		stmt = strings.TrimSpace(stmt)
-		if stmt == "" {
-			continue
+		if err := checkMySQLStatement(stmt); err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
-		// Get first word as the command keyword
-		keyword, _, _ := strings.Cut(stmt, " ")
-		keyword = strings.ToUpper(strings.TrimSpace(keyword))
+// checkMySQLStatement validates a single statement against the allowlist
+func checkMySQLStatement(stmt ast.StmtNode) error {
+	switch s := stmt.(type) {
+	// Allowed: SELECT (with restrictions)
+	case *ast.SelectStmt:
+		return checkSelectStatement(s)
 
-		if reason, blocked := mysqlBlockedCommands[keyword]; blocked {
-			return fmt.Errorf("statement denied: %s (%s)", keyword, reason)
+	// Allowed: UNION/INTERSECT/EXCEPT (SetOprStmt) with restrictions on each SELECT
+	case *ast.SetOprStmt:
+		return checkSetOprStatement(s)
+
+	// Allowed: SHOW (no restrictions)
+	case *ast.ShowStmt:
+		return nil
+
+	// Allowed: EXPLAIN and DESCRIBE/DESC
+	// Note: TiDB parser treats DESC/DESCRIBE as ExplainStmt
+	case *ast.ExplainStmt:
+		return checkExplainStatement(s)
+
+	// Allowed: Transaction control (read-only)
+	case *ast.BeginStmt:
+		return nil
+	case *ast.CommitStmt:
+		return nil
+	case *ast.RollbackStmt:
+		return nil
+	case *ast.SavepointStmt:
+		return nil
+	case *ast.ReleaseSavepointStmt:
+		return nil
+
+	// Everything else is denied
+	default:
+		return fmt.Errorf("statement not allowed: %T", stmt)
+	}
+}
+
+// checkSetOprStatement validates UNION/INTERSECT/EXCEPT statements
+func checkSetOprStatement(s *ast.SetOprStmt) error {
+	if s.SelectList != nil {
+		for _, sel := range s.SelectList.Selects {
+			if selectStmt, ok := sel.(*ast.SelectStmt); ok {
+				if err := checkSelectStatement(selectStmt); err != nil {
+					return err
+				}
+			} else if setOpr, ok := sel.(*ast.SetOprSelectList); ok {
+				for _, nested := range setOpr.Selects {
+					if nestedSelect, ok := nested.(*ast.SelectStmt); ok {
+						if err := checkSelectStatement(nestedSelect); err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// checkSelectStatement validates SELECT restrictions per spec
+func checkSelectStatement(s *ast.SelectStmt) error {
+	// Check for SELECT ... INTO (any kind: OUTFILE, DUMPFILE, @var)
+	if s.SelectIntoOpt != nil {
+		return errors.New("SELECT INTO not allowed")
+	}
+
+	// Check for locking reads: FOR UPDATE, FOR SHARE, LOCK IN SHARE MODE
+	if s.LockInfo != nil && s.LockInfo.LockType != ast.SelectLockNone {
+		return errors.New("locking reads (FOR UPDATE/FOR SHARE) not allowed")
+	}
+
+	// Check for denied functions in the SELECT expressions
+	if err := checkDeniedFunctions(s); err != nil {
+		return err
+	}
+
+	// Recursively check subqueries in FROM clause
+	if s.From != nil {
+		if err := checkTableRefsForSubqueries(s.From.TableRefs); err != nil {
+			return err
+		}
+	}
+
+	// Check WHERE clause for subqueries
+	if s.Where != nil {
+		if err := checkExprForSubqueries(s.Where); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// checkExplainStatement ensures EXPLAIN is only used with SELECT or DESCRIBE
+func checkExplainStatement(s *ast.ExplainStmt) error {
+	if s.Stmt == nil {
+		return nil
+	}
+
+	switch stmt := s.Stmt.(type) {
+	case *ast.SelectStmt:
+		// EXPLAIN SELECT - validate the SELECT
+		return checkSelectStatement(stmt)
+	case *ast.ShowStmt:
+		// DESCRIBE/DESC table - this is parsed as ExplainStmt with ShowStmt inside
+		return nil
+	default:
+		// EXPLAIN of INSERT/UPDATE/DELETE etc is denied
+		return errors.New("EXPLAIN only allowed for SELECT statements")
+	}
+}
+
+// checkDeniedFunctions walks the AST to find denied function calls
+func checkDeniedFunctions(node ast.Node) error {
+	var err error
+	visitor := &functionVisitor{err: &err}
+	node.Accept(visitor)
+	return err
+}
+
+type functionVisitor struct {
+	err *error
+}
+
+func (v *functionVisitor) Enter(n ast.Node) (ast.Node, bool) {
+	if *v.err != nil {
+		return n, true // skip if already errored
+	}
+
+	switch node := n.(type) {
+	case *ast.FuncCallExpr:
+		fnName := strings.ToLower(node.FnName.L)
+		if _, denied := mysqlDeniedFunctions[fnName]; denied {
+			*v.err = fmt.Errorf("function %s not allowed", node.FnName.O)
+			return n, true
+		}
+	case *ast.FuncCastExpr:
+		// CAST is allowed
+	case *ast.AggregateFuncExpr:
+		// Aggregate functions are allowed
+	}
+	return n, false
+}
+
+func (v *functionVisitor) Leave(n ast.Node) (ast.Node, bool) {
+	return n, true
+}
+
+// checkTableRefsForSubqueries recursively checks table references for subqueries
+func checkTableRefsForSubqueries(tr *ast.Join) error {
+	if tr == nil {
+		return nil
+	}
+
+	// Check left side
+	if tr.Left != nil {
+		if err := checkResultSetNode(tr.Left); err != nil {
+			return err
+		}
+	}
+
+	// Check right side
+	if tr.Right != nil {
+		if err := checkResultSetNode(tr.Right); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func checkResultSetNode(node ast.ResultSetNode) error {
+	switch n := node.(type) {
+	case *ast.SelectStmt:
+		return checkSelectStatement(n)
+	case *ast.SubqueryExpr:
+		if sel, ok := n.Query.(*ast.SelectStmt); ok {
+			return checkSelectStatement(sel)
+		}
+	case *ast.Join:
+		return checkTableRefsForSubqueries(n)
+	case *ast.TableSource:
+		if n.Source != nil {
+			return checkResultSetNode(n.Source)
+		}
+	case *ast.TableName:
+		// Table reference, allowed
+	}
+	return nil
+}
+
+func checkExprForSubqueries(expr ast.ExprNode) error {
+	if expr == nil {
+		return nil
+	}
+
+	var err error
+	visitor := &subqueryVisitor{err: &err}
+	expr.Accept(visitor)
+	return err
+}
+
+type subqueryVisitor struct {
+	err *error
+}
+
+func (v *subqueryVisitor) Enter(n ast.Node) (ast.Node, bool) {
+	if *v.err != nil {
+		return n, true
+	}
+
+	if sq, ok := n.(*ast.SubqueryExpr); ok {
+		if sel, ok := sq.Query.(*ast.SelectStmt); ok {
+			if err := checkSelectStatement(sel); err != nil {
+				*v.err = err
+				return n, true
+			}
+		}
+	}
+	return n, false
+}
+
+func (v *subqueryVisitor) Leave(n ast.Node) (ast.Node, bool) {
+	return n, true
 }
 
 // mysqlTypeToOID maps MySQL types to PostgreSQL OIDs for display alignment

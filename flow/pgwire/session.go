@@ -297,6 +297,15 @@ func (s *Session) messageLoop(ctx context.Context) error {
 func (s *Session) handleQuery(ctx context.Context, query string) error {
 	startTime := time.Now()
 
+	// Handle empty queries as no-op (return EmptyQueryResponse)
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" || strings.Trim(trimmed, ";") == "" {
+		if err := writeBackendMessage(s.clientConn, &pgproto3.EmptyQueryResponse{}, s.writeTimeout); err != nil {
+			return err
+		}
+		return writeReadyForQuery(s.clientConn, s.txStatus(), s.writeTimeout)
+	}
+
 	// Reset guardrails for new query
 	s.guardrails.Reset()
 
