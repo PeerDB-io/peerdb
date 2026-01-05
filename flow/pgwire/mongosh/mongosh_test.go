@@ -31,14 +31,15 @@ func TestCompile_Queries(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		input     string
-		wantCmd   bson.D
-		wantKind  ResultKind
-		wantNS    Namespace
-		wantHints ExecHints
-		wantErr   *wantError
-		wantHelp  bool
+		name        string
+		input       string
+		wantCmd     bson.D
+		wantKind    ResultKind
+		wantColl    string
+		wantAdminDB bool
+		wantHints   ExecHints
+		wantErr     *wantError
+		wantHelp    bool
 	}{
 		// ═══════════════════════════════════════════════════════════════════════
 		// SUCCESS CASES
@@ -53,7 +54,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "filter", Value: bson.D{{Key: "a", Value: bson.D{{Key: "$gt", Value: int32(1)}}}}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "coll"},
+			wantColl: "coll",
 		},
 		{
 			name:  "find/withProjection",
@@ -64,7 +65,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "projection", Value: bson.D{{Key: "_id", Value: int32(0)}}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "coll"},
+			wantColl: "coll",
 		},
 		{
 			name:  "find/withFilterAndProjection",
@@ -78,7 +79,7 @@ func TestCompile_Queries(t *testing.T) {
 				}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "users"},
+			wantColl: "users",
 		},
 		{
 			name:  "find/withRegex",
@@ -90,7 +91,7 @@ func TestCompile_Queries(t *testing.T) {
 				}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "coll"},
+			wantColl: "coll",
 		},
 		{
 			name:  "find/withRegexCaseInsensitive",
@@ -102,7 +103,7 @@ func TestCompile_Queries(t *testing.T) {
 				}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "coll"},
+			wantColl: "coll",
 		},
 		{
 			name:  "find/withObjectId",
@@ -114,7 +115,7 @@ func TestCompile_Queries(t *testing.T) {
 				}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "users"},
+			wantColl: "users",
 		},
 		{
 			name:  "find/withISODate",
@@ -126,7 +127,7 @@ func TestCompile_Queries(t *testing.T) {
 				}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "events"},
+			wantColl: "events",
 		},
 		{
 			name:  "find/withSort",
@@ -137,7 +138,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "sort", Value: bson.D{{Key: "name", Value: int32(1)}}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "users"},
+			wantColl: "users",
 		},
 		{
 			name:  "find/withSortAndLimit",
@@ -151,7 +152,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "batchSize", Value: 10},
 			},
 			wantKind:  ResultCursor,
-			wantNS:    Namespace{DB: "test", Collection: "users"},
+			wantColl:  "users",
 			wantHints: ExecHints{Limit: intPtr(10), SingleBatch: boolPtr(true), BatchSize: intPtr(10)},
 		},
 		{
@@ -166,7 +167,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "batchSize", Value: 10},
 			},
 			wantKind:  ResultCursor,
-			wantNS:    Namespace{DB: "test", Collection: "users"},
+			wantColl:  "users",
 			wantHints: ExecHints{Limit: intPtr(10), SingleBatch: boolPtr(true), BatchSize: intPtr(10)},
 		},
 		{
@@ -178,7 +179,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "batchSize", Value: 10},
 			},
 			wantKind:  ResultCursor,
-			wantNS:    Namespace{DB: "test", Collection: "coll"},
+			wantColl:  "coll",
 			wantHints: ExecHints{BatchSize: intPtr(10)},
 		},
 		{
@@ -190,7 +191,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "maxTimeMS", Value: int64(7500)},
 			},
 			wantKind:  ResultCursor,
-			wantNS:    Namespace{DB: "test", Collection: "users"},
+			wantColl:  "users",
 			wantHints: ExecHints{MaxTimeMS: int64Ptr(7500)},
 		},
 
@@ -206,7 +207,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "batchSize", Value: 1},
 			},
 			wantKind:  ResultCursor,
-			wantNS:    Namespace{DB: "test", Collection: "coll"},
+			wantColl:  "coll",
 			wantHints: ExecHints{Limit: intPtr(1), SingleBatch: boolPtr(true), BatchSize: intPtr(1)},
 		},
 		{
@@ -223,7 +224,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "batchSize", Value: 1},
 			},
 			wantKind:  ResultCursor,
-			wantNS:    Namespace{DB: "test", Collection: "coll"},
+			wantColl:  "coll",
 			wantHints: ExecHints{Limit: intPtr(1), SingleBatch: boolPtr(true), BatchSize: intPtr(1)},
 		},
 
@@ -248,7 +249,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "cursor", Value: bson.D{}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "coll"},
+			wantColl: "coll",
 		},
 		{
 			name:  "aggregate/withAllowDiskUse",
@@ -265,7 +266,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "allowDiskUse", Value: true},
 			},
 			wantKind:  ResultCursor,
-			wantNS:    Namespace{DB: "test", Collection: "orders"},
+			wantColl:  "orders",
 			wantHints: ExecHints{AllowDiskUse: boolPtr(true)},
 		},
 
@@ -278,7 +279,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "key", Value: "email"},
 			},
 			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "test", Collection: "users"},
+			wantColl: "users",
 		},
 		{
 			name:  "distinct/withQuery",
@@ -289,7 +290,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "query", Value: bson.D{{Key: "active", Value: true}}},
 			},
 			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "test", Collection: "users"},
+			wantColl: "users",
 		},
 		{
 			name:  "distinct/withCollation",
@@ -301,7 +302,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "collation", Value: bson.D{{Key: "locale", Value: "fr"}, {Key: "strength", Value: int32(1)}}},
 			},
 			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "test", Collection: "coll"},
+			wantColl: "coll",
 		},
 
 		// --- estimatedDocumentCount ---
@@ -310,7 +311,7 @@ func TestCompile_Queries(t *testing.T) {
 			input:    "db.coll.estimatedDocumentCount();",
 			wantCmd:  bson.D{{Key: "count", Value: "coll"}},
 			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "test", Collection: "coll"},
+			wantColl: "coll",
 		},
 
 		// --- getIndexes ---
@@ -322,7 +323,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "cursor", Value: bson.D{}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "coll"},
+			wantColl: "coll",
 		},
 
 		// --- stats ---
@@ -337,7 +338,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "cursor", Value: bson.D{}},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test", Collection: "coll"},
+			wantColl: "coll",
 		},
 
 		// --- explain ---
@@ -351,7 +352,7 @@ func TestCompile_Queries(t *testing.T) {
 				}},
 			},
 			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "test", Collection: "users"},
+			wantColl: "users",
 		},
 		{
 			name:  "explain/findWithVerbosity",
@@ -364,7 +365,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "verbosity", Value: "executionStats"},
 			},
 			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "test", Collection: "users"},
+			wantColl: "users",
 		},
 		{
 			name:  "explain/aggregate",
@@ -379,7 +380,7 @@ func TestCompile_Queries(t *testing.T) {
 				}},
 			},
 			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "test", Collection: "orders"},
+			wantColl: "orders",
 		},
 		{
 			name:  "explain/withChainers",
@@ -396,7 +397,7 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "verbosity", Value: "allPlansExecution"},
 			},
 			wantKind:  ResultScalar,
-			wantNS:    Namespace{DB: "test", Collection: "users"},
+			wantColl:  "users",
 			wantHints: ExecHints{Limit: intPtr(10), SingleBatch: boolPtr(true), BatchSize: intPtr(10)},
 		},
 
@@ -408,14 +409,12 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "ping", Value: int32(1)},
 			},
 			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "test", Collection: ""},
 		},
 		{
 			name:     "runCommand/usersInfo",
 			input:    "db.runCommand({usersInfo: 'admin'});",
 			wantCmd:  bson.D{{Key: "usersInfo", Value: "admin"}},
 			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "test", Collection: ""},
 		},
 
 		// --- show ---
@@ -428,7 +427,6 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "authorizedCollections", Value: true},
 			},
 			wantKind: ResultCursor,
-			wantNS:   Namespace{DB: "test"},
 		},
 		{
 			name:  "show/databases",
@@ -438,8 +436,8 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "nameOnly", Value: true},
 				{Key: "authorizedDatabases", Value: true},
 			},
-			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "admin"},
+			wantKind:    ResultScalar,
+			wantAdminDB: true,
 		},
 		{
 			name:  "show/dbs",
@@ -449,8 +447,8 @@ func TestCompile_Queries(t *testing.T) {
 				{Key: "nameOnly", Value: true},
 				{Key: "authorizedDatabases", Value: true},
 			},
-			wantKind: ResultScalar,
-			wantNS:   Namespace{DB: "admin"},
+			wantKind:    ResultScalar,
+			wantAdminDB: true,
 		},
 
 		// ═══════════════════════════════════════════════════════════════════════
@@ -956,8 +954,11 @@ func TestCompile_Queries(t *testing.T) {
 			if got.ResultKind != tt.wantKind {
 				t.Errorf("Compile() ResultKind = %v, want %v", got.ResultKind, tt.wantKind)
 			}
-			if got.Namespace != tt.wantNS {
-				t.Errorf("Compile() Namespace = %v, want %v", got.Namespace, tt.wantNS)
+			if got.Collection != tt.wantColl {
+				t.Errorf("Compile() Collection = %v, want %v", got.Collection, tt.wantColl)
+			}
+			if got.AdminDB != tt.wantAdminDB {
+				t.Errorf("Compile() AdminDB = %v, want %v", got.AdminDB, tt.wantAdminDB)
 			}
 			if !reflect.DeepEqual(got.Hints, tt.wantHints) {
 				t.Errorf("Compile() Hints = %+v, want %+v", got.Hints, tt.wantHints)

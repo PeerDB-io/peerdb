@@ -13,6 +13,7 @@ import (
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pgwire/mongosh"
+	"github.com/PeerDB-io/peerdb/flow/pgwire/mongosh/command"
 )
 
 // wrapMongoError converts a MongoDB error to an UpstreamError
@@ -66,10 +67,18 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 		return &MongoScalarIterator{doc: bson.D{{Key: "help", Value: spec.HelpText}}, consumed: false}, nil
 	}
 
-	// Add $comment for cancel support - allows us to find this operation via currentOp
-	cmd := slices.Concat(spec.Command, bson.D{{Key: "$comment", Value: u.commentTag}})
+	// Add comment for cancel support only on commands that support it
+	cmd := spec.Command
+	if len(cmd) > 0 && command.CommandSupportsComment(cmd[0].Key) {
+		cmd = slices.Concat(cmd, bson.D{{Key: "comment", Value: u.commentTag}})
+	}
 
-	db := u.conn.Client().Database(u.database)
+	// Use admin database for commands that require it (e.g., listDatabases), otherwise use connection database
+	database := u.database
+	if spec.AdminDB {
+		database = "admin"
+	}
+	db := u.conn.Client().Database(database)
 
 	switch spec.ResultKind {
 	case mongosh.ResultCursor:
@@ -116,11 +125,11 @@ func (u *MongoUpstream) BackendKeyData() (uint32, uint32) {
 	return 0, u.secret
 }
 
-// Cancel cancels running operations by finding them via $comment and killing them
+// Cancel cancels running operations by finding them via comment and killing them
 func (u *MongoUpstream) Cancel(ctx context.Context) error {
 	// Use currentOp to find operations with our comment tag
 	// $ownOps: true limits to operations from this client (requires auth)
-	// We filter by command.$comment to find our specific operations
+	// We filter by command.comment to find our specific operations
 	currentOpCmd := bson.D{
 		{Key: "currentOp", Value: 1},
 		{Key: "$ownOps", Value: true},

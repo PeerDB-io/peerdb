@@ -174,12 +174,12 @@ func TestAllowedCommandsStructure(t *testing.T) {
 		"aggregate": 1, "distinct": 1, "datasize": 1,
 	}
 	// Verify commands with optional args
-	hasOptional := map[string]bool{
-		"find": true, "aggregate": true, "collstats": true, "dbstats": true,
+	hasOptional := map[string]struct{}{
+		"find": {}, "aggregate": {}, "collstats": {}, "dbstats": {},
 	}
 	// Verify commands with no args
-	noArgs := map[string]bool{
-		"ping": true, "buildinfo": true, "hostinfo": true,
+	noArgs := map[string]struct{}{
+		"ping": {}, "buildinfo": {}, "hostinfo": {},
 	}
 
 	for _, cmds := range AllowedCommands {
@@ -187,10 +187,10 @@ func TestAllowedCommandsStructure(t *testing.T) {
 			if count, ok := hasRequired[cmd.Name]; ok && len(cmd.Required) != count {
 				t.Errorf("%s: expected %d required args, got %d", cmd.Name, count, len(cmd.Required))
 			}
-			if hasOptional[cmd.Name] && len(cmd.Optional) == 0 {
+			if _, ok := hasOptional[cmd.Name]; ok && len(cmd.Optional) == 0 {
 				t.Errorf("%s: expected optional args but got none", cmd.Name)
 			}
-			if noArgs[cmd.Name] && (len(cmd.Required) > 0 || len(cmd.Optional) > 0) {
+			if _, ok := noArgs[cmd.Name]; ok && (len(cmd.Required) > 0 || len(cmd.Optional) > 0) {
 				t.Errorf("%s: expected no args", cmd.Name)
 			}
 		}

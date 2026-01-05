@@ -24,12 +24,6 @@ const (
 // ExecHints provides optional execution hints derived from shell sugar.
 type ExecHints = command.ExecHints
 
-// Namespace represents the database and collection parsed from the shell statement.
-type Namespace struct {
-	DB         string
-	Collection string
-}
-
 // ExecSpec represents the compiled output of a MongoDB shell statement.
 //
 //nolint:govet // fieldalignment: readability preferred
@@ -37,8 +31,9 @@ type ExecSpec struct {
 	Command    bson.D     // normalized command document
 	ResultKind ResultKind // whether result is Cursor or Scalar
 	Hints      ExecHints  // optional execution hints
-	Namespace  Namespace  // parsed database and collection
+	Collection string     // target collection (if any)
 	HelpText   string     // populated for help() requests
+	AdminDB    bool       // if true, run against admin database instead of connection database
 }
 
 // ErrorKind represents the type of compilation error.
@@ -126,7 +121,6 @@ func tryShellCommand(input string) (ExecSpec, bool) {
 				{Key: "authorizedCollections", Value: true},
 			},
 			ResultKind: ResultCursor,
-			Namespace:  Namespace{DB: "test"},
 		}, true
 	}
 
@@ -138,7 +132,7 @@ func tryShellCommand(input string) (ExecSpec, bool) {
 				{Key: "authorizedDatabases", Value: true},
 			},
 			ResultKind: ResultScalar,
-			Namespace:  Namespace{DB: "admin"},
+			AdminDB:    true,
 		}, true
 	}
 
@@ -189,16 +183,11 @@ func Compile(input string) (ExecSpec, error) {
 		return ExecSpec{}, NewCompileError(ErrDeniedCommand, err.Error())
 	}
 
-	db := shellStmt.Database
-	if db == "" {
-		db = "test"
-	}
-
 	return ExecSpec{
 		Command:    cmd,
 		ResultKind: resultKind,
 		Hints:      hints,
-		Namespace:  Namespace{DB: db, Collection: shellStmt.Collection},
+		Collection: shellStmt.Collection,
 	}, nil
 }
 

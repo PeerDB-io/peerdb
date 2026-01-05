@@ -10,9 +10,10 @@ import (
 
 // AllowedCommand defines an allowed MongoDB wire protocol command.
 type AllowedCommand struct {
-	Name     string
-	Required []string
-	Optional []string
+	Name            string
+	Required        []string
+	Optional        []string
+	SupportsComment bool // whether the command supports the comment field for cancel tracking
 }
 
 // AllowedCommands defines allowed MongoDB commands by category.
@@ -21,76 +22,91 @@ var AllowedCommands = map[string][]AllowedCommand{
 		{"find", nil, []string{
 			"filter", "projection", "sort", "skip", "limit", "batchSize", "singleBatch",
 			"hint", "maxTimeMS", "readConcern", "collation", "allowDiskUse", "let",
-		}},
-		{"aggregate", []string{"pipeline"}, []string{"cursor", "allowDiskUse", "maxTimeMS", "readConcern", "collation", "hint", "let"}},
-		{"count", nil, []string{"query", "limit", "skip", "hint", "maxTimeMS", "readConcern", "collation"}},
-		{"distinct", []string{"key"}, []string{"query", "readConcern", "collation", "hint"}},
-		{"listindexes", nil, []string{"cursor"}},
-		{"listcollections", nil, []string{"filter", "nameOnly", "authorizedCollections"}},
-		{"listdatabases", nil, []string{"filter", "nameOnly", "authorizedDatabases"}},
+		}, true},
+		{"aggregate", []string{"pipeline"}, []string{"cursor", "allowDiskUse", "maxTimeMS", "readConcern", "collation", "hint", "let"}, true},
+		{"count", nil, []string{"query", "limit", "skip", "hint", "maxTimeMS", "readConcern", "collation"}, true},
+		{"distinct", []string{"key"}, []string{"query", "readConcern", "collation", "hint"}, true},
+		{"listindexes", nil, []string{"cursor"}, true},
+		{"listcollections", nil, []string{"filter", "nameOnly", "authorizedCollections"}, true},
+		{"listdatabases", nil, []string{"filter", "nameOnly", "authorizedDatabases"}, true},
 	},
 	"User/Role Info": {
-		{"usersinfo", nil, []string{"showCredentials", "showCustomData", "showPrivileges", "showAuthenticationRestrictions", "filter"}},
-		{"rolesinfo", nil, []string{"showPrivileges", "showBuiltinRoles", "showAuthenticationRestrictions"}},
+		{"usersinfo", nil, []string{"showCredentials", "showCustomData", "showPrivileges", "showAuthenticationRestrictions", "filter"}, true},
+		{"rolesinfo", nil, []string{"showPrivileges", "showBuiltinRoles", "showAuthenticationRestrictions"}, true},
 	},
 	"Replication": {
-		{"hello", nil, []string{"saslSupportedMechs"}},
-		{"replsetgetconfig", nil, []string{"commitmentStatus"}},
-		{"replsetgetstatus", nil, nil},
+		{"hello", nil, []string{"saslSupportedMechs"}, true},
+		{"replsetgetconfig", nil, []string{"commitmentStatus"}, true},
+		{"replsetgetstatus", nil, nil, false},
 	},
 	"Sharding": {
-		{"getshardmap", nil, nil},
-		{"listshards", nil, nil},
-		{"balancerstatus", nil, nil},
-		{"isdbgrid", nil, nil},
+		{"getshardmap", nil, nil, false},
+		{"listshards", nil, nil, false},
+		{"balancerstatus", nil, nil, false},
+		{"isdbgrid", nil, nil, false},
 	},
 	"Sessions": {
-		{"startsession", nil, nil},
-		{"refreshsessions", nil, nil},
-		{"killsessions", nil, nil},
-		{"endsessions", nil, nil},
-		{"committransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}},
-		{"aborttransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}},
+		{"startsession", nil, nil, false},
+		{"refreshsessions", nil, nil, false},
+		{"killsessions", nil, nil, false},
+		{"endsessions", nil, nil, false},
+		{"committransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}, true},
+		{"aborttransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}, true},
 	},
 	"Admin": {
-		{"currentop", nil, []string{"$ownOps", "$all"}},
-		{"getdefaultrwconcern", nil, []string{"inMemory"}},
-		{"getclusterparameter", nil, nil},
-		{"getparameter", nil, nil},
-		{"getcmdlineopts", nil, nil},
+		{"currentop", nil, []string{"$ownOps", "$all"}, true},
+		{"getdefaultrwconcern", nil, []string{"inMemory"}, true},
+		{"getclusterparameter", nil, nil, false},
+		{"getparameter", nil, nil, true},
+		{"getcmdlineopts", nil, nil, false},
 	},
 	"Diagnostic": {
-		{"ping", nil, nil},
-		{"buildinfo", nil, nil},
-		{"collstats", nil, []string{"scale"}},
-		{"connpoolstats", nil, nil},
-		{"connectionstatus", nil, []string{"showPrivileges"}},
-		{"datasize", []string{"keyPattern"}, []string{"min", "max", "estimate"}},
-		{"dbstats", nil, []string{"scale", "freeStorage"}},
-		{"explain", nil, []string{"verbosity"}},
-		{"hostinfo", nil, nil},
-		{"listcommands", nil, nil},
-		{"lockinfo", nil, nil},
-		{"serverstatus", nil, nil},
-		{"top", nil, nil},
-		{"whatsmyuri", nil, nil},
+		{"ping", nil, nil, false},
+		{"buildinfo", nil, nil, false},
+		{"collstats", nil, []string{"scale"}, false},
+		{"connpoolstats", nil, nil, false},
+		{"connectionstatus", nil, []string{"showPrivileges"}, false},
+		{"datasize", []string{"keyPattern"}, []string{"min", "max", "estimate"}, false},
+		{"dbstats", nil, []string{"scale", "freeStorage"}, false},
+		{"explain", nil, []string{"verbosity"}, true},
+		{"hostinfo", nil, nil, false},
+		{"listcommands", nil, nil, false},
+		{"lockinfo", nil, nil, false},
+		{"serverstatus", nil, nil, false},
+		{"top", nil, nil, false},
+		{"whatsmyuri", nil, nil, false},
 	},
 }
 
-var allowedCommandsSet map[string]bool
+var (
+	allowedCommandsSet     map[string]struct{}
+	commandSupportsComment map[string]struct{}
+)
 
 func init() {
-	allowedCommandsSet = make(map[string]bool)
+	allowedCommandsSet = make(map[string]struct{})
+	commandSupportsComment = make(map[string]struct{})
 	for _, cmds := range AllowedCommands {
 		for _, cmd := range cmds {
-			allowedCommandsSet[strings.ToLower(cmd.Name)] = true
+			name := strings.ToLower(cmd.Name)
+			allowedCommandsSet[name] = struct{}{}
+			if cmd.SupportsComment {
+				commandSupportsComment[name] = struct{}{}
+			}
 		}
 	}
 }
 
 // IsCommandAllowed returns whether a command is in the allow list.
 func IsCommandAllowed(cmd string) bool {
-	return allowedCommandsSet[strings.ToLower(cmd)]
+	_, ok := allowedCommandsSet[strings.ToLower(cmd)]
+	return ok
+}
+
+// CommandSupportsComment returns whether a command supports the comment field.
+func CommandSupportsComment(cmd string) bool {
+	_, ok := commandSupportsComment[strings.ToLower(cmd)]
+	return ok
 }
 
 // ValidateCommand validates a built command against the allow list.
