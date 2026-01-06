@@ -30,7 +30,7 @@ assets = [
 
 
 [features]
-default = ["tls", "aws"]
+default = ["tls", "aws", "mysql"]
 bigquery = ["dep:peer-bigquery"]
 mysql = ["dep:peer-mysql"]
 snowflake = ["dep:peer-snowflake"]
