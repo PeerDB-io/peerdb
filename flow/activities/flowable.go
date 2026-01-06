@@ -1612,6 +1612,10 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	cfg *protos.FlowConnectionConfigsCore,
 	removedTablesMapping []*protos.TableMapping,
 ) error {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
+		return "removing tables from publication"
+	})
+	defer shutdown()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
 	srcConn, srcClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
@@ -1640,6 +1644,10 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	cfg *protos.FlowConnectionConfigsCore,
 	tablesToRemove []*protos.TableMapping,
 ) error {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
+		return "removing tables from raw table"
+	})
+	defer shutdown()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
