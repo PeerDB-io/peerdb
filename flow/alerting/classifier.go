@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"regexp"
@@ -34,6 +35,12 @@ const (
 	NotifyTelemetry ErrorAction = "notify_telemetry"
 )
 
+const (
+	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
+	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
+	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
+)
+
 var (
 	ClickHouseDecimalParsingRe = regexp.MustCompile(
 		`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`,
@@ -46,7 +53,9 @@ var (
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
 	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
+	PostgresSpillFileMissingRe        = regexp.MustCompile(`Unable to restore changes for xid \d+`)
 	MySqlRdsBinlogFileNotFoundRe      = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
+	MongoPoolClearedErrorRe           = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
 
 func (e ErrorAction) String() string {
@@ -114,6 +123,9 @@ var (
 	}
 	ErrorNotifyBinlogInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
+	}
+	ErrorNotifyBinlogRowMetadataInvalid = ErrorClass{
+		Class: "NOTIFY_BINLOG_ROW_METADATA_INVALID", action: NotifyUser,
 	}
 	ErrorNotifyBadGTIDSetup = ErrorClass{
 		Class: "NOTIFY_BAD_MULTISOURCE_GTID_SETUP", action: NotifyUser,
@@ -185,12 +197,19 @@ var (
 	ErrorNotifyPostgresSlotMemalloc = ErrorClass{
 		Class: "NOTIFY_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
 	}
+	// This RDS specific error is seen when we try to create a replication slot on a read-replica
+	ErrNotifyPostgresCreatingSlotOnReader = ErrorClass{
+		Class: "NOTIFY_POSTGRES_CREATING_SLOT_ON_READER", action: NotifyUser,
+	}
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
+	}
+	ErrorNotifyClickHouseSupportIsDisabledError = ErrorClass{
+		Class: "NOTIFY_CLICKHOUSE_SUPPORT_IS_DISABLED_ERROR", action: NotifyUser,
 	}
 	// Catch-all for unclassified errors
 	ErrorOther = ErrorClass{
@@ -435,7 +454,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			pgerrcode.UndefinedTable,
 			pgerrcode.CannotConnectNow,
 			pgerrcode.ConfigurationLimitExceeded,
-			pgerrcode.DiskFull:
+			pgerrcode.DiskFull,
+			pgerrcode.DuplicateFile:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
 		case pgerrcode.UndefinedObject:
@@ -453,7 +473,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.UndefinedFile:
 			// Handle WAL segment removed errors
+			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+			// Handles missing spill-to-disk file during logical decoding (transient error)
+			if PostgresSpillFileMissingRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
@@ -478,6 +503,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// Handle WAL segment removed errors
+			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
@@ -485,6 +511,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// Handle Neon quota exceeded errors
 			if strings.Contains(pgErr.Message,
 				"Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.") {
+				return ErrorNotifyConnectivity, pgErrorInfo
+			}
+
+			// Handle Neon disk quota exceeded errors
+			if strings.Contains(pgErr.Message, "Disk quota exceeded") {
 				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
@@ -497,6 +528,21 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyPostgresSlotMemalloc, pgErrorInfo
 			}
 
+			// Usually a single occurrence then reconnect immediately helps
+			if strings.Contains(pgErr.Message, "pfree called with invalid pointer") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			// Shared invalidation message corruption - usually transient, reconnect helps
+			// https://github.com/postgres/postgres/blob/e82e9aaa6a2942505c2c328426778787e4976ea6/src/backend/utils/cache/inval.c#L901
+			if strings.Contains(pgErr.Message, "unrecognized SI message ID:") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			if strings.Contains(pgErr.Message, "Create the replication slot from the writer node instead") {
+				return ErrNotifyPostgresCreatingSlotOnReader, pgErrorInfo
+			}
+
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
@@ -505,11 +551,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyReplicationStandbySetup, pgErrorInfo
 			}
 
-			// same underlying error but 3 different messages
-			// based on PG version, newer ones have second error
-			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") ||
-				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") ||
-				strings.Contains(pgErr.Message, "could not import the requested snapshot") {
+			// same underlying error but different messages, depending on PG version
+			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") || // PG13-17
+				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") || // PG13-17
+				strings.Contains(pgErr.Message, "could not import the requested snapshot") || // All
+				strings.Contains(pgErr.Message, "can no longer access replication slot") { // PG18
 				return ErrorNotifySlotInvalid, pgErrorInfo
 			}
 
@@ -548,8 +594,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.QueryCanceled:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
-		case pgerrcode.DuplicateFile,
-			pgerrcode.DeadlockDetected,
+		case pgerrcode.DeadlockDetected,
 			pgerrcode.SerializationFailure,
 			pgerrcode.IdleInTransactionSessionTimeout:
 			return ErrorRetryRecoverable, pgErrorInfo
@@ -608,8 +653,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, myErrorInfo
 		case 1146: // ER_NO_SUCH_TABLE
 			return ErrorNotifySourceTableMissing, myErrorInfo
-		case 1943:
+		case 1943: // ER_DUPLICATE_GTID_DOMAIN (MariaDB)
 			return ErrorNotifyBadGTIDSetup, myErrorInfo
+		case 1317: // ER_QUERY_INTERRUPTED
+			return ErrorRetryRecoverable, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
 		}
@@ -626,10 +673,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
-		// this often happens on Mongo Atlas as part of maintenance, and should recover, but we notify if exceed default threshold
+		// this often happens on Mongo Atlas as part of maintenance and should recover
 		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
-		if mongoCmdErr.HasErrorMessage("(ShutdownInProgress) The server is in quiesce mode and will shut down") {
-			return ErrorNotifyConnectivity, mongoErrorInfo
+		if mongoCmdErr.HasErrorMessage(MongoShutdownInProgress) {
+			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		}
 
 		// This should recover, but we notify if exceed default threshold
@@ -641,10 +688,20 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		switch mongoCmdErr.Code {
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
-		case 91: // ShutdownInProgress
+		case 18: // AuthenticationFailed
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 91: // ShutdownInProgress
+			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 286: // ChangeStreamHistoryLost
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
+		case 11600, //  InterruptedAtShutdown
+			11601, // Interrupted
+			11602: // InterruptedDueToReplStateChange
+			return ErrorRetryRecoverable, mongoErrorInfo
+		case 13436: // NotPrimaryOrSecondary
+			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 133: // FailedToSatisfyReadPreference
+			return ErrorNotifyConnectivity, mongoErrorInfo
 		default:
 			return ErrorOther, mongoErrorInfo
 		}
@@ -676,10 +733,47 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	var mongoConnError topology.ConnectionError
 	if errors.As(err, &mongoConnError) {
+		if strings.Contains(err.Error(), MongoIncompleteReadOfMessageHeader) {
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourceMongoDB,
+				Code:   "CONNECTION_ERROR",
+			}
+		}
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "CONNECTION_ERROR",
 		}
+	}
+
+	var mongoWaitQueueError topology.WaitQueueTimeoutError
+	if errors.As(err, &mongoWaitQueueError) {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "WAIT_QUEUE_TIMEOUT_ERROR",
+		}
+	}
+
+	// MongoDB can leak error without properly encapsulate it into a pre-defined error type.
+	// Use string matching as a catch-all for poolClearedErrors. These errors occur when a
+	// connection pool is cleared due to another operation failure; they are always retryable
+	if MongoPoolClearedErrorRe.MatchString(err.Error()) {
+		mongoErrorInfo := ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "POOL_CLEARED_ERROR",
+		}
+		if strings.Contains(err.Error(), MongoShutdownInProgress) {
+			mongoErrorInfo.Code += fmt.Sprintf("(%d)", 91)
+			return ErrorIgnoreConnTemporary, mongoErrorInfo
+		}
+		if strings.Contains(err.Error(), MongoInterruptedDueToReplStateChange) {
+			mongoErrorInfo.Code += fmt.Sprintf("(%d)", 11602)
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+		if strings.Contains(err.Error(), MongoIncompleteReadOfMessageHeader) {
+			mongoErrorInfo.Code += "(CONNECTION_ERROR)"
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+		return ErrorRetryRecoverable, mongoErrorInfo
 	}
 
 	var chException *clickhouse.Exception
@@ -689,18 +783,28 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(chException.Code)),
 		}
 		switch chproto.Error(chException.Code) {
-		case chproto.ErrUnknownTable, chproto.ErrNoSuchColumnInTable:
+		case chproto.ErrUnknownTable,
+			chproto.ErrNoSuchColumnInTable,
+			// "Too large string for FixedString column: (at row 10195)"
+			// The only one created by us is FixedString(1) for PG QChar so assuming the user did it for a string and it didn't work
+			chproto.ErrTooLargeStringSize:
 			if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
-		case chproto.ErrUnknownDatabase:
+		case chproto.ErrUnknownDatabase,
+			chproto.ErrAuthenticationFailed:
 			return ErrorNotifyConnectivity, chErrorInfo
-		case chproto.ErrKeeperException,
-			chproto.ErrUnfinished,
-			chproto.ErrAborted:
+		case chproto.ErrKeeperException:
+			if chException.Message == "Session expired" || strings.HasPrefix(chException.Message, "Coordination error: Connection loss") {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
+			return ErrorInternalClickHouse, chErrorInfo
+		case chproto.ErrUnfinished:
+			return ErrorRetryRecoverable, chErrorInfo
+		case chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
 			return ErrorIgnoreConnTemporary, chErrorInfo
@@ -749,8 +853,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.HasPrefix(chException.Message, "Cannot enqueue query on this replica, because it has replication lag") {
 				return ErrorNotifyConnectivity, chErrorInfo
 			}
-		case chproto.ErrAuthenticationFailed,
-			chproto.ErrCannotScheduleTask,
+		case chproto.ErrCannotScheduleTask,
 			chproto.ErrQueryWasCancelled,
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
@@ -766,6 +869,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(chException.Message, "Replicated DDL queries are disabled") {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
+		case chproto.ErrSupportIsDisabled:
+			return ErrorNotifyClickHouseSupportIsDisabledError, chErrorInfo
 		}
 		var normalizationErr *exceptions.NormalizationError
 		if isClickHouseMvError(chException) {
@@ -824,6 +929,29 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var unsupportedBinlogRowMetadataError *exceptions.MySQLUnsupportedBinlogRowMetadataError
+	if errors.As(err, &unsupportedBinlogRowMetadataError) {
+		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_BINLOG_ROW_METADATA",
+		}
+	}
+
+	var mysqlStreamingError *exceptions.MySQLStreamingError
+	if errors.As(err, &mysqlStreamingError) {
+		if mysqlStreamingError.Retryable {
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourceMySQL,
+				Code:   "STREAMING_TRANSIENT_ERROR",
+			}
+		} else {
+			return ErrorOther, ErrorInfo{
+				Source: ErrorSourceMySQL,
+				Code:   "UNKNOWN",
+			}
+		}
+	}
+
 	var postgresPrimaryKeyModifiedError *exceptions.PrimaryKeyModifiedError
 	if errors.As(err, &postgresPrimaryKeyModifiedError) {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
@@ -832,6 +960,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresPrimaryKeyModifiedError.TableName,
 				ErrorAttributeKeyColumn: postgresPrimaryKeyModifiedError.ColumnName,
+			},
+		}
+	}
+
+	var postgresReplicaIdentityIndexError *exceptions.ReplicaIdentityIndexError
+	if errors.As(err, &postgresReplicaIdentityIndexError) {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  postgresReplicaIdentityIndexError.Table,
+				ErrorAttributeKeyColumn: "n\a",
 			},
 		}
 	}

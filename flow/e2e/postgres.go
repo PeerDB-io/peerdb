@@ -11,9 +11,9 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -63,14 +63,14 @@ func (s PeerFlowE2ETestSuitePG) Exec(ctx context.Context, sql string) error {
 
 func (s PeerFlowE2ETestSuitePG) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	s.t.Helper()
-	pgQueryExecutor, err := s.conn.NewQRepQueryExecutor(s.t.Context(), shared.InternalVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.conn.NewQRepQueryExecutor(s.t.Context(), nil, shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		s.t.Context(),
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, s.suffix, utils.QuoteIdentifier(table)),
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, s.suffix, common.QuoteIdentifier(table)),
 	)
 }
 

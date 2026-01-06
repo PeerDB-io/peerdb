@@ -37,7 +37,7 @@ const (
 	// Postgres: vector types ("vector", "halfvec", "sparsevec") replicated as float arrays instead of string
 	InternalVersion_PgVectorAsFloatArray
 	// MongoDB: rename `_full_document` column to `doc`
-	IntervalVersion_MongoDBFullDocumentColumnToDoc
+	InternalVersion_MongoDBFullDocumentColumnToDoc
 	// All: setting json_type_escape_dots_in_keys = true when inserting JSON column to ClickHouse (only impacts MongoDB today)
 	InternalVersion_JsonEscapeDotsInKeys
 
@@ -78,7 +78,10 @@ const (
 	RequestIdKey     ContextKey = "x-peerdb-request-id"
 )
 
-const FetchAndChannelSize = 1024
+const (
+	QRepFetchSize   = 128 * 1024
+	QRepChannelSize = 1024
+)
 
 func Ptr[T any](x T) *T {
 	return &x

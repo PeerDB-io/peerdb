@@ -2,7 +2,7 @@
 import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import {
   QRepConfig,
   QRepWriteMode,
@@ -25,6 +25,7 @@ export default function UpsertColsDisplay({
   setter,
   setting,
 }: UpsertColsProps) {
+  const selectTheme = useSelectTheme();
   const [uniqueColumnsSet, setUniqueColumnsSet] = useState<Set<string>>(
     new Set<string>()
   );
@@ -71,7 +72,7 @@ export default function UpsertColsDisplay({
         }}
         isLoading={loading}
         options={columns}
-        theme={SelectTheme}
+        theme={selectTheme}
       />
       <div
         style={{ display: 'flex', marginTop: '0.5rem', alignItems: 'center' }}

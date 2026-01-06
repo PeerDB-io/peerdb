@@ -20,7 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
 func (h *FlowRequestHandler) ListMirrors(
@@ -505,14 +505,14 @@ func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID s
 
 func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
 	workflowID string,
-) (*peerflow.CDCFlowWorkflowState, error) {
+) (*cdc_state.CDCFlowWorkflowState, error) {
 	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.CDCFlowStateQuery)
 	if err != nil {
 		slog.ErrorContext(ctx, fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
 		return nil,
 			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
 	}
-	var state peerflow.CDCFlowWorkflowState
+	var state cdc_state.CDCFlowWorkflowState
 	if err := res.Get(&state); err != nil {
 		slog.ErrorContext(ctx, fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
 		return nil,

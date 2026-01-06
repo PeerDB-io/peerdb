@@ -41,14 +41,14 @@ var trips1kExpectedBQColumns = map[string]string{
 	"pickup_datetime":   "TIMESTAMP",
 	"dropoff_datetime":  "TIMESTAMP",
 	"passenger_count":   "INTEGER",
-	"trip_distance":     "FLOAT",
-	"pickup_longitude":  "FLOAT",
-	"pickup_latitude":   "FLOAT",
-	"dropoff_longitude": "FLOAT",
-	"dropoff_latitude":  "FLOAT",
-	"fare_amount":       "FLOAT",
-	"tip_amount":        "FLOAT",
-	"total_amount":      "FLOAT",
+	"trip_distance":     "FLOAT64",
+	"pickup_longitude":  "FLOAT64",
+	"pickup_latitude":   "FLOAT64",
+	"dropoff_longitude": "FLOAT64",
+	"dropoff_latitude":  "FLOAT64",
+	"fare_amount":       "FLOAT64",
+	"tip_amount":        "FLOAT64",
+	"total_amount":      "FLOAT64",
 	"payment_type":      "STRING",
 	"cab_type":          "STRING",
 	"pickup_date":       "DATE",
@@ -428,7 +428,53 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket + "/test"
+	flowConnConfig.SnapshotStagingPath = stagingTestBucket
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(
+		env,
+		s,
+		"initial load to match",
+		srcTable,
+		dstTable,
+		"trip_id,vendor_id,passenger_count,trip_distance,fare_amount",
+	)
+
+	env.Cancel(t.Context())
+}
+
+func (s BigQueryClickhouseSuite) Test_Trips_Flow_Small_Partitions() {
+	t := s.T()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := "trips_1k"
+	dstTable := "trips_1k_dst_small_partitions"
+
+	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
+
+	count, err := source.helper.countRowsWithDataset(t.Context(), source.config.DatasetId, srcTable, "")
+	require.NoError(t, err, "should be able to count rows in source table")
+	require.Positive(t, count, "source table should have data")
+	t.Logf("Source table %s has %d rows", srcTable, count)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, srcTable),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
+				DestinationTableIdentifier: s.DestinationTable(dstTable),
+			},
+		},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SnapshotStagingPath = stagingTestBucket
+	flowConnConfig.SnapshotNumRowsPerPartition = 10 // 1000 rows / 10 = 100 partitions
+	flowConnConfig.SnapshotMaxParallelWorkers = 10
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -67,7 +69,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
 
-	clientOptions, err := parseAsClientOptions(config, meteredDialer)
+	clientOptions, err := parseAsClientOptions(config, meteredDialer, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -122,13 +124,13 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 	return buildInfo.Version, nil
 }
 
-func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.MeteredDialer) (*options.ClientOptions, error) {
+func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.MeteredDialer, logger log.Logger) (*options.ClientOptions, error) {
 	connStr, err := connstring.Parse(config.Uri)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing uri: %w", err)
 	}
 
-	if connStr.HasAuthParameters() {
+	if connStr.UsernameSet {
 		return nil, errors.New("connection string should not contain username and password")
 	}
 
@@ -171,6 +173,10 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 		clientOptions.SetTLSConfig(tlsConfig)
 	}
 
+	if level, ok := os.LookupEnv("PEERDB_LOG_LEVEL"); ok && level == "DEBUG" {
+		clientOptions.SetMonitor(NewCommandMonitor(logger))
+	}
+
 	err = clientOptions.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("error validating client options: %w", err)
@@ -185,4 +191,16 @@ func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, err
 	}
 
 	return float64(serverStatus.OplogTruncation.OplogMinRetentionHours), nil
+}
+
+func (c *MongoConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableIdentifier string) (int64, error) {
+	parsedTable, err := common.ParseTableIdentifier(tableIdentifier)
+	if err != nil {
+		return 0, err
+	}
+	collStats, err := peerdb_mongo.GetCollStats(ctx, c.client, parsedTable.Namespace, parsedTable.Table)
+	if err != nil {
+		return 0, err
+	}
+	return collStats.Size, nil
 }

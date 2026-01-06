@@ -100,7 +100,7 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 		cols = "id,val"
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
-			Database(Schema(s)).Collection("valid").
+			Database(Schema(s)).Collection("status_test").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -164,4 +164,6 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, updates[3].NewStatus)
 	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, updates[4].OldStatus)
 	require.Equal(s.t, protos.FlowStatus_STATUS_RUNNING, updates[4].NewStatus)
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }

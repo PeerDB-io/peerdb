@@ -8,12 +8,12 @@ import (
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	peerdb_mysql "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
 
-func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
+func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*common.QualifiedTable) error {
 	for _, parsedTable := range tableNames {
 		if _, err := c.Execute(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", parsedTable.MySQL())); err != nil {
 			return fmt.Errorf("error checking table %s: %w", parsedTable.MySQL(), err)
@@ -50,23 +50,25 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 
 		switch c.config.Flavor {
 		case protos.MySqlFlavor_MYSQL_MARIA:
-			return peerdb_mysql.CheckMariaDBBinlogSettings(conn, c.logger)
+			// check if binlog_row_metadata is supported is done inside this function
+			return mysql_validation.CheckMariaDBBinlogSettings(conn, c.logger, requireRowMetadata)
 		case protos.MySqlFlavor_MYSQL_MYSQL:
-			cmp, err := c.CompareServerVersion(ctx, "8.0.1")
+			cmp, err := c.CompareServerVersion(ctx, mysql_validation.MySQLMinVersionForBinlogRowMetadata)
 			if err != nil {
 				return fmt.Errorf("failed to get server version: %w", err)
 			}
 			if cmp < 0 {
+				// as we're dispatching to a function that doesn't know about binlog_row_metadata,
+				// perform the check here instead of inside
 				if requireRowMetadata {
-					return errors.New(
-						"MySQL version too old for column exclusion support, " +
-							"please disable it or upgrade to >8.0.1 (binlog_row_metadata needed)",
-					)
+					return fmt.Errorf("MySQL version too old for column exclusion support, "+
+						"please disable it or upgrade to >=%s (binlog_row_metadata needed)",
+						mysql_validation.MySQLMinVersionForBinlogRowMetadata)
 				}
-				c.logger.Warn("cannot validate mysql prior to 8.0.1, falling back to MySQL 5.7 check")
-				return peerdb_mysql.CheckMySQL5BinlogSettings(conn, c.logger)
+				c.logger.Warn("Falling back to MySQL 5.7 check")
+				return mysql_validation.CheckMySQL5BinlogSettings(conn, c.logger)
 			} else {
-				return peerdb_mysql.CheckMySQL8BinlogSettings(conn, c.logger)
+				return mysql_validation.CheckMySQL8BinlogSettings(conn, c.logger)
 			}
 		default:
 			return fmt.Errorf("unsupported MySQL flavor: %s", c.config.Flavor.String())
@@ -76,9 +78,9 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 }
 
 func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
-	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
+	sourceTables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		parsedTable, parseErr := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
 		}
@@ -102,7 +104,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 			return err
 		}
 
-		if isVitess, err := peerdb_mysql.IsVitess(conn); err != nil {
+		if isVitess, err := mysql_validation.IsVitess(conn); err != nil {
 			return err
 		} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
 			return errors.New("vitess is currently not supported for MySQL mirrors in CDC")
@@ -123,7 +125,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		if err != nil {
 			return err
 		}
-		if err := peerdb_mysql.CheckRDSBinlogSettings(conn, c.logger); err != nil {
+		if err := mysql_validation.CheckRDSBinlogSettings(conn, c.logger); err != nil {
 			return fmt.Errorf("binlog configuration error: %w", err)
 		}
 	}

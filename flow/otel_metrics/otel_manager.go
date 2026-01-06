@@ -35,6 +35,20 @@ const (
 	CommittedLSNGaugeName                = "committed_lsn"
 	RestartLSNGaugeName                  = "restart_lsn"
 	ConfirmedFlushLSNGaugeName           = "confirmed_flush_lsn"
+	SentLSNGaugeName                     = "sent_lsn"
+	ReceivedCommitLSNGaugeName           = "received_commit_lsn"
+	CurrentWalLSNGaugeName               = "current_wal_lsn"
+	RestartToConfirmedMBGaugeName        = "restart_to_confirmed_lsn"
+	ConfirmedToCurrentMBGaugeName        = "confirmed_to_current_lsn"
+	WalStatusGaugeName                   = "wal_status"
+	SafeWalSizeGaugeName                 = "safe_wal_size"
+	SlotActiveGaugeName                  = "slot_active"
+	WalSenderStateGaugeName              = "walsender_state"
+	LogicalDecodingWorkMemGaugeName      = "logical_decoding_work_mem"
+	StatsResetGaugeName                  = "stats_reset"
+	SpillTxnsGaugeName                   = "spill_txns"
+	SpillCountGaugeName                  = "spill_count"
+	SpillBytesGaugeName                  = "spill_bytes"
 	IntervalSinceLastNormalizeGaugeName  = "interval_since_last_normalize"
 	AllFetchedBytesCounterName           = "all_fetched_bytes"
 	FetchedBytesCounterName              = "fetched_bytes"
@@ -62,6 +76,7 @@ const (
 	LogRetentionGaugeName                = "log_retention"
 	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
+	CodeNotificationCounterName          = "code_notification"
 )
 
 type Metrics struct {
@@ -73,6 +88,20 @@ type Metrics struct {
 	CommittedLSNGauge                metric.Int64Gauge
 	RestartLSNGauge                  metric.Int64Gauge
 	ConfirmedFlushLSNGauge           metric.Int64Gauge
+	SentLSNGauge                     metric.Int64Gauge
+	ReceivedCommitLSNGauge           metric.Int64Gauge
+	CurrentWalLSNGauge               metric.Int64Gauge
+	RestartToConfirmedMBGauge        metric.Float64Gauge
+	ConfirmedToCurrentMBGauge        metric.Float64Gauge
+	WalStatusGauge                   metric.Int64Gauge
+	SafeWalSizeGauge                 metric.Int64Gauge
+	SlotActiveGauge                  metric.Int64Gauge
+	WalSenderStateGauge              metric.Int64Gauge
+	StatsResetGauge                  metric.Int64Gauge
+	SpillTxnsGauge                   metric.Int64Gauge
+	SpillCountGauge                  metric.Int64Gauge
+	SpillBytesGauge                  metric.Int64Gauge
+	LogicalDecodingWorkMemGauge      metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge  metric.Float64Gauge
 	AllFetchedBytesCounter           metric.Int64Counter
 	FetchedBytesCounter              metric.Int64Counter
@@ -106,6 +135,19 @@ type SlotMetricGauges struct {
 	SlotLagGauge                    metric.Float64Gauge
 	RestartLSNGauge                 metric.Int64Gauge
 	ConfirmedFlushLSNGauge          metric.Int64Gauge
+	SentLSNGauge                    metric.Int64Gauge
+	CurrentWalLSNGauge              metric.Int64Gauge
+	RestartToConfirmedMBGauge       metric.Float64Gauge
+	ConfirmedToCurrentMBGauge       metric.Float64Gauge
+	WalStatusGauge                  metric.Int64Gauge
+	SafeWalSizeGauge                metric.Int64Gauge
+	SlotActiveGauge                 metric.Int64Gauge
+	WalSenderStateGauge             metric.Int64Gauge
+	StatsResetGauge                 metric.Int64Gauge
+	SpillTxnsGauge                  metric.Int64Gauge
+	SpillCountGauge                 metric.Int64Gauge
+	SpillBytesGauge                 metric.Int64Gauge
+	LogicalDecodingWorkMemGauge     metric.Int64Gauge
 	CurrentBatchIdGauge             metric.Int64Gauge
 	LastNormalizedBatchIdGauge      metric.Int64Gauge
 	OpenConnectionsGauge            metric.Int64Gauge
@@ -189,6 +231,12 @@ func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64Co
 	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
 }
 
+// CodeNotificationCounter is a global counter for emitting notifications for one-off things we want to know about with the least effort.
+// In ClickPipes, there is a generic (non-paging) alert set up on this, so just emit it in the code with a unique message
+// and it'll show up on Slack.
+// It is intentionally global for ease of use, all others are supposed to be passed through as usual.
+var CodeNotificationCounter metric.Int64Counter = noop.Int64Counter{}
+
 func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	slog.DebugContext(ctx, "Setting up all metrics")
 	var err error
@@ -233,6 +281,96 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if om.Metrics.ConfirmedFlushLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ConfirmedFlushLSNGaugeName),
 		metric.WithDescription("Confirmed flush LSN of the replication slot"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.SentLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SentLSNGaugeName),
+		metric.WithDescription("Sent LSN from pg_stat_replication, only emitted if we have pg_monitor/pg_read_all_stats role"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ReceivedCommitLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ReceivedCommitLSNGaugeName),
+		metric.WithDescription("Received commit LSN on the consumer side"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CurrentWalLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CurrentWalLSNGaugeName),
+		metric.WithDescription("Current WAL LSN from pg_current_wal_lsn or pg_last_wal_receive_lsn"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.RestartToConfirmedMBGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(RestartToConfirmedMBGaugeName),
+		metric.WithUnit("MiBy"),
+		metric.WithDescription("Difference between confirmed_flush_lsn and restart_lsn (MB)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ConfirmedToCurrentMBGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(ConfirmedToCurrentMBGaugeName),
+		metric.WithUnit("MiBy"),
+		metric.WithDescription("Difference between sent_lsn and current WAL LSN (MB)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.WalStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(WalStatusGaugeName),
+		metric.WithDescription("WAL status of the replication slot (value 1 with status as attribute)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.SafeWalSizeGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SafeWalSizeGaugeName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Slot's safe_wal_size field (available PG13+)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.SlotActiveGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SlotActiveGaugeName),
+		metric.WithDescription("Whether the replication slot is currently active (0 or 1)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.WalSenderStateGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(WalSenderStateGaugeName),
+		metric.WithDescription("Indicates walsender's current wait or I/O state. Value always 1."),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.StatsResetGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(StatsResetGaugeName),
+		metric.WithUnit("s"),
+		metric.WithDescription("Unix timestamp when pg_stat_replication_slots statistics were last reset (PG16+)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.SpillTxnsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SpillTxnsGaugeName),
+		metric.WithDescription("Current number of transactions spilled to disk (PG16+)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.SpillCountGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SpillCountGaugeName),
+		metric.WithDescription("Current number of spill events (PG16+)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.SpillBytesGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SpillBytesGaugeName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Current bytes spilled due to logical_decoding_work_mem exhaustion (PG16+)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LogicalDecodingWorkMemGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LogicalDecodingWorkMemGaugeName),
+		metric.WithUnit("MiBy"),
+		metric.WithDescription("Current logical_decoding_work_mem setting in MB"),
 	); err != nil {
 		return err
 	}
@@ -415,6 +553,12 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
 		metric.WithDescription(
 			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
+	); err != nil {
+		return err
+	}
+
+	if CodeNotificationCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CodeNotificationCounterName),
+		metric.WithDescription("One-off notifications with unique `message` attribute, triggers generic non-paging alert"),
 	); err != nil {
 		return err
 	}

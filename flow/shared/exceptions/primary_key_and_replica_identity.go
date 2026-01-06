@@ -20,6 +20,18 @@ func (e *PrimaryKeyModifiedError) Error() string {
 	return fmt.Sprintf("cannot locate primary key column '%s' value for table '%s': %v", e.ColumnName, e.TableName, e.error.Error())
 }
 
+type ReplicaIdentityIndexError struct {
+	Table string
+}
+
+func NewReplicaIdentityIndexError(table string) error {
+	return &ReplicaIdentityIndexError{Table: table}
+}
+
+func (e *ReplicaIdentityIndexError) Error() string {
+	return fmt.Sprintf("table %s has no replica identity index", e.Table)
+}
+
 type ReplicaIdentityNothingError struct {
 	Table string
 }

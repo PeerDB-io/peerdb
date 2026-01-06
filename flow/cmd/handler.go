@@ -133,12 +133,15 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	return nil
 }
 
+func getWorkflowID(flowName string) string {
+	return flowName + "-peerflow"
+}
+
 func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, APIError) {
 	cfg := req.ConnectionConfigs
 	if cfg == nil {
-		// todo(@iamKunalGupta): add a panic recovery handler with metric and alert for it
 		return nil, NewInvalidArgumentApiError(errors.New("connection configs cannot be nil"))
 	}
 	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env)
@@ -190,10 +193,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	} else {
 		return resp, nil
 	}
-}
-
-func getWorkflowID(flowName string) string {
-	return flowName + "-peerflow"
 }
 
 func (h *FlowRequestHandler) createCDCFlow(
@@ -471,11 +470,12 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_TERMINATED:
 			if currState != protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATING {
-				if currState == protos.FlowStatus_STATUS_COMPLETED {
+				switch currState {
+				case protos.FlowStatus_STATUS_COMPLETED:
 					changeErr = h.dropFlow(ctx, req.FlowJobName, req.DropMirrorStats)
-				} else if currState == protos.FlowStatus_STATUS_FAILED {
+				case protos.FlowStatus_STATUS_FAILED:
 					changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
-				} else {
+				default:
 					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 				}
 			}

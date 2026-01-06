@@ -8,11 +8,11 @@ import (
 
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -115,12 +115,12 @@ func buildInsertFromTableFunctionQuery(
 
 	// Add source schema column if needed
 	if sourceSchemaAsDestinationColumn {
-		schemaTable, err := utils.ParseSchemaTable(config.config.WatermarkTable)
+		qualifiedTable, err := common.ParseTableIdentifier(config.config.WatermarkTable)
 		if err != nil {
 			return "", err
 		}
 
-		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(schemaTable.Schema))
+		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(qualifiedTable.Namespace))
 		insertedColumnNames = append(insertedColumnNames, sourceSchemaColName)
 	}
 

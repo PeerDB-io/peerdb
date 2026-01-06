@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -40,6 +41,14 @@ func SetupMongoClickhouseSuite(t *testing.T) MongoClickhouseSuite {
 	})(t)}
 }
 
+func (s MongoClickhouseSuite) generateFlowConnectionConfigsDefaultEnv(
+	connectionGen FlowConnectionGenerationConfig,
+) *protos.FlowConnectionConfigs {
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+	return flowConnConfig
+}
+
 func (s MongoClickhouseSuite) Test_Simple_Flow() {
 	t := s.T()
 	srcDatabase := GetTestDatabase(s.Suffix())
@@ -51,7 +60,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow() {
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
@@ -96,7 +105,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.TableMappings[0].PartitionKey = "_id"
 	flowConnConfig.SnapshotNumRowsPerPartition = 10
@@ -144,7 +153,7 @@ func (s MongoClickhouseSuite) Test_Inconsistent_Schema() {
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
@@ -196,10 +205,13 @@ func (s MongoClickhouseSuite) Test_CDC() {
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
+	err := adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable)
+	require.NoError(t, err)
+
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
 	tc := NewTemporalClient(t)
@@ -294,9 +306,8 @@ func (s MongoClickhouseSuite) Test_Document_With_Dots_In_Keys() {
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
@@ -336,13 +347,12 @@ func (s MongoClickhouseSuite) Test_Document_With_Dots_In_Keys() {
 		TableMappings: TableMappings(s, srcTableOld, dstTableOld),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfigOld := connectionGenOld.GenerateFlowConnectionConfigs(s)
+	flowConnConfigOld := s.generateFlowConnectionConfigsDefaultEnv(connectionGenOld)
 	flowConnConfigOld.DoInitialSnapshot = true
-	flowConnConfigOld.Env = map[string]string{
-		"PEERDB_CLICKHOUSE_ENABLE_JSON": "true",
-		"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(shared.IntervalVersion_MongoDBFullDocumentColumnToDoc), 10),
-	}
-	flowConnConfigOld.Version = shared.IntervalVersion_MongoDBFullDocumentColumnToDoc
+
+	flowConnConfigOld.Env["PEERDB_FORCE_INTERNAL_VERSION"] = strconv.FormatUint(
+		uint64(shared.InternalVersion_MongoDBFullDocumentColumnToDoc), 10)
+	flowConnConfigOld.Version = shared.InternalVersion_MongoDBFullDocumentColumnToDoc
 
 	collectionOld := adminClient.Database(srcDatabase).Collection(srcTableOld)
 
@@ -385,7 +395,7 @@ func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
@@ -452,7 +462,7 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
@@ -513,7 +523,7 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 		TableMappings: TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
@@ -568,49 +578,51 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 	RequireEnvCanceled(t, env)
 }
 
-func (s MongoClickhouseSuite) Test_Enable_Json() {
+func (s MongoClickhouseSuite) Test_Json_Disabled() {
 	t := s.T()
 	srcDatabase := GetTestDatabase(s.Suffix())
-	srcTable := "test_full_document_json"
-	dstTable := "test_full_document_json_dst"
+	srcTable := "test_json_disabled"
+	dstTable := "test_json_disabled_dst"
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:   AddSuffix(s, srcTable),
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+	flowConnConfig.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "false"
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
-	res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
 	require.NoError(t, err)
-	require.True(t, res.Acknowledged)
+	require.True(t, insertRes.Acknowledged)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
-	EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
+	EnvWaitForCount(env, s, "initial load", dstTable, "_id,doc", 1)
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
-	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key2", Value: "val2"}}, options.InsertOne())
+	insertRes, err = collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, insertRes.Acknowledged)
-	EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable, dstTable, "_id,doc")
-	oid := bson.D{bson.E{Key: "_id", Value: res.InsertedID}}
+	EnvWaitForCount(env, s, "cdc", dstTable, "_id,doc", 2)
 
-	replaceRes, err := collection.ReplaceOne(t.Context(), oid, bson.D{bson.E{Key: "key2", Value: "val2"}}, options.Replace())
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
 	require.NoError(t, err)
-	require.Equal(t, int64(1), replaceRes.ModifiedCount)
-	EnvWaitForEqualTablesWithNames(env, s, "replace event", srcTable, dstTable, "_id,doc")
+	defer ch.Close()
 
-	deleteRes, err := collection.DeleteOne(t.Context(), oid, options.DeleteOne())
-	require.NoError(t, err)
-	require.Equal(t, int64(1), deleteRes.DeletedCount)
-	EnvWaitForEqualTablesWithNames(env, s, "delete event", srcTable, dstTable, "_id,doc")
+	var columnType string
+	row := ch.QueryRow(t.Context(),
+		fmt.Sprintf("SELECT type FROM system.columns WHERE database = '%s' AND table = '%s' AND name = 'doc'",
+			peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, row.Err())
+	require.NoError(t, row.Scan(&columnType))
+	require.Equal(t, "String", columnType, "doc column should be of type String when JSON is disabled")
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
@@ -630,10 +642,14 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 		TableMappings: TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
 	db := s.Source().(*MongoSource).AdminClient().Database(srcDatabase)
+	err := db.CreateCollection(t.Context(), srcTable1)
+	require.NoError(t, err)
+	err = db.CreateCollection(t.Context(), srcTable2)
+	require.NoError(t, err)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -688,9 +704,8 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)

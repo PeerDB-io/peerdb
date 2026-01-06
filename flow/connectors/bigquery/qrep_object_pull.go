@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/google/uuid"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -32,8 +33,6 @@ func (c *BigQueryConnector) PullQRepObjects(
 	partition *protos.QRepPartition,
 	stream *model.QObjectStream,
 ) (int64, int64, error) {
-	defer close(stream.Objects)
-
 	stream.SetFormat(model.QObjectStreamBigQueryExportAvroFormat)
 
 	schema, err := c.getQRepSchema(ctx, config)
@@ -55,8 +54,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
 	}
-	bucketName := stagingPath.Bucket()
-	prefix := stagingPath.QueryPrefix()
+	tablePath := stagingPath.JoinPath(config.WatermarkTable)
+	bucketName := tablePath.Bucket()
+	prefix := tablePath.QueryPrefix()
 
 	bucket := c.storageClient.Bucket(bucketName)
 
@@ -127,7 +127,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 
 	it := bucket.Objects(ctx, &storage.Query{
 		Prefix:      prefix,
-		Delimiter:   "/",
+		Delimiter:   "/", // to avoid listing "folders"
 		StartOffset: objectRange.Start,
 		EndOffset:   objectRange.End,
 	})
@@ -144,6 +144,12 @@ func (c *BigQueryConnector) PullQRepObjects(
 		}
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
+		}
+
+		if attrs.Name == "" {
+			// ObjectIterator may return empty Name for prefixes if Delimiter is set.
+			// We have to skip those. See: https://cloud.google.com/storage/docs/listing-objects#code-samples
+			continue
 		}
 
 		if err := processObject(attrs); err != nil {
@@ -187,7 +193,7 @@ func (c *BigQueryConnector) GetQRepPartitions(
 
 	it := bucket.Objects(ctx, &storage.Query{
 		Prefix:      prefix,
-		Delimiter:   "/",
+		Delimiter:   "/", // to avoid listing "folders"
 		StartOffset: startOffset,
 	})
 
@@ -195,7 +201,8 @@ func (c *BigQueryConnector) GetQRepPartitions(
 	var currentPartition *protos.QRepPartition
 	var currentPartitionTotalSize uint64
 
-	var projectedMaximumPartitionSize *uint64
+	var projectedMaximumPartitionSize uint64
+	var projectedPartitionSizeCalculated bool
 
 	for {
 		attrs, err := it.Next()
@@ -206,17 +213,23 @@ func (c *BigQueryConnector) GetQRepPartitions(
 			return nil, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
 		}
 
+		if attrs.Name == "" {
+			// ObjectIterator may return empty Name for prefixes if Delimiter is set.
+			// We have to skip those. See: https://cloud.google.com/storage/docs/listing-objects#code-samples
+			continue
+		}
+
 		// we only want the first object after the start offset
 		if attrs.Name == startOffset {
 			continue
 		}
 
-		if projectedMaximumPartitionSize == nil {
+		if !projectedPartitionSizeCalculated {
 			rowSize := avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
-			partitionSize := uint64(config.NumRowsPerPartition) * rowSize
-			projectedMaximumPartitionSize = &partitionSize
+			projectedMaximumPartitionSize = uint64(config.NumRowsPerPartition) * rowSize
+			projectedPartitionSizeCalculated = true
 
-			c.logger.Info("estimated avro object average row size", slog.Uint64("size", partitionSize))
+			c.logger.Info("estimated avro object average row size", slog.Uint64("size", projectedMaximumPartitionSize))
 		}
 
 		if currentPartition == nil {
@@ -237,7 +250,7 @@ func (c *BigQueryConnector) GetQRepPartitions(
 		currentPartitionTotalSize += uint64(attrs.Size)
 		currentPartition.Range.GetObjectIdRange().End = attrs.Name
 
-		if currentPartitionTotalSize >= *projectedMaximumPartitionSize {
+		if currentPartitionTotalSize >= projectedMaximumPartitionSize {
 			partitions = append(partitions, currentPartition)
 			currentPartition = nil
 			currentPartitionTotalSize = 0
@@ -276,11 +289,12 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 		}
 
 		qField := types.QField{
-			Name:      field.Name,
-			Type:      qValueKind,
-			Nullable:  !field.Required,
-			Precision: int16(field.Precision),
-			Scale:     int16(field.Scale),
+			Name:         field.Name,
+			Type:         qValueKind,
+			OriginalType: string(field.Type),
+			Nullable:     !field.Required,
+			Precision:    int16(field.Precision),
+			Scale:        int16(field.Scale),
 		}
 
 		fields = append(fields, qField)
@@ -306,7 +320,9 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		return nil, nil, fmt.Errorf("failed to fetch flow config from db: %w", err)
 	}
 
-	jobs := make([]*bigquery.Job, 0, len(cfg.TableMappings))
+	_ = c.LogFlowInfo(ctx, flowName, "Starting snapshot BigQuery export to GCS staging bucket")
+
+	jobs := make(map[string]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
 		uri := fmt.Sprintf("%s/%s/*.avro", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
 		gcsRef := bigquery.NewGCSReference(uri)
@@ -322,16 +338,29 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		extractor := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table).ExtractorTo(gcsRef)
 		job, err := extractor.Run(ctx)
 		if err != nil {
+			var apiErr *googleapi.Error
+			if errors.As(err, &apiErr) {
+				if apiErr.Code == 403 {
+					_ = c.LogFlowInfo(ctx, flowName, fmt.Sprintf(
+						"Permission denied error when starting export job for table %s: %s",
+						tm.SourceTableIdentifier,
+						apiErr.Message,
+					))
+				}
+			}
+
 			return nil, nil, fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
 		}
-		jobs = append(jobs, job)
+		jobs[tm.SourceTableIdentifier] = job
 	}
-	for _, job := range jobs {
+	for sourceTableIdentifier, job := range jobs {
 		if status, err := job.Wait(ctx); err != nil {
 			return nil, nil, fmt.Errorf("error waiting for export job to complete: %w", err)
 		} else if err := status.Err(); err != nil {
 			return nil, nil, fmt.Errorf("export job completed with error: %w", err)
 		}
+
+		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTableIdentifier)
 	}
 
 	return nil, cfg.SnapshotStagingPath, nil
@@ -397,22 +426,22 @@ func (c *BigQueryConnector) FinishExport(v any) error {
 	return nil
 }
 
-func (c *BigQueryConnector) SetupReplConn(_ context.Context) error {
+func (c *BigQueryConnector) SetupReplConn(context.Context, map[string]string) error {
 	return nil
 }
 
-func (c *BigQueryConnector) ReplPing(_ context.Context) error {
+func (c *BigQueryConnector) ReplPing(context.Context) error {
 	return nil
 }
 
-func (c *BigQueryConnector) UpdateReplStateLastOffset(_ context.Context, _ model.CdcCheckpoint) error {
+func (c *BigQueryConnector) UpdateReplStateLastOffset(context.Context, model.CdcCheckpoint) error {
 	return nil
 }
 
-func (c *BigQueryConnector) PullFlowCleanup(_ context.Context, _ string) error {
+func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
 	return nil
 }
 
-func (c *BigQueryConnector) SetupReplication(_ context.Context, _ *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+func (c *BigQueryConnector) SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
 	return model.SetupReplicationResult{}, nil
 }

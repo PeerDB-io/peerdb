@@ -12,7 +12,6 @@ bytes = "1.0"
 chrono.workspace = true
 futures = "0.3"
 peer-cursor = { path = "../peer-cursor" }
-peer-connections = { path = "../peer-connections" }
 pgwire.workspace = true
 postgres-connection = { path = "../postgres-connection" }
 postgres-inet = "0.19.0"

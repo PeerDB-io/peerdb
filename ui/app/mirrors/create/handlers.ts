@@ -230,6 +230,9 @@ export function changesToTablesMapping(
           exclude: Array.from(row.exclude),
           columns: row.columns,
           engine: row.engine,
+          shardingKey: row.shardingKey,
+          policyName: row.policyName,
+          partitionByExpr: row.partitionByExpr,
         }) as TableMapping
     );
   return mapping;

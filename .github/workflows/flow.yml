@@ -23,7 +23,11 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
-        db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
+        db-version: [
+          {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
+          {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
+          {pg: 18, mysql: 'maria', mongo: '8.0', ch: 'latest'},
+        ]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -41,19 +45,13 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      mysql:
-        image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
-        ports:
-          - 3306:3306
-        env:
-          MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:8f9e1e944ba5ba21c5bd60877d0d267d8ac6e4d07e12509424197deb43c0ada5
+        image: redpandadata/redpanda@sha256:892b094d16233af1313e3bbbedef90f2c07b85108f966838acd14aa62a63b531
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.2.0@sha256:c0e8efbd41e3bdc912293889bae4402f3166f8d5a642f7f4d711b58dd8c2877e
+        image: elasticsearch:9.2.3@sha256:f1eee5cad02476a967aa040406c38e6e176b9eea4e0b99e997dcf8079e8ca0c2
         ports:
           - 9200:9200
         env:
@@ -61,7 +59,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.138.0@sha256:4a951ff0a9772f4fa8e9c7a326434370301b98b2b813933468dcb54aa6a6b5e5
+        image: otel/opentelemetry-collector-contrib:0.142.0@sha256:38c349c3b7a2fd7ea46700cde8fa13d35b699ef2ce245bdf34dae2a413512f76
         ports:
           - 4317:4317
       toxiproxy:
@@ -69,12 +67,13 @@ jobs:
         ports:
           - 18474:8474
           - 9902:9902
+          - 9904:9904
           - 9903:9903
           - 42001:42001
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:d5c9b76a243eb4503914b8e63368677bc25c8ff21f21fe24931118206f8fd933
+        image: linuxserver/openssh-server:latest@sha256:f6ed4e429022c33a7590059b262b59d689c7ec48a0027179fad8ae3a1ad6222d
         ports:
           - 2222:2222
         env:
@@ -87,15 +86,15 @@ jobs:
           DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
+      - uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
         with:
-          go-version: '1.25.3'
+          go-version: '1.25.5'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
@@ -136,7 +135,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@00943011d9042930efac3dcd3a170e4273319bc8 # v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         id: setup-aws
         with:
           audience: sts.amazonaws.com
@@ -145,9 +144,15 @@ jobs:
           mask-aws-account-id: true
           output-credentials: true
 
-      - name: MariaDB
-        if: matrix.db-version.mysql == 'maria'
-        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
+      - name: MySQL
+        run: |
+          if [ "${{ matrix.db-version.mysql }}" = "mysql-gtid" ]; then
+            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:9.5
+          elif [ "${{ matrix.db-version.mysql }}" = "mysql-pos" ]; then
+            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:5.7 --log_bin=mysql-bin --server-id=1 --bind-address=::
+          elif [ "${{ matrix.db-version.mysql }}" = "maria" ]; then
+            docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
+          fi
 
       - name: Mongo
         run: |
@@ -184,7 +189,7 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
         id: cache-minio
         with:
           path: ./minio
@@ -195,7 +200,7 @@ jobs:
         run: |
           curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
         id: cache-minio-client
         with:
           path: ./mc
@@ -225,7 +230,7 @@ jobs:
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
           docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
-          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
+          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
           docker exec "${{ job.services.catalog.id }}" sh -c 'cd /tmp/pgvector && make with_llvm=no && make with_llvm=no install' &&
           docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;CREATE EXTENSION vector;"
           -c "ALTER SYSTEM SET wal_level=logical;"
@@ -237,13 +242,20 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - name: get latest version of ClickHouse
+      - name: set ClickHouse version
         id: ch-version
         run: |
-          VERSION=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)
-          echo "ch_version=$VERSION" >> $GITHUB_OUTPUT
+          if [ "${{ matrix.db-version.ch }}" = "lts" ]; then
+            echo "ch_version=v25.8.11.66-lts" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.db-version.ch }}" = "stable" ]; then
+            echo "ch_version=v25.11.1.558-stable" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.db-version.ch }}" = "latest" ]; then
+            # note: latest tag does not always reflect the latest version (could be an update on an lts),
+            # but that is okay as we are only using it to invalidate the cache.
+            echo "ch_version=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)" >> $GITHUB_OUTPUT
+          fi
 
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
         id: cache-clickhouse
         with:
           path: ./clickhouse
@@ -252,10 +264,20 @@ jobs:
       - name: Install ClickHouse
         if: steps.cache-clickhouse.outputs.cache-hit != 'true'
         run: |
-          curl https://clickhouse.com | sh
+          if [[ "${{ matrix.db-version.ch }}" = 'latest' ]]; then
+            curl https://clickhouse.com | sh
+          else
+            VERSION="${{ steps.ch-version.outputs.ch_version }}"
+            VERSION_NUM=$(echo ${VERSION#v} | cut -d'-' -f1)
+            curl -sL https://github.com/ClickHouse/ClickHouse/releases/download/$VERSION/clickhouse-common-static-$VERSION_NUM-amd64.tgz | tar -xzf -
+            mv "clickhouse-common-static-$VERSION_NUM/usr/bin/clickhouse" ./clickhouse
+            rm -rf "clickhouse-common-static-$VERSION_NUM"
+            chmod +x clickhouse
+          fi
 
       - name: Run ClickHouse
         run: |
+          ./clickhouse --version
           cat > config1.xml <<EOF
           <clickhouse>
             <profiles><default></default></profiles>
@@ -411,13 +433,14 @@ jobs:
           go install gotest.tools/gotestsum@latest
       - name: run tests
         run: |
-          temporal server start-dev --namespace default --headless &
           mkdir coverage
+          mkdir -p ../logs
+          temporal server start-dev --namespace default --headless > ../logs/temporal.log 2>&1 &
           go build -cover -ldflags="-s -w" -o peer-flow
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
-          ./peer-flow worker &
-          ./peer-flow snapshot-worker &
-          ./peer-flow api --port 8112 --gateway-port 8113 &
+          ./peer-flow worker > ../logs/peer-flow-worker.log 2>&1 &
+          ./peer-flow snapshot-worker > ../logs/peer-flow-snapshot-worker.log 2>&1 &
+          ./peer-flow api --port 8112 --gateway-port 8113 > ../logs/peer-flow-api.log 2>&1 &
           gotestsum --format standard-quiet --no-color --junitfile ../test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
@@ -465,7 +488,7 @@ jobs:
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
           TOXIPROXY_POSTGRES_HOST: catalog
-          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
+          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
           PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
@@ -489,14 +512,22 @@ jobs:
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
 
+      - name: Upload peer-flow logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
+          path: logs/
+          retention-days: 30
+
       - name: Upload test results to Codecov
         if: success() || failure()
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
         with:
           report_type: test_results
           files: test-results.xml
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

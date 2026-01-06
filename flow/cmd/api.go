@@ -192,7 +192,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
-		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))),
 	}
 
 	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowApiServiceName, args.EnableOtelMetrics)
@@ -217,6 +217,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	}
 
 	requestLoggingMiddleware := middleware.RequestLoggingMiddleware(ctx)
+	recoveryMiddleware := middleware.RecoveryMiddleware()
 
 	serverOptions := []grpc.ServerOption{
 		// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged
@@ -224,6 +225,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 			authGrpcMiddleware,
 			middleware.RequestIdMiddleware(),
 			requestLoggingMiddleware,
+			recoveryMiddleware,
 		),
 	}
 

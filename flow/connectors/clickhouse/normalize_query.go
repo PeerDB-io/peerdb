@@ -24,10 +24,8 @@ type NormalizeQueryGenerator struct {
 	rawTableName                    string
 	isDeletedColName                string
 	tableMappings                   []*protos.TableMapping
-	Part                            uint64
-	batchIDToLoadForTable           int64
-	numParts                        uint64
-	syncBatchID                     int64
+	lastNormBatchID                 int64
+	endBatchID                      int64
 	enablePrimaryUpdate             bool
 	sourceSchemaAsDestinationColumn bool
 	cluster                         bool
@@ -37,12 +35,10 @@ type NormalizeQueryGenerator struct {
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
 func NewNormalizeQueryGenerator(
 	tableName string,
-	part uint64,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 	tableMappings []*protos.TableMapping,
-	syncBatchID int64,
-	batchIDToLoadForTable int64,
-	numParts uint64,
+	endBatchID int64,
+	lastNormBatchID int64,
 	enablePrimaryUpdate bool,
 	sourceSchemaAsDestinationColumn bool,
 	env map[string]string,
@@ -58,12 +54,10 @@ func NewNormalizeQueryGenerator(
 	}
 	return &NormalizeQueryGenerator{
 		TableName:                       tableName,
-		Part:                            part,
 		tableNameSchemaMapping:          tableNameSchemaMapping,
 		tableMappings:                   tableMappings,
-		syncBatchID:                     syncBatchID,
-		batchIDToLoadForTable:           batchIDToLoadForTable,
-		numParts:                        numParts,
+		endBatchID:                      endBatchID,
+		lastNormBatchID:                 lastNormBatchID,
 		enablePrimaryUpdate:             enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn: sourceSchemaAsDestinationColumn,
 		env:                             env,
@@ -281,10 +275,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	selectQuery.WriteString(projection.String())
 	fmt.Fprintf(&selectQuery,
 		" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.batchIDToLoadForTable, t.syncBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
-	if t.numParts > 1 {
-		fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", t.numParts, t.Part)
-	}
+		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 
 	if t.enablePrimaryUpdate {
 		if t.sourceSchemaAsDestinationColumn {
@@ -303,10 +294,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
 				" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
 			peerdb_clickhouse.QuoteIdentifier(t.rawTableName),
-			t.batchIDToLoadForTable, t.syncBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
-		if t.numParts > 1 {
-			fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", t.numParts, t.Part)
-		}
+			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 	}
 
 	chSettings := NewCHSettings(t.chVersion)

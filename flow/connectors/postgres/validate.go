@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -27,7 +28,7 @@ func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
 
 func (c *PostgresConnector) CheckSourceTables(
 	ctx context.Context,
-	tableNames []*utils.SchemaTable,
+	tableNames []*common.QualifiedTable,
 	tableMappings []*protos.TableMapping,
 	pubName string,
 	noCDC bool,
@@ -41,7 +42,7 @@ func (c *PostgresConnector) CheckSourceTables(
 	for idx, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
-			utils.QuoteLiteral(parsedTable.Schema), utils.QuoteLiteral(parsedTable.Table)))
+			utils.QuoteLiteral(parsedTable.Namespace), utils.QuoteLiteral(parsedTable.Table)))
 
 		selectedColumnsStr := "*"
 		if excludedColumns := tableMappings[idx].Exclude; len(excludedColumns) != 0 {
@@ -51,7 +52,7 @@ func (c *PostgresConnector) CheckSourceTables(
 			}
 
 			for i, col := range selectedColumns {
-				selectedColumns[i] = utils.QuoteIdentifier(col)
+				selectedColumns[i] = common.QuoteIdentifier(col)
 			}
 
 			selectedColumnsStr = strings.Join(selectedColumns, ", ")
@@ -96,7 +97,7 @@ func (c *PostgresConnector) CheckSourceTables(
 				if err := row.Scan(&schema, &table); err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("%s.%s", utils.QuoteIdentifier(schema), utils.QuoteIdentifier(table)), nil
+				return fmt.Sprintf("%s.%s", common.QuoteIdentifier(schema), common.QuoteIdentifier(table)), nil
 			})
 			if err != nil {
 				return err
@@ -116,6 +117,16 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		return errors.New("check replication permissions: conn is nil")
 	}
 
+	// check wal_level
+	var walLevel string
+	if err := c.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
+		return err
+	}
+
+	if walLevel != "logical" {
+		return errors.New("wal_level is not logical")
+	}
+
 	var replicationRes bool
 	err := c.conn.QueryRow(ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1", username).Scan(&replicationRes)
 	if err != nil {
@@ -133,19 +144,9 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		err := c.conn.QueryRow(ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication'").Scan(&setting)
 		if !errors.Is(err, pgx.ErrNoRows) {
 			if err != nil || setting != "on" {
-				return errors.New("postgres user does not have replication role")
+				return errors.New("rds.logical_replication setting must be enabled")
 			}
 		}
-	}
-
-	// check wal_level
-	var walLevel string
-	if err := c.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
-		return err
-	}
-
-	if walLevel != "logical" {
-		return errors.New("wal_level is not logical")
 	}
 
 	// max_wal_senders must be at least 2
@@ -186,9 +187,9 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	return nil
 }
 
-func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) error {
+func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context, env map[string]string) error {
 	// Check if we can create a replication connection
-	conn, err := c.CreateReplConn(ctx)
+	conn, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return fmt.Errorf("failed to create replication connection: %v", err)
 	}
@@ -217,7 +218,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	noCDC := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
 	if !noCDC {
 		// Check replication connectivity
-		if err := c.CheckReplicationConnectivity(ctx); err != nil {
+		if err := c.CheckReplicationConnectivity(ctx, cfg.Env); err != nil {
 			return fmt.Errorf("unable to establish replication connectivity: %w", err)
 		}
 
@@ -227,9 +228,9 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
+	sourceTables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		parsedTable, parseErr := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
 		}

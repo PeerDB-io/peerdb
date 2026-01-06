@@ -258,6 +258,10 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	if config.Cluster != "" {
 		settings["insert_distributed_sync"] = uint64(1)
 	}
+	clientName, err := internal.PeerDBClickHouseClientName(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load ClickHouse client name: %w", err)
+	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{shared.JoinHostPort(config.Host, config.Port)},
@@ -273,7 +277,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 				Name    string
 				Version string
 			}{
-				{Name: "peerdb"},
+				{Name: clientName},
 			},
 		},
 		Settings:    settings,

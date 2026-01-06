@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -16,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -48,7 +50,7 @@ func (c *MongoConnector) GetTableSchema(
 		Nullable:     false,
 	}
 	fullDocumentColumnName := DefaultFullDocumentColumnName
-	if internalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+	if internalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
 	dataFieldDescription := &protos.FieldDescription{
@@ -78,8 +80,7 @@ func (c *MongoConnector) GetTableSchema(
 func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream").
-		SetFullDocument(options.UpdateLookup).
-		SetFullDocumentBeforeChange(options.Off)
+		SetFullDocument(options.UpdateLookup)
 
 	pipeline, err := createPipeline(nil)
 	if err != nil {
@@ -123,7 +124,7 @@ func (c *MongoConnector) PullRecords(
 	defer req.RecordStream.Close()
 
 	fullDocumentColumnName := DefaultFullDocumentColumnName
-	if req.InternalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
 
@@ -134,8 +135,7 @@ func (c *MongoConnector) PullRecords(
 
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
-		SetFullDocument(options.UpdateLookup).
-		SetFullDocumentBeforeChange(options.Off)
+		SetFullDocument(options.UpdateLookup)
 
 	var resumeToken bson.Raw
 	var err error
@@ -155,7 +155,6 @@ func (c *MongoConnector) PullRecords(
 		return err
 	}
 
-	c.totalBytesRead.Store(0)
 	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		if isResumeTokenNotFoundError(err) && resumeToken != nil {
@@ -176,6 +175,7 @@ func (c *MongoConnector) PullRecords(
 	defer changeStream.Close(ctx)
 
 	var recordCount uint32
+	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
 	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
@@ -183,7 +183,7 @@ func (c *MongoConnector) PullRecords(
 		}
 		c.logger.Info("[mongo] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", c.totalBytesRead.Load()),
+			slog.Int64("bytes", cumulativeBytesProcessed.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
@@ -191,18 +191,18 @@ func (c *MongoConnector) PullRecords(
 	// after the first record arrives, we switch to configured idleTimeout
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 
-	reportBytesShutdown := shared.Interval(ctx, time.Second*10, func() {
-		read := c.deltaBytesRead.Swap(0)
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
+	reportBytesShutdown := common.Interval(ctx, time.Second*10, func() {
+		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 	})
 
 	defer func() {
 		cancelTimeout()
 		reportBytesShutdown()
-		read := c.deltaBytesRead.Swap(0)
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
+		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 	}()
 
 	checkpoint := func() {
@@ -264,7 +264,7 @@ func (c *MongoConnector) PullRecords(
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mongo] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
-				slog.Int64("bytes", c.totalBytesRead.Load()),
+				slog.Int64("bytes", cumulativeBytesProcessed.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 		}
@@ -338,6 +338,10 @@ func (c *MongoConnector) PullRecords(
 
 			return fmt.Errorf("change stream error: %w", err)
 		}
+
+		changeEventSize := int64(len(changeStream.Current))
+		deltaBytesProcessed.Add(changeEventSize)
+		cumulativeBytesProcessed.Add(changeEventSize)
 
 		var changeEvent ChangeEvent
 		if err := changeStream.Decode(&changeEvent); err != nil {
@@ -483,7 +487,7 @@ func (c *MongoConnector) FinishExport(any) error {
 	return nil
 }
 
-func (c *MongoConnector) SetupReplConn(context.Context) error {
+func (c *MongoConnector) SetupReplConn(context.Context, map[string]string) error {
 	return nil
 }
 

@@ -53,7 +53,7 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
-		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))),
 		ContextPropagators: []workflow.ContextPropagator{
 			internal.NewContextPropagator[*protos.FlowContextMetadata](internal.FlowMetadataKey),
 		},
@@ -109,6 +109,13 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	})
 
 	w.RegisterActivity(&activities.MaintenanceActivity{
+		CatalogPool:    conn,
+		Alerter:        alerting.NewAlerter(ctx, conn, otelManager),
+		OtelManager:    otelManager,
+		TemporalClient: c,
+	})
+
+	w.RegisterActivity(&activities.CancelTableAdditionActivity{
 		CatalogPool:    conn,
 		Alerter:        alerting.NewAlerter(ctx, conn, otelManager),
 		OtelManager:    otelManager,

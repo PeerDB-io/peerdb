@@ -6,12 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -196,6 +199,14 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
 	if !ok {
 		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
+	}
+
+	if mySource, isMysql := s.Source().(*MySqlSource); isMysql {
+		cmp, err := mySource.CompareServerVersion(t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(t, err)
+		if cmp < 0 {
+			t.Skip("skipping test because DROP COLUMN support requires binlog_row_metadata")
+		}
 	}
 
 	srcTable := "test_simple_schema_changes"
@@ -559,6 +570,234 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	RequireEnvCanceled(t, env)
 }
 
+// Test_Schema_Change_Lost_Column_Bug addresses a race condition where a column added to the
+// source table without a subsequent DML operation can be "lost" during schema evolution.
+// The scenario:
+//  1. CDC mirror is running with a small batch size
+//  2. ALTER TABLE adds good_column + INSERT (relation message sent for good_column)
+//  3. ALTER TABLE adds lost_column (NO subsequent DML, so no relation message yet)
+//  4. PeerDB syncs: adds good_column to destination, then applySchemaDelta updates catalog
+//     with latest source db schema (which includes lost_column)
+//  5. Next INSERT triggers relation message, adds lost_column to schemaDeltas
+//  6. PeerDB compares against catalog (which has lost_column) -> no delta detected
+//  7. Error: lost_column doesn't exist on destination but we try to insert data for it
+func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
+	t := s.T()
+
+	srcTable := "test_lost_column_bug"
+	dstTable := "test_lost_column_bug_dst"
+	srcTableName := AttachSchema(s, srcTable)
+	dstTableName := s.DestinationTable(dstTable)
+
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (id int PRIMARY KEY)`,
+		srcTableName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.Env = map[string]string{"PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG": "true"}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN good_column text NOT NULL`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, good_column) values (1, 'good1')`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN lost_column text`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "wait for first row synced", srcTable, dstTable, "id,good_column")
+
+	_, isPostgres := s.Source().(*PostgresSource)
+	_, isMySQL := s.Source().(*MySqlSource)
+
+	// for integer, postgres reports typmod -1 while mysql reports precision-based typmod (precision=10, scale=0)
+	var integerTypmod int32
+	if isPostgres {
+		integerTypmod = -1
+	} else if isMySQL {
+		integerTypmod = 655364
+	}
+
+	expectedCatalogSchema := &protos.TableSchema{
+		TableIdentifier:       srcTableName,
+		PrimaryKeyColumns:     []string{"id"},
+		IsReplicaIdentityFull: false,
+		NullableEnabled:       false,
+		System:                protos.TypeSystem_Q,
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "id",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: integerTypmod,
+				Nullable:     false,
+			},
+			{
+				Name:         "good_column",
+				Type:         string(types.QValueKindString),
+				TypeModifier: -1,
+				Nullable:     false,
+			},
+		},
+	}
+	if isMySQL {
+		// For MySQL, schema changes are not buffered, so lost_column appears in catalog immediately
+		expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
+			Name:         "lost_column",
+			Type:         string(types.QValueKindString),
+			TypeModifier: -1,
+			Nullable:     true,
+		})
+	}
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	EnvNoError(t, env, err)
+	catalogSchemas, err := internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	EnvNoError(t, env, err)
+	assert.Len(t, catalogSchemas, 1)
+	catalogSchema := catalogSchemas[dstTableName]
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedCatalogSchema, catalogSchema))
+
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, good_column, lost_column) VALUES (2, 'good2', 'lost2')`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "wait for second row synced", srcTable, dstTable, "id,good_column,lost_column")
+
+	if isPostgres {
+		// For Postgres, lost_column is added only after the second INSERT triggers a relation message
+		expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
+			Name:         "lost_column",
+			Type:         string(types.QValueKindString),
+			TypeModifier: -1,
+			Nullable:     true,
+		})
+	}
+	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	EnvNoError(t, env, err)
+	assert.Len(t, catalogSchemas, 1)
+	catalogSchema = catalogSchemas[dstTableName]
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedCatalogSchema, catalogSchema))
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
+	t := s.T()
+
+	_, isPostgres := s.Source().(*PostgresSource)
+	mySource, isMySQL := s.Source().(*MySqlSource)
+	if isMySQL {
+		cmp, err := mySource.CompareServerVersion(t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(t, err)
+		if cmp < 0 {
+			t.Skip("skipping test because drop column is not supported")
+		}
+	}
+
+	srcTable := "test_ddl_drop_column"
+	dstTable := "test_ddl_drop_column_dst"
+	srcTableName := AttachSchema(s, srcTable)
+	dstTableName := s.DestinationTable(dstTable)
+
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (id int PRIMARY KEY, col_to_drop_first text NOT NULL, col_to_drop_second text)`,
+		srcTableName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.Env = map[string]string{"PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG": "true"}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s DROP COLUMN col_to_drop_first`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, col_to_drop_second) VALUES (1, 'drop2b')`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s DROP COLUMN col_to_drop_second`, srcTableName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "wait for first row synced", srcTable, dstTable, "id")
+
+	// for integer, postgres reports typmod -1 while mysql reports precision-based typmod (precision=10, scale=0)
+	var integerTypmod int32
+	if isPostgres {
+		integerTypmod = -1
+	} else if isMySQL {
+		integerTypmod = 655364
+	}
+
+	// dropped columns persist in catalog
+	expectedCatalogSchema := &protos.TableSchema{
+		TableIdentifier:       srcTableName,
+		PrimaryKeyColumns:     []string{"id"},
+		IsReplicaIdentityFull: false,
+		NullableEnabled:       false,
+		System:                protos.TypeSystem_Q,
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "id",
+				Type:         string(types.QValueKindInt32),
+				TypeModifier: integerTypmod,
+				Nullable:     false,
+			},
+			{
+				Name:         "col_to_drop_first",
+				Type:         string(types.QValueKindString),
+				TypeModifier: -1,
+				Nullable:     false,
+			},
+			{
+				Name:         "col_to_drop_second",
+				Type:         string(types.QValueKindString),
+				TypeModifier: -1,
+				Nullable:     true,
+			},
+		},
+	}
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	EnvNoError(t, env, err)
+	catalogSchemas, err := internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	EnvNoError(t, env, err)
+	assert.Len(t, catalogSchemas, 1)
+	catalogSchema := catalogSchemas[dstTableName]
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedCatalogSchema, catalogSchema))
+
+	// Add a column to validate previously drop columns are handled correctly after schema deltas are applied
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN col_to_add text`, srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, col_to_add) VALUES (2, 'add2')`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "wait for second row synced", srcTable, dstTable, "id, col_to_add")
+
+	expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
+		Name:         "col_to_add",
+		Type:         string(types.QValueKindString),
+		TypeModifier: -1,
+		Nullable:     true,
+	})
+
+	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	EnvNoError(t, env, err)
+	assert.Len(t, catalogSchemas, 1)
+	catalogSchema = catalogSchemas[dstTableName]
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedCatalogSchema, catalogSchema))
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	t := s.T()
 
@@ -759,6 +998,96 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 
 	EnvWaitForEqualTablesWithNames(env, s,
 		"rows from parent and 3 child tables should be present", srcTable, dstTable, `id,name,created_at`)
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
+	t := s.T()
+
+	pgSource, ok := s.Source().(*PostgresSource)
+	if !ok {
+		t.Skip("test only applies to postgres")
+	}
+	conn := pgSource.PostgresConnector
+
+	srcTable := "test_custom_slot_cdc"
+	dstTable := "test_custom_slot_cdc_dst"
+	srcSchemaTable := AttachSchema(s, srcTable)
+	customSlotName := "112_custom_slot_" + strings.ToLower(shared.RandomString(8))
+	customPubName := "112_custom_pub_" + strings.ToLower(shared.RandomString(8))
+
+	// Create table and insert initial data
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+        CREATE TABLE IF NOT EXISTS %[1]s (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            value INTEGER NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT now()
+        );
+		CREATE PUBLICATION "%[2]s" FOR TABLE %[1]s;
+    `, srcSchemaTable, customPubName)))
+
+	// Insert initial data before creating slot
+	for i := range 5 {
+		require.NoError(t, s.Source().Exec(t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(name, value) VALUES ('initial_%d', %d)`,
+				srcSchemaTable, i, i)))
+	}
+	t.Logf("Inserted 5 initial rows before creating replication slot")
+
+	// Create custom replication slot
+	_, err := conn.Conn().Exec(t.Context(),
+		fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput')`, customSlotName))
+	require.NoError(t, err)
+	t.Logf("Created custom replication slot: %s", customSlotName)
+
+	// Insert more data after creating slot
+	for i := range 5 {
+		require.NoError(t, s.Source().Exec(t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(name, value) VALUES ('initial_%d', %d)`,
+				srcSchemaTable, i*10, i*10)))
+	}
+	t.Logf("Inserted 5 initial rows after creating replication slot")
+
+	// Ensure slot is cleaned up after test
+	t.Cleanup(func() {
+		_, _ = conn.Conn().Exec(t.Context(),
+			fmt.Sprintf(`SELECT pg_drop_replication_slot('%s')`, customSlotName))
+	})
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, "test_custom_slot_cdc"),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = false // CDC only mode
+	flowConnConfig.ReplicationSlotName = customSlotName
+	flowConnConfig.PublicationName = customPubName
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// Insert data after CDC starts - only these should be replicated
+	for i := range 10 {
+		EnvNoError(t, env, s.Source().Exec(t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(name, value) VALUES ('%s', %d)`,
+				srcSchemaTable, fmt.Sprintf("cdc_test_%d", i), i*100)))
+	}
+	t.Log("Inserted 10 rows during CDC")
+
+	EnvWaitForCount(env, s, "tables has 10+5 rows", dstTable, `id,name,value,created_at`, 15)
+	// Verify the custom replication slot is being used by checking slot stats
+	var slotName string
+	err = conn.Conn().QueryRow(t.Context(),
+		"SELECT slot_name FROM pg_replication_slots WHERE slot_name=$1 AND active='t'",
+		customSlotName).Scan(&slotName)
+	EnvNoError(t, env, err)
+	t.Logf("Verified custom replication slot %s is active", customSlotName)
+
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
 }

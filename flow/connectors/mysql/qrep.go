@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -54,7 +55,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	numPartitions := int64(config.NumPartitionsOverride)
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 
-	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+	parsedWatermarkTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse watermark table %s: %w", config.WatermarkTable, err)
 	}
@@ -75,7 +76,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s",
 			parsedWatermarkTable.MySQL(), config.WatermarkColumn)
 
-		totalRows, err := c.tableRowEstimate(ctx, parsedWatermarkTable.Schema, parsedWatermarkTable.Table)
+		totalRows, err := c.tableRowEstimate(ctx, parsedWatermarkTable.Namespace, parsedWatermarkTable.Table)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
 		}
@@ -142,8 +143,10 @@ func (c *MySqlConnector) GetQRepPartitions(
 		numPartitions = adjustedPartitions.AdjustedNumPartitions
 	}
 
-	watermarkMyType := rs.Fields[1].Type
-	watermarkQKind, err := qkindFromMysql(rs.Fields[1])
+	watermarkField := rs.Fields[1]
+	watermarkMyType := watermarkField.Type
+	watermarkUnsigned := (watermarkField.Flag & mysql.UNSIGNED_FLAG) != 0
+	watermarkQKind, err := qkindFromMysqlType(watermarkField.Type, watermarkUnsigned, watermarkField.Charset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert mysql type to qvaluekind: %w", err)
 	}
@@ -226,7 +229,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		return nil
 	}
 
-	shutDown := shared.Interval(ctx, time.Minute, func() {
+	shutDown := common.Interval(ctx, time.Minute, func() {
 		read := c.deltaBytesRead.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	})
@@ -268,7 +271,6 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 	}
 
-	close(stream.Records)
 	c.logger.Info("[mysql] pulled records",
 		slog.Int64("records", totalRecords),
 		slog.Int64("bytes", c.totalBytesRead.Load()),

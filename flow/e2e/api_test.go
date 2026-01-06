@@ -64,14 +64,39 @@ func (s APITestSuite) DestinationTable(table string) string {
 	return table
 }
 
+// checkMigrationCompleted checks if a migration has been completed for a given flow
+func (s APITestSuite) checkMigrationCompleted(
+	ctx context.Context,
+	conn *pgx.Conn,
+	flowName string,
+	migrationName string,
+) (bool, error) {
+	var completed bool
+	err := conn.QueryRow(
+		ctx,
+		"SELECT completed FROM flow_migrations WHERE flow_name = $1 AND migration_name = $2",
+		flowName,
+		migrationName,
+	).Scan(&completed)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			// Migration record doesn't exist, so it hasn't been completed
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check migration status: %w", err)
+	}
+
+	return completed, nil
+}
+
 // checkMetadataLastSyncStateValues checks the values of sync_batch_id and normalize_batch_id
 // in the metadata_last_sync_state table
 func (s APITestSuite) checkMetadataLastSyncStateValues(
 	env WorkflowRun,
 	flowConnConfig *protos.FlowConnectionConfigs,
 	reason string,
-	expectedSyncBatchId int64,
-	expectedNormalizeBatchId int64,
+	expectedSyncBatchId int64, //nolint:unparam
+	expectedNormalizeBatchId int64, //nolint:unparam
 ) {
 	EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
 		var syncBatchID pgtype.Int8
@@ -159,6 +184,24 @@ func (s APITestSuite) checkCatalogTableMapping(
 		}
 	}
 	return true, nil
+}
+
+func (s APITestSuite) getCatalogTableSchemaForSourceTable(
+	ctx context.Context,
+	conn *pgx.Conn,
+	flowName string,
+	sourceTableIdentifier string,
+) (*protos.TableSchema, error) {
+	var configBytes sql.RawBytes
+	if err := conn.QueryRow(ctx,
+		`SELECT table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_name = $2`,
+		flowName, sourceTableIdentifier,
+	).Scan(&configBytes); err != nil {
+		return nil, err
+	}
+
+	var config protos.TableSchema
+	return &config, proto.Unmarshal(configBytes, &config)
 }
 
 func testApi[TSource SuiteSource](
@@ -260,6 +303,59 @@ func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	require.NotNil(s.t, response)
 }
 
+func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
+	tests := []struct {
+		name                       string
+		sourceTableIdentifier      string
+		destinationTableIdentifier string
+	}{
+		{
+			name:                  "empty source (dot only)",
+			sourceTableIdentifier: ".",
+		},
+		{
+			name:                       "empty source schema",
+			sourceTableIdentifier:      ".table",
+			destinationTableIdentifier: "valid_dest",
+		},
+		{
+			name:                       "empty source table",
+			sourceTableIdentifier:      "schema.",
+			destinationTableIdentifier: "valid_dest",
+		},
+		{
+			name:                       "empty destination",
+			sourceTableIdentifier:      "public.valid_src",
+			destinationTableIdentifier: "",
+		},
+	}
+
+	for _, tc := range tests {
+		s.t.Run(tc.name, func(t *testing.T) {
+			flowConnConfig := &protos.FlowConnectionConfigs{
+				FlowJobName:     "invalid_mapping_test_" + s.suffix,
+				SourceName:      s.source.GeneratePeer(t).Name,
+				DestinationName: s.ch.Peer().Name,
+				TableMappings: []*protos.TableMapping{
+					{
+						SourceTableIdentifier:      tc.sourceTableIdentifier,
+						DestinationTableIdentifier: tc.destinationTableIdentifier,
+					},
+				},
+				DoInitialSnapshot: true,
+			}
+
+			response, err := s.ValidateCDCMirror(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+			require.Error(t, err, "expected validation to fail for %s", tc.name)
+			require.Nil(t, response)
+
+			st, ok := status.FromError(err)
+			require.True(t, ok, "expected gRPC status error")
+			require.Equal(t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition error code")
+		})
+	}
+}
+
 func (s APITestSuite) TestSchemaEndpoints() {
 	tableName := "listing"
 	peer := s.source.GeneratePeer(s.t)
@@ -349,7 +445,11 @@ func (s APITestSuite) TestSchemaEndpoints() {
 		require.Len(s.t, columns.Columns, 2)
 		require.Equal(s.t, "id", columns.Columns[0].Name)
 		require.True(s.t, columns.Columns[0].IsKey)
+		cmp, err := source.CompareServerVersion(s.t.Context(), "8")
+		require.NoError(s.t, err)
 		if source.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+			require.Equal(s.t, "int(11)", columns.Columns[0].Type)
+		} else if cmp < 0 {
 			require.Equal(s.t, "int(11)", columns.Columns[0].Type)
 		} else {
 			require.Equal(s.t, "int", columns.Columns[0].Type)
@@ -362,6 +462,44 @@ func (s APITestSuite) TestSchemaEndpoints() {
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", source))
 	}
+}
+
+func (s APITestSuite) TestGetTablesExcludeViews() {
+	tableName := "test_table"
+	viewName := "test_view"
+
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) VALUES (1, 'foo')", AttachSchema(s, tableName))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE VIEW %s AS SELECT * FROM %s", AttachSchema(s, viewName), AttachSchema(s, tableName))))
+	case *MongoSource:
+		adminClient := s.Source().(*MongoSource).AdminClient()
+		res, err := adminClient.Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "foo"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		require.NoError(s.t, adminClient.Database(Schema(s)).CreateView(s.t.Context(), viewName, tableName, bson.A{}))
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	peer := s.source.GeneratePeer(s.t)
+	tablesInSchema, err := s.GetTablesInSchema(s.t.Context(), &protos.SchemaTablesRequest{
+		PeerName:   peer.Name,
+		SchemaName: Schema(s),
+	})
+	require.NoError(s.t, err)
+
+	tableNames := make([]string, len(tablesInSchema.Tables))
+	for i, table := range tablesInSchema.Tables {
+		tableNames[i] = table.TableName
+	}
+	require.Contains(s.t, tableNames, tableName, "table should be in the list")
+	require.NotContains(s.t, tableNames, viewName, "view should not be in the list")
 }
 
 func (s APITestSuite) TestScripts() {
@@ -440,6 +578,10 @@ func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
 		s.t.Skip("only for MongoDB")
 	}
 
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	err := adminClient.Database(Schema(s)).CreateCollection(s.t.Context(), "t1")
+	require.NoError(s.t, err)
+
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "mongo_validation_" + s.suffix,
 		TableNameMapping: map[string]string{AttachSchema(s, "t1"): "t1"},
@@ -448,8 +590,7 @@ func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	// test retention hours (< 24 hours) validation failure
-	adminClient := s.Source().(*MongoSource).AdminClient()
-	err := adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
+	err = adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
 		bson.E{Key: "replSetResizeOplog", Value: 1},
 		bson.E{Key: "minRetentionHours", Value: mongo.MinOplogRetentionHours - 1},
 	}).Err()
@@ -1158,6 +1299,93 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	require.Len(s.t, tableStats.TablesData, 2)
 	require.Equal(s.t, int64(1), tableStats.TablesData[0].Counts.InsertsCount)
 	require.Equal(s.t, int64(1), tableStats.TablesData[1].Counts.InsertsCount)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s APITestSuite) TestPostgresTableOIDsMigration() {
+	pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	cols := "id,val"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table1"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table2"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table1"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table2"))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "test_postgres_table_oids_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, "table1"): "table1", AttachSchema(s, "table2"): "table2"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// Test initial load
+	RequireEqualTables(s.ch, "table1", cols)
+	RequireEqualTables(s.ch, "table2", cols)
+
+	// Check Postgres table OIDs in catalog
+	var table1OID, table2OID uint32
+	err = pgconn.Conn().QueryRow(s.t.Context(),
+		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
+         ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
+		Schema(s), "table1").Scan(&table1OID)
+	require.NoError(s.t, err)
+	err = pgconn.Conn().QueryRow(s.t.Context(),
+		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
+         ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
+		Schema(s), "table2").Scan(&table2OID)
+	require.NoError(s.t, err)
+	require.NotEqual(s.t, uint32(0), table1OID)
+	require.NotEqual(s.t, uint32(0), table2OID)
+
+	schema1, err := s.getCatalogTableSchemaForSourceTable(
+		s.t.Context(),
+		pgconn.Conn(),
+		flowConnConfig.FlowJobName,
+		"table1",
+	)
+	require.NoError(s.t, err)
+	require.Equal(s.t, AttachSchema(s, "table1"), schema1.TableIdentifier)
+	require.Equal(s.t, table1OID, schema1.TableOid)
+
+	schema2, err := s.getCatalogTableSchemaForSourceTable(
+		s.t.Context(),
+		pgconn.Conn(),
+		flowConnConfig.FlowJobName,
+		"table2",
+	)
+	require.NoError(s.t, err)
+	require.Equal(s.t, AttachSchema(s, "table2"), schema2.TableIdentifier)
+	require.Equal(s.t, table2OID, schema2.TableOid)
+
+	ok, err = s.checkMigrationCompleted(
+		s.t.Context(),
+		pgconn.Conn(),
+		flowConnConfig.FlowJobName,
+		shared.POSTGRES_TABLE_OID_MIGRATION,
+	)
+	require.NoError(s.t, err)
+	require.True(s.t, ok, "expected Postgres table OID migration to be completed")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

@@ -62,17 +62,18 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		slog.Int("channelLen", len(stream.Records)))
 
 	if !stream.IsSchemaSet() {
-		schema, err := qe.cursorToSchema(ctx, tx, cursorName)
+		schema, schemaDebug, err := qe.cursorToSchema(ctx, tx, cursorName)
 		if err != nil {
 			return 0, 0, err
 		}
 		stream.SetSchema(schema)
+		stream.SetSchemaDebug(schemaDebug)
 	}
 
 	var totalNumRows int64
 	var totalNumBytes int64
 	for {
-		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.FetchAndChannelSize,
+		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.QRepFetchSize,
 			stream.DestinationType, stream.QRecordStream)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))

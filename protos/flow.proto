@@ -233,6 +233,7 @@ message TableSchema {
   TypeSystem system = 4;
   bool nullable_enabled = 5;
   repeated FieldDescription columns = 6;
+  uint32 table_oid = 7;
 }
 
 message FieldDescription {
@@ -398,6 +399,8 @@ message QRepConfig {
 
   repeated ColumnSetting columns = 27;
   uint32 version = 28;
+
+  peerdb_peers.DBType source_type = 30;
 }
 
 message QRepPartition {
@@ -627,4 +630,9 @@ message GetDefaultPartitionKeyForTablesInput {
 
 message GetDefaultPartitionKeyForTablesOutput {
   map<string, string> table_default_partition_key_mapping = 1;
+}
+
+message GetFlowConfigAndWorkflowIdFromCatalogOutput {
+  FlowConnectionConfigsCore flow_connection_configs = 1;
+  string workflow_id = 2;
 }

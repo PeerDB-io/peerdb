@@ -1,11 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::{Debug, Write},
-    fs::File,
     io,
     sync::Arc,
     time::Duration,
 };
+
+#[cfg(feature = "tls")]
+use std::fs::File;
 
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
@@ -16,7 +18,6 @@ use cursor::PeerCursors;
 use dashmap::{DashMap, mapref::entry::Entry as DashEntry};
 use flow_rs::grpc::{FlowGrpcClient, PeerCreationResult};
 use futures::Sink;
-use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     QueryExecutor, QueryOutput, Schema,
     util::{records_to_query_response, sendable_stream_to_query_response},
@@ -27,7 +28,10 @@ use pgwire::{
         ClientInfo, ClientPortalStore, PgWireServerHandlers, Type,
         auth::{
             AuthSource, LoginInfo, Password, ServerParameterProvider, StartupHandler,
-            scram::{SASLScramAuthStartupHandler, gen_salted_password},
+            sasl::{
+                SASLAuthStartupHandler,
+                scram::{ScramAuth, gen_salted_password},
+            },
         },
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler},
@@ -46,18 +50,25 @@ use pt::{
     peerdb_peers::{Peer, peer::Config},
 };
 use rand::Rng;
-use rustls_pemfile::{certs, pkcs8_private_keys};
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
-use tokio_rustls::TlsAcceptor;
-use tokio_rustls::rustls::ServerConfig;
+
+// Import TlsAcceptor from pgwire (available regardless of tls feature)
+use pgwire::tokio::TlsAcceptor;
+
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+#[cfg(feature = "tls")]
+use {
+    rustls_pemfile::{certs, pkcs8_private_keys},
+    rustls_pki_types::{CertificateDer, PrivateKeyDer},
+    tokio_rustls::rustls::ServerConfig,
+};
 
 mod cursor;
 
+#[derive(Debug)]
 pub struct FixedPasswordAuthSource {
     password: String,
 }
@@ -82,7 +93,6 @@ impl AuthSource for FixedPasswordAuthSource {
 
 pub struct NexusBackend {
     catalog: Arc<Catalog>,
-    peer_connections: PeerConnectionTracker,
     query_parser: NexusQueryParser,
     peer_cursors: Mutex<PeerCursors>,
     executors: DashMap<String, Arc<dyn QueryExecutor>>,
@@ -93,14 +103,12 @@ pub struct NexusBackend {
 impl NexusBackend {
     pub fn new(
         catalog: Arc<Catalog>,
-        peer_connections: PeerConnectionTracker,
         flow_handler: Option<Arc<Mutex<FlowGrpcClient>>>,
         peerdb_fdw_mode: bool,
     ) -> Self {
         let query_parser = NexusQueryParser::new(catalog.clone());
         Self {
             catalog,
-            peer_connections,
             query_parser,
             peer_cursors: Mutex::new(PeerCursors::new()),
             executors: DashMap::new(),
@@ -110,11 +118,11 @@ impl NexusBackend {
     }
 
     // execute a statement on a peer
-    async fn process_execution<'a>(
+    async fn process_execution(
         &self,
         result: QueryOutput,
         peer_holder: Option<Box<Peer>>,
-    ) -> PgWireResult<Vec<Response<'a>>> {
+    ) -> PgWireResult<Vec<Response>> {
         match result {
             QueryOutput::AffectedRows(rows) => {
                 Ok(vec![Response::Execution(Tag::new("OK").with_rows(rows))])
@@ -161,7 +169,7 @@ impl NexusBackend {
     fn handle_mirror_existence(
         if_not_exists: bool,
         flow_name: &str,
-    ) -> PgWireResult<Vec<Response<'static>>> {
+    ) -> PgWireResult<Vec<Response>> {
         if if_not_exists {
             let existing_mirror_success = "MIRROR ALREADY EXISTS";
             Ok(vec![Response::Execution(Tag::new(existing_mirror_success))])
@@ -205,10 +213,10 @@ impl NexusBackend {
         }
     }
 
-    async fn handle_drop_mirror<'a>(
+    async fn handle_drop_mirror(
         &self,
         drop_mirror_stmt: &NexusStatement,
-    ) -> PgWireResult<Vec<Response<'a>>> {
+    ) -> PgWireResult<Vec<Response>> {
         match drop_mirror_stmt {
             NexusStatement::PeerDDL { stmt: _, ddl } => match ddl.as_ref() {
                 PeerDDL::DropMirror {
@@ -250,10 +258,10 @@ impl NexusBackend {
         }
     }
 
-    async fn handle_create_mirror_for_select<'a>(
+    async fn handle_create_mirror_for_select(
         &self,
         create_mirror_stmt: &NexusStatement,
-    ) -> PgWireResult<Vec<Response<'a>>> {
+    ) -> PgWireResult<Vec<Response>> {
         match create_mirror_stmt {
             NexusStatement::PeerDDL { stmt: _, ddl } => match ddl.as_ref() {
                 PeerDDL::CreateMirrorForSelect {
@@ -299,10 +307,7 @@ impl NexusBackend {
         }
     }
 
-    async fn handle_query<'a>(
-        &self,
-        nexus_stmt: NexusStatement,
-    ) -> PgWireResult<Vec<Response<'a>>> {
+    async fn handle_query(&self, nexus_stmt: NexusStatement) -> PgWireResult<Vec<Response>> {
         match nexus_stmt {
             NexusStatement::PeerDDL { stmt: _, ref ddl } => match ddl.as_ref() {
                 PeerDDL::CreatePeer { peer, .. } => {
@@ -641,32 +646,41 @@ impl NexusBackend {
             DashEntry::Occupied(entry) => Arc::clone(entry.get()),
             DashEntry::Vacant(entry) => {
                 let executor: Arc<dyn QueryExecutor> = match &peer.config {
+                    #[cfg(feature = "bigquery")]
                     Some(Config::BigqueryConfig(c)) => {
-                        let executor = peer_bigquery::BigQueryQueryExecutor::new(
-                            peer.name.clone(),
-                            c,
-                            self.peer_connections.clone(),
-                        )
-                        .await?;
+                        let executor =
+                            peer_bigquery::BigQueryQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
+                    #[cfg(not(feature = "bigquery"))]
+                    Some(Config::BigqueryConfig(_)) => {
+                        return Err(anyhow::anyhow!("BigQuery support not compiled in"));
+                    }
+                    #[cfg(feature = "mysql")]
                     Some(Config::MysqlConfig(c)) => {
                         let executor =
                             peer_mysql::MySqlQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
+                    }
+                    #[cfg(not(feature = "mysql"))]
+                    Some(Config::MysqlConfig(_)) => {
+                        return Err(anyhow::anyhow!("MySQL support not compiled in"));
                     }
                     Some(Config::PostgresConfig(c)) => {
                         let executor =
                             peer_postgres::PostgresQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
+                    #[cfg(feature = "snowflake")]
                     Some(Config::SnowflakeConfig(c)) => {
                         let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
                         Arc::new(executor)
                     }
-                    _ => {
-                        panic!("peer type not supported: {peer:?}")
+                    #[cfg(not(feature = "snowflake"))]
+                    Some(Config::SnowflakeConfig(_)) => {
+                        return Err(anyhow::anyhow!("Snowflake support not compiled in"));
                     }
+                    _ => return Err(anyhow::anyhow!("Unsupported peer type: {0:?}", peer.r#type)),
                 };
 
                 entry.insert(Arc::clone(&executor));
@@ -686,6 +700,7 @@ impl NexusBackend {
             NexusStatement::PeerQuery { stmt, assoc } => {
                 let schema: Option<Schema> = match assoc {
                     QueryAssociation::Peer(peer) => match &peer.config {
+                        #[cfg(feature = "bigquery")]
                         Some(Config::BigqueryConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
@@ -694,6 +709,13 @@ impl NexusBackend {
                             })?;
                             executor.describe(stmt).await?
                         }
+                        #[cfg(not(feature = "bigquery"))]
+                        Some(Config::BigqueryConfig(_)) => {
+                            return Err(PgWireError::ApiError(
+                                "BigQuery support not compiled in".into(),
+                            ));
+                        }
+                        #[cfg(feature = "mysql")]
                         Some(Config::MysqlConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
@@ -701,6 +723,12 @@ impl NexusBackend {
                                 )
                             })?;
                             executor.describe(stmt).await?
+                        }
+                        #[cfg(not(feature = "mysql"))]
+                        Some(Config::MysqlConfig(_)) => {
+                            return Err(PgWireError::ApiError(
+                                "MySQL support not compiled in".into(),
+                            ));
                         }
                         Some(Config::PostgresConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
@@ -710,6 +738,7 @@ impl NexusBackend {
                             })?;
                             executor.describe(stmt).await?
                         }
+                        #[cfg(feature = "snowflake")]
                         Some(Config::SnowflakeConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
@@ -718,8 +747,16 @@ impl NexusBackend {
                             })?;
                             executor.describe(stmt).await?
                         }
+                        #[cfg(not(feature = "snowflake"))]
+                        Some(Config::SnowflakeConfig(_)) => {
+                            return Err(PgWireError::ApiError(
+                                "Snowflake support not compiled in".into(),
+                            ));
+                        }
                         _ => {
-                            panic!("peer type not supported: {peer:?}")
+                            return Err(PgWireError::ApiError(
+                                format!("Unsupported peer type: {0:?}", peer.r#type).into(),
+                            ));
                         }
                     },
                     QueryAssociation::Catalog => self.catalog.describe(stmt).await?,
@@ -733,7 +770,7 @@ impl NexusBackend {
 
 #[async_trait]
 impl SimpleQueryHandler for NexusBackend {
-    async fn do_query<'a, C>(&self, _client: &mut C, sql: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, sql: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -748,41 +785,48 @@ impl SimpleQueryHandler for NexusBackend {
 fn parameter_to_string(portal: &Portal<NexusParsedStatement>, idx: usize) -> PgWireResult<String> {
     // the index is managed from portal's parameters count so it's safe to
     // unwrap here.
-    let param_type = portal.statement.parameter_types.get(idx).unwrap();
-    match param_type {
-        &Type::VARCHAR | &Type::TEXT => Ok(format!(
-            "'{}'",
-            portal
-                .parameter::<String>(idx, param_type)?
-                .map(|s| s.replace('\'', "''"))
-                .as_deref()
-                .unwrap_or("")
-        )),
-        &Type::BOOL => Ok(portal
-            .parameter::<bool>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        &Type::INT4 => Ok(portal
-            .parameter::<i32>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        &Type::INT8 => Ok(portal
-            .parameter::<i64>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        &Type::FLOAT4 => Ok(portal
-            .parameter::<f32>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        &Type::FLOAT8 => Ok(portal
-            .parameter::<f64>(idx, param_type)?
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "".to_owned())),
-        _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+    if let Some(param_type) = portal.statement.parameter_types.get(idx).unwrap() {
+        match param_type {
+            &Type::VARCHAR | &Type::TEXT => Ok(format!(
+                "'{}'",
+                portal
+                    .parameter::<String>(idx, param_type)?
+                    .map(|s| s.replace('\'', "''"))
+                    .as_deref()
+                    .unwrap_or("")
+            )),
+            &Type::BOOL => Ok(portal
+                .parameter::<bool>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            &Type::INT4 => Ok(portal
+                .parameter::<i32>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            &Type::INT8 => Ok(portal
+                .parameter::<i64>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            &Type::FLOAT4 => Ok(portal
+                .parameter::<f32>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            &Type::FLOAT8 => Ok(portal
+                .parameter::<f64>(idx, param_type)?
+                .map(|v| v.to_string())
+                .unwrap_or_default()),
+            _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "22023".to_owned(),
+                "unsupported_parameter_value".to_owned(),
+            )))),
+        }
+    } else {
+        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
             "ERROR".to_owned(),
             "22023".to_owned(),
-            "unsupported_parameter_value".to_owned(),
-        )))),
+            "missing_parameter_value".to_owned(),
+        ))))
     }
 }
 
@@ -795,12 +839,12 @@ impl ExtendedQueryHandler for NexusBackend {
         Arc::new(self.query_parser.clone())
     }
 
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         _client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
@@ -853,7 +897,18 @@ impl ExtendedQueryHandler for NexusBackend {
     {
         Ok(
             if let Some(schema) = self.do_describe(&target.statement).await? {
-                DescribeStatementResponse::new(target.parameter_types.clone(), (*schema).clone())
+                DescribeStatementResponse::new(
+                    target
+                        .parameter_types
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, typ)| {
+                            typ.clone()
+                                .unwrap_or_else(|| schema[idx].datatype().clone())
+                        })
+                        .collect::<Vec<_>>(),
+                    (*schema).clone(),
+                )
             } else {
                 DescribeStatementResponse::no_data()
             },
@@ -1030,24 +1085,38 @@ async fn run_migrations(
 }
 
 fn setup_tls(args: &Args) -> Result<Option<TlsAcceptor>, io::Error> {
-    if let (Some(tls_cert), Some(tls_key)) = (args.tls_cert.as_deref(), args.tls_key.as_deref()) {
-        let cert = certs(&mut io::BufReader::new(File::open(tls_cert)?))
-            .collect::<Result<Vec<CertificateDer>, io::Error>>()?;
+    #[cfg(feature = "tls")]
+    {
+        if let (Some(tls_cert), Some(tls_key)) = (args.tls_cert.as_deref(), args.tls_key.as_deref())
+        {
+            let cert = certs(&mut io::BufReader::new(File::open(tls_cert)?))
+                .collect::<Result<Vec<CertificateDer>, io::Error>>()?;
 
-        let key = pkcs8_private_keys(&mut io::BufReader::new(File::open(tls_key)?))
-            .map(|key| key.map(PrivateKeyDer::from))
-            .collect::<Result<Vec<PrivateKeyDer>, io::Error>>()?
-            .remove(0);
+            let key = pkcs8_private_keys(&mut io::BufReader::new(File::open(tls_key)?))
+                .map(|key| key.map(PrivateKeyDer::from))
+                .collect::<Result<Vec<PrivateKeyDer>, io::Error>>()?
+                .remove(0);
 
-        let mut config = ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(cert, key)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+            let mut config = ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(cert, key)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
 
-        config.alpn_protocols = vec![b"postgresql".to_vec()];
+            config.alpn_protocols = vec![b"postgresql".to_vec()];
 
-        Ok(Some(TlsAcceptor::from(Arc::new(config))))
-    } else {
+            Ok(Some(TlsAcceptor::from(Arc::new(config))))
+        } else {
+            Ok(None)
+        }
+    }
+    #[cfg(not(feature = "tls"))]
+    {
+        if args.tls_cert.is_some() || args.tls_key.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TLS certificates provided but TLS support not compiled in",
+            ));
+        }
         Ok(None)
     }
 }
@@ -1070,10 +1139,10 @@ impl PgWireServerHandlers for Handlers {
     }
 
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        Arc::new(SASLScramAuthStartupHandler::new(
-            self.authenticator.0.clone(),
-            self.authenticator.1.clone(),
-        ))
+        Arc::new(
+            SASLAuthStartupHandler::new(self.authenticator.1.clone())
+                .with_scram(ScramAuth::new(self.authenticator.0.clone())),
+        )
     }
 }
 
@@ -1105,12 +1174,6 @@ pub async fn main() -> anyhow::Result<()> {
 
     let tls_acceptor = setup_tls(&args)?;
 
-    let peer_conns = {
-        let conn_str = catalog_config.to_pg_connection_string();
-        let pconns = PeerConnections::new(&conn_str)?;
-        Arc::new(pconns)
-    };
-
     let server_addr = format!("{}:{}", args.host, args.port);
     let listener = TcpListener::bind(&server_addr).await.unwrap();
     tracing::info!("Listening on {}", server_addr);
@@ -1131,7 +1194,6 @@ pub async fn main() -> anyhow::Result<()> {
             v = listener.accept() => v,
         }?;
         let conn_flow_handler = flow_handler.clone();
-        let conn_peer_conns = peer_conns.clone();
         let authenticator = authenticator.clone();
         let pg_config = catalog_config.to_postgres_config();
         let kms_key_id = args.kms_key_id.clone();
@@ -1140,12 +1202,8 @@ pub async fn main() -> anyhow::Result<()> {
         tokio::task::spawn(async move {
             match Catalog::new(pg_config, &kms_key_id).await {
                 Ok(catalog) => {
-                    let conn_uuid = uuid::Uuid::new_v4();
-                    let tracker = PeerConnectionTracker::new(conn_uuid, conn_peer_conns);
-
                     let nexus = Arc::new(NexusBackend::new(
                         Arc::new(catalog),
-                        tracker,
                         conn_flow_handler,
                         args.peerdb_fdw_mode,
                     ));

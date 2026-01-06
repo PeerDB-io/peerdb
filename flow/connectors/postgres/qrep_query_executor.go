@@ -15,6 +15,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -24,19 +25,20 @@ import (
 type QRepQueryExecutor struct {
 	*PostgresConnector
 	logger      log.Logger
+	env         map[string]string
 	snapshot    string
 	flowJobName string
 	partitionID string
 	version     uint32
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, version uint32,
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, version, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID)
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, version uint32,
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
 	snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
@@ -45,6 +47,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, ve
 	}
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
+		env:               env,
 		snapshot:          snapshot,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
@@ -67,29 +70,49 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 	ctx context.Context,
 	tx pgx.Tx,
 	cursorName string,
-) (types.QRecordSchema, error) {
-	type attId struct {
-		relid uint32
-		num   uint16
+) (types.QRecordSchema, *types.NullableSchemaDebug, error) {
+	laxMode, err := internal.PeerDBAvroNullableLax(ctx, qe.env)
+	if err != nil {
+		return types.QRecordSchema{}, nil, err
 	}
 
 	rows, err := tx.Query(ctx, "FETCH 0 FROM "+cursorName)
 	if err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to fetch 0 for field descriptions: %w", err)
+		return types.QRecordSchema{}, nil, fmt.Errorf("failed to fetch 0 for field descriptions: %w", err)
 	}
 	fds := rows.FieldDescriptions()
+	rows.Close()
+
 	tableOIDset := make(map[uint32]struct{})
-	nullPointers := make(map[attId]*bool, len(fds))
 	qfields := make([]types.QField, len(fds))
+
+	// In lax mode: track debug info and map attIds to field indices
+	// In strict mode: track pointers to nullable fields
+	var schemaDebug *types.NullableSchemaDebug
+	var attIdToFieldIdx map[attId][]int // lax mode
+	var nullPointers map[attId]*bool    // strict mode
+
+	if laxMode {
+		schemaDebug = &types.NullableSchemaDebug{
+			PgxFields:      make([]types.PgxFieldDebug, len(fds)),
+			StrictNullable: make([]bool, len(fds)),
+			MatchFound:     make([]bool, len(fds)),
+		}
+		attIdToFieldIdx = make(map[attId][]int, len(fds))
+	} else {
+		nullPointers = make(map[attId]*bool, len(fds))
+	}
+
 	for i, fd := range fds {
 		tableOIDset[fd.TableOID] = struct{}{}
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping, qe.version)
+
 		if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
 			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = types.QField{
 				Name:      fd.Name,
 				Type:      ctype,
-				Nullable:  false,
+				Nullable:  laxMode, // lax=true, strict=false (until pg_attribute says otherwise)
 				Precision: precision,
 				Scale:     scale,
 			}
@@ -97,33 +120,163 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 			qfields[i] = types.QField{
 				Name:     fd.Name,
 				Type:     ctype,
-				Nullable: false,
+				Nullable: laxMode,
 			}
 		}
-		nullPointers[attId{
-			relid: fd.TableOID,
-			num:   fd.TableAttributeNumber,
-		}] = &qfields[i].Nullable
+
+		key := attId{relid: fd.TableOID, num: fd.TableAttributeNumber}
+		if laxMode {
+			schemaDebug.PgxFields[i] = types.PgxFieldDebug{
+				Name:                 fd.Name,
+				TableOID:             fd.TableOID,
+				TableAttributeNumber: fd.TableAttributeNumber,
+				DataTypeOID:          fd.DataTypeOID,
+			}
+			attIdToFieldIdx[key] = append(attIdToFieldIdx[key], i)
+		} else {
+			nullPointers[key] = &qfields[i].Nullable
+		}
 	}
-	rows.Close()
+
 	tableOIDs := slices.Collect(maps.Keys(tableOIDset))
-
-	rows, err = tx.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
-	if err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to query schema for field descriptions: %w", err)
+	if laxMode {
+		schemaDebug.QueriedTableOIDs = tableOIDs
 	}
 
-	var att attId
-	if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
-		if nullPointer, ok := nullPointers[att]; ok {
-			*nullPointer = true
+	// Query pg_attribute - different queries for lax vs strict
+	if laxMode {
+		if err := qe.populateLaxModeDebugInfo(ctx, tx, tableOIDs, schemaDebug, attIdToFieldIdx); err != nil {
+			return types.QRecordSchema{}, nil, err
+		}
+	} else {
+		// Strict mode: minimal query, just need nullable columns
+		rows, err := tx.Query(ctx,
+			"SELECT a.attrelid, a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull",
+			tableOIDs)
+		if err != nil {
+			return types.QRecordSchema{}, nil, fmt.Errorf("failed to query pg_attribute: %w", err)
+		}
+
+		var att attId
+		if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
+			if nullPointer, ok := nullPointers[att]; ok {
+				*nullPointer = true
+			}
+			return nil
+		}); err != nil {
+			return types.QRecordSchema{}, nil, fmt.Errorf("failed to process pg_attribute: %w", err)
+		}
+	}
+
+	return types.NewQRecordSchema(qfields), schemaDebug, nil
+}
+
+type attId struct {
+	relid uint32
+	num   uint16
+}
+
+// populateLaxModeDebugInfo populates debug info for diagnosing nullable mismatches.
+// The aim is to capture enough data that the customer can change the schema in any way
+// after the snapshot transaction is done and we still have a way to debug.
+func (qe *QRepQueryExecutor) populateLaxModeDebugInfo(
+	ctx context.Context,
+	tx pgx.Tx,
+	tableOIDs []uint32,
+	schemaDebug *types.NullableSchemaDebug,
+	attIdToFieldIdx map[attId][]int,
+) error {
+	// First, expand tableOIDs to include all parent tables (for full column info)
+	allTableOIDs := make(map[uint32]struct{})
+	for _, oid := range tableOIDs {
+		allTableOIDs[oid] = struct{}{}
+	}
+	parentOIDByTableOID := make(map[uint32]uint32)
+
+	// Iteratively find all parent tables
+	oidsToQuery := tableOIDs
+	for len(oidsToQuery) > 0 {
+		rows, err := tx.Query(ctx, `SELECT inhrelid, inhparent FROM pg_inherits WHERE inhrelid = ANY($1)`, oidsToQuery)
+		if err != nil {
+			return fmt.Errorf("failed to query pg_inherits: %w", err)
+		}
+		var childOID, parentOID uint32
+		var nextOids []uint32
+		if _, err := pgx.ForEachRow(rows, []any{&childOID, &parentOID}, func() error {
+			parentOIDByTableOID[childOID] = parentOID
+			if _, seen := allTableOIDs[parentOID]; !seen {
+				allTableOIDs[parentOID] = struct{}{}
+				nextOids = append(nextOids, parentOID)
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to process pg_inherits: %w", err)
+		}
+		oidsToQuery = nextOids
+	}
+
+	allOIDSlice := slices.Collect(maps.Keys(allTableOIDs))
+
+	// Query pg_attribute for ALL tables (children + parents)
+	rows, err := tx.Query(ctx, `
+		SELECT a.attrelid, a.attnum, a.attname, a.attnotnull, a.atttypid, a.attinhcount, a.attislocal
+		FROM pg_attribute a
+		WHERE a.attrelid = ANY($1) AND a.attnum > 0 AND NOT a.attisdropped
+		ORDER BY a.attrelid, a.attnum`,
+		allOIDSlice)
+	if err != nil {
+		return fmt.Errorf("failed to query pg_attribute: %w", err)
+	}
+
+	var row types.PgAttributeDebug
+	if _, err := pgx.ForEachRow(rows, []any{
+		&row.AttRelID, &row.AttNum, &row.AttName, &row.AttNotNull, &row.AttTypID, &row.AttInhCount, &row.AttIsLocal,
+	}, func() error {
+		schemaDebug.PgAttributeRows = append(schemaDebug.PgAttributeRows, row)
+
+		// Check if this pg_attribute row matches any pgx field
+		key := attId{relid: row.AttRelID, num: uint16(row.AttNum)}
+		if indices, ok := attIdToFieldIdx[key]; ok {
+			for _, idx := range indices {
+				// Mark that we found a match in pg_attribute for this field
+				schemaDebug.MatchFound[idx] = true
+				// Compute strict nullable: if NOT attnotnull, mark it nullable
+				if !row.AttNotNull {
+					schemaDebug.StrictNullable[idx] = true
+				}
+			}
 		}
 		return nil
 	}); err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to process schema for field descriptions: %w", err)
+		return fmt.Errorf("failed to process pg_attribute: %w", err)
 	}
 
-	return types.NewQRecordSchema(qfields), nil
+	// Query table names and schemas for all tables
+	rows, err = tx.Query(ctx, `
+		SELECT c.oid, c.relname, n.nspname
+		FROM pg_class c
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE c.oid = ANY($1)`,
+		allOIDSlice)
+	if err != nil {
+		return fmt.Errorf("failed to query pg_class: %w", err)
+	}
+
+	var oid uint32
+	var tableName, schemaName string
+	if _, err := pgx.ForEachRow(rows, []any{&oid, &tableName, &schemaName}, func() error {
+		schemaDebug.Tables = append(schemaDebug.Tables, types.TableDebug{
+			OID:        oid,
+			TableName:  tableName,
+			SchemaName: schemaName,
+			ParentOID:  parentOIDByTableOID[oid],
+		})
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to process pg_class: %w", err)
+	}
+
+	return nil
 }
 
 func (qe *QRepQueryExecutor) processRowsStream(
@@ -232,7 +385,9 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
 		defer close(errors)
-		if _, _, err := qe.ExecuteAndProcessQueryStream(ctx, stream, protos.DBType_DBTYPE_UNKNOWN, query, args...); err != nil {
+		_, _, err := qe.ExecuteAndProcessQueryStream(ctx, stream, protos.DBType_DBTYPE_UNKNOWN, query, args...)
+		stream.Close(err)
+		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
 			errorsError = err
 		}
@@ -301,7 +456,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	args ...any,
 ) (int64, int64, error) {
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
-	defer sink.Close(nil)
 
 	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
@@ -309,16 +463,10 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	})
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
-		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
-		sink.Close(err)
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
-	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
-	if err != nil {
-		sink.Close(err)
-	}
-	return totalRecords, totalBytes, err
+	return sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
 }
 
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
@@ -329,7 +477,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 ) (int64, int64, int64, error) {
 	var currentSnapshotXmin pgtype.Int8
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
-	defer sink.Close(nil)
 
 	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
@@ -337,21 +484,15 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	})
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
-		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
-		sink.Close(err)
-		return 0, 0, currentSnapshotXmin.Int64, err
+		return 0, 0, currentSnapshotXmin.Int64, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
 	if err := tx.QueryRow(ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to get current snapshot xmin", slog.Any("error", err))
-		sink.Close(err)
 		return 0, 0, currentSnapshotXmin.Int64, err
 	}
 
 	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
-	if err != nil {
-		sink.Close(err)
-	}
 	return totalRecords, totalBytes, currentSnapshotXmin.Int64, err
 }
 

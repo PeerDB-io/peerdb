@@ -49,3 +49,53 @@ func TestErrorConstructorsShouldReturnPointers(t *testing.T) {
 		})
 	}
 }
+
+// For consistency/convention, tests that all error types implement Error() method with pointer receiver
+func TestErrorMethodsShouldHavePointerReceivers(t *testing.T) {
+	cfg := &packages.Config{
+		Mode: packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
+		Dir:  ".",
+	}
+
+	pkgs, err := packages.Load(cfg, ".")
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1, "Expected exactly one package")
+
+	pkg := pkgs[0]
+
+	// Track error type names (structs that end with "Error")
+	errorTypes := make(map[string]bool)
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			// Find all struct types that end with "Error"
+			if typeSpec, ok := n.(*ast.TypeSpec); ok {
+				if _, isStruct := typeSpec.Type.(*ast.StructType); isStruct {
+					if strings.HasSuffix(typeSpec.Name.Name, "Error") {
+						errorTypes[typeSpec.Name.Name] = true
+					}
+				}
+			}
+			return true
+		})
+	}
+
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			if fn, ok := n.(*ast.FuncDecl); ok {
+				// Look for receiver methods
+				if fn.Recv != nil && len(fn.Recv.List) > 0 {
+					recvType := fn.Recv.List[0].Type
+					// Fail if found value receivers in error types
+					if recv, ok := recvType.(*ast.Ident); ok && errorTypes[recv.Name] {
+						pos := pkg.Fset.Position(fn.Pos())
+						assert.Fail(
+							t, "Error() method should have pointer receiver",
+							"%s: func (%s) Error() should be func (*%s) Error()",
+							pos.Filename, recv.Name, recv.Name)
+					}
+				}
+			}
+			return true
+		})
+	}
+}

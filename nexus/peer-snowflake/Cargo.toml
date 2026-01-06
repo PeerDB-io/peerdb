@@ -9,7 +9,6 @@ edition = "2024"
 anyhow = "1.0"
 async-trait = "0.1.57"
 base64 = "0.22"
-catalog = { path = "../catalog" }
 chrono.workspace = true
 futures = "0.3"
 hex = "0.4"

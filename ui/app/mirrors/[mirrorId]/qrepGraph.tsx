@@ -1,18 +1,11 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { PartitionStatus, TimeAggregateType } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Label } from '@/lib/Label';
-import {
-  BarElement,
-  CategoryScale,
-  Chart as ChartJS,
-  Legend,
-  LinearScale,
-  Title,
-  Tooltip,
-} from 'chart.js';
-import { useMemo, useState } from 'react';
+import { Chart as ChartJS, ChartOptions } from 'chart.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
@@ -22,23 +15,36 @@ type QRepGraphProps = {
 };
 
 function QrepGraph({ syncs }: QRepGraphProps) {
+  const theme = useTheme();
+  const isDarkMode = theme.theme === 'dark';
+  const selectTheme = useSelectTheme();
   const [aggregateType, setAggregateType] = useState<TimeAggregateType>(
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
 
-  ChartJS.register(
-    BarElement,
-    CategoryScale,
-    LinearScale,
-    Title,
-    Tooltip,
-    Legend
-  );
-  const chartOptions = {
-    maintainAspectRatio: false,
+  const chartRef = useRef<ChartJS<'bar'> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
+  }, []);
+
+  const chartOptions: ChartOptions<'bar'> = {
+    interaction: {
+      intersect: false,
+    },
     scales: {
       x: {
         grid: { display: false },
+      },
+      y: {
+        grid: {
+          color: isDarkMode ? '#333333' : '#e5e7eb',
+        },
       },
     },
   };
@@ -77,7 +83,7 @@ function QrepGraph({ syncs }: QRepGraphProps) {
           options={timeOptions}
           defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setAggregateType(val.value)}
-          theme={SelectTheme}
+          theme={selectTheme}
         />
       </div>
       <div style={{ height: '3rem', marginTop: '1rem' }}>
@@ -85,7 +91,15 @@ function QrepGraph({ syncs }: QRepGraphProps) {
       </div>
 
       <div style={{ height: '20rem' }}>
-        {qrepData && <Bar data={qrepData} options={chartOptions} />}
+        {qrepData && (
+          <Bar
+            ref={(chart) => {
+              chartRef.current = chart ?? null;
+            }}
+            data={qrepData}
+            options={chartOptions}
+          />
+        )}
       </div>
     </div>
   );

@@ -339,7 +339,7 @@ func GetAvroField(bqField *bigquery.FieldSchema) (*avro.Field, error) {
 	}
 
 	if !bqField.Required {
-		avroType, err = avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), avroType})
+		avroType, err = qvalue.NullableAvroSchema(avroType)
 		if err != nil {
 			return nil, err
 		}
@@ -359,7 +359,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	flowName string,
 ) (int64, error) {
 	var avroFile utils.AvroFile
-	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY)
+	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY, nil)
 	idLog := slog.Group("write-metadata",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("batchOrPartitionID", syncID),

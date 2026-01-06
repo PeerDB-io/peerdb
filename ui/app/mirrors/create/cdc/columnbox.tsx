@@ -62,14 +62,16 @@ export default function ColumnBox({
             }}
           >
             {column.name}
-            <p
+            <Label
+              as='span'
+              colorName='lowContrast'
               style={{
                 marginLeft: '0.5rem',
-                color: 'gray',
+                fontSize: 13,
               }}
             >
               {column.type}
-            </p>
+            </Label>
           </Label>
         }
         action={

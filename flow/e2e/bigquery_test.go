@@ -18,8 +18,8 @@ import (
 )
 
 func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
-	if val, ok := os.LookupEnv("CI_PG_VERSION"); ok && val != "16" {
-		t.Skip("Only running in PG16 to reduce flakiness from high concurrency")
+	if val, ok := os.LookupEnv("CI_PG_VERSION"); ok && val != "17" {
+		t.Skip("Only running in PG17 to reduce flakiness from high concurrency")
 	}
 
 	e2eshared.RunSuite(t, SetupBigquerySuite)

@@ -6,11 +6,14 @@ import (
 )
 
 type QField struct {
-	Name      string
-	Type      QValueKind
-	Precision int16
-	Scale     int16
-	Nullable  bool
+	Name string
+	Type QValueKind
+	// OriginalType is the original source type as a string
+	// Useful for custom type mappings, like BigQuery RECORD
+	OriginalType string
+	Precision    int16
+	Scale        int16
+	Nullable     bool
 }
 
 type QRecordSchema struct {
@@ -36,4 +39,49 @@ func (q QRecordSchema) GetColumnNames() []string {
 		names = append(names, field.Name)
 	}
 	return names
+}
+
+// PgxFieldDebug captures raw pgx FieldDescription data for debugging
+type PgxFieldDebug struct {
+	Name                 string
+	TableOID             uint32
+	TableAttributeNumber uint16
+	DataTypeOID          uint32
+}
+
+// PgAttributeDebug captures a row from pg_attribute query for debugging
+type PgAttributeDebug struct {
+	AttName     string
+	AttRelID    uint32
+	AttTypID    uint32
+	AttInhCount int32
+	AttNum      int16
+	AttNotNull  bool
+	AttIsLocal  bool
+}
+
+// TableDebug captures table metadata including parent OID for debugging
+type TableDebug struct {
+	TableName  string
+	SchemaName string
+	OID        uint32
+	ParentOID  uint32 // 0 if no parent
+}
+
+// NullableSchemaDebug captures ALL raw data for debugging nullable mismatches
+type NullableSchemaDebug struct {
+	// All field descriptions from pgx
+	PgxFields []PgxFieldDebug
+	// All rows returned from pg_attribute query (for all table OIDs)
+	PgAttributeRows []PgAttributeDebug
+	// The table OIDs we queried
+	QueriedTableOIDs []uint32
+	// Per-field: would this column be nullable under strict mode?
+	// Index matches qfields order. True = nullable, False = NOT nullable under strict
+	StrictNullable []bool
+	// Per-field: did we find a matching row in pg_attribute?
+	// Index matches qfields order. False means lookup failed (table OID or attnum mismatch)
+	MatchFound []bool
+	// Table metadata including names, schemas, and inheritance chain
+	Tables []TableDebug
 }

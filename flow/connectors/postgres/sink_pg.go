@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/postgres/sanitize"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -121,7 +122,7 @@ func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx
 	}
 	quotedCols := make([]string, 0, len(cols))
 	for _, col := range cols {
-		quotedCols = append(quotedCols, utils.QuoteIdentifier(col))
+		quotedCols = append(quotedCols, common.QuoteIdentifier(col))
 	}
 	ct, err := tx.Conn().PgConn().CopyFrom(
 		ctx,

@@ -5,14 +5,14 @@ on:
     branches: [main, release/*]
   pull_request:
     branches: [main, release/*]
-    paths: [nexus/**, protos/**, .github/workflows/ci.yml]
+    paths: [nexus/**, protos/**, .github/workflows/ci.yml, buf.gen.yaml]
 
 jobs:
   build:
     strategy:
       matrix:
         runner: [ubuntu-latest]
-        postgres-version: [13, 14, 15, 16, 17]
+        postgres-version: [14, 15, 16, 17, 18]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -30,7 +30,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
@@ -56,7 +56,7 @@ jobs:
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
           dir: "nexus/server/tests/assets/"
 
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           workspaces: nexus
 

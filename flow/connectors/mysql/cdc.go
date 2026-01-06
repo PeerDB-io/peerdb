@@ -26,8 +26,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -58,7 +61,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 ) (*protos.TableSchema, error) {
-	schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
+	qualifiedTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +73,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 
 	rs, err := c.Execute(ctx, fmt.Sprintf(`select column_name, column_type, column_key, is_nullable, numeric_precision, numeric_scale
 		from information_schema.columns where table_schema = '%s' and table_name = '%s' order by ordinal_position`,
-		mysql.Escape(schemaTable.Schema), mysql.Escape(schemaTable.Table)))
+		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +188,7 @@ func (c *MySqlConnector) SetupReplication(
 	return model.SetupReplicationResult{}, nil
 }
 
-func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
+func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error {
 	// mysql code will spin up new connection for each normalize for now
 	return nil
 }
@@ -270,8 +273,9 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 	stream, err := syncer.StartSync(pos)
 	if err != nil {
 		syncer.Close()
+		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLStreamingError(err)
 	}
-	return syncer, stream, nil, pos, err
+	return syncer, stream, nil, pos, nil
 }
 
 func (c *MySqlConnector) startCdcStreamingGtid(
@@ -285,8 +289,9 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
 		syncer.Close()
+		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLStreamingError(err)
 	}
-	return syncer, stream, gset, mysql.Position{}, err
+	return syncer, stream, gset, mysql.Position{}, nil
 }
 
 func (c *MySqlConnector) ReplPing(context.Context) error {
@@ -314,6 +319,16 @@ func (c *MySqlConnector) PullRecords(
 	if err != nil {
 		return err
 	}
+
+	versionToCmp := mysql_validation.MySQLMinVersionForBinlogRowMetadata
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		versionToCmp = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
+	}
+	cmp, err := c.CompareServerVersion(ctx, versionToCmp)
+	if err != nil {
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	binlogRowMetadataSupported := cmp >= 0
 
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
@@ -347,7 +362,7 @@ func (c *MySqlConnector) PullRecords(
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
 	}()
-	shutdown := shared.Interval(ctx, time.Minute, func() {
+	shutdown := common.Interval(ctx, time.Minute, func() {
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
 		c.logger.Info("[mysql] pulling records",
@@ -493,28 +508,37 @@ func (c *MySqlConnector) PullRecords(
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				// The issue is global, but only error if we see a table in the pipe
+				// Otherwise users could be confused
+				if binlogRowMetadataSupported && ev.Table.ColumnName == nil {
+					e := exceptions.NewMySQLUnsupportedBinlogRowMetadataError(string(ev.Table.Schema), string(ev.Table.Table))
+					c.logger.Error(e.Error())
+					return e
+				}
 				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 				fetchedBytes.Add(int64(len(event.RawData)))
 				totalFetchedBytes.Add(int64(len(event.RawData)))
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()
+
+				// Process TABLE_MAP_EVENT schema to detect new columns
+				var fields []*protos.FieldDescription
+				if ev.Table.ColumnName != nil {
+					var err error
+					fields, err = c.processTableMapEventSchema(
+						ctx, catalogPool, req, ev.Table,
+						sourceTableName, destinationTableName, schema, exclusion,
+					)
+					if err != nil {
+						return err
+					}
+				}
+
 				getFd := func(idx int) *protos.FieldDescription {
-					if ev.Table.ColumnName != nil {
-						unsafeName := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
-						if _, excluded := exclusion[unsafeName]; !excluded {
-							schemaIdx := slices.IndexFunc(schema.Columns, func(col *protos.FieldDescription) bool {
-								return col.Name == unsafeName
-							})
-							if schemaIdx == -1 {
-								if !skewLossReported {
-									skewLossReported = true
-									c.logger.Warn("Unknown column name received, ignoring",
-										slog.String("name", string(ev.Table.ColumnName[idx])))
-								}
-							} else {
-								return schema.Columns[schemaIdx]
-							}
+					if fields != nil {
+						if idx < len(fields) {
+							return fields[idx]
 						}
 						return nil
 					}
@@ -749,4 +773,113 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 
 func posToOffsetText(pos mysql.Position) string {
 	return fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+}
+
+// processTableMapEventSchema compares the TABLE_MAP_EVENT schema against the cached schema
+// and returns a TableSchemaDelta if new columns are detected (e.g., after gh-ost migration).
+// It also returns a slice mapping binlog column index to FieldDescription for efficient row processing.
+func (c *MySqlConnector) processTableMapEventSchema(
+	ctx context.Context,
+	catalogPool shared.CatalogPool,
+	req *model.PullRecordsRequest[model.RecordItems],
+	tableMap *replication.TableMapEvent,
+	sourceTableName string,
+	destinationTableName string,
+	schema *protos.TableSchema,
+	exclusion map[string]struct{},
+) ([]*protos.FieldDescription, error) {
+	newFds := make([]*protos.FieldDescription, len(tableMap.ColumnName))
+
+	// Build a set of existing column names for quick lookup
+	existingCols := make(map[string]*protos.FieldDescription, len(schema.Columns))
+	for _, col := range schema.Columns {
+		existingCols[col.Name] = col
+	}
+
+	// Get metadata maps for type conversion
+	unsignedMap := tableMap.UnsignedMap()
+	collationMap := tableMap.CollationMap()
+
+	var addedColumns []*protos.FieldDescription
+
+	for idx, colNameBytes := range tableMap.ColumnName {
+		colName := shared.UnsafeFastReadOnlyBytesToString(colNameBytes)
+		if _, excluded := exclusion[colName]; excluded {
+			continue
+		}
+
+		if fd, exists := existingCols[colName]; exists {
+			newFds[idx] = fd
+		} else {
+			// New column detected - get type from TABLE_MAP_EVENT
+			var charset uint16
+			if collation, ok := collationMap[idx]; ok {
+				charset = uint16(collation)
+			}
+			mytype := tableMap.ColumnType[idx]
+			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset)
+			if err != nil {
+				c.logger.Warn("Unknown MySQL type for new column, skipping",
+					slog.String("table", sourceTableName),
+					slog.String("column", colName),
+					slog.Any("error", err))
+				continue
+			}
+
+			// Get nullable info
+			_, nullable := tableMap.Nullable(idx)
+
+			// Extract precision/scale for DECIMAL types from ColumnMeta
+			// ColumnMeta stores: high byte = precision, low byte = scale
+			typmod := int32(-1)
+			if (mytype == mysql.MYSQL_TYPE_DECIMAL || mytype == mysql.MYSQL_TYPE_NEWDECIMAL) &&
+				idx < len(tableMap.ColumnMeta) {
+				meta := tableMap.ColumnMeta[idx]
+				precision := int32(meta >> 8)
+				scale := int32(meta & 0xFF)
+				typmod = datatypes.MakeNumericTypmod(precision, scale)
+			}
+
+			newFd := &protos.FieldDescription{
+				Name:         colName,
+				Type:         string(qkind),
+				TypeModifier: typmod,
+				Nullable:     nullable,
+			}
+
+			addedColumns = append(addedColumns, newFd)
+			newFds[idx] = newFd
+
+			c.logger.Info("Detected new column from TABLE_MAP_EVENT",
+				slog.String("table", sourceTableName),
+				slog.String("column", colName),
+				slog.String("type", string(qkind)))
+		}
+	}
+
+	// If new columns were detected, emit schema delta and update cached schema
+	if len(addedColumns) > 0 {
+		tableSchemaDelta := &protos.TableSchemaDelta{
+			SrcTableName:    sourceTableName,
+			DstTableName:    destinationTableName,
+			AddedColumns:    addedColumns,
+			System:          protos.TypeSystem_Q,
+			NullableEnabled: schema.NullableEnabled,
+		}
+
+		c.logger.Info("Schema change detected from TABLE_MAP_EVENT",
+			slog.String("table", destinationTableName),
+			slog.Any("addedColumns", addedColumns))
+
+		// Update cached schema
+		schema.Columns = append(schema.Columns, addedColumns...)
+
+		// Emit schema delta
+		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+		if err := monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta); err != nil {
+			return nil, err
+		}
+	}
+
+	return newFds, nil
 }

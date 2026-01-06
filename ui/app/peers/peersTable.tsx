@@ -67,9 +67,9 @@ export default function PeersTable({ peers }: { peers: PeerListItem[] }) {
   return (
     <Table
       toolbar={{
-        left: <></>,
+        left: undefined,
         right: (
-          <>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <ReactSelect
               className='w-48'
               options={availableTypes}
@@ -85,7 +85,7 @@ export default function PeersTable({ peers }: { peers: PeerListItem[] }) {
                 setSearchQuery(e.target.value)
               }
             />
-          </>
+          </div>
         ),
       }}
       header={

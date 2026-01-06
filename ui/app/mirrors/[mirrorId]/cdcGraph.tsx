@@ -1,21 +1,12 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { TimeAggregateType } from '@/grpc_generated/route';
 import { useTheme } from '@/lib/AppTheme';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import {
-  BarElement,
-  CategoryScale,
-  Chart as ChartJS,
-  ChartOptions,
-  Legend,
-  LinearScale,
-  Title,
-  Tooltip,
-} from 'chart.js';
-import { useState } from 'react';
+import { Chart as ChartJS, ChartOptions } from 'chart.js';
+import { useEffect, useRef, useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
 import { BarLoader } from 'react-spinners';
@@ -48,22 +39,29 @@ const CdcSyncHistoryError = () => {
 type CdcGraphProps = { mirrorName: string };
 
 export default function CdcGraph({ mirrorName }: CdcGraphProps) {
+  const selectTheme = useSelectTheme();
   const [aggregateType, setAggregateType] = useState<TimeAggregateType>(
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
 
-  ChartJS.register(
-    BarElement,
-    CategoryScale,
-    LinearScale,
-    Title,
-    Tooltip,
-    Legend
-  );
+  const chartRef = useRef<ChartJS<'bar'> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
+  }, []);
+
   const theme = useTheme();
   const isDarkMode = theme.theme === 'dark';
+
   const chartOptions: ChartOptions<'bar'> = {
-    maintainAspectRatio: false,
+    interaction: {
+      intersect: false,
+    },
     scales: {
       x: {
         grid: { display: false },
@@ -75,6 +73,7 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
       },
     },
   };
+
   const fetcher = async ([mirrorName, aggregateType]: [
     string,
     TimeAggregateType,
@@ -109,7 +108,12 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
 
   const { data, isLoading, error } = useSWR(
     [mirrorName, aggregateType],
-    fetcher
+    fetcher,
+    {
+      // Add SWR configuration to help with memory management
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    }
   );
 
   return (
@@ -121,7 +125,7 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
           options={timeOptions}
           defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setAggregateType(val.value)}
-          theme={SelectTheme}
+          theme={selectTheme}
         />
       </div>
       <div style={{ height: '3rem' }}>
@@ -139,7 +143,13 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
         {isLoading && <CdcSyncingLoader />}
         {error && <CdcSyncHistoryError />}
         {data && !isLoading && !error && (
-          <Bar data={data} options={chartOptions} />
+          <Bar
+            ref={(chart) => {
+              chartRef.current = chart ?? null;
+            }}
+            data={data}
+            options={chartOptions}
+          />
         )}
       </div>
     </div>

@@ -55,7 +55,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
-		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))),
 	}
 	tc, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {

@@ -234,6 +234,7 @@ message ListPeersResponse {
 }
 
 message SlotInfo {
+  reserved 12;
   string slot_name = 1;
   string redo_lSN = 2;
   string restart_lSN = 3;
@@ -241,6 +242,19 @@ message SlotInfo {
   float lag_in_mb = 5;
   string confirmed_flush_lSN = 6;
   string wal_status = 7;
+  optional string sent_lSN = 8; // Only populated if we have a pg_monitor/pg_read_all_stats role
+  string current_lSN = 9;
+  float restart_to_confirmed_mb = 10;
+  float confirmed_to_current_mb = 11;
+  string wait_event_type = 13;
+  string wait_event = 14;
+  string backend_state = 15;
+  int64 logical_decoding_work_mem_mb = 16;
+  optional int64 stats_reset = 17;
+  optional int64 spill_txns = 18;
+  optional int64 spill_count = 19;
+  optional int64 spill_bytes = 20;
+  optional int64 safe_wal_size = 21;
 }
 
 message SlotLagPoint {
@@ -493,6 +507,19 @@ message GetFlowTagsRequest { string flow_name = 1; }
 message GetFlowTagsResponse {
   string flow_name = 1;
   repeated FlowTag tags = 2;
+}
+
+message CancelTableAdditionInput {
+  string flow_job_name = 1;
+  repeated peerdb_flow.TableMapping currently_replicating_tables = 2;
+  string idempotency_key = 3;
+  bool assume_table_removal_will_not_happen = 4;
+}
+
+message CancelTableAdditionOutput {
+  string flow_job_name = 1;
+  repeated peerdb_flow.TableMapping tables_after_cancellation = 2;
+  string run_id = 3;
 }
 
 service FlowService {
@@ -777,6 +804,13 @@ service FlowService {
       returns (TotalRowsSyncedByMirrorResponse) {
     option (google.api.http) = {
       get : "/v1/mirrors/total_rows_synced/{flow_job_name}"
+    };
+  }
+
+  rpc CancelTableAddition(CancelTableAdditionInput) returns (CancelTableAdditionOutput) {
+    option (google.api.http) = {
+      post : "/v1/flows/cdc/cancel_table_addition",
+      body : "*"
     };
   }
 }

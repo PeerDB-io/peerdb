@@ -41,7 +41,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:18-alpine@sha256:48c8ad3a7284b82be4482a52076d47d879fd6fb084a1cbfccbd551f9331b0e40
+    image: postgres:18-alpine@sha256:b40d931bd0e7ce6eecc59a5a6ac3b3c04a01e559750e73e7086b6dbd7f8bf545
     command: -c config_file=/etc/postgresql.conf
     ports:
       - 9901:5432
@@ -75,7 +75,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.29@sha256:8940bfb5aed467458d50c365e420038bc334a44af77e8f4b5e2bfcd608ac7951
+    image: temporalio/auto-setup:1.29@sha256:8240e81d9b6946e8cc9b86714a04733cec32b1332b8523961ad47700861036f7
     ports:
       - 7233:7233
     volumes:
@@ -112,7 +112,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.42.1@sha256:64e8d7d3cb24072373034186cd2be41338b75c02cdaba8fec68de9d76ed3b60a
+    image: temporalio/ui:2.44.0@sha256:0b36e00aad304134eb908f41bf915934afe4eef1efc5b1750c65a5312ff3c9bb
     ports:
       - 8085:8080
 
@@ -172,6 +172,9 @@ services:
     build:
       context: .
       dockerfile: stacks/peerdb-server.Dockerfile
+      args:
+        BUILD_MODE: "debug"
+        CARGO_FLAGS: "--no-default-features --features mysql"
     environment:
       <<: *catalog-config
       PEERDB_PASSWORD: peerdb
@@ -189,8 +192,14 @@ services:
     build:
       context: .
       dockerfile: stacks/peerdb-ui.Dockerfile
+      target: dev
     ports:
       - 3000:3000
+    volumes:
+      # Mount local ui/ directory for hot reload
+      - ./ui:/app
+      # Preserve node_modules from container (don't override with local)
+      - /app/node_modules
     env_file:
       - path: ./.env
         required: false
@@ -204,6 +213,10 @@ services:
       PEERDB_ALLOWED_TARGETS:
       PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
       PEERDB_EXPERIMENTAL_ENABLE_SCRIPTING: true
+      # Fix file watching on macOS Docker volumes
+      WATCHPACK_POLLING: true
+      # Increase polling interval to avoid catching incomplete writes (in ms)
+      WATCHPACK_POLLING_INTERVAL: 1000
     depends_on:
       - flow-api
 

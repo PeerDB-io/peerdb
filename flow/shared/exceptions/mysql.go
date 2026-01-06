@@ -1,6 +1,9 @@
 package exceptions
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 )
 
@@ -24,7 +27,49 @@ func NewMySQLIncompatibleColumnTypeError(
 	}
 }
 
-func (e MySQLIncompatibleColumnTypeError) Error() string {
+func (e *MySQLIncompatibleColumnTypeError) Error() string {
 	return fmt.Sprintf("Incompatible type for column %s in table %s, expect qkind %s but data is %s (mysql type %d)",
 		e.ColumnName, e.TableName, e.qkind, e.dataType, e.columnType)
+}
+
+type MySQLUnsupportedBinlogRowMetadataError struct {
+	SchemaName string
+	TableName  string
+}
+
+func NewMySQLUnsupportedBinlogRowMetadataError(schema string, table string) *MySQLUnsupportedBinlogRowMetadataError {
+	return &MySQLUnsupportedBinlogRowMetadataError{SchemaName: schema, TableName: table}
+}
+
+func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
+	return fmt.Sprintf("Detected binlog_row_metadata change from FULL to MINIMAL while processing %s.%s",
+		e.SchemaName, e.TableName)
+}
+
+type MySQLStreamingError struct {
+	error
+	Retryable bool
+}
+
+func NewMySQLStreamingError(err error) *MySQLStreamingError {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &MySQLStreamingError{err, true}
+	}
+
+	var recordHeaderError tls.RecordHeaderError
+	if errors.As(err, &recordHeaderError) {
+		if recordHeaderError.Msg == "first record does not look like a TLS handshake" {
+			return &MySQLStreamingError{err, true}
+		}
+	}
+
+	return &MySQLStreamingError{err, false}
+}
+
+func (e *MySQLStreamingError) Error() string {
+	return "MySQL streaming error: " + e.error.Error()
+}
+
+func (e *MySQLStreamingError) Unwrap() error {
+	return e.error
 }
