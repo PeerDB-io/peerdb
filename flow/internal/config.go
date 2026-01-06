@@ -205,7 +205,7 @@ func PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx context.Context) bool {
 
 // PEERDB_PGWIRE_ENABLED enables the pgwire proxy server
 func PeerDBPgwireEnabled() bool {
-	return GetEnvBool("PEERDB_PGWIRE_ENABLED", false)
+	return GetEnvBool("PEERDB_PGWIRE_ENABLED", true) // TODO: inject via Helm instead
 }
 
 // PEERDB_PGWIRE_QUERY_TIMEOUT_SECONDS is the query timeout in seconds
