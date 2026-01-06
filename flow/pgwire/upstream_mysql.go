@@ -129,7 +129,7 @@ func (u *MySQLUpstream) TxStatus() byte {
 // ServerParameters returns fake parameters sufficient for psql
 func (u *MySQLUpstream) ServerParameters(ctx context.Context) map[string]string {
 	return map[string]string{
-		"server_version":              "8.0.0-mysql-proxy",
+		"server_version":              "16.0.0-mysql-proxy",
 		"server_encoding":             "UTF8",
 		"client_encoding":             "UTF8",
 		"DateStyle":                   "ISO, MDY",
