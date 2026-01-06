@@ -38,8 +38,8 @@ FROM flow-base AS flow-api
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
-EXPOSE 8112 8113
-ENTRYPOINT ["./peer-flow", "api", "--port", "8112", "--gateway-port", "8113"]
+EXPOSE 8112 8113 5732
+ENTRYPOINT ["./peer-flow", "api", "--port", "8112", "--gateway-port", "8113", "--pgwire-port", "5732"]
 
 FROM flow-base AS flow-worker
 
