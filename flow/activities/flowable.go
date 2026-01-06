@@ -1612,6 +1612,10 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	cfg *protos.FlowConnectionConfigsCore,
 	removedTablesMapping []*protos.TableMapping,
 ) error {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
+		return "removing tables from publication"
+	})
+	defer shutdown()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
 	srcConn, srcClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
