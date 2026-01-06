@@ -1149,6 +1149,7 @@ impl PgWireServerHandlers for Handlers {
 #[tokio::main]
 pub async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
     let args = Args::parse();
     let _guard = setup_tracing(args.log_dir.as_deref());

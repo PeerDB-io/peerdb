@@ -2634,6 +2634,7 @@ dependencies = [
  "postgres",
  "pt",
  "rand 0.9.2",
+ "rustls 0.23.35",
  "rustls-pemfile 2.2.0",
  "rustls-pki-types",
  "serde_json",
