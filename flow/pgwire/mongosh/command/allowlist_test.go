@@ -153,14 +153,14 @@ func TestCheckMultipleStatements(t *testing.T) {
 }
 
 func TestIsCommandAllowed(t *testing.T) {
-	allowed := []string{"find", "aggregate", "ping", "hello", "FIND", "Aggregate"}
+	allowed := []string{"find", "aggregate", "ping", "hello"}
 	for _, cmd := range allowed {
 		if !IsCommandAllowed(cmd) {
 			t.Errorf("expected %q to be allowed", cmd)
 		}
 	}
 
-	denied := []string{"insert", "update", "delete", "drop", "shutdown"}
+	denied := []string{"insert", "update", "delete", "drop", "shutdown", "FIND", "Aggregate"}
 	for _, cmd := range denied {
 		if IsCommandAllowed(cmd) {
 			t.Errorf("expected %q to be denied", cmd)
@@ -171,15 +171,15 @@ func TestIsCommandAllowed(t *testing.T) {
 func TestAllowedCommandsStructure(t *testing.T) {
 	// Verify commands with required args
 	hasRequired := map[string]int{
-		"aggregate": 1, "distinct": 1, "datasize": 1,
+		"aggregate": 1, "distinct": 1, "dataSize": 1,
 	}
 	// Verify commands with optional args
 	hasOptional := map[string]struct{}{
-		"find": {}, "aggregate": {}, "collstats": {}, "dbstats": {},
+		"find": {}, "aggregate": {}, "collStats": {}, "dbStats": {},
 	}
 	// Verify commands with no args
 	noArgs := map[string]struct{}{
-		"ping": {}, "buildinfo": {}, "hostinfo": {},
+		"ping": {}, "buildInfo": {}, "hostInfo": {},
 	}
 
 	for _, cmds := range AllowedCommands {

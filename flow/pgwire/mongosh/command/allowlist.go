@@ -26,53 +26,53 @@ var AllowedCommands = map[string][]AllowedCommand{
 		{"aggregate", []string{"pipeline"}, []string{"cursor", "allowDiskUse", "maxTimeMS", "readConcern", "collation", "hint", "let"}, true},
 		{"count", nil, []string{"query", "limit", "skip", "hint", "maxTimeMS", "readConcern", "collation"}, true},
 		{"distinct", []string{"key"}, []string{"query", "readConcern", "collation", "hint"}, true},
-		{"listindexes", nil, []string{"cursor"}, true},
-		{"listcollections", nil, []string{"filter", "nameOnly", "authorizedCollections"}, true},
-		{"listdatabases", nil, []string{"filter", "nameOnly", "authorizedDatabases"}, true},
+		{"listIndexes", nil, []string{"cursor"}, true},
+		{"listCollections", nil, []string{"filter", "nameOnly", "authorizedCollections"}, true},
+		{"listDatabases", nil, []string{"filter", "nameOnly", "authorizedDatabases"}, true},
 	},
 	"User/Role Info": {
-		{"usersinfo", nil, []string{"showCredentials", "showCustomData", "showPrivileges", "showAuthenticationRestrictions", "filter"}, true},
-		{"rolesinfo", nil, []string{"showPrivileges", "showBuiltinRoles", "showAuthenticationRestrictions"}, true},
+		{"usersInfo", nil, []string{"showCredentials", "showCustomData", "showPrivileges", "showAuthenticationRestrictions", "filter"}, true},
+		{"rolesInfo", nil, []string{"showPrivileges", "showBuiltinRoles", "showAuthenticationRestrictions"}, true},
 	},
 	"Replication": {
 		{"hello", nil, []string{"saslSupportedMechs"}, true},
-		{"replsetgetconfig", nil, []string{"commitmentStatus"}, true},
-		{"replsetgetstatus", nil, nil, false},
+		{"replSetGetConfig", nil, []string{"commitmentStatus"}, true},
+		{"replSetGetStatus", nil, nil, false},
 	},
 	"Sharding": {
-		{"getshardmap", nil, nil, false},
-		{"listshards", nil, nil, false},
-		{"balancerstatus", nil, nil, false},
+		{"getShardMap", nil, nil, false},
+		{"listShards", nil, nil, false},
+		{"balancerStatus", nil, nil, false},
 		{"isdbgrid", nil, nil, false},
 	},
 	"Sessions": {
-		{"startsession", nil, nil, false},
-		{"refreshsessions", nil, nil, false},
-		{"killsessions", nil, nil, false},
-		{"endsessions", nil, nil, false},
-		{"committransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}, true},
-		{"aborttransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}, true},
+		{"startSession", nil, nil, false},
+		{"refreshSessions", nil, nil, false},
+		{"killSessions", nil, nil, false},
+		{"endSessions", nil, nil, false},
+		{"commitTransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}, true},
+		{"abortTransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}, true},
 	},
 	"Admin": {
-		{"currentop", nil, []string{"$ownOps", "$all"}, true},
-		{"getdefaultrwconcern", nil, []string{"inMemory"}, true},
-		{"getclusterparameter", nil, nil, false},
-		{"getparameter", nil, nil, true},
-		{"getcmdlineopts", nil, nil, false},
+		{"currentOp", nil, []string{"$ownOps", "$all"}, true},
+		{"getDefaultRWConcern", nil, []string{"inMemory"}, true},
+		{"getClusterParameter", nil, nil, false},
+		{"getParameter", nil, nil, true},
+		{"getCmdLineOpts", nil, nil, false},
 	},
 	"Diagnostic": {
 		{"ping", nil, nil, false},
-		{"buildinfo", nil, nil, false},
-		{"collstats", nil, []string{"scale"}, false},
-		{"connpoolstats", nil, nil, false},
-		{"connectionstatus", nil, []string{"showPrivileges"}, false},
-		{"datasize", []string{"keyPattern"}, []string{"min", "max", "estimate"}, false},
-		{"dbstats", nil, []string{"scale", "freeStorage"}, false},
+		{"buildInfo", nil, nil, false},
+		{"collStats", nil, []string{"scale"}, false},
+		{"connPoolStats", nil, nil, false},
+		{"connectionStatus", nil, []string{"showPrivileges"}, false},
+		{"dataSize", []string{"keyPattern"}, []string{"min", "max", "estimate"}, false},
+		{"dbStats", nil, []string{"scale", "freeStorage"}, false},
 		{"explain", nil, []string{"verbosity"}, true},
-		{"hostinfo", nil, nil, false},
-		{"listcommands", nil, nil, false},
-		{"lockinfo", nil, nil, false},
-		{"serverstatus", nil, nil, false},
+		{"hostInfo", nil, nil, false},
+		{"listCommands", nil, nil, false},
+		{"lockInfo", nil, nil, false},
+		{"serverStatus", nil, nil, false},
 		{"top", nil, nil, false},
 		{"whatsmyuri", nil, nil, false},
 	},
@@ -88,10 +88,9 @@ func init() {
 	commandSupportsComment = make(map[string]struct{})
 	for _, cmds := range AllowedCommands {
 		for _, cmd := range cmds {
-			name := strings.ToLower(cmd.Name)
-			allowedCommandsSet[name] = struct{}{}
+			allowedCommandsSet[cmd.Name] = struct{}{}
 			if cmd.SupportsComment {
-				commandSupportsComment[name] = struct{}{}
+				commandSupportsComment[cmd.Name] = struct{}{}
 			}
 		}
 	}
@@ -99,13 +98,13 @@ func init() {
 
 // IsCommandAllowed returns whether a command is in the allow list.
 func IsCommandAllowed(cmd string) bool {
-	_, ok := allowedCommandsSet[strings.ToLower(cmd)]
+	_, ok := allowedCommandsSet[cmd]
 	return ok
 }
 
 // CommandSupportsComment returns whether a command supports the comment field.
 func CommandSupportsComment(cmd string) bool {
-	_, ok := commandSupportsComment[strings.ToLower(cmd)]
+	_, ok := commandSupportsComment[cmd]
 	return ok
 }
 
