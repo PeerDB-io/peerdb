@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"regexp"
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -16,6 +17,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pgwire/mongosh"
 	"github.com/PeerDB-io/peerdb/flow/pgwire/mongosh/command"
 )
+
+// useDbRe matches "use <database>" command (case-insensitive)
+var useDbRe = regexp.MustCompile(`(?i)^\s*use\s+([^\s;]+)\s*;?\s*$`)
 
 // wrapMongoError converts a MongoDB error to an UpstreamError
 func wrapMongoError(err error) error {
@@ -58,6 +62,14 @@ func NewMongoUpstream(ctx context.Context, config *protos.MongoConfig, database 
 
 // Exec executes a query and returns results for streaming
 func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator, error) {
+	if matches := useDbRe.FindStringSubmatch(query); matches != nil {
+		u.database = matches[1] // mongosh allows to switch to any database without validation
+		return NewFormattedIterator(
+			[]string{"result"},
+			[][]string{{fmt.Sprintf("switched to db %s", u.database)}},
+		), nil
+	}
+
 	spec, err := mongosh.Compile(query)
 	if err != nil {
 		return nil, wrapMongoError(err)
@@ -208,6 +220,9 @@ func (u *MongoUpstream) CheckQuery(query string) error {
 	// Detect psql \d commands which query pg_catalog
 	if SqlSelectPgCatalogRe.MatchString(query) {
 		return errors.New("PostgreSQL catalog queries not supported; use 'show collections' or 'show databases'")
+	}
+	if useDbRe.MatchString(query) {
+		return nil
 	}
 	_, err := mongosh.Compile(query)
 	return err

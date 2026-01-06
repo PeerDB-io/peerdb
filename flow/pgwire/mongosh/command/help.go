@@ -10,6 +10,7 @@ import (
 func GlobalHelp() []string {
 	lines := []string{
 		"Shell Commands:",
+		"  use <database>      - switch to a different database",
 		"  show collections    - list collections in current database",
 		"  show databases      - list all databases",
 		"  show dbs            - alias for show databases",

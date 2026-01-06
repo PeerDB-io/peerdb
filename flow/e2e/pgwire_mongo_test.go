@@ -42,21 +42,13 @@ func SetupPgwireMongoSuite(t *testing.T) PgwireMongoSuite {
 		t.Skipf("MongoDB setup failed: %v", err)
 	}
 
-	// Create test database name
 	testDb := GetTestDatabase(suffix)
 
-	// Create peer with unique name - append database to URI
-	peerConfig := &protos.MongoConfig{
-		Uri:        source.config.Uri + "/" + testDb,
-		Username:   source.config.Username,
-		Password:   source.config.Password,
-		DisableTls: source.config.DisableTls,
-	}
 	peer := &protos.Peer{
 		Name: "mongo_" + suffix,
 		Type: protos.DBType_MONGO,
 		Config: &protos.Peer_MongoConfig{
-			MongoConfig: peerConfig,
+			MongoConfig: source.config,
 		},
 	}
 	CreatePeer(t, peer)
@@ -108,7 +100,13 @@ func TestPgwireMongo(t *testing.T) {
 
 // psql executes a mongosh query via psql and returns tuples-only output
 func (s PgwireMongoSuite) psql(query string) (string, error) {
-	return runPsql(s.t, s.peer.Name, "-tA", "-c", query)
+	output, err := runPsql(s.t, s.peer.Name, "-tA", "-c", "use "+s.testDatabase(), "-c", query)
+	if err != nil {
+		return output, err
+	}
+	first, rest, _ := strings.Cut(output, "\n")
+	require.Equal(s.t, "switched to db "+s.testDatabase(), strings.TrimSpace(first))
+	return rest, nil
 }
 
 // testCollection returns the test collection name
@@ -135,6 +133,10 @@ func (s PgwireMongoSuite) queryWithOptions(query string, options map[string]stri
 		return err
 	}
 	defer conn.Close(s.t.Context())
+
+	if _, err := conn.Exec(s.t.Context(), "use "+s.testDatabase()); err != nil {
+		return err
+	}
 
 	rows, err := conn.Query(s.t.Context(), query)
 	if err != nil {
@@ -488,6 +490,9 @@ func (s PgwireMongoSuite) Test_Guardrails_ResumeAfterRowLimit() {
 	require.NoError(s.t, err)
 	defer conn.Close(s.t.Context())
 
+	_, err = conn.Exec(s.t.Context(), "use "+s.testDatabase())
+	require.NoError(s.t, err)
+
 	// First query exceeds limit
 	rows, err := conn.Query(s.t.Context(), `db.resume_test.find({})`)
 	require.NoError(s.t, err, "Query should start successfully")
@@ -524,6 +529,9 @@ func (s PgwireMongoSuite) Test_Guardrails_ResumeAfterByteLimit() {
 	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
 	require.NoError(s.t, err)
 	defer conn.Close(s.t.Context())
+
+	_, err = conn.Exec(s.t.Context(), "use "+s.testDatabase())
+	require.NoError(s.t, err)
 
 	// First query exceeds byte limit
 	rows, err := conn.Query(s.t.Context(), `db.resume_bytes_test.find({})`)
@@ -567,6 +575,9 @@ func (s PgwireMongoSuite) Test_CancelRequest() {
 		conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
 		require.NoError(t, err)
 		defer conn.Close(s.t.Context())
+
+		_, err = conn.Exec(s.t.Context(), "use "+s.testDatabase())
+		require.NoError(t, err)
 
 		errCh := make(chan error, 1)
 		go func() {

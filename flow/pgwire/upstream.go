@@ -135,7 +135,7 @@ func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName s
 		}
 		database := cs.Database
 		if database == "" {
-			return nil, fmt.Errorf("peer '%s' MongoDB URI must specify a database", peerName)
+			database = "test" // match mongosh behavior
 		}
 		return NewMongoUpstream(ctx, mongoConfig, database)
 
