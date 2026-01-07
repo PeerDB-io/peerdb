@@ -26,7 +26,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 	t.Run("single object", func(t *testing.T) {
 		stream := model.NewQObjectStream(1)
 		go func() {
-			stream.Objects <- &model.Object{URL: "http://example.com/1.avro", Size: 100}
+			stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
 			stream.Close(nil)
 		}()
 
@@ -34,16 +34,16 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 1)
 		require.Len(t, batches[0].objects, 1)
-		require.Equal(t, "http://example.com/1.avro", batches[0].objects[0].URL)
+		require.Equal(t, "http://example.com/1.parquet", batches[0].objects[0].URL)
 	})
 
 	t.Run("multiple objects within size limit", func(t *testing.T) {
 		stream := model.NewQObjectStream(3)
 		headers := http.Header{"Authorization": []string{"Bearer token"}}
 		go func() {
-			stream.Objects <- &model.Object{URL: "http://example.com/1.avro", Size: 100, Headers: headers}
-			stream.Objects <- &model.Object{URL: "http://example.com/2.avro", Size: 100, Headers: headers}
-			stream.Objects <- &model.Object{URL: "http://example.com/3.avro", Size: 100, Headers: headers}
+			stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100, Headers: headers}
+			stream.Objects <- &model.Object{URL: "http://example.com/2.parquet", Size: 100, Headers: headers}
+			stream.Objects <- &model.Object{URL: "http://example.com/3.parquet", Size: 100, Headers: headers}
 			stream.Close(nil)
 		}()
 
@@ -58,9 +58,9 @@ func TestCollectAndBatchObjects(t *testing.T) {
 	t.Run("objects split by size limit", func(t *testing.T) {
 		stream := model.NewQObjectStream(3)
 		go func() {
-			stream.Objects <- &model.Object{URL: "http://example.com/1.avro", Size: 100}
-			stream.Objects <- &model.Object{URL: "http://example.com/2.avro", Size: 100}
-			stream.Objects <- &model.Object{URL: "http://example.com/3.avro", Size: 100}
+			stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
+			stream.Objects <- &model.Object{URL: "http://example.com/2.parquet", Size: 100}
+			stream.Objects <- &model.Object{URL: "http://example.com/3.parquet", Size: 100}
 			stream.Close(nil)
 		}()
 
@@ -86,8 +86,8 @@ func TestCollectAndBatchObjects(t *testing.T) {
 	t.Run("object exactly at size limit starts new batch", func(t *testing.T) {
 		stream := model.NewQObjectStream(2)
 		go func() {
-			stream.Objects <- &model.Object{URL: "http://example.com/1.avro", Size: 500}
-			stream.Objects <- &model.Object{URL: "http://example.com/2.avro", Size: 500}
+			stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 500}
+			stream.Objects <- &model.Object{URL: "http://example.com/2.parquet", Size: 500}
 			stream.Close(nil)
 		}()
 
@@ -102,18 +102,18 @@ func TestCollectAndBatchObjects(t *testing.T) {
 
 		batchCh := collectAndBatchObjects(ctx, stream, 10000, shortInterval)
 
-		stream.Objects <- &model.Object{URL: "http://example.com/1.avro", Size: 100}
+		stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
 
 		select {
 		case batch := <-batchCh:
 			require.NotNil(t, batch)
 			require.Len(t, batch.objects, 1)
-			require.Equal(t, "http://example.com/1.avro", batch.objects[0].URL)
+			require.Equal(t, "http://example.com/1.parquet", batch.objects[0].URL)
 		case <-time.After(200 * time.Millisecond):
 			t.Fatal("expected batch to be flushed after interval")
 		}
 
-		stream.Objects <- &model.Object{URL: "http://example.com/2.avro", Size: 100}
+		stream.Objects <- &model.Object{URL: "http://example.com/2.parquet", Size: 100}
 		stream.Close(nil)
 
 		var remaining []*objectBatch
@@ -121,7 +121,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			remaining = append(remaining, batch)
 		}
 		require.Len(t, remaining, 1)
-		require.Equal(t, "http://example.com/2.avro", remaining[0].objects[0].URL)
+		require.Equal(t, "http://example.com/2.parquet", remaining[0].objects[0].URL)
 	})
 
 	t.Run("context cancellation stops batching", func(t *testing.T) {
@@ -130,7 +130,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 
 		batchCh := collectAndBatchObjects(ctx, stream, 10000, longInterval)
 
-		stream.Objects <- &model.Object{URL: "http://example.com/1.avro", Size: 100}
+		stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
 
 		cancel()
 
@@ -148,9 +148,9 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		headers2 := http.Header{"Authorization": []string{"Bearer token2"}}
 		headers3 := http.Header{"Authorization": []string{"Bearer token3"}}
 		go func() {
-			stream.Objects <- &model.Object{URL: "http://example.com/1.avro", Size: 100, Headers: headers1}
-			stream.Objects <- &model.Object{URL: "http://example.com/2.avro", Size: 100, Headers: headers2}
-			stream.Objects <- &model.Object{URL: "http://example.com/3.avro", Size: 100, Headers: headers3}
+			stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100, Headers: headers1}
+			stream.Objects <- &model.Object{URL: "http://example.com/2.parquet", Size: 100, Headers: headers2}
+			stream.Objects <- &model.Object{URL: "http://example.com/3.parquet", Size: 100, Headers: headers3}
 			stream.Close(nil)
 		}()
 
@@ -168,46 +168,46 @@ func TestBuildURLTableFunction(t *testing.T) {
 	t.Run("single URL no headers", func(t *testing.T) {
 		batch := &objectBatch{
 			objects: []*model.Object{
-				{URL: "http://example.com/data.avro"},
+				{URL: "http://example.com/data.parquet"},
 			},
 		}
-		result := c.buildURLTableFunction(batch, "Avro")
-		require.Equal(t, "url('http://example.com/data.avro', 'Avro')", result)
+		result := c.buildURLTableFunction(batch, "Parquet")
+		require.Equal(t, "url('http://example.com/data.parquet', 'Parquet')", result)
 	})
 
 	t.Run("single URL with headers", func(t *testing.T) {
 		batch := &objectBatch{
 			objects: []*model.Object{
-				{URL: "http://example.com/data.avro", Headers: http.Header{"Authorization": []string{"Bearer token123"}}},
+				{URL: "http://example.com/data.parquet", Headers: http.Header{"Authorization": []string{"Bearer token123"}}},
 			},
 		}
-		result := c.buildURLTableFunction(batch, "Avro")
-		require.Equal(t, "url('http://example.com/data.avro', headers(`Authorization`='Bearer token123'), 'Avro')", result)
+		result := c.buildURLTableFunction(batch, "Parquet")
+		require.Equal(t, "url('http://example.com/data.parquet', headers(`Authorization`='Bearer token123'), 'Parquet')", result)
 	})
 
 	t.Run("multiple URLs no headers", func(t *testing.T) {
 		batch := &objectBatch{
 			objects: []*model.Object{
-				{URL: "http://example.com/1.avro"},
-				{URL: "http://example.com/2.avro"},
-				{URL: "http://example.com/3.avro"},
+				{URL: "http://example.com/1.parquet"},
+				{URL: "http://example.com/2.parquet"},
+				{URL: "http://example.com/3.parquet"},
 			},
 		}
-		result := c.buildURLTableFunction(batch, "Avro")
-		require.Equal(t, "url('{http://example.com/1.avro,http://example.com/2.avro,http://example.com/3.avro}', 'Avro')", result)
+		result := c.buildURLTableFunction(batch, "Parquet")
+		require.Equal(t, "url('{http://example.com/1.parquet,http://example.com/2.parquet,http://example.com/3.parquet}', 'Parquet')", result)
 	})
 
 	t.Run("multiple URLs with headers", func(t *testing.T) {
 		batch := &objectBatch{
 			objects: []*model.Object{
-				{URL: "http://example.com/1.avro", Headers: http.Header{"Authorization": []string{"Bearer token_1"}}},
-				{URL: "http://example.com/2.avro", Headers: http.Header{"Authorization": []string{"Bearer token_2"}}},
+				{URL: "http://example.com/1.parquet", Headers: http.Header{"Authorization": []string{"Bearer token_1"}}},
+				{URL: "http://example.com/2.parquet", Headers: http.Header{"Authorization": []string{"Bearer token_2"}}},
 			},
 		}
-		result := c.buildURLTableFunction(batch, "Avro")
+		result := c.buildURLTableFunction(batch, "Parquet")
 		require.Equal(
 			t,
-			"url('{http://example.com/1.avro,http://example.com/2.avro}', headers(`Authorization`='Bearer token_2'), 'Avro')",
+			"url('{http://example.com/1.parquet,http://example.com/2.parquet}', headers(`Authorization`='Bearer token_2'), 'Parquet')",
 			result,
 		)
 	})
@@ -215,10 +215,10 @@ func TestBuildURLTableFunction(t *testing.T) {
 	t.Run("URL with special characters", func(t *testing.T) {
 		batch := &objectBatch{
 			objects: []*model.Object{
-				{URL: "http://example.com/path with spaces/data.avro"},
+				{URL: "http://example.com/path with spaces/data.parquet"},
 			},
 		}
-		result := c.buildURLTableFunction(batch, "Avro")
-		require.Equal(t, "url('http://example.com/path with spaces/data.avro', 'Avro')", result)
+		result := c.buildURLTableFunction(batch, "Parquet")
+		require.Equal(t, "url('http://example.com/path with spaces/data.parquet', 'Parquet')", result)
 	})
 }

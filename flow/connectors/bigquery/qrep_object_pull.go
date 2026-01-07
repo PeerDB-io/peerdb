@@ -414,7 +414,7 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 		SELECT %s FROM %s`,
 		uri,
 		strings.Join(columnSelects, ", "),
-		sourceTableIdentifier,
+		quoteIdentifier(sourceTableIdentifier),
 	)
 
 	return exportSQL, nil
