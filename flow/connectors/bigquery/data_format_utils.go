@@ -14,14 +14,6 @@ import (
 
 const defaultCompressedRowSize = 512 // bytes. Should be a reasonable low default for analytical data
 
-// parquetFooterMagic is the magic bytes at the start and end of a Parquet file (PAR1)
-var parquetFooterMagic = [4]byte{'P', 'A', 'R', '1'}
-
-const (
-	// minParquetFooterSize is the minimum footer size: 4 bytes for footer length + 4 bytes for magic
-	minParquetFooterSize = 8
-)
-
 // gcsObjectSeeker implements io.ReadSeeker for a GCS object using range reads.
 // Designed for a quick reading specific parts of a Parquet file. Like file header.
 // Not efficient for many small reads/seeks.
@@ -33,7 +25,7 @@ type gcsObjectSeeker struct {
 	offset   int64
 }
 
-func (r *gcsObjectSeeker) Read(p []byte) (n int, err error) { //nolint:nonamedreturns // standard Read signature
+func (r *gcsObjectSeeker) Read(p []byte) (int, error) {
 	length := int64(len(p))
 
 	if r.offset < 0 || length <= 0 || r.offset+length > r.fileSize {
@@ -52,7 +44,7 @@ func (r *gcsObjectSeeker) Read(p []byte) (n int, err error) { //nolint:nonamedre
 
 	defer reader.Close()
 
-	n, err = io.ReadFull(reader, p)
+	n, err := io.ReadFull(reader, p)
 	if err != nil {
 		return n, err
 	}
@@ -81,12 +73,12 @@ func (r *gcsObjectSeeker) Seek(offset int64, whence int) (int64, error) {
 	return r.offset, nil
 }
 
-func (r *gcsObjectSeeker) ReadAt(p []byte, off int64) (n int, err error) {
+func (r *gcsObjectSeeker) ReadAt(p []byte, off int64) (int, error) {
 	currentOffset := r.offset
 	if _, err := r.Seek(off, io.SeekStart); err != nil {
 		return 0, err
 	}
-	n, err = r.Read(p)
+	n, err := r.Read(p)
 	if _, seekErr := r.Seek(currentOffset, io.SeekStart); seekErr != nil {
 		return n, seekErr
 	}
