@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/bigquery"
+
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
