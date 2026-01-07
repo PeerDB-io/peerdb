@@ -12,10 +12,7 @@ func TestParquetTotalRows(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	fs, err := f.Stat()
-	require.NoError(t, err)
-
-	totalRows, err := readParquetTotalRows(f, fs.Size())
+	totalRows, err := readParquetTotalRows(f)
 	require.NoError(t, err)
 	require.Equal(t, int64(1000), totalRows)
 }

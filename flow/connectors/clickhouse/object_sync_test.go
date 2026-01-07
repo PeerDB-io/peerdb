@@ -135,7 +135,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		cancel()
 
 		select {
-		case _, _ = <-batchCh: //nolint:staticcheck
+		case <-batchCh:
 			// Channel closed or got batch, both are acceptable
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("channel should be closed after context cancellation")

@@ -2,14 +2,13 @@ package connbigquery
 
 import (
 	"context"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 
 	"cloud.google.com/go/storage"
-	"github.com/apache/arrow-go/v18/parquet/metadata"
+	"github.com/apache/arrow-go/v18/parquet"
+	"github.com/apache/arrow-go/v18/parquet/file"
 	"go.temporal.io/sdk/log"
 )
 
@@ -82,48 +81,27 @@ func (r *gcsObjectSeeker) Seek(offset int64, whence int) (int64, error) {
 	return r.offset, nil
 }
 
-func readParquetTotalRows(r io.ReadSeeker, fileSize int64) (int64, error) {
-	if fileSize < minParquetFooterSize+4 { // 4 bytes header + 8 bytes footer minimum
-		return 0, fmt.Errorf("file too small to be a valid parquet file: %d bytes", fileSize)
+func (r *gcsObjectSeeker) ReadAt(p []byte, off int64) (n int, err error) {
+	currentOffset := r.offset
+	if _, err := r.Seek(off, io.SeekStart); err != nil {
+		return 0, err
 	}
-
-	if _, err := r.Seek(fileSize-minParquetFooterSize, io.SeekStart); err != nil {
-		return 0, fmt.Errorf("failed to seek to parquet footer: %w", err)
+	n, err = r.Read(p)
+	if _, seekErr := r.Seek(currentOffset, io.SeekStart); seekErr != nil {
+		return n, seekErr
 	}
-	footerEnd := make([]byte, minParquetFooterSize)
-	if _, err := r.Read(footerEnd); err != nil {
-		return 0, fmt.Errorf("failed to read parquet footer end: %w", err)
-	}
+	return n, err
+}
 
-	var magic [4]byte
-	copy(magic[:], footerEnd[4:])
-	if magic != parquetFooterMagic {
-		return 0, errors.New("invalid parquet file: wrong magic bytes at end")
-	}
+var _ parquet.ReaderAtSeeker = (*gcsObjectSeeker)(nil)
 
-	// Get footer metadata length (4 bytes, little endian)
-	footerMetadataLen := int64(binary.LittleEndian.Uint32(footerEnd[:4]))
-
-	if footerMetadataLen < 0 || footerMetadataLen > fileSize-minParquetFooterSize-4 {
-		return 0, fmt.Errorf("footer length out of bounds: %d", footerMetadataLen)
-	}
-
-	footerStartOffset := fileSize - minParquetFooterSize - footerMetadataLen
-
-	if _, err := r.Seek(footerStartOffset, io.SeekStart); err != nil {
-		return 0, fmt.Errorf("failed to seek to parquet footer: %w", err)
-	}
-	footerMetadata := make([]byte, footerMetadataLen)
-	if _, err := r.Read(footerMetadata); err != nil {
-		return 0, fmt.Errorf("failed to read parquet footer end: %w", err)
-	}
-
-	fileMetaData, err := metadata.NewFileMetaData(footerMetadata, nil)
+func readParquetTotalRows(r parquet.ReaderAtSeeker) (int64, error) {
+	pr, err := file.NewParquetReader(r)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse parquet file metadata: %w", err)
+		return 0, fmt.Errorf("failed to create parquet reader: %w", err)
 	}
 
-	return fileMetaData.FileMetaData.NumRows, nil
+	return pr.NumRows(), nil
 }
 
 func parquetObjectAverageRowSize(ctx context.Context, logger log.Logger, object *storage.ObjectHandle) uint64 {
@@ -131,6 +109,7 @@ func parquetObjectAverageRowSize(ctx context.Context, logger log.Logger, object 
 	if err != nil {
 		logger.Error("failed to get object attrs for parquet object, using default compressed row size",
 			slog.String("object", object.ObjectName()),
+			slog.Int("default_size", defaultCompressedRowSize),
 			slog.Any("error", err))
 
 		return defaultCompressedRowSize
@@ -143,10 +122,11 @@ func parquetObjectAverageRowSize(ctx context.Context, logger log.Logger, object 
 		offset:   0,
 	}
 
-	n, err := readParquetTotalRows(r, attrs.Size)
+	n, err := readParquetTotalRows(r)
 	if err != nil {
 		logger.Error("failed to read parquet object metadata, using default compressed row size",
 			slog.String("object", object.ObjectName()),
+			slog.Int("default_size", defaultCompressedRowSize),
 			slog.Any("error", err))
 
 		return defaultCompressedRowSize
