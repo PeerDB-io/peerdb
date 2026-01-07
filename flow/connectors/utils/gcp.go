@@ -63,7 +63,7 @@ func (sa *GcpServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquer
 	client, err := bigquery.NewClient(
 		ctx,
 		sa.ProjectID,
-		option.WithAuthCredentialsJSON(option.ServiceAccount, saJSON),
+		option.WithCredentialsJSON(saJSON),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
@@ -81,7 +81,7 @@ func (sa *GcpServiceAccount) CreateStorageClient(ctx context.Context) (*storage.
 
 	client, err := storage.NewClient(
 		ctx,
-		option.WithAuthCredentialsJSON(option.ServiceAccount, saJSON),
+		option.WithCredentialsJSON(saJSON),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Storage client: %v", err)
@@ -100,7 +100,7 @@ func (sa *GcpServiceAccount) CreatePubSubClient(ctx context.Context) (*pubsub.Cl
 	client, err := pubsub.NewClient(
 		ctx,
 		sa.ProjectID,
-		option.WithAuthCredentialsJSON(option.ServiceAccount, saJSON),
+		option.WithCredentialsJSON(saJSON),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
