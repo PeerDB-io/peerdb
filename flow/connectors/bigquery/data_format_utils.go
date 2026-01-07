@@ -3,6 +3,7 @@ package connbigquery
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -26,18 +27,23 @@ const (
 // Designed for a quick reading specific parts of a Parquet file. Like file header.
 // Not efficient for many small reads/seeks.
 type gcsObjectSeeker struct {
-	ctx context.Context
+	ctx context.Context //nolint:containedctx // context for GCS operations
 
 	object   *storage.ObjectHandle
 	fileSize int64
 	offset   int64
 }
 
-func (r *gcsObjectSeeker) Read(p []byte) (n int, err error) {
+func (r *gcsObjectSeeker) Read(p []byte) (n int, err error) { //nolint:nonamedreturns // standard Read signature
 	length := int64(len(p))
 
 	if r.offset < 0 || length <= 0 || r.offset+length > r.fileSize {
-		return 0, fmt.Errorf("invalid offset/length for reading GCS object chunk: offset=%d, length=%d, fileSize=%d", r.offset, length, r.fileSize)
+		return 0, fmt.Errorf(
+			"invalid offset/length for reading GCS object chunk: offset=%d, length=%d, fileSize=%d",
+			r.offset,
+			length,
+			r.fileSize,
+		)
 	}
 
 	reader, err := r.object.NewRangeReader(r.ctx, r.offset, length)
@@ -92,7 +98,7 @@ func readParquetTotalRows(r io.ReadSeeker, fileSize int64) (int64, error) {
 	var magic [4]byte
 	copy(magic[:], footerEnd[4:])
 	if magic != parquetFooterMagic {
-		return 0, fmt.Errorf("invalid parquet file: wrong magic bytes at end")
+		return 0, errors.New("invalid parquet file: wrong magic bytes at end")
 	}
 
 	// Get footer metadata length (4 bytes, little endian)

@@ -12,7 +12,7 @@ import (
 )
 
 func collectBatches(ch <-chan *objectBatch) []*objectBatch {
-	var batches []*objectBatch
+	var batches []*objectBatch //nolint:prealloc
 	for batch := range ch {
 		batches = append(batches, batch)
 	}
@@ -80,7 +80,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 
 		batchCh := collectAndBatchObjects(ctx, stream, 1000, longInterval)
 		batches := collectBatches(batchCh)
-		require.Len(t, batches, 0)
+		require.Empty(t, batches)
 	})
 
 	t.Run("object exactly at size limit starts new batch", func(t *testing.T) {
@@ -135,10 +135,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		cancel()
 
 		select {
-		case _, ok := <-batchCh:
-			if ok {
-				// Got a batch, that's fine - it may have been sent before cancellation
-			}
+		case _, _ = <-batchCh:
 			// Channel closed or got batch, both are acceptable
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("channel should be closed after context cancellation")
@@ -208,7 +205,11 @@ func TestBuildURLTableFunction(t *testing.T) {
 			},
 		}
 		result := c.buildURLTableFunction(batch, "Avro")
-		require.Equal(t, "url('{http://example.com/1.avro,http://example.com/2.avro}', headers(`Authorization`='Bearer token_2'), 'Avro')", result)
+		require.Equal(
+			t,
+			"url('{http://example.com/1.avro,http://example.com/2.avro}', headers(`Authorization`='Bearer token_2'), 'Avro')",
+			result,
+		)
 	})
 
 	t.Run("URL with special characters", func(t *testing.T) {

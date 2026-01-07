@@ -12,7 +12,6 @@ import (
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/google/uuid"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
@@ -21,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -373,7 +373,10 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 // Parquet export does not support JSON columns, so we need to cast them.
 // Therefore, we build a custom EXPORT DATA statement with the necessary casting.
 // See: https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/export-statements#syntax
-func (c *BigQueryConnector) bigQueryExportQueryStatement(ctx context.Context, sourceTableIdentifier, snapshotStagingPath string) (string, error) {
+func (c *BigQueryConnector) bigQueryExportQueryStatement(
+	ctx context.Context,
+	sourceTableIdentifier, snapshotStagingPath string,
+) (string, error) {
 	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
