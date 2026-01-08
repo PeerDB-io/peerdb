@@ -212,7 +212,8 @@ func processTableAdditions(
 
 	logger.Info("altering publication for additional tables")
 	alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 1 * time.Hour,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 	alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
 		alterPublicationAddAdditionalTablesCtx,

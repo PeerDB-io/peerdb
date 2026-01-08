@@ -1584,6 +1584,11 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
 	additionalTableMappings []*protos.TableMapping,
 ) error {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
+		return "adding tables to publication"
+	})
+	defer shutdown()
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
 	srcConn, srcClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
