@@ -18,6 +18,10 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	cfg *protos.FlowConnectionConfigsCore,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
+	if err := chvalidate.CheckNotSystemDatabase(c.Config.Database); err != nil {
+		return err
+	}
+
 	if internal.PeerDBOnlyClickHouseAllowed() {
 		err := chvalidate.CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx, c.logger, c.database)
 		if err != nil {

@@ -271,7 +271,6 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 	}
 
-	close(stream.Records)
 	c.logger.Info("[mysql] pulled records",
 		slog.Int64("records", totalRecords),
 		slog.Int64("bytes", c.totalBytesRead.Load()),

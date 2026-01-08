@@ -216,7 +216,6 @@ func (c *MongoConnector) PullQRepRecords(
 				slog.Int("channelLen", len(stream.Records)))
 		}
 	}
-	close(stream.Records)
 	if err := cursor.Err(); err != nil {
 		if errors.Is(err, context.Canceled) {
 			c.logger.Warn("context canceled while reading documents",

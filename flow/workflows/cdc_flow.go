@@ -310,7 +310,7 @@ func processTableRemovals(
 
 	logger.Info("altering publication for removed tables")
 	removeTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 1 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
