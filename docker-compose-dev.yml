@@ -203,7 +203,6 @@ services:
         required: false
     environment:
       <<: *catalog-config
-      DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
       PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
       PEERDB_PASSWORD:
       NEXTAUTH_SECRET: __changeme__
