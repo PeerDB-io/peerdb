@@ -144,7 +144,6 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			t.Fatal("channel should be closed after context cancellation")
 		}
 	})
-
 }
 
 func TestBuildURLTableFunction(t *testing.T) {

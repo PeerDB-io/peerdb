@@ -10,6 +10,8 @@ import (
 
 // GCSHeaderProvider provides HTTP headers for authenticating GCS object requests.
 // It caches tokens and refreshes them when they expire.
+//
+//nolint:govet // only expecting a handful of these at a time
 type GCSHeaderProvider struct {
 	connector  *BigQueryConnector
 	bucketName string
