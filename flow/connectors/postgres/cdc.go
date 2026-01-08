@@ -910,6 +910,10 @@ func processMessage[Items model.Items](
 			return nil, err
 		}
 
+		if _, exists := p.srcTableIDNameMapping[msg.RelationID]; !exists {
+			return nil, nil
+		}
+
 		logger.Info("processing RelationMessage",
 			slog.Any("LSN", currentClientXlogPos),
 			slog.Uint64("RelationID", uint64(msg.RelationID)),
