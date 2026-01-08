@@ -12,6 +12,14 @@ import (
 	"go.temporal.io/sdk/log"
 )
 
+func CheckNotSystemDatabase(database string) error {
+	switch database {
+	case "system", "information_schema", "INFORMATION_SCHEMA":
+		return fmt.Errorf("database %q is a system database and cannot be used as a destination", database)
+	}
+	return nil
+}
+
 var acceptableTableEngines = []string{
 	"ReplacingMergeTree", "MergeTree", "ReplicatedReplacingMergeTree", "ReplicatedMergeTree", "CoalescingMergeTree", "Null",
 }
