@@ -999,6 +999,14 @@ func (d *datasetTable) string() string {
 	return fmt.Sprintf("%s.%s.%s", d.project, d.dataset, d.table)
 }
 
+func (d *datasetTable) stringQuoted() string {
+	if d.project == "" {
+		return fmt.Sprintf("%s.%s", quotedIdentifier(d.dataset), quotedIdentifier(d.table))
+	}
+
+	return fmt.Sprintf("%s.%s.%s", quotedIdentifier(d.project), quotedIdentifier(d.dataset), quotedIdentifier(d.table))
+}
+
 func (c *BigQueryConnector) convertToDatasetTable(tableName string) (datasetTable, error) {
 	parts := strings.Split(tableName, ".")
 	if len(parts) == 1 {

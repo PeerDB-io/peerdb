@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
@@ -19,12 +20,13 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 // PullQRepObjects pulls QRep objects from GCS based on the provided configuration and partition information.
 // It streams the objects to the provided QObjectStream and returns the total number of rows and bytes processed.
-// Total number of rows is estimated based on the size of the first object and the average row size.
+// Total number of rows is not known at this time. It will be calculated during sync with an info back from ClickHouse.
 func (c *BigQueryConnector) PullQRepObjects(
 	ctx context.Context,
 	_ *otel_metrics.OtelManager,
@@ -33,7 +35,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 	partition *protos.QRepPartition,
 	stream *model.QObjectStream,
 ) (int64, int64, error) {
-	stream.SetFormat(model.QObjectStreamBigQueryExportAvroFormat)
+	stream.SetFormat(model.QObjectStreamBigQueryExportParquetFormat)
 
 	schema, err := c.getQRepSchema(ctx, config)
 	if err != nil {
@@ -64,10 +66,6 @@ func (c *BigQueryConnector) PullQRepObjects(
 	urlHeaders := make(http.Header)
 
 	var totalBytes int64
-	var totalRows int64
-
-	var projectedRowSizeHasBeenCalculated bool
-	var projectedRowSize uint64
 
 	processObject := func(attrs *storage.ObjectAttrs) error {
 		if token == nil || !token.IsValid() {
@@ -85,19 +83,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 			Headers: urlHeaders,
 		}
 
-		if !projectedRowSizeHasBeenCalculated {
-			// estimate the row size based on the first object
-			projectedRowSize = avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
-			c.logger.Info("projected Avro row size", slog.Uint64("bytes", projectedRowSize))
-
-			projectedRowSizeHasBeenCalculated = true
-		}
-
 		totalBytes += attrs.Size
-
-		if projectedRowSize > 0 {
-			totalRows += int64(float64(attrs.Size) / float64(projectedRowSize))
-		}
 
 		return nil
 	}
@@ -120,9 +106,8 @@ func (c *BigQueryConnector) PullQRepObjects(
 		c.logger.Info("finished pulling single downloadable object",
 			slog.String("bucket", bucketName),
 			slog.String("prefix", prefix),
-			slog.Int64("totalRows", totalRows),
 			slog.Int64("totalBytes", totalBytes))
-		return totalRows, totalBytes, nil
+		return 0, totalBytes, nil
 	}
 
 	it := bucket.Objects(ctx, &storage.Query{
@@ -138,7 +123,6 @@ func (c *BigQueryConnector) PullQRepObjects(
 			c.logger.Debug("finished listing objects in bucket",
 				slog.String("bucket", bucketName),
 				slog.String("prefix", prefix),
-				slog.Int64("totalRows", totalRows),
 				slog.Int64("totalBytes", totalBytes))
 			break
 		}
@@ -160,10 +144,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 	c.logger.Info("finished pulling downloadable objects",
 		slog.String("bucket", bucketName),
 		slog.String("prefix", prefix),
-		slog.Int64("totalRows", totalRows),
 		slog.Int64("totalBytes", totalBytes))
 
-	return totalRows, totalBytes, nil
+	return 0, totalBytes, nil
 }
 
 func (c *BigQueryConnector) GetQRepPartitions(
@@ -171,6 +154,28 @@ func (c *BigQueryConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
+	dsTable, err := c.convertToDatasetTable(config.WatermarkTable)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse table identifier %s: %w", config.WatermarkTable, err)
+	}
+
+	tableRef := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
+	metadata, err := tableRef.Metadata(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get table metadata for %s.%s: %w", dsTable.dataset, dsTable.table, err)
+	}
+
+	totalRows := int64(metadata.NumRows)
+	numRowsPerPartition := int64(config.NumRowsPerPartition)
+
+	adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
+
+	c.logger.Info("[bigquery] partition details",
+		slog.Int64("totalRows", totalRows),
+		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+		slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
+
 	stagingPath, err := parseGCSPath(config.StagingPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
@@ -225,11 +230,14 @@ func (c *BigQueryConnector) GetQRepPartitions(
 		}
 
 		if !projectedPartitionSizeCalculated {
-			rowSize := avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
-			projectedMaximumPartitionSize = uint64(config.NumRowsPerPartition) * rowSize
+			rowSize := parquetObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
+			projectedMaximumPartitionSize = uint64(adjustedPartitions.AdjustedNumRowsPerPartition) * rowSize
 			projectedPartitionSizeCalculated = true
 
-			c.logger.Info("estimated avro object average row size", slog.Uint64("size", projectedMaximumPartitionSize))
+			c.logger.Info(
+				"[bigquery] estimated parquet object average row size",
+				slog.Uint64("size", projectedMaximumPartitionSize),
+			)
 		}
 
 		if currentPartition == nil {
@@ -324,19 +332,13 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 
 	jobs := make(map[string]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
-		uri := fmt.Sprintf("%s/%s/*.avro", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
-		gcsRef := bigquery.NewGCSReference(uri)
-		gcsRef.DestinationFormat = bigquery.Avro
-		gcsRef.AvroOptions = &bigquery.AvroOptions{UseAvroLogicalTypes: true}
-		gcsRef.Compression = bigquery.Deflate
-
-		dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
+		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, cfg.SnapshotStagingPath)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse table identifier %s: %w", tm.SourceTableIdentifier, err)
+			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
 		}
 
-		extractor := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table).ExtractorTo(gcsRef)
-		job, err := extractor.Run(ctx)
+		q := c.client.Query(exportSQL)
+		job, err := q.Run(ctx)
 		if err != nil {
 			var apiErr *googleapi.Error
 			if errors.As(err, &apiErr) {
@@ -364,6 +366,58 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	}
 
 	return nil, cfg.SnapshotStagingPath, nil
+}
+
+// bigQueryExportQueryStatement builds the EXPORT DATA SQL statement for exporting data from BigQuery to GCS in Parquet format.
+// BigQuery SDK does not support query_statement overrides for export jobs.
+// Parquet export does not support JSON columns, so we need to cast them.
+// Therefore, we build a custom EXPORT DATA statement with the necessary casting.
+// See: https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/export-statements#syntax
+func (c *BigQueryConnector) bigQueryExportQueryStatement(
+	ctx context.Context,
+	sourceTableIdentifier, snapshotStagingPath string,
+) (string, error) {
+	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
+	}
+
+	tableRef := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
+	metadata, err := tableRef.Metadata(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get table metadata for %s: %w", sourceTableIdentifier, err)
+	}
+
+	columnSelects := make([]string, 0, len(metadata.Schema))
+	for _, field := range metadata.Schema {
+		quotedName := quotedIdentifier(field.Name)
+		columnSelect := quotedName
+		switch field.Type {
+		case bigquery.JSONFieldType:
+			// Cast JSON to STRING since Parquet doesn't support JSON type
+			columnSelect = fmt.Sprintf("TO_JSON_STRING(%s) AS %s", quotedName, quotedName)
+		case bigquery.GeographyFieldType:
+			// Cast Geography to STRING since Parquet + ClickHouse doesn't support Geography type nicely
+			columnSelect = fmt.Sprintf("ST_AsText(%s) AS %s", quotedName, quotedName)
+		}
+		columnSelects = append(columnSelects, columnSelect)
+	}
+
+	uri := fmt.Sprintf("%s/%s/*.parquet", snapshotStagingPath, url.PathEscape(sourceTableIdentifier))
+
+	exportSQL := fmt.Sprintf(`EXPORT DATA OPTIONS(
+			uri='%s',
+			format='PARQUET',
+			compression='GZIP',
+			overwrite=true
+		) AS
+		SELECT %s FROM %s`,
+		uri,
+		strings.Join(columnSelects, ", "),
+		dsTable.stringQuoted(),
+	)
+
+	return exportSQL, nil
 }
 
 func (c *BigQueryConnector) FinishExport(v any) error {
