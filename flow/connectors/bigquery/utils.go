@@ -1,16 +1,20 @@
 package connbigquery
 
 import (
-	"fmt"
 	"strings"
 )
 
-func quoteIdentifier(sourceTableIdentifier string) string {
-	parts := strings.Split(sourceTableIdentifier, ".")
-	for i, part := range parts {
-		// Escape backticks by doubling them
-		escapedPart := strings.ReplaceAll(part, "`", "``")
-		parts[i] = fmt.Sprintf("`%s`", escapedPart)
+func quotedIdentifier(value string) string {
+	var result strings.Builder
+	result.WriteByte('`')
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if ch == '`' {
+			result.WriteString("\\`")
+		} else {
+			result.WriteByte(ch)
+		}
 	}
-	return strings.Join(parts, ".")
+	result.WriteByte('`')
+	return result.String()
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestQuoteIdentifier(t *testing.T) {
+func TestQuotedIdentifier(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -18,19 +18,19 @@ func TestQuoteIdentifier(t *testing.T) {
 			expected: "`my_table`",
 		},
 		{
-			name:     "dataset.table",
+			name:     "identifier with dot",
 			input:    "dataset.table",
-			expected: "`dataset`.`table`",
+			expected: "`dataset.table`",
 		},
 		{
 			name:     "backtick injection attempt",
 			input:    "table`; DROP TABLE users; --",
-			expected: "`table``; DROP TABLE users; --`",
+			expected: "`table\\`; DROP TABLE users; --`",
 		},
 		{
 			name:     "multiple backticks",
 			input:    "a]b``c```d",
-			expected: "`a]b````c``````d`",
+			expected: "`a]b\\`\\`c\\`\\`\\`d`",
 		},
 		{
 			name:     "special chars preserved",
@@ -41,7 +41,7 @@ func TestQuoteIdentifier(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := quoteIdentifier(tc.input)
+			result := quotedIdentifier(tc.input)
 			require.Equal(t, tc.expected, result)
 		})
 	}

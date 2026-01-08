@@ -390,7 +390,7 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 
 	columnSelects := make([]string, 0, len(metadata.Schema))
 	for _, field := range metadata.Schema {
-		quotedName := fmt.Sprintf("`%s`", field.Name)
+		quotedName := quotedIdentifier(field.Name)
 		columnSelect := quotedName
 		switch field.Type {
 		case bigquery.JSONFieldType:
@@ -414,7 +414,7 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 		SELECT %s FROM %s`,
 		uri,
 		strings.Join(columnSelects, ", "),
-		quoteIdentifier(sourceTableIdentifier),
+		dsTable.stringQuoted(),
 	)
 
 	return exportSQL, nil
