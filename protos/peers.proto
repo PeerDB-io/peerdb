@@ -287,6 +287,7 @@ enum DatabaseVariant {
   PLANETSCALE = 7;
   // only Postgres
   SUPABASE = 8;
+  CLICKHOUSE_CLOUD = 9;
 }
 
 message Peer {

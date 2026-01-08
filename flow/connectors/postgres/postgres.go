@@ -966,9 +966,9 @@ func (c *PostgresConnector) GetTablesFromPublication(
 			tables[i] = schemaTable.Table
 		}
 		getTablesSQL = `
-            SELECT schemaname, tablename 
-            FROM pg_publication_tables 
-            WHERE pubname = $1 
+            SELECT schemaname, tablename
+            FROM pg_publication_tables
+            WHERE pubname = $1
             AND (schemaname, tablename) NOT IN (
                 SELECT a.val AS schemaname, b.val AS tablename
                 FROM unnest($2::text[]) WITH ORDINALITY AS a(val, idx)
@@ -1839,6 +1839,9 @@ func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
 }
 
 func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
+	if strings.HasSuffix(c.Config.Host, ".clickhouse.cloud") {
+		return protos.DatabaseVariant_CLICKHOUSE_CLOUD, nil
+	}
 	// First check for Aurora by trying to look up aurora_version()
 	var isAurora bool
 	err := c.conn.QueryRow(ctx, "SELECT to_regproc('pg_catalog.aurora_version') IS NOT NULL").Scan(&isAurora)
