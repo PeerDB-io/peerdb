@@ -7,7 +7,7 @@ import (
 func quotedIdentifier(value string) string {
 	var result strings.Builder
 	result.WriteByte('`')
-	for i := 0; i < len(value); i++ {
+	for i := range len(value) {
 		ch := value[i]
 		if ch == '`' {
 			result.WriteString("\\`")
