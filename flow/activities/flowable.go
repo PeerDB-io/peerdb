@@ -1254,6 +1254,9 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		if err := a.emitLogRetentionHours(timeoutCtx, info, a.OtelManager.Metrics.LogRetentionGauge); err != nil {
 			logger.Error("Failed to emit log retention hours", slog.Any("error", err))
 		}
+		if err := a.recordCommitLag(timeoutCtx, info, a.OtelManager.Metrics.CommitLagGauge); err != nil {
+			logger.Error("Failed to record commit lag", slog.Any("error", err))
+		}
 		cancel()
 	}
 	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
@@ -1348,6 +1351,47 @@ func (a *FlowableActivity) emitLogRetentionHours(
 
 	logger.Warn("Log retention hours is not set or is zero, skipping emission",
 		slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
+	return nil
+}
+
+func (a *FlowableActivity) recordCommitLag(
+	ctx context.Context,
+	info flowInformation,
+	commitLagGauge metric.Int64Gauge,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+		FlowName:           info.config.FlowJobName,
+		SourceName:         info.config.SourceName,
+		DestinationName:    info.config.DestinationName,
+		FetchSourceVariant: true,
+	})
+	if err != nil {
+		logger.Error("Failed to get flow metadata", slog.Any("error", err))
+		return err
+	}
+	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+	srcConn, srcClose, err := connectors.GetByNameAs[connectors.GetCommitLagConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return nil
+	} else if err != nil {
+		logger.Error("Failed to create connector to record replication time lag", slog.Any("error", err))
+		return err
+	}
+	defer srcClose(ctx)
+
+	flowName := info.config.FlowJobName
+	lagMicroseconds, err := srcConn.GetCommitLagMicroseconds(ctx, flowName)
+	if err != nil {
+		logger.Error("Failed to get replication time lag", slog.Any("error", err))
+		return err
+	}
+
+	if lagMicroseconds >= 0 {
+		commitLagGauge.Record(ctx, lagMicroseconds)
+	} else {
+		slog.WarnContext(ctx, "Got negative lagMicroseconds", slog.Any("lagMicroseconds", lagMicroseconds))
+	}
 	return nil
 }
 
