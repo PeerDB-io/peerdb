@@ -525,7 +525,6 @@ message CancelTableAdditionOutput {
 message ChangeCatalogLastOffsetForMirrorRequest {
   string flow_name = 1;
   optional int64 last_offset = 2;
-  optional string last_text = 3;
   string reason = 4;
 }
 
