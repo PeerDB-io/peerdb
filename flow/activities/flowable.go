@@ -659,7 +659,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 
 		return func(partition *protos.QRepPartition) error {
-			stream := model.NewQObjectStream(0) // unbuffered to avoid object or short-lived token expiration
+			stream := model.NewQObjectStream(shared.QRepChannelSize)
 
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
 				connectors.QRepPullObjectsConnector.PullQRepObjects,
