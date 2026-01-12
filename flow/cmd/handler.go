@@ -870,9 +870,23 @@ func (h *FlowRequestHandler) ChangeCatalogLastOffsetForMirror(
 		lastOffset = *req.LastOffset
 	}
 
+	// Select existing job_name values to ensure flow exists
+	var existingJobName string
+	err := h.pool.QueryRow(
+		ctx,
+		`SELECT job_name FROM metadata_last_sync_state WHERE job_name=$1`,
+		flowName,
+	).Scan(&existingJobName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, NewNotFoundApiError(fmt.Errorf("flow %s not found in catalog", flowName))
+		}
+		return nil, NewInternalApiError(fmt.Errorf("unable to query catalog for flow %s: %w", flowName, err))
+	}
+
 	// we get previous offset and new offset for observability
 	var previousOffset, newOffset int64
-	err := h.pool.QueryRow(
+	err = h.pool.QueryRow(
 		ctx,
 		`WITH old_value AS (
 				SELECT last_offset FROM metadata_last_sync_state WHERE job_name=$1
