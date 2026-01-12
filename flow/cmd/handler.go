@@ -842,3 +842,67 @@ func (h *FlowRequestHandler) SkipSnapshotWaitFlows(
 		Message:    fmt.Sprintf("Successfully sent skipped_snapshot_wait_flows signal for %d flows", len(in.FlowNames)),
 	}, nil
 }
+
+func (h *FlowRequestHandler) SetLastOffsetInMetadataForFlow(
+	ctx context.Context,
+	req *protos.MetadataOffsetForFlowRequest,
+) (*protos.MetadataOffsetForFlowResponse, APIError) {
+	if req.FlowJobName == "" {
+		return nil, NewInvalidArgumentApiError(errors.New("flow job name cannot be empty"))
+	}
+	if req.LastOffset < 0 {
+		return nil, NewInvalidArgumentApiError(errors.New("last offset cannot be negative"))
+	}
+
+	// Select existing distinct job_name from metadata_last_sync_state
+	var existingFlowNames []string
+	flowNameFound := false
+	rows, err := h.pool.Query(ctx, `SELECT flow_name FROM metadata_last_sync_state`)
+	if err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("unable to get existing flow names in metadata: %w", err))
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var flowName string
+		if err := rows.Scan(&flowName); err != nil {
+			return nil, NewInternalApiError(fmt.Errorf("unable to scan flow name from metadata: %w", err))
+		}
+		if flowName == req.FlowJobName {
+			flowNameFound = true
+		}
+		existingFlowNames = append(existingFlowNames, flowName)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("error iterating over flow names in metadata: %w", err))
+	}
+
+	if !flowNameFound {
+		return nil, NewNotFoundApiError(fmt.Errorf("flow name %s not found in metadata. Existing flow names: %v",
+			req.FlowJobName, existingFlowNames))
+	}
+
+	// First select existing last offset for logging purposes
+	var existingOffset pgtype.Int8
+	err = h.pool.QueryRow(ctx, `SELECT last_offset FROM metadata_last_sync_state WHERE flow_name=$1`,
+		req.FlowJobName).Scan(&existingOffset)
+	if err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("unable to get existing last offset in metadata for flow %s: %w",
+			req.FlowJobName, err))
+	}
+
+	slog.InfoContext(ctx, "Setting last offset in metadata for flow",
+		slog.String("flowName", req.FlowJobName),
+		slog.Int64("existingLastOffset", existingOffset.Int64),
+		slog.Int64("newLastOffset", req.LastOffset),
+	)
+
+	_, err = h.pool.Exec(ctx, `UPDATE metadata_last_sync_state 
+		SET last_offset=$1, updated_at = CURRENT_TIMESTMAMP WHERE flow_name=$2`,
+		req.LastOffset, req.FlowJobName,
+	)
+	if err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("unable to set last offset in metadata for flow %s: %w",
+			req.FlowJobName, err))
+	}
+	return &protos.MetadataOffsetForFlowResponse{}, nil
+}
