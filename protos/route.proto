@@ -522,6 +522,19 @@ message CancelTableAdditionOutput {
   string run_id = 3;
 }
 
+message ChangeCatalogLastOffsetForMirrorRequest {
+  string flow_name = 1;
+  optional int64 last_offset = 2;
+  optional string last_text = 3;
+  string reason = 4;
+}
+
+message ChangeCatalogLastOffsetForMirrorResponse {
+  string flow_name = 1;
+  int64 previous_offset = 2;
+  int64 new_offset = 3;
+}
+
 service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
@@ -810,6 +823,13 @@ service FlowService {
   rpc CancelTableAddition(CancelTableAdditionInput) returns (CancelTableAdditionOutput) {
     option (google.api.http) = {
       post : "/v1/flows/cdc/cancel_table_addition",
+      body : "*"
+    };
+  }
+
+  rpc ChangeCatalogLastOffsetForMirror(ChangeCatalogLastOffsetForMirrorRequest) returns (ChangeCatalogLastOffsetForMirrorResponse) {
+    option (google.api.http) = {
+      post : "/v1/peers/reset_catalog_last_offset",
       body : "*"
     };
   }

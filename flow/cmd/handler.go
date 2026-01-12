@@ -842,3 +842,65 @@ func (h *FlowRequestHandler) SkipSnapshotWaitFlows(
 		Message:    fmt.Sprintf("Successfully sent skipped_snapshot_wait_flows signal for %d flows", len(in.FlowNames)),
 	}, nil
 }
+
+/*
+ChangeCatalogLastOffsetForMirror updates the last offset stored in the catalog for a particular mirror.
+
+This is not a common operation and should be used with caution. It is primarily intended for use cases such as:
+
+- Step 7 in:
+https://docs.peerdb.io/bestpractices/postgres-upgrade#upgrading-the-postgresql-peer-of-an-ongoing-cdc-mirror
+
+- Extraneous situations where the last offset needs to be adjusted manually.
+*/
+func (h *FlowRequestHandler) ChangeCatalogLastOffsetForMirror(
+	ctx context.Context,
+	req *protos.ChangeCatalogLastOffsetForMirrorRequest,
+) (*protos.ChangeCatalogLastOffsetForMirrorResponse, APIError) {
+	flowName := req.FlowName
+	if flowName == "" {
+		return nil, NewInvalidArgumentApiError(errors.New("flow name cannot be empty"))
+	}
+
+	var lastOffset int64 = 0
+	if req.LastOffset != nil {
+		if *req.LastOffset < 0 {
+			return nil, NewInvalidArgumentApiError(errors.New("last offset cannot be negative"))
+		}
+		lastOffset = *req.LastOffset
+	}
+
+	// we get previous offset and new offset for observability
+	var previousOffset, newOffset int64
+	err := h.pool.QueryRow(
+		ctx,
+		`WITH old_value AS (
+				SELECT last_offset FROM metadata_last_sync_state WHERE job_name=$1
+			)
+			UPDATE metadata_last_sync_state 
+			SET last_offset=$2, updated_at=now() 
+			WHERE job_name=$1
+			RETURNING last_offset, (SELECT last_offset FROM old_value)`,
+		flowName,
+		lastOffset,
+	).Scan(&newOffset, &previousOffset)
+	if err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("unable to update last offset in catalog for flow %s: %w",
+			flowName, err))
+	}
+
+	logArgs := []any{
+		slog.String("flowName", flowName),
+		slog.Int64("previousOffset", previousOffset),
+		slog.Int64("newOffset", newOffset),
+		slog.String("reason", req.Reason),
+	}
+
+	slog.Info("last offset in catalog has been changed", logArgs...)
+
+	return &protos.ChangeCatalogLastOffsetForMirrorResponse{
+		FlowName:       flowName,
+		PreviousOffset: previousOffset,
+		NewOffset:      newOffset,
+	}, nil
+}
