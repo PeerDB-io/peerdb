@@ -226,7 +226,7 @@ func (c *MongoConnector) PullRecords(
 			if idValue == nil {
 				return errors.New("document key _id not found")
 			}
-			qValue, err := qValueStringFromKey(idValue)
+			qValue, err := qValueStringFromKey(idValue, req.InternalVersion)
 			if err != nil {
 				return fmt.Errorf("failed to convert _id to string: %w", err)
 			}

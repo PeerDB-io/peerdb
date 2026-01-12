@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func TestMarshalDocument(t *testing.T) {
@@ -359,9 +361,35 @@ func TestMarshalDocument(t *testing.T) {
 func TestMarshalId(t *testing.T) {
 	objectId, err := bson.ObjectIDFromHex("6893edbecb1f9508891bbb84")
 	require.NoError(t, err)
-	result, err := API.Marshal(objectId)
+
+	// Test new version behavior (no redundant quotes for ObjectID and string)
+	qValue, err := qValueStringFromKey(objectId, shared.InternalVersion_Latest)
 	require.NoError(t, err)
-	require.Equal(t, `"6893edbecb1f9508891bbb84"`, string(result))
+	require.Equal(t, `6893edbecb1f9508891bbb84`, qValue.Val)
+
+	stringId := "string_pk"
+	qValue, err = qValueStringFromKey(stringId, shared.InternalVersion_Latest)
+	require.NoError(t, err)
+	require.Equal(t, `string_pk`, qValue.Val)
+
+	intId := 123
+	qValue, err = qValueStringFromKey(intId, shared.InternalVersion_Latest)
+	require.NoError(t, err)
+	require.Equal(t, `123`, qValue.Val)
+
+	compositeId := bson.D{{Key: "a", Value: 1}, {Key: "b", Value: 2}}
+	qValue, err = qValueStringFromKey(compositeId, shared.InternalVersion_Latest)
+	require.NoError(t, err)
+	require.Equal(t, `{"a":1,"b":2}`, qValue.Val)
+
+	// Test old version behavior (JSON quoting preserved for backwards compatibility)
+	qValue, err = qValueStringFromKey(objectId, shared.InternalVersion_First)
+	require.NoError(t, err)
+	require.Equal(t, `"6893edbecb1f9508891bbb84"`, qValue.Val)
+
+	qValue, err = qValueStringFromKey(stringId, shared.InternalVersion_First)
+	require.NoError(t, err)
+	require.Equal(t, `"string_pk"`, qValue.Val)
 }
 
 // Tests that floats of all magnitudes are marshalled into a resonable length and have a signifier
