@@ -9,6 +9,7 @@ const (
 	ErrorActionKey             = "errorAction"
 	ErrorSourceKey             = "errorSource"
 	ErrorCodeKey               = "errorCode"
+	ErrorTextKey               = "errorText"
 	InstanceStatusKey          = "instanceStatus"
 	PeerDBVersionKey           = "peerDBVersion"
 	DeploymentVersionKey       = "deploymentVersion"

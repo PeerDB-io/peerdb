@@ -515,11 +515,16 @@ func (a *Alerter) logFlowErrorInternal(
 		slog.Any("stack", inErrWithStack),
 		slog.String("flowErrorType", errorType.String()),
 	)
+	errorText := errError
+	if len(errorText) > 256 {
+		errorText = errorText[:256]
+	}
 	errorAttributes := []attribute.KeyValue{
 		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
 		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
 		attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),
 		attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
+		attribute.String(otel_metrics.ErrorTextKey, errorText),
 	}
 	if len(errInfo.AdditionalAttributes) != 0 {
 		for k, v := range errInfo.AdditionalAttributes {
