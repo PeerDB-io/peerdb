@@ -593,6 +593,7 @@ message PeerContextMetadata {
   string name = 1;
   peerdb_peers.DBType type = 2;
   peerdb_peers.DatabaseVariant variant = 3;
+  string hostname = 4;
 }
 
 message FlowContextMetadataInput {
