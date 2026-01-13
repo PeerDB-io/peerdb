@@ -191,6 +191,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if resp, err := h.createCDCFlow(ctx, connectionConfigsCore, workflowID); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
+		LogActionCreateFlow(ctx, connectionConfigsCore.FlowJobName)
 		return resp, nil
 	}
 }
@@ -260,6 +261,8 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, NewInternalApiError(fmt.Errorf("unable to start QRepFlow workflow: %w", err))
 	}
+
+	LogActionCreateFlow(ctx, cfg.FlowJobName)
 
 	return &protos.CreateQRepFlowResponse{
 		WorkflowId: workflowID,
@@ -438,14 +441,34 @@ func (h *FlowRequestHandler) FlowStateChange(
 		case protos.FlowStatus_STATUS_PAUSED:
 			if currState == protos.FlowStatus_STATUS_RUNNING {
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
+				if changeErr == nil {
+					LogActionPauseFlow(ctx, req.FlowJobName)
+				}
 			}
 		case protos.FlowStatus_STATUS_RUNNING:
 			if currState == protos.FlowStatus_STATUS_PAUSED {
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
+				if changeErr == nil {
+					var tablesAdded, tablesRemoved []string
+					if req.FlowConfigUpdate != nil {
+						if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
+							for _, t := range cdcUpdate.AdditionalTables {
+								tablesAdded = append(tablesAdded, t.SourceTableIdentifier)
+							}
+							for _, t := range cdcUpdate.RemovedTables {
+								tablesRemoved = append(tablesRemoved, t.SourceTableIdentifier)
+							}
+						}
+					}
+					LogActionResumeFlow(ctx, req.FlowJobName, tablesAdded, tablesRemoved)
+				}
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
 			if currState == protos.FlowStatus_STATUS_COMPLETED || currState == protos.FlowStatus_STATUS_FAILED {
 				changeErr = h.resyncByRecreatingFlow(ctx, req.FlowJobName, req.DropMirrorStats)
+				if changeErr == nil {
+					LogActionResyncFlow(ctx, req.FlowJobName)
+				}
 			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, NewInternalApiError(fmt.Errorf("unable to determine if mirror is cdc: %w", err))
 			} else if !isCDC {
@@ -467,6 +490,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 					return nil, NewFailedPreconditionApiError(fmt.Errorf("invalid mirror: %w", err))
 				}
 				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+				if changeErr == nil {
+					LogActionResyncFlow(ctx, req.FlowJobName)
+				}
 			}
 		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_TERMINATED:
 			if currState != protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATING {
@@ -477,6 +503,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 					changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
 				default:
 					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+				}
+				if changeErr == nil {
+					LogActionTerminateFlow(ctx, req.FlowJobName)
 				}
 			}
 		default:
