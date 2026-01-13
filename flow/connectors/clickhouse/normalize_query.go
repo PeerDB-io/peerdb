@@ -188,15 +188,20 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				)
 			}
 		case "JSON", "Nullable(JSON)":
+			stringType := strings.Replace(clickHouseType, "JSON", "String", 1)
 			fmt.Fprintf(&projection,
-				"JSONExtractString(_peerdb_data, %s)::JSON AS %s,",
+				"JSONExtract(_peerdb_data, %s, '%s')::%s AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
+				stringType,
+				clickHouseType,
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					"JSONExtractString(_peerdb_match_data, %s)::JSON AS %s,",
+					"JSONExtract(_peerdb_match_data, %s, '%s')::%s AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
+					stringType,
+					clickHouseType,
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
