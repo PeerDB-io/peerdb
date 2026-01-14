@@ -208,7 +208,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:        time.Minute,
+			InitialInterval:        10 * time.Second,
 			BackoffCoefficient:     2.,
 			MaximumInterval:        10 * time.Minute,
 			MaximumAttempts:        0,
