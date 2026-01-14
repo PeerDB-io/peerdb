@@ -202,9 +202,9 @@ func (c *MongoConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableId
 	return collStats.Size, nil
 }
 
-// GetReplicationTimeLag returns the replication time lag between the latest WAL write
+// GetServerSideCommitLagMicroseconds returns the commit lag between the latest WAL write
 // and the last consumed event. Both timestamps come from the MongoDB server to avoid clock skew.
-func (c *MongoConnector) GetCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error) {
+func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error) {
 	replSetStatus, err := peerdb_mongo.GetReplSetStatus(ctx, c.client)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get replica set status: %w", err)
