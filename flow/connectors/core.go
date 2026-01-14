@@ -385,28 +385,58 @@ func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerName
 	return peerTypes, nil
 }
 
-func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (*protos.Peer, error) {
-	row := catalogPool.QueryRow(ctx, `
-		SELECT type, options, enc_key_id
-		FROM peers
-		WHERE name = $1`, peerName)
+func LoadPeers(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]*protos.Peer, error) {
+	if len(peerNames) == 0 {
+		return nil, nil
+	}
 
-	peer := &protos.Peer{Name: peerName}
+	rows, err := catalogPool.Query(ctx, `
+		SELECT name, type, options, enc_key_id
+		FROM peers
+		WHERE name = ANY($1)`, peerNames)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query peers: %w", err)
+	}
+
+	peers := make(map[string]*protos.Peer, len(peerNames))
+	var peerName string
+	var dbType protos.DBType
 	var encPeerOptions []byte
 	var encKeyID string
-	if err := row.Scan(&peer.Type, &encPeerOptions, &encKeyID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, exceptions.NewNotFoundError(errors.New("peer not found " + peerName))
+	if _, err := pgx.ForEachRow(rows, []any{&peerName, &dbType, &encPeerOptions, &encKeyID}, func() error {
+		peer, err := BuildPeerConfig(ctx, encKeyID, encPeerOptions, peerName, dbType)
+		if err != nil {
+			return err
 		}
-		return nil, fmt.Errorf("failed to load peer: %w", err)
+		peers[peerName] = peer
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("error querying peer rows: %w", err)
 	}
 
+	// Verify all requested peers were found
+	var missingPeers []string
+	for _, name := range peerNames {
+		if _, found := peers[name]; !found {
+			missingPeers = append(missingPeers, name)
+		}
+	}
+
+	if len(missingPeers) > 0 {
+		return nil, exceptions.NewNotFoundError(fmt.Errorf("peers not found: %v", missingPeers))
+	}
+
+	return peers, nil
+}
+
+func BuildPeerConfig(ctx context.Context, encKeyID string, encPeerOptions []byte, peerName string, dbType protos.DBType) (*protos.Peer, error) {
 	peerOptions, err := internal.Decrypt(ctx, encKeyID, encPeerOptions)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load peer: %w", err)
+		return nil, fmt.Errorf("failed to decrypt peer options for %s: %w", peerName, err)
 	}
 
-	switch peer.Type {
+	peer := &protos.Peer{Name: peerName, Type: dbType}
+	switch dbType {
 	case protos.DBType_BIGQUERY:
 		var config protos.BigqueryConfig
 		if err := proto.Unmarshal(peerOptions, &config); err != nil {
@@ -480,10 +510,17 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 		}
 		peer.Config = &protos.Peer_ElasticsearchConfig{ElasticsearchConfig: &config}
 	default:
-		return nil, fmt.Errorf("unsupported peer type: %s", peer.Type)
+		return nil, fmt.Errorf("unsupported peer type: %s", dbType)
 	}
-
 	return peer, nil
+}
+
+func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (*protos.Peer, error) {
+	peers, err := LoadPeers(ctx, catalogPool, []string{peerName})
+	if err != nil {
+		return nil, err
+	}
+	return peers[peerName], nil
 }
 
 func GetConnector(ctx context.Context, env map[string]string, config *protos.Peer) (Connector, error) {

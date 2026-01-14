@@ -935,6 +935,7 @@ type flowInformation struct {
 type metricsFlowMetadata struct {
 	updatedAt           time.Time
 	config              *protos.FlowConnectionConfigsCore
+	sourcePeerConfig    *protos.Peer
 	name                string
 	workflowID          string
 	sourcePeerName      string
@@ -947,8 +948,9 @@ type metricsFlowMetadata struct {
 func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadata {
 	return &protos.FlowContextMetadata{
 		Source: &protos.PeerContextMetadata{
-			Name: m.sourcePeerName,
-			Type: m.sourcePeerType,
+			Name:     m.sourcePeerName,
+			Type:     m.sourcePeerType,
+			Hostname: getPeerHostName(m.sourcePeerType, m.sourcePeerConfig),
 		},
 		Destination: &protos.PeerContextMetadata{
 			Name: m.destinationPeerName,
@@ -1138,7 +1140,9 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 				COALESCE(sp.name, '') AS source_peer_name,
 				COALESCE(sp.type, 0) AS source_peer_type,
 				COALESCE(dp.name, '') AS destination_peer_name,
-				COALESCE(dp.type, 0) AS destination_peer_type
+				COALESCE(dp.type, 0) AS destination_peer_type,
+				COALESCE(sp.options, '') AS source_peer_config_proto,
+				sp.enc_key_id AS source_enc_key_id
 			FROM
 				flows f
 			LEFT JOIN peers sp ON f.source_peer = sp.id
@@ -1154,6 +1158,8 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 			config: &protos.FlowConnectionConfigsCore{},
 		}
 		var configProto []byte
+		var sourcePeerConfig []byte
+		var sourceEncKeyID string
 		if err := rows.Scan(
 			&f.name,
 			&f.status,
@@ -1164,6 +1170,8 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 			&f.sourcePeerType,
 			&f.destinationPeerName,
 			&f.destinationPeerType,
+			&sourcePeerConfig,
+			&sourceEncKeyID,
 		); err != nil {
 			return metricsFlowMetadata{}, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -1176,6 +1184,11 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 		if err := proto.Unmarshal(configProto, f.config); err != nil {
 			return metricsFlowMetadata{}, err
 		}
+		config, err := connectors.BuildPeerConfig(ctx, sourceEncKeyID, sourcePeerConfig, f.sourcePeerName, f.sourcePeerType)
+		if err != nil {
+			return metricsFlowMetadata{}, err
+		}
+		f.sourcePeerConfig = config
 		return f, nil
 	})
 	if err != nil {
@@ -1763,6 +1776,20 @@ func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
 	return nil
 }
 
+func getPeerHostName(peerType protos.DBType, peer *protos.Peer) string {
+	switch peerType {
+	case protos.DBType_POSTGRES:
+		return shared.Val(peer.GetPostgresConfig()).Host
+	case protos.DBType_MYSQL:
+		return shared.Val(peer.GetMysqlConfig()).Host
+	case protos.DBType_MONGO:
+		return shared.Val(peer.GetMongoConfig()).TlsHost
+	case protos.DBType_CLICKHOUSE:
+		return shared.Val(peer.GetClickhouseConfig()).Host
+	}
+	return ""
+}
+
 func (a *FlowableActivity) GetFlowMetadata(
 	ctx context.Context,
 	input *protos.FlowContextMetadataInput,
@@ -1775,21 +1802,23 @@ func (a *FlowableActivity) GetFlowMetadata(
 	if input.DestinationName != "" {
 		peerNames = append(peerNames, input.DestinationName)
 	}
-	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, peerNames)
+	peers, err := connectors.LoadPeers(ctx, a.CatalogPool, peerNames)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowName, err)
 	}
 	var sourcePeer, destinationPeer *protos.PeerContextMetadata
 	if input.SourceName != "" {
 		sourcePeer = &protos.PeerContextMetadata{
-			Name: input.SourceName,
-			Type: peerTypes[input.SourceName],
+			Name:     input.SourceName,
+			Type:     peers[input.SourceName].Type,
+			Hostname: getPeerHostName(peers[input.SourceName].Type, peers[input.SourceName]),
 		}
 	}
 	if input.DestinationName != "" {
 		destinationPeer = &protos.PeerContextMetadata{
-			Name: input.DestinationName,
-			Type: peerTypes[input.DestinationName],
+			Name:     input.DestinationName,
+			Type:     peers[input.DestinationName].Type,
+			Hostname: getPeerHostName(peers[input.DestinationName].Type, peers[input.DestinationName]),
 		}
 	}
 
@@ -1814,7 +1843,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 
 	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
-		slog.Any("peerTypes", peerTypes))
+		slog.Int("peerTypes", len(peers)))
 	return &protos.FlowContextMetadata{
 		FlowName:    input.FlowName,
 		Source:      sourcePeer,
