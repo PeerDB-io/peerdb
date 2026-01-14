@@ -4703,6 +4703,7 @@ type PeerContextMetadata struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Type          DBType                 `protobuf:"varint,2,opt,name=type,proto3,enum=peerdb_peers.DBType" json:"type,omitempty"`
 	Variant       DatabaseVariant        `protobuf:"varint,3,opt,name=variant,proto3,enum=peerdb_peers.DatabaseVariant" json:"variant,omitempty"`
+	Hostname      string                 `protobuf:"bytes,4,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4756,6 +4757,13 @@ func (x *PeerContextMetadata) GetVariant() DatabaseVariant {
 		return x.Variant
 	}
 	return DatabaseVariant_VARIANT_UNKNOWN
+}
+
+func (x *PeerContextMetadata) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
 }
 
 type FlowContextMetadataInput struct {
@@ -5504,11 +5512,12 @@ const file_flow_proto_rawDesc = "" +
 	"\x11mirror_created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x0fmirrorCreatedAt\x12F\n" +
 	"\x11mirror_updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x0fmirrorUpdatedAt\"N\n" +
 	"\x12MaintenanceMirrors\x128\n" +
-	"\amirrors\x18\x01 \x03(\v2\x1e.peerdb_flow.MaintenanceMirrorR\amirrors\"\x8c\x01\n" +
+	"\amirrors\x18\x01 \x03(\v2\x1e.peerdb_flow.MaintenanceMirrorR\amirrors\"\xa8\x01\n" +
 	"\x13PeerContextMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12(\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x14.peerdb_peers.DBTypeR\x04type\x127\n" +
-	"\avariant\x18\x03 \x01(\x0e2\x1d.peerdb_peers.DatabaseVariantR\avariant\"\x83\x02\n" +
+	"\avariant\x18\x03 \x01(\x0e2\x1d.peerdb_peers.DatabaseVariantR\avariant\x12\x1a\n" +
+	"\bhostname\x18\x04 \x01(\tR\bhostname\"\x83\x02\n" +
 	"\x18FlowContextMetadataInput\x12\x1b\n" +
 	"\tflow_name\x18\x01 \x01(\tR\bflowName\x12\x1f\n" +
 	"\vsource_name\x18\x02 \x01(\tR\n" +
