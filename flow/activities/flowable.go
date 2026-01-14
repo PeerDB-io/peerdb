@@ -1255,7 +1255,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			logger.Error("Failed to emit log retention hours", slog.Any("error", err))
 		}
 		if err := a.recordServerSideCommitLag(timeoutCtx, info, a.OtelManager.Metrics.ServerSideCommitLagGauge); err != nil {
-			logger.Error("Failed to record source-side commit lag", slog.Any("error", err))
+			logger.Error("Failed to record server-side commit lag", slog.Any("error", err))
 		}
 		cancel()
 	}
@@ -1371,11 +1371,12 @@ func (a *FlowableActivity) recordServerSideCommitLag(
 		return err
 	}
 	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-	srcConn, srcClose, err := connectors.GetByNameAs[connectors.GetServerSideCommitLagConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
+	srcConn, srcClose, err := connectors.GetByNameAs[connectors.GetServerSideCommitLagConnector](
+		ctx, nil, a.CatalogPool, info.config.SourceName)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return nil
 	} else if err != nil {
-		logger.Error("Failed to create connector to record server-side replication time lag", slog.Any("error", err))
+		logger.Error("Failed to get connector", slog.Any("error", err))
 		return err
 	}
 	defer srcClose(ctx)
@@ -1383,7 +1384,7 @@ func (a *FlowableActivity) recordServerSideCommitLag(
 	flowName := info.config.FlowJobName
 	lagMicroseconds, err := srcConn.GetServerSideCommitLagMicroseconds(ctx, flowName)
 	if err != nil {
-		logger.Error("Failed to get server-side replication time lag", slog.Any("error", err))
+		logger.Error("Failed to get commit lag", slog.Any("error", err))
 		return err
 	}
 	serverSideCommitLagGauge.Record(ctx, lagMicroseconds)

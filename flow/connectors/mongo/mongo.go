@@ -216,7 +216,7 @@ func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context,
 	}
 
 	if lastOffset.Text == "" {
-		return 0, errors.New("last offset is empty string, cannot calculate replication time lag")
+		return 0, errors.New("last offset is empty string, cannot calculate commit lag")
 	}
 
 	resumeToken, err := base64.StdEncoding.DecodeString(lastOffset.Text)
