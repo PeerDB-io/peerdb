@@ -348,11 +348,9 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 
-		clusterTimeNanos := time.Unix(int64(changeEvent.ClusterTime.T), 0).UnixNano()
-		otelManager.Metrics.LatestConsumedLogEventGauge.Record(
-			ctx,
-			time.Unix(int64(changeEvent.ClusterTime.T), 0).Unix(),
-		)
+		clusterTime := time.Unix(int64(changeEvent.ClusterTime.T), 0)
+		clusterTimeNanos := clusterTime.UnixNano()
+		otelManager.Metrics.LatestConsumedLogEventGauge.Record(ctx, clusterTime.Unix())
 
 		sourceTableName := fmt.Sprintf("%s.%s", changeEvent.Ns.Db, changeEvent.Ns.Coll)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name
@@ -408,6 +406,7 @@ func (c *MongoConnector) PullRecords(
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
 			continue
 		}
+		otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(clusterTime).Microseconds())
 		checkpoint()
 	}
 

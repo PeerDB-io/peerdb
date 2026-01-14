@@ -3,7 +3,6 @@ package connmongo
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -200,42 +199,4 @@ func (c *MongoConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableId
 		return 0, err
 	}
 	return collStats.Size, nil
-}
-
-// GetReplicationTimeLag returns the replication time lag between the latest WAL write
-// and the last consumed event. Both timestamps come from the MongoDB server to avoid clock skew.
-func (c *MongoConnector) GetCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error) {
-	replSetStatus, err := peerdb_mongo.GetReplSetStatus(ctx, c.client)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get replica set status: %w", err)
-	}
-
-	lastOffset, err := c.GetLastOffset(ctx, flowJobName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get last offset: %w", err)
-	}
-
-	if lastOffset.Text == "" {
-		return 0, errors.New("last offset is empty string, cannot calculate replication time lag")
-	}
-
-	resumeToken, err := base64.StdEncoding.DecodeString(lastOffset.Text)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode resume token: %w", err)
-	}
-	clusterTime, err := decodeTimestampFromResumeToken(resumeToken)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode timestamp from resume token: %w", err)
-	}
-
-	latestWALTime := replSetStatus.OpTimes.LastCommittedOpTime.Ts
-
-	lagSeconds := int64(latestWALTime.T) - int64(clusterTime.T)
-	if lagSeconds < 0 {
-		lagSeconds = 0
-	}
-
-	lagMicroseconds := lagSeconds * 1_000_000
-
-	return lagMicroseconds, nil
 }
