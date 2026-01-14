@@ -1781,6 +1781,8 @@ func getPeerHostName(peerType protos.DBType, peer *protos.Peer) string {
 	case protos.DBType_POSTGRES:
 		return shared.Val(peer.GetPostgresConfig()).Host
 	case protos.DBType_MYSQL:
+		return shared.Val(peer.GetMysqlConfig()).Host
+	case protos.DBType_MONGO:
 		return shared.Val(peer.GetMongoConfig()).TlsHost
 	case protos.DBType_CLICKHOUSE:
 		return shared.Val(peer.GetClickhouseConfig()).Host
