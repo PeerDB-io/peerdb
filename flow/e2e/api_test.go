@@ -802,6 +802,83 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.EqualExportedValues(s.t, flowConnConfig, config)
 }
 
+func (s APITestSuite) TestResyncFailed() {
+	pgSource, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL")
+	}
+
+	srcTableName := "resync_failed"
+	dstTableName := "resync_failed_" + s.suffix
+	cols := "id,val"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, srcTableName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, srcTableName))))
+
+	err := s.ch.CreateRMTTable(dstTableName, []TestClickHouseColumn{
+		{Name: "id", Type: "Int64"},
+		{Name: "val", Type: "String"},
+		{Name: "_peerdb_is_deleted", Type: "Int8"},
+		{Name: "_peerdb_version", Type: "Int64"},
+		{Name: "_peerdb_synced_at", Type: "DateTime64(9)"},
+	}, "id")
+	require.NoError(s.t, err)
+	mvManager := s.ch.NewMVManager(dstTableName, s.suffix)
+	err = mvManager.CreateBadMV(s.t.Context())
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "resync_failed_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, srcTableName): dstTableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for MV error messages", func() bool {
+		count, err := s.pg.GetLogCount(
+			s.t.Context(), flowConnConfig.FlowJobName, "error",
+			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, mvManager.mvName),
+		)
+		return err == nil && count > 0
+	})
+
+	_, err = pgSource.PostgresConnector.Conn().Exec(s.t.Context(),
+		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE $1`,
+		"%"+s.suffix+"%")
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for failed", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_FAILED
+	})
+
+	err = mvManager.DropBadMV(s.t.Context())
+	require.NoError(s.t, err)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, srcTableName))))
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+	})
+	require.NoError(s.t, err)
+
+	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	EnvWaitForCount(env, s.ch, "resync should have 2 rows", dstTableName, cols, 2)
+}
+
 func (s APITestSuite) TestDropCompleted() {
 	tableName := "valid"
 	var cols string

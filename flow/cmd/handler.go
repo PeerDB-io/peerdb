@@ -444,8 +444,8 @@ func (h *FlowRequestHandler) FlowStateChange(
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
-			if currState == protos.FlowStatus_STATUS_COMPLETED {
-				changeErr = h.resyncCompletedSnapshot(ctx, req.FlowJobName, req.DropMirrorStats)
+			if currState == protos.FlowStatus_STATUS_COMPLETED || currState == protos.FlowStatus_STATUS_FAILED {
+				changeErr = h.resyncByRecreatingFlow(ctx, req.FlowJobName, req.DropMirrorStats)
 			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, NewInternalApiError(fmt.Errorf("unable to determine if mirror is cdc: %w", err))
 			} else if !isCDC {
@@ -593,7 +593,7 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	return workflowID, nil
 }
 
-func (h *FlowRequestHandler) resyncCompletedSnapshot(
+func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	ctx context.Context,
 	flowName string,
 	dropStats bool,
