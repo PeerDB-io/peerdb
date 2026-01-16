@@ -133,7 +133,11 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 			a.SnapshotStatesMutex.Lock()
 			delete(a.TxSnapshotStates, sessionID)
 			a.SnapshotStatesMutex.Unlock()
-			return conn.FinishExport(tx)
+			if err := conn.FinishExport(tx); err != nil {
+				logger.Error("finish export error", slog.Any("error", err))
+				return err
+			}
+			return nil
 		}
 		time.Sleep(time.Minute)
 	}
