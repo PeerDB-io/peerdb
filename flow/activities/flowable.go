@@ -1267,6 +1267,9 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		if err := a.emitLogRetentionHours(timeoutCtx, info, a.OtelManager.Metrics.LogRetentionGauge); err != nil {
 			logger.Error("Failed to emit log retention hours", slog.Any("error", err))
 		}
+		if err := a.recordServerSideCommitLag(timeoutCtx, info, a.OtelManager.Metrics.ServerSideCommitLagGauge); err != nil {
+			logger.Error("Failed to record server-side commit lag", slog.Any("error", err))
+		}
 		cancel()
 	}
 	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
@@ -1361,6 +1364,43 @@ func (a *FlowableActivity) emitLogRetentionHours(
 
 	logger.Warn("Log retention hours is not set or is zero, skipping emission",
 		slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
+	return nil
+}
+
+func (a *FlowableActivity) recordServerSideCommitLag(
+	ctx context.Context,
+	info flowInformation,
+	serverSideCommitLagGauge metric.Int64Gauge,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+		FlowName:           info.config.FlowJobName,
+		SourceName:         info.config.SourceName,
+		DestinationName:    info.config.DestinationName,
+		FetchSourceVariant: true,
+	})
+	if err != nil {
+		logger.Error("Failed to get flow metadata", slog.Any("error", err))
+		return err
+	}
+	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+	srcConn, srcClose, err := connectors.GetByNameAs[connectors.GetServerSideCommitLagConnector](
+		ctx, nil, a.CatalogPool, info.config.SourceName)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return nil
+	} else if err != nil {
+		logger.Error("Failed to get connector", slog.Any("error", err))
+		return err
+	}
+	defer srcClose(ctx)
+
+	flowName := info.config.FlowJobName
+	lagMicroseconds, err := srcConn.GetServerSideCommitLagMicroseconds(ctx, flowName)
+	if err != nil {
+		logger.Error("Failed to get commit lag", slog.Any("error", err))
+		return err
+	}
+	serverSideCommitLagGauge.Record(ctx, lagMicroseconds)
 	return nil
 }
 

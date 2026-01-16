@@ -325,6 +325,12 @@ type GetLogRetentionConnector interface {
 	GetLogRetentionHours(ctx context.Context) (float64, error)
 }
 
+type GetServerSideCommitLagConnector interface {
+	Connector
+
+	GetServerSideCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error)
+}
+
 type DatabaseVariantConnector interface {
 	Connector
 
@@ -713,6 +719,8 @@ var (
 
 	_ GetLogRetentionConnector = &connmysql.MySqlConnector{}
 	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
+
+	_ GetServerSideCommitLagConnector = &connmongo.MongoConnector{}
 
 	_ DatabaseVariantConnector = &connpostgres.PostgresConnector{}
 	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}
