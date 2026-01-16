@@ -133,12 +133,12 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 	}
 }
 
-func logActivity(ctx context.Context, action string, attrs ...any) {
-	baseAttrs := []any{slog.String("action", action)}
+func logActivity(ctx context.Context, action string, additionalAttrs ...any) {
+	attrs := []any{slog.String("action", action)}
 	if requestID, ok := ctx.Value(shared.RequestIdKey).(string); ok {
-		baseAttrs = append(baseAttrs, slog.String("requestId", requestID))
+		attrs = append(attrs, slog.String("requestId", requestID))
 	}
-	baseAttrs = append(baseAttrs, attrs...)
+	attrs = append(attrs, additionalAttrs...)
 
-	slog.InfoContext(ctx, "[flow activity] "+action, baseAttrs...)
+	slog.InfoContext(ctx, "[flow activity] "+action, attrs...)
 }
