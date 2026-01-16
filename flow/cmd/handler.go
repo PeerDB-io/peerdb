@@ -29,6 +29,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -191,7 +192,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if resp, err := h.createCDCFlow(ctx, connectionConfigsCore, workflowID); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
-		LogActionCreateFlow(ctx, connectionConfigsCore.FlowJobName)
+		telemetry.LogActivityCreateFlow(ctx, connectionConfigsCore.FlowJobName)
 		return resp, nil
 	}
 }
@@ -262,7 +263,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		return nil, NewInternalApiError(fmt.Errorf("unable to start QRepFlow workflow: %w", err))
 	}
 
-	LogActionCreateFlow(ctx, cfg.FlowJobName)
+	telemetry.LogActivityCreateFlow(ctx, cfg.FlowJobName)
 
 	return &protos.CreateQRepFlowResponse{
 		WorkflowId: workflowID,
@@ -442,32 +443,21 @@ func (h *FlowRequestHandler) FlowStateChange(
 			if currState == protos.FlowStatus_STATUS_RUNNING {
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
 				if changeErr == nil {
-					LogActionPauseFlow(ctx, req.FlowJobName)
+					telemetry.LogActivityPauseFlow(ctx, req.FlowJobName)
 				}
 			}
 		case protos.FlowStatus_STATUS_RUNNING:
 			if currState == protos.FlowStatus_STATUS_PAUSED {
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
 				if changeErr == nil {
-					var tablesAdded, tablesRemoved []string
-					if req.FlowConfigUpdate != nil {
-						if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
-							for _, t := range cdcUpdate.AdditionalTables {
-								tablesAdded = append(tablesAdded, t.SourceTableIdentifier)
-							}
-							for _, t := range cdcUpdate.RemovedTables {
-								tablesRemoved = append(tablesRemoved, t.SourceTableIdentifier)
-							}
-						}
-					}
-					LogActionResumeFlow(ctx, req.FlowJobName, tablesAdded, tablesRemoved)
+					telemetry.LogActivityResumeFlow(ctx, req.FlowJobName)
 				}
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
 			if currState == protos.FlowStatus_STATUS_COMPLETED || currState == protos.FlowStatus_STATUS_FAILED {
 				changeErr = h.resyncByRecreatingFlow(ctx, req.FlowJobName, req.DropMirrorStats)
 				if changeErr == nil {
-					LogActionResyncFlow(ctx, req.FlowJobName)
+					telemetry.LogActivityResyncFlow(ctx, req.FlowJobName)
 				}
 			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, NewInternalApiError(fmt.Errorf("unable to determine if mirror is cdc: %w", err))
@@ -491,7 +481,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				}
 				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 				if changeErr == nil {
-					LogActionResyncFlow(ctx, req.FlowJobName)
+					telemetry.LogActivityResyncFlow(ctx, req.FlowJobName)
 				}
 			}
 		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_TERMINATED:
@@ -505,7 +495,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 				}
 				if changeErr == nil {
-					LogActionTerminateFlow(ctx, req.FlowJobName)
+					telemetry.LogActivityTerminateFlow(ctx, req.FlowJobName)
 				}
 			}
 		default:
@@ -574,6 +564,7 @@ func (h *FlowRequestHandler) CreatePeer(
 	if err != nil {
 		return nil, NewInternalApiError(err)
 	}
+	telemetry.LogActivityCreatePeer(ctx)
 	return created, nil
 }
 
@@ -605,7 +596,7 @@ func (h *FlowRequestHandler) DropPeer(
 	if _, delErr := h.pool.Exec(ctx, "DELETE FROM peers WHERE name = $1", req.PeerName); delErr != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to delete peer %s from metadata table: %w", req.PeerName, delErr))
 	}
-
+	telemetry.LogActivityDropPeer(ctx)
 	return &protos.DropPeerResponse{}, nil
 }
 
@@ -866,6 +857,7 @@ func (h *FlowRequestHandler) SkipSnapshotWaitFlows(
 		}, NewInternalApiError(fmt.Errorf("failed to send signal: %w", err))
 	}
 
+	telemetry.LogActivitySkipSnapshotWaitFlows(ctx)
 	return &protos.SkipSnapshotWaitFlowsResponse{
 		SignalSent: true,
 		Message:    fmt.Sprintf("Successfully sent skipped_snapshot_wait_flows signal for %d flows", len(in.FlowNames)),

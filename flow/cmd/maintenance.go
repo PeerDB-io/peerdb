@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -94,6 +95,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			slog.ErrorContext(ctx, "Error in start maintenance workflow", slog.Any("error", err))
 			return err
 		}
+		telemetry.LogActivityStartMaintenance(ctx)
 		slog.InfoContext(ctx, "Start maintenance workflow completed", "output", output)
 		return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 			Skipped:    false,
@@ -121,6 +123,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			slog.ErrorContext(ctx, "Error in end maintenance workflow", slog.Any("error", err))
 			return err
 		}
+		telemetry.LogActivityEndMaintenance(ctx)
 		slog.InfoContext(ctx, "End maintenance workflow completed", "output", output)
 	} else {
 		return fmt.Errorf("unknown flow type %s", args.Mode)
