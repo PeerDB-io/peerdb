@@ -557,7 +557,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		require.Len(s.t, row, 8, "expected 8 columns")
 		for j := 1; j < 8; j++ {
 			geometryVal := row[j].Value()
-
+			//nolint:gosec
 			require.Equal(s.t, expectedValues[i][j-1], geometryVal, "geometry value mismatch at row %d column %d", i+1, j)
 		}
 	}
