@@ -25,43 +25,43 @@ const (
 )
 
 func LogActivityCreateFlow(ctx context.Context, flowName string) {
-	logActivity(ctx, ActionCreateFlow, flowName, "")
+	logActivity(ctx, ActionCreateFlow, slog.String("flowName", flowName))
 }
 
 func LogActivityResyncFlow(ctx context.Context, flowName string) {
-	logActivity(ctx, ActionResyncFlow, flowName, "")
+	logActivity(ctx, ActionResyncFlow, slog.String("flowName", flowName))
 }
 
 func LogActivityPauseFlow(ctx context.Context, flowName string) {
-	logActivity(ctx, ActionPauseFlow, flowName, "")
+	logActivity(ctx, ActionPauseFlow, slog.String("flowName", flowName))
 }
 
 func LogActivityResumeFlow(ctx context.Context, flowName string) {
-	logActivity(ctx, ActionResumeFlow, flowName, "")
+	logActivity(ctx, ActionResumeFlow, slog.String("flowName", flowName))
 }
 
 func LogActivityTerminateFlow(ctx context.Context, flowName string) {
-	logActivity(ctx, ActionTerminateFlow, flowName, "")
+	logActivity(ctx, ActionTerminateFlow, slog.String("flowName", flowName))
 }
 
 func LogActivityStartMaintenance(ctx context.Context) {
-	logActivity(ctx, ActionStartMaintenance, "", "")
+	logActivity(ctx, ActionStartMaintenance)
 }
 
 func LogActivityEndMaintenance(ctx context.Context) {
-	logActivity(ctx, ActionEndMaintenance, "", "")
+	logActivity(ctx, ActionEndMaintenance)
 }
 
 func LogActivitySkipSnapshotWaitFlows(ctx context.Context) {
-	logActivity(ctx, ActionSkipSnapshotWaitFlows, "", "")
+	logActivity(ctx, ActionSkipSnapshotWaitFlows)
 }
 
 func LogActivityCreatePeer(ctx context.Context) {
-	logActivity(ctx, ActionCreatePeer, "", "")
+	logActivity(ctx, ActionCreatePeer)
 }
 
 func LogActivityDropPeer(ctx context.Context) {
-	logActivity(ctx, ActionDropPeer, "", "")
+	logActivity(ctx, ActionDropPeer)
 }
 
 type OldCDCFlowValues struct {
@@ -127,23 +127,18 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 	}
 
 	if len(changes) > 0 {
-		logActivity(ctx, ActionUpdateFlowConfig, flowName, strings.Join(changes, ", "))
+		logActivity(ctx, ActionUpdateFlowConfig,
+			slog.String("flowName", flowName),
+			slog.String("activityDetails", strings.Join(changes, ", ")))
 	}
 }
 
-func logActivity(ctx context.Context, action string, flowName string, activityDetails string) {
-	attrs := []any{slog.String("action", action)}
-	if flowName != "" {
-		attrs = append(attrs, slog.String("flowName", flowName))
-	}
-
+func logActivity(ctx context.Context, action string, attrs ...any) {
+	baseAttrs := []any{slog.String("action", action)}
 	if requestID, ok := ctx.Value(shared.RequestIdKey).(string); ok {
-		attrs = append(attrs, slog.String("requestId", requestID))
+		baseAttrs = append(baseAttrs, slog.String("requestId", requestID))
 	}
+	baseAttrs = append(baseAttrs, attrs...)
 
-	msg := "[flow activity] " + action
-	if activityDetails != "" {
-		msg += fmt.Sprintf(" (%s)", activityDetails)
-	}
-	slog.InfoContext(ctx, msg, attrs...)
+	slog.InfoContext(ctx, "[flow activity] "+action, baseAttrs...)
 }
