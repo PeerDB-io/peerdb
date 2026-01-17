@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
@@ -96,7 +98,24 @@ func processCDCFlowConfigUpdate(
 ) error {
 	flowConfigUpdate := state.FlowConfigUpdate
 
-	// only modify for options since SyncFlow uses it
+	// Capture old values for logging before updates are applied
+	oldValues := telemetry.OldCDCFlowValues{
+		BatchSize:                     state.SyncFlowOptions.BatchSize,
+		IdleTimeout:                   state.SyncFlowOptions.IdleTimeoutSeconds,
+		SnapshotNumRowsPerPartition:   state.SnapshotNumRowsPerPartition,
+		SnapshotNumPartitionsOverride: state.SnapshotNumPartitionsOverride,
+		SnapshotMaxParallelWorkers:    state.SnapshotMaxParallelWorkers,
+		SnapshotNumTablesInParallel:   state.SnapshotNumTablesInParallel,
+	}
+	if len(flowConfigUpdate.UpdatedEnv) > 0 {
+		oldValues.Env = make(map[string]string, len(flowConfigUpdate.UpdatedEnv))
+		if cfg.Env != nil {
+			for key := range flowConfigUpdate.UpdatedEnv {
+				oldValues.Env[key] = cfg.Env[key]
+			}
+		}
+	}
+
 	if flowConfigUpdate.BatchSize > 0 {
 		state.SyncFlowOptions.BatchSize = flowConfigUpdate.BatchSize
 	}
@@ -142,6 +161,7 @@ func processCDCFlowConfigUpdate(
 		}
 	}
 
+	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	return nil
 }
