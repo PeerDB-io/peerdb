@@ -62,7 +62,7 @@ func buildInsertFromTableFunctionQuery(
 	ctx context.Context,
 	config *insertFromTableFunctionConfig,
 	tableFunctionExpr string,
-	chSettings *CHSettings,
+	chSettings *peerdb_clickhouse.CHSettings,
 ) (string, error) {
 	fieldExpressionConverters := defaultFieldExpressionConverters
 	fieldExpressionConverters = append(fieldExpressionConverters, config.fieldExpressionConverters...)
@@ -142,7 +142,7 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 	tableFunctionExpr string,
 	partitionIndex uint64,
 	totalPartitions uint64,
-	chSettings *CHSettings,
+	chSettings *peerdb_clickhouse.CHSettings,
 ) (string, error) {
 	var query strings.Builder
 

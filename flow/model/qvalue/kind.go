@@ -8,6 +8,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -57,6 +59,7 @@ func ToDWHColumnType(
 	dwhVersion *chproto.Version,
 	column *protos.FieldDescription,
 	nullableEnabled bool,
+	internalVersion uint32,
 ) (string, error) {
 	var colType string
 	switch dwhType {
@@ -88,6 +91,8 @@ func ToDWHColumnType(
 			colType = fmt.Sprintf("Array(%s)", colType)
 		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
 			colType = "JSON"
+		} else if kind == types.QValueKindTime && ShouldUseTime64Type(dwhVersion, internalVersion) {
+			colType = "Time64(3)"
 		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
 		} else {
@@ -115,4 +120,13 @@ func ShouldUseNativeJSONType(ctx context.Context, env map[string]string, chVersi
 	// Treat error the same as not enabled
 	isJsonEnabled, _ := internal.PeerDBEnableClickHouseJSON(ctx, env)
 	return isJsonSupported && isJsonEnabled
+}
+
+func ShouldUseTime64Type(chVersion *chproto.Version, internalVersion uint32) bool {
+	if chVersion == nil {
+		return false
+	}
+	// check clickhouse minimum supported version, and peerdb internal version for backwards-compatibility
+	minSupportedVersion, exists := peerdb_clickhouse.GetMinVersion(peerdb_clickhouse.SettingEnableTimeTime64Type)
+	return exists && chproto.CheckMinVersion(minSupportedVersion, *chVersion) && internalVersion >= shared.InternalVersion_ClickHouseTime64
 }
