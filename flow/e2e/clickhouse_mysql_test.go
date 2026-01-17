@@ -134,11 +134,11 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 	minSupportedChVersion, _ := clickhouse.GetMinVersion(clickhouse.SettingEnableTimeTime64Type)
 	if chproto.CheckMinVersion(minSupportedChVersion, chproto.ParseVersion(chVersion)) {
 		require.Contains(s.t, columnType, "Time64(3)",
-			"Expected Time64(3) for TIME column when ClickHouse >= 25.12 and using latest internal version, got %s", columnType)
+			"Expected Time64(3) for TIME column when ClickHouse >= 25.6 and using latest internal version, got %s", columnType)
 	} else {
 		// Older ClickHouse versions should use DateTime64(6)
 		require.Contains(s.t, columnType, "DateTime64(6)",
-			"Expected DateTime64(6) for TIME column when ClickHouse < 25.12, got %s", columnType)
+			"Expected DateTime64(6) for TIME column when ClickHouse < 25.6, got %s", columnType)
 	}
 
 	env.Cancel(s.t.Context())
