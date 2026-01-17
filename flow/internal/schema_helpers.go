@@ -68,6 +68,7 @@ func BuildProcessedSchemaMapping(
 						NullableEnabled:       tableSchema.NullableEnabled,
 						System:                tableSchema.System,
 						Columns:               columns,
+						TableOid:              tableSchema.TableOid,
 					}
 				}
 				break

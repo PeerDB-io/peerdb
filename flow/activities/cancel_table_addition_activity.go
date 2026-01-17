@@ -73,10 +73,10 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 	}
 
 	rows, err := a.CatalogPool.Query(ctx, `
-    SELECT DISTINCT source_table 
-    FROM peerdb_stats.qrep_runs 
-    WHERE parent_mirror_name = $1 
-    AND run_uuid = ANY($2) 
+    SELECT DISTINCT source_table
+    FROM peerdb_stats.qrep_runs
+    WHERE parent_mirror_name = $1
+    AND run_uuid = ANY($2)
     AND consolidate_complete = true`, flowJobName, runIds)
 	if err != nil {
 		return nil, err
@@ -184,15 +184,20 @@ func (a *CancelTableAdditionActivity) CleanupIncompleteTablesInStats(
 	return nil
 }
 
-func (a *CancelTableAdditionActivity) GetFlowConfigAndWorkflowIdFromCatalog(
+func (a *CancelTableAdditionActivity) GetFlowInfoFromCatalog(
 	ctx context.Context,
 	flowJobName string,
-) (*protos.GetFlowConfigAndWorkflowIdFromCatalogOutput, error) {
+) (*protos.GetFlowInfoToCancelFromCatalogOutput, error) {
 	var configBytes []byte
 	var workflowID string
-	err := a.CatalogPool.QueryRow(ctx,
-		"SELECT workflow_id, config_proto FROM flows WHERE name = $1",
-		flowJobName).Scan(&workflowID, &configBytes)
+	var sourcePeerType protos.DBType
+	err := a.CatalogPool.QueryRow(ctx, `
+		SELECT workflow_id,
+			(select type from peers where peers.id = flows.source_peer) as source_peer_type,
+			config_proto
+		FROM flows
+		WHERE name = $1`,
+		flowJobName).Scan(&workflowID, &sourcePeerType, &configBytes)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("flow job %s not found", flowJobName)
@@ -205,9 +210,10 @@ func (a *CancelTableAdditionActivity) GetFlowConfigAndWorkflowIdFromCatalog(
 		return nil, fmt.Errorf("unable to unmarshal flow config for flow %s: %w", flowJobName, err)
 	}
 
-	return &protos.GetFlowConfigAndWorkflowIdFromCatalogOutput{
+	return &protos.GetFlowInfoToCancelFromCatalogOutput{
 		FlowConnectionConfigs: &config,
 		WorkflowId:            workflowID,
+		SourcePeerType:        sourcePeerType,
 	}, nil
 }
 
@@ -222,8 +228,8 @@ func (a *CancelTableAdditionActivity) UpdateCdcJobEntry(
 	}
 
 	if _, err = a.CatalogPool.Exec(ctx,
-		`UPDATE flows 
-		SET status = $1, config_proto = $2 
+		`UPDATE flows
+		SET status = $1, config_proto = $2
 		WHERE name = $3`,
 		protos.FlowStatus_STATUS_RUNNING, cfgBytes, connectionConfigs.FlowJobName,
 	); err != nil {

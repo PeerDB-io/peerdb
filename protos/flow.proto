@@ -633,7 +633,8 @@ message GetDefaultPartitionKeyForTablesOutput {
   map<string, string> table_default_partition_key_mapping = 1;
 }
 
-message GetFlowConfigAndWorkflowIdFromCatalogOutput {
+message GetFlowInfoToCancelFromCatalogOutput {
   FlowConnectionConfigsCore flow_connection_configs = 1;
   string workflow_id = 2;
+  peerdb_peers.DBType source_peer_type = 3;
 }
