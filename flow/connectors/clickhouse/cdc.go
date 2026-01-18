@@ -228,6 +228,7 @@ func (c *ClickHouseConnector) RenameTables(
 	req *protos.RenameTablesInput,
 ) (*protos.RenameTablesOutput, error) {
 	onCluster := c.onCluster()
+	dropTableSQLWithCHSetting := dropTableIfExistsSQL + NewCHSettingsString(c.chVersion, SettingMaxTableSizeToDrop, "0")
 	for _, renameRequest := range req.RenameTableOptions {
 		if renameRequest.CurrentName == renameRequest.NewName {
 			c.logger.Info("table rename is nop, probably Null table engine, skipping rename for it",
@@ -260,7 +261,7 @@ func (c *ClickHouseConnector) RenameTables(
 					peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
 			); err == nil {
 				if err := c.execWithLogging(ctx,
-					fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
+					fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
 				); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
 				}
@@ -275,7 +276,7 @@ func (c *ClickHouseConnector) RenameTables(
 		// or err is set (in which case err comes from EXCHANGE TABLES)
 		if !originalTableExists || err != nil {
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster),
+				fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster),
 			); err != nil {
 				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 			}
@@ -301,14 +302,15 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	// delete raw table if exists
 	rawTableIdentifier := c.GetRawTableName(jobName)
 	onCluster := c.onCluster()
+	dropTableSQLWithCHSetting := dropTableIfExistsSQL + NewCHSettingsString(c.chVersion, SettingMaxTableSizeToDrop, "0")
 	if err := c.execWithLogging(ctx,
-		fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), onCluster),
+		fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), onCluster),
 	); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
 	if onCluster != "" {
 		if err := c.execWithLogging(ctx,
-			fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier+"_shard"), onCluster),
+			fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier+"_shard"), onCluster),
 		); err != nil {
 			return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 		}

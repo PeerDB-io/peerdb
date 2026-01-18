@@ -19,6 +19,7 @@ const (
 	SettingTypeJsonSkipDuplicatedPaths        CHSetting = "type_json_skip_duplicated_paths"
 	SettingThrowOnMaxPartitionsPerInsertBlock CHSetting = "throw_on_max_partitions_per_insert_block"
 	SettingParallelDistributedInsertSelect    CHSetting = "parallel_distributed_insert_select"
+	SettingMaxTableSizeToDrop                 CHSetting = "max_table_size_to_drop"
 )
 
 // CHSettingMinVersions maps setting names to their minimum required ClickHouse versions
@@ -26,6 +27,7 @@ const (
 var CHSettingMinVersions = map[CHSetting]chproto.Version{
 	SettingJsonTypeEscapeDotsInKeys:    {Major: 25, Minor: 8, Patch: 0},
 	SettingTypeJsonSkipDuplicatedPaths: {Major: 24, Minor: 8, Patch: 0},
+	SettingMaxTableSizeToDrop:          {Major: 23, Minor: 12, Patch: 0},
 }
 
 type CHSetting string
