@@ -173,7 +173,7 @@ func (s APITestSuite) checkQrepRuns(
 ) {
 	rows, err := s.pg.PostgresConnector.Conn().Query(s.t.Context(),
 		`SELECT source_table, COUNT(*) as entry_count
-        FROM peerdb_stats.qrep_runs 
+        FROM peerdb_stats.qrep_runs
         WHERE parent_mirror_name = $1 AND consolidate_complete = true
         GROUP BY source_table
         ORDER BY source_table`,
@@ -209,7 +209,7 @@ func (s APITestSuite) checkQrepRuns(
 
 	var incompleteCount int
 	err = s.pg.PostgresConnector.Conn().QueryRow(s.t.Context(),
-		`SELECT COUNT(*) FROM peerdb_stats.qrep_runs 
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_runs
         WHERE parent_mirror_name = $1 AND consolidate_complete = false`,
 		flowJobName,
 	).Scan(&incompleteCount)
@@ -269,7 +269,7 @@ func (s APITestSuite) checkTableSchemaMapping(
 	expectedTables []includedTable,
 ) {
 	rows, err := s.pg.PostgresConnector.Conn().Query(s.t.Context(),
-		`SELECT table_name, COUNT(*) as entry_count FROM table_schema_mapping 
+		`SELECT table_name, COUNT(*) as entry_count FROM table_schema_mapping
         WHERE flow_name = $1
         GROUP BY table_name
         ORDER BY table_name`,
@@ -981,6 +981,144 @@ func (s APITestSuite) TestCancelAddCancel() {
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t1", "t1", cols)
 
 	s.checkMetadataLastSyncStateValues(env, flowConnConfig, "batch id check after cdc", 1, 1)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s APITestSuite) TestCancelErrorOnPostgresZeroOIDs() {
+	var cols string
+	tables := []string{AttachSchema(s, "t1"), AttachSchema(s, "t2")}
+	s.createSourceTables(tables)
+	s.insertIntoSourceTables(tables, 1, "first")
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		cols = "id,val"
+	case *MongoSource:
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	flowName := "test_cancel_error_on_pg_zero_oids"
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: flowName + "_" + s.suffix,
+		TableNameMapping: map[string]string{
+			AttachSchema(s, "t1"): "t1",
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	if _, ok := s.source.(*MongoSource); ok {
+		flowConnConfig.Env = map[string]string{
+			"PEERDB_CLICKHOUSE_ENABLE_JSON": "false",
+		}
+	}
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitForEqualTables(env, s.ch, "t1 initial load", "t1", cols)
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	EnvNoError(s.t, env, err)
+	logger := internal.LoggerFromCtx(s.t.Context())
+	err = internal.ReadModifyWriteTableSchemasToCatalog(
+		s.t.Context(), catalogPool, logger, flowConnConfig.FlowJobName, []string{"t1"},
+		func(m map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
+			zeroed := proto.CloneOf(m["t1"])
+			zeroed.TableOid = 0
+			return map[string]*protos.TableSchema{
+				"t1": zeroed,
+			}, nil
+		})
+	EnvNoError(s.t, env, err)
+	t2Mv := s.ch.NewMVManager("t2", s.suffix)
+	if _, ok := s.source.(*MongoSource); ok {
+		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
+			{
+				Name: "_id",
+				Type: "String",
+			},
+			{
+				Name: "doc",
+				Type: "String",
+			},
+		}, "_id")
+	} else {
+		err = s.ch.CreateRMTTable("t2", []TestClickHouseColumn{
+			{
+				Name: "id",
+				Type: "Int64",
+			},
+			{
+				Name: "val",
+				Type: "String",
+			},
+		}, "id")
+	}
+	require.NoError(s.t, err)
+	err = t2Mv.CreateBadMV(s.t.Context())
+	require.NoError(s.t, err)
+
+	tableModification := &protos.CDCFlowConfigUpdate{
+		AdditionalTables: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      AttachSchema(s, "t2"),
+				DestinationTableIdentifier: "t2",
+			},
+		},
+	}
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: tableModification,
+			},
+		},
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for snapshot of add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
+	})
+	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for initial load MV error messages for t2", func() bool {
+		count, err := s.pg.GetLogCount(
+			s.t.Context(), flowConnConfig.FlowJobName, "error",
+			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, t2Mv.mvName),
+		)
+		return err == nil && count > 0
+	})
+
+	_, err = s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
+		FlowJobName:                flowConnConfig.FlowJobName,
+		CurrentlyReplicatingTables: flowConnConfig.TableMappings,
+		IdempotencyKey:             s.suffix,
+	})
+
+	if _, ok := s.source.(*PostgresSource); ok {
+		require.ErrorContains(s.t, err, "PostgreSQL schema has zero OID for table")
+	} else {
+		require.NoError(s.t, err)
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
