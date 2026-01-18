@@ -39,9 +39,9 @@ func AdjustNumPartitions(totalRows int64, desiredRowsPerPartition int64) Adjuste
 	//   multiplier >= totalRows / (desiredRowsPerPartition * maxPartitions)
 	ratio := float64(totalRows) / (float64(desiredRowsPerPartition) * float64(maxPartitions))
 
-	// Compute the smallest power-of-10 multiplier that is at least the ratio.
-	exponent := math.Ceil(math.Log10(ratio))
-	multiplier := int64(math.Pow(10, exponent))
+	// Compute the smallest power-of-2 multiplier that is at least the ratio.
+	exponent := math.Ceil(math.Log2(ratio))
+	multiplier := int64(math.Pow(2, exponent))
 
 	// Adjust the rows per partition.
 	adjustedRowsPerPartition := desiredRowsPerPartition * multiplier
