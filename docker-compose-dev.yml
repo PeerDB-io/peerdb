@@ -190,7 +190,8 @@ services:
     build:
       context: .
       dockerfile: stacks/peerdb-ui.Dockerfile
-      target: dev
+      # Defaults to 'dev' (hot-reload), override with UI_TARGET=runner for production build
+      target: ${UI_TARGET:-dev}
     ports:
       - 3000:3000
     volumes:
