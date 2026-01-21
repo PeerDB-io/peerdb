@@ -28,15 +28,16 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 	getFlowConfigCtx := workflow.WithActivityOptions(ctx, getFlowConfigOptions)
 
-	var flowConfigFetchOutput *protos.GetFlowConfigAndWorkflowIdFromCatalogOutput
+	var flowConfigFetchOutput *protos.GetFlowInfoToCancelFromCatalogOutput
 	err := workflow.ExecuteActivity(getFlowConfigCtx,
-		cancelTableAddition.GetFlowConfigAndWorkflowIdFromCatalog, flowJobName).Get(ctx, &flowConfigFetchOutput)
+		cancelTableAddition.GetFlowInfoFromCatalog, flowJobName).Get(ctx, &flowConfigFetchOutput)
 	if err != nil {
 		logger.Error("Failed to get flow config from catalog", "error", err)
 		return nil, err
 	}
 	flowConfig := flowConfigFetchOutput.FlowConnectionConfigs
 	originalWorkflowId := flowConfigFetchOutput.WorkflowId
+	sourcePeerType := flowConfigFetchOutput.SourcePeerType
 	logger.Info("Retrieved flow config", "flowName", flowJobName, "tableCount", len(flowConfig.TableMappings))
 
 	currentlyReplicatingTableSet := make(map[string]bool)
@@ -131,6 +132,11 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 
 	logger.Info("Retrieved PostgreSQL table OIDs", "flowName", flowJobName, "oidCount", len(tableOIDs))
+
+	if tableName, ok := tableOIDs[0]; ok && sourcePeerType == protos.DBType_POSTGRES {
+		logger.Error("PostgreSQL schema has zero OID", "table", tableName)
+		return nil, fmt.Errorf("PostgreSQL schema has zero OID for table: %s", tableName)
+	}
 
 	// update table mappings for upcoming request
 	flowConfig.TableMappings = finalListOfTables
