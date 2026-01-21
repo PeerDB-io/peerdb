@@ -188,7 +188,11 @@ func compareGoTime(value1, value2 any) bool {
 		t2 = tm.Sub(time.Unix(0, 0).UTC())
 	}
 
-	return ok1 && ok2 && t1 == t2
+	// Workaround for Go driver behavior where precision is lost when
+	// scanning to time.Duration (QValue Equal is only used for e2e testing)
+	// https://github.com/ClickHouse/clickhouse-go/issues/1757
+	// TODO: should be t1 == t2 when upstream is fixed
+	return ok1 && ok2 && t1.Milliseconds() == t2.Milliseconds()
 }
 
 func compareGoDate(value1, value2 any) bool {

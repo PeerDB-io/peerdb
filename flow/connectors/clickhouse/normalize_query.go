@@ -131,17 +131,15 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		}
 
 		switch clickHouseType {
-		case "Time64(3)", "Nullable(Time64(3))":
-			// Time64 is a time-of-day type, parse from JSON string
-			// toTime64 converts string to Time64(3), returns NULL if string is NULL or invalid
+		case "Time64(6)", "Nullable(Time64(6))":
 			fmt.Fprintf(&projection,
-				"toTime64(JSONExtractString(_peerdb_data, %s),3) AS %s,",
+				"toTime64OrNull(JSONExtractString(_peerdb_data, %s), 6) AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					"toTime64(JSONExtractString(_peerdb_match_data, %s),3) AS %s,",
+					"toTime64OrNull(JSONExtractString(_peerdb_match_data, %s), 6) AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
@@ -160,17 +158,16 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				)
 			}
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
+			// Handle legacy path where TIME is stored as DateTime64 (before Time64 support)
 			if colType == types.QValueKindTime || colType == types.QValueKindTimeTZ {
-				// parseDateTime64BestEffortOrNull for hh:mm:ss puts the year as current year
-				// (or previous year if result would be in future) so explicitly anchor to unix epoch
 				fmt.Fprintf(&projection,
-					"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_data, %s),6,'UTC') AS %s,",
+					"toDateTime64(toTime64OrNull(JSONExtractString(_peerdb_data, %s), 6), 6) AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
 					fmt.Fprintf(&projectionUpdate,
-						"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_match_data, %s),6,'UTC') AS %s,",
+						"toDateTime64(toTime64OrNull(JSONExtractString(_peerdb_match_data, %s), 6), 6) AS %s,",
 						peerdb_clickhouse.QuoteLiteral(colName),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
@@ -312,14 +309,17 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 	}
 
-	chSettings := NewCHSettings(t.chVersion)
-	chSettings.Add(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := peerdb_clickhouse.NewCHSettings(t.chVersion)
+	chSettings.Add(peerdb_clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(peerdb_clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
 	if t.cluster {
-		chSettings.Add(SettingParallelDistributedInsertSelect, "0")
+		chSettings.Add(peerdb_clickhouse.SettingParallelDistributedInsertSelect, "0")
 	}
 	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(SettingJsonTypeEscapeDotsInKeys, "1")
+		chSettings.Add(peerdb_clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
+	}
+	if t.version >= shared.InternalVersion_ClickHouseTime64 {
+		chSettings.Add(peerdb_clickhouse.SettingEnableTimeTime64Type, "1")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",

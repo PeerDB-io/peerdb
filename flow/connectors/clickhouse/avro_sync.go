@@ -293,11 +293,14 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 	}
 	numParts = max(numParts, 1)
 
-	chSettings := NewCHSettings(s.chVersion)
-	chSettings.Add(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := peerdb_clickhouse.NewCHSettings(s.chVersion)
+	chSettings.Add(peerdb_clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(peerdb_clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
 	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(SettingJsonTypeEscapeDotsInKeys, "1")
+		chSettings.Add(peerdb_clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
+	}
+	if config.Version >= shared.InternalVersion_ClickHouseTime64 {
+		chSettings.Add(peerdb_clickhouse.SettingEnableTimeTime64Type, "1")
 	}
 
 	// Process each chunk file individually

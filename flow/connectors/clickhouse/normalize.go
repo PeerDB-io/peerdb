@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -205,7 +206,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			if clickHouseType == "" {
 				var err error
 				clickHouseType, err = qvalue.ToDWHColumnType(
-					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column, tableSchema.NullableEnabled || columnNullableEnabled, internalVersion,
+					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column,
+					tableSchema.NullableEnabled || columnNullableEnabled, internalVersion,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -265,9 +267,14 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			}
 		}
 
+		settings := peerdb_clickhouse.NewCHSettings(chVersion)
 		if allowNullableKey {
-			stmtBuilder.WriteString(NewCHSettingsString(chVersion, SettingAllowNullableKey, "1"))
+			settings.Add(peerdb_clickhouse.SettingAllowNullableKey, "1")
 		}
+		if internalVersion >= shared.InternalVersion_ClickHouseTime64 {
+			settings.Add(peerdb_clickhouse.SettingEnableTimeTime64Type, "1")
+		}
+		stmtBuilder.WriteString(settings.String())
 
 		if c.Config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
@@ -284,6 +291,10 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				}
 			}
 			stmtBuilderDistributed.WriteByte(')')
+			if internalVersion >= shared.InternalVersion_ClickHouseTime64 {
+				stmtBuilderDistributed.WriteString(peerdb_clickhouse.NewCHSettingsString(
+					chVersion, peerdb_clickhouse.SettingEnableTimeTime64Type, "1"))
+			}
 		}
 	}
 

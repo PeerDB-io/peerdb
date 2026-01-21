@@ -443,7 +443,7 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindUUID
 		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
 			qkind = types.QValueKindTimestamp
-		case "Time64(3)", "Nullable(Time64(3))":
+		case "Time64(6)", "Nullable(Time64(6))":
 			qkind = types.QValueKindTime
 		case "Date32", "Nullable(Date32)":
 			qkind = types.QValueKindDate

@@ -43,7 +43,7 @@ func (c *MySqlConnector) GetTableSchema(
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMappings))
 	for _, tm := range tableMappings {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -60,7 +60,6 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
-	version uint32,
 ) (*protos.TableSchema, error) {
 	qualifiedTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 	if err != nil {
@@ -110,7 +109,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
-		qkind, err := QkindFromMysqlColumnType(dataType, version)
+		qkind, err := QkindFromMysqlColumnType(dataType)
 		if err != nil {
 			return nil, err
 		}
@@ -724,7 +723,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						slog.String("tableName", sourceTableName))
 					continue
 				}
-				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), req.InternalVersion)
+				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
 				if err != nil {
 					return err
 				}

@@ -229,7 +229,8 @@ func (c *ClickHouseConnector) RenameTables(
 	req *protos.RenameTablesInput,
 ) (*protos.RenameTablesOutput, error) {
 	onCluster := c.onCluster()
-	dropTableSQLWithCHSetting := dropTableIfExistsSQL + NewCHSettingsString(c.chVersion, SettingMaxTableSizeToDrop, "0")
+	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
+		peerdb_clickhouse.NewCHSettingsString(c.chVersion, peerdb_clickhouse.SettingMaxTableSizeToDrop, "0")
 	for _, renameRequest := range req.RenameTableOptions {
 		if renameRequest.CurrentName == renameRequest.NewName {
 			c.logger.Info("table rename is nop, probably Null table engine, skipping rename for it",
@@ -303,7 +304,8 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	// delete raw table if exists
 	rawTableIdentifier := c.GetRawTableName(jobName)
 	onCluster := c.onCluster()
-	dropTableSQLWithCHSetting := dropTableIfExistsSQL + NewCHSettingsString(c.chVersion, SettingMaxTableSizeToDrop, "0")
+	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
+		peerdb_clickhouse.NewCHSettingsString(c.chVersion, peerdb_clickhouse.SettingMaxTableSizeToDrop, "0")
 	if err := c.execWithLogging(ctx,
 		fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), onCluster),
 	); err != nil {

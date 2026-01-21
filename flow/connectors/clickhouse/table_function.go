@@ -52,8 +52,34 @@ func jsonFieldExpressionConverter(
 	return fmt.Sprintf("CAST(%s, 'JSON')", sourceFieldIdentifier), nil
 }
 
+func timeFieldExpressionConverter(
+	_ context.Context,
+	config *insertFromTableFunctionConfig,
+	sourceFieldIdentifier string,
+	field types.QField,
+) (string, error) {
+	if field.Type != types.QValueKindTime && field.Type != types.QValueKindTimeTZ {
+		return sourceFieldIdentifier, nil
+	}
+
+	// Handle BigQuery source where TIME is stored as Int64 (microseconds)
+	if config.config.SourceType == protos.DBType_BIGQUERY {
+		return sourceFieldIdentifier, nil
+	}
+
+	// Handle legacy path where TIME is stored as DateTime64, before ClickHouse supported Time64 type
+	if !qvalue.ShouldUseTime64Type(config.connector.chVersion, config.config.Version) {
+		return sourceFieldIdentifier, nil
+	}
+
+	// QValueTime is stored as time-millis logical type in Avro, toTime64 accepts a
+	// fractional second, so conversion is necessary
+	return fmt.Sprintf("toTime64(%s / 1000000.0, 6)", sourceFieldIdentifier), nil
+}
+
 var defaultFieldExpressionConverters = []fieldExpressionConverter{
 	jsonFieldExpressionConverter,
+	timeFieldExpressionConverter,
 }
 
 // buildInsertFromTableFunctionQuery builds a complete INSERT query from a table function expression
@@ -62,7 +88,7 @@ func buildInsertFromTableFunctionQuery(
 	ctx context.Context,
 	config *insertFromTableFunctionConfig,
 	tableFunctionExpr string,
-	chSettings *CHSettings,
+	chSettings *peerdb_clickhouse.CHSettings,
 ) (string, error) {
 	fieldExpressionConverters := defaultFieldExpressionConverters
 	fieldExpressionConverters = append(fieldExpressionConverters, config.fieldExpressionConverters...)
@@ -142,7 +168,7 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 	tableFunctionExpr string,
 	partitionIndex uint64,
 	totalPartitions uint64,
-	chSettings *CHSettings,
+	chSettings *peerdb_clickhouse.CHSettings,
 ) (string, error) {
 	var query strings.Builder
 
