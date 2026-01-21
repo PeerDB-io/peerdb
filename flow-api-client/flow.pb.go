@@ -5060,28 +5060,29 @@ func (x *GetDefaultPartitionKeyForTablesOutput) GetTableDefaultPartitionKeyMappi
 	return nil
 }
 
-type GetFlowConfigAndWorkflowIdFromCatalogOutput struct {
+type GetFlowInfoToCancelFromCatalogOutput struct {
 	state                 protoimpl.MessageState     `protogen:"open.v1"`
 	FlowConnectionConfigs *FlowConnectionConfigsCore `protobuf:"bytes,1,opt,name=flow_connection_configs,json=flowConnectionConfigs,proto3" json:"flow_connection_configs,omitempty"`
 	WorkflowId            string                     `protobuf:"bytes,2,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
+	SourcePeerType        DBType                     `protobuf:"varint,3,opt,name=source_peer_type,json=sourcePeerType,proto3,enum=peerdb_peers.DBType" json:"source_peer_type,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
 
-func (x *GetFlowConfigAndWorkflowIdFromCatalogOutput) Reset() {
-	*x = GetFlowConfigAndWorkflowIdFromCatalogOutput{}
+func (x *GetFlowInfoToCancelFromCatalogOutput) Reset() {
+	*x = GetFlowInfoToCancelFromCatalogOutput{}
 	mi := &file_flow_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetFlowConfigAndWorkflowIdFromCatalogOutput) String() string {
+func (x *GetFlowInfoToCancelFromCatalogOutput) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetFlowConfigAndWorkflowIdFromCatalogOutput) ProtoMessage() {}
+func (*GetFlowInfoToCancelFromCatalogOutput) ProtoMessage() {}
 
-func (x *GetFlowConfigAndWorkflowIdFromCatalogOutput) ProtoReflect() protoreflect.Message {
+func (x *GetFlowInfoToCancelFromCatalogOutput) ProtoReflect() protoreflect.Message {
 	mi := &file_flow_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -5093,23 +5094,30 @@ func (x *GetFlowConfigAndWorkflowIdFromCatalogOutput) ProtoReflect() protoreflec
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetFlowConfigAndWorkflowIdFromCatalogOutput.ProtoReflect.Descriptor instead.
-func (*GetFlowConfigAndWorkflowIdFromCatalogOutput) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetFlowInfoToCancelFromCatalogOutput.ProtoReflect.Descriptor instead.
+func (*GetFlowInfoToCancelFromCatalogOutput) Descriptor() ([]byte, []int) {
 	return file_flow_proto_rawDescGZIP(), []int{66}
 }
 
-func (x *GetFlowConfigAndWorkflowIdFromCatalogOutput) GetFlowConnectionConfigs() *FlowConnectionConfigsCore {
+func (x *GetFlowInfoToCancelFromCatalogOutput) GetFlowConnectionConfigs() *FlowConnectionConfigsCore {
 	if x != nil {
 		return x.FlowConnectionConfigs
 	}
 	return nil
 }
 
-func (x *GetFlowConfigAndWorkflowIdFromCatalogOutput) GetWorkflowId() string {
+func (x *GetFlowInfoToCancelFromCatalogOutput) GetWorkflowId() string {
 	if x != nil {
 		return x.WorkflowId
 	}
 	return ""
+}
+
+func (x *GetFlowInfoToCancelFromCatalogOutput) GetSourcePeerType() DBType {
+	if x != nil {
+		return x.SourcePeerType
+	}
+	return DBType_BIGQUERY
 }
 
 var file_flow_proto_extTypes = []protoimpl.ExtensionInfo{
@@ -5540,11 +5548,12 @@ const file_flow_proto_rawDesc = "" +
 	"#table_default_partition_key_mapping\x18\x01 \x03(\v2W.peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntryR\x1ftableDefaultPartitionKeyMapping\x1aR\n" +
 	"$TableDefaultPartitionKeyMappingEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xae\x01\n" +
-	"+GetFlowConfigAndWorkflowIdFromCatalogOutput\x12^\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe7\x01\n" +
+	"$GetFlowInfoToCancelFromCatalogOutput\x12^\n" +
 	"\x17flow_connection_configs\x18\x01 \x01(\v2&.peerdb_flow.FlowConnectionConfigsCoreR\x15flowConnectionConfigs\x12\x1f\n" +
 	"\vworkflow_id\x18\x02 \x01(\tR\n" +
-	"workflowId*\xd8\x01\n" +
+	"workflowId\x12>\n" +
+	"\x10source_peer_type\x18\x03 \x01(\x0e2\x14.peerdb_peers.DBTypeR\x0esourcePeerType*\xd8\x01\n" +
 	"\vTableEngine\x12\"\n" +
 	"\x1eCH_ENGINE_REPLACING_MERGE_TREE\x10\x00\x12\x18\n" +
 	"\x14CH_ENGINE_MERGE_TREE\x10\x01\x12\x12\n" +
@@ -5621,81 +5630,81 @@ func file_flow_proto_rawDescGZIP() []byte {
 var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
 var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 83)
 var file_flow_proto_goTypes = []any{
-	(TableEngine)(0),                                    // 0: peerdb_flow.TableEngine
-	(QRepWriteType)(0),                                  // 1: peerdb_flow.QRepWriteType
-	(TypeSystem)(0),                                     // 2: peerdb_flow.TypeSystem
-	(FlowStatus)(0),                                     // 3: peerdb_flow.FlowStatus
-	(DynconfValueType)(0),                               // 4: peerdb_flow.DynconfValueType
-	(DynconfApplyMode)(0),                               // 5: peerdb_flow.DynconfApplyMode
-	(DynconfTarget)(0),                                  // 6: peerdb_flow.DynconfTarget
-	(FlowOperation)(0),                                  // 7: peerdb_flow.FlowOperation
-	(*AlertInput)(nil),                                  // 8: peerdb_flow.AlertInput
-	(*TableNameMapping)(nil),                            // 9: peerdb_flow.TableNameMapping
-	(*ColumnSetting)(nil),                               // 10: peerdb_flow.ColumnSetting
-	(*TableMapping)(nil),                                // 11: peerdb_flow.TableMapping
-	(*SetupInput)(nil),                                  // 12: peerdb_flow.SetupInput
-	(*FlowConnectionConfigs)(nil),                       // 13: peerdb_flow.FlowConnectionConfigs
-	(*FlowConnectionConfigsCore)(nil),                   // 14: peerdb_flow.FlowConnectionConfigsCore
-	(*RenameTableOption)(nil),                           // 15: peerdb_flow.RenameTableOption
-	(*RenameTablesInput)(nil),                           // 16: peerdb_flow.RenameTablesInput
-	(*RemoveTablesFromRawTableInput)(nil),               // 17: peerdb_flow.RemoveTablesFromRawTableInput
-	(*RenameTablesOutput)(nil),                          // 18: peerdb_flow.RenameTablesOutput
-	(*CreateTablesFromExistingInput)(nil),               // 19: peerdb_flow.CreateTablesFromExistingInput
-	(*CreateTablesFromExistingOutput)(nil),              // 20: peerdb_flow.CreateTablesFromExistingOutput
-	(*SyncFlowOptions)(nil),                             // 21: peerdb_flow.SyncFlowOptions
-	(*EnsurePullabilityBatchInput)(nil),                 // 22: peerdb_flow.EnsurePullabilityBatchInput
-	(*PostgresTableIdentifier)(nil),                     // 23: peerdb_flow.PostgresTableIdentifier
-	(*EnsurePullabilityBatchOutput)(nil),                // 24: peerdb_flow.EnsurePullabilityBatchOutput
-	(*SetupReplicationInput)(nil),                       // 25: peerdb_flow.SetupReplicationInput
-	(*SetupReplicationOutput)(nil),                      // 26: peerdb_flow.SetupReplicationOutput
-	(*CreateRawTableInput)(nil),                         // 27: peerdb_flow.CreateRawTableInput
-	(*CreateRawTableOutput)(nil),                        // 28: peerdb_flow.CreateRawTableOutput
-	(*TableSchema)(nil),                                 // 29: peerdb_flow.TableSchema
-	(*FieldDescription)(nil),                            // 30: peerdb_flow.FieldDescription
-	(*SetupTableSchemaBatchInput)(nil),                  // 31: peerdb_flow.SetupTableSchemaBatchInput
-	(*SetupNormalizedTableBatchInput)(nil),              // 32: peerdb_flow.SetupNormalizedTableBatchInput
-	(*SetupNormalizedTableOutput)(nil),                  // 33: peerdb_flow.SetupNormalizedTableOutput
-	(*SetupNormalizedTableBatchOutput)(nil),             // 34: peerdb_flow.SetupNormalizedTableBatchOutput
-	(*IntPartitionRange)(nil),                           // 35: peerdb_flow.IntPartitionRange
-	(*TimestampPartitionRange)(nil),                     // 36: peerdb_flow.TimestampPartitionRange
-	(*TID)(nil),                                         // 37: peerdb_flow.TID
-	(*TIDPartitionRange)(nil),                           // 38: peerdb_flow.TIDPartitionRange
-	(*UIntPartitionRange)(nil),                          // 39: peerdb_flow.UIntPartitionRange
-	(*ObjectIdPartitionRange)(nil),                      // 40: peerdb_flow.ObjectIdPartitionRange
-	(*PartitionRange)(nil),                              // 41: peerdb_flow.PartitionRange
-	(*QRepWriteMode)(nil),                               // 42: peerdb_flow.QRepWriteMode
-	(*QRepConfig)(nil),                                  // 43: peerdb_flow.QRepConfig
-	(*QRepPartition)(nil),                               // 44: peerdb_flow.QRepPartition
-	(*QRepPartitionBatch)(nil),                          // 45: peerdb_flow.QRepPartitionBatch
-	(*QRepParitionResult)(nil),                          // 46: peerdb_flow.QRepParitionResult
-	(*DropFlowInput)(nil),                               // 47: peerdb_flow.DropFlowInput
-	(*TableSchemaDelta)(nil),                            // 48: peerdb_flow.TableSchemaDelta
-	(*QRepFlowState)(nil),                               // 49: peerdb_flow.QRepFlowState
-	(*PeerDBColumns)(nil),                               // 50: peerdb_flow.PeerDBColumns
-	(*GetOpenConnectionsForUserResult)(nil),             // 51: peerdb_flow.GetOpenConnectionsForUserResult
-	(*CDCFlowConfigUpdate)(nil),                         // 52: peerdb_flow.CDCFlowConfigUpdate
-	(*QRepFlowConfigUpdate)(nil),                        // 53: peerdb_flow.QRepFlowConfigUpdate
-	(*FlowConfigUpdate)(nil),                            // 54: peerdb_flow.FlowConfigUpdate
-	(*SetupFlowOutput)(nil),                             // 55: peerdb_flow.SetupFlowOutput
-	(*AddTablesToPublicationInput)(nil),                 // 56: peerdb_flow.AddTablesToPublicationInput
-	(*RemoveTablesFromPublicationInput)(nil),            // 57: peerdb_flow.RemoveTablesFromPublicationInput
-	(*IsQRepPartitionSyncedInput)(nil),                  // 58: peerdb_flow.IsQRepPartitionSyncedInput
-	(*ExportTxSnapshotOutput)(nil),                      // 59: peerdb_flow.ExportTxSnapshotOutput
-	(*DropFlowActivityInput)(nil),                       // 60: peerdb_flow.DropFlowActivityInput
-	(*StartMaintenanceFlowInput)(nil),                   // 61: peerdb_flow.StartMaintenanceFlowInput
-	(*StartMaintenanceFlowOutput)(nil),                  // 62: peerdb_flow.StartMaintenanceFlowOutput
-	(*StartMaintenanceSignal)(nil),                      // 63: peerdb_flow.StartMaintenanceSignal
-	(*EndMaintenanceFlowInput)(nil),                     // 64: peerdb_flow.EndMaintenanceFlowInput
-	(*EndMaintenanceFlowOutput)(nil),                    // 65: peerdb_flow.EndMaintenanceFlowOutput
-	(*MaintenanceMirror)(nil),                           // 66: peerdb_flow.MaintenanceMirror
-	(*MaintenanceMirrors)(nil),                          // 67: peerdb_flow.MaintenanceMirrors
-	(*PeerContextMetadata)(nil),                         // 68: peerdb_flow.PeerContextMetadata
-	(*FlowContextMetadataInput)(nil),                    // 69: peerdb_flow.FlowContextMetadataInput
-	(*FlowContextMetadata)(nil),                         // 70: peerdb_flow.FlowContextMetadata
-	(*AdditionalContextMetadata)(nil),                   // 71: peerdb_flow.AdditionalContextMetadata
-	(*GetDefaultPartitionKeyForTablesInput)(nil),        // 72: peerdb_flow.GetDefaultPartitionKeyForTablesInput
-	(*GetDefaultPartitionKeyForTablesOutput)(nil),       // 73: peerdb_flow.GetDefaultPartitionKeyForTablesOutput
-	(*GetFlowConfigAndWorkflowIdFromCatalogOutput)(nil), // 74: peerdb_flow.GetFlowConfigAndWorkflowIdFromCatalogOutput
+	(TableEngine)(0),                              // 0: peerdb_flow.TableEngine
+	(QRepWriteType)(0),                            // 1: peerdb_flow.QRepWriteType
+	(TypeSystem)(0),                               // 2: peerdb_flow.TypeSystem
+	(FlowStatus)(0),                               // 3: peerdb_flow.FlowStatus
+	(DynconfValueType)(0),                         // 4: peerdb_flow.DynconfValueType
+	(DynconfApplyMode)(0),                         // 5: peerdb_flow.DynconfApplyMode
+	(DynconfTarget)(0),                            // 6: peerdb_flow.DynconfTarget
+	(FlowOperation)(0),                            // 7: peerdb_flow.FlowOperation
+	(*AlertInput)(nil),                            // 8: peerdb_flow.AlertInput
+	(*TableNameMapping)(nil),                      // 9: peerdb_flow.TableNameMapping
+	(*ColumnSetting)(nil),                         // 10: peerdb_flow.ColumnSetting
+	(*TableMapping)(nil),                          // 11: peerdb_flow.TableMapping
+	(*SetupInput)(nil),                            // 12: peerdb_flow.SetupInput
+	(*FlowConnectionConfigs)(nil),                 // 13: peerdb_flow.FlowConnectionConfigs
+	(*FlowConnectionConfigsCore)(nil),             // 14: peerdb_flow.FlowConnectionConfigsCore
+	(*RenameTableOption)(nil),                     // 15: peerdb_flow.RenameTableOption
+	(*RenameTablesInput)(nil),                     // 16: peerdb_flow.RenameTablesInput
+	(*RemoveTablesFromRawTableInput)(nil),         // 17: peerdb_flow.RemoveTablesFromRawTableInput
+	(*RenameTablesOutput)(nil),                    // 18: peerdb_flow.RenameTablesOutput
+	(*CreateTablesFromExistingInput)(nil),         // 19: peerdb_flow.CreateTablesFromExistingInput
+	(*CreateTablesFromExistingOutput)(nil),        // 20: peerdb_flow.CreateTablesFromExistingOutput
+	(*SyncFlowOptions)(nil),                       // 21: peerdb_flow.SyncFlowOptions
+	(*EnsurePullabilityBatchInput)(nil),           // 22: peerdb_flow.EnsurePullabilityBatchInput
+	(*PostgresTableIdentifier)(nil),               // 23: peerdb_flow.PostgresTableIdentifier
+	(*EnsurePullabilityBatchOutput)(nil),          // 24: peerdb_flow.EnsurePullabilityBatchOutput
+	(*SetupReplicationInput)(nil),                 // 25: peerdb_flow.SetupReplicationInput
+	(*SetupReplicationOutput)(nil),                // 26: peerdb_flow.SetupReplicationOutput
+	(*CreateRawTableInput)(nil),                   // 27: peerdb_flow.CreateRawTableInput
+	(*CreateRawTableOutput)(nil),                  // 28: peerdb_flow.CreateRawTableOutput
+	(*TableSchema)(nil),                           // 29: peerdb_flow.TableSchema
+	(*FieldDescription)(nil),                      // 30: peerdb_flow.FieldDescription
+	(*SetupTableSchemaBatchInput)(nil),            // 31: peerdb_flow.SetupTableSchemaBatchInput
+	(*SetupNormalizedTableBatchInput)(nil),        // 32: peerdb_flow.SetupNormalizedTableBatchInput
+	(*SetupNormalizedTableOutput)(nil),            // 33: peerdb_flow.SetupNormalizedTableOutput
+	(*SetupNormalizedTableBatchOutput)(nil),       // 34: peerdb_flow.SetupNormalizedTableBatchOutput
+	(*IntPartitionRange)(nil),                     // 35: peerdb_flow.IntPartitionRange
+	(*TimestampPartitionRange)(nil),               // 36: peerdb_flow.TimestampPartitionRange
+	(*TID)(nil),                                   // 37: peerdb_flow.TID
+	(*TIDPartitionRange)(nil),                     // 38: peerdb_flow.TIDPartitionRange
+	(*UIntPartitionRange)(nil),                    // 39: peerdb_flow.UIntPartitionRange
+	(*ObjectIdPartitionRange)(nil),                // 40: peerdb_flow.ObjectIdPartitionRange
+	(*PartitionRange)(nil),                        // 41: peerdb_flow.PartitionRange
+	(*QRepWriteMode)(nil),                         // 42: peerdb_flow.QRepWriteMode
+	(*QRepConfig)(nil),                            // 43: peerdb_flow.QRepConfig
+	(*QRepPartition)(nil),                         // 44: peerdb_flow.QRepPartition
+	(*QRepPartitionBatch)(nil),                    // 45: peerdb_flow.QRepPartitionBatch
+	(*QRepParitionResult)(nil),                    // 46: peerdb_flow.QRepParitionResult
+	(*DropFlowInput)(nil),                         // 47: peerdb_flow.DropFlowInput
+	(*TableSchemaDelta)(nil),                      // 48: peerdb_flow.TableSchemaDelta
+	(*QRepFlowState)(nil),                         // 49: peerdb_flow.QRepFlowState
+	(*PeerDBColumns)(nil),                         // 50: peerdb_flow.PeerDBColumns
+	(*GetOpenConnectionsForUserResult)(nil),       // 51: peerdb_flow.GetOpenConnectionsForUserResult
+	(*CDCFlowConfigUpdate)(nil),                   // 52: peerdb_flow.CDCFlowConfigUpdate
+	(*QRepFlowConfigUpdate)(nil),                  // 53: peerdb_flow.QRepFlowConfigUpdate
+	(*FlowConfigUpdate)(nil),                      // 54: peerdb_flow.FlowConfigUpdate
+	(*SetupFlowOutput)(nil),                       // 55: peerdb_flow.SetupFlowOutput
+	(*AddTablesToPublicationInput)(nil),           // 56: peerdb_flow.AddTablesToPublicationInput
+	(*RemoveTablesFromPublicationInput)(nil),      // 57: peerdb_flow.RemoveTablesFromPublicationInput
+	(*IsQRepPartitionSyncedInput)(nil),            // 58: peerdb_flow.IsQRepPartitionSyncedInput
+	(*ExportTxSnapshotOutput)(nil),                // 59: peerdb_flow.ExportTxSnapshotOutput
+	(*DropFlowActivityInput)(nil),                 // 60: peerdb_flow.DropFlowActivityInput
+	(*StartMaintenanceFlowInput)(nil),             // 61: peerdb_flow.StartMaintenanceFlowInput
+	(*StartMaintenanceFlowOutput)(nil),            // 62: peerdb_flow.StartMaintenanceFlowOutput
+	(*StartMaintenanceSignal)(nil),                // 63: peerdb_flow.StartMaintenanceSignal
+	(*EndMaintenanceFlowInput)(nil),               // 64: peerdb_flow.EndMaintenanceFlowInput
+	(*EndMaintenanceFlowOutput)(nil),              // 65: peerdb_flow.EndMaintenanceFlowOutput
+	(*MaintenanceMirror)(nil),                     // 66: peerdb_flow.MaintenanceMirror
+	(*MaintenanceMirrors)(nil),                    // 67: peerdb_flow.MaintenanceMirrors
+	(*PeerContextMetadata)(nil),                   // 68: peerdb_flow.PeerContextMetadata
+	(*FlowContextMetadataInput)(nil),              // 69: peerdb_flow.FlowContextMetadataInput
+	(*FlowContextMetadata)(nil),                   // 70: peerdb_flow.FlowContextMetadata
+	(*AdditionalContextMetadata)(nil),             // 71: peerdb_flow.AdditionalContextMetadata
+	(*GetDefaultPartitionKeyForTablesInput)(nil),  // 72: peerdb_flow.GetDefaultPartitionKeyForTablesInput
+	(*GetDefaultPartitionKeyForTablesOutput)(nil), // 73: peerdb_flow.GetDefaultPartitionKeyForTablesOutput
+	(*GetFlowInfoToCancelFromCatalogOutput)(nil),  // 74: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput
 	nil,                                   // 75: peerdb_flow.SetupInput.EnvEntry
 	nil,                                   // 76: peerdb_flow.FlowConnectionConfigs.EnvEntry
 	nil,                                   // 77: peerdb_flow.FlowConnectionConfigsCore.EnvEntry
@@ -5786,14 +5795,15 @@ var file_flow_proto_depIdxs = []int32{
 	7,  // 65: peerdb_flow.AdditionalContextMetadata.operation:type_name -> peerdb_flow.FlowOperation
 	11, // 66: peerdb_flow.GetDefaultPartitionKeyForTablesInput.table_mappings:type_name -> peerdb_flow.TableMapping
 	90, // 67: peerdb_flow.GetDefaultPartitionKeyForTablesOutput.table_default_partition_key_mapping:type_name -> peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntry
-	14, // 68: peerdb_flow.GetFlowConfigAndWorkflowIdFromCatalogOutput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigsCore
-	23, // 69: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.PostgresTableIdentifier
-	94, // 70: peerdb_flow.peerdb_maintenance_wait:extendee -> google.protobuf.EnumValueOptions
-	71, // [71:71] is the sub-list for method output_type
-	71, // [71:71] is the sub-list for method input_type
-	71, // [71:71] is the sub-list for extension type_name
-	70, // [70:71] is the sub-list for extension extendee
-	0,  // [0:70] is the sub-list for field type_name
+	14, // 68: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigsCore
+	92, // 69: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput.source_peer_type:type_name -> peerdb_peers.DBType
+	23, // 70: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.PostgresTableIdentifier
+	94, // 71: peerdb_flow.peerdb_maintenance_wait:extendee -> google.protobuf.EnumValueOptions
+	72, // [72:72] is the sub-list for method output_type
+	72, // [72:72] is the sub-list for method input_type
+	72, // [72:72] is the sub-list for extension type_name
+	71, // [71:72] is the sub-list for extension extendee
+	0,  // [0:71] is the sub-list for field type_name
 }
 
 func init() { file_flow_proto_init() }
