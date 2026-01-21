@@ -116,6 +116,13 @@ local_resource(
 )
 
 local_resource(
+    'provision-cockroachdb',
+    cmd='./local_provision_scripts/cockroachdb.sh',
+    labels=['Ancillary-DB-Provisioning'],
+    resource_deps=['cockroachdb']
+)
+
+local_resource(
     'provision-mysql-gtid',
     cmd='./local_provision_scripts/mysql.sh peerdb-mysql-gtid',
     labels=['Ancillary-DB-Provisioning'],
@@ -179,6 +186,13 @@ local_resource(
 )
 
 local_resource(
+    'setup-cockroachdb-peer',
+    cmd='./local_provision_scripts/setup-cockroachdb-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-cockroachdb'],
+)
+
+local_resource(
     'setup-mongodb-peer',
     cmd='./local_provision_scripts/setup-mongodb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
@@ -228,6 +242,10 @@ dc_resource('clickhouse-keeper', labels=['Ancillary-DB'], auto_init=False)
 dc_resource('clickhouse-02', labels=['Ancillary-DB'], links=[
     link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_HTTP_PORT_02', '13123'), 'CH Node 2 HTTP'),
     link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_NATIVE_PORT_02', '13000'), 'CH Node 2 TCP'),
+], auto_init=False)
+
+dc_resource('cockroachdb', labels=['Ancillary-DB'], links=[
+    link('http://localhost:' + resolve_ancillary_env('CI_COCKROACH_PORT', '26257'), 'CockroachDB'),
 ], auto_init=False)
 
 dc_resource('mongodb', labels=['Ancillary-DB'], links=[
@@ -364,6 +382,10 @@ e2e_test('mariadb', 'TestGenericCH_MariaDB', ['provision-mariadb'], vars_overrid
 
 # MongoDB to ClickHouse test suite
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
+
+# CockroachDB source tests (peer/introspection suite and QRep to ClickHouse)
+e2e_test('cockroachdb', 'TestCockroachDB', ['provision-cockroachdb'])
+connector_test('cockroachdb', ['provision-cockroachdb'])
 
 # Switchboard tests
 

@@ -46,6 +46,26 @@ fn create_peer_postgres() {
 }
 
 #[test]
+fn create_peer_cockroachdb() {
+    let sql = "CREATE PEER crdb FROM COCKROACHDB WITH (host = 'localhost', port = '26257', user = 'root', database = 'defaultdb')";
+    let stmt = parse_one(sql);
+    match &stmt {
+        PeerDBStatement::CreatePeer {
+            peer_name,
+            peer_type,
+            with_options,
+            ..
+        } => {
+            assert_eq!(peer_name.to_string(), "crdb");
+            assert_eq!(*peer_type, PeerType::CockroachDB);
+            assert_eq!(with_options.len(), 4);
+        }
+        other => panic!("expected CreatePeer, got {other:?}"),
+    }
+    roundtrip(sql);
+}
+
+#[test]
 fn create_peer_if_not_exists() {
     let sql = "CREATE PEER IF NOT EXISTS bq FROM BIGQUERY WITH (project_id = 'test')";
     let stmt = parse_one(sql);
@@ -71,6 +91,7 @@ fn create_peer_all_types() {
         "PUBSUB",
         "ELASTICSEARCH",
         "CLICKHOUSE",
+        "COCKROACHDB",
     ];
     for t in types {
         let sql = format!("CREATE PEER p FROM {t}");

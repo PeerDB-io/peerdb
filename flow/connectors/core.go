@@ -12,6 +12,7 @@ import (
 
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
+	conncockroachdb "github.com/PeerDB-io/peerdb/flow/connectors/cockroachdb"
 	connelasticsearch "github.com/PeerDB-io/peerdb/flow/connectors/elasticsearch"
 	conneventhub "github.com/PeerDB-io/peerdb/flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peerdb/flow/connectors/kafka"
@@ -540,6 +541,12 @@ func BuildPeerConfig(ctx context.Context, encKeyID string, encPeerOptions []byte
 			return nil, fmt.Errorf("failed to unmarshal Elasticsearch config: %w", err)
 		}
 		peer.Config = &protos.Peer_ElasticsearchConfig{ElasticsearchConfig: &config}
+	case protos.DBType_COCKROACHDB:
+		var config protos.CockroachDBConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal CockroachDB config: %w", err)
+		}
+		peer.Config = &protos.Peer_CockroachdbConfig{CockroachdbConfig: &config}
 	default:
 		return nil, fmt.Errorf("unsupported peer type: %s", dbType)
 	}
@@ -582,6 +589,8 @@ func getConnector(ctx context.Context, env map[string]string, config *protos.Pee
 		return connpubsub.NewPubSubConnector(ctx, env, inner.PubsubConfig)
 	case *protos.Peer_ElasticsearchConfig:
 		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
+	case *protos.Peer_CockroachdbConfig:
+		return conncockroachdb.NewCockroachDBConnector(ctx, env, inner.CockroachdbConfig)
 	default:
 		return nil, errors.ErrUnsupported
 	}
@@ -730,6 +739,7 @@ var (
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connmysql.MySqlConnector{}
 	_ QRepPullConnector = &connmongo.MongoConnector{}
+	_ QRepPullConnector = &conncockroachdb.CockroachDBConnector{}
 
 	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
@@ -794,10 +804,18 @@ var (
 	_ DatabaseVariantConnector = &connpostgres.PostgresConnector{}
 	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}
 	_ DatabaseVariantConnector = &connmongo.MongoConnector{}
+	_ DatabaseVariantConnector = &conncockroachdb.CockroachDBConnector{}
 
 	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
 	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}
 	_ TableSizeEstimatorConnector = &connmongo.MongoConnector{}
 
 	_ ReplicationMechanismInUseConnector = &connmysql.MySqlConnector{}
+
+	_ ValidationConnector             = &conncockroachdb.CockroachDBConnector{}
+	_ GetVersionConnector             = &conncockroachdb.CockroachDBConnector{}
+	_ GetTableSchemaConnector         = &conncockroachdb.CockroachDBConnector{}
+	_ GetSchemaConnector              = &conncockroachdb.CockroachDBConnector{}
+	_ CDCPullConnector                = &conncockroachdb.CockroachDBConnector{}
+	_ MirrorSourceValidationConnector = &conncockroachdb.CockroachDBConnector{}
 )

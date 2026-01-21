@@ -1,6 +1,7 @@
 import {
   BigqueryConfig,
   ClickhouseConfig,
+  CockroachDBConfig,
   ElasticsearchConfig,
   EventHubConfig,
   EventHubGroupConfig,
@@ -15,6 +16,7 @@ import {
 
 export type PeerConfig =
   | PostgresConfig
+  | CockroachDBConfig
   | MySqlConfig
   | MongoConfig
   | SnowflakeConfig
