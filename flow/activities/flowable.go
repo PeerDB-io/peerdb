@@ -37,6 +37,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
 type CheckMetadataTablesResult struct {
@@ -935,6 +936,9 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		}
 		logger.Info("metrics aggregates recording is disabled")
 		return nil
+	}))()
+	defer common.Interval(ctx, 1*time.Hour, wrapWithLog("RecordFlowConfigs", func() error {
+		return telemetry.LogFlowConfigs(ctx, a.CatalogPool, logger)
 	}))()
 	defer common.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
 		return a.RecordSlotSizes(ctx)
