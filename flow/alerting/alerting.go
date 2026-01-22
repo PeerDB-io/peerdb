@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -445,6 +446,14 @@ const (
 	flowErrorTypeError flowErrorType = "error"
 )
 
+var errSpew = spew.ConfigState{
+	Indent:                  "  ",
+	DisablePointerAddresses: true,
+	DisableCapacities:       true,
+	DisableMethods:          true,
+	MaxDepth:                5,
+}
+
 // logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
 func (a *Alerter) logFlowErrorInternal(
 	ctx context.Context,
@@ -456,7 +465,12 @@ func (a *Alerter) logFlowErrorInternal(
 	logger := internal.LoggerFromCtx(ctx)
 	inErrWithStack := fmt.Sprintf("%+v", inErr)
 	errError := inErr.Error()
-	loggerFunc(errError, slog.String("stack", inErrWithStack))
+	sDump := errSpew.Sdump(inErr)
+	loggerFunc(errError,
+		slog.String("stack", inErrWithStack),
+		slog.Int("spewLength", len(sDump)),
+		slog.String("spew", sDump),
+	)
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, inErrWithStack, errorType.String(),
