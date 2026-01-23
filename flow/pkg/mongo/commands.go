@@ -74,6 +74,23 @@ func GetCollStats(ctx context.Context, client *mongo.Client, database string, co
 	})
 }
 
+type OpTime struct {
+	Ts bson.Timestamp `bson:"ts"`
+	T  int64          `bson:"t"`
+}
+
+type OpTimes struct {
+	LastCommittedOpTime OpTime `bson:"lastCommittedOpTime"`
+}
+
+type ReplSetStatus struct {
+	OpTimes OpTimes `bson:"optimes"`
+}
+
+func GetReplSetStatus(ctx context.Context, client *mongo.Client) (ReplSetStatus, error) {
+	return runCommand[ReplSetStatus](ctx, client, "replSetGetStatus")
+}
+
 func runCommand[T any](ctx context.Context, client *mongo.Client, command string) (T, error) {
 	var result T
 	singleResult := client.Database("admin").RunCommand(ctx, bson.D{

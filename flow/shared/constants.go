@@ -40,6 +40,8 @@ const (
 	InternalVersion_MongoDBFullDocumentColumnToDoc
 	// All: setting json_type_escape_dots_in_keys = true when inserting JSON column to ClickHouse (only impacts MongoDB today)
 	InternalVersion_JsonEscapeDotsInKeys
+	// MongoDB: `_id` column values stored as-is without redundant quotes
+	InternalVersion_MongoDBIdWithoutRedundantQuotes
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
@@ -85,4 +87,12 @@ const (
 
 func Ptr[T any](x T) *T {
 	return &x
+}
+
+func Val[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
+	}
+	return *p
 }

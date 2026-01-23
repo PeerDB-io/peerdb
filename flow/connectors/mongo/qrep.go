@@ -203,7 +203,7 @@ func (c *MongoConnector) PullQRepRecords(
 			return 0, 0, fmt.Errorf("failed to decode record: %w", err)
 		}
 
-		record, err := QValuesFromDocument(doc)
+		record, err := QValuesFromDocument(doc, config.Version)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
 		}
@@ -282,14 +282,14 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 	}
 }
 
-func QValuesFromDocument(doc bson.D) ([]types.QValue, error) {
+func QValuesFromDocument(doc bson.D, version uint32) ([]types.QValue, error) {
 	var qValues []types.QValue
 
 	var qvalueId types.QValueString
 	var err error
 	for _, v := range doc {
 		if v.Key == DefaultDocumentKeyColumnName {
-			qvalueId, err = qValueStringFromKey(v.Value)
+			qvalueId, err = qValueStringFromKey(v.Value, version)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 			}

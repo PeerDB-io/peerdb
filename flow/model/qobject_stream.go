@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
@@ -15,29 +16,34 @@ const (
 	QObjectStreamBigQueryExportParquetFormat QObjectStreamFormat = "parquet"
 )
 
+// HeaderProvider provides HTTP headers for authenticating object requests.
+type HeaderProvider interface {
+	GetHeaders(ctx context.Context) (http.Header, error)
+}
+
 type Object struct {
-	Headers http.Header
-	URL     string
-	Size    int64
+	URL  string
+	Size int64
 }
 
 // QObjectStream is a stream of HTTP objects represented with URLs
-// that are directly consumable by any HTTP client.
-// This means the URLs are either public URLs or authenticated
-// with a header (e.g., token in header).
+// that are directly consumable by any HTTP client when combined
+// with authentication headers from the HeaderProvider.
 type QObjectStream struct {
-	Objects     chan *Object
-	formatLatch *concurrency.Latch[QObjectStreamFormat]
-	schemaLatch *concurrency.Latch[types.QRecordSchema]
-	err         error
+	Objects             chan *Object
+	formatLatch         *concurrency.Latch[QObjectStreamFormat]
+	schemaLatch         *concurrency.Latch[types.QRecordSchema]
+	headerProviderLatch *concurrency.Latch[HeaderProvider]
+	err                 error
 }
 
 func NewQObjectStream(buffer int) *QObjectStream {
 	return &QObjectStream{
-		schemaLatch: concurrency.NewLatch[types.QRecordSchema](),
-		formatLatch: concurrency.NewLatch[QObjectStreamFormat](),
-		Objects:     make(chan *Object, buffer),
-		err:         nil,
+		schemaLatch:         concurrency.NewLatch[types.QRecordSchema](),
+		formatLatch:         concurrency.NewLatch[QObjectStreamFormat](),
+		headerProviderLatch: concurrency.NewLatch[HeaderProvider](),
+		Objects:             make(chan *Object, buffer),
+		err:                 nil,
 	}
 }
 
@@ -55,6 +61,14 @@ func (s *QObjectStream) Format() (QObjectStreamFormat, error) {
 
 func (s *QObjectStream) SetFormat(format QObjectStreamFormat) {
 	s.formatLatch.Set(format)
+}
+
+func (s *QObjectStream) HeaderProvider() (HeaderProvider, error) {
+	return s.headerProviderLatch.Wait(), s.Err()
+}
+
+func (s *QObjectStream) SetHeaderProvider(provider HeaderProvider) {
+	s.headerProviderLatch.Set(provider)
 }
 
 func (s *QObjectStream) Err() error {

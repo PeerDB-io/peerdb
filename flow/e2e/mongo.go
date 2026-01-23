@@ -76,7 +76,7 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 		if err != nil {
 			return nil, err
 		}
-		record, err := connmongo.QValuesFromDocument(doc)
+		record, err := connmongo.QValuesFromDocument(doc, shared.InternalVersion_Latest)
 		if err != nil {
 			return nil, err
 		}

@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"strings"
 
-	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/google/uuid"
@@ -62,30 +60,18 @@ func (c *BigQueryConnector) PullQRepObjects(
 
 	bucket := c.storageClient.Bucket(bucketName)
 
-	var token *auth.Token
-	urlHeaders := make(http.Header)
+	headerProvider := NewGCSHeaderProvider(c, bucketName, prefix)
+	stream.SetHeaderProvider(headerProvider)
 
 	var totalBytes int64
 
-	processObject := func(attrs *storage.ObjectAttrs) error {
-		if token == nil || !token.IsValid() {
-			token, err = c.storageDownScopedToken(ctx, bucketName, prefix)
-			if err != nil {
-				return fmt.Errorf("failed to get downscoped token for bucket %s with prefix %s: %w", bucketName, prefix, err)
-			}
-
-			urlHeaders.Set("Authorization", "Bearer "+token.Value)
-		}
-
+	processObject := func(attrs *storage.ObjectAttrs) {
 		stream.Objects <- &model.Object{
-			URL:     fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, url.PathEscape(attrs.Name)),
-			Size:    attrs.Size,
-			Headers: urlHeaders,
+			URL:  fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, url.PathEscape(attrs.Name)),
+			Size: attrs.Size,
 		}
 
 		totalBytes += attrs.Size
-
-		return nil
 	}
 
 	startOffset := objectRange.Start
@@ -100,9 +86,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 			return 0, 0, fmt.Errorf("failed to get object attrs for bucket %s with prefix %s and object %s: %w",
 				bucketName, prefix, startOffset, err)
 		}
-		if err := processObject(attrs); err != nil {
-			return 0, 0, err
-		}
+		processObject(attrs)
 		c.logger.Info("finished pulling single downloadable object",
 			slog.String("bucket", bucketName),
 			slog.String("prefix", prefix),
@@ -136,9 +120,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 			continue
 		}
 
-		if err := processObject(attrs); err != nil {
-			return 0, 0, err
-		}
+		processObject(attrs)
 	}
 
 	c.logger.Info("finished pulling downloadable objects",

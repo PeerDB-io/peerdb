@@ -13,6 +13,7 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useSortButtonColor } from '@/lib/hooks/useSortButtonColor';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
+import { RowDataFormatter } from './rowsDisplay';
 import { TableCloneSummary } from './snapshot';
 
 const ROWS_PER_PAGE = 5;
@@ -223,9 +224,11 @@ export default function SnapshotTable({
             <TableCell>N/A</TableCell>
           )}
           <TableCell>
-            {clone.cloneTableSummary.fetchCompleted
-              ? clone.cloneTableSummary.numRowsSynced
-              : 0}
+            {RowDataFormatter(
+              clone.cloneTableSummary.fetchCompleted
+                ? clone.cloneTableSummary.numRowsSynced
+                : 0
+            )}
           </TableCell>
           {clone.cloneTableSummary.fetchCompleted ? (
             <TableCell>

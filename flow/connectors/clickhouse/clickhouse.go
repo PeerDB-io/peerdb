@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
 
@@ -33,7 +34,7 @@ type ClickHouseConnector struct {
 	logger        log.Logger
 	Config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
-	chVersion     *chproto.Version
+	chVersion     *clickhouseproto.Version
 }
 
 func NewClickHouseConnector(
@@ -115,8 +116,8 @@ func NewClickHouseConnector(
 	if credentials.AWS.SessionToken != "" {
 		// 24.3.1 is minimum version of ClickHouse that actually supports session token
 		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		if !chproto.CheckMinVersion(
-			chproto.Version{Major: 24, Minor: 3, Patch: 1},
+		if !clickhouseproto.CheckMinVersion(
+			clickhouseproto.Version{Major: 24, Minor: 3, Patch: 1},
 			clickHouseVersion.Version,
 		) {
 			return nil, fmt.Errorf(
@@ -167,6 +168,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return err
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
+	validateDummyTableNameRenamed := validateDummyTableName + "_renamed"
 	// create a table
 	if err := c.exec(ctx,
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
@@ -174,10 +176,26 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
-			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName), slog.Any("error", err))
+		for _, table := range []string{validateDummyTableName, validateDummyTableNameRenamed} {
+			for attempt := range 3 {
+				if attempt > 0 {
+					time.Sleep(time.Duration(attempt) * 2 * time.Second)
+				}
+				err := c.exec(dropCtx, "DROP TABLE IF EXISTS "+table)
+				if err == nil {
+					break
+				}
+				var chException *clickhouse.Exception
+				if errors.As(err, &chException) && chproto.Error(chException.Code) == chproto.ErrUnfinished {
+					c.logger.Warn("validation drop table blocked by in-flight DDL, retrying",
+						slog.String("table", table), slog.Int("attempt", attempt+1))
+					continue
+				}
+				c.logger.Error("validation failed to drop table", slog.String("table", table), slog.Any("error", err))
+				break
+			}
 		}
 	}()
 
@@ -190,20 +208,19 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 
 	// rename the table
 	if err := c.exec(ctx,
-		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableName+"_renamed"),
+		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableNameRenamed),
 	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
-	validateDummyTableName += "_renamed"
 
 	// insert a row
-	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
-		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
+	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableNameRenamed)); err != nil {
+		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableNameRenamed, err)
 	}
 
 	// drop the table
-	if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
-		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
+	if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableNameRenamed); err != nil {
+		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableNameRenamed, err)
 	}
 
 	// validate s3 stage
