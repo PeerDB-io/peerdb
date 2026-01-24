@@ -351,12 +351,12 @@ func (a *FlowableActivity) SyncFlow(
 	}
 	idleTimeout := cdcIdleTimeout(int(options.IdleTimeoutSeconds))
 	// normBufferSize allows _approximately_ normBufferHours delay between pull/sync and normalize
-	// if pull is idling, the effective allowed hours will be longer (which is okay because no load)
-	// if the batches hit the batch size limit rather than idle timeout, it will be shorter (backpressure on increased load)
-	// big transactions will extend it by a little bit too
 	// under normal steady operation where the batch hits idle timeout every time it will match the hours very closely
+	// effective hours will be longer if pull is idling, or there are waits on big transactions, or the sync interval is so small that start/stop overhead starts being visible
+	// shorter if the batches hit the size limit rather rather than idle timeout
 	normBufferSize := normBufferHours * 3600 / int64(idleTimeout.Seconds())
-	normBufferSize = max(normBufferSize, 1)
+	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
+	normBufferSize = max(normBufferSize, 2)
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {

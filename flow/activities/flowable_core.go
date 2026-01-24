@@ -276,13 +276,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		return pull(srcConn, errCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
-			FlowJobName:           flowName,
-			SrcTableIDNameMapping: options.SrcTableIdNameMapping,
-			TableNameMapping:      tblNameMapping,
-			LastOffset:            lastOffset,
-			ConsumedOffset:        &consumedOffset,
-			MaxBatchSize:           batchSize,
-			IdleTimeout:            idleTimeout,
+			FlowJobName:                 flowName,
+			SrcTableIDNameMapping:       options.SrcTableIdNameMapping,
+			TableNameMapping:            tblNameMapping,
+			LastOffset:                  lastOffset,
+			ConsumedOffset:              &consumedOffset,
+			MaxBatchSize:                batchSize,
+			IdleTimeout:                 idleTimeout,
 			TableNameSchemaMapping:      tableNameSchemaMapping,
 			OverridePublicationName:     config.PublicationName,
 			OverrideReplicationSlotName: config.ReplicationSlotName,
@@ -426,12 +426,23 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if recordBatchSync.NeedsNormalize() {
 		syncState.Store(shared.Ptr("normalizing"))
 		normRequests.Update(res.CurrentSyncBatchID)
-		for normResponses.Load() <= res.CurrentSyncBatchID-max(normBufferSize, 0) {
-			select {
-			case <-normResponses.Wait():
-			case <-ctx.Done():
-				return nil, ctx.Err()
+		normWaitThreshold := res.CurrentSyncBatchID - normBufferSize
+		if normResponses.Load() <= normWaitThreshold {
+			logger.Warn("sync waiting on normalize backpressure",
+				slog.Int64("syncBatchID", res.CurrentSyncBatchID),
+				slog.Int64("normalizeBatchID", normResponses.Load()),
+				slog.Int64("normBufferSize", normBufferSize))
+			for normResponses.Load() <= normWaitThreshold {
+				select {
+				case <-normResponses.Wait():
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
 			}
+			logger.Info("done waiting on normalize backpressure",
+				slog.Int64("syncBatchID", res.CurrentSyncBatchID),
+				slog.Int64("normalizeBatchID", normResponses.Load()),
+				slog.Int64("normBufferSize", normBufferSize))
 		}
 	}
 
