@@ -1830,6 +1830,9 @@ func getPeerHostName(peerType protos.DBType, peer *protos.Peer) string {
 	return ""
 }
 
+// NOTE: this activity is used on the path between CDCFlowWorkflow start and the signal handler for running state.
+// If it's unable to progress for whatever reason, the upgrades will break and very unpleasant manual recovery will be needed.
+// If you have to modify it, do it carefully and think through the edge cases.
 func (a *FlowableActivity) GetFlowMetadata(
 	ctx context.Context,
 	input *protos.FlowContextMetadataInput,
