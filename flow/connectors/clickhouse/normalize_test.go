@@ -1,6 +1,7 @@
 package connclickhouse
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,6 +10,178 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func TestColumnProjector(t *testing.T) {
+	ctx := context.Background()
+	projector := NewColumnProjector(nil)
+
+	tests := []struct {
+		name       string
+		srcCol     string
+		dstCol     string
+		colType    types.QValueKind
+		chType     string
+		dataSource string
+		want       string
+	}{
+		{
+			name:       "Date32 type",
+			srcCol:     "created_at",
+			dstCol:     "created_at",
+			chType:     "Date32",
+			dataSource: "_peerdb_data",
+			want:       "toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, 'created_at'),6,'UTC')) AS `created_at`",
+		},
+		{
+			name:       "Nullable Date32 type",
+			srcCol:     "updated_at",
+			dstCol:     "updated_at",
+			chType:     "Nullable(Date32)",
+			dataSource: "_peerdb_data",
+			want:       "toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, 'updated_at'),6,'UTC')) AS `updated_at`",
+		},
+		{
+			name:       "DateTime64 type",
+			srcCol:     "timestamp",
+			dstCol:     "timestamp",
+			chType:     "DateTime64(6)",
+			dataSource: "_peerdb_data",
+			want:       "parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, 'timestamp'),6,'UTC') AS `timestamp`",
+		},
+		{
+			name:       "Time type anchored to epoch",
+			srcCol:     "start_time",
+			dstCol:     "start_time",
+			colType:    types.QValueKindTime,
+			chType:     "DateTime64(6)",
+			dataSource: "_peerdb_data",
+			want:       "parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_data, 'start_time'),6,'UTC') AS `start_time`",
+		},
+		{
+			name:       "TimeTZ type anchored to epoch",
+			srcCol:     "end_time",
+			dstCol:     "end_time",
+			colType:    types.QValueKindTimeTZ,
+			chType:     "Nullable(DateTime64(6))",
+			dataSource: "_peerdb_data",
+			want:       "parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_data, 'end_time'),6,'UTC') AS `end_time`",
+		},
+		{
+			name:       "Array DateTime64 type",
+			srcCol:     "timestamps",
+			dstCol:     "timestamps",
+			chType:     "Array(DateTime64(6))",
+			dataSource: "_peerdb_data",
+			want:       "arrayMap(x -> parseDateTime64BestEffortOrNull(x,6,'UTC'),JSONExtract(_peerdb_data,'timestamps','Array(String)')) AS `timestamps`",
+		},
+		{
+			name:       "JSON type",
+			srcCol:     "metadata",
+			dstCol:     "metadata",
+			chType:     "JSON",
+			dataSource: "_peerdb_data",
+			want:       "JSONExtractString(_peerdb_data, 'metadata')::JSON AS `metadata`",
+		},
+		{
+			name:       "Generic string type",
+			srcCol:     "name",
+			dstCol:     "name",
+			chType:     "String",
+			dataSource: "_peerdb_data",
+			want:       "JSONExtract(_peerdb_data, 'name', 'String') AS `name`",
+		},
+		{
+			name:       "Generic Int64 type",
+			srcCol:     "id",
+			dstCol:     "id",
+			chType:     "Int64",
+			dataSource: "_peerdb_data",
+			want:       "JSONExtract(_peerdb_data, 'id', 'Int64') AS `id`",
+		},
+		{
+			name:       "Different data source for update query",
+			srcCol:     "id",
+			dstCol:     "id",
+			chType:     "Int64",
+			dataSource: "_peerdb_match_data",
+			want:       "JSONExtract(_peerdb_match_data, 'id', 'Int64') AS `id`",
+		},
+		{
+			name:       "Column name mapping",
+			srcCol:     "old_name",
+			dstCol:     "new_name",
+			chType:     "String",
+			dataSource: "_peerdb_data",
+			want:       "JSONExtract(_peerdb_data, 'old_name', 'String') AS `new_name`",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := projector.Project(ctx, tt.srcCol, tt.dstCol, tt.colType, tt.chType, tt.dataSource)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestResolveColumns(t *testing.T) {
+	ctx := context.Background()
+
+	schema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+			{Name: "name", Type: string(types.QValueKindString)},
+			{Name: "data", Type: string(types.QValueKindJSON)},
+		},
+		NullableEnabled: false,
+	}
+
+	tableMapping := &protos.TableMapping{
+		SourceTableIdentifier:      "public.test",
+		DestinationTableIdentifier: "test",
+		Columns: []*protos.ColumnSetting{
+			{SourceName: "name", DestinationName: "full_name"},
+			{SourceName: "data", DestinationType: "String"}, // Override type
+		},
+	}
+
+	g := &NormalizeQueryGenerator{
+		env: map[string]string{},
+	}
+
+	columns, err := g.resolveColumns(ctx, schema, tableMapping)
+	require.NoError(t, err)
+	require.Len(t, columns, 3)
+
+	// id: no mapping, default type
+	require.Equal(t, "id", columns[0].srcName)
+	require.Equal(t, "id", columns[0].dstName)
+	require.Equal(t, "Int64", columns[0].chType)
+
+	// name: mapped to full_name
+	require.Equal(t, "name", columns[1].srcName)
+	require.Equal(t, "full_name", columns[1].dstName)
+
+	// data: type overridden to String
+	require.Equal(t, "data", columns[2].srcName)
+	require.Equal(t, "data", columns[2].dstName)
+	require.Equal(t, "String", columns[2].chType)
+}
+
+func TestQueryVariants(t *testing.T) {
+	// Test that the query variants have the expected values
+	require.Equal(t, "_peerdb_data", mainQueryVariant.dataSource)
+	require.Equal(t, "intDiv(_peerdb_record_type, 2)", mainQueryVariant.isDeletedExpr)
+	require.Equal(t, "_peerdb_timestamp", mainQueryVariant.versionExpr)
+	require.Empty(t, mainQueryVariant.extraWhere)
+
+	require.Equal(t, "_peerdb_match_data", updateQueryVariant.dataSource)
+	require.Equal(t, "1", updateQueryVariant.isDeletedExpr)
+	require.Equal(t, "_peerdb_timestamp - 1", updateQueryVariant.versionExpr)
+	require.Contains(t, updateQueryVariant.extraWhere, "_peerdb_match_data != ''")
+	require.Contains(t, updateQueryVariant.extraWhere, "_peerdb_record_type = 1")
+}
 
 func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
 	sourceColumns := []*protos.FieldDescription{
