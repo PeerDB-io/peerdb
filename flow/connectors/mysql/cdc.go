@@ -497,7 +497,8 @@ func (c *MySqlConnector) PullRecords(
 			}
 			for _, stmt := range stmts {
 				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
-					if err := c.processAlterTableQuery(ctx, catalogPool, req, alterTableStmt, string(ev.Schema)); err != nil {
+					if err := c.processAlterTableQuery(
+						ctx, catalogPool, req, alterTableStmt, string(ev.Schema), binlogRowMetadataSupported); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
 				}
@@ -687,6 +688,7 @@ func (c *MySqlConnector) PullRecords(
 
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
 	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
+	binlogRowMetadataSupported bool,
 ) error {
 	// if ALTER TABLE doesn't have database/schema name, use one attached to event
 	var sourceSchemaName string
@@ -712,6 +714,8 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		NullableEnabled: currentSchema != nil && currentSchema.NullableEnabled,
 	}
 
+	hasPositionShiftingDdlChanges := false
+
 	for _, spec := range stmt.Specs {
 		if spec.NewColumns != nil {
 			// these are added columns
@@ -723,6 +727,14 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						slog.String("tableName", sourceTableName))
 					continue
 				}
+
+				if spec.Position != nil && spec.Position.Tp != ast.ColumnPositionNone {
+					hasPositionShiftingDdlChanges = true
+					c.logger.Warn("column added with position specifier (FIRST/AFTER)",
+						slog.String("columnName", col.Name.String()),
+						slog.String("tableName", sourceTableName))
+				}
+
 				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
 				if err != nil {
 					return err
@@ -758,10 +770,22 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 				c.logger.Warn("renamed column detected but not propagating",
 					slog.String("columnOldName", spec.OldColumnName.String()), slog.String("columnNewName", spec.NewColumnName.String()))
 			} else {
+				hasPositionShiftingDdlChanges = true
 				c.logger.Warn("dropped column detected but not propagating", slog.String("columnName", spec.OldColumnName.String()))
 			}
 		}
 	}
+
+	// When a column is dropped, or added with a position specifier, columns in future
+	// change events may have a different ordinal position, so we cannot reliably map
+	// columns by ordinal position if binlog_row_metadata is not supported.
+	if hasPositionShiftingDdlChanges && !binlogRowMetadataSupported {
+		c.logger.Error("Position-shifting DDL detected on table without binlog_row_metadata support",
+			slog.String("table", sourceTableName),
+			slog.Bool("binlogRowMetadataSupported", binlogRowMetadataSupported))
+		return exceptions.NewMySQLUnsupportedDDLError(sourceTableName)
+	}
+
 	if tableSchemaDelta.AddedColumns != nil {
 		c.logger.Info("Column added detected",
 			slog.String("table", destinationTableName), slog.Any("columns", tableSchemaDelta.AddedColumns))
