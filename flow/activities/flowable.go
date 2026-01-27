@@ -937,8 +937,8 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		logger.Info("metrics aggregates recording is disabled")
 		return nil
 	}))()
-	defer common.Interval(ctx, 1*time.Hour, wrapWithLog("RecordFlowConfigs", func() error {
-		return telemetry.LogFlowConfigs(ctx, a.CatalogPool, logger)
+	defer common.Interval(ctx, 1*time.Hour, wrapWithLog("LogFlowConfigs", func() error {
+		return telemetry.LogFlowConfigs(ctx, a.CatalogPool)
 	}))()
 	defer common.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
 		return a.RecordSlotSizes(ctx)

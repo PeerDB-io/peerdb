@@ -7,12 +7,12 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/proto"
-
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -149,28 +149,31 @@ func logActivity(ctx context.Context, action string, additionalAttrs ...any) {
 }
 
 type FlowConfigForLogging struct {
-	FlowName                    string                   `json:"flow_name"`
-	PublicationName             string                   `json:"pg_publication_name"`
-	ReplicationSlotName         string                   `json:"pg_replication_slot_name"`
-	TableMappings               []TableMappingForLogging `json:"table_mappings"`
-	IdleTimeoutSeconds          uint64                   `json:"sync_interval"`
-	MaxBatchSize                uint32                   `json:"max_batch_size"`
-	SnapshotNumRowsPerPartition uint32                   `json:"snapshot_num_rows_per_partition"`
-	SnapshotMaxParallelWorkers  uint32                   `json:"snapshot_max_parallel_workers"`
-	SnapshotNumTablesInParallel uint32                   `json:"snapshot_num_tables_in_parallel"`
-	CdcOnly                     bool                     `json:"cdc_only"`
-	SnapshotOnly                bool                     `json:"snapshot_only"`
-	Resync                      bool                     `json:"is_resync"`
+	FlowName                    string `json:"flow_name"`
+	PublicationName             string `json:"pg_publication_name"`
+	ReplicationSlotName         string `json:"pg_replication_slot_name"`
+	IdleTimeoutSeconds          uint64 `json:"sync_interval"`
+	MaxBatchSize                uint32 `json:"max_batch_size"`
+	SnapshotNumRowsPerPartition uint32 `json:"snapshot_num_rows_per_partition"`
+	SnapshotMaxParallelWorkers  uint32 `json:"snapshot_max_parallel_workers"`
+	SnapshotNumTablesInParallel uint32 `json:"snapshot_num_tables_in_parallel"`
+	CdcOnly                     bool   `json:"cdc_only"`
+	SnapshotOnly                bool   `json:"snapshot_only"`
+	Resync                      bool   `json:"is_resync"`
+	NumTables                   int    `json:"num_tables"`
 }
 
 type TableMappingForLogging struct {
-	SourceTable      string   `json:"source_table"`
-	DestinationTable string   `json:"destination_table"`
-	PartitionKey     string   `json:"partition_key"`
-	Exclude          []string `json:"excluded_columns"`
+	TableName     string   `json:"table_name"`
+	DestTableName string   `json:"destination_table_name"`
+	PartitionKey  string   `json:"partition_key"`
+	Exclude       []string `json:"excluded_columns"`
+	Engine        string   `json:"engine"`
 }
 
-func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool, logger log.Logger) error {
+func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
+
 	rows, err := catalogPool.Query(ctx,
 		`SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE config_proto IS NOT NULL`)
 	if err != nil {
@@ -194,16 +197,7 @@ func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool, logger 
 	}
 
 	for _, cfg := range configs {
-		tableMappings := make([]TableMappingForLogging, 0, len(cfg.TableMappings))
-		for _, tm := range cfg.TableMappings {
-			tableMappings = append(tableMappings, TableMappingForLogging{
-				SourceTable:      tm.SourceTableIdentifier,
-				DestinationTable: tm.DestinationTableIdentifier,
-				PartitionKey:     tm.PartitionKey,
-				Exclude:          tm.Exclude,
-			})
-		}
-
+		numTables := len(cfg.TableMappings)
 		flowConfig := FlowConfigForLogging{
 			FlowName:                    cfg.FlowJobName,
 			MaxBatchSize:                cfg.MaxBatchSize,
@@ -216,16 +210,35 @@ func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool, logger 
 			SnapshotMaxParallelWorkers:  cfg.SnapshotMaxParallelWorkers,
 			SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 			Resync:                      cfg.Resync,
-			TableMappings:               tableMappings,
+			NumTables:                   numTables,
 		}
-
 		configJSON, err := json.Marshal(flowConfig)
 		if err != nil {
 			logger.Error("failed to marshal flow configs", slog.Any("error", err))
 			continue
 		}
-		logger.Info("[flow config] "+string(configJSON),
-			slog.String("scheduledTask", "RecordFlowConfigs"))
+		logger.Info("[flow config]",
+			slog.String("flowName", cfg.FlowJobName),
+			slog.String("flowConfig", string(configJSON)))
+
+		for _, tm := range cfg.TableMappings {
+			tableConfig := TableMappingForLogging{
+				TableName:     tm.SourceTableIdentifier,
+				DestTableName: tm.DestinationTableIdentifier,
+				PartitionKey:  tm.PartitionKey,
+				Engine:        tm.Engine.String(),
+				Exclude:       tm.Exclude,
+			}
+			tableJSON, err := json.Marshal(tableConfig)
+			if err != nil {
+				logger.Error("failed to marshal table config", slog.Any("error", err))
+				continue
+			}
+			logger.Info("[table config]",
+				slog.String("flowName", cfg.FlowJobName),
+				slog.String("tableName", tm.SourceTableIdentifier),
+				slog.String("tableConfig", string(tableJSON)))
+		}
 	}
 
 	return nil
