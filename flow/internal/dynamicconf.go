@@ -33,9 +33,9 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
-		Description:      "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalization",
-		DefaultValue:     "128",
+		Name:             "PEERDB_NORMALIZE_BUFFER_HOURS",
+		Description:      "Approximate hours of buffer between sync and normalize before backpressure blocks sync",
+		DefaultValue:     "24",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -580,8 +580,8 @@ func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
 }
 
-func PeerDBNormalizeBufferSize(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE")
+func PeerDBNormalizeBufferHours(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_BUFFER_HOURS")
 }
 
 func PeerDBGroupNormalize(ctx context.Context, env map[string]string) (int64, error) {

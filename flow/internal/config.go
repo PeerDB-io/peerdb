@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -37,18 +36,6 @@ func PeerFlowTaskQueueName(taskQueueID shared.TaskQueueID) string {
 		return string(taskQueueID)
 	}
 	return fmt.Sprintf("%s-%s", deploymentUID, taskQueueID)
-}
-
-// env variable doesn't exist anymore, but tests appear to depend on this
-// in lieu of an actual value of IdleTimeoutSeconds
-func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
-	var x int
-	if providedValue > 0 {
-		x = providedValue
-	} else {
-		x = getEnvConvert("", 10, strconv.Atoi)
-	}
-	return time.Duration(x) * time.Second
 }
 
 // GOMEMLIMIT is a variable internal to Golang itself, we use this for internal targets, 0 means no maximum

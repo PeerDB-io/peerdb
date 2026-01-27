@@ -54,6 +54,13 @@ type StreamCloser interface {
 	Close(error)
 }
 
+func cdcIdleTimeout(value int) time.Duration {
+	if value == 0 {
+		value = 10
+	}
+	return time.Duration(value) * time.Second
+}
+
 func (a *FlowableActivity) Alert(
 	ctx context.Context,
 	alert *protos.AlertInput,
@@ -337,11 +344,20 @@ func (a *FlowableActivity) SyncFlow(
 	syncDone := make(chan struct{})
 	normRequests := concurrency.NewLastChan()
 	normResponses := concurrency.NewLastChan()
-	normBufferSize, err := internal.PeerDBNormalizeBufferSize(ctx, config.Env)
+	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
 		srcClose(ctx)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
+	idleTimeout := cdcIdleTimeout(int(options.IdleTimeoutSeconds))
+	// normBufferSize allows _approximately_ normBufferHours delay between pull/sync and normalize
+	// under normal steady operation where the batch hits idle timeout every time it will match the hours very closely
+	// effective hours will be longer if pull is idling, or there are waits on big transactions,
+	// or the sync interval is so small that start/stop overhead starts being visible
+	// will be shorter if the batches hit the size limit rather rather than idle timeout
+	normBufferSize := normBufferHours * 3600 / int64(idleTimeout.Seconds())
+	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
+	normBufferSize = max(normBufferSize, 2)
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
@@ -366,10 +382,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
 			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil {
@@ -421,6 +437,7 @@ func (a *FlowableActivity) syncRecords(
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
 	normBufferSize int64,
+	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
@@ -454,7 +471,7 @@ func (a *FlowableActivity) syncRecords(
 		}
 	}
 	return syncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize,
+		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
@@ -468,11 +485,12 @@ func (a *FlowableActivity) syncPg(
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
 	normBufferSize int64,
+	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize,
+		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
