@@ -46,12 +46,12 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:7a967c3eff32b81689d3edf635a7a73b47a0518981ae6dff72b58fae9af3ffc0
+        image: redpandadata/redpanda@sha256:ac152ec27adccf9482af2649d293f398eb03c860d7469fc49f86e30d870ea408
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.2.4@sha256:0266542f69c89f877dda8d1c8eaa235a084c4bee66d8ae5e2e5b86c78e0217bb
+        image: elasticsearch:9.2.4@sha256:ba3ca06dc9121baad53ec025c87eef9352fcae11d89cd2e4cba8821977e81319
         ports:
           - 9200:9200
         env:
