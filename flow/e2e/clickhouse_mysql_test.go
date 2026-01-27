@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -936,6 +938,76 @@ func (s ClickHouseSuite) Test_MySQL_Coercion() {
 	require.Equal(s.t, uint64(1), numCount)
 	require.Equal(s.t, uint64(1), f32Count)
 	require.Equal(s.t, uint64(1), f64Count)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+	require.NoError(s.t, err)
+	if cmp >= 0 {
+		s.t.Skip("only applies to mysql versions WITHOUT binlog_row_metadata support")
+	}
+
+	srcTableName := "test_position_shift_err"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_position_shift_err_dst"
+
+	// Create initial table with columns: id, c1, c2
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (c1) VALUES (1)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,c1")
+
+	// Execute position-shifting DDL (DROP COLUMN) - this should cause an error
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s DROP COLUMN c1`, srcFullName)))
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for error message", func() bool {
+		rows, err := catalogPool.Query(s.t.Context(), `
+			SELECT COUNT(*) FROM peerdb_stats.flow_errors
+			WHERE error_type='error'
+			AND flow_name = $1
+			AND error_message ILIKE '%Detected position-shifting DDL on table %'
+		`, flowConnConfig.FlowJobName)
+		if err != nil {
+			s.t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		defer rows.Close()
+
+		if rows.Next() {
+			var count int64
+			if err := rows.Scan(&count); err != nil {
+				s.t.Log("Error scanning count:", err)
+				return false
+			}
+			return count > 0
+		}
+		return false
+	})
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
