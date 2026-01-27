@@ -420,9 +420,10 @@ func (a *CancelTableAdditionActivity) StartNewCDCFlow(
 	})
 	defer shutdown()
 
+	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                       workflowID,
-		TaskQueue:                string(shared.PeerFlowTaskQueue),
+		TaskQueue:                taskQueue,
 		TypedSearchAttributes:    shared.NewSearchAttributes(flowConfig.FlowJobName),
 		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, // idempotent behavior
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // allow reuse for retries
