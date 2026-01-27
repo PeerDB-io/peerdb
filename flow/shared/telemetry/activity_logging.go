@@ -7,12 +7,13 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -167,8 +168,8 @@ type TableMappingForLogging struct {
 	TableName     string   `json:"table_name"`
 	DestTableName string   `json:"destination_table_name"`
 	PartitionKey  string   `json:"partition_key"`
-	Exclude       []string `json:"excluded_columns"`
 	Engine        string   `json:"engine"`
+	Exclude       []string `json:"excluded_columns"`
 }
 
 func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
