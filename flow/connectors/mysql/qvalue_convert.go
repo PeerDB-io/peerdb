@@ -311,15 +311,6 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 			}
 			return types.QValueNumeric{Val: val}, nil
 		case types.QValueKindTimestamp:
-			// Deprecated: we mapped MySQL time to QValueKindTimestamp before ClickHouse supported Time64
-			// Keep code path for backwards compatibility
-			if mytype == mysql.MYSQL_TYPE_TIME || mytype == mysql.MYSQL_TYPE_TIME2 {
-				tm, err := processTime(unsafeString)
-				if err != nil {
-					return nil, err
-				}
-				return types.QValueTimestamp{Val: time.Unix(0, 0).UTC().Add(tm)}, nil
-			}
 			if strings.HasPrefix(unsafeString, "0000-00-00") {
 				return types.QValueTimestamp{Val: time.Unix(0, 0)}, nil
 			}
