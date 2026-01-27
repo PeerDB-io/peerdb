@@ -17,6 +17,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -267,12 +268,12 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			}
 		}
 
-		settings := peerdb_clickhouse.NewCHSettings(chVersion)
+		settings := chinternal.NewCHSettings(chVersion)
 		if allowNullableKey {
-			settings.Add(peerdb_clickhouse.SettingAllowNullableKey, "1")
+			settings.Add(chinternal.SettingAllowNullableKey, "1")
 		}
 		if internalVersion >= shared.InternalVersion_ClickHouseTime64 {
-			settings.Add(peerdb_clickhouse.SettingEnableTimeTime64Type, "1")
+			settings.Add(chinternal.SettingEnableTimeTime64Type, "1")
 		}
 		stmtBuilder.WriteString(settings.String())
 
@@ -292,8 +293,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			}
 			stmtBuilderDistributed.WriteByte(')')
 			if internalVersion >= shared.InternalVersion_ClickHouseTime64 {
-				stmtBuilderDistributed.WriteString(peerdb_clickhouse.NewCHSettingsString(
-					chVersion, peerdb_clickhouse.SettingEnableTimeTime64Type, "1"))
+				stmtBuilderDistributed.WriteString(chinternal.NewCHSettingsString(
+					chVersion, chinternal.SettingEnableTimeTime64Type, "1"))
 			}
 		}
 	}

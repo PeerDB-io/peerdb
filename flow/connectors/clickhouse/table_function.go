@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -88,7 +89,7 @@ func buildInsertFromTableFunctionQuery(
 	ctx context.Context,
 	config *insertFromTableFunctionConfig,
 	tableFunctionExpr string,
-	chSettings *peerdb_clickhouse.CHSettings,
+	chSettings *clickhouse.CHSettings,
 ) (string, error) {
 	fieldExpressionConverters := defaultFieldExpressionConverters
 	fieldExpressionConverters = append(fieldExpressionConverters, config.fieldExpressionConverters...)
@@ -168,7 +169,7 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 	tableFunctionExpr string,
 	partitionIndex uint64,
 	totalPartitions uint64,
-	chSettings *peerdb_clickhouse.CHSettings,
+	chSettings *clickhouse.CHSettings,
 ) (string, error) {
 	var query strings.Builder
 

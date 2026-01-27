@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -230,7 +231,7 @@ func (c *ClickHouseConnector) RenameTables(
 ) (*protos.RenameTablesOutput, error) {
 	onCluster := c.onCluster()
 	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
-		peerdb_clickhouse.NewCHSettingsString(c.chVersion, peerdb_clickhouse.SettingMaxTableSizeToDrop, "0")
+		chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingMaxTableSizeToDrop, "0")
 	for _, renameRequest := range req.RenameTableOptions {
 		if renameRequest.CurrentName == renameRequest.NewName {
 			c.logger.Info("table rename is nop, probably Null table engine, skipping rename for it",
@@ -305,7 +306,7 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	rawTableIdentifier := c.GetRawTableName(jobName)
 	onCluster := c.onCluster()
 	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
-		peerdb_clickhouse.NewCHSettingsString(c.chVersion, peerdb_clickhouse.SettingMaxTableSizeToDrop, "0")
+		chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingMaxTableSizeToDrop, "0")
 	if err := c.execWithLogging(ctx,
 		fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), onCluster),
 	); err != nil {

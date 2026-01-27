@@ -8,7 +8,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -127,6 +127,6 @@ func ShouldUseTime64Type(chVersion *chproto.Version, internalVersion uint32) boo
 		return false
 	}
 	// check clickhouse minimum supported version, and peerdb internal version for backwards-compatibility
-	minSupportedVersion, exists := peerdb_clickhouse.GetMinVersion(peerdb_clickhouse.SettingEnableTimeTime64Type)
+	minSupportedVersion, exists := chinternal.GetMinVersion(chinternal.SettingEnableTimeTime64Type)
 	return exists && chproto.CheckMinVersion(minSupportedVersion, *chVersion) && internalVersion >= shared.InternalVersion_ClickHouseTime64
 }

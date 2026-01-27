@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -309,17 +310,17 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 	}
 
-	chSettings := peerdb_clickhouse.NewCHSettings(t.chVersion)
-	chSettings.Add(peerdb_clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(peerdb_clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := clickhouse.NewCHSettings(t.chVersion)
+	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
 	if t.cluster {
-		chSettings.Add(peerdb_clickhouse.SettingParallelDistributedInsertSelect, "0")
+		chSettings.Add(clickhouse.SettingParallelDistributedInsertSelect, "0")
 	}
 	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(peerdb_clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
+		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
 	}
 	if t.version >= shared.InternalVersion_ClickHouseTime64 {
-		chSettings.Add(peerdb_clickhouse.SettingEnableTimeTime64Type, "1")
+		chSettings.Add(clickhouse.SettingEnableTimeTime64Type, "1")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
