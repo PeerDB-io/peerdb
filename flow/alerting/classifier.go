@@ -605,7 +605,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	var myErr *mysql.MyError
 	if errors.As(err, &myErr) {
-		// https://mariadb.com/kb/en/mariadb-error-code-reference
+		// https://mariadb.com/docs/server/reference/error-codes/mariadb-error-code-reference
 		myErrorInfo := ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   strconv.Itoa(int(myErr.Code)),
@@ -637,6 +637,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1152, // ER_ABORTING_CONNECTION
 			1194, // ER_CRASHED_ON_USAGE
 			1195, // ER_CRASHED_ON_REPAIR
+			1226, // ER_USER_LIMIT_REACHED
 			1827: // ER_PASSWORD_FORMAT
 			return ErrorNotifyConnectivity, myErrorInfo
 		case 1236, // ER_MASTER_FATAL_ERROR_READING_BINLOG
