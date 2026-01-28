@@ -606,6 +606,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var myErr *mysql.MyError
 	if errors.As(err, &myErr) {
 		// https://mariadb.com/docs/server/reference/error-codes/mariadb-error-code-reference
+		// Error code < 1000 indicates OS-level errors being passed through MySQL's error reporting system
 		myErrorInfo := ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   strconv.Itoa(int(myErr.Code)),
@@ -656,7 +657,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifySourceTableMissing, myErrorInfo
 		case 1943: // ER_DUPLICATE_GTID_DOMAIN (MariaDB)
 			return ErrorNotifyBadGTIDSetup, myErrorInfo
-		case 1317: // ER_QUERY_INTERRUPTED
+		case 5, // ERR_OUT_OF_MEMORY
+			1317: // ER_QUERY_INTERRUPTED
 			return ErrorRetryRecoverable, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
