@@ -727,3 +727,16 @@ func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
 		Code:   "STREAMING_TRANSIENT_ERROR",
 	}, errInfo, "Unexpected error info")
 }
+
+func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
+	err := exceptions.NewMySQLUnsupportedDDLError("test_db.test_table")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogRowMetadataInvalid, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "test_db.test_table",
+		},
+	}, errInfo)
+}
