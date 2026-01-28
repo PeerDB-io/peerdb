@@ -161,15 +161,18 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
 			// Handle legacy path where TIME is stored as DateTime64 (before Time64 support)
 			if colType == types.QValueKindTime || colType == types.QValueKindTimeTZ {
-				fmt.Fprintf(&projection,
-					"toDateTime64(toTime64OrNull(JSONExtractString(_peerdb_data, %s), 6), 6) AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+				minVersion, exists := clickhouse.GetMinVersion(clickhouse.SettingEnableTimeTime64Type)
+				time64Supported := exists && chproto.CheckMinVersion(minVersion, *t.chVersion)
+
+				fmt.Fprintf(&projection, "%s AS %s,",
+					extendedTimeToDateTime(fmt.Sprintf("JSONExtractString(_peerdb_data, %s)",
+						peerdb_clickhouse.QuoteLiteral(colName)), time64Supported),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
-					fmt.Fprintf(&projectionUpdate,
-						"toDateTime64(toTime64OrNull(JSONExtractString(_peerdb_match_data, %s), 6), 6) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
+					fmt.Fprintf(&projectionUpdate, "%s AS %s,",
+						extendedTimeToDateTime(fmt.Sprintf("JSONExtractString(_peerdb_match_data, %s)",
+							peerdb_clickhouse.QuoteLiteral(colName)), time64Supported),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
@@ -329,4 +332,21 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	t.Query = insertIntoSelectQuery
 
 	return t.Query, nil
+}
+
+func extendedTimeToDateTime(jsonExtractExpr string, time64Supported bool) string {
+	if time64Supported {
+		return fmt.Sprintf("toDateTime64(toTime64OrNull(%s, 6), 6)", jsonExtractExpr)
+	}
+
+	// fallback to manual string parsing for older versions of clickhouse instances
+	// where `toTime64OrNull` is not supported.
+	return fmt.Sprintf(`if(length(%[1]s) > 0,
+		toDateTime64(
+			(if(startsWith(%[1]s, '-'), -1, 1)) *
+			(toInt64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[1]) * 3600 +
+			 toInt64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[2]) * 60 +
+			 toFloat64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[3]))
+		, 6),
+		NULL)`, jsonExtractExpr)
 }
