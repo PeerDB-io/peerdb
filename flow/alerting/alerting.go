@@ -169,57 +169,32 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slot
 		return
 	}
 
-	deploymentUIDPrefix := ""
-	if internal.PeerDBDeploymentUID() != "" {
-		deploymentUIDPrefix = fmt.Sprintf("[%s] ", internal.PeerDBDeploymentUID())
-	}
-
-	defaultSlotLagMBAlertThreshold, err := internal.PeerDBSlotLagMBAlertThreshold(ctx, nil)
+	defaultThreshold, err := internal.PeerDBSlotLagMBAlertThreshold(ctx, nil)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Warn("failed to get slot lag alert threshold from catalog", slog.Any("error", err))
 		return
 	}
 
-	// catalog cannot use default threshold to space alerts properly, use the lowest set threshold instead
-	lowestSlotLagMBAlertThreshold := defaultSlotLagMBAlertThreshold
-	var alertSendersForMirrors []AlertSenderConfig
-	for _, alertSenderConfig := range alertSenderConfigs {
-		if len(alertSenderConfig.AlertForMirrors) == 0 || slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
-			alertSendersForMirrors = append(alertSendersForMirrors, alertSenderConfig)
-			if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
-				lowestSlotLagMBAlertThreshold = min(lowestSlotLagMBAlertThreshold, alertSenderConfig.Sender.getSlotLagMBAlertThreshold())
-			}
+	prefix := getDeploymentUIDPrefix()
+	alertKey := fmt.Sprintf("%sSlot Lag Threshold Exceeded for Peer %s", prefix, alertKeys.PeerName)
+	msgTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
+		`currently at %.2fMB!`, prefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.LagInMb)
+
+	for _, sender := range filterSendersForMirror(alertSenderConfigs, alertKeys.FlowName) {
+		threshold := sender.Sender.getSlotLagMBAlertThreshold()
+		if threshold == 0 {
+			threshold = defaultThreshold
 		}
-	}
+		a.sendAlertIfExceeded(ctx, sender,
+			slotInfo.LagInMb > float32(threshold),
+			alertKey, fmt.Sprintf(msgTemplate, threshold))
 
-	thresholdAlertKey := fmt.Sprintf("%s Slot Lag Threshold Exceeded for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
-	thresholdAlertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
-		`currently at %.2fMB!`, deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.LagInMb)
-
-	badWalStatusAlertKey := fmt.Sprintf("%s Bad WAL Status for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
-	badWalStatusAlertMessage := fmt.Sprintf("%sSlot `%s` on peer `%s` has bad WAL status: `%s`",
-		deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.WalStatus)
-
-	for _, alertSenderConfig := range alertSendersForMirrors {
-		if a.checkAndAddAlertToCatalog(ctx,
-			alertSenderConfig.Id, thresholdAlertKey,
-			fmt.Sprintf(thresholdAlertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
-			if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
-				if slotInfo.LagInMb > float32(alertSenderConfig.Sender.getSlotLagMBAlertThreshold()) {
-					a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
-						fmt.Sprintf(thresholdAlertMessageTemplate, alertSenderConfig.Sender.getSlotLagMBAlertThreshold()))
-				}
-			} else {
-				if slotInfo.LagInMb > float32(defaultSlotLagMBAlertThreshold) {
-					a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
-						fmt.Sprintf(thresholdAlertMessageTemplate, defaultSlotLagMBAlertThreshold))
-				}
-			}
-		}
-
-		if (slotInfo.WalStatus == "lost" || slotInfo.WalStatus == "unreserved") &&
-			a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, badWalStatusAlertKey, badWalStatusAlertMessage) {
-			a.alertToProvider(ctx, alertSenderConfig, badWalStatusAlertKey, badWalStatusAlertMessage)
+		// Bad WAL status alert
+		if slotInfo.WalStatus == "lost" || slotInfo.WalStatus == "unreserved" {
+			badWalKey := fmt.Sprintf("%sBad WAL Status for Peer %s", prefix, alertKeys.PeerName)
+			badWalMsg := fmt.Sprintf("%sSlot `%s` on peer `%s` has bad WAL status: `%s`",
+				prefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.WalStatus)
+			a.sendAlertIfExceeded(ctx, sender, true, badWalKey, badWalMsg)
 		}
 	}
 }
@@ -233,119 +208,101 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, alertKeys *AlertKe
 		return
 	}
 
-	deploymentUIDPrefix := ""
-	if internal.PeerDBDeploymentUID() != "" {
-		deploymentUIDPrefix = fmt.Sprintf("[%s] - ", internal.PeerDBDeploymentUID())
-	}
-
-	// same as with slot lag, use lowest threshold for catalog
-	defaultOpenConnectionsThreshold, err := internal.PeerDBOpenConnectionsAlertThreshold(ctx, nil)
+	defaultThreshold, err := internal.PeerDBOpenConnectionsAlertThreshold(ctx, nil)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Warn("failed to get open connections alert threshold from catalog", slog.Any("error", err))
 		return
 	}
-	lowestOpenConnectionsThreshold := defaultOpenConnectionsThreshold
-	for _, alertSender := range alertSenderConfigs {
-		if alertSender.Sender.getOpenConnectionsAlertThreshold() > 0 {
-			lowestOpenConnectionsThreshold = min(lowestOpenConnectionsThreshold,
-				alertSender.Sender.getOpenConnectionsAlertThreshold())
-		}
-	}
 
-	alertKey := fmt.Sprintf("%s Max Open Connections Threshold Exceeded for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
-	alertMessageTemplate := fmt.Sprintf("%sOpen connections from PeerDB user `%s` on peer `%s`"+
+	prefix := getDeploymentUIDPrefix()
+	alertKey := fmt.Sprintf("%sMax Open Connections Threshold Exceeded for Peer %s", prefix, alertKeys.PeerName)
+	msgTemplate := fmt.Sprintf("%sOpen connections from PeerDB user `%s` on peer `%s`"+
 		` has exceeded threshold size of %%d connections, currently at %d connections!`,
-		deploymentUIDPrefix, openConnections.UserName, alertKeys.PeerName, openConnections.CurrentOpenConnections)
+		prefix, openConnections.UserName, alertKeys.PeerName, openConnections.CurrentOpenConnections)
 
-	if openConnections.CurrentOpenConnections > int64(lowestOpenConnectionsThreshold) {
-		for _, alertSenderConfig := range alertSenderConfigs {
-			if len(alertSenderConfig.AlertForMirrors) > 0 &&
-				!slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
-				continue
-			}
-			if a.checkAndAddAlertToCatalog(ctx,
-				alertSenderConfig.Id, alertKey, fmt.Sprintf(alertMessageTemplate, lowestOpenConnectionsThreshold)) {
-				if alertSenderConfig.Sender.getOpenConnectionsAlertThreshold() > 0 {
-					if openConnections.CurrentOpenConnections > int64(alertSenderConfig.Sender.getOpenConnectionsAlertThreshold()) {
-						a.alertToProvider(ctx, alertSenderConfig, alertKey,
-							fmt.Sprintf(alertMessageTemplate, alertSenderConfig.Sender.getOpenConnectionsAlertThreshold()))
-					}
-				} else {
-					if openConnections.CurrentOpenConnections > int64(defaultOpenConnectionsThreshold) {
-						a.alertToProvider(ctx, alertSenderConfig, alertKey,
-							fmt.Sprintf(alertMessageTemplate, defaultOpenConnectionsThreshold))
-					}
-				}
-			}
+	for _, sender := range filterSendersForMirror(alertSenderConfigs, alertKeys.FlowName) {
+		threshold := sender.Sender.getOpenConnectionsAlertThreshold()
+		if threshold == 0 {
+			threshold = defaultThreshold
 		}
+		a.sendAlertIfExceeded(ctx, sender,
+			openConnections.CurrentOpenConnections > int64(threshold),
+			alertKey, fmt.Sprintf(msgTemplate, threshold))
 	}
 }
 
 func (a *Alerter) AlertIfTooLongSinceLastNormalize(ctx context.Context, alertKeys *AlertKeys, intervalSinceLastNormalize time.Duration) {
-	defaultIntervalSinceLastNormalizeThreshold, err := internal.PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx, nil)
+	defaultThreshold, err := internal.PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx, nil)
 	if err != nil {
-		internal.LoggerFromCtx(ctx).
-			Warn("failed to get interval since last normalize threshold from catalog", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).Warn("failed to get interval since last normalize threshold from catalog", slog.Any("error", err))
 		return
 	}
-
-	if defaultIntervalSinceLastNormalizeThreshold == 0 {
+	if defaultThreshold == 0 {
 		internal.LoggerFromCtx(ctx).Info("Alerting disabled via environment variable, returning")
 		return
 	}
+
 	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
 		return
 	}
 
-	deploymentUIDPrefix := ""
-	if internal.PeerDBDeploymentUID() != "" {
-		deploymentUIDPrefix = fmt.Sprintf("[%s] - ", internal.PeerDBDeploymentUID())
-	}
-
-	// catalog cannot use default threshold to space alerts properly, use the lowest set threshold instead
-	lowestIntervalSinceLastNormalizeThreshold := defaultIntervalSinceLastNormalizeThreshold
-	var alertSendersForMirrors []AlertSenderConfig
-	for _, alertSenderConfig := range alertSenderConfigs {
-		if len(alertSenderConfig.AlertForMirrors) == 0 || slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
-			alertSendersForMirrors = append(alertSendersForMirrors, alertSenderConfig)
-			if alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold() > 0 {
-				lowestIntervalSinceLastNormalizeThreshold = min(lowestIntervalSinceLastNormalizeThreshold,
-					alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold())
-			}
-		}
-	}
-
-	alertKey := fmt.Sprintf("%s Too long since last data normalize for PeerDB mirror %s",
-		deploymentUIDPrefix, alertKeys.FlowName)
-	alertMessageTemplate := fmt.Sprintf("%sData hasn't been synced to the target for mirror `%s` since the last `%s`."+
+	prefix := getDeploymentUIDPrefix()
+	alertKey := fmt.Sprintf("%sToo long since last data normalize for PeerDB mirror %s", prefix, alertKeys.FlowName)
+	msgTemplate := fmt.Sprintf("%sData hasn't been synced to the target for mirror `%s` since the last `%s`."+
 		` This could indicate an issue with the pipeline — please check the UI and logs to confirm.`+
 		` Alternatively, it might be that the source database is idle and not receiving new updates.`+
-		` (threshold: %%d minutes)`, deploymentUIDPrefix, alertKeys.FlowName, intervalSinceLastNormalize)
+		` (threshold: %%d minutes)`, prefix, alertKeys.FlowName, intervalSinceLastNormalize)
 
-	for _, alertSenderConfig := range alertSendersForMirrors {
-		if a.checkAndAddAlertToCatalog(ctx,
-			alertSenderConfig.Id, alertKey,
-			fmt.Sprintf(alertMessageTemplate, lowestIntervalSinceLastNormalizeThreshold)) {
-			if alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold() > 0 {
-				if intervalSinceLastNormalize > time.Duration(alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold())*time.Minute {
-					a.alertToProvider(ctx, alertSenderConfig, alertKey,
-						fmt.Sprintf(alertMessageTemplate, alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold()))
-				}
-			} else {
-				if intervalSinceLastNormalize > time.Duration(defaultIntervalSinceLastNormalizeThreshold)*time.Minute {
-					a.alertToProvider(ctx, alertSenderConfig, alertKey,
-						fmt.Sprintf(alertMessageTemplate, defaultIntervalSinceLastNormalizeThreshold))
-				}
-			}
+	for _, sender := range filterSendersForMirror(alertSenderConfigs, alertKeys.FlowName) {
+		threshold := sender.Sender.getIntervalSinceLastNormalizeMinutesThreshold()
+		if threshold == 0 {
+			threshold = defaultThreshold
 		}
+		a.sendAlertIfExceeded(ctx, sender,
+			intervalSinceLastNormalize > time.Duration(threshold)*time.Minute,
+			alertKey, fmt.Sprintf(msgTemplate, threshold))
 	}
 }
 
 func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSenderConfig, alertKey string, alertMessage string) {
 	if err := alertSenderConfig.Sender.sendAlert(ctx, alertKey, alertMessage); err != nil {
 		internal.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("error", err))
+	}
+}
+
+// getDeploymentUIDPrefix returns the deployment UID prefix for alert messages
+func getDeploymentUIDPrefix() string {
+	if uid := internal.PeerDBDeploymentUID(); uid != "" {
+		return fmt.Sprintf("[%s] ", uid)
+	}
+	return ""
+}
+
+// filterSendersForMirror returns senders that apply to a specific mirror
+func filterSendersForMirror(senders []AlertSenderConfig, flowName string) []AlertSenderConfig {
+	var filtered []AlertSenderConfig
+	for _, sender := range senders {
+		if len(sender.AlertForMirrors) == 0 || slices.Contains(sender.AlertForMirrors, flowName) {
+			filtered = append(filtered, sender)
+		}
+	}
+	return filtered
+}
+
+// sendAlertIfExceeded handles the common pattern of checking threshold and sending alert
+func (a *Alerter) sendAlertIfExceeded(
+	ctx context.Context,
+	sender AlertSenderConfig,
+	exceeded bool,
+	alertKey string,
+	alertMessage string,
+) {
+	if exceeded {
+		if a.checkAndAddAlertToCatalog(ctx, sender.Id, alertKey, alertMessage) {
+			a.alertToProvider(ctx, sender, alertKey, alertMessage)
+		}
 	}
 }
 
