@@ -279,11 +279,11 @@ export function NewConfig(alertProps: AlertConfigProps) {
           variant='simple'
           type={'number'}
           placeholder='optional'
-          value={config.slot_lag_mb_alert_threshold / 1000}
+          value={(config.slot_lag_mb_alert_threshold ?? 0) / 1000 || ''}
           onChange={(e) =>
             setConfig((previous) => ({
               ...previous,
-              slot_lag_mb_alert_threshold: e.target.valueAsNumber * 1000,
+              slot_lag_mb_alert_threshold: (isNaN(e.target.valueAsNumber) ? 0 : e.target.valueAsNumber) * 1000,
             }))
           }
         />
@@ -296,11 +296,11 @@ export function NewConfig(alertProps: AlertConfigProps) {
           variant='simple'
           type={'number'}
           placeholder='optional'
-          value={config.open_connections_alert_threshold}
+          value={config.open_connections_alert_threshold || ''}
           onChange={(e) =>
             setConfig((previous) => ({
               ...previous,
-              open_connections_alert_threshold: e.target.valueAsNumber,
+              open_connections_alert_threshold: isNaN(e.target.valueAsNumber) ? 0 : e.target.valueAsNumber,
             }))
           }
         />
@@ -316,13 +316,13 @@ export function NewConfig(alertProps: AlertConfigProps) {
           style={{ height: '2.5rem', marginTop: '0.5rem' }}
           variant='simple'
           type={'number'}
-          placeholder='optional (0 = use global default)'
-          value={config.interval_since_last_normalize_minutes_threshold}
+          placeholder='minutes (default: 240)'
+          value={config.interval_since_last_normalize_minutes_threshold || ''}
           onChange={(e) =>
             setConfig((previous) => ({
               ...previous,
               interval_since_last_normalize_minutes_threshold:
-                e.target.valueAsNumber,
+                isNaN(e.target.valueAsNumber) ? 0 : e.target.valueAsNumber,
             }))
           }
         />

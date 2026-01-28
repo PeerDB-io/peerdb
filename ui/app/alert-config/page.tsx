@@ -49,7 +49,7 @@ export default function AlertConfigPage() {
       channel_ids: [''],
       open_connections_alert_threshold: 20,
       slot_lag_mb_alert_threshold: 5000,
-      interval_since_last_normalize_minutes_threshold: 0,
+      interval_since_last_normalize_minutes_threshold: 240,
     },
     alertForMirrors: [],
     forEdit: false,
