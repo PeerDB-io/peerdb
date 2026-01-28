@@ -23,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -404,6 +405,22 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	}
 	c.logger.Info("[clickhouse] version", slog.String("version", clickhouseVersion.DisplayName))
 	return clickhouseVersion.Version.String(), nil
+}
+
+func (c *ClickHouseConnector) GetMaxSupportedInternalVersion() uint32 {
+	if c.chVersion == nil {
+		// should never get here
+		c.logger.Warn("[clickhouse] version is not set, use the latest internal version")
+		return shared.InternalVersion_Latest
+	}
+
+	minVersionWithTime64Support, exists := chinternal.GetMinVersion(chinternal.SettingEnableTimeTime64Type)
+	supportsTime64 := exists && clickhouseproto.CheckMinVersion(minVersionWithTime64Support, *c.chVersion)
+	if !supportsTime64 {
+		return shared.InternalVersion_ClickHouseTime64 - 1
+	}
+
+	return shared.InternalVersion_Latest
 }
 
 func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType) (*protos.TableSchema, error) {

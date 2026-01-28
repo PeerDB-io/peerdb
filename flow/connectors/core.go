@@ -53,6 +53,14 @@ type MirrorDestinationValidationConnector interface {
 	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigsCore, map[string]*protos.TableSchema) error
 }
 
+type InternalVersionAwareConnector interface {
+	Connector
+
+	// GetMaxSupportedInternalVersion returns the maximum internal version
+	// supported by this connector instance based on its server version.
+	GetMaxSupportedInternalVersion() uint32
+}
+
 type StatActivityConnector interface {
 	Connector
 
@@ -711,6 +719,8 @@ var (
 	_ MirrorSourceValidationConnector = &connbigquery.BigQueryConnector{}
 
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
+
+	_ InternalVersionAwareConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}

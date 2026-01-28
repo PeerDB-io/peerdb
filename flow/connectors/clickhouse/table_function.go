@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -68,8 +69,8 @@ func timeFieldExpressionConverter(
 		return sourceFieldIdentifier, nil
 	}
 
-	// Handle legacy path where TIME is stored as DateTime64, before ClickHouse supported Time64 type
-	if !qvalue.ShouldUseTime64Type(config.connector.chVersion, config.config.Version) {
+	// Handle legacy path where TIME was stored as DateTime64, before ClickHouse supported Time64 type
+	if config.config.Version < shared.InternalVersion_ClickHouseTime64 {
 		return sourceFieldIdentifier, nil
 	}
 
