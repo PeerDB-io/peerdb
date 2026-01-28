@@ -282,13 +282,14 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, alertKeys *AlertKe
 }
 
 func (a *Alerter) AlertIfTooLongSinceLastNormalize(ctx context.Context, alertKeys *AlertKeys, intervalSinceLastNormalize time.Duration) {
-	intervalSinceLastNormalizeThreshold, err := internal.PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx, nil)
+	defaultIntervalSinceLastNormalizeThreshold, err := internal.PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx, nil)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).
 			Warn("failed to get interval since last normalize threshold from catalog", slog.Any("error", err))
+		return
 	}
 
-	if intervalSinceLastNormalizeThreshold == 0 {
+	if defaultIntervalSinceLastNormalizeThreshold == 0 {
 		internal.LoggerFromCtx(ctx).Info("Alerting disabled via environment variable, returning")
 		return
 	}
@@ -303,19 +304,39 @@ func (a *Alerter) AlertIfTooLongSinceLastNormalize(ctx context.Context, alertKey
 		deploymentUIDPrefix = fmt.Sprintf("[%s] - ", internal.PeerDBDeploymentUID())
 	}
 
-	if intervalSinceLastNormalize > time.Duration(intervalSinceLastNormalizeThreshold)*time.Minute {
-		alertKey := fmt.Sprintf("%s Too long since last data normalize for PeerDB mirror %s",
-			deploymentUIDPrefix, alertKeys.FlowName)
-		alertMessage := fmt.Sprintf("%sData hasn't been synced to the target for mirror `%s` since the last `%s`."+
-			` This could indicate an issue with the pipeline — please check the UI and logs to confirm.`+
-			` Alternatively, it might be that the source database is idle and not receiving new updates.`, deploymentUIDPrefix,
-			alertKeys.FlowName, intervalSinceLastNormalize)
+	// catalog cannot use default threshold to space alerts properly, use the lowest set threshold instead
+	lowestIntervalSinceLastNormalizeThreshold := defaultIntervalSinceLastNormalizeThreshold
+	var alertSendersForMirrors []AlertSenderConfig
+	for _, alertSenderConfig := range alertSenderConfigs {
+		if len(alertSenderConfig.AlertForMirrors) == 0 || slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
+			alertSendersForMirrors = append(alertSendersForMirrors, alertSenderConfig)
+			if alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold() > 0 {
+				lowestIntervalSinceLastNormalizeThreshold = min(lowestIntervalSinceLastNormalizeThreshold,
+					alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold())
+			}
+		}
+	}
 
-		for _, alertSenderConfig := range alertSenderConfigs {
-			if len(alertSenderConfig.AlertForMirrors) == 0 ||
-				slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
-				if a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, alertKey, alertMessage) {
-					a.alertToProvider(ctx, alertSenderConfig, alertKey, alertMessage)
+	alertKey := fmt.Sprintf("%s Too long since last data normalize for PeerDB mirror %s",
+		deploymentUIDPrefix, alertKeys.FlowName)
+	alertMessageTemplate := fmt.Sprintf("%sData hasn't been synced to the target for mirror `%s` since the last `%s`."+
+		` This could indicate an issue with the pipeline — please check the UI and logs to confirm.`+
+		` Alternatively, it might be that the source database is idle and not receiving new updates.`+
+		` (threshold: %%d minutes)`, deploymentUIDPrefix, alertKeys.FlowName, intervalSinceLastNormalize)
+
+	for _, alertSenderConfig := range alertSendersForMirrors {
+		if a.checkAndAddAlertToCatalog(ctx,
+			alertSenderConfig.Id, alertKey,
+			fmt.Sprintf(alertMessageTemplate, lowestIntervalSinceLastNormalizeThreshold)) {
+			if alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold() > 0 {
+				if intervalSinceLastNormalize > time.Duration(alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold())*time.Minute {
+					a.alertToProvider(ctx, alertSenderConfig, alertKey,
+						fmt.Sprintf(alertMessageTemplate, alertSenderConfig.Sender.getIntervalSinceLastNormalizeMinutesThreshold()))
+				}
+			} else {
+				if intervalSinceLastNormalize > time.Duration(defaultIntervalSinceLastNormalizeThreshold)*time.Minute {
+					a.alertToProvider(ctx, alertSenderConfig, alertKey,
+						fmt.Sprintf(alertMessageTemplate, defaultIntervalSinceLastNormalizeThreshold))
 				}
 			}
 		}

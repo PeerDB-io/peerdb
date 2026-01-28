@@ -306,6 +306,28 @@ export function NewConfig(alertProps: AlertConfigProps) {
         />
       </div>
       <div>
+        <p>Interval Since Last Normalize Alert Threshold (in minutes)</p>
+        <Label as='label' style={{ fontSize: 14 }}>
+          Alert if data hasn&apos;t been normalized for longer than this
+          duration. Set to 0 to use global default.
+        </Label>
+        <TextField
+          key={'interval_since_last_normalize_minutes_threshold'}
+          style={{ height: '2.5rem', marginTop: '0.5rem' }}
+          variant='simple'
+          type={'number'}
+          placeholder='optional (0 = use global default)'
+          value={config.interval_since_last_normalize_minutes_threshold}
+          onChange={(e) =>
+            setConfig((previous) => ({
+              ...previous,
+              interval_since_last_normalize_minutes_threshold:
+                e.target.valueAsNumber,
+            }))
+          }
+        />
+      </div>
+      <div>
         <p>
           Alert only for these mirrors (leave empty to alert for all mirrors)
         </p>
