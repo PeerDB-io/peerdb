@@ -12,9 +12,9 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
-import { FormatStatus } from '../utils/flowstatus';
 import { MirrorType } from '../dto/MirrorsDTO';
 import { tableStyle } from '../peers/[peerName]/style';
+import { FormatStatus } from '../utils/flowstatus';
 
 function getStatusVariant(status: FlowStatus): BadgeVariant {
   const statusStr = status.toString();
@@ -158,15 +158,20 @@ export function QRepFlows({
         <Table
           header={
             <TableRow>
-              {['Name', 'Status', 'Source', 'Destination', 'Start Time', ''].map(
-                (heading, index) => (
-                  <TableCell as='th' key={index}>
-                    <Label as='label' style={{ fontWeight: 'bold' }}>
-                      {heading}
-                    </Label>
-                  </TableCell>
-                )
-              )}
+              {[
+                'Name',
+                'Status',
+                'Source',
+                'Destination',
+                'Start Time',
+                '',
+              ].map((heading, index) => (
+                <TableCell as='th' key={index}>
+                  <Label as='label' style={{ fontWeight: 'bold' }}>
+                    {heading}
+                  </Label>
+                </TableCell>
+              ))}
             </TableRow>
           }
         >
