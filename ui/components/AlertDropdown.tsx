@@ -20,7 +20,7 @@ export default function AlertDropdown({
 
   return (
     <DropdownMenu.Root>
-      <DropdownMenu.Trigger>
+      <DropdownMenu.Trigger asChild>
         <Button
           aria-controls={open ? 'menu-list-grow' : undefined}
           aria-haspopup='true'
