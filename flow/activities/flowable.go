@@ -84,7 +84,11 @@ func (a *FlowableActivity) CheckConnection(
 	}
 	defer connClose(ctx)
 
-	return conn.ConnectionActive(ctx)
+	if err = conn.ConnectionActive(ctx); err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("connection not active: %w", err))
+	}
+
+	return nil
 }
 
 func (a *FlowableActivity) CheckMetadataTables(
