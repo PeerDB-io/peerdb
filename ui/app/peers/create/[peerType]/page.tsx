@@ -3,6 +3,7 @@ import { PeerConfig } from '@/app/dto/PeersDTO';
 import GuideForDestinationSetup from '@/app/mirrors/create/cdc/guide';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
 import ClickHouseForm from '@/components/PeerForms/ClickhouseConfig';
+import CockroachDBForm from '@/components/PeerForms/CockroachDBForm';
 import KafkaForm from '@/components/PeerForms/KafkaConfig';
 import MongoForm from '@/components/PeerForms/MongoForm';
 import MySqlForm from '@/components/PeerForms/MySqlForm';
@@ -17,6 +18,7 @@ import ElasticsearchConfigForm from '@/components/PeerForms/ElasticsearchConfigF
 import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig';
 import ThemedToastContainer from '@/components/ThemedToastContainer';
 import {
+  CockroachDBConfig,
   ElasticsearchConfig,
   EventHubGroupConfig,
   MongoConfig,
@@ -35,6 +37,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useState } from 'react';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
+import { cockroachdbSetting } from './helpers/crdb';
 import { getBlankSetting } from './helpers/common';
 import { mongoSetting } from './helpers/mo';
 import { mysqlSetting } from './helpers/my';
@@ -100,6 +103,14 @@ export default function CreateConfig({ params }: CreateConfigProps) {
       case 'CLICKHOUSE':
         return (
           <ClickHouseForm settings={clickhouseSetting} setter={setConfig} />
+        );
+      case 'COCKROACHDB':
+        return (
+          <CockroachDBForm
+            settings={cockroachdbSetting}
+            setter={setConfig}
+            config={config as CockroachDBConfig}
+          />
         );
       case 'S3':
         return <S3Form setter={setConfig} />;

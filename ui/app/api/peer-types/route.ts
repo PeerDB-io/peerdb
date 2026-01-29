@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     'CRUNCHY POSTGRES',
     'NEON',
     'MONGO',
+    'COCKROACHDB',
   ];
   if (process.env.SUPABASE_ID) {
     postgresTypes.push({
