@@ -64,7 +64,8 @@ func timeFieldExpressionConverter(
 		return sourceFieldIdentifier, nil
 	}
 
-	// Handle BigQuery source where TIME is stored as Int64 (microseconds)
+	// Handle BigQuery source where TIME is exported as Parquet TIME(MICROS), which
+	// ClickHouse interprets as DateTime64(6, 'UTC'), so no manual conversion needed
 	if config.config.SourceType == protos.DBType_BIGQUERY {
 		return sourceFieldIdentifier, nil
 	}
