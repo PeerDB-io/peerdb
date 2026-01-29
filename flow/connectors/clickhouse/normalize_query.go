@@ -339,8 +339,11 @@ func extendedTimeToDateTime(jsonExtractExpr string, time64Supported bool) string
 		return fmt.Sprintf("toDateTime64(toTime64OrNull(%s, 6), 6)", jsonExtractExpr)
 	}
 
-	// fallback to manual string parsing for older versions of clickhouse instances
-	// where `toTime64OrNull` is not supported.
+	// Fallback to manual string parsing for older ClickHouse versions (< 25.6)
+	// that don't support toTime64OrNull(). This expression parses extended time
+	// format "[-]HHH:MM:SS.xxxxxx" (e.g., "123:30:00.000000", "-1:30:00.000000")
+	// by splitting on ':', computing (hours*3600 + minutes*60 + seconds) * sign
+	// to get total seconds, then converting to DateTime64(6).
 	return fmt.Sprintf(`if(length(%[1]s) > 0,
 		toDateTime64(
 			(if(startsWith(%[1]s, '-'), -1, 1)) *
