@@ -4,13 +4,34 @@ import MirrorLink from '@/components/MirrorLink';
 import NewButton from '@/components/NewButton';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
+import { FlowStatus } from '@/grpc_generated/flow';
 import { ListMirrorsItem } from '@/grpc_generated/route';
+import { Badge } from '@/lib/Badge';
+import { BadgeVariant } from '@/lib/Badge/Badge.styles';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
+import { FormatStatus } from '../utils/flowstatus';
 import { MirrorType } from '../dto/MirrorsDTO';
 import { tableStyle } from '../peers/[peerName]/style';
+
+function getStatusVariant(status: FlowStatus): BadgeVariant {
+  const statusStr = status.toString();
+  switch (statusStr) {
+    case FlowStatus[FlowStatus.STATUS_RUNNING]:
+      return 'positive';
+    case FlowStatus[FlowStatus.STATUS_PAUSED]:
+    case FlowStatus[FlowStatus.STATUS_PAUSING]:
+      return 'warning';
+    case FlowStatus[FlowStatus.STATUS_FAILED]:
+    case FlowStatus[FlowStatus.STATUS_TERMINATED]:
+    case FlowStatus[FlowStatus.STATUS_TERMINATING]:
+      return 'destructive';
+    default:
+      return 'normal';
+  }
+}
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: ListMirrorsItem[] }) {
   if (cdcFlows?.length === 0) {
@@ -39,28 +60,33 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: ListMirrorsItem[] }) {
         <Table
           header={
             <TableRow>
-              {['Name', 'Source', 'Destination', 'Start Time', 'Logs', ''].map(
-                (heading, index) => (
-                  <TableCell as='th' key={index}>
-                    <Label
-                      as='label'
-                      style={{
-                        fontWeight: 'bold',
-                        padding: heading === 'Status' ? 0 : 'auto',
-                      }}
-                    >
-                      {heading}
-                    </Label>
-                  </TableCell>
-                )
-              )}
+              {[
+                'Name',
+                'Status',
+                'Source',
+                'Destination',
+                'Start Time',
+                'Logs',
+                '',
+              ].map((heading, index) => (
+                <TableCell as='th' key={index}>
+                  <Label as='label' style={{ fontWeight: 'bold' }}>
+                    {heading}
+                  </Label>
+                </TableCell>
+              ))}
             </TableRow>
           }
         >
           {cdcFlows.map((flow) => (
             <TableRow key={flow.id}>
-              <TableCell>
+              <TableCell variant='mirror_name'>
                 <MirrorLink flowName={flow.name} />
+              </TableCell>
+              <TableCell>
+                <Badge variant={getStatusVariant(flow.status)}>
+                  {FormatStatus(flow.status)}
+                </Badge>
               </TableCell>
               <TableCell>
                 <PeerButton
@@ -132,7 +158,7 @@ export function QRepFlows({
         <Table
           header={
             <TableRow>
-              {['Name', 'Source', 'Destination', 'Start Time', ''].map(
+              {['Name', 'Status', 'Source', 'Destination', 'Start Time', ''].map(
                 (heading, index) => (
                   <TableCell as='th' key={index}>
                     <Label as='label' style={{ fontWeight: 'bold' }}>
@@ -146,8 +172,13 @@ export function QRepFlows({
         >
           {qrepFlows.map((flow) => (
             <TableRow key={flow.id}>
-              <TableCell>
+              <TableCell variant='mirror_name'>
                 <MirrorLink flowName={flow.name} />
+              </TableCell>
+              <TableCell>
+                <Badge variant={getStatusVariant(flow.status)}>
+                  {FormatStatus(flow.status)}
+                </Badge>
               </TableCell>
               <TableCell>
                 <PeerButton

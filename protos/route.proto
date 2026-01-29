@@ -405,6 +405,7 @@ message ListMirrorsItem {
   peerdb_peers.DBType destination_type = 7;
   double created_at = 8;
   bool is_cdc = 9;
+  peerdb_flow.FlowStatus status = 10;
 }
 message ListMirrorsRequest {}
 message ListMirrorsResponse { repeated ListMirrorsItem mirrors = 1; }
