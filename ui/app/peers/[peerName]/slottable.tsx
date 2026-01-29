@@ -4,7 +4,7 @@ import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useEffect, useState } from 'react';
 import { getSlotData, SlotNameDisplay } from './helpers';
-import { tableStyle } from './style';
+import { tableStyleMaxHeight } from './style';
 
 export default function SlotTable({ peerName }: { peerName: string }) {
   const [data, setData] = useState<SlotInfo[]>([]);
@@ -29,7 +29,7 @@ export default function SlotTable({ peerName }: { peerName: string }) {
       >
         Replication Slot Information
       </Label>
-      <div style={tableStyle}>
+      <div style={tableStyleMaxHeight}>
         <Table
           header={
             <TableRow>

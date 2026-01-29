@@ -1,12 +1,16 @@
 import { CSSProperties } from 'react';
 
 export const tableStyle: CSSProperties = {
-  maxHeight: '35vh',
   padding: '0.5rem',
-  overflowY: 'auto',
   borderRadius: '0.5rem',
   border: '1px solid rgba(0,0,0,0.1)',
   marginTop: '0.5rem',
+};
+
+export const tableStyleMaxHeight: CSSProperties = {
+  ...tableStyle,
+  maxHeight: '35vh',
+  overflowY: 'auto',
 };
 
 export const connStringStyle: CSSProperties = {
