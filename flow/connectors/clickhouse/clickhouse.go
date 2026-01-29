@@ -495,6 +495,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 				} else {
 					qkind = types.QValueKindNumeric
 				}
+			} else if strings.HasPrefix(column.DatabaseTypeName(), "JSON(") {
+				qkind = types.QValueKindJSON
 			} else {
 				return nil, fmt.Errorf("failed to resolve QValueKind for %s", column.DatabaseTypeName())
 			}

@@ -906,3 +906,95 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
 }
+
+func (s MongoClickhouseSuite) Test_JSON_Skip_Fields() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_json_skip"
+	dstTable := "test_json_skip_dst"
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	// Skip: top-level field, nested field, and nested object
+	flowConnConfig.TableMappings[0].Exclude = []string{
+		"doc.ssn",            // exclude top-level field
+		"doc.address.street", // exclude nested field
+		"doc.payment_info",   // exclude nested object
+	}
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	doc := bson.D{
+		{Key: "name", Value: "user1"},
+		{Key: "ssn", Value: "123-45-6789"},
+		{Key: "address", Value: bson.D{
+			{Key: "street", Value: "123 Lombard St"},
+			{Key: "city", Value: "San Francisco"},
+			{Key: "zip", Value: "94133"},
+		}},
+		{Key: "payment_info", Value: bson.D{
+			{Key: "card_number", Value: "4111111111111111"},
+			{Key: "cvv", Value: "123"},
+			{Key: "expiry", Value: "12/25"},
+		}},
+	}
+	res, err := collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	EnvWaitForCount(env, s, "initial load", dstTable, "_id,doc", 1)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	// verify schema
+	var columnType string
+	row := ch.QueryRow(t.Context(),
+		fmt.Sprintf("SELECT type FROM system.columns WHERE database = '%s' AND table = '%s' AND name = 'doc'",
+			peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, row.Err())
+	require.NoError(t, row.Scan(&columnType))
+	require.Equal(t, "JSON(SKIP `address.street`, SKIP payment_info, SKIP ssn)", columnType)
+
+	// verify initial load data
+	var docStr string
+	err = ch.QueryRow(t.Context(),
+		fmt.Sprintf("SELECT toString(doc) FROM %s LIMIT 1", dstTable)).Scan(&docStr)
+	require.NoError(t, err)
+	require.Contains(t, docStr, "name", "name field should exist in JSON")
+	require.Contains(t, docStr, "zip", "zip field should exist in JSON")
+	require.NotContains(t, docStr, "ssn", "ssn field should not exist in JSON")
+	require.NotContains(t, docStr, "street", "street field should not exist in JSON")
+	require.NotContains(t, docStr, "payment_info", "payment_info field should not exist in JSON")
+	require.NotContains(t, docStr, "card_number", "card_number field should not exist in JSON")
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	res, err = collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+	EnvWaitForCount(env, s, "cdc", dstTable, "_id,doc", 2)
+
+	// verify cdc data
+	err = ch.QueryRow(t.Context(),
+		fmt.Sprintf("SELECT toString(doc) FROM %s ORDER BY _peerdb_synced_at DESC LIMIT 1", dstTable)).Scan(&docStr)
+	require.NoError(t, err)
+	require.Contains(t, docStr, "name", "name field should exist after CDC")
+	require.Contains(t, docStr, "zip", "zip field should exist after CDC")
+	require.NotContains(t, docStr, "ssn", "ssn field should not exist after CDC")
+	require.NotContains(t, docStr, "street", "street field should not exist after CDC")
+	require.NotContains(t, docStr, "payment_info", "payment_info field should not exist after CDC")
+	require.NotContains(t, docStr, "card_number", "card_number field should not exist after CDC")
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
