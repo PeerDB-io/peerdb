@@ -32,6 +32,7 @@ impl From<PeerType> for DbType {
             PeerType::PubSub => DbType::Pubsub,
             PeerType::Elasticsearch => DbType::Elasticsearch,
             PeerType::Clickhouse => DbType::Clickhouse,
+            PeerType::CockroachDB => DbType::Cockroachdb,
         }
     }
 }
