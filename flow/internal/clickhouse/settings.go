@@ -23,13 +23,13 @@ const (
 	SettingEnableTimeTime64Type               CHSetting = "enable_time_time64_type"
 )
 
-// CHSettingMinVersions maps setting names to their minimum required ClickHouse versions
+// CHSettingMinVersions maps setting names to their minimum required ClickHouse versions that PeerDB supports.
 // If minimum version is not specified, we assume the setting is available to all ClickHouse versions
 var CHSettingMinVersions = map[CHSetting]chproto.Version{
 	SettingJsonTypeEscapeDotsInKeys:    {Major: 25, Minor: 8, Patch: 0},
 	SettingTypeJsonSkipDuplicatedPaths: {Major: 24, Minor: 8, Patch: 0},
 	SettingMaxTableSizeToDrop:          {Major: 23, Minor: 12, Patch: 0},
-	SettingEnableTimeTime64Type:        {Major: 25, Minor: 6, Patch: 0},
+	SettingEnableTimeTime64Type:        {Major: 25, Minor: 12, Patch: 0},
 }
 
 type CHSetting string
