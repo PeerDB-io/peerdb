@@ -46,6 +46,19 @@ func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
 		e.SchemaName, e.TableName)
 }
 
+type MySQLUnsupportedDDLError struct {
+	TableName string
+}
+
+func NewMySQLUnsupportedDDLError(tableName string) *MySQLUnsupportedDDLError {
+	return &MySQLUnsupportedDDLError{TableName: tableName}
+}
+
+func (e *MySQLUnsupportedDDLError) Error() string {
+	return fmt.Sprintf(
+		"Detected position-shifting DDL on table %s but binlog_row_metadata is not supported by this MySQL version.", e.TableName)
+}
+
 type MySQLStreamingError struct {
 	error
 	Retryable bool
