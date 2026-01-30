@@ -20,6 +20,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -212,16 +213,24 @@ func (c *PostgresConnector) getPartitions(
 		partitionParams.numPartitions = computedNumPartitions
 	}
 
+	isCTIDWatermarkCol := config.WatermarkColumn == ctidColumnName
+	hasPartitionOverride := config.NumPartitionsOverride > 0 // backwards-compatibility with old behavior
+	hasCTIDOverride, err := internal.PeerDBPostgresApplyCtidBlockPartitioning(ctx, config.Env)
+	if err != nil {
+		c.logger.Warn("failed to get CTID partitioning config", slog.Any("error", err))
+	}
+
 	var partitionFunc PartitioningFunc
-	if config.NumPartitionsOverride > 0 {
-		if config.WatermarkColumn == ctidColumnName {
-			partitionFunc = CTIDBlockPartitioningFunc
-		} else {
-			partitionFunc = MinMaxRangePartitioningFunc
-		}
-	} else {
+	switch {
+	case isCTIDWatermarkCol && (hasCTIDOverride || hasPartitionOverride):
+		partitionFunc = CTIDBlockPartitioningFunc
+	case hasPartitionOverride:
+		partitionFunc = MinMaxRangePartitioningFunc
+	default:
 		partitionFunc = NTileBucketPartitioningFunc
 	}
+
+	c.logger.Info("using partition function", slog.String("partitionFunc", fmt.Sprintf("%T", partitionFunc)))
 	return partitionFunc(ctx, partitionParams)
 }
 
