@@ -758,6 +758,9 @@ func (s APITestSuite) TestResyncCompleted() {
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	RequireEqualTables(s.ch, tableName, cols)
 
+	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -795,11 +798,10 @@ func (s APITestSuite) TestResyncCompleted() {
 	EnvWaitForFinished(s.t, env, time.Minute)
 
 	// check that custom config options persist across resync
-	config, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	flowConnConfig.Resync = true // this gets left true after resync
-	config.Env = nil             // env is modified by API
-	require.EqualExportedValues(s.t, flowConnConfig, config)
+	configBeforeResync.Resync = true
+	require.EqualExportedValues(s.t, configBeforeResync, configAfterResync)
 }
 
 func (s APITestSuite) TestResyncFailed() {

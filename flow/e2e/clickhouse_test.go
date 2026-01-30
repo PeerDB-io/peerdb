@@ -1307,6 +1307,8 @@ func (s ClickHouseSuite) Test_Time64() {
 		s.t.Skip("only applies to postgres and mysql")
 	}
 
+	supportsTime64 := s.connector.GetMaxSupportedInternalVersion() >= shared.InternalVersion_ClickHouseTime64
+
 	srcTableName := "test_time"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := srcTableName + "_dst"
@@ -1360,6 +1362,10 @@ func (s ClickHouseSuite) Test_Time64() {
 	}
 	assertColumnType := func(columnName string, expectedColumnType string) {
 		var columnType string
+		// older version of ClickHouse do not support Time64
+		if !supportsTime64 {
+			expectedColumnType = strings.Replace(expectedColumnType, "Time64", "DateTime64", 1)
+		}
 		query := fmt.Sprintf(
 			"select type from system.columns where database=%s and table=%s and name=%s",
 			clickhouse.QuoteLiteral(s.connector.Config.Database),
