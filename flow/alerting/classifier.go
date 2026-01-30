@@ -693,6 +693,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 18: // AuthenticationFailed
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 43: // CursorNotFound
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 91: // ShutdownInProgress
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 202: // NetworkInterfaceExceededTimeLimit
