@@ -56,7 +56,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: ListMirrorsItem[] }) {
   return (
     <>
       <Label variant='headline'>Change-data capture</Label>
-      <div style={{ ...tableStyle, maxHeight: '35vh' }}>
+      <div style={tableStyle}>
         <Table
           header={
             <TableRow>
@@ -154,7 +154,7 @@ export function QRepFlows({
   return (
     <>
       <Label variant='headline'>{title}</Label>
-      <div style={{ ...tableStyle, maxHeight: '35vh' }}>
+      <div style={tableStyle}>
         <Table
           header={
             <TableRow>
