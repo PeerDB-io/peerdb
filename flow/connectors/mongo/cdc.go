@@ -236,13 +236,12 @@ func (c *MongoConnector) PullRecords(
 			}
 
 			if idValue == nil {
-				keys := make([]string, 0, len(documentKey))
-				for _, elem := range documentKey {
-					keys = append(keys, elem.Key)
-				}
+				rawDocKey := rawEvent.Lookup("documentKey")
+				rawIdValue := rawDocKey.Document().Lookup("_id")
 				c.logger.Error("_id field exists but value is nil",
-					slog.Any("keys", keys),
-					slog.String("documentKeyRaw", rawEvent.Lookup("documentKey").String()))
+					slog.String("documentKeyRaw", rawDocKey.String()),
+					slog.String("idValueRaw", rawIdValue.String()),
+					slog.Int("idBsonType", int(rawIdValue.Type)))
 				return errors.New("document key _id not found")
 			}
 
