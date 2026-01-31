@@ -217,21 +217,40 @@ func (c *MongoConnector) PullRecords(
 	addRecordItems := func(documentKey bson.D, fullDocument bson.D, items *model.RecordItems) error {
 		if documentKey != nil {
 			var idValue any
+			found := false
 			for _, elem := range documentKey {
 				if elem.Key == DefaultDocumentKeyColumnName {
 					idValue = elem.Value
+					found = true
 					break
 				}
 			}
-			if idValue == nil {
+
+			if !found {
+				keys := make([]string, 0, len(documentKey))
+				for _, elem := range documentKey {
+					keys = append(keys, elem.Key)
+				}
+				c.logger.Error("_id field not found in documentKey", slog.Any("keys", keys))
 				return errors.New("document key _id not found")
 			}
+
+			if idValue == nil {
+				keys := make([]string, 0, len(documentKey))
+				for _, elem := range documentKey {
+					keys = append(keys, elem.Key)
+				}
+				c.logger.Error("_id field exists but value is nil", slog.Any("keys", keys))
+				return errors.New("document key _id not found")
+			}
+
 			qValue, err := qValueStringFromKey(idValue, req.InternalVersion)
 			if err != nil {
 				return fmt.Errorf("failed to convert _id to string: %w", err)
 			}
 			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
 		} else {
+			c.logger.Error("documentKey is nil in change event")
 			return errors.New("document key _id not found")
 		}
 
