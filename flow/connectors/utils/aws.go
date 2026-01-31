@@ -378,17 +378,21 @@ func (r *resolverV2) ResolveEndpoint(ctx context.Context, params s3.EndpointPara
 // removeAcceptEncodingMiddleware strips Accept-Encoding before signing.
 // GCS's front end mutates this header, which can otherwise invalidate SigV4.
 func removeAcceptEncodingMiddleware(stack *middleware.Stack) error {
-	return stack.Finalize.Add(
-		middleware.FinalizeMiddlewareFunc("RemoveAcceptEncoding", func(
-			ctx context.Context, input middleware.FinalizeInput, next middleware.FinalizeHandler,
-		) (middleware.FinalizeOutput, middleware.Metadata, error) {
-			if req, ok := input.Request.(*smithyhttp.Request); ok {
-				req.Header.Del("Accept-Encoding")
-			}
-			return next.HandleFinalize(ctx, input)
-		}),
-		middleware.Before,
-	)
+	mw := middleware.FinalizeMiddlewareFunc("RemoveAcceptEncoding", func(
+		ctx context.Context, input middleware.FinalizeInput, next middleware.FinalizeHandler,
+	) (middleware.FinalizeOutput, middleware.Metadata, error) {
+		if req, ok := input.Request.(*smithyhttp.Request); ok {
+			req.Header.Del("Accept-Encoding")
+		}
+		return next.HandleFinalize(ctx, input)
+	})
+
+	// Place immediately before signing so any earlier middleware can't re-add it.
+	if err := stack.Finalize.Insert(mw, "Signing", middleware.Before); err != nil {
+		// Fallback if Signing isn't present for some reason.
+		return stack.Finalize.Add(mw, middleware.Before)
+	}
+	return nil
 }
 
 func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (*s3.Client, error) {
@@ -414,6 +418,9 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 		}
 
 		if isGCS {
+			// GCS S3 compatibility doesn't support the SDK's default CRC32 checksums.
+			options.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+			options.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 			options.APIOptions = append(options.APIOptions, removeAcceptEncodingMiddleware)
 		}
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -139,6 +140,8 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		return AvroFile{}, fmt.Errorf("could not get s3 part size config: %w", err)
 	}
 
+	isGCS := strings.Contains(s3Creds.GetEndpointURL(), "storage.googleapis.com")
+
 	// Create the uploader using the AWS SDK v2 manager
 	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
 		if partSize > 0 {
@@ -146,6 +149,9 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			if partSize > 256*1024*1024 {
 				u.Concurrency = 1
 			}
+		}
+		if isGCS {
+			u.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		}
 	})
 
