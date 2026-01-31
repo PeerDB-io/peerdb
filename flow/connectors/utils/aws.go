@@ -12,14 +12,15 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
+	"github.com/aws/smithy-go/middleware"
 	"github.com/aws/smithy-go/ptr"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -374,6 +375,22 @@ func (r *resolverV2) ResolveEndpoint(ctx context.Context, params s3.EndpointPara
 	}, nil
 }
 
+// removeAcceptEncodingMiddleware strips Accept-Encoding before signing.
+// GCS's front end mutates this header, which can otherwise invalidate SigV4.
+func removeAcceptEncodingMiddleware(stack *middleware.Stack) error {
+	return stack.Finalize.Add(
+		middleware.FinalizeMiddlewareFunc("RemoveAcceptEncoding", func(
+			ctx context.Context, input middleware.FinalizeInput, next middleware.FinalizeHandler,
+		) (middleware.FinalizeOutput, middleware.Metadata, error) {
+			if req, ok := input.Request.(*smithyhttp.Request); ok {
+				req.Header.Del("Accept-Encoding")
+			}
+			return next.HandleFinalize(ctx, input)
+		}),
+		middleware.Before,
+	)
+}
+
 func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (*s3.Client, error) {
 	awsCredentials, err := credsProvider.Retrieve(ctx)
 	if err != nil {
@@ -385,6 +402,7 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 		Credentials: credsProvider.GetUnderlyingProvider(),
 	}
 	if awsCredentials.EndpointUrl != nil && *awsCredentials.EndpointUrl != "" {
+		isGCS := strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com")
 		options.BaseEndpoint = awsCredentials.EndpointUrl
 		options.UsePathStyle = true
 		url, err := url.Parse(*awsCredentials.EndpointUrl)
@@ -395,68 +413,25 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 			URL: *url,
 		}
 
-		if strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
-			// Assign custom client with our own transport
-			options.HTTPClient = &http.Client{
-				Transport: &RecalculateV4Signature{
-					next:        http.DefaultTransport,
-					signer:      v4.NewSigner(),
-					credentials: credsProvider.GetUnderlyingProvider(),
-					region:      options.Region,
-				},
-			}
-		} else {
-			rootCAs, tlsHost := credsProvider.GetTlsConfig()
-			if rootCAs != nil || tlsHost != "" {
-				// start with a clone of DefaultTransport so we keep http2, idle-conns, etc.
-				tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
-				if err != nil {
-					return nil, err
-				}
+		if isGCS {
+			options.APIOptions = append(options.APIOptions, removeAcceptEncodingMiddleware)
+		}
 
-				tr := http.DefaultTransport.(*http.Transport).Clone()
-				tr.TLSClientConfig = tlsConfig
-				options.HTTPClient = &http.Client{Transport: tr}
+		rootCAs, tlsHost := credsProvider.GetTlsConfig()
+		if rootCAs != nil || tlsHost != "" {
+			// start with a clone of DefaultTransport so we keep http2, idle-conns, etc.
+			tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
+			if err != nil {
+				return nil, err
 			}
+
+			tr := http.DefaultTransport.(*http.Transport).Clone()
+			tr.TLSClientConfig = tlsConfig
+			options.HTTPClient = &http.Client{Transport: tr}
 		}
 	}
 
 	return s3.New(options), nil
-}
-
-// RecalculateV4Signature allow GCS over S3, removing Accept-Encoding header from sign
-// https://stackoverflow.com/a/74382598/1204665
-// https://github.com/aws/aws-sdk-go-v2/issues/1816
-type RecalculateV4Signature struct {
-	next        http.RoundTripper
-	signer      *v4.Signer
-	credentials aws.CredentialsProvider
-	region      string
-}
-
-func (lt *RecalculateV4Signature) RoundTrip(req *http.Request) (*http.Response, error) {
-	// store for later use
-	acceptEncodingValue := req.Header.Get("Accept-Encoding")
-
-	// delete the header so the header doesn't account for in the signature
-	req.Header.Del("Accept-Encoding")
-
-	// sign with the same date
-	timeString := req.Header.Get("X-Amz-Date")
-	timeDate, _ := time.Parse("20060102T150405Z", timeString)
-
-	creds, err := lt.credentials.Retrieve(req.Context())
-	if err != nil {
-		return nil, err
-	}
-	if err := lt.signer.SignHTTP(req.Context(), creds, req, v4.GetPayloadHash(req.Context()), "s3", lt.region, timeDate); err != nil {
-		return nil, err
-	}
-	// Reset Accept-Encoding if desired
-	req.Header.Set("Accept-Encoding", acceptEncodingValue)
-
-	// follows up the original round tripper
-	return lt.next.RoundTrip(req)
 }
 
 // Write an empty file and then delete it
