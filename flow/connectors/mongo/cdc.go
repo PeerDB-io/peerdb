@@ -214,7 +214,7 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	addRecordItems := func(documentKey bson.D, fullDocument bson.D, items *model.RecordItems) error {
+	addRecordItems := func(rawEvent bson.Raw, documentKey bson.D, fullDocument bson.D, items *model.RecordItems) error {
 		if documentKey != nil {
 			var idValue any
 			found := false
@@ -240,7 +240,9 @@ func (c *MongoConnector) PullRecords(
 				for _, elem := range documentKey {
 					keys = append(keys, elem.Key)
 				}
-				c.logger.Error("_id field exists but value is nil", slog.Any("keys", keys))
+				c.logger.Error("_id field exists but value is nil",
+					slog.Any("keys", keys),
+					slog.String("documentKeyRaw", rawEvent.Lookup("documentKey").String()))
 				return errors.New("document key _id not found")
 			}
 
@@ -382,7 +384,7 @@ func (c *MongoConnector) PullRecords(
 		items := model.NewMongoRecordItems(2)
 		switch changeEvent.OperationType {
 		case "insert":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+			if err := addRecordItems(changeStream.Current, changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
@@ -395,7 +397,7 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("failed to add insert record: %w", err)
 			}
 		case "update", "replace":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+			if err := addRecordItems(changeStream.Current, changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
@@ -408,7 +410,7 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("failed to add update record: %w", err)
 			}
 		case "delete":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+			if err := addRecordItems(changeStream.Current, changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
