@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -154,9 +153,9 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 		case types.QValueDate:
 			jsonStruct[col] = v.Val.Format("2006-01-02")
 		case types.QValueTime:
-			jsonStruct[col] = time.Time{}.Add(v.Val).Format("15:04:05.999999")
+			jsonStruct[col] = types.FormatExtendedTimeDuration(v.Val)
 		case types.QValueTimeTZ:
-			jsonStruct[col] = time.Time{}.Add(v.Val).Format("15:04:05.999999")
+			jsonStruct[col] = types.FormatExtendedTimeDuration(v.Val)
 		case types.QValueArrayDate:
 			dateArr := v.Val
 			formattedDateArr := make([]string, 0, len(dateArr))
