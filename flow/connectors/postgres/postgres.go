@@ -1171,13 +1171,401 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	return false, nil
 }
 
-// replayTableSchemaDeltaCore changes a destination table to match the schema at source
-// This could involve adding or dropping multiple columns.
+// ApplyIndexes creates indexes on the destination table
+func (c *PostgresConnector) ApplyIndexes(
+	ctx context.Context,
+	tx pgx.Tx,
+	schemaDelta *protos.TableSchemaDelta,
+) error {
+	if len(schemaDelta.Indexes) == 0 {
+		return nil
+	}
+
+	dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+	if err != nil {
+		return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+	}
+
+	srcSchemaTable, err := utils.ParseSchemaTable(schemaDelta.SrcTableName)
+	if err != nil {
+		return fmt.Errorf("error parsing source table name: %w", err)
+	}
+
+	// Verify table exists before creating indexes
+	tableExists, err := c.checkIfTableExistsWithTx(ctx, dstSchemaTable.Schema, dstSchemaTable.Table, tx)
+	if err != nil {
+		return fmt.Errorf("failed to check if table exists: %w", err)
+	}
+	if !tableExists {
+		return fmt.Errorf("table %s does not exist, cannot create indexes", schemaDelta.DstTableName)
+	}
+
+	for _, index := range schemaDelta.Indexes {
+		// Use the definition from pg_get_indexdef which includes ordering (ASC/DESC)
+		// but replace the table name
+		indexDef := index.Definition
+		// Replace schema-qualified table name
+		indexDef = strings.ReplaceAll(indexDef, srcSchemaTable.Schema+"."+srcSchemaTable.Table, dstSchemaTable.String())
+		// Replace unqualified table name (if not already replaced)
+		if !strings.Contains(indexDef, dstSchemaTable.Table) {
+			indexDef = strings.ReplaceAll(indexDef, srcSchemaTable.Table, dstSchemaTable.Table)
+		}
+
+		// Add IF NOT EXISTS if not present
+		if !strings.Contains(strings.ToUpper(indexDef), "IF NOT EXISTS") {
+			indexDef = strings.Replace(indexDef, "CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1)
+			indexDef = strings.Replace(indexDef, "CREATE UNIQUE INDEX", "CREATE UNIQUE INDEX IF NOT EXISTS", 1)
+		}
+
+		c.logger.Info("[schema migration] creating index "+index.Name,
+			slog.String("table", schemaDelta.DstTableName),
+			slog.String("index_def", indexDef))
+
+		result, err := c.execWithLoggingTx(ctx, indexDef, tx)
+		if err != nil {
+			// Check if transaction is aborted
+			if strings.Contains(err.Error(), "current transaction is aborted") {
+				return fmt.Errorf("transaction aborted, cannot create index %s: %w", index.Name, err)
+			}
+			// If index already exists, that's fine (IF NOT EXISTS should handle this, but just in case)
+			if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "duplicate") {
+				c.logger.Info("[schema migration] index "+index.Name+" already exists, skipping",
+					slog.String("table", schemaDelta.DstTableName))
+				continue
+			}
+			// For other errors, return them
+			return fmt.Errorf("failed to create index %s for table %s: %w", index.Name, schemaDelta.DstTableName, err)
+		}
+		c.logger.Info("[schema migration] successfully created index "+index.Name,
+			slog.String("table", schemaDelta.DstTableName),
+			slog.String("rows_affected", result.String()))
+	}
+
+	return nil
+}
+
+// ApplyTriggerFunctions creates trigger functions on the destination database
+// This must be called before ApplyTriggers to ensure functions exist
+// Returns a map of function names that were successfully created or already exist
+func (c *PostgresConnector) ApplyTriggerFunctions(
+	ctx context.Context,
+	tx pgx.Tx,
+	schemaDeltas []*protos.TableSchemaDelta,
+) (map[string]bool, error) {
+	// Track functions we've already created to avoid duplicates
+	createdFunctions := make(map[string]bool)
+
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil || len(schemaDelta.Triggers) == 0 {
+			continue
+		}
+
+		c.logger.Info(fmt.Sprintf("[schema migration] processing %d triggers for table %s", len(schemaDelta.Triggers), schemaDelta.DstTableName))
+
+		for _, trigger := range schemaDelta.Triggers {
+			// Skip if function definition is empty - we'll check if function exists later
+			if trigger.FunctionDefinition == "" {
+				c.logger.Warn(fmt.Sprintf("[schema migration] trigger %s has empty function definition for function %s, checking if function exists in destination", trigger.Name, trigger.FunctionName))
+				// Check if function already exists in destination (search in public schema and current search path)
+				var exists bool
+				checkQuery := `SELECT EXISTS(
+					SELECT 1 FROM pg_proc p
+					JOIN pg_namespace n ON p.pronamespace = n.oid
+					WHERE (n.nspname = 'public' OR n.nspname = current_schema())
+					AND p.proname = $1
+				)`
+				err := tx.QueryRow(ctx, checkQuery, trigger.FunctionName).Scan(&exists)
+				if err != nil {
+					c.logger.Warn(fmt.Sprintf("[schema migration] error checking if function %s exists: %v", trigger.FunctionName, err))
+				}
+				if err == nil && exists {
+					createdFunctions[trigger.FunctionName] = true
+					c.logger.Info("[schema migration] trigger function " + trigger.FunctionName + " already exists in destination")
+				} else {
+					c.logger.Warn(fmt.Sprintf("[schema migration] trigger function %s has no definition and doesn't exist in destination (exists=%v), trigger will be skipped", trigger.FunctionName, exists))
+				}
+				continue
+			}
+
+			// Use function name as key to avoid creating the same function multiple times
+			functionKey := trigger.FunctionName
+			if createdFunctions[functionKey] {
+				continue
+			}
+
+			// Create the function - pg_get_functiondef returns CREATE FUNCTION, so we need to replace with CREATE OR REPLACE
+			functionDef := trigger.FunctionDefinition
+			// Replace CREATE FUNCTION with CREATE OR REPLACE FUNCTION to handle existing functions
+			functionDef = strings.Replace(functionDef, "CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
+
+			c.logger.Info(fmt.Sprintf("[schema migration] creating trigger function %s (definition length: %d chars)", trigger.FunctionName, len(functionDef)))
+			_, err := c.execWithLoggingTx(ctx, functionDef, tx)
+			if err != nil {
+				// Check if transaction is aborted
+				if strings.Contains(err.Error(), "current transaction is aborted") {
+					return nil, fmt.Errorf("transaction aborted, cannot create trigger function %s: %w", trigger.FunctionName, err)
+				}
+				// If function already exists, that's okay - mark it as available
+				if strings.Contains(err.Error(), "already exists") {
+					createdFunctions[functionKey] = true
+					c.logger.Info("[schema migration] trigger function " + trigger.FunctionName + " already exists")
+					continue
+				}
+				// For other errors, log warning but don't mark as created
+				defPreview := functionDef
+				if len(defPreview) > 100 {
+					defPreview = defPreview[:100] + "..."
+				}
+				c.logger.Warn(fmt.Sprintf("[schema migration] failed to create trigger function %s: %v (function definition starts with: %s)", trigger.FunctionName, err, defPreview))
+				// Continue with other functions - trigger creation will fail later if needed
+				continue
+			}
+
+			createdFunctions[functionKey] = true
+			c.logger.Info("[schema migration] successfully created trigger function " + trigger.FunctionName)
+		}
+	}
+
+	return createdFunctions, nil
+}
+
+// ApplyTriggers creates triggers on the destination table
+// availableFunctions is a map of function names that exist and can be used by triggers
+func (c *PostgresConnector) ApplyTriggers(
+	ctx context.Context,
+	tx pgx.Tx,
+	schemaDelta *protos.TableSchemaDelta,
+	availableFunctions map[string]bool,
+) error {
+	if len(schemaDelta.Triggers) == 0 {
+		return nil
+	}
+
+	dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+	if err != nil {
+		return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+	}
+
+	srcSchemaTable, err := utils.ParseSchemaTable(schemaDelta.SrcTableName)
+	if err != nil {
+		return fmt.Errorf("error parsing source table name: %w", err)
+	}
+
+	for _, trigger := range schemaDelta.Triggers {
+		// Just try to create the trigger - PostgreSQL will tell us if the function doesn't exist
+		// This matches the SQL script behavior where we create functions first, then triggers
+
+		// Replace table name in trigger definition
+		triggerDef := trigger.Definition
+		// Replace schema-qualified table name
+		triggerDef = strings.ReplaceAll(triggerDef, srcSchemaTable.Schema+"."+srcSchemaTable.Table, dstSchemaTable.String())
+		// Replace unqualified table name
+		if !strings.Contains(triggerDef, dstSchemaTable.Table) {
+			triggerDef = strings.ReplaceAll(triggerDef, srcSchemaTable.Table, dstSchemaTable.Table)
+		}
+
+		// Drop trigger if exists first (PostgreSQL doesn't have CREATE TRIGGER IF NOT EXISTS)
+		triggerName := trigger.Name
+		dropStmt := fmt.Sprintf("DROP TRIGGER IF EXISTS %s ON %s", utils.QuoteIdentifier(triggerName), dstSchemaTable.String())
+
+		c.logger.Info("[schema migration] dropping existing trigger "+triggerName+" if exists",
+			slog.String("table", schemaDelta.DstTableName))
+		_, err := c.execWithLoggingTx(ctx, dropStmt, tx)
+		if err != nil {
+			c.logger.Warn(fmt.Sprintf("[schema migration] failed to drop trigger %s: %v", triggerName, err))
+		}
+
+		// Check if trigger already exists before trying to create it
+		// This prevents transaction abort if trigger was already created
+		var triggerExists bool
+		checkTriggerQuery := `SELECT EXISTS(
+			SELECT 1 FROM pg_trigger t
+			JOIN pg_class c ON t.tgrelid = c.oid
+			JOIN pg_namespace n ON c.relnamespace = n.oid
+			WHERE n.nspname = $1 AND c.relname = $2 AND t.tgname = $3 AND NOT t.tgisinternal
+		)`
+		err = tx.QueryRow(ctx, checkTriggerQuery, dstSchemaTable.Schema, dstSchemaTable.Table, triggerName).Scan(&triggerExists)
+		if err != nil {
+			c.logger.Warn(fmt.Sprintf("[schema migration] failed to check if trigger %s exists: %v", triggerName, err))
+			// Continue anyway - might still work
+		} else if triggerExists {
+			c.logger.Info("[schema migration] trigger "+triggerName+" already exists, skipping",
+				slog.String("table", schemaDelta.DstTableName))
+			continue
+		}
+
+		c.logger.Info("[schema migration] creating trigger "+triggerName,
+			slog.String("table", schemaDelta.DstTableName))
+
+		_, err = c.execWithLoggingTx(ctx, triggerDef, tx)
+		if err != nil {
+			// If trigger already exists, that's fine - just skip it
+			if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "duplicate") {
+				c.logger.Info("[schema migration] trigger "+triggerName+" already exists, skipping",
+					slog.String("table", schemaDelta.DstTableName))
+				continue
+			}
+			// Log warning but continue with other triggers - don't abort the transaction
+			c.logger.Warn(fmt.Sprintf("[schema migration] failed to create trigger %s for table %s: %v", triggerName, schemaDelta.DstTableName, err))
+			continue
+		}
+	}
+
+	return nil
+}
+
+// ApplyConstraints creates constraints on the destination table
+func (c *PostgresConnector) ApplyConstraints(
+	ctx context.Context,
+	tx pgx.Tx,
+	schemaDelta *protos.TableSchemaDelta,
+	tableMappings []*protos.TableMapping,
+) error {
+	if len(schemaDelta.Constraints) == 0 {
+		return nil
+	}
+
+	dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+	if err != nil {
+		return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+	}
+
+	srcSchemaTable, err := utils.ParseSchemaTable(schemaDelta.SrcTableName)
+	if err != nil {
+		return fmt.Errorf("error parsing source table name: %w", err)
+	}
+
+	// Build a map of source table names to destination table names for foreign key references
+	tableMappingMap := make(map[string]string)
+	for _, mapping := range tableMappings {
+		tableMappingMap[mapping.SourceTableIdentifier] = mapping.DestinationTableIdentifier
+	}
+
+	for _, constraint := range schemaDelta.Constraints {
+		// Replace table name in constraint definition
+		constraintDef := constraint.Definition
+		// Replace schema-qualified table name
+		constraintDef = strings.ReplaceAll(constraintDef, srcSchemaTable.Schema+"."+srcSchemaTable.Table, dstSchemaTable.String())
+		// Replace unqualified table name
+		if !strings.Contains(constraintDef, dstSchemaTable.Table) {
+			constraintDef = strings.ReplaceAll(constraintDef, srcSchemaTable.Table, dstSchemaTable.Table)
+		}
+
+		// Handle foreign key referenced table name replacement
+		if constraint.Type == "FOREIGN KEY" && constraint.ReferencedTable != "" {
+			// Try to find the destination table name for the referenced table
+			srcRefTable := constraint.ReferencedTable
+			// Try with schema qualification first
+			srcRefTableQualified := srcSchemaTable.Schema + "." + srcRefTable
+			if dstRefTable, found := tableMappingMap[srcRefTableQualified]; found {
+				dstRefSchemaTable, err := utils.ParseSchemaTable(dstRefTable)
+				if err == nil {
+					// Replace referenced table name in constraint definition
+					constraintDef = strings.ReplaceAll(constraintDef, srcRefTableQualified, dstRefSchemaTable.String())
+					constraintDef = strings.ReplaceAll(constraintDef, srcRefTable, dstRefSchemaTable.Table)
+				}
+			} else if dstRefTable, found := tableMappingMap[srcRefTable]; found {
+				// Try without schema qualification
+				dstRefSchemaTable, err := utils.ParseSchemaTable(dstRefTable)
+				if err == nil {
+					constraintDef = strings.ReplaceAll(constraintDef, srcRefTable, dstRefSchemaTable.Table)
+				}
+			} else {
+				// If no mapping found, try to replace with same schema as destination
+				// This handles cases where referenced table is in the same schema
+				constraintDef = strings.ReplaceAll(constraintDef, srcSchemaTable.Schema+"."+srcRefTable, dstSchemaTable.Schema+"."+srcRefTable)
+			}
+		}
+
+		constraintName := constraint.Name
+
+		// For UNIQUE constraints: if an index with the same name already exists,
+		// drop it first so we can create the constraint properly.
+		// The constraint will create its own index.
+		// Note: We prevent this at extraction time by not extracting UNIQUE indexes that have
+		// corresponding constraints, but this provides defense in depth.
+		if constraint.Type == "UNIQUE" {
+			var indexExists bool
+			checkIndexQuery := `SELECT EXISTS(
+				SELECT 1 FROM pg_index i
+				JOIN pg_class ic ON i.indexrelid = ic.oid
+				JOIN pg_class t ON i.indrelid = t.oid
+				JOIN pg_namespace n ON t.relnamespace = n.oid
+				WHERE n.nspname = $1 AND t.relname = $2 AND ic.relname = $3 AND i.indisunique
+			)`
+			err = tx.QueryRow(ctx, checkIndexQuery, dstSchemaTable.Schema, dstSchemaTable.Table, constraintName).Scan(&indexExists)
+			if err == nil && indexExists {
+				// Drop the index first so we can create the constraint
+				c.logger.Info("[schema migration] dropping UNIQUE index "+constraintName+" to create UNIQUE constraint instead",
+					slog.String("table", schemaDelta.DstTableName))
+				dropStmt := fmt.Sprintf("DROP INDEX IF EXISTS %s.%s",
+					utils.QuoteIdentifier(dstSchemaTable.Schema),
+					utils.QuoteIdentifier(constraintName))
+				_, dropErr := c.execWithLoggingTx(ctx, dropStmt, tx)
+				if dropErr != nil {
+					c.logger.Warn(fmt.Sprintf("[schema migration] failed to drop index %s: %v", constraintName, dropErr))
+					// Continue anyway - try to create the constraint
+				}
+			}
+		}
+
+		// WORKAROUND: Check if constraint already exists and skip it entirely.
+		// Don't try to drop and recreate - this is safer and avoids transaction aborts.
+		var exists bool
+		checkQuery := `SELECT EXISTS(
+			SELECT 1 FROM pg_constraint con
+			JOIN pg_class t ON con.conrelid = t.oid
+			JOIN pg_namespace n ON t.relnamespace = n.oid
+			WHERE n.nspname = $1 AND t.relname = $2 AND con.conname = $3
+		)`
+		err = tx.QueryRow(ctx, checkQuery, dstSchemaTable.Schema, dstSchemaTable.Table, constraintName).Scan(&exists)
+		if err != nil {
+			c.logger.Warn(fmt.Sprintf("[schema migration] failed to check if constraint %s exists: %v", constraintName, err))
+			// Continue anyway - will try to create and handle the error
+		} else if exists {
+			c.logger.Info("[schema migration] constraint "+constraintName+" already exists, skipping",
+				slog.String("table", schemaDelta.DstTableName))
+			continue
+		}
+
+		// Add constraint using ALTER TABLE
+		// Extract the constraint definition part (remove "CONSTRAINT name" prefix if present)
+		constraintDefPart := constraintDef
+		constraintPrefix := "CONSTRAINT " + constraintName + " "
+		if strings.HasPrefix(constraintDef, constraintPrefix) {
+			constraintDefPart = strings.TrimPrefix(constraintDef, constraintPrefix)
+		}
+
+		addStmt := fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s %s",
+			dstSchemaTable.String(),
+			utils.QuoteIdentifier(constraintName),
+			constraintDefPart)
+
+		c.logger.Info("[schema migration] creating constraint "+constraintName,
+			slog.String("table", schemaDelta.DstTableName))
+
+		_, err = c.execWithLoggingTx(ctx, addStmt, tx)
+		if err != nil {
+			// If constraint already exists, that's fine - just skip it
+			if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "duplicate") {
+				c.logger.Info("[schema migration] constraint "+constraintName+" already exists, skipping",
+					slog.String("table", schemaDelta.DstTableName))
+				continue
+			}
+			// Log warning but continue with other constraints - don't abort the transaction
+			c.logger.Warn(fmt.Sprintf("[schema migration] failed to create constraint %s for table %s: %v", constraintName, schemaDelta.DstTableName, err))
+			continue
+		}
+	}
+
+	return nil
+}
+
 func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	_ map[string]string,
 	flowJobName string,
-	_ []*protos.TableMapping,
+	tableMappings []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	if len(schemaDeltas) == 0 {
@@ -1190,13 +1578,14 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 		return fmt.Errorf("error starting transaction for schema modification: %w",
 			err)
 	}
-	defer shared.RollbackTx(tableSchemaModifyTx, c.logger)
 
+	// First pass: handle added columns and indexes for all tables
 	for _, schemaDelta := range schemaDeltas {
-		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+		if schemaDelta == nil {
 			continue
 		}
 
+		// Handle added columns
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			columnType := addedColumn.Type
 			if schemaDelta.System == protos.TypeSystem_Q {
@@ -1205,6 +1594,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 
 			dstSchemaTable, err := common.ParseTableIdentifier(schemaDelta.DstTableName)
 			if err != nil {
+				shared.RollbackTx(tableSchemaModifyTx, c.logger)
 				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
 			}
 
@@ -1214,6 +1604,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 				common.QuoteIdentifier(dstSchemaTable.Table),
 				common.QuoteIdentifier(addedColumn.Name), columnType), tableSchemaModifyTx)
 			if err != nil {
+				shared.RollbackTx(tableSchemaModifyTx, c.logger)
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
@@ -1223,11 +1614,124 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 				slog.String("dstTableName", schemaDelta.DstTableName),
 			)
 		}
+
+		// Handle indexes
+		if err := c.ApplyIndexes(ctx, tableSchemaModifyTx, schemaDelta); err != nil {
+			shared.RollbackTx(tableSchemaModifyTx, c.logger)
+			return fmt.Errorf("failed to apply indexes for table %s: %w", schemaDelta.DstTableName, err)
+		}
 	}
 
+	// Commit indexes first to ensure they persist even if constraints fail
 	if err := tableSchemaModifyTx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction for table schema modification: %w", err)
+		return fmt.Errorf("failed to commit indexes: %w", err)
 	}
+	c.logger.Info("successfully committed indexes transaction", slog.Int("table_count", len(schemaDeltas)))
+
+	// Verify indexes were actually created
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil || len(schemaDelta.Indexes) == 0 {
+			continue
+		}
+		dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+		if err != nil {
+			c.logger.Warn("failed to parse table name for index verification", slog.String("table", schemaDelta.DstTableName))
+			continue
+		}
+		var indexCount int
+		verifyQuery := `SELECT COUNT(*) FROM pg_index i
+			JOIN pg_class t ON i.indrelid = t.oid
+			JOIN pg_namespace n ON t.relnamespace = n.oid
+			WHERE n.nspname = $1 AND t.relname = $2 AND NOT i.indisprimary`
+		err = c.conn.QueryRow(ctx, verifyQuery, dstSchemaTable.Schema, dstSchemaTable.Table).Scan(&indexCount)
+		if err != nil {
+			c.logger.Warn("failed to verify indexes", slog.String("table", schemaDelta.DstTableName), slog.Any("error", err))
+		} else {
+			c.logger.Info("verified indexes after commit",
+				slog.String("table", schemaDelta.DstTableName),
+				slog.Int("index_count", indexCount),
+				slog.Int("expected_count", len(schemaDelta.Indexes)))
+		}
+	}
+
+	// Second pass: handle trigger functions, triggers, and constraints in a separate transaction
+	// Follow the same order as SQL scripts: Functions -> Triggers -> Constraints
+	tableSchemaModifyTx, err = c.conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("error starting transaction for triggers/constraints: %w", err)
+	}
+	defer shared.RollbackTx(tableSchemaModifyTx, c.logger)
+
+	// Step 1: Create all trigger functions first (same as SQL script order)
+	availableFunctions, err := c.ApplyTriggerFunctions(ctx, tableSchemaModifyTx, schemaDeltas)
+	if err != nil {
+		c.logger.Warn(fmt.Sprintf("failed to apply trigger functions: %v", err))
+		if availableFunctions == nil {
+			availableFunctions = make(map[string]bool)
+		}
+	}
+	c.logger.Info(fmt.Sprintf("[schema migration] %d trigger functions available", len(availableFunctions)))
+
+	// Step 2: Create all triggers (after functions, same as SQL script order)
+	// Use savepoints to isolate failures - if one table fails, continue with others
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil {
+			continue
+		}
+
+		// Create a savepoint for this table
+		savepointName := fmt.Sprintf("sp_triggers_%s", strings.ReplaceAll(schemaDelta.DstTableName, ".", "_"))
+		_, err := tableSchemaModifyTx.Exec(ctx, "SAVEPOINT "+savepointName)
+		if err != nil {
+			c.logger.Warn(fmt.Sprintf("failed to create savepoint for triggers on table %s: %v", schemaDelta.DstTableName, err))
+		}
+
+		if err := c.ApplyTriggers(ctx, tableSchemaModifyTx, schemaDelta, availableFunctions); err != nil {
+			c.logger.Warn(fmt.Sprintf("failed to apply triggers for table %s: %v", schemaDelta.DstTableName, err))
+			// Rollback to savepoint to continue with other tables
+			_, rollbackErr := tableSchemaModifyTx.Exec(ctx, "ROLLBACK TO SAVEPOINT "+savepointName)
+			if rollbackErr != nil {
+				c.logger.Warn(fmt.Sprintf("failed to rollback to savepoint for table %s: %v", schemaDelta.DstTableName, rollbackErr))
+			}
+		} else {
+			// Release savepoint on success
+			_, _ = tableSchemaModifyTx.Exec(ctx, "RELEASE SAVEPOINT "+savepointName)
+		}
+	}
+
+	// Step 3: Create all constraints (after triggers, same as SQL script order)
+	// Use savepoints to isolate failures - if one table fails, continue with others
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil {
+			continue
+		}
+
+		// Create a savepoint for this table
+		savepointName := fmt.Sprintf("sp_constraints_%s", strings.ReplaceAll(schemaDelta.DstTableName, ".", "_"))
+		_, err := tableSchemaModifyTx.Exec(ctx, "SAVEPOINT "+savepointName)
+		if err != nil {
+			c.logger.Warn(fmt.Sprintf("failed to create savepoint for constraints on table %s: %v", schemaDelta.DstTableName, err))
+		}
+
+		if err := c.ApplyConstraints(ctx, tableSchemaModifyTx, schemaDelta, tableMappings); err != nil {
+			c.logger.Warn(fmt.Sprintf("failed to apply constraints for table %s: %v", schemaDelta.DstTableName, err))
+			// Rollback to savepoint to continue with other tables
+			_, rollbackErr := tableSchemaModifyTx.Exec(ctx, "ROLLBACK TO SAVEPOINT "+savepointName)
+			if rollbackErr != nil {
+				c.logger.Warn(fmt.Sprintf("failed to rollback to savepoint for table %s: %v", schemaDelta.DstTableName, rollbackErr))
+			}
+		} else {
+			// Release savepoint on success
+			_, _ = tableSchemaModifyTx.Exec(ctx, "RELEASE SAVEPOINT "+savepointName)
+		}
+	}
+
+	// Commit everything
+	if err := tableSchemaModifyTx.Commit(ctx); err != nil {
+		c.logger.Warn(fmt.Sprintf("failed to commit triggers/constraints: %v", err))
+		return nil // Don't fail - indexes are already committed
+	}
+	c.logger.Info("successfully committed triggers and constraints")
 	return nil
 }
 

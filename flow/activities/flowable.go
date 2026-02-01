@@ -287,11 +287,116 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, fmt.Errorf("failed to commit normalized tables tx: %w", err)
 	}
 
+	// For Postgres-to-Postgres migrations, extract and apply indexes, triggers, and constraints
+	if config.SourceName != "" {
+		if err := a.migrateSchemaObjects(ctx, config, tableNameSchemaMapping); err != nil {
+			// Log as warning but don't fail - schema objects are nice-to-have
+			logger.Warn("failed to migrate schema objects (indexes, triggers, constraints)", slog.Any("error", err))
+			a.Alerter.LogFlowWarning(ctx, config.FlowName, fmt.Errorf("schema object migration failed: %w", err))
+		}
+	}
+
 	a.Alerter.LogFlowInfo(ctx, config.FlowName, "All destination tables have been setup")
 
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
 	}, nil
+}
+
+// migrateSchemaObjects extracts indexes, triggers, and constraints from source
+// and applies them to destination for Postgres-to-Postgres migrations
+func (a *FlowableActivity) migrateSchemaObjects(
+	ctx context.Context,
+	config *protos.SetupNormalizedTableBatchInput,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+
+	// Check if source is Postgres
+	srcConn, srcClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			// Source is not Postgres, skip schema object migration
+			return nil
+		}
+		return fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer srcClose(ctx)
+
+	// Check if destination is Postgres
+	dstConn, dstClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			// Destination is not Postgres, skip schema object migration
+			return nil
+		}
+		return fmt.Errorf("failed to get destination connector: %w", err)
+	}
+	defer dstClose(ctx)
+
+	logger.Info("migrating schema objects (indexes, triggers, constraints) for Postgres-to-Postgres migration",
+		slog.String("source", config.SourceName),
+		slog.String("destination", config.PeerName))
+
+	// Extract and apply schema objects for each table
+	schemaDeltas := make([]*protos.TableSchemaDelta, 0, len(config.TableMappings))
+	for _, tableMapping := range config.TableMappings {
+		srcTableSchema, err := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		if err != nil {
+			logger.Warn("failed to parse source table", slog.String("table", tableMapping.SourceTableIdentifier), slog.Any("error", err))
+			continue
+		}
+
+		// Extract indexes, triggers, and constraints from source
+		indexes, err := srcConn.GetTableIndexes(ctx, srcTableSchema.Schema, srcTableSchema.Table)
+		if err != nil {
+			logger.Warn("failed to extract indexes", slog.String("table", tableMapping.SourceTableIdentifier), slog.Any("error", err))
+			indexes = nil // Ensure it's nil if extraction fails
+		}
+
+		triggers, err := srcConn.GetTableTriggers(ctx, srcTableSchema.Schema, srcTableSchema.Table)
+		if err != nil {
+			logger.Warn("failed to extract triggers", slog.String("table", tableMapping.SourceTableIdentifier), slog.Any("error", err))
+			triggers = nil // Ensure it's nil if extraction fails
+		}
+
+		constraints, err := srcConn.GetTableConstraints(ctx, srcTableSchema.Schema, srcTableSchema.Table)
+		if err != nil {
+			logger.Warn("failed to extract constraints", slog.String("table", tableMapping.SourceTableIdentifier), slog.Any("error", err))
+			constraints = nil // Ensure it's nil if extraction fails
+		}
+
+		// Get table schema to determine system type
+		tableSchema := tableNameSchemaMapping[tableMapping.DestinationTableIdentifier]
+		if tableSchema == nil {
+			logger.Warn("table schema not found", slog.String("table", tableMapping.DestinationTableIdentifier))
+			continue
+		}
+
+		// Create schema delta with extracted objects
+		schemaDelta := &protos.TableSchemaDelta{
+			SrcTableName:    tableMapping.SourceTableIdentifier,
+			DstTableName:    tableMapping.DestinationTableIdentifier,
+			Indexes:         indexes,
+			Triggers:        triggers,
+			Constraints:     constraints,
+			System:          tableSchema.System,
+			NullableEnabled: tableSchema.NullableEnabled,
+		}
+
+		schemaDeltas = append(schemaDeltas, schemaDelta)
+	}
+
+	// Apply schema objects to destination
+	if len(schemaDeltas) > 0 {
+		logger.Info("applying schema objects to destination", slog.Int("count", len(schemaDeltas)))
+		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, config.FlowName, config.TableMappings, schemaDeltas); err != nil {
+			return fmt.Errorf("failed to apply schema objects: %w", err)
+		}
+		a.Alerter.LogFlowInfo(ctx, config.FlowName, fmt.Sprintf("Successfully migrated schema objects for %d tables", len(schemaDeltas)))
+	}
+
+	return nil
 }
 
 func (a *FlowableActivity) SyncFlow(

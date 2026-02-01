@@ -263,6 +263,8 @@ message SetupNormalizedTableBatchInput {
   string flow_name = 6;
   string peer_name = 7;
   bool is_resync = 8;
+  uint32 version = 9;
+  string source_name = 10; // Source peer name for Postgres-to-Postgres schema migration
 }
 
 message SetupNormalizedTableOutput {
@@ -428,12 +430,50 @@ message DropFlowInput {
   bool resync = 8;
 }
 
+// IndexDefinition represents a database index
+message IndexDefinition {
+  string name = 1;
+  string table_name = 2;
+  string definition = 3; // Full CREATE INDEX statement
+  bool is_unique = 4;
+  bool is_primary = 5;
+  repeated string columns = 6; // Column names in the index
+  string index_type = 7; // btree, hash, gin, gist, etc.
+}
+
+// TriggerDefinition represents a database trigger
+message TriggerDefinition {
+  string name = 1;
+  string table_name = 2;
+  string definition = 3; // Full CREATE TRIGGER statement
+  string timing = 4; // BEFORE, AFTER, INSTEAD OF
+  repeated string events = 5; // INSERT, UPDATE, DELETE
+  string function_name = 6;
+  string function_definition = 7; // Function definition if it needs to be created
+  bool enabled = 8;
+}
+
+// ConstraintDefinition represents a database constraint
+message ConstraintDefinition {
+  string name = 1;
+  string table_name = 2;
+  string type = 3; // PRIMARY KEY, FOREIGN KEY, UNIQUE, CHECK, NOT NULL
+  string definition = 4; // Full constraint definition
+  repeated string columns = 5; // Columns involved in the constraint
+  string referenced_table = 6; // For foreign keys
+  repeated string referenced_columns = 7; // For foreign keys
+}
+
 message TableSchemaDelta {
   string src_table_name = 1;
   string dst_table_name = 2;
   repeated FieldDescription added_columns = 3;
   TypeSystem system = 4;
   bool nullable_enabled = 5;
+  // Schema migration support: indexes, triggers, and constraints
+  repeated IndexDefinition indexes = 6;
+  repeated TriggerDefinition triggers = 7;
+  repeated ConstraintDefinition constraints = 8;
 }
 
 message QRepFlowState {

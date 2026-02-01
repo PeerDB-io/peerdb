@@ -156,12 +156,14 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 					Columns:                    q.config.Columns,
 				},
 			},
-			SyncedAtColName:   q.config.SyncedAtColName,
-			SoftDeleteColName: q.config.SoftDeleteColName,
-			FlowName:          q.config.FlowJobName,
-			Env:               q.config.Env,
-			IsResync:          q.config.DstTableFullResync,
-		}
+		SyncedAtColName:   q.config.SyncedAtColName,
+		SoftDeleteColName: q.config.SoftDeleteColName,
+		FlowName:          q.config.FlowJobName,
+		Env:               q.config.Env,
+		IsResync:          q.config.DstTableFullResync,
+		Version:           q.config.Version,
+		SourceName:        q.config.SourceName,
+	}
 
 		if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
 			q.logger.Error("failed to create watermark table", slog.Any("error", err))
