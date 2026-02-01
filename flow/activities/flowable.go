@@ -287,6 +287,36 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, fmt.Errorf("failed to commit normalized tables tx: %w", err)
 	}
 
+	// For Postgres-to-Postgres flows, migrate triggers and indexes after tables are created
+	if dstPgConn, ok := conn.(*connpostgres.PostgresConnector); ok {
+		// Get source peer name from catalog
+		var sourcePeerName string
+		var sourcePeerType protos.DBType
+		err := a.CatalogPool.QueryRow(ctx,
+			`SELECT COALESCE(sp.name, ''), COALESCE(sp.type, 0)
+			 FROM flows f
+			 LEFT JOIN peers sp ON f.source_peer = sp.id
+			 WHERE f.name = $1`,
+			config.FlowName).Scan(&sourcePeerName, &sourcePeerType)
+		if err == nil && sourcePeerName != "" && sourcePeerType == protos.DBType_POSTGRES {
+			// Get source connector
+			if srcPgConn, srcPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, sourcePeerName); err == nil {
+				defer srcPgClose(ctx)
+				logger.Info("Migrating triggers and indexes for Postgres-to-Postgres flow")
+				// Migrate full schema first (in case there are differences)
+				if err := connpostgres.MigrateSchemaFromSource(ctx, srcPgConn, dstPgConn, config.TableMappings); err != nil {
+					logger.Warn("failed to migrate schema during setup", slog.Any("error", err))
+					// Don't fail setup if schema migration fails, tables are already created
+				}
+				// Migrate triggers and indexes
+				if err := dstPgConn.MigrateTriggersAndIndexesForPostgresToPostgres(ctx, srcPgConn, config.TableMappings); err != nil {
+					logger.Warn("failed to migrate triggers and indexes during setup", slog.Any("error", err))
+					// Don't fail setup if migration fails
+				}
+			}
+		}
+	}
+
 	a.Alerter.LogFlowInfo(ctx, config.FlowName, "All destination tables have been setup")
 
 	return &protos.SetupNormalizedTableBatchOutput{
