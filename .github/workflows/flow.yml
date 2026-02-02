@@ -73,7 +73,7 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:f6ed4e429022c33a7590059b262b59d689c7ec48a0027179fad8ae3a1ad6222d
+        image: linuxserver/openssh-server:latest@sha256:d6e62b2159b6a704691e487bc75de8fa393f7f4624af0103a02eca384d7a0f9c
         ports:
           - 2222:2222
         env:
@@ -189,7 +189,7 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5
+      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         id: cache-minio
         with:
           path: ./minio
@@ -200,7 +200,7 @@ jobs:
         run: |
           curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
-      - uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5
+      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         id: cache-minio-client
         with:
           path: ./mc
@@ -255,7 +255,7 @@ jobs:
             echo "ch_version=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)" >> $GITHUB_OUTPUT
           fi
 
-      - uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5
+      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         id: cache-clickhouse
         with:
           path: ./clickhouse
