@@ -42,6 +42,9 @@ const (
 	InternalVersion_JsonEscapeDotsInKeys
 	// MongoDB: `_id` column values stored as-is without redundant quotes
 	InternalVersion_MongoDBIdWithoutRedundantQuotes
+	// ClickHouse: use Time64(6) data type for QValueKindTime when ClickHouse version >= 25.6
+	// MySQL: map TIME type to QValueKindTime instead of QValueKindTimestamp
+	InternalVersion_ClickHouseTime64
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1

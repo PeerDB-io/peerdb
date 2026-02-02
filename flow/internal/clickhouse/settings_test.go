@@ -1,4 +1,4 @@
-package connclickhouse
+package clickhouse
 
 import (
 	"testing"

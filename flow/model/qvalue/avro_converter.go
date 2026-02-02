@@ -358,6 +358,7 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration, so sizeOpt) (any, i
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
+		// Snowflake TIME must be in range [0, 24h)
 		t = max(min(t, 86399999999*time.Microsecond), 0)
 		s := time.Time{}.Add(t).Format("15:04:05.999999")
 		return s, stringSize(s, so)
