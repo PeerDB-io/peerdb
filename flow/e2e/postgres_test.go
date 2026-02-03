@@ -1232,6 +1232,336 @@ func (s PeerFlowE2ETestSuitePG) Test_Mixed_Case_Schema_Changes_PG() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s PeerFlowE2ETestSuitePG) Test_SS_Types_PG() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_ss_types_pg")
+	dstTableName := s.attachSchemaSuffix("test_ss_types_pg_dst")
+
+	// Create enum type (handle DuplicateObject gracefully like Test_Enums)
+	createEnumSQL := "CREATE TYPE test_platform AS ENUM ('instagram', 'tiktok', 'youtube', 'twitter', 'facebook');"
+	_, enumErr := s.Conn().Exec(s.t.Context(), createEnumSQL)
+	if enumErr != nil &&
+		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
+		require.NoError(s.t, enumErr)
+	}
+
+	// Create source table with all types
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+			col_text text,
+			col_varchar_2 character varying(2),
+			col_varchar_16 character varying(16),
+			col_varchar_20 character varying(20),
+			col_varchar_30 character varying(30),
+			col_varchar_32 character varying(32),
+			col_varchar_50 character varying(50),
+			col_varchar_64 character varying(64),
+			col_varchar_100 character varying(100),
+			col_varchar_255 character varying(255),
+			col_varchar_256 character varying(256),
+			col_smallint smallint,
+			col_integer integer,
+			col_bigint bigint,
+			col_numeric numeric,
+			col_double_precision double precision,
+			col_boolean boolean,
+			col_date date,
+			col_timestamp timestamp without time zone,
+			col_timestamptz timestamp with time zone,
+			col_interval interval,
+			col_uuid uuid,
+			col_json json,
+			col_jsonb jsonb,
+			col_text_array text[],
+			col_integer_array integer[],
+			col_platform test_platform,
+			created_at timestamp with time zone DEFAULT now() NOT NULL,
+			updated_at timestamp with time zone DEFAULT now() NOT NULL
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_ss_types_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
+
+	// Column list for comparison (cast json/enum to text for comparison)
+	allCols := strings.Join([]string{
+		"id",
+		"col_text", "col_varchar_2", "col_varchar_16", "col_varchar_20",
+		"col_varchar_30", "col_varchar_32", "col_varchar_50", "col_varchar_64",
+		"col_varchar_100", "col_varchar_255", "col_varchar_256",
+		"col_smallint", "col_integer", "col_bigint", "col_numeric", "col_double_precision",
+		"col_boolean",
+		"col_date", "col_timestamp", "col_timestamptz", "col_interval",
+		"col_uuid",
+		"col_json::text", "col_jsonb",
+		"col_text_array", "col_integer_array",
+		"col_platform::text",
+		"created_at", "updated_at",
+	}, ",")
+
+	// =====================================================
+	// INITIAL SNAPSHOT: Insert 5 edge case rows before starting the flow
+	// =====================================================
+
+	// Row 1: All NULL nullable columns
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (id, created_at, updated_at) VALUES (
+			'11111111-1111-1111-1111-111111111111',
+			'2024-01-01 00:00:00+00',
+			'2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	require.NoError(s.t, err)
+
+	// Row 2: Empty arrays, empty jsonb, empty strings
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_text, col_varchar_2, col_varchar_16, col_varchar_20, col_varchar_30,
+			col_varchar_32, col_varchar_50, col_varchar_64, col_varchar_100, col_varchar_255, col_varchar_256,
+			col_text_array, col_integer_array, col_json, col_jsonb,
+			created_at, updated_at
+		) VALUES (
+			'22222222-2222-2222-2222-222222222222',
+			'', '', '', '', '', '', '', '', '', '', '',
+			'{}', '{}', '{}', '{}',
+			'2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	require.NoError(s.t, err)
+
+	// Row 3: Minimum numeric values
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_smallint, col_integer, col_bigint, col_numeric, col_double_precision,
+			created_at, updated_at
+		) VALUES (
+			'33333333-3333-3333-3333-333333333333',
+			-32768, -2147483648, -9223372036854775808,
+			-99999999999999999999.999999999999,
+			-1.7976931348623157e+308,
+			'2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	require.NoError(s.t, err)
+
+	// Row 4: Unicode text (Chinese, Arabic, Russian, Emoji), special chars
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_text, col_varchar_50, col_varchar_100,
+			col_text_array, col_jsonb,
+			created_at, updated_at
+		) VALUES (
+			'44444444-4444-4444-4444-444444444444',
+			'中文 العربية Русский 🎉🚀💡',
+			'<>&"''\ special chars',
+			'Mixed: 你好 مرحبا Привет 😀',
+			ARRAY['中文', 'العربية', 'Русский', '🎉'],
+			'{"unicode": "中文 🎉", "special": "<>&"}',
+			'2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	require.NoError(s.t, err)
+
+	// Row 5: Boundary timestamps
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_date, col_timestamp, col_timestamptz, col_interval,
+			created_at, updated_at
+		) VALUES (
+			'55555555-5555-5555-5555-555555555555',
+			'0001-01-01',
+			'1970-01-01 00:00:00',
+			'2038-01-19 03:14:07+00',
+			'178000000 years',
+			'2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	require.NoError(s.t, err)
+
+	s.t.Log("Inserted 5 edge case rows for initial snapshot")
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Wait for initial snapshot to complete
+	EnvWaitFor(s.t, env, 3*time.Minute, "normalize initial snapshot", func() bool {
+		err := s.comparePGTables(srcTableName, dstTableName, allCols)
+		if err != nil {
+			s.t.Log("snapshot comparison mismatch:", err)
+		}
+		return err == nil
+	})
+
+	// =====================================================
+	// CDC: Insert 5 more edge case rows after the flow starts
+	// =====================================================
+
+	// Row 6: Maximum numeric values, arrays with NULL elements, JSONB array
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_smallint, col_integer, col_bigint, col_numeric, col_double_precision,
+			col_text_array, col_integer_array, col_jsonb,
+			created_at, updated_at
+		) VALUES (
+			'66666666-6666-6666-6666-666666666666',
+			32767, 2147483647, 9223372036854775807,
+			99999999999999999999.999999999999,
+			1.7976931348623157e+308,
+			ARRAY['value', NULL, 'another'],
+			ARRAY[1, NULL, 3],
+			'[1, "two", null, true, {"nested": "value"}]',
+			'2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	// Row 7: Deeply nested JSON objects
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_json, col_jsonb,
+			created_at, updated_at
+		) VALUES (
+			'77777777-7777-7777-7777-777777777777',
+			'{"level1": {"level2": {"level3": {"level4": {"value": "deep"}}}}}',
+			'{"string": "text", "number": 123, "float": 1.5, "bool": true, "null": null, "array": [1,2,3], "object": {"key": "val"}}',
+			'2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	// Row 8: Complex interval, far future date
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_date, col_timestamp, col_timestamptz, col_interval,
+			created_at, updated_at
+		) VALUES (
+			'88888888-8888-8888-8888-888888888888',
+			'9999-12-31',
+			'9999-12-31 23:59:59',
+			'9999-12-31 23:59:59+00',
+			'1 year 2 months 3 days 4 hours 5 minutes 6 seconds',
+			'2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	// Row 9: Zero values for all numerics, NULL boolean, zero interval
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_smallint, col_integer, col_bigint, col_numeric, col_double_precision,
+			col_boolean, col_interval,
+			created_at, updated_at
+		) VALUES (
+			'99999999-9999-9999-9999-999999999999',
+			0, 0, 0, 0, 0,
+			NULL, '0 seconds',
+			'2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	// Row 10: All enum values, test facebook enum, full data
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_text, col_varchar_16, col_boolean, col_uuid, col_platform,
+			col_text_array,
+			created_at, updated_at
+		) VALUES (
+			'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+			'instagram tiktok youtube twitter facebook',
+			'enum_test',
+			true,
+			'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+			'facebook',
+			ARRAY['instagram', 'tiktok', 'youtube', 'twitter', 'facebook'],
+			'2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'
+		)`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	s.t.Log("Inserted 5 more edge case rows via CDC")
+
+	// Wait for CDC inserts to replicate
+	EnvWaitFor(s.t, env, 3*time.Minute, "normalize CDC inserts", func() bool {
+		err := s.comparePGTables(srcTableName, dstTableName, allCols)
+		if err != nil {
+			s.t.Log("CDC insert comparison mismatch:", err)
+		}
+		return err == nil
+	})
+
+	// =====================================================
+	// CDC: Test UPDATE operations
+	// =====================================================
+
+	// Update row 1: change from all NULLs to having values
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		UPDATE %s SET
+			col_text = 'updated from null',
+			col_smallint = 100,
+			col_boolean = true,
+			col_jsonb = '{"updated": true}',
+			col_platform = 'youtube',
+			updated_at = '2024-06-01 00:00:00+00'
+		WHERE id = '11111111-1111-1111-1111-111111111111'`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	// Update row 4: change unicode text
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		UPDATE %s SET
+			col_text = 'Updated: 更新 تحديث Обновление 🔄',
+			col_text_array = ARRAY['updated', '更新', '🔄'],
+			updated_at = '2024-06-01 00:00:00+00'
+		WHERE id = '44444444-4444-4444-4444-444444444444'`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	// Update row 7: change JSON
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		UPDATE %s SET
+			col_json = '{"updated": {"nested": "new_value"}}',
+			col_jsonb = '{"completely": "different", "structure": [1,2,3]}',
+			updated_at = '2024-06-01 00:00:00+00'
+		WHERE id = '77777777-7777-7777-7777-777777777777'`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	s.t.Log("Executed 3 UPDATE operations via CDC")
+
+	// Wait for CDC updates to replicate
+	EnvWaitFor(s.t, env, 3*time.Minute, "normalize CDC updates", func() bool {
+		err := s.comparePGTables(srcTableName, dstTableName, allCols)
+		if err != nil {
+			s.t.Log("CDC update comparison mismatch:", err)
+		}
+		return err == nil
+	})
+
+	// =====================================================
+	// CDC: Test DELETE operations
+	// =====================================================
+
+	// Delete row 9 (zero values row)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		DELETE FROM %s WHERE id = '99999999-9999-9999-9999-999999999999'`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	s.t.Log("Executed DELETE operation via CDC")
+
+	// Wait for CDC delete to replicate
+	EnvWaitFor(s.t, env, 3*time.Minute, "normalize CDC delete", func() bool {
+		err := s.comparePGTables(srcTableName, dstTableName, allCols)
+		if err != nil {
+			s.t.Log("CDC delete comparison mismatch:", err)
+		}
+		return err == nil
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 	srcTableName := "pgresync"
 	srcFullName := s.attachSchemaSuffix(fmt.Sprintf("\"%s\"", tableName))
