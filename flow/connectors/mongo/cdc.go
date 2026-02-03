@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -214,7 +215,7 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	addRecordItems := func(documentKey bson.D, fullDocument bson.D, items *model.RecordItems) error {
+	addRecordItems := func(documentKey bson.D, fullDocument bson.D, items *model.RecordItems, tableName string) error {
 		if documentKey != nil {
 			var idValue any
 			for _, elem := range documentKey {
@@ -224,7 +225,7 @@ func (c *MongoConnector) PullRecords(
 				}
 			}
 			if idValue == nil {
-				return errors.New("document key _id not found")
+				return exceptions.NewInvalidIdValueError(tableName)
 			}
 			qValue, err := qValueStringFromKey(idValue, req.InternalVersion)
 			if err != nil {
@@ -363,7 +364,7 @@ func (c *MongoConnector) PullRecords(
 		items := model.NewMongoRecordItems(2)
 		switch changeEvent.OperationType {
 		case "insert":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
@@ -376,7 +377,7 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("failed to add insert record: %w", err)
 			}
 		case "update", "replace":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
@@ -389,7 +390,7 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("failed to add update record: %w", err)
 			}
 		case "delete":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 

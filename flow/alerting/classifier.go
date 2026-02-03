@@ -151,6 +151,9 @@ var (
 	ErrorUnsupportedDatatype = ErrorClass{
 		Class: "NOTIFY_UNSUPPORTED_DATATYPE", action: NotifyUser,
 	}
+	ErrorNotifyInvalidSortKey = ErrorClass{
+		Class: "NOTIFY_INVALID_SORT_KEY", action: NotifyUser,
+	}
 	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
 		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
 	}
@@ -977,6 +980,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresReplicaIdentityIndexError.Table,
 				ErrorAttributeKeyColumn: "n\a",
+			},
+		}
+	}
+
+	var mongoInvalidIdValueError *exceptions.MongoInvalidIdValueError
+	if errors.As(err, &mongoInvalidIdValueError) {
+		return ErrorNotifyInvalidSortKey, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "INVALID_SORT_KEY",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: mongoInvalidIdValueError.Table,
 			},
 		}
 	}
