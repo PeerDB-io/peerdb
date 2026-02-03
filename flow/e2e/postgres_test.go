@@ -1354,6 +1354,18 @@ func (s PeerFlowE2ETestSuitePG) Test_SS_Types_PG() {
 		)`, srcTableName))
 	require.NoError(s.t, err)
 
+	// Row 3b: NaN and Infinity values for numeric/double precision
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			id, col_numeric, col_double_precision,
+			created_at, updated_at
+		) VALUES
+			('33333333-3333-3333-3333-33333333333a', 'NaN', 'NaN', '2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'),
+			('33333333-3333-3333-3333-33333333333b', NULL, '+Infinity', '2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00'),
+			('33333333-3333-3333-3333-33333333333c', NULL, '-Infinity', '2024-01-01 00:00:00+00', '2024-01-01 00:00:00+00')
+		`, srcTableName))
+	require.NoError(s.t, err)
+
 	// Row 4: Unicode text (Chinese, Arabic, Russian, Emoji), special chars
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s (
@@ -1386,7 +1398,7 @@ func (s PeerFlowE2ETestSuitePG) Test_SS_Types_PG() {
 		)`, srcTableName))
 	require.NoError(s.t, err)
 
-	s.t.Log("Inserted 5 edge case rows for initial snapshot")
+	s.t.Log("Inserted 8 edge case rows for initial snapshot")
 
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
