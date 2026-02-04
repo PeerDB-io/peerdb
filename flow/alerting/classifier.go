@@ -546,6 +546,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrNotifyPostgresCreatingSlotOnReader, pgErrorInfo
 			}
 
+			// low-level Postgres memory management bug, single occurrence and fixed by retry
+			if pgErr.Routine == "GenerationFree" && strings.Contains(pgErr.Message, "could not find block containing chunk") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
