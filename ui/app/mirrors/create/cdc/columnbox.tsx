@@ -53,6 +53,19 @@ export default function ColumnBox({
     const includedColumnCount = columns.length - tableRow.exclude.size;
     const isLastIncludedColumn = includedColumnCount === 1 && isIncluded;
 
+    // For replica identity columns, ensure at least one remains included
+    const replicaIdentityColumns = columns.filter(
+      (col) => col.isReplicaIdentity
+    );
+    const includedReplicaIdentityCount = replicaIdentityColumns.filter(
+      (col) => !tableRow.exclude.has(col.name)
+    ).length;
+    const isLastIncludedReplicaIdentity =
+      !tableRow.isReplicaIdentityFull &&
+      column.isReplicaIdentity &&
+      includedReplicaIdentityCount === 1 &&
+      isIncluded;
+
     return (
       <RowWithCheckbox
         key={column.name}
@@ -82,7 +95,7 @@ export default function ColumnBox({
           <Checkbox
             style={{ cursor: 'pointer' }}
             disabled={
-              (!tableRow.isReplicaIdentityFull && column.isKey) ||
+              isLastIncludedReplicaIdentity ||
               disabled ||
               partOfOrderingKey ||
               isLastIncludedColumn

@@ -191,6 +191,7 @@ message ColumnsItem {
   string type = 2;
   bool is_key = 3;
   string qkind = 4;
+  bool is_replica_identity = 5;
 }
 
 message TableColumnsResponse {
