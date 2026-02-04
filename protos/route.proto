@@ -175,6 +175,7 @@ message TableResponse {
   string table_name = 1;
   bool can_mirror = 2;
   string table_size = 3;
+  bool is_replica_identity_full = 4;
 }
 
 message AllTablesResponse { repeated string tables = 1; }

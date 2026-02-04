@@ -77,7 +77,11 @@ export default function ColumnBox({
         action={
           <Checkbox
             style={{ cursor: 'pointer' }}
-            disabled={column.isKey || disabled || partOfOrderingKey}
+            disabled={
+              (!tableRow.isReplicaIdentityFull && column.isKey) ||
+              disabled ||
+              partOfOrderingKey
+            }
             checked={!tableRow.exclude.has(column.name)}
             onCheckedChange={(state: boolean) =>
               handleColumnExclusion(column.name, state)
