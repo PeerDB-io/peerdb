@@ -1112,6 +1112,9 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	fields := make([]pgconn.FieldDescription, len(fieldDescriptionsSlice))
 	copy(fields, fieldDescriptionsSlice)
 	rows.Close() // Close rows before making another query
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error after fetching field descriptions for table %s: %w", schemaTable, err)
+	}
 
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
