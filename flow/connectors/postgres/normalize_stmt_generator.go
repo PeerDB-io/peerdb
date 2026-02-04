@@ -40,7 +40,7 @@ func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, colu
 	case protos.TypeSystem_PG:
 		pgType = column.Type
 		// Add schema qualification for user-defined types
-		if column.TypeSchemaName != "" && column.TypeSchemaName != "pg_catalog" {
+		if column.TypeSchemaName != "" {
 			schemaQualifiedPgType := common.QualifiedTable{
 				Namespace: column.TypeSchemaName,
 				Table:     pgType,

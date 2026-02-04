@@ -603,7 +603,7 @@ func generateCreateTableSQLForNormalizedTable(
 		pgColumnType := column.Type
 
 		// handle schema-qualified custom types first (for TypeSystem_PG)
-		if tableSchema.System == protos.TypeSystem_PG && column.TypeSchemaName != "" && column.TypeSchemaName != "pg_catalog" {
+		if tableSchema.System == protos.TypeSystem_PG && column.TypeSchemaName != "" {
 			schemaQualifiedPgType := common.QualifiedTable{
 				Namespace: column.TypeSchemaName,
 				Table:     pgColumnType,

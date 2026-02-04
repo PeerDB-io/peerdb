@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,7 +17,6 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -887,7 +888,7 @@ func (c *PostgresConnector) GetTableSchema(
 	tableMapping []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMapping))
-	typeSchemaNameMapping := make(map[uint32]string)
+	typeSchemaNameMapping := make(map[uint32]string, len(tableMapping))
 	for _, tm := range tableMapping {
 		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version, typeSchemaNameMapping)
 		if err != nil {
@@ -1020,19 +1021,15 @@ func (c *PostgresConnector) GetSchemaNameOfColumnTypeByOID(ctx context.Context, 
 	if err != nil {
 		return nil, fmt.Errorf("error getting schema of column types: %w", err)
 	}
-	defer rows.Close()
 
 	result := make(map[uint32]string, len(typeOIDs))
-	for rows.Next() {
-		var oid uint32
-		var schemaName string
-		if err := rows.Scan(&oid, &schemaName); err != nil {
-			return nil, fmt.Errorf("error scanning type schema: %w", err)
-		}
+	var oid uint32
+	var schemaName string
+	_, err = pgx.ForEachRow(rows, []any{&oid, &schemaName}, func() error {
 		result[oid] = schemaName
-	}
-
-	if err := rows.Err(); err != nil {
+		return nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("error iterating type schemas: %w", err)
 	}
 
@@ -1108,9 +1105,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	// Make a copy of field descriptions since pgx may reuse the underlying array
-	fieldDescriptionsSlice := rows.FieldDescriptions()
-	fields := make([]pgconn.FieldDescription, len(fieldDescriptionsSlice))
-	copy(fields, fieldDescriptionsSlice)
+	fields := slices.Clone(rows.FieldDescriptions())
 	rows.Close() // Close rows before making another query
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error after fetching field descriptions for table %s: %w", schemaTable, err)
@@ -1126,11 +1121,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		}
 	}
 
-	// Convert map to slice
-	unfetchedOIDs := make([]uint32, 0, len(unfetchedOIDsMap))
-	for oid := range unfetchedOIDsMap {
-		unfetchedOIDs = append(unfetchedOIDs, oid)
-	}
+	unfetchedOIDs := slices.Collect(maps.Keys(unfetchedOIDsMap))
 
 	// Fetch schema names for unfetched OIDs and add to shared map
 	if len(unfetchedOIDs) > 0 {
@@ -1138,9 +1129,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, fmt.Errorf("error getting schema names for column types: %w", err)
 		}
-		for oid, schemaName := range newTypeSchemaNames {
-			typeSchemaNameMapping[oid] = schemaName
-		}
+		maps.Copy(typeSchemaNameMapping, newTypeSchemaNames)
 	}
 
 	for _, fieldDescription := range fields {
