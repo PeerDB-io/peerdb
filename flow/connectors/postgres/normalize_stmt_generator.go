@@ -39,18 +39,18 @@ func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, colu
 		pgType = qValueKindToPostgresType(column.Type)
 	case protos.TypeSystem_PG:
 		pgType = column.Type
+		// Add schema qualification for user-defined types
+		if column.TypeSchemaName != "" && column.TypeSchemaName != "pg_catalog" {
+			schemaQualifiedPgType := common.QualifiedTable{
+				Namespace: column.TypeSchemaName,
+				Table:     pgType,
+			}
+			return schemaQualifiedPgType.String()
+		}
 	default:
 		panic(fmt.Sprintf("unsupported system %s", schema.System))
 	}
 
-	// Add schema qualification for user-defined types
-	if column.TypeSchemaName != "" && column.TypeSchemaName != "pg_catalog" {
-		schemaQualifiedPgType := common.QualifiedTable{
-			Namespace: column.TypeSchemaName,
-			Table:     pgType,
-		}
-		return schemaQualifiedPgType.String()
-	}
 	return pgType
 }
 
