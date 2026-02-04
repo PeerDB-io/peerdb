@@ -256,12 +256,7 @@ func (q *QRepFlowExecution) processPartitions(
 		q.logger.Info("no partitions to process")
 		return nil
 	}
-	chunkSize := shared.DivCeil(len(partitions), maxParallelWorkers)
-	batches := make([][]*protos.QRepPartition, 0, len(partitions)/chunkSize+1)
-	for i := 0; i < len(partitions); i += chunkSize {
-		end := min(i+chunkSize, len(partitions))
-		batches = append(batches, partitions[i:end])
-	}
+	batches := distributePartitions(partitions, maxParallelWorkers)
 
 	q.logger.Info("processing partitions in batches", "num batches", len(batches))
 
@@ -283,6 +278,18 @@ func (q *QRepFlowExecution) processPartitions(
 
 	q.logger.Info("all partitions in batch processed")
 	return nil
+}
+
+func distributePartitions(partitions []*protos.QRepPartition, numBatches int) [][]*protos.QRepPartition {
+	if len(partitions) == 0 || numBatches <= 0 {
+		return nil
+	}
+	batches := make([][]*protos.QRepPartition, min(numBatches, len(partitions)))
+	for i, p := range partitions {
+		batch := &batches[i%len(batches)]
+		*batch = append(*batch, p)
+	}
+	return batches
 }
 
 // For some targets we need to consolidate all the partitions from stages before
