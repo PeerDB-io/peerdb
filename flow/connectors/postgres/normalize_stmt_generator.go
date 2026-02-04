@@ -62,6 +62,7 @@ func (n *normalizeStmtGenerator) generateExpr(
 
 func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []string {
 	normalizedTableSchema := n.tableSchemaMapping[dstTable]
+
 	if n.supportsMerge {
 		unchangedToastColumns := n.unchangedToastColumnsMap[dstTable]
 		return []string{n.generateMergeStatement(dstTable, normalizedTableSchema, unchangedToastColumns)}
@@ -156,7 +157,15 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 
 		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
-			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
+			schemaQualifiedPgTypeName := pgType
+			if column.TypeSchemaName != "pg_catalog" {
+				schemaQualifiedPgType := common.QualifiedTable{
+					Namespace: column.TypeSchemaName,
+					Table:     pgType,
+				}
+				schemaQualifiedPgTypeName = schemaQualifiedPgType.String()
+			}
+			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, schemaQualifiedPgTypeName)
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s", quotedCol, quotedCol))
 		}
 	}

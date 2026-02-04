@@ -886,9 +886,9 @@ func (c *PostgresConnector) GetTableSchema(
 	tableMapping []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMapping))
-
+	typeSchemaNameMapping := make(map[uint32]string)
 	for _, tm := range tableMapping {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version, typeSchemaNameMapping)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -1001,12 +1001,50 @@ func (c *PostgresConnector) GetTablesFromPublication(
 	return tables, nil
 }
 
+/*
+GetSchemaNameOfColumnTypeByOID returns a map of type OID to schema name for the given OIDs.
+If the type is in the "pg_catalog" schema, it returns an empty string for that OID.
+*/
+func (c *PostgresConnector) GetSchemaNameOfColumnTypeByOID(ctx context.Context, typeOIDs []uint32) (map[uint32]string, error) {
+	if len(typeOIDs) == 0 {
+		return make(map[uint32]string), nil
+	}
+
+	rows, err := c.conn.Query(ctx, `
+		SELECT t.oid, n.nspname
+		FROM pg_type t
+		JOIN pg_namespace n ON t.typnamespace = n.oid
+		WHERE t.oid = ANY($1)
+	`, typeOIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error getting schema of column types: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uint32]string, len(typeOIDs))
+	for rows.Next() {
+		var oid uint32
+		var schemaName string
+		if err := rows.Scan(&oid, &schemaName); err != nil {
+			return nil, fmt.Errorf("error scanning type schema: %w", err)
+		}
+		result[oid] = schemaName
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating type schemas: %w", err)
+	}
+
+	return result, nil
+}
+
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 	version uint32,
+	typeSchemaNameMapping map[uint32]string,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 	if err != nil {
@@ -1072,6 +1110,25 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	fields := rows.FieldDescriptions()
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
+	// Collect OIDs that we haven't fetched yet
+	unfetchedOIDs := make([]uint32, 0)
+	for _, fieldDescription := range fields {
+		if _, exists := typeSchemaNameMapping[fieldDescription.DataTypeOID]; !exists {
+			unfetchedOIDs = append(unfetchedOIDs, fieldDescription.DataTypeOID)
+		}
+	}
+
+	// Fetch schema names for unfetched OIDs and add to shared map
+	if len(unfetchedOIDs) > 0 {
+		newTypeSchemaNames, err := c.GetSchemaNameOfColumnTypeByOID(ctx, unfetchedOIDs)
+		if err != nil {
+			return nil, fmt.Errorf("error getting schema names for column types: %w", err)
+		}
+		for oid, schemaName := range newTypeSchemaNames {
+			typeSchemaNameMapping[oid] = schemaName
+		}
+	}
+
 	for _, fieldDescription := range fields {
 		var colType string
 		var err error
@@ -1089,10 +1146,11 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		columnNames = append(columnNames, fieldDescription.Name)
 		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
-			Name:         fieldDescription.Name,
-			Type:         colType,
-			TypeModifier: fieldDescription.TypeModifier,
-			Nullable:     nullable,
+			Name:           fieldDescription.Name,
+			Type:           colType,
+			TypeModifier:   fieldDescription.TypeModifier,
+			Nullable:       nullable,
+			TypeSchemaName: typeSchemaNameMapping[fieldDescription.DataTypeOID],
 		})
 	}
 
