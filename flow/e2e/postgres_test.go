@@ -1338,3 +1338,72 @@ func (s PeerFlowE2ETestSuitePG) Test_Other_Schema_Enums() {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s PeerFlowE2ETestSuitePG) Test_Table_With_Excluded_PK_And_ReplicaIdentityFull() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_excluded_pk_replfull")
+	dstTableName := s.attachSchemaSuffix("test_excluded_pk_replfull_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			message TEXT NOT NULL UNIQUE,
+			updated_at TIMESTAMPTZ
+		);
+		CREATE UNIQUE INDEX test_excluded_pk_replfull_message_idx ON %s(message);
+		ALTER TABLE %s REPLICA IDENTITY USING INDEX test_excluded_pk_replfull_message_idx;
+	`, srcTableName, srcTableName, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			message TEXT NOT NULL UNIQUE,
+			updated_at TIMESTAMPTZ
+		);
+	`, dstTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("test_excluded_pk_replfull"),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"id"},
+			},
+		},
+		Destination: s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.SyncedAtColName = ""
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.MaxBatchSize = 100
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(message, updated_at) VALUES ('initial message', NOW())`, srcTableName))
+	EnvNoError(s.t, env, err)
+	s.t.Log("Inserted initial row into the source table")
+
+	EnvWaitFor(s.t, env, 1*time.Minute, "normalize insert", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "message,updated_at") == nil
+	})
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		UPDATE %s SET updated_at = NOW() WHERE message = 'initial message'`, srcTableName))
+	EnvNoError(s.t, env, err)
+	s.t.Log("Updated row in the source table")
+
+	EnvWaitFor(s.t, env, 1*time.Minute, "normalize update", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "message") == nil
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
