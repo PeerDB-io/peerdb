@@ -950,6 +950,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var unsupportedDDLError *exceptions.MySQLUnsupportedDDLError
+	if errors.As(err, &unsupportedDDLError) {
+		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: unsupportedDDLError.TableName,
+			},
+		}
+	}
+
 	var mysqlStreamingError *exceptions.MySQLStreamingError
 	if errors.As(err, &mysqlStreamingError) {
 		if mysqlStreamingError.Retryable {

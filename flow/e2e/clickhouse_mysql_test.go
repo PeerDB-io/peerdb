@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -939,4 +942,87 @@ func (s ClickHouseSuite) Test_MySQL_Coercion() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+	require.NoError(s.t, err)
+	if cmp >= 0 {
+		s.t.Skip("only applies to mysql versions WITHOUT binlog_row_metadata support")
+	}
+
+	testCases := []struct {
+		name   string
+		ddlSQL string
+	}{
+		{"drop_column", "DROP COLUMN c1"},
+		{"add_column_after", "ADD COLUMN new_col INT AFTER id"},
+		{"modify_column_first", "MODIFY COLUMN c1 INT FIRST"},
+		{"change_column_after", "CHANGE COLUMN c1 c1_new INT AFTER id"},
+	}
+
+	for _, tc := range testCases {
+		s.t.Run(tc.name, func(t *testing.T) {
+			srcTableName := "test_position_shift_" + tc.name
+			srcFullName := s.attachSchemaSuffix(srcTableName)
+			dstTableName := fmt.Sprintf("test_position_shift_%s_dst", tc.name)
+
+			require.NoError(t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, srcFullName)))
+
+			require.NoError(t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (c1) VALUES (1)`, srcFullName)))
+
+			connectionGen := FlowConnectionGenerationConfig{
+				FlowJobName:      s.attachSuffix(srcTableName),
+				TableNameMapping: map[string]string{srcFullName: dstTableName},
+				Destination:      s.Peer().Name,
+			}
+			flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+			flowConnConfig.DoInitialSnapshot = true
+
+			temporalClient := NewTemporalClient(s.t)
+			env := ExecutePeerflow(s.t, temporalClient, flowConnConfig)
+			SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+			EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,c1")
+
+			// Execute position-shifting DDL - this should cause an error
+			require.NoError(t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`ALTER TABLE %s %s`, srcFullName, tc.ddlSQL)))
+
+			catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+			require.NoError(t, err)
+			EnvWaitFor(s.t, env, 3*time.Minute, "waiting for error message", func() bool {
+				rows, err := catalogPool.Query(s.t.Context(), `
+					SELECT COUNT(*) FROM peerdb_stats.flow_errors
+					WHERE error_type='error'
+					AND flow_name = $1
+					AND error_message ILIKE '%Detected position-shifting DDL on table %'
+				`, flowConnConfig.FlowJobName)
+				if err != nil {
+					t.Log("Error querying flow_errors:", err)
+					return false
+				}
+				defer rows.Close()
+
+				if rows.Next() {
+					var count int64
+					if err := rows.Scan(&count); err != nil {
+						t.Log("Error scanning count:", err)
+						return false
+					}
+					return count > 0
+				}
+				return false
+			})
+
+			env.Cancel(s.t.Context())
+			RequireEnvCanceled(s.t, env)
+		})
+	}
 }
