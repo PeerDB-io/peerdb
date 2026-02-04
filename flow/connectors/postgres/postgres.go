@@ -1025,12 +1025,11 @@ func (c *PostgresConnector) GetSchemaNameOfColumnTypeByOID(ctx context.Context, 
 	result := make(map[uint32]string, len(typeOIDs))
 	var oid uint32
 	var schemaName string
-	_, err = pgx.ForEachRow(rows, []any{&oid, &schemaName}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&oid, &schemaName}, func() error {
 		result[oid] = schemaName
 		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error iterating type schemas: %w", err)
+	}); err != nil {
+		return nil, fmt.Errorf("error scanning rows for schema of column types: %w", err)
 	}
 
 	return result, nil
