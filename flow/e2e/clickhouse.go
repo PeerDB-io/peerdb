@@ -190,16 +190,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 
 	for idx, ty := range colTypes {
 		fieldDesc := tableSchema.Columns[idx]
-		// Workaround: driver's ScanType() returns time.Time which fails to scan into time.Duration
-		// https://github.com/ClickHouse/clickhouse-go/issues/1757
-		dbTypeName := ty.DatabaseTypeName()
-		if dbTypeName == "Time64(6)" {
-			row = append(row, new(time.Duration))
-		} else if dbTypeName == "Nullable(Time64(6))" {
-			row = append(row, new(*time.Duration))
-		} else {
-			row = append(row, reflect.New(ty.ScanType()).Interface())
-		}
+		row = append(row, reflect.New(ty.ScanType()).Interface())
 		batch.Schema.Fields = append(batch.Schema.Fields, types.QField{
 			Name:      ty.Name(),
 			Type:      types.QValueKind(fieldDesc.Type),
@@ -274,8 +265,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				if *v == nil {
 					qrow = append(qrow, types.QValueNull(types.QValueKindTime))
 				} else {
-					// Time64(6) stores microseconds, but time.Duration is nanoseconds
-					qrow = append(qrow, types.QValueTime{Val: **v * 1000})
+					qrow = append(qrow, types.QValueTime{Val: **v})
 				}
 			case **uint8:
 				if *v == nil {
@@ -318,8 +308,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 			case *time.Time:
 				qrow = append(qrow, types.QValueTimestamp{Val: *v})
 			case *time.Duration:
-				// Time64(6) stores microseconds, but time.Duration is nanoseconds
-				qrow = append(qrow, types.QValueTime{Val: *v * 1000})
+				qrow = append(qrow, types.QValueTime{Val: *v})
 			case *[]time.Time:
 				qrow = append(qrow, types.QValueArrayTimestamp{Val: *v})
 			case **decimal.Decimal:
