@@ -17,6 +17,7 @@ func makePartitions(n int) []*protos.QRepPartition {
 }
 
 func TestDistributePartitions(t *testing.T) {
+	//nolint:govet // it's a test, no need for fieldalignment
 	tests := []struct {
 		name       string
 		numParts   int
