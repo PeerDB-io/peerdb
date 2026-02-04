@@ -32,15 +32,26 @@ type normalizeStmtGenerator struct {
 	supportsMerge bool
 }
 
-func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, columnType string) string {
+func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, column *protos.FieldDescription) string {
+	var pgType string
 	switch schema.System {
 	case protos.TypeSystem_Q:
-		return qValueKindToPostgresType(columnType)
+		pgType = qValueKindToPostgresType(column.Type)
 	case protos.TypeSystem_PG:
-		return columnType
+		pgType = column.Type
 	default:
 		panic(fmt.Sprintf("unsupported system %s", schema.System))
 	}
+
+	// Add schema qualification for user-defined types
+	if column.TypeSchemaName != "" && column.TypeSchemaName != "pg_catalog" {
+		schemaQualifiedPgType := common.QualifiedTable{
+			Namespace: column.TypeSchemaName,
+			Table:     pgType,
+		}
+		return schemaQualifiedPgType.String()
+	}
+	return pgType
 }
 
 func (n *normalizeStmtGenerator) generateExpr(
@@ -88,7 +99,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 		quotedCol := common.QuoteIdentifier(column.Name)
 		stringCol := utils.QuoteLiteral(column.Name)
 		columnNames = append(columnNames, quotedCol)
-		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
+		pgType := n.columnTypeToPg(normalizedTableSchema, column)
 		expr := n.generateExpr(normalizedTableSchema, genericColumnType, stringCol, pgType)
 
 		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
@@ -152,20 +163,12 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		quotedCol := common.QuoteIdentifier(column.Name)
 		stringCol := utils.QuoteLiteral(column.Name)
 		quotedColumnNames[i] = quotedCol
-		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
+		pgType := n.columnTypeToPg(normalizedTableSchema, column)
 		expr := n.generateExpr(normalizedTableSchema, genericColumnType, stringCol, pgType)
 
 		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
-			schemaQualifiedPgTypeName := pgType
-			if column.TypeSchemaName != "pg_catalog" {
-				schemaQualifiedPgType := common.QualifiedTable{
-					Namespace: column.TypeSchemaName,
-					Table:     pgType,
-				}
-				schemaQualifiedPgTypeName = schemaQualifiedPgType.String()
-			}
-			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, schemaQualifiedPgTypeName)
+			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s", quotedCol, quotedCol))
 		}
 	}
