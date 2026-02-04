@@ -968,7 +968,7 @@ func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
 
 	for _, tc := range testCases {
 		s.t.Run(tc.name, func(t *testing.T) {
-			srcTableName := fmt.Sprintf("test_position_shift_%s", tc.name)
+			srcTableName := "test_position_shift_" + tc.name
 			srcFullName := s.attachSchemaSuffix(srcTableName)
 			dstTableName := fmt.Sprintf("test_position_shift_%s_dst", tc.name)
 
