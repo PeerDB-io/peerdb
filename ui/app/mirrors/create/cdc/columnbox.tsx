@@ -49,6 +49,10 @@ export default function ColumnBox({
           col.sourceName === column.name &&
           (col.ordering > 0 || col.partitioning > 0)
       );
+    const isIncluded = !tableRow.exclude.has(column.name);
+    const includedColumnCount = columns.length - tableRow.exclude.size;
+    const isLastIncludedColumn = includedColumnCount === 1 && isIncluded;
+
     return (
       <RowWithCheckbox
         key={column.name}
@@ -80,9 +84,10 @@ export default function ColumnBox({
             disabled={
               (!tableRow.isReplicaIdentityFull && column.isKey) ||
               disabled ||
-              partOfOrderingKey
+              partOfOrderingKey ||
+              isLastIncludedColumn
             }
-            checked={!tableRow.exclude.has(column.name)}
+            checked={isIncluded}
             onCheckedChange={(state: boolean) =>
               handleColumnExclusion(column.name, state)
             }
