@@ -61,10 +61,11 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		DstTableName: tableName,
 		AddedColumns: []*protos.FieldDescription{
 			{
-				Name:         "hi",
-				Type:         string(types.QValueKindInt64),
-				TypeModifier: -1,
-				Nullable:     true,
+				Name:           "hi",
+				Type:           string(types.QValueKindInt64),
+				TypeModifier:   -1,
+				Nullable:       true,
+				TypeSchemaName: "pg_catalog",
 			},
 		},
 	}}, shared.InternalVersion_Latest))
@@ -80,15 +81,17 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		System:            protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
-				Name:         "id",
-				Type:         string(types.QValueKindInt32),
-				TypeModifier: -1,
+				Name:           "id",
+				Type:           string(types.QValueKindInt32),
+				TypeModifier:   -1,
+				TypeSchemaName: "pg_catalog",
 			},
 			{
-				Name:         "hi",
-				Type:         string(types.QValueKindInt64),
-				TypeModifier: -1,
-				Nullable:     true,
+				Name:           "hi",
+				Type:           string(types.QValueKindInt64),
+				TypeModifier:   -1,
+				Nullable:       true,
+				TypeSchemaName: "pg_catalog",
 			},
 		},
 	}, output[tableName])

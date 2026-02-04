@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -886,9 +888,9 @@ func (c *PostgresConnector) GetTableSchema(
 	tableMapping []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMapping))
-
+	typeSchemaNameMapping := make(map[uint32]string, len(tableMapping))
 	for _, tm := range tableMapping {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version, typeSchemaNameMapping)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -1001,12 +1003,45 @@ func (c *PostgresConnector) GetTablesFromPublication(
 	return tables, nil
 }
 
+/*
+GetSchemaNameOfColumnTypeByOID returns a map of type OID to schema name for the given OIDs.
+If the type is in the "pg_catalog" schema, it returns an empty string for that OID.
+*/
+func (c *PostgresConnector) GetSchemaNameOfColumnTypeByOID(ctx context.Context, typeOIDs []uint32) (map[uint32]string, error) {
+	if len(typeOIDs) == 0 {
+		return make(map[uint32]string), nil
+	}
+
+	rows, err := c.conn.Query(ctx, `
+		SELECT t.oid, n.nspname
+		FROM pg_type t
+		JOIN pg_namespace n ON t.typnamespace = n.oid
+		WHERE t.oid = ANY($1)
+	`, typeOIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error getting schema of column types: %w", err)
+	}
+
+	result := make(map[uint32]string, len(typeOIDs))
+	var oid uint32
+	var schemaName string
+	if _, err := pgx.ForEachRow(rows, []any{&oid, &schemaName}, func() error {
+		result[oid] = schemaName
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("error scanning rows for schema of column types: %w", err)
+	}
+
+	return result, nil
+}
+
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 	version uint32,
+	typeSchemaNameMapping map[uint32]string,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 	if err != nil {
@@ -1067,11 +1102,35 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
-	defer rows.Close()
 
-	fields := rows.FieldDescriptions()
+	// Make a copy of field descriptions since pgx may reuse the underlying array
+	fields := slices.Clone(rows.FieldDescriptions())
+	rows.Close() // Close rows before making another query
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error after fetching field descriptions for table %s: %w", schemaTable, err)
+	}
+
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
+	// Collect OIDs that we haven't fetched yet (deduplicate using a map)
+	unfetchedOIDsMap := make(map[uint32]struct{})
+	for _, fieldDescription := range fields {
+		if _, exists := typeSchemaNameMapping[fieldDescription.DataTypeOID]; !exists {
+			unfetchedOIDsMap[fieldDescription.DataTypeOID] = struct{}{}
+		}
+	}
+
+	unfetchedOIDs := slices.Collect(maps.Keys(unfetchedOIDsMap))
+
+	// Fetch schema names for unfetched OIDs and add to shared map
+	if len(unfetchedOIDs) > 0 {
+		newTypeSchemaNames, err := c.GetSchemaNameOfColumnTypeByOID(ctx, unfetchedOIDs)
+		if err != nil {
+			return nil, fmt.Errorf("error getting schema names for column types: %w", err)
+		}
+		maps.Copy(typeSchemaNameMapping, newTypeSchemaNames)
+	}
+
 	for _, fieldDescription := range fields {
 		var colType string
 		var err error
@@ -1089,16 +1148,14 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		columnNames = append(columnNames, fieldDescription.Name)
 		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
-			Name:         fieldDescription.Name,
-			Type:         colType,
-			TypeModifier: fieldDescription.TypeModifier,
-			Nullable:     nullable,
+			Name:           fieldDescription.Name,
+			Type:           colType,
+			TypeModifier:   fieldDescription.TypeModifier,
+			Nullable:       nullable,
+			TypeSchemaName: typeSchemaNameMapping[fieldDescription.DataTypeOID],
 		})
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over table schema: %w", err)
-	}
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
 	if replicaIdentityType == ReplicaIdentityFull && len(pKeyCols) == 0 {
 		pKeyCols = columnNames

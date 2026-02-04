@@ -32,15 +32,26 @@ type normalizeStmtGenerator struct {
 	supportsMerge bool
 }
 
-func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, columnType string) string {
+func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, column *protos.FieldDescription) string {
+	var pgType string
 	switch schema.System {
 	case protos.TypeSystem_Q:
-		return qValueKindToPostgresType(columnType)
+		pgType = qValueKindToPostgresType(column.Type)
 	case protos.TypeSystem_PG:
-		return columnType
+		pgType = column.Type
+		// Add schema qualification for user-defined types
+		if column.TypeSchemaName != "" {
+			schemaQualifiedPgType := common.QualifiedTable{
+				Namespace: column.TypeSchemaName,
+				Table:     pgType,
+			}
+			return schemaQualifiedPgType.String()
+		}
 	default:
 		panic(fmt.Sprintf("unsupported system %s", schema.System))
 	}
+
+	return pgType
 }
 
 func (n *normalizeStmtGenerator) generateExpr(
@@ -62,6 +73,7 @@ func (n *normalizeStmtGenerator) generateExpr(
 
 func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []string {
 	normalizedTableSchema := n.tableSchemaMapping[dstTable]
+
 	if n.supportsMerge {
 		unchangedToastColumns := n.unchangedToastColumnsMap[dstTable]
 		return []string{n.generateMergeStatement(dstTable, normalizedTableSchema, unchangedToastColumns)}
@@ -87,7 +99,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 		quotedCol := common.QuoteIdentifier(column.Name)
 		stringCol := utils.QuoteLiteral(column.Name)
 		columnNames = append(columnNames, quotedCol)
-		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
+		pgType := n.columnTypeToPg(normalizedTableSchema, column)
 		expr := n.generateExpr(normalizedTableSchema, genericColumnType, stringCol, pgType)
 
 		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
@@ -151,7 +163,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		quotedCol := common.QuoteIdentifier(column.Name)
 		stringCol := utils.QuoteLiteral(column.Name)
 		quotedColumnNames[i] = quotedCol
-		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
+		pgType := n.columnTypeToPg(normalizedTableSchema, column)
 		expr := n.generateExpr(normalizedTableSchema, genericColumnType, stringCol, pgType)
 
 		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
