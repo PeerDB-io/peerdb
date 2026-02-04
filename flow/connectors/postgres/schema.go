@@ -60,7 +60,8 @@ func (c *PostgresConnector) GetTablesInSchema(
 	rows, err := c.conn.Query(ctx, `SELECT DISTINCT ON (t.relname)
 		t.relname,
 		(con.contype = 'p' OR t.relreplident in ('i', 'f')) AS can_mirror,
-		pg_size_pretty(pg_total_relation_size(t.oid))::text AS table_size
+		pg_size_pretty(pg_total_relation_size(t.oid))::text AS table_size,
+		(t.relreplident = 'f') AS is_replica_identity_full
 	FROM pg_class t
 	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
 	LEFT JOIN pg_constraint con ON con.conrelid = t.oid
@@ -76,7 +77,8 @@ func (c *PostgresConnector) GetTablesInSchema(
 		var table pgtype.Text
 		var hasPkeyOrReplica pgtype.Bool
 		var tableSize pgtype.Text
-		if err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize); err != nil {
+		var isReplicaIdentityFull pgtype.Bool
+		if err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize, &isReplicaIdentityFull); err != nil {
 			return nil, err
 		}
 		var sizeOfTable string
@@ -86,9 +88,10 @@ func (c *PostgresConnector) GetTablesInSchema(
 		canMirror := !cdcEnabled || (hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool)
 
 		return &protos.TableResponse{
-			TableName: table.String,
-			CanMirror: canMirror,
-			TableSize: sizeOfTable,
+			TableName:             table.String,
+			CanMirror:             canMirror,
+			TableSize:             sizeOfTable,
+			IsReplicaIdentityFull: isReplicaIdentityFull.Bool,
 		}, nil
 	})
 	if err != nil {

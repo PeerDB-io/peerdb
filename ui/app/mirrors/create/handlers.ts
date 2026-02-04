@@ -466,6 +466,7 @@ export async function fetchTables(
         shardingKey: '',
         policyName: '',
         partitionByExpr: '',
+        isReplicaIdentityFull: tableObject.isReplicaIdentityFull,
       });
     }
   }
