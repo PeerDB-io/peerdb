@@ -2544,12 +2544,13 @@ func (x *SchemaTablesResponse) GetTables() []*TableResponse {
 }
 
 type TableResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TableName     string                 `protobuf:"bytes,1,opt,name=table_name,json=tableName,proto3" json:"table_name,omitempty"`
-	CanMirror     bool                   `protobuf:"varint,2,opt,name=can_mirror,json=canMirror,proto3" json:"can_mirror,omitempty"`
-	TableSize     string                 `protobuf:"bytes,3,opt,name=table_size,json=tableSize,proto3" json:"table_size,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	TableName             string                 `protobuf:"bytes,1,opt,name=table_name,json=tableName,proto3" json:"table_name,omitempty"`
+	CanMirror             bool                   `protobuf:"varint,2,opt,name=can_mirror,json=canMirror,proto3" json:"can_mirror,omitempty"`
+	TableSize             string                 `protobuf:"bytes,3,opt,name=table_size,json=tableSize,proto3" json:"table_size,omitempty"`
+	IsReplicaIdentityFull bool                   `protobuf:"varint,4,opt,name=is_replica_identity_full,json=isReplicaIdentityFull,proto3" json:"is_replica_identity_full,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *TableResponse) Reset() {
@@ -2601,6 +2602,13 @@ func (x *TableResponse) GetTableSize() string {
 		return x.TableSize
 	}
 	return ""
+}
+
+func (x *TableResponse) GetIsReplicaIdentityFull() bool {
+	if x != nil {
+		return x.IsReplicaIdentityFull
+	}
+	return false
 }
 
 type AllTablesResponse struct {
@@ -6332,14 +6340,15 @@ const file_route_proto_rawDesc = "" +
 	"\vcdc_enabled\x18\x03 \x01(\bR\n" +
 	"cdcEnabled\"K\n" +
 	"\x14SchemaTablesResponse\x123\n" +
-	"\x06tables\x18\x01 \x03(\v2\x1b.peerdb_route.TableResponseR\x06tables\"l\n" +
+	"\x06tables\x18\x01 \x03(\v2\x1b.peerdb_route.TableResponseR\x06tables\"\xa5\x01\n" +
 	"\rTableResponse\x12\x1d\n" +
 	"\n" +
 	"table_name\x18\x01 \x01(\tR\ttableName\x12\x1d\n" +
 	"\n" +
 	"can_mirror\x18\x02 \x01(\bR\tcanMirror\x12\x1d\n" +
 	"\n" +
-	"table_size\x18\x03 \x01(\tR\ttableSize\"+\n" +
+	"table_size\x18\x03 \x01(\tR\ttableSize\x127\n" +
+	"\x18is_replica_identity_full\x18\x04 \x01(\bR\x15isReplicaIdentityFull\"+\n" +
 	"\x11AllTablesResponse\x12\x16\n" +
 	"\x06tables\x18\x01 \x03(\tR\x06tables\"r\n" +
 	"\x13TableColumnsRequest\x12\x1b\n" +
