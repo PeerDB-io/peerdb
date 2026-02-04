@@ -2716,13 +2716,14 @@ func (x *TableColumnsRequest) GetTableName() string {
 }
 
 type ColumnsItem struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	IsKey         bool                   `protobuf:"varint,3,opt,name=is_key,json=isKey,proto3" json:"is_key,omitempty"`
-	Qkind         string                 `protobuf:"bytes,4,opt,name=qkind,proto3" json:"qkind,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Name              string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Type              string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	IsKey             bool                   `protobuf:"varint,3,opt,name=is_key,json=isKey,proto3" json:"is_key,omitempty"`
+	Qkind             string                 `protobuf:"bytes,4,opt,name=qkind,proto3" json:"qkind,omitempty"`
+	IsReplicaIdentity bool                   `protobuf:"varint,5,opt,name=is_replica_identity,json=isReplicaIdentity,proto3" json:"is_replica_identity,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ColumnsItem) Reset() {
@@ -2781,6 +2782,13 @@ func (x *ColumnsItem) GetQkind() string {
 		return x.Qkind
 	}
 	return ""
+}
+
+func (x *ColumnsItem) GetIsReplicaIdentity() bool {
+	if x != nil {
+		return x.IsReplicaIdentity
+	}
+	return false
 }
 
 type TableColumnsResponse struct {
@@ -6356,12 +6364,13 @@ const file_route_proto_rawDesc = "" +
 	"\vschema_name\x18\x02 \x01(\tR\n" +
 	"schemaName\x12\x1d\n" +
 	"\n" +
-	"table_name\x18\x03 \x01(\tR\ttableName\"b\n" +
+	"table_name\x18\x03 \x01(\tR\ttableName\"\x92\x01\n" +
 	"\vColumnsItem\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x15\n" +
 	"\x06is_key\x18\x03 \x01(\bR\x05isKey\x12\x14\n" +
-	"\x05qkind\x18\x04 \x01(\tR\x05qkind\"K\n" +
+	"\x05qkind\x18\x04 \x01(\tR\x05qkind\x12.\n" +
+	"\x13is_replica_identity\x18\x05 \x01(\bR\x11isReplicaIdentity\"K\n" +
 	"\x14TableColumnsResponse\x123\n" +
 	"\acolumns\x18\x01 \x03(\v2\x19.peerdb_route.ColumnsItemR\acolumns\"R\n" +
 	"\x1cColumnsTypeConversionRequest\x122\n" +
