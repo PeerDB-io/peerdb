@@ -2223,13 +2223,14 @@ func (x *TableSchema) GetTableOid() uint32 {
 }
 
 type FieldDescription struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	TypeModifier  int32                  `protobuf:"varint,3,opt,name=type_modifier,json=typeModifier,proto3" json:"type_modifier,omitempty"`
-	Nullable      bool                   `protobuf:"varint,4,opt,name=nullable,proto3" json:"nullable,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Type           string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	TypeModifier   int32                  `protobuf:"varint,3,opt,name=type_modifier,json=typeModifier,proto3" json:"type_modifier,omitempty"`
+	Nullable       bool                   `protobuf:"varint,4,opt,name=nullable,proto3" json:"nullable,omitempty"`
+	TypeSchemaName string                 `protobuf:"bytes,5,opt,name=type_schema_name,json=typeSchemaName,proto3" json:"type_schema_name,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *FieldDescription) Reset() {
@@ -2288,6 +2289,13 @@ func (x *FieldDescription) GetNullable() bool {
 		return x.Nullable
 	}
 	return false
+}
+
+func (x *FieldDescription) GetTypeSchemaName() string {
+	if x != nil {
+		return x.TypeSchemaName
+	}
+	return ""
 }
 
 type SetupTableSchemaBatchInput struct {
@@ -5327,12 +5335,13 @@ const file_flow_proto_rawDesc = "" +
 	"\x06system\x18\x04 \x01(\x0e2\x17.peerdb_flow.TypeSystemR\x06system\x12)\n" +
 	"\x10nullable_enabled\x18\x05 \x01(\bR\x0fnullableEnabled\x127\n" +
 	"\acolumns\x18\x06 \x03(\v2\x1d.peerdb_flow.FieldDescriptionR\acolumns\x12\x1b\n" +
-	"\ttable_oid\x18\a \x01(\rR\btableOid\"{\n" +
+	"\ttable_oid\x18\a \x01(\rR\btableOid\"\xa5\x01\n" +
 	"\x10FieldDescription\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12#\n" +
 	"\rtype_modifier\x18\x03 \x01(\x05R\ftypeModifier\x12\x1a\n" +
-	"\bnullable\x18\x04 \x01(\bR\bnullable\"\xe5\x02\n" +
+	"\bnullable\x18\x04 \x01(\bR\bnullable\x12(\n" +
+	"\x10type_schema_name\x18\x05 \x01(\tR\x0etypeSchemaName\"\xe5\x02\n" +
 	"\x1aSetupTableSchemaBatchInput\x12B\n" +
 	"\x03env\x18\x01 \x03(\v20.peerdb_flow.SetupTableSchemaBatchInput.EnvEntryR\x03env\x12\x1b\n" +
 	"\tflow_name\x18\x03 \x01(\tR\bflowName\x12/\n" +
