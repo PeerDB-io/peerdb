@@ -1295,7 +1295,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Other_Schema_Enums() {
 
 	// Create a mixed case schema for the enum
 	enumSchema := fmt.Sprintf("\"EnumSchema_%s\"", s.suffix)
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", enumSchema))
+	_, err := s.Conn().Exec(s.t.Context(), "CREATE SCHEMA IF NOT EXISTS "+enumSchema)
 	require.NoError(s.t, err)
 
 	// Create a mixed case enum in the custom schema
