@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -1105,17 +1106,27 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
-	defer rows.Close()
 
-	fields := rows.FieldDescriptions()
+	// Make a copy of field descriptions since pgx may reuse the underlying array
+	fieldDescriptionsSlice := rows.FieldDescriptions()
+	fields := make([]pgconn.FieldDescription, len(fieldDescriptionsSlice))
+	copy(fields, fieldDescriptionsSlice)
+	rows.Close() // Close rows before making another query
+
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
-	// Collect OIDs that we haven't fetched yet
-	unfetchedOIDs := make([]uint32, 0)
+	// Collect OIDs that we haven't fetched yet (deduplicate using a map)
+	unfetchedOIDsMap := make(map[uint32]struct{})
 	for _, fieldDescription := range fields {
 		if _, exists := typeSchemaNameMapping[fieldDescription.DataTypeOID]; !exists {
-			unfetchedOIDs = append(unfetchedOIDs, fieldDescription.DataTypeOID)
+			unfetchedOIDsMap[fieldDescription.DataTypeOID] = struct{}{}
 		}
+	}
+
+	// Convert map to slice
+	unfetchedOIDs := make([]uint32, 0, len(unfetchedOIDsMap))
+	for oid := range unfetchedOIDsMap {
+		unfetchedOIDs = append(unfetchedOIDs, oid)
 	}
 
 	// Fetch schema names for unfetched OIDs and add to shared map
@@ -1154,9 +1165,6 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		})
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over table schema: %w", err)
-	}
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
 	if replicaIdentityType == ReplicaIdentityFull && len(pKeyCols) == 0 {
 		pKeyCols = columnNames

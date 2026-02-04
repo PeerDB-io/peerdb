@@ -601,13 +601,23 @@ func generateCreateTableSQLForNormalizedTable(
 	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
 	for _, column := range tableSchema.Columns {
 		pgColumnType := column.Type
-		if tableSchema.System == protos.TypeSystem_Q {
+
+		// handle schema-qualified custom types first (for TypeSystem_PG)
+		if tableSchema.System == protos.TypeSystem_PG && column.TypeSchemaName != "" && column.TypeSchemaName != "pg_catalog" {
+			schemaQualifiedPgType := common.QualifiedTable{
+				Namespace: column.TypeSchemaName,
+				Table:     pgColumnType,
+			}
+			pgColumnType = schemaQualifiedPgType.String()
+		} else if tableSchema.System == protos.TypeSystem_Q {
 			pgColumnType = qValueKindToPostgresType(pgColumnType)
 		}
+
 		if column.Type == "numeric" && column.TypeModifier != -1 {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
+
 		var notNull string
 		if tableSchema.NullableEnabled && !column.Nullable {
 			notNull = " NOT NULL"

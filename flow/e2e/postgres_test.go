@@ -1286,3 +1286,55 @@ func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s PeerFlowE2ETestSuitePG) Test_Other_Schema_Enums() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_enum_flow")
+	dstTableName := s.attachSchemaSuffix("test_enum_flow_dst")
+
+	// Create a mixed case schema for the enum
+	enumSchema := fmt.Sprintf("\"EnumSchema_%s\"", s.suffix)
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", enumSchema))
+	require.NoError(s.t, err)
+
+	// Create a mixed case enum in the custom schema
+	createMoodEnum := fmt.Sprintf("CREATE TYPE %s.\"MoodType\" AS ENUM ('happy', 'sad', 'angry');", enumSchema)
+	_, enumErr := s.Conn().Exec(s.t.Context(), createMoodEnum)
+	if enumErr != nil &&
+		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
+		require.NoError(s.t, enumErr)
+	}
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			my_mood %s."MoodType",
+			my_null_mood %s."MoodType",
+			moods %s."MoodType"[]
+		);
+	`, srcTableName, enumSchema, enumSchema, enumSchema))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_enum_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.System = protos.TypeSystem_PG
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(my_mood, my_null_mood, moods) VALUES ('happy',null,'{happy,angry}')`, srcTableName))
+	EnvNoError(s.t, env, err)
+	s.t.Log("Inserted enums into the source table")
+	EnvWaitFor(s.t, env, 3*time.Minute, "normalize enum", func() bool {
+		return s.checkEnums(srcTableName, dstTableName) == nil
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
