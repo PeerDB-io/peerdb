@@ -72,7 +72,7 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 
 	for cursor.Next(ctx) {
 		var doc bson.D
-		err := cursor.Decode(&doc)
+		err := bson.Unmarshal(cursor.Current, &doc)
 		if err != nil {
 			return nil, err
 		}
