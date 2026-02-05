@@ -395,6 +395,9 @@ func (a *FlowableActivity) SyncFlow(
 
 		if syncErr != nil {
 			if groupCtx.Err() != nil {
+				logger.Info("group context error",
+					slog.Any("syncErr", syncErr),
+					slog.Any("error", groupCtx.Err()))
 				// need to return ctx.Err(), avoid returning syncErr that's wrapped context canceled
 				break
 			}
@@ -418,6 +421,7 @@ func (a *FlowableActivity) SyncFlow(
 		}
 	}
 
+	logger.Info("sync flow completed, initiating cleanup")
 	syncState.Store(shared.Ptr("cleanup"))
 	close(syncDone)
 	normRequests.Close()
