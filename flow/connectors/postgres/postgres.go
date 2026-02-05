@@ -733,15 +733,15 @@ func (c *PostgresConnector) NormalizeRecords(
 		metadataSchema: c.metadataSchema,
 	}
 
-	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
+	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
 		for _, destinationTableName := range destinationTableNames {
 			normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
 			for _, normalizeStatement := range normalizeStatements {
-				ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, batchId, destinationTableName)
+				ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, batchID, destinationTableName)
 				if err != nil {
 					c.logger.Error("error executing normalize statement",
 						slog.String("statement", normalizeStatement),
-						slog.Int64("currentBatchId", batchId),
+						slog.Int64("currentBatchID", batchID),
 						slog.Int64("normBatchID", normBatchID),
 						slog.Int64("syncBatchID", req.SyncBatchID),
 						slog.String("destinationTableName", destinationTableName),
