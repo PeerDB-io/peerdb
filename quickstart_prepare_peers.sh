@@ -22,7 +22,7 @@ CREATE DATABASE target;
 \c source
 
 --- Create the test table on source database
-DROP TABLE IF EXISTS source CASCADE;
+DROP TABLE IF EXISTS test CASCADE;
 CREATE TABLE test (
     id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     c1 INT,
