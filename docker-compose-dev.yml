@@ -110,7 +110,7 @@ services:
       - temporal
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3030
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
     image: temporalio/ui:2.44.1@sha256:0240f934c5f4204656c68651f384d656b6cfa2e737cd8fd85a03640b72b9b4e7
     ports:
@@ -192,7 +192,7 @@ services:
       dockerfile: stacks/peerdb-ui.Dockerfile
       target: dev
     ports:
-      - 3000:3000
+      - 3030:3000
     volumes:
       # Mount local ui/ directory for hot reload
       - ./ui:/app
@@ -206,7 +206,7 @@ services:
       PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
       PEERDB_PASSWORD:
       NEXTAUTH_SECRET: __changeme__
-      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3030
       PEERDB_ALLOWED_TARGETS:
       PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
       PEERDB_EXPERIMENTAL_ENABLE_SCRIPTING: true
