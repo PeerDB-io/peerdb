@@ -21,7 +21,7 @@ CREATE DATABASE target;
 --- Switch to source database
 \c source
 
---- Create the source table
+--- Create the test table on source database
 DROP TABLE IF EXISTS source CASCADE;
 CREATE TABLE test (
     id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
@@ -30,7 +30,7 @@ CREATE TABLE test (
     t TEXT
 );
 
--- Switch to target database
+--- Switch to target database
 \c target
 
 EOF
