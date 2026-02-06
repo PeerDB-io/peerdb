@@ -432,7 +432,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Use CTID block partitioning for initial snapshot if watermark column is ctid",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_POSTGRES_APPLY_MINMAX_RANGE_PARTITIONING_OVERRIDE",
+		Description:      "Use min/max range partitioning for initial snapshot if watermark column is not ctid",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 }
@@ -786,4 +794,8 @@ func PeerDBApplySchemaDeltaToCatalogEnabled(ctx context.Context, env map[string]
 
 func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
+}
+
+func PeerDBPostgresApplyMinMaxRangePartitioning(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_MINMAX_RANGE_PARTITIONING_OVERRIDE")
 }

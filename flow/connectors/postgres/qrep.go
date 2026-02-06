@@ -210,6 +210,14 @@ func (c *PostgresConnector) getPartitions(
 		if err != nil {
 			return nil, err
 		}
+		if computedNumPartitions <= 1 {
+			c.logger.Warn(fmt.Sprintf("computedNumPartitions=%d, default to full table partition", computedNumPartitions))
+			return []*protos.QRepPartition{{
+				PartitionId:        uuid.NewString(),
+				FullTablePartition: true,
+				Range:              nil,
+			}}, nil
+		}
 		partitionParams.numPartitions = computedNumPartitions
 	}
 
@@ -219,12 +227,16 @@ func (c *PostgresConnector) getPartitions(
 	if err != nil {
 		c.logger.Warn("failed to get CTID partitioning config", slog.Any("error", err))
 	}
+	hasMinMaxOverride, err := internal.PeerDBPostgresApplyMinMaxRangePartitioning(ctx, config.Env)
+	if err != nil {
+		c.logger.Warn("failed to get min/max range partitioning config", slog.Any("error", err))
+	}
 
 	var partitionFunc PartitioningFunc
 	switch {
 	case isCTIDWatermarkCol && (hasCTIDOverride || hasPartitionOverride):
 		partitionFunc = CTIDBlockPartitioningFunc
-	case hasPartitionOverride:
+	case !isCTIDWatermarkCol && (hasMinMaxOverride || hasPartitionOverride):
 		partitionFunc = MinMaxRangePartitioningFunc
 	default:
 		partitionFunc = NTileBucketPartitioningFunc
