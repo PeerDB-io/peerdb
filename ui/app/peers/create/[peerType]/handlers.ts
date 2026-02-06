@@ -2,6 +2,7 @@ import { PeerConfig } from '@/app/dto/PeersDTO';
 import {
   BigqueryConfig,
   ClickhouseConfig,
+  CockroachDBConfig,
   DBType,
   ElasticsearchConfig,
   EventHubGroupConfig,
@@ -29,6 +30,7 @@ import { Dispatch, SetStateAction } from 'react';
 import {
   bqSchema,
   chSchema,
+  crdbSchema,
   ehGroupSchema,
   esSchema,
   kaSchema,
@@ -113,6 +115,12 @@ function constructPeer(
         type: DBType.MONGO,
         mongoConfig: config as MongoConfig,
       };
+    case 'COCKROACHDB':
+      return {
+        name,
+        type: DBType.COCKROACHDB,
+        cockroachdbConfig: config as CockroachDBConfig,
+      };
     default:
       return;
   }
@@ -195,6 +203,11 @@ async function validateFields(
       const mongoConfig = mongoSchema.safeParse(config);
       if (!mongoConfig.success)
         validationErr = mongoConfig.error.issues[0].message;
+      break;
+    case 'COCKROACHDB':
+      const crdbConfig = crdbSchema.safeParse(config);
+      if (!crdbConfig.success)
+        validationErr = crdbConfig.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;

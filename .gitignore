@@ -18,3 +18,4 @@ go.work.sum
 ui/grpc_generated
 flow/generated
 nexus/pt/src/gen
+.DS_Store
