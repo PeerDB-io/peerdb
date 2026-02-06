@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/PeerDB-io/peerdb/flow/cmd"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
@@ -32,7 +33,7 @@ import (
 )
 
 type APITestSuite struct {
-	protos.FlowServiceClient
+	*cmd.FlowRequestHandler
 	t      *testing.T
 	pg     *PostgresSource
 	source SuiteSource
@@ -217,10 +218,8 @@ func testApi[TSource SuiteSource](
 		require.NoError(t, err)
 		source, err := setup(t, suffix)
 		require.NoError(t, err)
-		client, err := NewApiClient()
-		require.NoError(t, err)
 		return APITestSuite{
-			FlowServiceClient: client,
+			FlowRequestHandler: NewFlowHandler(t),
 			t:                 t,
 			pg:                pg,
 			source:            source,
@@ -436,12 +435,12 @@ func (s APITestSuite) TestSchemaEndpoints() {
 		require.False(s.t, columns.Columns[1].IsKey)
 		require.Equal(s.t, "text", columns.Columns[1].Type)
 	case *MySqlSource:
-		columns, err := s.GetColumns(s.t.Context(), &protos.TableColumnsRequest{
+		columns, apiErr := s.GetColumns(s.t.Context(), &protos.TableColumnsRequest{
 			PeerName:   peer.Name,
 			SchemaName: Schema(s),
 			TableName:  tableName,
 		})
-		require.NoError(s.t, err)
+		require.NoError(s.t, apiErr)
 		require.Len(s.t, columns.Columns, 2)
 		require.Equal(s.t, "id", columns.Columns[0].Name)
 		require.True(s.t, columns.Columns[0].IsKey)
@@ -747,8 +746,8 @@ func (s APITestSuite) TestResyncCompleted() {
 	flowConnConfig.IdleTimeoutSeconds = 9
 	flowConnConfig.MaxBatchSize = 5040
 	// if true, then the flow will be resynced
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
+	response, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
@@ -839,8 +838,8 @@ func (s APITestSuite) TestResyncFailed() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
+	response, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
@@ -910,8 +909,8 @@ func (s APITestSuite) TestDropCompleted() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
+	response, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
@@ -994,8 +993,8 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	flowConnConfig.InitialSnapshotOnly = true
 	flowConnConfig.SourceName = proxyPeer.Name
 
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
+	response, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
@@ -1060,8 +1059,8 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
+	response, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
@@ -1319,8 +1318,8 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
+	response, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
@@ -1406,8 +1405,8 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
+	response, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
@@ -1505,10 +1504,10 @@ func (s APITestSuite) TestQRep() {
 		s.t.Skip("QRepFlowWorkFlow is not implemented for MongoDB")
 	}
 
-	peerType, err := s.GetPeerType(s.t.Context(), &protos.PeerInfoRequest{
+	peerType, apiErr := s.GetPeerType(s.t.Context(), &protos.PeerInfoRequest{
 		PeerName: s.source.GeneratePeer(s.t).Name,
 	})
-	require.NoError(s.t, err)
+	require.NoError(s.t, apiErr)
 	tableName := AddSuffix(s, "qrepapi")
 	schemaQualified := AttachSchema(s, tableName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -1534,10 +1533,10 @@ func (s APITestSuite) TestQRep() {
 	qrepConfig.InitialCopyOnly = false
 	qrepConfig.WaitBetweenBatchesSeconds = 5
 	qrepConfig.NumRowsPerPartition = 1
-	_, err = s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
+	_, apiErr = s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
 		QrepConfig: qrepConfig,
 	})
-	require.NoError(s.t, err)
+	require.NoError(s.t, apiErr)
 
 	tc := NewTemporalClient(s.t)
 	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
@@ -1599,8 +1598,8 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
+	response, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response)
 	tc := NewTemporalClient(s.t)
 	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
@@ -1943,8 +1942,8 @@ func (s APITestSuite) TestCreateCDCFlowAttachExternalFlowEntry() {
 	// Simulate a crash: create flows entry without creating workflow
 	conn := s.pg.PostgresConnector.Conn()
 	sourcePeer := s.source.GeneratePeer(s.t)
-	destPeer, err := s.GetPeerInfo(s.t.Context(), &protos.PeerInfoRequest{PeerName: s.ch.Peer().Name})
-	require.NoError(s.t, err)
+	destPeer, apiErr := s.GetPeerInfo(s.t.Context(), &protos.PeerInfoRequest{PeerName: s.ch.Peer().Name})
+	require.NoError(s.t, apiErr)
 
 	var sourcePeerID, destPeerID int32
 	require.NoError(s.t, conn.QueryRow(s.t.Context(),
@@ -2005,11 +2004,11 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 	flowConnConfig.DoInitialSnapshot = true
 
 	// First create a normal flow
-	response1, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{
+	response1, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: flowConnConfig,
 		AttachToExisting:  true,
 	})
-	require.NoError(s.t, err)
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response1)
 
 	tc := NewTemporalClient(s.t)
@@ -2077,11 +2076,11 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	flowConnConfig.DoInitialSnapshot = true
 
 	// First create a normal flow
-	response1, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{
+	response1, apiErr := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: flowConnConfig,
 		AttachToExisting:  true,
 	})
-	require.NoError(s.t, err)
+	require.NoError(s.t, apiErr)
 	require.NotNil(s.t, response1)
 
 	tc := NewTemporalClient(s.t)

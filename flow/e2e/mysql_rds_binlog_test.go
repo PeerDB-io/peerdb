@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/PeerDB-io/peerdb/flow/cmd"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -19,7 +20,7 @@ import (
 // this test is not safe for parallel execution because it relies on a single table in a fixed place
 // move it to its own suite
 type MySQLRDSBinlogAPITestSuite struct {
-	protos.FlowServiceClient
+	*cmd.FlowRequestHandler
 	t      *testing.T
 	pg     *PostgresSource
 	source *MySqlSource
@@ -56,10 +57,8 @@ func TestMySQLRDSBinlog(t *testing.T) {
 		require.NoError(t, err)
 		source, err := SetupMySQL(t, suffix)
 		require.NoError(t, err)
-		client, err := NewApiClient()
-		require.NoError(t, err)
 		return MySQLRDSBinlogAPITestSuite{
-			FlowServiceClient: client,
+			FlowRequestHandler: NewFlowHandler(t),
 			t:                 t,
 			pg:                pg,
 			source:            source,
