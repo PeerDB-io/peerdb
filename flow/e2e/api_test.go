@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/PeerDB-io/peerdb/flow/cmd"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
@@ -32,7 +33,7 @@ import (
 )
 
 type APITestSuite struct {
-	protos.FlowServiceClient
+	*cmd.FlowRequestHandler
 	t      *testing.T
 	pg     *PostgresSource
 	source SuiteSource
@@ -217,10 +218,8 @@ func testApi[TSource SuiteSource](
 		require.NoError(t, err)
 		source, err := setup(t, suffix)
 		require.NoError(t, err)
-		client, err := NewApiClient()
-		require.NoError(t, err)
 		return APITestSuite{
-			FlowServiceClient: client,
+			FlowRequestHandler: NewFlowHandler(t),
 			t:                 t,
 			pg:                pg,
 			source:            source,
