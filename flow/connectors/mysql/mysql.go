@@ -229,6 +229,11 @@ func (c *MySqlConnector) setSessionSettings() error {
 		}
 	}
 
+	// MariaDB <= 11.5 defaults to latin1, which can result in Unicode to not be replicated correctly
+	if _, err := conn.Execute("SET NAMES utf8mb4"); err != nil {
+		c.logger.Warn("utf8mb4 not supported, ignoring", slog.Any("error", err))
+	}
+
 	switch c.Flavor() {
 	case mysql.MySQLFlavor:
 		// set max_execution_time to unlimited
