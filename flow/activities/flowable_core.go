@@ -325,6 +325,19 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
+		// For Postgres-to-Postgres flows, migrate triggers and indexes after schema changes
+		// Use type switch to check if destination is Postgres
+		switch dstPgConn := any(dstConn).(type) {
+		case *connpostgres.PostgresConnector:
+			if srcPgConn, srcPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.SourceName); err == nil {
+				defer srcPgClose(ctx)
+				if err := dstPgConn.MigrateTriggersAndIndexesForPostgresToPostgres(ctx, srcPgConn, options.TableMappings); err != nil {
+					logger.Warn("failed to migrate triggers and indexes", slog.Any("error", err))
+					// Don't fail the flow, just log a warning
+				}
+			}
+		}
+
 		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
 	}
 
@@ -423,6 +436,26 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncState.Store(shared.Ptr("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
 		return nil, err
+	}
+
+	// For Postgres-to-Postgres flows, migrate triggers and indexes after schema changes
+	// Schema deltas are already replayed in syncRecordsCore, but we migrate triggers/indexes here
+	// where we have access to both source and destination connectors
+	if len(res.TableSchemaDeltas) > 0 {
+		// Get destination connector again to check if it's Postgres
+		dstConnForMigration, dstCloseForMigration, err := connectors.GetByNameAs[connectors.CDCSyncConnectorCore](ctx, config.Env, a.CatalogPool, config.DestinationName)
+		if err == nil {
+			defer dstCloseForMigration(ctx)
+			if dstPgConn, ok := dstConnForMigration.(*connpostgres.PostgresConnector); ok {
+				if srcPgConn, srcPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.SourceName); err == nil {
+					defer srcPgClose(ctx)
+					if err := dstPgConn.MigrateTriggersAndIndexesForPostgresToPostgres(ctx, srcPgConn, options.TableMappings); err != nil {
+						logger.Warn("failed to migrate triggers and indexes after sync", slog.Any("error", err))
+						// Don't fail the flow, just log a warning
+					}
+				}
+			}
+		}
 	}
 
 	if recordBatchSync.NeedsNormalize() {
