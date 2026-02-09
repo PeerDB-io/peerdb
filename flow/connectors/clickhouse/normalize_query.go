@@ -342,14 +342,16 @@ func extendedTimeToDateTime(jsonExtractExpr string, time64Supported bool) string
 	// Fallback to manual string parsing for older ClickHouse versions (< 25.6)
 	// that don't support toTime64OrNull(). This expression parses extended time
 	// format "[-]HHH:MM:SS.xxxxxx" (e.g., "123:30:00.000000", "-1:30:00.000000")
-	// by splitting on ':', computing (hours*3600 + minutes*60 + seconds) * sign
-	// to get total seconds, then converting to DateTime64(6).
+	// by splitting on ':' and '.', computing total microseconds using integer
+	// arithmetic instead of toDateTime64(<fractional_second>) to avoid precision
+	// loss.
 	return fmt.Sprintf(`if(length(%[1]s) > 0,
-		toDateTime64(
+		fromUnixTimestamp64Micro(
 			(if(startsWith(%[1]s, '-'), -1, 1)) *
-			(toInt64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[1]) * 3600 +
-			 toInt64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[2]) * 60 +
-			 toFloat64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[3]))
-		, 6),
+			(toInt64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[1]) * 3600 * 1000000 +
+			 toInt64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[2]) * 60 * 1000000 +
+			 toInt64(splitByChar('.', splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[3])[1]) * 1000000 +
+			 toInt64(splitByChar('.', splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[3])[2]))
+		),
 		NULL)`, jsonExtractExpr)
 }

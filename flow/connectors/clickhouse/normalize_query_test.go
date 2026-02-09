@@ -32,6 +32,7 @@ func TestExtendedTimeToDateTime(t *testing.T) {
 		{"extended_hours", 838*time.Hour + 59*time.Minute + 59*time.Second + 999999*time.Microsecond},
 		{"negative", -1 * time.Minute},
 		{"negative_extended", -123*time.Hour - 45*time.Minute - 7*time.Second - 899999*time.Microsecond},
+		{"precision_test", 18*time.Hour + 18*time.Minute + 8*time.Second + 511787*time.Microsecond},
 	}
 
 	for _, time64Supported := range []bool{false, true} {
