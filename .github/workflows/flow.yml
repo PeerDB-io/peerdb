@@ -46,12 +46,12 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:ac152ec27adccf9482af2649d293f398eb03c860d7469fc49f86e30d870ea408
+        image: redpandadata/redpanda@sha256:8dff633b6bae296523c79aae8297290b158f62fcb262831d46d5d67f9d3cdba7
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.2.4@sha256:ba3ca06dc9121baad53ec025c87eef9352fcae11d89cd2e4cba8821977e81319
+        image: elasticsearch:9.3.0@sha256:89738cb1d6042ac20eddc3768eb3bb7e92bdf816a83a261b3bf11fb3544ae751
         ports:
           - 9200:9200
         env:
@@ -59,7 +59,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.144.0@sha256:213886eb6407af91b87fa47551c3632be1a6419ff3a5114ef1e6fc364628496f
+        image: otel/opentelemetry-collector-contrib:0.145.0@sha256:a7343f01869071ea3f4c5e1e97df1bb1b3c4d5c77247db80e053a80b9df530c4
         ports:
           - 4317:4317
       toxiproxy:
@@ -73,7 +73,7 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:d6e62b2159b6a704691e487bc75de8fa393f7f4624af0103a02eca384d7a0f9c
+        image: linuxserver/openssh-server:latest@sha256:fb0a645725bc7e1b0952f9a00961cbd56bf0c0ded85ecb70d41a24343fa8c728
         ports:
           - 2222:2222
         env:
@@ -86,7 +86,7 @@ jobs:
           DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - name: generate or hydrate protos
@@ -94,7 +94,7 @@ jobs:
 
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
-          go-version: '1.25.6'
+          go-version: '1.25.7'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
@@ -135,7 +135,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com

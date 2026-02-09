@@ -14,7 +14,7 @@ jobs:
     name: lint
     runs-on: [ubuntu-24.04]
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
@@ -24,7 +24,7 @@ jobs:
           sudo apt-get install libgeos-dev
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
-          go-version: '1.25.6'
+          go-version: '1.25.7'
           cache: false
       - name: golangci-lint flow
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
