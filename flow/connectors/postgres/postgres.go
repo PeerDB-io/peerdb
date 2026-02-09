@@ -747,7 +747,8 @@ func (c *PostgresConnector) NormalizeRecords(
 						slog.String("destinationTableName", destinationTableName),
 						slog.Any("error", err),
 					)
-					return model.NormalizeResponse{}, fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
+					return model.NormalizeResponse{},
+						fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
 				}
 				totalRowsAffected += int(ct.RowsAffected())
 			}
