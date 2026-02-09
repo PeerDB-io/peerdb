@@ -4,8 +4,8 @@ go 1.25.5
 
 require (
 	cloud.google.com/go v0.123.0
-	cloud.google.com/go/bigquery v1.73.1
-	cloud.google.com/go/pubsub/v2 v2.4.0
+	cloud.google.com/go/bigquery v1.72.0 // PINNED: v1.73.0+ requires google.golang.org/api v0.259.0
+	cloud.google.com/go/pubsub/v2 v2.3.0 // PINNED: v2.4.0+ requires google.golang.org/api v0.259.0
 	cloud.google.com/go/storage v1.59.2
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2 v2.0.1
@@ -21,7 +21,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.7
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.6.17
-	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.0
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.21.0 // PINNED(DBI-500): v1.22.0 deprecates NewUploader in favor of feature/s3/transfermanager
 	github.com/aws/aws-sdk-go-v2/service/kms v1.49.5
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0
 	github.com/aws/aws-sdk-go-v2/service/ses v1.34.18
@@ -72,7 +72,7 @@ require (
 	golang.org/x/crypto v0.48.0
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96
 	golang.org/x/sync v0.19.0
-	google.golang.org/api v0.264.0 // Note: WithCredentialsJSON deprecated, migrate to WithAuthCredentialsJSON (DBI-443)
+	google.golang.org/api v0.257.0 // PINNED(DBI-443): v0.258.0 deprecates WithCredentialsJSON, migrate to WithAuthCredentialsJSON
 	google.golang.org/genproto/googleapis/api v0.0.0-20260203192932-546029d2fa20
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
@@ -193,7 +193,7 @@ require (
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.11 // indirect
-	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.16.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
