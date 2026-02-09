@@ -72,7 +72,7 @@ require (
 	golang.org/x/crypto v0.47.0
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96
 	golang.org/x/sync v0.19.0
-	google.golang.org/api v0.257.0 // Note: 0.258.0 replaces WithCredentialsJSON with something that needs more digging to integrate
+	google.golang.org/api v0.257.0 // PINNED(DBI-443): v0.258.0 deprecates WithCredentialsJSON, migrate to WithAuthCredentialsJSON
 	google.golang.org/genproto/googleapis/api v0.0.0-20260120174246-409b4a993575
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
@@ -303,6 +303,6 @@ require (
 
 replace github.com/tikv/client-go/v2 => github.com/PeerDB-io/tikv-client-go/v2 v2.0.7
 
-replace github.com/tikv/pd/client => github.com/tikv/pd/client v0.0.0-20251229071808-6173d50c004c // BREAKING(DBI-444): the underlying dependency changed an interface
+replace github.com/tikv/pd/client => github.com/tikv/pd/client v0.0.0-20251229071808-6173d50c004c // PINNED(DBI-444): the underlying dependency changed an interface
 
 replace github.com/PeerDB-io/peerdb/flow/pkg => ./pkg
