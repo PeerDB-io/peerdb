@@ -460,6 +460,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			slog.ErrorContext(ctx, "unable to signal workflow update", logs, slog.Any("error", err))
 			return nil, NewInternalApiError(fmt.Errorf("unable to signal workflow update: %w", err))
 		}
+		telemetry.LogActivityStartFlowConfigUpdate(ctx, req.FlowJobName)
 	}
 
 	slog.InfoContext(ctx, "[flow-state-change] received request", logs,

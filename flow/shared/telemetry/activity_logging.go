@@ -22,6 +22,7 @@ const (
 	ActionPauseFlow             = "pause_flow"
 	ActionResumeFlow            = "resume_flow"
 	ActionTerminateFlow         = "terminate_flow"
+	ActionStartFlowConfigUpdate = "start_flow_config_update"
 	ActionUpdateFlowConfig      = "update_flow_config"
 	ActionStartMaintenance      = "start_maintenance"
 	ActionEndMaintenance        = "end_maintenance"
@@ -48,6 +49,10 @@ func LogActivityResumeFlow(ctx context.Context, flowName string) {
 
 func LogActivityTerminateFlow(ctx context.Context, flowName string) {
 	logActivity(ctx, ActionTerminateFlow, slog.String("flowName", flowName))
+}
+
+func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string) {
+	logActivity(ctx, ActionStartFlowConfigUpdate, slog.String("flowName", flowName))
 }
 
 func LogActivityStartMaintenance(ctx context.Context) {
