@@ -213,8 +213,17 @@ func (c *ClickHouseConnector) constructColumnNameFieldMap(fields []types.QField)
 	return columnNameFieldMap
 }
 
+const (
+	// gcsRetryMaxAttempts is the maximum number of retry attempts for GCS authentication errors.
+	// These errors can occur due to Google Cloud's eventual consistency with newly minted tokens.
+	gcsRetryMaxAttempts = 3
+	// gcsRetryInitialDelay is the initial delay before the first retry.
+	gcsRetryInitialDelay = 2 * time.Second
+)
+
 // insertFromURLBatch inserts data from a batch of URLs using proper column mapping
 // Uses ClickHouse's brace expansion for multiple URLs: url('{url1,url2}', ...)
+// Includes retry logic for transient GCS authentication errors (HTTP 401).
 func (c *ClickHouseConnector) insertFromURLBatch(
 	ctx context.Context,
 	config *protos.QRepConfig,
@@ -225,13 +234,6 @@ func (c *ClickHouseConnector) insertFromURLBatch(
 	format string,
 	fieldExpressionConverters ...fieldExpressionConverter,
 ) (int64, error) {
-	headers, err := headerProvider.GetHeaders(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get headers: %w", err)
-	}
-
-	urlTableFunction := c.buildURLTableFunction(urls, headers, format)
-
 	insertConfig := &insertFromTableFunctionConfig{
 		destinationTable:          config.DestinationTableIdentifier,
 		schema:                    schema,
@@ -243,26 +245,49 @@ func (c *ClickHouseConnector) insertFromURLBatch(
 		fieldExpressionConverters: fieldExpressionConverters,
 	}
 
-	query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, urlTableFunction, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to build insert query: %w", err)
-	}
+	return internal.ExponentialBackoff(ctx, func() (int64, error) {
+		// Get fresh headers for each attempt - this ensures we get a new token on retry
+		// which helps with GCS eventual consistency issues
+		headers, err := headerProvider.GetHeaders(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get headers: %w", err)
+		}
 
-	c.logger.Debug("Executing URL table function query",
-		slog.Int("urlCount", len(urls)),
-		slog.String("format", format),
-		slog.String("query", query))
+		urlTableFunction := c.buildURLTableFunction(urls, headers, format)
 
-	var totalRows int64
-	execCtx := clickhouse.Context(ctx, clickhouse.WithProgress(func(info *clickhouse.Progress) {
-		totalRows += int64(info.Rows)
-	}))
+		query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, urlTableFunction, nil)
+		if err != nil {
+			return 0, fmt.Errorf("failed to build insert query: %w", err)
+		}
 
-	if err := c.exec(execCtx, query); err != nil {
-		return 0, err
-	}
+		c.logger.Debug("Executing URL table function query",
+			slog.Int("urlCount", len(urls)),
+			slog.String("format", format),
+			slog.String("query", query))
 
-	return totalRows, nil
+		var totalRows int64
+		execCtx := clickhouse.Context(ctx, clickhouse.WithProgress(func(info *clickhouse.Progress) {
+			totalRows += int64(info.Rows)
+		}))
+
+		if err := c.exec(execCtx, query); err != nil {
+			return 0, err
+		}
+
+		return totalRows, nil
+	},
+		internal.WithBackoffMaxAttempts(gcsRetryMaxAttempts),
+		internal.WithBackoffInitialDelay(gcsRetryInitialDelay),
+		internal.WithBackoffRetryable(func(err error) bool {
+			if isRetryableGCSError(err) {
+				// Invalidate the cached token before retry to force fetching a fresh one
+				headerProvider.InvalidateToken()
+				c.logger.Warn("Retryable GCS authentication error, will retry", slog.Any("error", err))
+				return true
+			}
+			return false
+		}),
+	)
 }
 
 // buildURLTableFunction builds a ClickHouse URL table function with headers and format
