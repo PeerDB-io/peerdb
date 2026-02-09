@@ -98,7 +98,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name:             "PEERDB_WAL_HEARTBEAT_QUERY",
-		DefaultValue:     "SELECT pg_logical_emit_message(false,'peerdb_heartbeat','')",
+		DefaultValue:     "SELECT pg_logical_emit_message(true,'peerdb_heartbeat','')",
 		ValueType:        protos.DynconfValueType_STRING,
 		Description:      "SQL to run during each WAL heartbeat",
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
