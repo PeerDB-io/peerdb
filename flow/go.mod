@@ -303,6 +303,6 @@ require (
 
 replace github.com/tikv/client-go/v2 => github.com/PeerDB-io/tikv-client-go/v2 v2.0.7
 
-replace github.com/tikv/pd/client => github.com/tikv/pd/client v0.0.0-20251229071808-6173d50c004c // BREAKING(DBI-444): the underlying dependency changed an interface
+replace github.com/tikv/pd/client => github.com/tikv/pd/client v0.0.0-20251229071808-6173d50c004c
 
 replace github.com/PeerDB-io/peerdb/flow/pkg => ./pkg
