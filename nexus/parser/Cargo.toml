@@ -12,7 +12,7 @@ catalog = { path = "../catalog", default-features = false }
 futures = { version = "0.3.28", features = ["executor"] }
 pgwire.workspace = true
 pt = { path = "../pt" }
-rand = "0.9"
+rand = "0.10"
 sqlparser.workspace = true
 tokio.workspace = true
 tracing.workspace = true

@@ -64,6 +64,10 @@ func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int6
 	return &Int64SyncGauge{syncGauge: syncGauge}, nil
 }
 
+func (a *Int64SyncGauge) Enabled(context.Context) bool {
+	return a != nil
+}
+
 func (a *Int64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
 	if a == nil {
 		return
@@ -92,6 +96,10 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 	}
 	syncGauge.observableGauge = observableGauge
 	return &Float64SyncGauge{syncGauge: syncGauge}, nil
+}
+
+func (a *Float64SyncGauge) Enabled(context.Context) bool {
+	return a != nil
 }
 
 func (a *Float64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
