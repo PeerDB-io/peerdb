@@ -422,14 +422,14 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-	TPull,
-	context.Context,
-	*otel_metrics.OtelManager,
-	*protos.QRepConfig,
-	protos.DBType,
-	*protos.QRepPartition,
-	TWrite,
-) (int64, int64, error),
+		TPull,
+		context.Context,
+		*otel_metrics.OtelManager,
+		*protos.QRepConfig,
+		protos.DBType,
+		*protos.QRepPartition,
+		TWrite,
+	) (int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -513,13 +513,13 @@ func replicateXminPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-	*connpostgres.PostgresConnector,
-	context.Context,
-	*protos.QRepConfig,
-	protos.DBType,
-	*protos.QRepPartition,
-	TWrite,
-) (int64, int64, int64, error),
+		*connpostgres.PostgresConnector,
+		context.Context,
+		*protos.QRepConfig,
+		protos.DBType,
+		*protos.QRepPartition,
+		TWrite,
+	) (int64, int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
