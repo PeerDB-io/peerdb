@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sync/atomic"
 	"time"
 
@@ -65,7 +64,6 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 func (a *FlowableActivity) applySchemaDeltas(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
-	options *protos.SyncFlowOptions,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
@@ -75,123 +73,48 @@ func (a *FlowableActivity) applySchemaDeltas(
 		dstTableNamesInDeltas = append(dstTableNamesInDeltas, schemaDelta.DstTableName)
 	}
 
-	applyV2, err := internal.PeerDBApplySchemaDeltaToCatalogEnabled(ctx, config.Env)
-	if err != nil {
-		logger.Warn("failed to check if schema delta v2 is enabled, defaulting to false", slog.Any("error", err))
-		applyV2 = false
-	}
-
-	if applyV2 {
-		err := internal.ReadModifyWriteTableSchemasToCatalog(
-			ctx,
-			a.CatalogPool,
-			logger,
-			config.FlowJobName,
-			dstTableNamesInDeltas,
-			// use a closure to keep ReadModifyWriteTableSchemasToCatalog's `modifyFn` flexible
-			func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
-				return applySchemaDeltaV2(ctx, schemas, schemaDeltas)
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update table schemas in catalog: %w", err)
-		}
-		return nil
-	} else {
-		skipValidate := false
-		baseSchema, err := internal.LoadTableSchemasFromCatalog(ctx, a.CatalogPool, config.FlowJobName, dstTableNamesInDeltas)
-		if err != nil {
-			logger.Warn("skipping v2 validation: cannot load base schemas", slog.Any("error", err))
-			skipValidate = true
-		}
-
-		if err := a.applySchemaDeltasV1(ctx, config, options, schemaDeltas); err != nil {
-			return err
-		}
-
-		if !skipValidate {
-			validateV2AgainstV1(ctx, a.CatalogPool, config.FlowJobName, baseSchema, schemaDeltas, dstTableNamesInDeltas)
-		}
-	}
-	return nil
-}
-
-// existing approach to applying schemaDeltas. `applySchemaDeltas` is actually
-// a bit misleading, as we are fetching the latest schema from the source database.
-// schemaDeltas is only used to identify matching tables.
-// This approach has a race condition where schema deltas do not get correctly
-// applied because the latest schema from source db includes the added column.
-func (a *FlowableActivity) applySchemaDeltasV1(ctx context.Context,
-	config *protos.FlowConnectionConfigsCore,
-	options *protos.SyncFlowOptions,
-	schemaDeltas []*protos.TableSchemaDelta,
-) error {
-	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
-	for _, tableMapping := range options.TableMappings {
-		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
-			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
-				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
-		}) {
-			filteredTableMappings = append(filteredTableMappings, tableMapping)
-		}
-	}
-
-	if len(schemaDeltas) > 0 {
-		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
-			PeerName:      config.SourceName,
-			TableMappings: filteredTableMappings,
-			FlowName:      config.FlowJobName,
-			System:        config.System,
-			Env:           config.Env,
-			Version:       config.Version,
-		}); err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
-		}
-	}
-	return nil
-}
-
-// this is the updated approach of applying schema deltas to catalog. Unlike v1,
-// we use `table_schema_mapping` from catalog as base, and add new columns from
-// schemaDeltas that are not in the existing mapping. This function returns
-// a copy of schemasInCatalog with schemaDeltas applied.
-func applySchemaDeltaV2(
-	ctx context.Context,
-	schemasInCatalog map[string]*protos.TableSchema,
-	schemaDeltas []*protos.TableSchemaDelta,
-) (map[string]*protos.TableSchema, error) {
-	logger := internal.LoggerFromCtx(ctx)
-
-	// deep copy to avoid mutating input
-	schemasInCatalogCopy := make(map[string]*protos.TableSchema, len(schemasInCatalog))
-	for tableName, schema := range schemasInCatalog {
-		if schema == nil {
-			return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
-		}
-		schemasInCatalogCopy[tableName] = proto.CloneOf(schema)
-	}
-
-	for _, schemaDelta := range schemaDeltas {
-		if schema, exists := schemasInCatalogCopy[schemaDelta.DstTableName]; exists {
-			columnNames := make(map[string]struct{}, len(schema.GetColumns()))
-			for _, col := range schema.GetColumns() {
-				columnNames[col.Name] = struct{}{}
+	if err := internal.ReadModifyWriteTableSchemasToCatalog(
+		ctx,
+		a.CatalogPool,
+		logger,
+		config.FlowJobName,
+		dstTableNamesInDeltas,
+		func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
+			// deep copy to avoid mutating input
+			schemasCopy := make(map[string]*protos.TableSchema, len(schemas))
+			for tableName, schema := range schemas {
+				if schema == nil {
+					return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
+				}
+				schemasCopy[tableName] = proto.CloneOf(schema)
 			}
-			for _, newCol := range schemaDelta.GetAddedColumns() {
-				// only add columns that don't already exist
-				if _, exists := columnNames[newCol.Name]; !exists {
-					schema.Columns = append(schema.Columns, newCol)
-					columnNames[newCol.Name] = struct{}{}
+
+			for _, schemaDelta := range schemaDeltas {
+				if schema, exists := schemasCopy[schemaDelta.DstTableName]; exists {
+					columnNames := make(map[string]struct{}, len(schema.GetColumns()))
+					for _, col := range schema.GetColumns() {
+						columnNames[col.Name] = struct{}{}
+					}
+					for _, newCol := range schemaDelta.GetAddedColumns() {
+						// only add columns that don't already exist
+						if _, exists := columnNames[newCol.Name]; !exists {
+							schema.Columns = append(schema.Columns, newCol)
+							columnNames[newCol.Name] = struct{}{}
+						} else {
+							logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
+								newCol.Name, newCol.Type, schemaDelta.DstTableName))
+						}
+					}
 				} else {
-					logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
-						newCol.Name, newCol.Type, schemaDelta.DstTableName))
+					logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
 				}
 			}
-		} else {
-			logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
-		}
+			return schemasCopy, nil
+		},
+	); err != nil {
+		return fmt.Errorf("failed to update table schemas in catalog: %w", err)
 	}
-	return schemasInCatalogCopy, nil
+	return nil
 }
 
 func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
@@ -325,7 +248,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
+		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
 	}
 
 	var res *model.SyncResponse
@@ -421,7 +344,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
 	syncState.Store(shared.Ptr("updating schema"))
-	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
+	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
 
