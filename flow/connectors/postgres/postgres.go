@@ -733,21 +733,25 @@ func (c *PostgresConnector) NormalizeRecords(
 		metadataSchema: c.metadataSchema,
 	}
 
-	for _, destinationTableName := range destinationTableNames {
-		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
-		for _, normalizeStatement := range normalizeStatements {
-			ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName)
-			if err != nil {
-				c.logger.Error("error executing normalize statement",
-					slog.String("statement", normalizeStatement),
-					slog.Int64("normBatchID", normBatchID),
-					slog.Int64("syncBatchID", req.SyncBatchID),
-					slog.String("destinationTableName", destinationTableName),
-					slog.Any("error", err),
-				)
-				return model.NormalizeResponse{}, fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
+	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
+		for _, destinationTableName := range destinationTableNames {
+			normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
+			for _, normalizeStatement := range normalizeStatements {
+				ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, batchID, destinationTableName)
+				if err != nil {
+					c.logger.Error("error executing normalize statement",
+						slog.String("statement", normalizeStatement),
+						slog.Int64("currentBatchID", batchID),
+						slog.Int64("normBatchID", normBatchID),
+						slog.Int64("syncBatchID", req.SyncBatchID),
+						slog.String("destinationTableName", destinationTableName),
+						slog.Any("error", err),
+					)
+					return model.NormalizeResponse{},
+						fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
+				}
+				totalRowsAffected += int(ct.RowsAffected())
 			}
-			totalRowsAffected += int(ct.RowsAffected())
 		}
 	}
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
