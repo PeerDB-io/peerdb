@@ -73,63 +73,48 @@ func (a *FlowableActivity) applySchemaDeltas(
 		dstTableNamesInDeltas = append(dstTableNamesInDeltas, schemaDelta.DstTableName)
 	}
 
-	err := internal.ReadModifyWriteTableSchemasToCatalog(
+	if err := internal.ReadModifyWriteTableSchemasToCatalog(
 		ctx,
 		a.CatalogPool,
 		logger,
 		config.FlowJobName,
 		dstTableNamesInDeltas,
-		// use a closure to keep ReadModifyWriteTableSchemasToCatalog's `modifyFn` flexible
 		func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
-			return applySchemaDeltaFn(ctx, schemas, schemaDeltas)
+			// deep copy to avoid mutating input
+			schemasCopy := make(map[string]*protos.TableSchema, len(schemas))
+			for tableName, schema := range schemas {
+				if schema == nil {
+					return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
+				}
+				schemasCopy[tableName] = proto.CloneOf(schema)
+			}
+
+			for _, schemaDelta := range schemaDeltas {
+				if schema, exists := schemasCopy[schemaDelta.DstTableName]; exists {
+					columnNames := make(map[string]struct{}, len(schema.GetColumns()))
+					for _, col := range schema.GetColumns() {
+						columnNames[col.Name] = struct{}{}
+					}
+					for _, newCol := range schemaDelta.GetAddedColumns() {
+						// only add columns that don't already exist
+						if _, exists := columnNames[newCol.Name]; !exists {
+							schema.Columns = append(schema.Columns, newCol)
+							columnNames[newCol.Name] = struct{}{}
+						} else {
+							logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
+								newCol.Name, newCol.Type, schemaDelta.DstTableName))
+						}
+					}
+				} else {
+					logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
+				}
+			}
+			return schemasCopy, nil
 		},
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("failed to update table schemas in catalog: %w", err)
 	}
 	return nil
-}
-
-// applySchemaDeltaFn applies schema deltas to catalog. We use `table_schema_mapping`
-// from catalog as base, and add new columns from schemaDeltas that are not in the
-// existing mapping. This function returns a copy of schemasInCatalog with schemaDeltas applied.
-func applySchemaDeltaFn(
-	ctx context.Context,
-	schemasInCatalog map[string]*protos.TableSchema,
-	schemaDeltas []*protos.TableSchemaDelta,
-) (map[string]*protos.TableSchema, error) {
-	logger := internal.LoggerFromCtx(ctx)
-
-	// deep copy to avoid mutating input
-	schemasInCatalogCopy := make(map[string]*protos.TableSchema, len(schemasInCatalog))
-	for tableName, schema := range schemasInCatalog {
-		if schema == nil {
-			return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
-		}
-		schemasInCatalogCopy[tableName] = proto.CloneOf(schema)
-	}
-
-	for _, schemaDelta := range schemaDeltas {
-		if schema, exists := schemasInCatalogCopy[schemaDelta.DstTableName]; exists {
-			columnNames := make(map[string]struct{}, len(schema.GetColumns()))
-			for _, col := range schema.GetColumns() {
-				columnNames[col.Name] = struct{}{}
-			}
-			for _, newCol := range schemaDelta.GetAddedColumns() {
-				// only add columns that don't already exist
-				if _, exists := columnNames[newCol.Name]; !exists {
-					schema.Columns = append(schema.Columns, newCol)
-					columnNames[newCol.Name] = struct{}{}
-				} else {
-					logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
-						newCol.Name, newCol.Type, schemaDelta.DstTableName))
-				}
-			}
-		} else {
-			logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
-		}
-	}
-	return schemasInCatalogCopy, nil
 }
 
 func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
@@ -437,14 +422,14 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-		TPull,
-		context.Context,
-		*otel_metrics.OtelManager,
-		*protos.QRepConfig,
-		protos.DBType,
-		*protos.QRepPartition,
-		TWrite,
-	) (int64, int64, error),
+	TPull,
+	context.Context,
+	*otel_metrics.OtelManager,
+	*protos.QRepConfig,
+	protos.DBType,
+	*protos.QRepPartition,
+	TWrite,
+) (int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -528,13 +513,13 @@ func replicateXminPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-		*connpostgres.PostgresConnector,
-		context.Context,
-		*protos.QRepConfig,
-		protos.DBType,
-		*protos.QRepPartition,
-		TWrite,
-	) (int64, int64, int64, error),
+	*connpostgres.PostgresConnector,
+	context.Context,
+	*protos.QRepConfig,
+	protos.DBType,
+	*protos.QRepPartition,
+	TWrite,
+) (int64, int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
