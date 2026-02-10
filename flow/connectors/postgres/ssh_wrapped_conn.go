@@ -58,7 +58,7 @@ func NewPostgresConnFromConfig(
 	// crash the process. Avoid that by limiting the max body length just for the initial handshake.
 	connConfig.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
 		frontend := pgproto3.NewFrontend(r, w)
-		frontend.SetMaxBodyLen(1024 * 1024)
+		frontend.SetMaxBodyLen(16 * 1024 * 1024)
 		return frontend
 	}
 	conn, err := pgx.ConnectConfig(ctx, connConfig)
