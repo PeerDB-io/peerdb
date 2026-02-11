@@ -1,6 +1,7 @@
 ---
 name: update-dependencies
-description: Updates dependencies in the PeerDB repository. Use when explicitly requested via a command.
+description: Updates dependencies in the PeerDB repository
+disable-model-invocation: true
 ---
 
 Make a to-do list for the following sequence, then execute it:
