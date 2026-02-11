@@ -728,6 +728,39 @@ func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrTooManyParts),
+		//nolint:lll
+		Message: "Too many parts (3025 with average size of 65.51 MiB) in table 'ss_replica.posts_resync (db2b0f62-f577-4116-8b5d-e0f760a42bee)'. Merges are processing significantly slower than inserts",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewQRepSyncError(fmt.Errorf("QRepSync Error: %w", err), "", ""))
+	assert.Equal(t, ErrorNotifyTooManyPartsError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrTooManyParts)),
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "ss_replica.posts_resync (db2b0f62-f577-4116-8b5d-e0f760a42bee)",
+		},
+	}, errInfo)
+}
+
+func TestClickHouseTooManyPartsWithoutTableName(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrTooManyParts),
+		//nolint:lll
+		Message: "Too many partitions for single INSERT block (more than 9999). The limit is controlled by 'max_partitions_per_insert_block' setting.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewQRepSyncError(fmt.Errorf("QRepSync Error: %w", err), "", ""))
+	assert.Equal(t, ErrorNotifyTooManyPartsError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrTooManyParts)),
+	}, errInfo)
+}
+
 func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 	err := exceptions.NewMySQLUnsupportedDDLError("test_db.test_table")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
