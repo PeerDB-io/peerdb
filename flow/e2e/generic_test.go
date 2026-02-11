@@ -599,7 +599,6 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.Env = map[string]string{"PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG": "true"}
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -718,7 +717,6 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.Env = map[string]string{"PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG": "true"}
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)

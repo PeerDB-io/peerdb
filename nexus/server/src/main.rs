@@ -49,7 +49,7 @@ use pt::{
     flow_model::QRepFlowJob,
     peerdb_peers::{Peer, peer::Config},
 };
-use rand::Rng;
+use rand::RngExt;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
