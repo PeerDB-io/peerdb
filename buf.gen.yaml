@@ -6,10 +6,10 @@ managed:
     except:
       - buf.build/googleapis/googleapis
 plugins:
-  - plugin: buf.build/protocolbuffers/go:v1.36.10
+  - plugin: buf.build/protocolbuffers/go:v1.36.11
     out: flow/generated/protos
     opt: paths=source_relative
-  - plugin: buf.build/grpc/go:v1.3.0
+  - plugin: buf.build/grpc/go:v1.5.1
     out: flow/generated/protos
     opt:
       - paths=source_relative
@@ -24,12 +24,12 @@ plugins:
     out: nexus/pt/src/gen
     opt:
       - ignore_unknown_fields=true
-  - plugin: buf.build/community/stephenh-ts-proto:v2.6.1
+  - plugin: buf.build/community/stephenh-ts-proto:v2.11.2
     out: ui/grpc_generated
     opt:
       - esModuleInterop=true
       - outputServices=none
-  - plugin: buf.build/grpc-ecosystem/gateway:v2.27.3
+  - plugin: buf.build/grpc-ecosystem/gateway:v2.27.7
     out: flow/generated/protos
     opt:
       - paths=source_relative
