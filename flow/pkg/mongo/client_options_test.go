@@ -51,8 +51,8 @@ func TestBuildClientOptions_TLS(t *testing.T) {
 			name:            "default TLS config with ServerName set",
 			uri:             "mongodb://localhost:27017/",
 			disableTls:      false,
-			expectTLSConfig: true,
 			tlsHost:         "custom.host.com",
+			expectTLSConfig: true,
 		},
 	}
 
