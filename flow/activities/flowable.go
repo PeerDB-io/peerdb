@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -305,6 +306,7 @@ func (a *FlowableActivity) SyncFlow(
 	var normalizeWaiting atomic.Bool
 	var syncingBatchID atomic.Int64
 	var syncState atomic.Pointer[string]
+	var syncCompletionTimes sync.Map
 	syncState.Store(shared.Ptr("setup"))
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
@@ -368,7 +370,8 @@ func (a *FlowableActivity) SyncFlow(
 	group.Go(func() error {
 		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normalizeCtx, logger, config, syncDone, &syncCompletionTimes,
+			normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {
@@ -387,10 +390,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState, &syncCompletionTimes)
 		} else {
 			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState, &syncCompletionTimes)
 		}
 
 		if syncErr != nil {
@@ -445,6 +448,7 @@ func (a *FlowableActivity) syncRecords(
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
+	syncCompletionTimes *sync.Map,
 ) (*model.SyncResponse, error) {
 	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
 	if config.Script != "" {
@@ -477,7 +481,7 @@ func (a *FlowableActivity) syncRecords(
 	}
 	return syncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
-		syncingBatchID, syncWaiting, adaptStream,
+		syncingBatchID, syncWaiting, syncCompletionTimes, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
 }
@@ -493,10 +497,11 @@ func (a *FlowableActivity) syncPg(
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
+	syncCompletionTimes *sync.Map,
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
-		syncingBatchID, syncWaiting, nil,
+		syncingBatchID, syncWaiting, syncCompletionTimes, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
 }

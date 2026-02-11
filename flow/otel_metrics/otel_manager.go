@@ -53,6 +53,7 @@ const (
 	AllFetchedBytesCounterName           = "all_fetched_bytes"
 	FetchedBytesCounterName              = "fetched_bytes"
 	CommitLagGaugeName                   = "commit_lag"
+	NormalizeLagGaugeName                = "normalize_lag"
 	ServerSideCommitLagGaugeName         = "server_side_commit_lag"
 	ErrorEmittedGaugeName                = "error_emitted"
 	ErrorsEmittedCounterName             = "errors_emitted"
@@ -107,6 +108,7 @@ type Metrics struct {
 	AllFetchedBytesCounter           metric.Int64Counter
 	FetchedBytesCounter              metric.Int64Counter
 	CommitLagGauge                   metric.Int64Gauge
+	NormalizeLagGauge                metric.Int64Gauge
 	ServerSideCommitLagGauge         metric.Int64Gauge
 	ErrorEmittedGauge                metric.Int64Gauge
 	ErrorsEmittedCounter             metric.Int64Counter
@@ -402,6 +404,13 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		metric.WithUnit("us"),
 		metric.WithDescription("Lag in microseconds from when a change event was committed on the source"+
 			" to when PeerDB processes it; subject to clock skew"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.NormalizeLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(NormalizeLagGaugeName),
+		metric.WithUnit("us"),
+		metric.WithDescription("Lag in microseconds from sync completion to normalization completion for a batch"),
 	); err != nil {
 		return err
 	}

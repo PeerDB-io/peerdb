@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -129,6 +130,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncState *atomic.Pointer[string],
+	syncCompletionTimes *sync.Map,
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, shared.CatalogPool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
@@ -349,6 +351,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if recordBatchSync.NeedsNormalize() {
+		// store the batch sync time before sending the normRequest to
+		// ensure it's in the map before normalize loop see the request
+		syncCompletionTimes.Store(res.CurrentSyncBatchID, time.Now())
 		syncState.Store(shared.Ptr("normalizing"))
 		normRequests.Update(res.CurrentSyncBatchID)
 		normWaitThreshold := res.CurrentSyncBatchID - normBufferSize
@@ -709,6 +714,7 @@ func (a *FlowableActivity) normalizeLoop(
 	logger log.Logger,
 	config *protos.FlowConnectionConfigsCore,
 	syncDone <-chan struct{},
+	syncCompletionTimes *sync.Map,
 	normalizeRequests *concurrency.LastChan,
 	normalizeResponses *concurrency.LastChan,
 	normalizingBatchID *atomic.Int64,
@@ -739,6 +745,12 @@ func (a *FlowableActivity) normalizeLoop(
 		retryLoop:
 			for {
 				normalizingBatchID.Store(reqBatchID)
+				if syncTime, ok := syncCompletionTimes.Load(reqBatchID); ok {
+					normalizeLag := time.Since(syncTime.(time.Time)).Microseconds()
+					a.OtelManager.Metrics.NormalizeLagGauge.Record(ctx, normalizeLag, metric.WithAttributeSet(attribute.NewSet(
+						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+					)))
+				}
 				if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
 					_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					for {
@@ -758,6 +770,7 @@ func (a *FlowableActivity) normalizeLoop(
 						}
 					}
 				}
+				syncCompletionTimes.Delete(reqBatchID)
 				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
 				)))
