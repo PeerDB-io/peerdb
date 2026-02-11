@@ -50,6 +50,7 @@ var (
 	)
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
 	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
+	ClickHouseTooManyPartsTableRe     = regexp.MustCompile(`in table '(.+)'\.`)
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
 	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
@@ -213,6 +214,9 @@ var (
 	}
 	ErrorNotifyClickHouseSupportIsDisabledError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_SUPPORT_IS_DISABLED_ERROR", action: NotifyUser,
+	}
+	ErrorNotifyTooManyPartsError = ErrorClass{
+		Class: "NOTIFY_TOO_MANY_PARTS", action: NotifyUser,
 	}
 	// Catch-all for unclassified errors
 	ErrorOther = ErrorClass{
@@ -884,6 +888,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		case chproto.ErrSupportIsDisabled:
 			return ErrorNotifyClickHouseSupportIsDisabledError, chErrorInfo
+		case chproto.ErrTooManyParts:
+			var additionalAttributes map[AdditionalErrorAttributeKey]string
+			if matches := ClickHouseTooManyPartsTableRe.FindStringSubmatch(chException.Message); len(matches) > 1 {
+				additionalAttributes = map[AdditionalErrorAttributeKey]string{
+					ErrorAttributeKeyTable: matches[1],
+				}
+			}
+			return ErrorNotifyTooManyPartsError, ErrorInfo{
+				Source:               chErrorInfo.Source,
+				Code:                 chErrorInfo.Code,
+				AdditionalAttributes: additionalAttributes,
+			}
 		}
 		var normalizationErr *exceptions.NormalizationError
 		if isClickHouseMvError(chException) {
@@ -995,7 +1011,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresReplicaIdentityIndexError.Table,
-				ErrorAttributeKeyColumn: "n\a",
+				ErrorAttributeKeyColumn: "n/a",
 			},
 		}
 	}
