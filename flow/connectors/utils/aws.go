@@ -24,7 +24,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 const (
@@ -409,7 +409,7 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 			rootCAs, tlsHost := credsProvider.GetTlsConfig()
 			if rootCAs != nil || tlsHost != "" {
 				// start with a clone of DefaultTransport so we keep http2, idle-conns, etc.
-				tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
+				tlsConfig, err := common.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
 				if err != nil {
 					return nil, err
 				}
