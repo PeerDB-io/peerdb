@@ -167,7 +167,6 @@ func (c *PostgresConnector) getPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	numPartitions := int64(config.NumPartitionsOverride)
 	schemaTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
@@ -205,13 +204,7 @@ func (c *PostgresConnector) getPartitions(
 		logger:          c.logger,
 	}
 
-	if config.NumPartitionsOverride <= 0 {
-		computedNumPartitions, err := ComputeNumPartitions(ctx, partitionParams, numRowsPerPartition)
-		if err != nil {
-			return nil, err
-		}
-		partitionParams.numPartitions = computedNumPartitions
-	}
+	partitionParams.numPartitions = 1000
 
 	isCTIDWatermarkCol := config.WatermarkColumn == ctidColumnName
 	hasPartitionOverride := config.NumPartitionsOverride > 0 // backwards-compatibility with old behavior
