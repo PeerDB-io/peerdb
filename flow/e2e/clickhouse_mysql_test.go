@@ -890,7 +890,7 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	RequireEnvCanceled(t, env)
 }
 
-func (s ClickHouseSuite) Test_MySQL_Coercion() {
+func (s ClickHouseSuite) Test_MySQL_NumToVarcharCoercion() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
@@ -939,6 +939,80 @@ func (s ClickHouseSuite) Test_MySQL_Coercion() {
 	require.Equal(s.t, uint64(1), numCount)
 	require.Equal(s.t, uint64(1), f32Count)
 	require.Equal(s.t, uint64(1), f64Count)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_date_coercion"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_date_coercion_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			d_pre1970 DATE NOT NULL,
+			d_post1970 DATE NOT NULL,
+			d_zero DATE NOT NULL,
+			d_zero_month DATE NOT NULL,
+			d_zero_day DATE NOT NULL,
+			d_dt3 DATE NOT NULL,
+			d_dt6 DATE NOT NULL,
+			d_ts DATE NOT NULL,
+			d_ts3 DATE NOT NULL,
+			d_ts6 DATE NOT NULL
+		)`, quotedSrcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (d_pre1970, d_post1970, d_zero, d_zero_month, d_zero_day, d_dt3, d_dt6, d_ts, d_ts3, d_ts6) VALUES
+			('1926-02-02', '2025-02-02', '0000-00-00', '2000-00-01', '2000-01-00',
+			'1926-02-02', '1926-02-02', '2025-02-02', '2025-02-02', '2025-02-02')`,
+		quotedSrcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial",
+		srcTableName, dstTableName, "id,d_pre1970,d_post1970,d_zero,d_zero_month,d_zero_day,d_dt3,d_dt6,d_ts,d_ts3,d_ts6")
+
+	// NOTE: internally in MySQL these are DATETIME2 and TIMESTAMP2,
+	// the older DATETIME and TIMESTAMP are pre-2013
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s
+			MODIFY COLUMN d_pre1970 DATETIME NOT NULL,
+			MODIFY COLUMN d_post1970 DATETIME NOT NULL,
+			MODIFY COLUMN d_zero DATETIME NOT NULL,
+			MODIFY COLUMN d_zero_month DATETIME NOT NULL,
+			MODIFY COLUMN d_zero_day DATETIME NOT NULL,
+			MODIFY COLUMN d_dt3 DATETIME(3) NOT NULL,
+			MODIFY COLUMN d_dt6 DATETIME(6) NOT NULL,
+			MODIFY COLUMN d_ts TIMESTAMP NOT NULL,
+			MODIFY COLUMN d_ts3 TIMESTAMP(3) NOT NULL,
+			MODIFY COLUMN d_ts6 TIMESTAMP(6) NOT NULL`,
+		quotedSrcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (d_pre1970, d_post1970, d_zero, d_zero_month, d_zero_day, d_dt3, d_dt6, d_ts, d_ts3, d_ts6) VALUES
+			('1926-02-02 03:00:00', '2025-02-02 03:00:00', '0000-00-00 00:00:00', '2000-00-01 12:00:00', '2000-01-00 12:00:00',
+			'1926-02-02 03:00:00.123', '1926-02-02 03:00:00.123456', '2025-02-02 03:00:00', '2025-02-02 03:00:00.654', '2025-02-02 03:00:00.654321')`,
+		quotedSrcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
