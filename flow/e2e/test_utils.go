@@ -20,9 +20,8 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/PeerDB-io/peerdb/flow/cmd"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
@@ -502,9 +501,8 @@ func CreateQRepWorkflowConfig(
 func RunQRepFlowWorkflow(t *testing.T, tc client.Client, config *protos.QRepConfig) WorkflowRun {
 	t.Helper()
 
-	client, err := NewApiClient()
-	require.NoError(t, err)
-	res, err := client.CreateQRepFlow(t.Context(), &protos.CreateQRepFlowRequest{QrepConfig: config})
+	handler := NewFlowHandler(t)
+	res, err := handler.CreateQRepFlow(t.Context(), &protos.CreateQRepFlowRequest{QrepConfig: config})
 	require.NoError(t, err)
 	return WorkflowRun{
 		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
@@ -631,12 +629,13 @@ func NewTemporalClient(t *testing.T) client.Client {
 	return tc
 }
 
-func NewApiClient() (protos.FlowServiceClient, error) {
-	client, err := grpc.NewClient("0.0.0.0:8112", grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, err
-	}
-	return protos.NewFlowServiceClient(client), nil
+func NewFlowHandler(t *testing.T) *cmd.FlowRequestHandler {
+	t.Helper()
+	tc := NewTemporalClient(t)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	return cmd.NewFlowRequestHandler(t.Context(), tc, pool, taskQueue)
 }
 
 type WorkflowRun struct {
@@ -657,9 +656,8 @@ func GetPeerflow(ctx context.Context, catalog *pgx.Conn, tc client.Client, flowN
 func ExecutePeerflow(t *testing.T, tc client.Client, config *protos.FlowConnectionConfigs) WorkflowRun {
 	t.Helper()
 
-	client, err := NewApiClient()
-	require.NoError(t, err)
-	res, err := client.CreateCDCFlow(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: config})
+	handler := NewFlowHandler(t)
+	res, err := handler.CreateCDCFlow(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: config})
 	require.NoError(t, err)
 	return WorkflowRun{
 		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
