@@ -61,6 +61,10 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
 				return 0, 0, temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
 					exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(), err)
+			} else if shared.IsSQLStateErrorSubstring(err,
+				pgerrcode.ObjectNotInPrerequisiteState, "could not import the requested snapshot") {
+				return 0, 0, temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
+					exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot.String(), err)
 			}
 			return 0, 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}

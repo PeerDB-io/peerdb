@@ -607,6 +607,13 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 				Code:   exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(),
 			},
 		},
+		exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot: {
+			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot.String(),
+			},
+		},
 	} {
 		t.Run(code.String(), func(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError(

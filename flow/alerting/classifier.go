@@ -424,7 +424,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: ErrorSourcePostgres,
 				Code:   temporalErr.Type(),
 			}
-
+		case exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot:
+			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   temporalErr.Type(),
+			}
 		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot, exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
 			return ErrorNotifyConnectivity, ErrorInfo{
 				Source: ErrorSourcePostgres,
