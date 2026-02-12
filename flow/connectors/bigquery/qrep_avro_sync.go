@@ -15,6 +15,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -113,7 +114,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}, nil
 }
 
-func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softDeleteCol string) []string {
+func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softDeleteCol string, geoMakeValid bool) []string {
 	transformedColumns := make([]string, 0, len(*dstSchema))
 	for _, col := range *dstSchema {
 		if col.Name == syncedAtCol { // PeerDB column
@@ -127,8 +128,13 @@ func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softD
 
 		switch col.Type {
 		case bigquery.GeographyFieldType:
-			transformedColumns = append(transformedColumns,
-				fmt.Sprintf("ST_GEOGFROMTEXT(`%s`) AS `%s`", col.Name, col.Name))
+			if geoMakeValid {
+				transformedColumns = append(transformedColumns,
+					fmt.Sprintf("ST_GEOGFROMTEXT(`%s`, make_valid => TRUE) AS `%s`", col.Name, col.Name))
+			} else {
+				transformedColumns = append(transformedColumns,
+					fmt.Sprintf("ST_GEOGFROMTEXT(`%s`) AS `%s`", col.Name, col.Name))
+			}
 		case bigquery.JSONFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("PARSE_JSON(`%s`,wide_number_mode=>'round') AS `%s`", col.Name, col.Name))
@@ -183,7 +189,12 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	}
 
 	insertColumnSQL := strings.Join(insertColumns, ", ")
-	transformedColumns := getTransformedColumns(&dstTableMetadata.Schema, syncedAtCol, softDeleteCol)
+	geoMakeValid, err := internal.PeerDBBigQueryGeoMakeValid(ctx, env)
+	if err != nil {
+		s.connector.logger.Warn("failed to load PEERDB_BIGQUERY_GEO_MAKE_VALID, continuing with false", slog.Any("error", err))
+		geoMakeValid = false
+	}
+	transformedColumns := getTransformedColumns(&dstTableMetadata.Schema, syncedAtCol, softDeleteCol, geoMakeValid)
 	selector := strings.Join(transformedColumns, ", ")
 
 	// The staging table may not exist if there are no rows (not created by the bq loader)
