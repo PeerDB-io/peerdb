@@ -427,6 +427,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_BIGQUERY_GEO_MAKE_VALID",
+		Description:      "BigQuery only: use make_valid parameter in ST_GEOGFROMTEXT to repair geometries that are invalid under S2 during merge and initial load",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_BIGQUERY,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -574,6 +582,10 @@ func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context, env map[strin
 
 func PeerDBBigQueryToastMergeChunking(ctx context.Context, env map[string]string) (uint32, error) {
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING")
+}
+
+func PeerDBBigQueryGeoMakeValid(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_BIGQUERY_GEO_MAKE_VALID")
 }
 
 func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
