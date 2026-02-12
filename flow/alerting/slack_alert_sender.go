@@ -10,11 +10,12 @@ import (
 
 type SlackAlertSender struct {
 	AlertSender
-	client                        *slack.Client
-	channelIDs                    []string
-	members                       []string
-	slotLagMBAlertThreshold       uint32
-	openConnectionsAlertThreshold uint32
+	client                                     *slack.Client
+	channelIDs                                 []string
+	members                                    []string
+	slotLagMBAlertThreshold                    uint32
+	openConnectionsAlertThreshold              uint32
+	intervalSinceLastNormalizeMinutesThreshold uint32
 }
 
 func (s *SlackAlertSender) getSlotLagMBAlertThreshold() uint32 {
@@ -25,12 +26,17 @@ func (s *SlackAlertSender) getOpenConnectionsAlertThreshold() uint32 {
 	return s.openConnectionsAlertThreshold
 }
 
+func (s *SlackAlertSender) getIntervalSinceLastNormalizeMinutesThreshold() uint32 {
+	return s.intervalSinceLastNormalizeMinutesThreshold
+}
+
 type slackAlertConfig struct {
-	AuthToken                     string   `json:"auth_token"`
-	ChannelIDs                    []string `json:"channel_ids"`
-	Members                       []string `json:"members"`
-	SlotLagMBAlertThreshold       uint32   `json:"slot_lag_mb_alert_threshold"`
-	OpenConnectionsAlertThreshold uint32   `json:"open_connections_alert_threshold"`
+	AuthToken                                  string   `json:"auth_token"`
+	ChannelIDs                                 []string `json:"channel_ids"`
+	Members                                    []string `json:"members"`
+	SlotLagMBAlertThreshold                    uint32   `json:"slot_lag_mb_alert_threshold"`
+	OpenConnectionsAlertThreshold              uint32   `json:"open_connections_alert_threshold"`
+	IntervalSinceLastNormalizeMinutesThreshold uint32   `json:"interval_since_last_normalize_minutes_threshold"`
 }
 
 func newSlackAlertSender(config *slackAlertConfig) *SlackAlertSender {
@@ -39,7 +45,8 @@ func newSlackAlertSender(config *slackAlertConfig) *SlackAlertSender {
 		channelIDs:                    config.ChannelIDs,
 		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
 		openConnectionsAlertThreshold: config.OpenConnectionsAlertThreshold,
-		members:                       config.Members,
+		intervalSinceLastNormalizeMinutesThreshold: config.IntervalSinceLastNormalizeMinutesThreshold,
+		members: config.Members,
 	}
 }
 

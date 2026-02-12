@@ -279,11 +279,11 @@ export function NewConfig(alertProps: AlertConfigProps) {
           variant='simple'
           type={'number'}
           placeholder='optional'
-          value={config.slot_lag_mb_alert_threshold / 1000}
+          value={(config.slot_lag_mb_alert_threshold ?? 0) / 1000 || ''}
           onChange={(e) =>
             setConfig((previous) => ({
               ...previous,
-              slot_lag_mb_alert_threshold: e.target.valueAsNumber * 1000,
+              slot_lag_mb_alert_threshold: (isNaN(e.target.valueAsNumber) ? 0 : e.target.valueAsNumber) * 1000,
             }))
           }
         />
@@ -296,11 +296,33 @@ export function NewConfig(alertProps: AlertConfigProps) {
           variant='simple'
           type={'number'}
           placeholder='optional'
-          value={config.open_connections_alert_threshold}
+          value={config.open_connections_alert_threshold || ''}
           onChange={(e) =>
             setConfig((previous) => ({
               ...previous,
-              open_connections_alert_threshold: e.target.valueAsNumber,
+              open_connections_alert_threshold: isNaN(e.target.valueAsNumber) ? 0 : e.target.valueAsNumber,
+            }))
+          }
+        />
+      </div>
+      <div>
+        <p>Interval Since Last Normalize Alert Threshold (in minutes)</p>
+        <Label as='label' style={{ fontSize: 14 }}>
+          Alert if data hasn&apos;t been normalized for longer than this
+          duration. Set to 0 to use global default.
+        </Label>
+        <TextField
+          key={'interval_since_last_normalize_minutes_threshold'}
+          style={{ height: '2.5rem', marginTop: '0.5rem' }}
+          variant='simple'
+          type={'number'}
+          placeholder='minutes (default: 240)'
+          value={config.interval_since_last_normalize_minutes_threshold || ''}
+          onChange={(e) =>
+            setConfig((previous) => ({
+              ...previous,
+              interval_since_last_normalize_minutes_threshold:
+                isNaN(e.target.valueAsNumber) ? 0 : e.target.valueAsNumber,
             }))
           }
         />

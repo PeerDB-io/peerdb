@@ -9,6 +9,9 @@ const baseServiceConfigSchema = z.object({
   open_connections_alert_threshold: z
     .int({ error: () => 'Threshold must be an integer' })
     .min(0, 'Connections threshold must be non-negative'),
+  interval_since_last_normalize_minutes_threshold: z
+    .int({ error: () => 'Normalize threshold must be an integer' })
+    .min(0, 'Normalize threshold must be non-negative'),
 });
 
 export const slackServiceConfigSchema = z.intersection(
