@@ -33,7 +33,7 @@ const (
 		_peerdb_batch_id Int64,
 		_peerdb_unchanged_toast_columns String
 	)`
-	zooPathPrefix = "/clickhouse/tables/{uuid}/{shard}/{database}/%s"
+	zooPathPrefix = "/clickhouse/tables/{uuid}/{shard}/{database}/"
 )
 
 // GetRawTableName returns the raw table name for the given table identifier.
