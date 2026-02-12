@@ -716,22 +716,6 @@ func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName 
 	return nil
 }
 
-func (c *PostgresConnector) updateNormalizeMetadata(
-	ctx context.Context,
-	flowJobName string,
-	normalizeBatchID int64,
-	normalizeRecordsTx pgx.Tx,
-) error {
-	if _, err := normalizeRecordsTx.Exec(ctx,
-		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		normalizeBatchID, flowJobName,
-	); err != nil {
-		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
-	}
-
-	return nil
-}
-
 func (c *PostgresConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,

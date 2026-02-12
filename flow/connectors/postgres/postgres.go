@@ -709,12 +709,6 @@ func (c *PostgresConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
-	normalizeRecordsTx, err := c.conn.Begin(ctx)
-	if err != nil {
-		return model.NormalizeResponse{}, fmt.Errorf("error starting transaction for normalizing records: %w", err)
-	}
-	defer shared.RollbackTx(normalizeRecordsTx, c.logger)
-
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return model.NormalizeResponse{}, err
@@ -734,41 +728,88 @@ func (c *PostgresConnector) NormalizeRecords(
 	}
 
 	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
-		for _, destinationTableName := range destinationTableNames {
-			normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
-			for _, normalizeStatement := range normalizeStatements {
-				ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, batchID, destinationTableName)
-				if err != nil {
-					c.logger.Error("error executing normalize statement",
-						slog.String("statement", normalizeStatement),
-						slog.Int64("currentBatchID", batchID),
-						slog.Int64("normBatchID", normBatchID),
-						slog.Int64("syncBatchID", req.SyncBatchID),
-						slog.String("destinationTableName", destinationTableName),
-						slog.Any("error", err),
-					)
-					return model.NormalizeResponse{},
-						fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
-				}
-				totalRowsAffected += int(ct.RowsAffected())
-			}
+		rowsAffected, err := c.normalizeBatch(ctx, batchID, req, destinationTableNames, &normalizeStmtGen)
+		if err != nil {
+			return model.NormalizeResponse{}, err
 		}
+		totalRowsAffected += rowsAffected
+		c.logger.Info("normalize: committed batch to destination",
+			slog.Int64("batchID", batchID),
+			slog.Int64("syncBatchID", req.SyncBatchID),
+			slog.Int("rowsAffected", rowsAffected),
+		)
 	}
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
-
-	// updating metadata with new normalizeBatchID
-	if err := c.updateNormalizeMetadata(ctx, req.FlowJobName, req.SyncBatchID, normalizeRecordsTx); err != nil {
-		return model.NormalizeResponse{}, err
-	}
-	// transaction commits
-	if err := normalizeRecordsTx.Commit(ctx); err != nil {
-		return model.NormalizeResponse{}, err
-	}
 
 	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
+}
+
+type batchEntry struct {
+	tableName string
+	statement string
+}
+
+func (c *PostgresConnector) normalizeBatch(
+	ctx context.Context,
+	batchID int64,
+	req *model.NormalizeRecordsRequest,
+	destinationTableNames []string,
+	normalizeStmtGen *normalizeStmtGenerator,
+) (int, error) {
+	tx, err := c.conn.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error starting transaction for normalizing records: %w", err)
+	}
+	defer shared.RollbackTx(tx, c.logger)
+
+	batch := &pgx.Batch{}
+	var entries []batchEntry
+	for _, destinationTableName := range destinationTableNames {
+		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
+		for _, stmt := range normalizeStatements {
+			batch.Queue(stmt, batchID, destinationTableName)
+			entries = append(entries, batchEntry{tableName: destinationTableName, statement: stmt})
+		}
+	}
+	batch.Queue(
+		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+		batchID, req.FlowJobName,
+	)
+
+	results := tx.SendBatch(ctx, batch)
+	defer results.Close()
+
+	totalRowsAffected := 0
+	for _, entry := range entries {
+		ct, err := results.Exec()
+		if err != nil {
+			c.logger.Error("error executing normalize statement",
+				slog.String("statement", entry.statement),
+				slog.Int64("batchID", batchID),
+				slog.String("destinationTableName", entry.tableName),
+				slog.Any("error", err),
+			)
+			return 0, fmt.Errorf("error executing normalize statement for table %s: %w", entry.tableName, err)
+		}
+		totalRowsAffected += int(ct.RowsAffected())
+	}
+
+	if _, err := results.Exec(); err != nil {
+		return 0, fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
+	}
+
+	if err := results.Close(); err != nil {
+		return 0, fmt.Errorf("failed to close batch results: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("failed to commit normalize transaction: %w", err)
+	}
+
+	return totalRowsAffected, nil
 }
 
 type SlotCheckResult struct {
