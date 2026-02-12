@@ -76,7 +76,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(s Suite) 
 		SourceName:         s.Source().GeneratePeer(t).Name,
 		DestinationName:    c.Destination,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
-		IdleTimeoutSeconds: 15,
+		IdleTimeoutSeconds: 5,
 		Version:            shared.InternalVersion_Latest,
 	}
 	if c.SoftDelete {
