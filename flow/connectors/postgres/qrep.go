@@ -208,6 +208,7 @@ func (c *PostgresConnector) getPartitions(
 
 	isCTIDWatermarkCol := config.WatermarkColumn == ctidColumnName
 	hasPartitionOverride := config.NumPartitionsOverride > 0 // backwards-compatibility with old behavior
+	hasPartitionOverride = true                              // hack to trigger min-max range partitioning
 	hasCTIDOverride, err := internal.PeerDBPostgresApplyCtidBlockPartitioning(ctx, config.Env)
 	if err != nil {
 		c.logger.Warn("failed to get CTID partitioning config", slog.Any("error", err))
