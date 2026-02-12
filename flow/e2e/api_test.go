@@ -2121,3 +2121,132 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s APITestSuite) TestChangeCatalogLastOffsetForMirror() {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+	case *MongoSource:
+		s.t.Skip("skipping test for mongo - last_offset not applicable")
+	default:
+		s.t.Fatalf("invalid source type: %T", s.source)
+	}
+
+	tableName := "test_last_offset_change"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "test_change_last_offset_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{
+		ConnectionConfigs: flowConnConfig,
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'test')", AttachSchema(s, tableName))))
+
+	EnvWaitFor(s.t, env, 2*time.Minute, "waiting for offset to be set", func() bool {
+		var lastOffset int64
+		err := s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(),
+			"SELECT last_offset FROM metadata_last_sync_state WHERE job_name=$1",
+			flowConnConfig.FlowJobName,
+		).Scan(&lastOffset)
+		return err == nil && lastOffset > 0
+	})
+
+	// Get the current offset before changing
+	var initialOffset int64
+	err = s.pg.PostgresConnector.Conn().QueryRow(
+		s.t.Context(),
+		"SELECT last_offset FROM metadata_last_sync_state WHERE job_name=$1",
+		flowConnConfig.FlowJobName,
+	).Scan(&initialOffset)
+	require.NoError(s.t, err)
+	require.Greater(s.t, initialOffset, int64(0))
+
+	// Test 1: Change to a different offset
+	newOffset := int64(12345)
+	changeResponse, err := s.ChangeCatalogLastOffsetForMirror(s.t.Context(), &protos.ChangeCatalogLastOffsetForMirrorRequest{
+		FlowName:   flowConnConfig.FlowJobName,
+		LastOffset: &newOffset,
+		Reason:     "testing offset change",
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, changeResponse)
+	require.Equal(s.t, flowConnConfig.FlowJobName, changeResponse.FlowName)
+	require.Equal(s.t, initialOffset, changeResponse.PreviousOffset)
+	require.Equal(s.t, newOffset, changeResponse.NewOffset)
+
+	// Verify it was actually updated in the catalog
+	var updatedOffset int64
+	err = s.pg.PostgresConnector.Conn().QueryRow(
+		s.t.Context(),
+		"SELECT last_offset FROM metadata_last_sync_state WHERE job_name=$1",
+		flowConnConfig.FlowJobName,
+	).Scan(&updatedOffset)
+	require.NoError(s.t, err)
+	require.Equal(s.t, newOffset, updatedOffset)
+
+	// Test 2: Reset to 0 (no offset provided)
+	response2, err := s.ChangeCatalogLastOffsetForMirror(s.t.Context(), &protos.ChangeCatalogLastOffsetForMirrorRequest{
+		FlowName: flowConnConfig.FlowJobName,
+		Reason:   "resetting to 0",
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response2)
+	require.Equal(s.t, newOffset, response2.PreviousOffset)
+	require.Equal(s.t, int64(0), response2.NewOffset)
+
+	// Verify it was reset to 0
+	err = s.pg.PostgresConnector.Conn().QueryRow(
+		s.t.Context(),
+		"SELECT last_offset FROM metadata_last_sync_state WHERE job_name=$1",
+		flowConnConfig.FlowJobName,
+	).Scan(&updatedOffset)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(0), updatedOffset)
+
+	// Test 3: Error case - empty flow name
+	_, err = s.ChangeCatalogLastOffsetForMirror(s.t.Context(), &protos.ChangeCatalogLastOffsetForMirrorRequest{
+		FlowName: "",
+		Reason:   "should fail",
+	})
+	require.Error(s.t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.InvalidArgument, grpcStatus.Code())
+
+	// Test 4: Error case - negative offset
+	negativeOffset := int64(-100)
+	_, err = s.ChangeCatalogLastOffsetForMirror(s.t.Context(), &protos.ChangeCatalogLastOffsetForMirrorRequest{
+		FlowName:   flowConnConfig.FlowJobName,
+		LastOffset: &negativeOffset,
+		Reason:     "should fail",
+	})
+	require.Error(s.t, err)
+	grpcStatus, ok = status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.InvalidArgument, grpcStatus.Code())
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
