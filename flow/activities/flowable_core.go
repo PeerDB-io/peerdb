@@ -347,6 +347,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
+	if len(res.TableSchemaDeltas) > 0 {
+		logger.Info("applied schema deltas", slog.Int("numDeltas", len(res.TableSchemaDeltas)))
+	}
 
 	if recordBatchSync.NeedsNormalize() {
 		syncState.Store(shared.Ptr("normalizing"))
