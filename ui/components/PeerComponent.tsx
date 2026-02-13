@@ -58,6 +58,9 @@ export function DBTypeToImageMapping(peerType: DBType | string) {
     case DBType.MONGO:
     case 'MONGO':
       return '/svgs/mongo.svg';
+    case DBType.COCKROACHDB:
+    case 'COCKROACHDB':
+      return '/svgs/cockroachdb.svg';
     default:
       return '/svgs/pg.svg';
   }

@@ -1,6 +1,7 @@
 import { PeerConfig, PeerSetter } from '@/app/dto/PeersDTO';
 import { blankBigquerySetting } from './bq';
 import { blankClickHouseSetting } from './ch';
+import { blankCockroachDBSetting } from './crdb';
 import { blankEventHubGroupSetting } from './eh';
 import { blankElasticsearchSetting } from './es';
 import { blankKafkaSetting } from './ka';
@@ -37,6 +38,8 @@ export function getBlankSetting(dbType: string): PeerConfig {
       return blankBigquerySetting;
     case 'CLICKHOUSE':
       return blankClickHouseSetting;
+    case 'COCKROACHDB':
+      return blankCockroachDBSetting;
     case 'PUBSUB':
       return blankPubSubSetting;
     case 'KAFKA':

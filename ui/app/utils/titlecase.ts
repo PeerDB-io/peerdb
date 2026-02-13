@@ -7,5 +7,6 @@ export default function TitleCase(input: string): string {
     })
     .replaceAll('Postgresql', 'PostgreSQL')
     .replaceAll('Rds', 'RDS')
-    .replaceAll('Mysql', 'MySQL');
+    .replaceAll('Mysql', 'MySQL')
+    .replaceAll('Cockroachdb', 'CockroachDB');
 }

@@ -130,6 +130,25 @@ message PostgresConfig {
   optional AwsAuthenticationConfig aws_auth = 12;
 }
 
+message CockroachDBConfig {
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4 [(peerdb_redacted) = true];
+  string database = 5;
+  string tls_host = 6;
+  // defaults to _peerdb_internal
+  optional string metadata_schema = 7;
+  optional SSHConfig ssh_config = 8;
+  optional string root_ca = 9 [(peerdb_redacted) = true];
+  bool require_tls = 10;
+  // CockroachDB-specific settings
+  optional uint32 max_retries = 11;
+  optional uint32 retry_base_delay_ms = 12;
+  optional string cluster_name = 13;
+  bool use_changefeeds = 14;
+}
+
 message EventHubConfig {
   string namespace = 1;
   string resource_group = 2;
@@ -271,6 +290,7 @@ enum DBType {
   PUBSUB = 10;
   EVENTHUBS = 11;
   ELASTICSEARCH = 12;
+  COCKROACHDB = 13;
   DBTYPE_UNKNOWN = -1;
 }
 
@@ -287,6 +307,10 @@ enum DatabaseVariant {
   PLANETSCALE = 7;
   // only Postgres
   SUPABASE = 8;
+  // CockroachDB variants
+  COCKROACHDB_CLOUD = 9;
+  COCKROACHDB_DEDICATED = 10;
+  COCKROACHDB_SERVERLESS = 11;
 }
 
 message Peer {
@@ -305,5 +329,6 @@ message Peer {
     PubSubConfig pubsub_config = 13;
     ElasticsearchConfig elasticsearch_config = 14;
     MySqlConfig mysql_config = 15;
+    CockroachDBConfig cockroachdb_config = 16;
   }
 }

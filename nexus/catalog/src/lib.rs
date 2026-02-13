@@ -343,6 +343,11 @@ impl Catalog {
                         pt::peerdb_peers::MySqlConfig::decode(&options[..]).with_context(err)?;
                     Config::MysqlConfig(mysql_config)
                 }
+                DbType::Cockroachdb => {
+                    let crdb_config =
+                        pt::peerdb_peers::CockroachDbConfig::decode(&options[..]).with_context(err)?;
+                    Config::CockroachdbConfig(crdb_config)
+                }
                 DbType::DbtypeUnknown => return Ok(None),
             })
         } else {
