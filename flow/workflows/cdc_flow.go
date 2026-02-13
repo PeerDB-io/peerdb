@@ -290,10 +290,8 @@ func processTableAdditions(
 			additionalTablesCfg := proto.CloneOf(cfg)
 			additionalTablesCfg.DoInitialSnapshot = !flowConfigUpdate.SkipInitialSnapshotForTableAdditions
 			additionalTablesCfg.InitialSnapshotOnly = true
-			addTableMappingsCtx := context.Background()
-			defer addTableMappingsCtx.Done()
 			tableMappingVersions, err := internal.AddTableToTableMappings(
-				addTableMappingsCtx, additionalTablesCfg.FlowJobName, flowConfigUpdate.AdditionalTables,
+				context.Background(), additionalTablesCfg.FlowJobName, flowConfigUpdate.AdditionalTables,
 				additionalTablesCfg.TableMappingVersion,
 			)
 			if err != nil {
@@ -448,10 +446,8 @@ func processTableRemovals(
 		return removed
 	})
 
-	//create a new TableMappingVersion since we have removed tables
-	ctxForTableMapping := context.Background()
-	defer ctxForTableMapping.Done()
-	version, err := internal.RemoveTableFromTableMappings(ctxForTableMapping, cfg.FlowJobName, removedTables, cfg.TableMappingVersion)
+	// create a new TableMappingVersion since we have removed tables
+	version, err := internal.RemoveTableFromTableMappings(context.Background(), cfg.FlowJobName, removedTables, cfg.TableMappingVersion)
 	if err != nil {
 		return fmt.Errorf("failed to update flow config table mappings for removed tables: %w", err)
 	}

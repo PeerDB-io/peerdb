@@ -141,18 +141,13 @@ func (a *FlowableActivity) EnsurePullability(
 	}
 	defer srcClose(ctx)
 
-	// We can fetch from the DB, as we are in the activity
-	//cfg, err := internal.FetchConfigFromDB(ctx, a.CatalogPool, config.FlowJobName)
-	//if err != nil {
-	//return nil, err
-	//}
 	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
 	if err != nil {
 		return nil, err
 	}
 
-	resync := false // THIS WILL NEED TO COME FROM SOMEWHERE
-	config.SourceTableIdentifiers = slices.Sorted(maps.Keys(internal.TableNameMapping(tableMappings, resync)))
+	// resync only affects destination names, we only need source identifiers here
+	config.SourceTableIdentifiers = slices.Sorted(maps.Keys(internal.TableNameMapping(tableMappings, false)))
 
 	output, err := srcConn.EnsurePullability(ctx, config)
 	if err != nil {
@@ -947,7 +942,6 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
-	return nil
 	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Starting scheduled tasks")
 	defer common.Interval(ctx, 20*time.Second, func() {
@@ -2054,7 +2048,9 @@ func (a *FlowableActivity) MigrateTableMappingsToCatalog(
 	jsonBlob, _ := json.MarshalIndent(tableMappings, "", "  ")
 	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings, json_blob) VALUES ($1, $2, $3, $4)
 	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mappings = EXCLUDED.table_mappings`
-	_, err = tx.Exec(ctx, stmt, flowJobName, version, tableMappingsBytes, jsonBlob)
+	if _, err := tx.Exec(ctx, stmt, flowJobName, version, tableMappingsBytes, jsonBlob); err != nil {
+		return fmt.Errorf("failed to insert table mappings into catalog: %w", err)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction to migrate table mappings to catalog: %w", err)
