@@ -283,7 +283,6 @@ func (s *SnapshotFlowExecution) cloneTables(
 		return err
 	}
 
-	slog.Info("!!!! in snapshot flow - with config", slog.Any("config", s.config))
 	tableMappingsCtx := context.Background()
 	defer tableMappingsCtx.Done()
 	tableMappings, err := internal.FetchTableMappingsFromDB(tableMappingsCtx, s.config.FlowJobName, s.config.TableMappingVersion)

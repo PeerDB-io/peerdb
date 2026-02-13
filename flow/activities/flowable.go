@@ -279,7 +279,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, err
 	}
 
-	slog.Info("FETCHING TABLE MAPPINGS FROM DB", slog.Any("cfg", config))
 	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowName, config.TableMappingVersion)
 	if err != nil {
 		return nil, err
@@ -2040,7 +2039,6 @@ func (a *FlowableActivity) MigrateTableMappingsToCatalog(
 	ctx context.Context,
 	flowJobName string, tableMappings []*protos.TableMapping, version uint32,
 ) error {
-	slog.Info("!!!!!!!!!!!!!!!!! CALLING MIGRATE MAPPINGS TO CATALOG")
 	logger := internal.LoggerFromCtx(ctx)
 	tx, err := a.CatalogPool.Begin(ctx)
 	if err != nil {

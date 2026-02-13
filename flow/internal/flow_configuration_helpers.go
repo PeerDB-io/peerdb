@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"runtime/debug"
 
 	"google.golang.org/protobuf/proto"
 
@@ -62,10 +61,6 @@ func InsertTableMappingsToDB(
 	ctx context.Context, flowJobName string, tableMappings []*protos.TableMapping, version uint32,
 ) error {
 	logger := LoggerFromCtx(ctx)
-	slog.Warn("!!!!!!! Inserting table mappings with version ",
-		slog.Int("version", int(version)),
-		slog.String("backtrace", string(debug.Stack())),
-	)
 	pool, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return err
@@ -128,11 +123,8 @@ func AddTableToTableMappings(
 		return nil, fmt.Errorf("unable to load existing table mappings: %w", err)
 	}
 
-	slog.Info("Y0$$$")
-
 	existingTableMappings = append(existingTableMappings, tableMapping...)
 	slog.Info("Updated table mappings", slog.Int("num_mappings", len(existingTableMappings)), slog.Any("mappings", existingTableMappings))
-	slog.Info("Y0$$$$$$$")
 
 	version += 1
 	err = InsertTableMappingsToDB(ctx, flowJobName, tableMapping, version)
@@ -167,18 +159,15 @@ func FetchTableMappingsFromDB(ctx context.Context, flowJobName string, version u
 		flowJobName, version,
 	)
 
-	slog.Info("!!!!! Fetching TABLE MAPPINGS", slog.String("flow_name", flowJobName), slog.Int("version", int(version)))
 	var tableMappingsBytes [][]byte
 	if err := row.Scan(&tableMappingsBytes); err != nil {
 		return nil, fmt.Errorf("failed to deserialize table mapping schema proto: %w", err)
 	}
 
 	var tableMappings []*protos.TableMapping = []*protos.TableMapping{}
-	slog.Info("!!!!! YO3 ", slog.Int("len", len(tableMappingsBytes)))
 
 	for _, tableMappingBytes := range tableMappingsBytes {
 		var tableMapping protos.TableMapping
-		slog.Info("!!!!! YO - in loop ")
 		if err := proto.Unmarshal(tableMappingBytes, &tableMapping); err != nil {
 			return nil, err
 		}

@@ -218,13 +218,11 @@ func (h *FlowRequestHandler) createCDCFlow(
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // but creating the same id as a completed one is allowed
 	}
 
-	slog.Info("!!!!!!!!!! HEHE1")
 	if err := h.createCdcJobEntry(ctx, connectionConfigs, workflowID, true); err != nil {
 		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	slog.Info("!!!!!!!!!! HEHE")
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, connectionConfigs, nil); err != nil {
 		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
