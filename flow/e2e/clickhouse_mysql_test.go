@@ -1007,9 +1007,17 @@ func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 		quotedSrcFullName)))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (d_pre1970, d_post1970, d_zero, d_zero_month, d_zero_day, d_dt3, d_dt6, d_ts, d_ts3, d_ts6) VALUES
-			('1926-02-02 03:00:00', '2025-02-02 03:00:00', '0000-00-00 00:00:00', '2000-00-01 12:00:00', '2000-01-00 12:00:00',
-			'1926-02-02 03:00:00.123', '1926-02-02 03:00:00.123456', '2025-02-02 03:00:00', '2025-02-02 03:00:00.654', '2025-02-02 03:00:00.654321')`,
+		`INSERT INTO %s (
+			d_pre1970, d_post1970,
+			d_zero, d_zero_month, d_zero_day,
+			d_dt3, d_dt6,
+			d_ts, d_ts3, d_ts6
+		) VALUES (
+		 	'1926-02-02 03:00:00', '2025-02-02 03:00:00',
+			'0000-00-00 00:00:00', '2000-00-01 12:00:00', '2000-01-00 12:00:00',
+			'1926-02-02 03:00:00.123', '1926-02-02 03:00:00.123456',
+			'2025-02-02 03:00:00', '2025-02-02 03:00:00.654', '2025-02-02 03:00:00.654321'
+		)`,
 		quotedSrcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
