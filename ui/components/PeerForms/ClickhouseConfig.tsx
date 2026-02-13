@@ -2,6 +2,7 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import InfoPopover from '@/components/InfoPopover';
+import { ClickhouseConfig } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button/Button';
 import { Icon } from '@/lib/Icon/Icon';
 import { Label } from '@/lib/Label';
@@ -16,10 +17,19 @@ import { handleFieldChange } from './common';
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
+  config?: ClickhouseConfig;
+  onSkipSecretValidationChange?: (skip: boolean) => void;
 }
 
-export default function ClickHouseForm({ settings, setter }: ConfigProps) {
+export default function ClickHouseForm({
+  settings,
+  setter,
+  config,
+  onSkipSecretValidationChange,
+}: ConfigProps) {
   const [show, setShow] = useState(false);
+
+  const hasTlsSecretName = !!(config?.tlsCertificateSecretName);
 
   return (
     <>
@@ -110,6 +120,24 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
             />
           );
         })}
+
+      {hasTlsSecretName && onSkipSecretValidationChange && (
+        <RowWithSwitch
+          label={
+            <Label>
+              Skip Secret Validation{' '}
+              <InfoPopover tips='Enable this if the TLS Secret will be provisioned dynamically by an external controller (e.g. cert-manager). Validation will be skipped if the Secret does not yet exist.' />
+            </Label>
+          }
+          action={
+            <Switch
+              onCheckedChange={(val: boolean) =>
+                onSkipSecretValidationChange(val)
+              }
+            />
+          }
+        />
+      )}
 
       <Label variant='subheadline' as='label' style={{ marginTop: '2rem' }}>
         Transient S3 Stage (Optional)

@@ -17,6 +17,7 @@ import ElasticsearchConfigForm from '@/components/PeerForms/ElasticsearchConfigF
 import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig';
 import ThemedToastContainer from '@/components/ThemedToastContainer';
 import {
+  ClickhouseConfig,
   ElasticsearchConfig,
   EventHubGroupConfig,
   MongoConfig,
@@ -58,6 +59,8 @@ export default function CreateConfig({ params }: CreateConfigProps) {
   );
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
+  const [skipSecretValidation, setSkipSecretValidation] =
+    useState<boolean>(false);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
   const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
 
@@ -99,7 +102,12 @@ export default function CreateConfig({ params }: CreateConfigProps) {
         return <BigqueryForm setter={setConfig} />;
       case 'CLICKHOUSE':
         return (
-          <ClickHouseForm settings={clickhouseSetting} setter={setConfig} />
+          <ClickHouseForm
+            settings={clickhouseSetting}
+            setter={setConfig}
+            config={config as ClickhouseConfig}
+            onSkipSecretValidationChange={setSkipSecretValidation}
+          />
         );
       case 'S3':
         return <S3Form setter={setConfig} />;
@@ -223,7 +231,16 @@ export default function CreateConfig({ params }: CreateConfigProps) {
           <Button
             variant='warningSolid'
             onClick={() =>
-              handleValidate(getDBType(), config, notifyErr, setLoading, name)
+              handleValidate(
+                getDBType(),
+                config,
+                notifyErr,
+                setLoading,
+                name,
+                skipSecretValidation
+                  ? { skipSecretValidation: true }
+                  : undefined
+              )
             }
           >
             Validate
@@ -237,7 +254,10 @@ export default function CreateConfig({ params }: CreateConfigProps) {
                 notifyErr,
                 setLoading,
                 listPeersRoute,
-                name
+                name,
+                skipSecretValidation
+                  ? { skipSecretValidation: true }
+                  : undefined
               )
             }
           >
