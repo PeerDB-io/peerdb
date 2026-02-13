@@ -9,6 +9,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
@@ -78,8 +79,13 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 }
 
 func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
-	sourceTables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
-	for _, tableMapping := range cfg.TableMappings {
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return fmt.Errorf("failed to fetch table mappings: %w", err)
+	}
+
+	sourceTables := make([]*common.QualifiedTable, 0, len(tableMappings))
+	for _, tableMapping := range tableMappings {
 		parsedTable, parseErr := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
@@ -112,7 +118,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	}
 
 	requireRowMetadata := false
-	for _, tm := range cfg.TableMappings {
+	for _, tm := range tableMappings {
 		if len(tm.Exclude) > 0 {
 			requireRowMetadata = true
 			break

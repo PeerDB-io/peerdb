@@ -19,7 +19,7 @@ var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
-	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
+	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs)
 	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
 }
 
@@ -65,7 +65,13 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			errors.New("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
-	for _, tm := range connectionConfigs.TableMappings {
+	// fetch connection configs from DB
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, connectionConfigs.FlowJobName, connectionConfigs.TableMappingVersion)
+	if err != nil {
+		return nil, NewInternalApiError(err)
+	}
+
+	for _, tm := range tableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
 				return nil, NewInvalidArgumentApiError(errors.New("invalid custom column type " + col.DestinationType))
@@ -104,7 +110,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	if !connectionConfigs.Resync {
 		var getTableSchemaError error
 		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, connectionConfigs.Env, connectionConfigs.Version,
-			connectionConfigs.System, connectionConfigs.TableMappings)
+			connectionConfigs.System, tableMappings)
 		if getTableSchemaError != nil {
 			return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get source table schema: %w", getTableSchemaError))
 		}

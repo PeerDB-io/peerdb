@@ -8,7 +8,6 @@ import (
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -68,18 +67,14 @@ type CDCFlowWorkflowState struct {
 
 // returns a new empty PeerFlowState
 func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigsCore) *CDCFlowWorkflowState {
-	tableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
-	for _, tableMapping := range cfg.TableMappings {
-		tableMappings = append(tableMappings, proto.CloneOf(tableMapping))
-	}
 	state := CDCFlowWorkflowState{
 		ActiveSignal:      model.NoopSignal,
 		CurrentFlowStatus: protos.FlowStatus_STATUS_SETUP,
 		FlowConfigUpdate:  nil,
 		SyncFlowOptions: &protos.SyncFlowOptions{
-			BatchSize:          cfg.MaxBatchSize,
-			IdleTimeoutSeconds: cfg.IdleTimeoutSeconds,
-			TableMappings:      tableMappings,
+			BatchSize:           cfg.MaxBatchSize,
+			IdleTimeoutSeconds:  cfg.IdleTimeoutSeconds,
+			TableMappingVersion: cfg.TableMappingVersion,
 		},
 		SnapshotNumRowsPerPartition:   cfg.SnapshotNumRowsPerPartition,
 		SnapshotNumPartitionsOverride: cfg.SnapshotNumPartitionsOverride,

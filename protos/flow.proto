@@ -41,6 +41,7 @@ message TableMapping {
   string sharding_key = 7;
   string policy_name = 8;
   string partition_by_expr = 9;
+  uint32 version = 10;
 }
 
 message SetupInput {
@@ -91,6 +92,7 @@ message FlowConnectionConfigs {
 
   map<string, string> env = 24;
   uint32 version = 25;
+  uint32 table_mapping_version = 27;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -103,7 +105,7 @@ message FlowConnectionConfigsCore {
 
   // config for the CDC flow itself
   // currently, TableMappings, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
-  repeated TableMapping table_mappings = 4;
+  //repeated TableMapping table_mappings = 4;
   uint32 max_batch_size = 5;
   uint64 idle_timeout_seconds = 6;
   string cdc_staging_path = 7;
@@ -137,6 +139,7 @@ message FlowConnectionConfigsCore {
 
   map<string, string> env = 24;
   uint32 version = 25;
+  uint32 table_mapping_version = 27;
 }
 
 message RenameTableOption {
@@ -181,6 +184,7 @@ message SyncFlowOptions {
   map<uint32, string> src_table_id_name_mapping = 4;
   repeated TableMapping table_mappings = 6;
   int32 number_of_syncs = 7;
+  uint32 table_mapping_version = 8;
 }
 
 message EnsurePullabilityBatchInput {
@@ -188,6 +192,7 @@ message EnsurePullabilityBatchInput {
   repeated string source_table_identifiers = 3;
   bool check_constraints = 4;
   string peer_name = 5;
+  uint32 table_mapping_version = 6;
 }
 
 message PostgresTableIdentifier {
@@ -209,6 +214,8 @@ message SetupReplicationInput {
   string existing_replication_slot_name = 7;
   string peer_name = 8;
   string destination_name = 9;
+  uint32 table_mapping_version = 10;
+  bool resync = 11;
 }
 
 message SetupReplicationOutput {
@@ -250,13 +257,15 @@ message SetupTableSchemaBatchInput {
   string flow_name = 3;
   TypeSystem system = 4;
   string peer_name = 5;
-  repeated TableMapping table_mappings = 6;
+  //repeated TableMapping table_mappings = 6;
   uint32 version = 7;
+  uint32 table_mapping_version = 8;
+  repeated TableMapping schema_delta_table_mappings = 9;
 }
 
 message SetupNormalizedTableBatchInput {
   map<string, string> env = 1;
-  repeated TableMapping table_mappings = 3;
+  //repeated TableMapping table_mappings = 3;
 
   // migration related columns
   string soft_delete_col_name = 4;
@@ -264,6 +273,7 @@ message SetupNormalizedTableBatchInput {
   string flow_name = 6;
   string peer_name = 7;
   bool is_resync = 8;
+  uint32 table_mapping_version = 9;
 }
 
 message SetupNormalizedTableOutput {

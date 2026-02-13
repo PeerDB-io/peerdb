@@ -64,8 +64,14 @@ func (a *SnapshotActivity) SetupReplication(
 
 	conn, connClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("!!!failed to get connector: %w", err))
 	}
+
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
+	if err != nil {
+		return nil, err
+	}
+	config.TableNameMapping = internal.TableNameMapping(tableMappings, config.Resync)
 
 	logger.Info("waiting for slot to be created...")
 	slotInfo, err := conn.SetupReplication(ctx, config)
@@ -187,8 +193,12 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	}
 	defer connClose(ctx)
 
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, input.FlowJobName, input.TableMappingVersion)
+	if err != nil {
+		return nil, err
+	}
 	output, err := conn.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
-		TableMappings: input.TableMappings,
+		TableMappings: tableMappings,
 	})
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to check if tables can parallel load: %w", err))

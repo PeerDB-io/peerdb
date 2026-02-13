@@ -224,7 +224,11 @@ func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
 	}
 
 	for _, cfg := range configs {
-		numTables := len(cfg.TableMappings)
+		tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+		if err != nil {
+			logger.Error("failed to fetch table mappings", slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
+			tableMappings = nil
+		}
 		flowConfig := FlowConfigForLogging{
 			FlowName:                    cfg.FlowJobName,
 			MaxBatchSize:                cfg.MaxBatchSize,
@@ -237,7 +241,7 @@ func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
 			SnapshotMaxParallelWorkers:  cfg.SnapshotMaxParallelWorkers,
 			SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 			Resync:                      cfg.Resync,
-			NumTables:                   numTables,
+			NumTables:                   len(tableMappings),
 		}
 		configJSON, err := json.Marshal(flowConfig)
 		if err != nil {
@@ -248,7 +252,7 @@ func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
 			slog.String("flowName", cfg.FlowJobName),
 			slog.String("flowConfig", string(configJSON)))
 
-		for _, tm := range cfg.TableMappings {
+		for _, tm := range tableMappings {
 			tableConfig := TableMappingForLogging{
 				TableName:     tm.SourceTableIdentifier,
 				DestTableName: tm.DestinationTableIdentifier,

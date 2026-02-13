@@ -2,11 +2,14 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -138,6 +141,14 @@ func (a *FlowableActivity) EnsurePullability(
 	}
 	defer srcClose(ctx)
 
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	// resync only affects destination names, we only need source identifiers here
+	config.SourceTableIdentifiers = slices.Sorted(maps.Keys(internal.TableNameMapping(tableMappings, false)))
+
 	output, err := srcConn.EnsurePullability(ctx, config)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to ensure pullability: %w", err))
@@ -187,11 +198,18 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 	defer srcClose(ctx)
 
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, config.TableMappings)
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowName, config.TableMappingVersion)
+	if err != nil {
+		return err
+	}
+	if len(config.SchemaDeltaTableMappings) != 0 {
+		tableMappings = config.SchemaDeltaTableMappings
+	}
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, tableMappings)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}
-	processed := internal.BuildProcessedSchemaMapping(config.TableMappings, tableNameSchemaMapping, logger)
+	processed := internal.BuildProcessedSchemaMapping(tableMappings, tableNameSchemaMapping, logger)
 
 	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -256,9 +274,13 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, err
 	}
 
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowName, config.TableMappingVersion)
+	if err != nil {
+		return nil, err
+	}
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
-	for _, tableMapping := range config.TableMappings {
+	for _, tableMapping := range tableMappings {
 		tableIdentifier := tableMapping.DestinationTableIdentifier
 		tableSchema := tableNameSchemaMapping[tableIdentifier]
 		existing, err := conn.SetupNormalizedTable(
@@ -305,6 +327,15 @@ func (a *FlowableActivity) SyncFlow(
 	var normalizeWaiting atomic.Bool
 	var syncingBatchID atomic.Int64
 	var syncState atomic.Pointer[string]
+
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
+	if err != nil {
+		return err
+	}
+
+	// Override config with DB values to deal with the large fields.
+	options.TableMappings = tableMappings
+
 	syncState.Store(shared.Ptr("setup"))
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
@@ -1090,7 +1121,8 @@ func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
 		if isActive {
 			activeFlows = append(activeFlows, info)
 		}
-		a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
+		//TODO: this will need a special query as we can extract this straight from the DB.
+		//a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
 		a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowStatusKey, info.status.String()),
 			attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
@@ -1992,6 +2024,36 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 		return nil
 	}); err != nil {
 		return a.Alerter.LogFlowError(ctx, flowName, err)
+	}
+
+	return nil
+}
+
+func (a *FlowableActivity) MigrateTableMappingsToCatalog(
+	ctx context.Context,
+	flowJobName string, tableMappings []*protos.TableMapping, version uint32,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	tx, err := a.CatalogPool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction to migrate table mappings to catalog: %w", err)
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	tableMappingsBytes, err := internal.TableMappingsToBytes(tableMappings)
+	if err != nil {
+		return fmt.Errorf("unable to marshal table mappings: %w", err)
+	}
+
+	jsonBlob, _ := json.MarshalIndent(tableMappings, "", "  ")
+	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings, json_blob) VALUES ($1, $2, $3, $4)
+	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mappings = EXCLUDED.table_mappings`
+	if _, err := tx.Exec(ctx, stmt, flowJobName, version, tableMappingsBytes, jsonBlob); err != nil {
+		return fmt.Errorf("failed to insert table mappings into catalog: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction to migrate table mappings to catalog: %w", err)
 	}
 
 	return nil
