@@ -78,15 +78,7 @@ func TestClickHouseTLSInlineCerts(t *testing.T) {
 		RootCa:      &caCertStr,
 	}
 
-	ctx := context.Background()
-	conn, err := connclickhouse.Connect(ctx, nil, config)
-	require.NoError(t, err, "failed to connect to ClickHouse with inline TLS certs")
-	defer conn.Close()
-
-	var result uint64
-	err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
-	require.NoError(t, err, "failed to execute SELECT 1")
-	require.Equal(t, uint64(1), result)
+	validateConnection(t, config, nil)
 }
 
 // TestClickHouseTLS_K8sSecret verifies that connclickhouse.Connect works
@@ -149,17 +141,19 @@ func TestClickHouseTLSK8sSecret(t *testing.T) {
 		TlsCertificateSecretName: ptr.To(testSecretName),
 	}
 
-	env := map[string]string{
+	validateConnection(t, config, map[string]string{
 		"PEERDB_CLICKHOUSE_TLS_K8S_SECRET_ENABLED": "true",
-	}
+	})
+}
 
-	ctx := context.Background()
-	conn, err := connclickhouse.Connect(ctx, env, config)
-	require.NoError(t, err, "failed to connect to ClickHouse with K8s secret TLS certs")
+func validateConnection(t *testing.T, config *protos.ClickhouseConfig, env map[string]string) {
+	t.Helper()
+
+	conn, err := connclickhouse.Connect(t.Context(), env, config)
+	require.NoError(t, err, "failed to connect to ClickHouse")
 	defer conn.Close()
 
-	var result uint64
-	err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
-	require.NoError(t, err, "failed to execute SELECT 1")
-	require.Equal(t, uint64(1), result)
+	var result uint8
+	require.NoError(t, conn.QueryRow(t.Context(), "SELECT 1").Scan(&result), "failed to execute SELECT 1")
+	require.Equal(t, uint8(1), result)
 }
