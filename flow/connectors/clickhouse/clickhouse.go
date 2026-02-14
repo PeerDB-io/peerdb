@@ -233,14 +233,15 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 
 // configureK8sSecretTLS configures the tls.Config to load client certificates
 // dynamically from a Kubernetes TLS Secret via the informer cache.
-func configureK8sSecretTLS(tlsConfig *tls.Config, secretName string) error {
+// On the initial call it waits up to ~30s for the Secret to appear (e.g.
+// while cert-manager fulfills the Certificate CR).
+func configureK8sSecretTLS(ctx context.Context, tlsConfig *tls.Config, secretName string) error {
 	secretStore, err := utils.GetK8sSecretStore()
 	if err != nil {
 		return fmt.Errorf("failed to initialize K8s Secret store for TLS certificate Secret %q: %w", secretName, err)
 	}
 
-	// Load CA cert from the Secret for RootCAs (if available)
-	_, caCertPEM, err := secretStore.GetTLSCertificate(secretName)
+	_, caCertPEM, err := secretStore.WaitForTLSCertificate(ctx, secretName)
 	if err != nil {
 		return fmt.Errorf("failed to load TLS certificate from Secret %q: %w", secretName, err)
 	}
@@ -307,7 +308,7 @@ func buildTLSConfig(ctx context.Context, env map[string]string, config *protos.C
 			return nil, fmt.Errorf("failed to check K8s TLS Secret feature flag: %w", err)
 		}
 		if k8sTLSEnabled {
-			if err := configureK8sSecretTLS(tlsConfig, secretName); err != nil {
+			if err := configureK8sSecretTLS(ctx, tlsConfig, secretName); err != nil {
 				return nil, err
 			}
 		}

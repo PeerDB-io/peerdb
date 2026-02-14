@@ -27,6 +27,21 @@ const (
 	namespaceEnv = "POD_NAMESPACE"
 )
 
+// ErrSecretNotFound is returned when the requested Secret does not exist
+// in the informer cache. Callers can use errors.Is to distinguish this
+// from other (non-retryable) errors.
+var ErrSecretNotFound = errors.New("secret not found")
+
+// waitBackoffIntervals defines the sleep durations between retry attempts
+// in WaitForTLSCertificate. Total wait ≈ 30s across 5 retries.
+var waitBackoffIntervals = []time.Duration{
+	1 * time.Second,
+	2 * time.Second,
+	4 * time.Second,
+	8 * time.Second,
+	15 * time.Second,
+}
+
 // K8sSecretStore watches Kubernetes Secrets via informers and provides
 // TLS certificate retrieval for ClickHouse peers using cert-manager.
 type K8sSecretStore struct {
@@ -138,7 +153,7 @@ func (s *K8sSecretStore) GetTLSCertificate(secretName string) (*tls.Certificate,
 		return nil, nil, fmt.Errorf("error looking up Secret %q: %w", secretName, err)
 	}
 	if !exists {
-		return nil, nil, fmt.Errorf("secret %q not found in namespace %q", secretName, s.namespace)
+		return nil, nil, fmt.Errorf("secret %q in namespace %q: %w", secretName, s.namespace, ErrSecretNotFound)
 	}
 
 	secret, ok := obj.(*corev1.Secret)
@@ -165,6 +180,40 @@ func (s *K8sSecretStore) GetTLSCertificate(secretName string) (*tls.Certificate,
 	caCert := secret.Data[tlsCACertKey]
 
 	return &cert, caCert, nil
+}
+
+// WaitForTLSCertificate attempts to retrieve a TLS certificate from the
+// informer cache, retrying with exponential backoff if the Secret has not
+// arrived yet (e.g., cert-manager is still fulfilling the Certificate CR).
+// Only "not found" errors are retried; other errors (missing keys, bad
+// cert/key pair) are returned immediately.
+func (s *K8sSecretStore) WaitForTLSCertificate(ctx context.Context, secretName string) (*tls.Certificate, []byte, error) {
+	cert, ca, err := s.GetTLSCertificate(secretName)
+	if err == nil || !errors.Is(err, ErrSecretNotFound) {
+		return cert, ca, err
+	}
+
+	for attempt, backoff := range waitBackoffIntervals {
+		slog.WarnContext(ctx, "TLS Secret not yet available, retrying",
+			slog.String("secret", secretName),
+			slog.Int("attempt", attempt+1),
+			slog.Int("maxAttempts", len(waitBackoffIntervals)),
+			slog.Duration("backoff", backoff),
+		)
+
+		select {
+		case <-ctx.Done():
+			return nil, nil, fmt.Errorf("context cancelled while waiting for Secret %q: %w", secretName, ctx.Err())
+		case <-time.After(backoff):
+		}
+
+		cert, ca, err = s.GetTLSCertificate(secretName)
+		if err == nil || !errors.Is(err, ErrSecretNotFound) {
+			return cert, ca, err
+		}
+	}
+
+	return nil, nil, fmt.Errorf("secret %q not available after %d retries: %w", secretName, len(waitBackoffIntervals), err)
 }
 
 // Close stops the informer and releases resources.

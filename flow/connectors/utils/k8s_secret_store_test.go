@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -142,7 +143,7 @@ func TestGetTLSCertificateMissingSecret(t *testing.T) {
 
 	cert, caCert, err := store.GetTLSCertificate("nonexistent")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not found")
+	require.ErrorIs(t, err, ErrSecretNotFound)
 	require.Nil(t, cert)
 	require.Nil(t, caCert)
 }
@@ -196,4 +197,104 @@ func TestGetTLSCertificateInvalidCertKeyPair(t *testing.T) {
 	require.Contains(t, err.Error(), "failed to parse TLS certificate")
 	require.Nil(t, cert)
 	require.Nil(t, caCert)
+}
+
+func TestWaitForTLSCertificateImmediateSuccess(t *testing.T) {
+	t.Parallel()
+	certs := generateTestCerts(t)
+	secret := makeTLSSecret("immediate-secret", map[string][]byte{
+		"tls.crt": certs.ClientCertPEM,
+		"tls.key": certs.ClientKeyPEM,
+		"ca.crt":  certs.CACertPEM,
+	})
+	store := newTestStore(t, secret)
+
+	cert, caCert, err := store.WaitForTLSCertificate(t.Context(), "immediate-secret")
+	require.NoError(t, err)
+	require.NotNil(t, cert)
+	require.NotEmpty(t, caCert)
+}
+
+func TestWaitForTLSCertificateArrivesAfterDelay(t *testing.T) {
+	t.Parallel()
+	certs := generateTestCerts(t)
+
+	// Create store with no secrets initially
+	clientset := fake.NewClientset()
+	store, err := newK8sSecretStoreFromClientset(clientset, testNamespace)
+	require.NoError(t, err)
+	t.Cleanup(store.Close)
+
+	// Override backoff to keep the test fast: 3 short retries
+	origBackoff := waitBackoffIntervals
+	waitBackoffIntervals = []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond}
+	t.Cleanup(func() { waitBackoffIntervals = origBackoff })
+
+	// Add the secret after a short delay (between 1st and 2nd retry)
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		secret := makeTLSSecret("delayed-secret", map[string][]byte{
+			"tls.crt": certs.ClientCertPEM,
+			"tls.key": certs.ClientKeyPEM,
+			"ca.crt":  certs.CACertPEM,
+		})
+		_, createErr := clientset.CoreV1().Secrets(testNamespace).Create(
+			context.Background(), secret, metav1.CreateOptions{},
+		)
+		if createErr != nil {
+			panic("failed to create secret in test goroutine: " + createErr.Error())
+		}
+	}()
+
+	cert, caCert, err := store.WaitForTLSCertificate(t.Context(), "delayed-secret")
+	require.NoError(t, err)
+	require.NotNil(t, cert)
+	require.NotEmpty(t, caCert)
+}
+
+func TestWaitForTLSCertificateContextCancelled(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t) // no secrets — will never find one
+
+	// Override backoff to keep the test fast
+	origBackoff := waitBackoffIntervals
+	waitBackoffIntervals = []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond}
+	t.Cleanup(func() { waitBackoffIntervals = origBackoff })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 80*time.Millisecond)
+	defer cancel()
+
+	cert, caCert, err := store.WaitForTLSCertificate(ctx, "never-arrives")
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Nil(t, cert)
+	require.Nil(t, caCert)
+}
+
+func TestWaitForTLSCertificateNonRetryableError(t *testing.T) {
+	t.Parallel()
+	certs := generateTestCerts(t)
+
+	// Secret exists but is missing tls.crt — this is a non-retryable error
+	secret := makeTLSSecret("bad-secret", map[string][]byte{
+		"tls.key": certs.ClientKeyPEM,
+	})
+	store := newTestStore(t, secret)
+
+	// Override backoff so we can assert that it does NOT retry
+	origBackoff := waitBackoffIntervals
+	waitBackoffIntervals = []time.Duration{5 * time.Second}
+	t.Cleanup(func() { waitBackoffIntervals = origBackoff })
+
+	start := time.Now()
+	cert, caCert, err := store.WaitForTLSCertificate(t.Context(), "bad-secret")
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tls.crt")
+	require.NotErrorIs(t, err, ErrSecretNotFound)
+	require.Nil(t, cert)
+	require.Nil(t, caCert)
+	// Should return immediately, not after the 5s backoff
+	require.Less(t, elapsed, 1*time.Second)
 }
