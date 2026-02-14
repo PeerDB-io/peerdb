@@ -227,6 +227,21 @@ jobs:
           MINIO_ROOT_PASSWORD: miniosecret
           AWS_EC2_METADATA_DISABLED: true
 
+      - name: Generate ClickHouse TLS certificates
+        run: |
+          mkdir -p ch-certs
+          # CA
+          openssl genrsa -out ch-certs/ca.key 2048
+          openssl req -new -x509 -key ch-certs/ca.key -out ch-certs/ca.crt -days 3650 -subj "/CN=ClickHouse-CA"
+          # Server cert (CN=localhost, SAN for TLS 1.3)
+          openssl genrsa -out ch-certs/server.key 2048
+          openssl req -new -key ch-certs/server.key -out ch-certs/server.csr -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+          openssl x509 -req -days 3650 -in ch-certs/server.csr -CA ch-certs/ca.crt -CAkey ch-certs/ca.key -CAcreateserial -out ch-certs/server.crt -copy_extensions copyall
+          # Client cert for mTLS (CN=peerdb-client)
+          openssl genrsa -out ch-certs/client.key 2048
+          openssl req -new -key ch-certs/client.key -out ch-certs/client.csr -subj "/CN=peerdb-client"
+          openssl x509 -req -days 3650 -in ch-certs/client.csr -CA ch-certs/ca.crt -CAkey ch-certs/ca.key -CAcreateserial -out ch-certs/client.crt
+
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
           docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
@@ -292,6 +307,17 @@ jobs:
                 <access_management>1</access_management>
                 <named_collection_control>1</named_collection_control>
               </default>
+              <peerdb_tls>
+                <ssl_certificates>
+                  <common_name>peerdb-client</common_name>
+                </ssl_certificates>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+              </peerdb_tls>
             </users>
             <logger><level>none</level></logger>
             <path>var/lib/clickhouse</path>
@@ -299,9 +325,21 @@ jobs:
             <user_files_path>var/lib/clickhouse/user_files</user_files_path>
             <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
             <tcp_port>9000</tcp_port>
+            <tcp_port_secure>9440</tcp_port_secure>
             <http_port remove="1"/>
             <postgresql_port remove="1"/>
             <mysql_port remove="1"/>
+            <openSSL>
+              <server>
+                <certificateFile>../ch-certs/server.crt</certificateFile>
+                <privateKeyFile>../ch-certs/server.key</privateKeyFile>
+                <caConfig>../ch-certs/ca.crt</caConfig>
+                <verificationMode>relaxed</verificationMode>
+                <cacheSessions>true</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+              </server>
+            </openSSL>
             <macros>
               <shard>1</shard>
               <replica>1</replica>
@@ -347,6 +385,17 @@ jobs:
                 <access_management>1</access_management>
                 <named_collection_control>1</named_collection_control>
               </default>
+              <peerdb_tls>
+                <ssl_certificates>
+                  <common_name>peerdb-client</common_name>
+                </ssl_certificates>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+              </peerdb_tls>
             </users>
             <logger><level>none</level></logger>
             <path>var/lib/clickhouse</path>
@@ -354,9 +403,21 @@ jobs:
             <user_files_path>var/lib/clickhouse/user_files</user_files_path>
             <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
             <tcp_port>9001</tcp_port>
+            <tcp_port_secure>9441</tcp_port_secure>
             <http_port remove="1"/>
             <postgresql_port remove="1"/>
             <mysql_port remove="1"/>
+            <openSSL>
+              <server>
+                <certificateFile>../ch-certs/server.crt</certificateFile>
+                <privateKeyFile>../ch-certs/server.key</privateKeyFile>
+                <caConfig>../ch-certs/ca.crt</caConfig>
+                <verificationMode>relaxed</verificationMode>
+                <cacheSessions>true</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+              </server>
+            </openSSL>
             <macros>
               <shard>2</shard>
               <replica>1</replica>
@@ -511,6 +572,12 @@ jobs:
           FLOW_TESTS_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+          # ClickHouse TLS/mTLS test certificates
+          PEERDB_CLICKHOUSE_TLS_PORT: "9440"
+          PEERDB_CLICKHOUSE_TLS_CLUSTER_PORT: "9441"
+          PEERDB_CLICKHOUSE_TLS_CA_CERT_PATH: ${{ github.workspace }}/ch-certs/ca.crt
+          PEERDB_CLICKHOUSE_TLS_CLIENT_CERT_PATH: ${{ github.workspace }}/ch-certs/client.crt
+          PEERDB_CLICKHOUSE_TLS_CLIENT_KEY_PATH: ${{ github.workspace }}/ch-certs/client.key
 
       - name: Upload peer-flow logs
         if: always()

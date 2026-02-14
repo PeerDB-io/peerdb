@@ -66,12 +66,22 @@ message PostScriptResponse { int32 id = 1; }
 message DeleteScriptRequest { int32 id = 1; }
 message DeleteScriptResponse {}
 
-message ValidatePeerRequest { peerdb_peers.Peer peer = 1; }
+message PeerValidationFlags {
+  // Skip validation of Kubernetes Secret existence (e.g. when the Secret
+  // is provisioned dynamically by an external controller like cert-manager).
+  bool skip_secret_validation = 1;
+}
+
+message ValidatePeerRequest {
+  peerdb_peers.Peer peer = 1;
+  PeerValidationFlags flags = 2;
+}
 
 message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;
   bool allow_update = 2;
   bool disable_validation = 3;
+  PeerValidationFlags validation_flags = 4;
 }
 
 message DropPeerRequest { string peer_name = 1; }

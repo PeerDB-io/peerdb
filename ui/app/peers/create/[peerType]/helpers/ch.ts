@@ -109,6 +109,24 @@ export const clickhouseSetting: PeerSetting[] = [
     tips: 'If not provided, host CA roots will be used.',
   },
   {
+    label: 'TLS Certificate Secret Name',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        setter((curr) => {
+          const newCurr = { ...curr } as ClickhouseConfig;
+          delete newCurr.tlsCertificateSecretName;
+          return newCurr;
+        });
+      } else
+        setter((curr) => ({
+          ...curr,
+          tlsCertificateSecretName: value as string,
+        }));
+    },
+    optional: true,
+    tips: 'Name of a Kubernetes TLS Secret (created by cert-manager) containing tls.crt, tls.key, and ca.crt. When set, inline certificate/private key fields are ignored.',
+  },
+  {
     label: 'S3 Path',
     stateHandler: (value, setter) =>
       setter((curr) => ({

@@ -828,6 +828,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
                 s3: None,
+                tls_certificate_secret_name: opts
+                    .get("tls_certificate_secret_name")
+                    .map(|s| s.to_string()),
             };
             Config::ClickhouseConfig(clickhouse_config)
         }
