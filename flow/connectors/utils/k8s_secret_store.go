@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -30,15 +31,15 @@ const (
 // TLS certificate retrieval for ClickHouse peers using cert-manager.
 type K8sSecretStore struct {
 	clientset kubernetes.Interface
-	namespace string
 	informer  cache.SharedIndexInformer
 	stopCh    chan struct{}
+	namespace string
 }
 
 var (
 	globalSecretStore     *K8sSecretStore
 	globalSecretStoreOnce sync.Once
-	globalSecretStoreErr  error
+	errGlobalSecretStore  error
 )
 
 // GetK8sSecretStore returns the singleton K8sSecretStore instance.
@@ -46,9 +47,9 @@ var (
 // Returns an error if not running inside Kubernetes.
 func GetK8sSecretStore() (*K8sSecretStore, error) {
 	globalSecretStoreOnce.Do(func() {
-		globalSecretStore, globalSecretStoreErr = newK8sSecretStore()
+		globalSecretStore, errGlobalSecretStore = newK8sSecretStore()
 	})
-	return globalSecretStore, globalSecretStoreErr
+	return globalSecretStore, errGlobalSecretStore
 }
 
 func newK8sSecretStore() (*K8sSecretStore, error) {
@@ -86,10 +87,10 @@ func newK8sSecretStore() (*K8sSecretStore, error) {
 	defer cancel()
 	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
 		close(stopCh)
-		return nil, fmt.Errorf("timed out waiting for Kubernetes Secret informer cache sync")
+		return nil, errors.New("timed out waiting for Kubernetes Secret informer cache sync")
 	}
 
-	slog.Info("K8s Secret store initialized", slog.String("namespace", namespace))
+	slog.InfoContext(ctx, "K8s Secret store initialized", slog.String("namespace", namespace))
 
 	return &K8sSecretStore{
 		clientset: clientset,
@@ -109,7 +110,7 @@ func (s *K8sSecretStore) GetTLSCertificate(secretName string) (*tls.Certificate,
 		return nil, nil, fmt.Errorf("error looking up Secret %q: %w", secretName, err)
 	}
 	if !exists {
-		return nil, nil, fmt.Errorf("Secret %q not found in namespace %q", secretName, s.namespace)
+		return nil, nil, fmt.Errorf("secret %q not found in namespace %q", secretName, s.namespace)
 	}
 
 	secret, ok := obj.(*corev1.Secret)
@@ -119,12 +120,12 @@ func (s *K8sSecretStore) GetTLSCertificate(secretName string) (*tls.Certificate,
 
 	certPEM, ok := secret.Data[tlsCertKey]
 	if !ok || len(certPEM) == 0 {
-		return nil, nil, fmt.Errorf("Secret %q missing %q key", secretName, tlsCertKey)
+		return nil, nil, fmt.Errorf("secret %q missing %q key", secretName, tlsCertKey)
 	}
 
 	keyPEM, ok := secret.Data[tlsKeyKey]
 	if !ok || len(keyPEM) == 0 {
-		return nil, nil, fmt.Errorf("Secret %q missing %q key", secretName, tlsKeyKey)
+		return nil, nil, fmt.Errorf("secret %q missing %q key", secretName, tlsKeyKey)
 	}
 
 	cert, err := tls.X509KeyPair(certPEM, keyPEM)

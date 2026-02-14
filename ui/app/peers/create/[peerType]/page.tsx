@@ -24,6 +24,7 @@ import {
   MySqlConfig,
   PostgresConfig,
 } from '@/grpc_generated/peers';
+import { PeerValidationFlags } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -59,8 +60,9 @@ export default function CreateConfig({ params }: CreateConfigProps) {
   );
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
-  const [skipSecretValidation, setSkipSecretValidation] =
-    useState<boolean>(false);
+  const [validationFlags, setValidationFlags] = useState<
+    PeerValidationFlags | undefined
+  >(undefined);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
   const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
 
@@ -106,7 +108,7 @@ export default function CreateConfig({ params }: CreateConfigProps) {
             settings={clickhouseSetting}
             setter={setConfig}
             config={config as ClickhouseConfig}
-            onSkipSecretValidationChange={setSkipSecretValidation}
+            onValidationFlagsChange={setValidationFlags}
           />
         );
       case 'S3':
@@ -237,9 +239,7 @@ export default function CreateConfig({ params }: CreateConfigProps) {
                 notifyErr,
                 setLoading,
                 name,
-                skipSecretValidation
-                  ? { skipSecretValidation: true }
-                  : undefined
+                validationFlags
               )
             }
           >
@@ -255,9 +255,7 @@ export default function CreateConfig({ params }: CreateConfigProps) {
                 setLoading,
                 listPeersRoute,
                 name,
-                skipSecretValidation
-                  ? { skipSecretValidation: true }
-                  : undefined
+                validationFlags
               )
             }
           >

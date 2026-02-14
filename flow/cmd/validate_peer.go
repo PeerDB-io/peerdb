@@ -47,8 +47,11 @@ func (h *FlowRequestHandler) ValidatePeer(
 				if !hasInlineCerts {
 					// No K8s secret and no inline certs — skip validation entirely
 					return &protos.ValidatePeerResponse{
-						Status:  protos.ValidatePeerStatus_VALID,
-						Message: fmt.Sprintf("skipping validation for %s peer %s (TLS Secret %q not yet provisioned and no inline certs provided)", req.Peer.Type, req.Peer.Name, secretName),
+						Status: protos.ValidatePeerStatus_VALID,
+						Message: fmt.Sprintf(
+							"skipping validation for %s peer %s"+
+								" (TLS Secret %q not yet provisioned and no inline certs provided)",
+							req.Peer.Type, req.Peer.Name, secretName),
 					}, nil
 				}
 				// Inline certs available — fall through to normal validation using inline certs

@@ -3,6 +3,7 @@ import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import InfoPopover from '@/components/InfoPopover';
 import { ClickhouseConfig } from '@/grpc_generated/peers';
+import { PeerValidationFlags } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button/Button';
 import { Icon } from '@/lib/Icon/Icon';
 import { Label } from '@/lib/Label';
@@ -18,18 +19,18 @@ interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
   config?: ClickhouseConfig;
-  onSkipSecretValidationChange?: (skip: boolean) => void;
+  onValidationFlagsChange?: (flags: PeerValidationFlags | undefined) => void;
 }
 
 export default function ClickHouseForm({
   settings,
   setter,
   config,
-  onSkipSecretValidationChange,
+  onValidationFlagsChange,
 }: ConfigProps) {
   const [show, setShow] = useState(false);
 
-  const hasTlsSecretName = !!(config?.tlsCertificateSecretName);
+  const hasTlsSecretName = !!config?.tlsCertificateSecretName;
 
   return (
     <>
@@ -121,7 +122,7 @@ export default function ClickHouseForm({
           );
         })}
 
-      {hasTlsSecretName && onSkipSecretValidationChange && (
+      {hasTlsSecretName && onValidationFlagsChange && (
         <RowWithSwitch
           label={
             <Label>
@@ -132,7 +133,9 @@ export default function ClickHouseForm({
           action={
             <Switch
               onCheckedChange={(val: boolean) =>
-                onSkipSecretValidationChange(val)
+                onValidationFlagsChange(
+                  val ? { skipSecretValidation: true } : undefined
+                )
               }
             />
           }
