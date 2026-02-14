@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
@@ -27,37 +26,6 @@ func (h *FlowRequestHandler) ValidatePeer(
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer name provided",
 		}, NewInvalidArgumentApiError(errors.New("no peer name provided"))
-	}
-
-	// If the peer uses a K8s TLS certificate Secret and skip_secret_validation is set,
-	// check whether the Secret exists. If it doesn't and there are no inline certs
-	// to fall back on, skip full validation since the Secret will be provisioned
-	// dynamically by an external controller.
-	if chConfig := req.Peer.GetClickhouseConfig(); chConfig != nil {
-		secretName := chConfig.GetTlsCertificateSecretName()
-		if secretName != "" && req.GetFlags().GetSkipSecretValidation() {
-			secretAvailable := false
-			secretStore, err := utils.GetK8sSecretStore()
-			if err == nil {
-				secretAvailable = secretStore.SecretExists(secretName)
-			}
-
-			if !secretAvailable {
-				hasInlineCerts := chConfig.Certificate != nil && chConfig.PrivateKey != nil
-				if !hasInlineCerts {
-					// No K8s secret and no inline certs — skip validation entirely
-					return &protos.ValidatePeerResponse{
-						Status: protos.ValidatePeerStatus_VALID,
-						Message: fmt.Sprintf(
-							"skipping validation for %s peer %s"+
-								" (TLS Secret %q not yet provisioned and no inline certs provided)",
-							req.Peer.Type, req.Peer.Name, secretName),
-					}, nil
-				}
-				// Inline certs available — fall through to normal validation using inline certs
-			}
-			// Secret exists — fall through to normal validation using K8s secret
-		}
 	}
 
 	validatePeerDeadline := 15 * time.Second

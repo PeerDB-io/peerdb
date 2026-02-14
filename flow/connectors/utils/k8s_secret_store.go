@@ -36,6 +36,22 @@ type K8sSecretStore struct {
 	namespace string
 }
 
+// DefaultResolveKubernetesClientset resolves a Kubernetes clientset.
+// Tests can override this variable to inject a fake clientset.
+var DefaultResolveKubernetesClientset = func() (kubernetes.Interface, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("not running in Kubernetes cluster: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	return clientset, nil
+}
+
 var (
 	globalSecretStore     *K8sSecretStore
 	globalSecretStoreOnce sync.Once
@@ -52,15 +68,21 @@ func GetK8sSecretStore() (*K8sSecretStore, error) {
 	return globalSecretStore, errGlobalSecretStore
 }
 
-func newK8sSecretStore() (*K8sSecretStore, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, fmt.Errorf("not running in Kubernetes cluster: %w", err)
+// ResetK8sSecretStoreForTest resets the singleton so the next call to
+// GetK8sSecretStore will re-initialize. Only for use in tests.
+func ResetK8sSecretStoreForTest() {
+	if globalSecretStore != nil {
+		globalSecretStore.Close()
 	}
+	globalSecretStore = nil
+	errGlobalSecretStore = nil
+	globalSecretStoreOnce = sync.Once{}
+}
 
-	clientset, err := kubernetes.NewForConfig(config)
+func newK8sSecretStore() (*K8sSecretStore, error) {
+	clientset, err := DefaultResolveKubernetesClientset()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
+		return nil, err
 	}
 
 	namespace := os.Getenv(namespaceEnv)
@@ -68,6 +90,12 @@ func newK8sSecretStore() (*K8sSecretStore, error) {
 		return nil, fmt.Errorf("environment variable %s is not set", namespaceEnv)
 	}
 
+	return newK8sSecretStoreFromClientset(clientset, namespace)
+}
+
+// newK8sSecretStoreFromClientset creates a K8sSecretStore with an injected
+// clientset and namespace. Used by newK8sSecretStore and tests.
+func newK8sSecretStoreFromClientset(clientset kubernetes.Interface, namespace string) (*K8sSecretStore, error) {
 	factory := informers.NewSharedInformerFactoryWithOptions(
 		clientset,
 		resyncPeriod,
@@ -137,13 +165,6 @@ func (s *K8sSecretStore) GetTLSCertificate(secretName string) (*tls.Certificate,
 	caCert := secret.Data[tlsCACertKey]
 
 	return &cert, caCert, nil
-}
-
-// SecretExists checks whether a Secret with the given name exists in the informer cache.
-func (s *K8sSecretStore) SecretExists(secretName string) bool {
-	key := s.namespace + "/" + secretName
-	_, exists, err := s.informer.GetStore().GetByKey(key)
-	return err == nil && exists
 }
 
 // Close stops the informer and releases resources.
