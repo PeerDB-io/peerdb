@@ -1,5 +1,6 @@
 *.sh
 *.test
+!.env.test
 coverage.out
 # intellij files
 .idea/
