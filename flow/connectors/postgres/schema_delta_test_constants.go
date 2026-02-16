@@ -18,9 +18,9 @@ var qValueKindToPgName = map[string]string{
 	string(types.QValueKindJSON):        "json",
 	string(types.QValueKindNumeric):     "numeric",
 	string(types.QValueKindString):      "text",
-	string(types.QValueKindQChar):       `"char"`,
+	string(types.QValueKindQChar):       "char",
 	string(types.QValueKindTime):        "time",
-	string(types.QValueKindTimestamp):    "timestamp",
+	string(types.QValueKindTimestamp):   "timestamp",
 	string(types.QValueKindTimestampTZ): "timestamptz",
 	string(types.QValueKindUUID):        "uuid",
 }
