@@ -236,25 +236,40 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 // configureDirectoryTLS configures the tls.Config by loading certificate files
 // from a directory. It expects tls.crt and tls.key files, and optionally ca.crt.
 // This is typically used when a Kubernetes Secret is mounted as a volume.
+//
+// Client certificates are loaded via GetClientCertificate so that every TLS
+// handshake re-reads the files from disk, automatically picking up rotated
+// certificates (e.g. renewed by cert-manager) without requiring a reconnect.
 func configureDirectoryTLS(tlsConfig *tls.Config, dir string) error {
 	certPath := filepath.Join(dir, "tls.crt")
 	keyPath := filepath.Join(dir, "tls.key")
 	caPath := filepath.Join(dir, "ca.crt")
 
-	certPEM, err := os.ReadFile(certPath)
-	if err != nil {
+	// Verify that the required files are readable at configuration time
+	if _, err := os.ReadFile(certPath); err != nil {
 		return fmt.Errorf("failed to read TLS certificate from %q: %w", certPath, err)
 	}
-	keyPEM, err := os.ReadFile(keyPath)
-	if err != nil {
+	if _, err := os.ReadFile(keyPath); err != nil {
 		return fmt.Errorf("failed to read TLS private key from %q: %w", keyPath, err)
 	}
 
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return fmt.Errorf("failed to parse TLS certificate from directory %q: %w", dir, err)
+	// Use GetClientCertificate so the cert/key are re-read on every TLS
+	// handshake, ensuring rotated certificates are picked up immediately.
+	tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		certPEM, err := os.ReadFile(certPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TLS certificate from %q: %w", certPath, err)
+		}
+		keyPEM, err := os.ReadFile(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TLS private key from %q: %w", keyPath, err)
+		}
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse TLS certificate from directory %q: %w", dir, err)
+		}
+		return &cert, nil
 	}
-	tlsConfig.Certificates = []tls.Certificate{cert}
 
 	caCertPEM, err := os.ReadFile(caPath)
 	if err == nil && len(caCertPEM) > 0 {
