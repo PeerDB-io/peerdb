@@ -57,7 +57,7 @@ const (
 	mergeStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
-		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
+		FROM %s.%s WHERE _peerdb_batch_id = $1 AND _peerdb_destination_table_name=$2
 	)
 	MERGE INTO %s dst
 	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE _peerdb_rank=1) src
@@ -601,13 +601,23 @@ func generateCreateTableSQLForNormalizedTable(
 	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
 	for _, column := range tableSchema.Columns {
 		pgColumnType := column.Type
-		if tableSchema.System == protos.TypeSystem_Q {
+
+		// handle schema-qualified custom types first (for TypeSystem_PG)
+		if tableSchema.System == protos.TypeSystem_PG && column.TypeSchemaName != "" {
+			schemaQualifiedPgType := common.QualifiedTable{
+				Namespace: column.TypeSchemaName,
+				Table:     pgColumnType,
+			}
+			pgColumnType = schemaQualifiedPgType.String()
+		} else if tableSchema.System == protos.TypeSystem_Q {
 			pgColumnType = qValueKindToPostgresType(pgColumnType)
 		}
+
 		if column.Type == "numeric" && column.TypeModifier != -1 {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
+
 		var notNull string
 		if tableSchema.NullableEnabled && !column.Nullable {
 			notNull = " NOT NULL"
@@ -701,22 +711,6 @@ func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName 
 		flowJobName, lastCP.ID, syncBatchID,
 	); err != nil {
 		return fmt.Errorf("failed to upsert flow job status: %w", err)
-	}
-
-	return nil
-}
-
-func (c *PostgresConnector) updateNormalizeMetadata(
-	ctx context.Context,
-	flowJobName string,
-	normalizeBatchID int64,
-	normalizeRecordsTx pgx.Tx,
-) error {
-	if _, err := normalizeRecordsTx.Exec(ctx,
-		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		normalizeBatchID, flowJobName,
-	); err != nil {
-		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
 	}
 
 	return nil

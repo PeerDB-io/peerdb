@@ -167,7 +167,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 				conn.SetCapability(mysql.CLIENT_COMPRESS)
 			}
 			if !c.config.DisableTls {
-				config, err := shared.CreateTlsConfig(
+				config, err := common.CreateTlsConfig(
 					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
 				)
 				if err != nil {
@@ -227,6 +227,11 @@ func (c *MySqlConnector) setSessionSettings() error {
 		} else {
 			return fmt.Errorf("failed to set session time_zone to '+00:00': %w", err)
 		}
+	}
+
+	// MariaDB <= 11.5 defaults to latin1, which can result in Unicode to not be replicated correctly
+	if _, err := conn.Execute("SET NAMES utf8mb4"); err != nil {
+		c.logger.Warn("utf8mb4 not supported, ignoring", slog.Any("error", err))
 	}
 
 	switch c.Flavor() {

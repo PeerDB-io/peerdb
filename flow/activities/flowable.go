@@ -37,6 +37,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
 type CheckMetadataTablesResult struct {
@@ -52,6 +53,13 @@ type FlowableActivity struct {
 
 type StreamCloser interface {
 	Close(error)
+}
+
+func cdcIdleTimeout(value int) time.Duration {
+	if value == 0 {
+		value = 10
+	}
+	return time.Duration(value) * time.Second
 }
 
 func (a *FlowableActivity) Alert(
@@ -76,7 +84,11 @@ func (a *FlowableActivity) CheckConnection(
 	}
 	defer connClose(ctx)
 
-	return conn.ConnectionActive(ctx)
+	if err = conn.ConnectionActive(ctx); err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("connection not active: %w", err))
+	}
+
+	return nil
 }
 
 func (a *FlowableActivity) CheckMetadataTables(
@@ -337,11 +349,20 @@ func (a *FlowableActivity) SyncFlow(
 	syncDone := make(chan struct{})
 	normRequests := concurrency.NewLastChan()
 	normResponses := concurrency.NewLastChan()
-	normBufferSize, err := internal.PeerDBNormalizeBufferSize(ctx, config.Env)
+	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
 		srcClose(ctx)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
+	idleTimeout := cdcIdleTimeout(int(options.IdleTimeoutSeconds))
+	// normBufferSize allows _approximately_ normBufferHours delay between pull/sync and normalize
+	// under normal steady operation where the batch hits idle timeout every time it will match the hours very closely
+	// effective hours will be longer if pull is idling, or there are waits on big transactions,
+	// or the sync interval is so small that start/stop overhead starts being visible
+	// will be shorter if the batches hit the size limit rather rather than idle timeout
+	normBufferSize := normBufferHours * 3600 / int64(idleTimeout.Seconds())
+	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
+	normBufferSize = max(normBufferSize, 2)
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
@@ -366,10 +387,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
 			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil {
@@ -421,6 +442,7 @@ func (a *FlowableActivity) syncRecords(
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
 	normBufferSize int64,
+	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
@@ -454,7 +476,7 @@ func (a *FlowableActivity) syncRecords(
 		}
 	}
 	return syncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize,
+		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
@@ -468,11 +490,12 @@ func (a *FlowableActivity) syncPg(
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
 	normBufferSize int64,
+	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize,
+		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
@@ -917,6 +940,9 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		}
 		logger.Info("metrics aggregates recording is disabled")
 		return nil
+	}))()
+	defer common.Interval(ctx, 1*time.Hour, wrapWithLog("LogFlowConfigs", func() error {
+		return telemetry.LogFlowConfigs(ctx, a.CatalogPool)
 	}))()
 	defer common.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
 		return a.RecordSlotSizes(ctx)
@@ -1830,6 +1856,9 @@ func getPeerHostName(peerType protos.DBType, peer *protos.Peer) string {
 	return ""
 }
 
+// NOTE: this activity is used on the path between CDCFlowWorkflow start and the signal handler for running state.
+// If it's unable to progress for whatever reason, the upgrades will break and very unpleasant manual recovery will be needed.
+// If you have to modify it, do it carefully and think through the edge cases.
 func (a *FlowableActivity) GetFlowMetadata(
 	ctx context.Context,
 	input *protos.FlowContextMetadataInput,

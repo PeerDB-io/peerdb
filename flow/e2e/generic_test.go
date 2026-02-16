@@ -599,7 +599,6 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.Env = map[string]string{"PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG": "true"}
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -632,26 +631,29 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 		System:                protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
-				Name:         "id",
-				Type:         string(types.QValueKindInt32),
-				TypeModifier: integerTypmod,
-				Nullable:     false,
+				Name:           "id",
+				Type:           string(types.QValueKindInt32),
+				TypeModifier:   integerTypmod,
+				Nullable:       false,
+				TypeSchemaName: "pg_catalog",
 			},
 			{
-				Name:         "good_column",
-				Type:         string(types.QValueKindString),
-				TypeModifier: -1,
-				Nullable:     false,
+				Name:           "good_column",
+				Type:           string(types.QValueKindString),
+				TypeModifier:   -1,
+				Nullable:       false,
+				TypeSchemaName: "pg_catalog",
 			},
 		},
 	}
 	if isMySQL {
 		// For MySQL, schema changes are not buffered, so lost_column appears in catalog immediately
 		expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
-			Name:         "lost_column",
-			Type:         string(types.QValueKindString),
-			TypeModifier: -1,
-			Nullable:     true,
+			Name:           "lost_column",
+			Type:           string(types.QValueKindString),
+			TypeModifier:   -1,
+			Nullable:       true,
+			TypeSchemaName: "pg_catalog",
 		})
 	}
 
@@ -670,10 +672,11 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 	if isPostgres {
 		// For Postgres, lost_column is added only after the second INSERT triggers a relation message
 		expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
-			Name:         "lost_column",
-			Type:         string(types.QValueKindString),
-			TypeModifier: -1,
-			Nullable:     true,
+			Name:           "lost_column",
+			Type:           string(types.QValueKindString),
+			TypeModifier:   -1,
+			Nullable:       true,
+			TypeSchemaName: "pg_catalog",
 		})
 	}
 	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
@@ -714,7 +717,6 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.Env = map[string]string{"PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG": "true"}
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -746,22 +748,25 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 		System:                protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
-				Name:         "id",
-				Type:         string(types.QValueKindInt32),
-				TypeModifier: integerTypmod,
-				Nullable:     false,
+				Name:           "id",
+				Type:           string(types.QValueKindInt32),
+				TypeModifier:   integerTypmod,
+				Nullable:       false,
+				TypeSchemaName: "pg_catalog",
 			},
 			{
-				Name:         "col_to_drop_first",
-				Type:         string(types.QValueKindString),
-				TypeModifier: -1,
-				Nullable:     false,
+				Name:           "col_to_drop_first",
+				Type:           string(types.QValueKindString),
+				TypeModifier:   -1,
+				Nullable:       false,
+				TypeSchemaName: "pg_catalog",
 			},
 			{
-				Name:         "col_to_drop_second",
-				Type:         string(types.QValueKindString),
-				TypeModifier: -1,
-				Nullable:     true,
+				Name:           "col_to_drop_second",
+				Type:           string(types.QValueKindString),
+				TypeModifier:   -1,
+				Nullable:       true,
+				TypeSchemaName: "pg_catalog",
 			},
 		},
 	}
@@ -782,10 +787,11 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 	EnvWaitForEqualTablesWithNames(env, s, "wait for second row synced", srcTable, dstTable, "id, col_to_add")
 
 	expectedCatalogSchema.Columns = append(expectedCatalogSchema.Columns, &protos.FieldDescription{
-		Name:         "col_to_add",
-		Type:         string(types.QValueKindString),
-		TypeModifier: -1,
-		Nullable:     true,
+		Name:           "col_to_add",
+		Type:           string(types.QValueKindString),
+		TypeModifier:   -1,
+		Nullable:       true,
+		TypeSchemaName: "pg_catalog",
 	})
 
 	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})

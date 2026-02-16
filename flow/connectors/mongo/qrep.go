@@ -103,8 +103,8 @@ func (c *MongoConnector) GetQRepPartitions(
 				Max bson.ObjectID `bson:"max"`
 			} `bson:"_id"`
 		}
-		if err := cursor.Decode(&bucket); err != nil {
-			return nil, fmt.Errorf("failed to decode bucket: %w", err)
+		if err := bson.Unmarshal(cursor.Current, &bucket); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal bucket: %w", err)
 		}
 
 		partitions = append(partitions, &protos.QRepPartition{
@@ -199,8 +199,11 @@ func (c *MongoConnector) PullQRepRecords(
 
 	for cursor.Next(ctx) {
 		var doc bson.D
-		if err := cursor.Decode(&doc); err != nil {
-			return 0, 0, fmt.Errorf("failed to decode record: %w", err)
+		if err := bson.Unmarshal(cursor.Current, &doc); err != nil {
+			c.logger.Error("failed to unmarshal record",
+				slog.String("error", err.Error()),
+				slog.Any("recordSize", len(cursor.Current)))
+			return 0, 0, fmt.Errorf("failed to unmarshal record: %w", err)
 		}
 
 		record, err := QValuesFromDocument(doc, config.Version)

@@ -31,7 +31,8 @@ func (h *FlowRequestHandler) ListMirrors(
 	  f.id, f.workflow_id, f.name,
 	  sp.name source_name, sp.type source_type,
 	  dp.name destination_name, dp.type source_type,
-	  f.created_at, coalesce(f.query_string, '')='' is_cdc
+	  f.created_at, coalesce(f.query_string, '')='' is_cdc,
+	  f.status
 	from flows f
 	join peers sp on sp.id = f.source_peer
 	join peers dp on dp.id = f.destination_peer`)
@@ -49,6 +50,7 @@ func (h *FlowRequestHandler) ListMirrors(
 			&item.SourceName, &item.SourceType,
 			&item.DestinationName, &item.DestinationType,
 			&createdAt, &item.IsCdc,
+			&item.Status,
 		); err != nil {
 			return nil, NewInternalApiError(fmt.Errorf("failed to scan mirror: %w", err))
 		}

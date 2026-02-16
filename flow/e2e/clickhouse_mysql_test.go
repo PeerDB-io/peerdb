@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -887,7 +890,7 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	RequireEnvCanceled(t, env)
 }
 
-func (s ClickHouseSuite) Test_MySQL_Coercion() {
+func (s ClickHouseSuite) Test_MySQL_NumToVarcharCoercion() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
@@ -939,4 +942,169 @@ func (s ClickHouseSuite) Test_MySQL_Coercion() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_date_coercion"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_date_coercion_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			d_pre1970 DATE NOT NULL,
+			d_post1970 DATE NOT NULL,
+			d_zero DATE NOT NULL,
+			d_zero_month DATE NOT NULL,
+			d_zero_day DATE NOT NULL,
+			d_dt3 DATE NOT NULL,
+			d_dt6 DATE NOT NULL,
+			d_ts DATE NOT NULL,
+			d_ts3 DATE NOT NULL,
+			d_ts6 DATE NOT NULL
+		)`, quotedSrcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (d_pre1970, d_post1970, d_zero, d_zero_month, d_zero_day, d_dt3, d_dt6, d_ts, d_ts3, d_ts6) VALUES
+			('1926-02-02', '2025-02-02', '0000-00-00', '2000-00-01', '2000-01-00',
+			'1926-02-02', '1926-02-02', '2025-02-02', '2025-02-02', '2025-02-02')`,
+		quotedSrcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial",
+		srcTableName, dstTableName, "id,d_pre1970,d_post1970,d_zero,d_zero_month,d_zero_day,d_dt3,d_dt6,d_ts,d_ts3,d_ts6")
+
+	// NOTE: internally in MySQL these are DATETIME2 and TIMESTAMP2,
+	// the older DATETIME and TIMESTAMP are pre-2013
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s
+			MODIFY COLUMN d_pre1970 DATETIME NOT NULL,
+			MODIFY COLUMN d_post1970 DATETIME NOT NULL,
+			MODIFY COLUMN d_zero DATETIME NOT NULL,
+			MODIFY COLUMN d_zero_month DATETIME NOT NULL,
+			MODIFY COLUMN d_zero_day DATETIME NOT NULL,
+			MODIFY COLUMN d_dt3 DATETIME(3) NOT NULL,
+			MODIFY COLUMN d_dt6 DATETIME(6) NOT NULL,
+			MODIFY COLUMN d_ts TIMESTAMP NOT NULL,
+			MODIFY COLUMN d_ts3 TIMESTAMP(3) NOT NULL,
+			MODIFY COLUMN d_ts6 TIMESTAMP(6) NOT NULL`,
+		quotedSrcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (
+			d_pre1970, d_post1970,
+			d_zero, d_zero_month, d_zero_day,
+			d_dt3, d_dt6,
+			d_ts, d_ts3, d_ts6
+		) VALUES (
+		 	'1926-02-02 03:00:00', '2025-02-02 03:00:00',
+			'0000-00-00 00:00:00', '2000-00-01 12:00:00', '2000-01-00 12:00:00',
+			'1926-02-02 03:00:00.123', '1926-02-02 03:00:00.123456',
+			'2025-02-02 03:00:00', '2025-02-02 03:00:00.654', '2025-02-02 03:00:00.654321'
+		)`,
+		quotedSrcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+	require.NoError(s.t, err)
+	if cmp >= 0 {
+		s.t.Skip("only applies to mysql versions WITHOUT binlog_row_metadata support")
+	}
+
+	testCases := []struct {
+		name   string
+		ddlSQL string
+	}{
+		{"drop_column", "DROP COLUMN c1"},
+		{"add_column_after", "ADD COLUMN new_col INT AFTER id"},
+		{"modify_column_first", "MODIFY COLUMN c1 INT FIRST"},
+		{"change_column_after", "CHANGE COLUMN c1 c1_new INT AFTER id"},
+	}
+
+	for _, tc := range testCases {
+		s.t.Run(tc.name, func(t *testing.T) {
+			srcTableName := "test_position_shift_" + tc.name
+			srcFullName := s.attachSchemaSuffix(srcTableName)
+			dstTableName := fmt.Sprintf("test_position_shift_%s_dst", tc.name)
+
+			require.NoError(t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, srcFullName)))
+
+			require.NoError(t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (c1) VALUES (1)`, srcFullName)))
+
+			connectionGen := FlowConnectionGenerationConfig{
+				FlowJobName:      s.attachSuffix(srcTableName),
+				TableNameMapping: map[string]string{srcFullName: dstTableName},
+				Destination:      s.Peer().Name,
+			}
+			flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+			flowConnConfig.DoInitialSnapshot = true
+
+			temporalClient := NewTemporalClient(s.t)
+			env := ExecutePeerflow(s.t, temporalClient, flowConnConfig)
+			SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+			EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,c1")
+
+			// Execute position-shifting DDL - this should cause an error
+			require.NoError(t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`ALTER TABLE %s %s`, srcFullName, tc.ddlSQL)))
+
+			catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+			require.NoError(t, err)
+			EnvWaitFor(s.t, env, 3*time.Minute, "waiting for error message", func() bool {
+				rows, err := catalogPool.Query(s.t.Context(), `
+					SELECT COUNT(*) FROM peerdb_stats.flow_errors
+					WHERE error_type='error'
+					AND flow_name = $1
+					AND error_message ILIKE '%Detected position-shifting DDL on table %'
+				`, flowConnConfig.FlowJobName)
+				if err != nil {
+					t.Log("Error querying flow_errors:", err)
+					return false
+				}
+				defer rows.Close()
+
+				if rows.Next() {
+					var count int64
+					if err := rows.Scan(&count); err != nil {
+						t.Log("Error scanning count:", err)
+						return false
+					}
+					return count > 0
+				}
+				return false
+			})
+
+			env.Cancel(s.t.Context())
+			RequireEnvCanceled(s.t, env)
+		})
+	}
 }

@@ -50,6 +50,7 @@ var (
 	)
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
 	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
+	ClickHouseTooManyPartsTableRe     = regexp.MustCompile(`in table '(.+)'\.`)
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
 	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
@@ -151,6 +152,9 @@ var (
 	ErrorUnsupportedDatatype = ErrorClass{
 		Class: "NOTIFY_UNSUPPORTED_DATATYPE", action: NotifyUser,
 	}
+	ErrorNotifyInvalidSortKey = ErrorClass{
+		Class: "NOTIFY_INVALID_SORT_KEY", action: NotifyUser,
+	}
 	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
 		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
 	}
@@ -210,6 +214,9 @@ var (
 	}
 	ErrorNotifyClickHouseSupportIsDisabledError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_SUPPORT_IS_DISABLED_ERROR", action: NotifyUser,
+	}
+	ErrorNotifyTooManyPartsError = ErrorClass{
+		Class: "NOTIFY_TOO_MANY_PARTS", action: NotifyUser,
 	}
 	// Catch-all for unclassified errors
 	ErrorOther = ErrorClass{
@@ -543,6 +550,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrNotifyPostgresCreatingSlotOnReader, pgErrorInfo
 			}
 
+			// low-level Postgres memory management bug, single occurrence and fixed by retry
+			if pgErr.Routine == "GenerationFree" && strings.Contains(pgErr.Message, "could not find block containing chunk") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
@@ -605,7 +617,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	var myErr *mysql.MyError
 	if errors.As(err, &myErr) {
-		// https://mariadb.com/kb/en/mariadb-error-code-reference
+		// https://mariadb.com/docs/server/reference/error-codes/mariadb-error-code-reference
+		// Error code < 1000 indicates OS-level errors being passed through MySQL's error reporting system
 		myErrorInfo := ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   strconv.Itoa(int(myErr.Code)),
@@ -637,6 +650,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1152, // ER_ABORTING_CONNECTION
 			1194, // ER_CRASHED_ON_USAGE
 			1195, // ER_CRASHED_ON_REPAIR
+			1226, // ER_USER_LIMIT_REACHED
 			1827: // ER_PASSWORD_FORMAT
 			return ErrorNotifyConnectivity, myErrorInfo
 		case 1236, // ER_MASTER_FATAL_ERROR_READING_BINLOG
@@ -655,7 +669,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifySourceTableMissing, myErrorInfo
 		case 1943: // ER_DUPLICATE_GTID_DOMAIN (MariaDB)
 			return ErrorNotifyBadGTIDSetup, myErrorInfo
-		case 1317: // ER_QUERY_INTERRUPTED
+		case 5, // ERR_OUT_OF_MEMORY
+			1317: // ER_QUERY_INTERRUPTED
 			return ErrorRetryRecoverable, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
@@ -873,6 +888,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		case chproto.ErrSupportIsDisabled:
 			return ErrorNotifyClickHouseSupportIsDisabledError, chErrorInfo
+		case chproto.ErrTooManyParts:
+			var additionalAttributes map[AdditionalErrorAttributeKey]string
+			if matches := ClickHouseTooManyPartsTableRe.FindStringSubmatch(chException.Message); len(matches) > 1 {
+				additionalAttributes = map[AdditionalErrorAttributeKey]string{
+					ErrorAttributeKeyTable: matches[1],
+				}
+			}
+			return ErrorNotifyTooManyPartsError, ErrorInfo{
+				Source:               chErrorInfo.Source,
+				Code:                 chErrorInfo.Code,
+				AdditionalAttributes: additionalAttributes,
+			}
 		}
 		var normalizationErr *exceptions.NormalizationError
 		if isClickHouseMvError(chException) {
@@ -939,6 +966,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var unsupportedDDLError *exceptions.MySQLUnsupportedDDLError
+	if errors.As(err, &unsupportedDDLError) {
+		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: unsupportedDDLError.TableName,
+			},
+		}
+	}
+
 	var mysqlStreamingError *exceptions.MySQLStreamingError
 	if errors.As(err, &mysqlStreamingError) {
 		if mysqlStreamingError.Retryable {
@@ -973,7 +1011,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresReplicaIdentityIndexError.Table,
-				ErrorAttributeKeyColumn: "n\a",
+				ErrorAttributeKeyColumn: "n/a",
+			},
+		}
+	}
+
+	var mongoInvalidIdValueError *exceptions.MongoInvalidIdValueError
+	if errors.As(err, &mongoInvalidIdValueError) {
+		return ErrorNotifyInvalidSortKey, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "INVALID_SORT_KEY",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: mongoInvalidIdValueError.Table,
 			},
 		}
 	}

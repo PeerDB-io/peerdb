@@ -33,9 +33,9 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
-		Description:      "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalization",
-		DefaultValue:     "128",
+		Name:             "PEERDB_NORMALIZE_BUFFER_HOURS",
+		Description:      "Approximate hours of buffer between sync and normalize before backpressure blocks sync",
+		DefaultValue:     "24",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -420,11 +420,11 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG",
-		Description:      "Apply schema deltas to catalog instead of fetching latest schema from source",
-		DefaultValue:     "true",
+		Name:             "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE",
+		Description:      "Use CTID block partitioning for initial snapshot if watermark column is ctid",
+		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 }
@@ -580,8 +580,8 @@ func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
 }
 
-func PeerDBNormalizeBufferSize(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE")
+func PeerDBNormalizeBufferHours(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_BUFFER_HOURS")
 }
 
 func PeerDBGroupNormalize(ctx context.Context, env map[string]string) (int64, error) {
@@ -772,6 +772,6 @@ func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]st
 	return dynamicConfBool(ctx, env, "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED")
 }
 
-func PeerDBApplySchemaDeltaToCatalogEnabled(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_APPLY_SCHEMA_DELTA_TO_CATALOG")
+func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
 }

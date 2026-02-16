@@ -119,7 +119,7 @@ export default function CDCConfigForm({
     isPostgresDestination() ||
     isBigQueryDestination() ||
     isSnowflakeDestination();
-  const supportsHardDelete = () => !isClickhouseDestination();
+  const supportsHardDelete = () => isClickhouseDestination();
 
   const shouldHidePublicationName = (label: string) => {
     return label === 'publication name' && !isPostgresSource();
@@ -163,7 +163,7 @@ export default function CDCConfigForm({
   };
 
   const shoudlHideHardDelete = (label: string) => {
-    return label.includes('soft delete') && !supportsHardDelete();
+    return label.includes('hard delete') && !supportsHardDelete();
   };
 
   const shouldHideClickhouseScript = (label: string) => {
@@ -197,6 +197,7 @@ export default function CDCConfigForm({
       shouldHideTypeSystem(label),
       shouldHideColumnName(label),
       shouldHideSoftDelete(label),
+      shoudlHideHardDelete(label),
       shouldHideClickhouseScript(label),
       shouldHideBigQuerySourceIncompatibleFields(label),
     ];

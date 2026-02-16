@@ -2,7 +2,6 @@ package connmongo
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -13,10 +12,6 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
-	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -25,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -33,6 +27,15 @@ const (
 	DefaultFullDocumentColumnName = "doc"
 	LegacyFullDocumentColumnName  = "_full_document"
 )
+
+var protoReadPrefToString = map[protos.ReadPreference]string{
+	protos.ReadPreference_PRIMARY:             peerdb_mongo.ReadPreferencePrimary,
+	protos.ReadPreference_PRIMARY_PREFERRED:   peerdb_mongo.ReadPreferencePrimaryPreferred,
+	protos.ReadPreference_SECONDARY:           peerdb_mongo.ReadPreferenceSecondary,
+	protos.ReadPreference_SECONDARY_PREFERRED: peerdb_mongo.ReadPreferenceSecondaryPreferred,
+	protos.ReadPreference_NEAREST:             peerdb_mongo.ReadPreferenceNearest,
+	protos.ReadPreference_PREFERENCE_UNKNOWN:  peerdb_mongo.ReadPreferenceSecondaryPreferred,
+}
 
 type MongoConnector struct {
 	logger log.Logger
@@ -70,9 +73,23 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
 
-	clientOptions, err := parseAsClientOptions(config, meteredDialer, logger)
+	clientOptions, err := peerdb_mongo.BuildClientOptions(peerdb_mongo.ClientConfig{
+		Uri:                 config.Uri,
+		Username:            config.Username,
+		Password:            config.Password,
+		ReadPreference:      protoReadPrefToString[config.ReadPreference],
+		DisableTls:          config.DisableTls,
+		RootCa:              config.GetRootCa(),
+		TlsHost:             config.TlsHost,
+		CreateTlsConfigFunc: common.CreateTlsConfigFromRootCAString,
+		Dialer:              &meteredDialer,
+	})
 	if err != nil {
 		return nil, err
+	}
+
+	if level, ok := os.LookupEnv("PEERDB_LOG_LEVEL"); ok && level == "DEBUG" {
+		clientOptions.SetMonitor(NewCommandMonitor(logger))
 	}
 
 	client, err := mongo.Connect(clientOptions)
@@ -119,66 +136,6 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return buildInfo.Version, nil
-}
-
-func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.MeteredDialer, logger log.Logger) (*options.ClientOptions, error) {
-	connStr, err := connstring.Parse(config.Uri)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing uri: %w", err)
-	}
-
-	if connStr.UsernameSet {
-		return nil, errors.New("connection string should not contain username and password")
-	}
-
-	clientOptions := options.Client().
-		ApplyURI(config.Uri).
-		SetAppName("PeerDB Mongo Connector").
-		SetAuth(options.Credential{
-			Username: config.Username,
-			Password: config.Password,
-		}).
-		// always use compression
-		SetCompressors([]string{"zstd", "snappy"}).
-		// always use majority read concern for correctness
-		SetReadConcern(readconcern.Majority()).
-		SetDialer(&meteredDialer)
-
-	switch config.ReadPreference {
-	case protos.ReadPreference_PRIMARY:
-		clientOptions.SetReadPreference(readpref.Primary())
-	case protos.ReadPreference_PRIMARY_PREFERRED:
-		clientOptions.SetReadPreference(readpref.PrimaryPreferred())
-	case protos.ReadPreference_SECONDARY:
-		clientOptions.SetReadPreference(readpref.Secondary())
-	case protos.ReadPreference_SECONDARY_PREFERRED:
-		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
-	case protos.ReadPreference_NEAREST:
-		clientOptions.SetReadPreference(readpref.Nearest())
-	case protos.ReadPreference_PREFERENCE_UNKNOWN:
-		// use `secondaryPreferred` as default
-		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
-	default:
-		return nil, fmt.Errorf("invalid ReadPreference: %s", config.ReadPreference)
-	}
-
-	if !config.DisableTls {
-		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, config.RootCa, "", config.TlsHost, false)
-		if err != nil {
-			return nil, err
-		}
-		clientOptions.SetTLSConfig(tlsConfig)
-	}
-
-	if level, ok := os.LookupEnv("PEERDB_LOG_LEVEL"); ok && level == "DEBUG" {
-		clientOptions.SetMonitor(NewCommandMonitor(logger))
-	}
-
-	err = clientOptions.Validate()
-	if err != nil {
-		return nil, fmt.Errorf("error validating client options: %w", err)
-	}
-	return clientOptions, nil
 }
 
 func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, error) {
