@@ -268,16 +268,17 @@ func configureDirectoryTLS(tlsConfig *tls.Config, dir string) error {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse TLS certificate from directory %q: %w", dir, err)
 		}
-		return &cert, nil
-	}
 
-	caCertPEM, err := os.ReadFile(caPath)
-	if err == nil && len(caCertPEM) > 0 {
-		caPool := x509.NewCertPool()
-		if !caPool.AppendCertsFromPEM(caCertPEM) {
-			return fmt.Errorf("failed to parse CA certificate from %q", caPath)
+		caCertPEM, err := os.ReadFile(caPath)
+		if err == nil && len(caCertPEM) > 0 {
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM(caCertPEM) {
+				return nil, fmt.Errorf("failed to parse CA certificate from %q", caPath)
+			}
+			tlsConfig.RootCAs = caPool
 		}
-		tlsConfig.RootCAs = caPool
+
+		return &cert, nil
 	}
 
 	return nil
@@ -324,10 +325,14 @@ func buildTLSConfig(config *protos.ClickhouseConfig) (*tls.Config, error) {
 		if err := configureDirectoryTLS(tlsConfig, certDir); err != nil {
 			return nil, err
 		}
+	} else {
+		if err := configureInlineTLS(tlsConfig, config); err != nil {
+			return nil, err
+		}
 	}
 
-	if err := configureInlineTLS(tlsConfig, config); err != nil {
-		return nil, err
+	if len(tlsConfig.Certificates) == 0 {
+		return nil, fmt.Errorf("TLS is enabled but it was not possible to configure it")
 	}
 
 	return tlsConfig, nil
