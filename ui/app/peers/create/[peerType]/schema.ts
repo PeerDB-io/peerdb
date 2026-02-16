@@ -434,9 +434,9 @@ export function chSchema(hostDomains: string[]) {
       })
       .optional()
       .transform((e) => (e === '' ? undefined : e)),
-    tlsCertificateSecretName: z
+    tlsCertificateDirectory: z
       .string({
-        error: () => 'TLS Certificate Secret Name must be a string',
+        error: () => 'TLS Certificate Directory must be a string',
       })
       .optional()
       .transform((e) => (e === '' ? undefined : e)),

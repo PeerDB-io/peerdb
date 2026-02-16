@@ -550,8 +550,7 @@ func (h *FlowRequestHandler) CreatePeer(
 ) (*protos.CreatePeerResponse, APIError) {
 	if !req.DisableValidation {
 		status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{
-			Peer:  req.Peer,
-			Flags: req.ValidationFlags,
+			Peer: req.Peer,
 		})
 		if validateErr != nil {
 			return nil, validateErr

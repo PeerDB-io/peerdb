@@ -1,21 +1,16 @@
 package e2e
 
 import (
-	"context"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/fake"
-	"k8s.io/utils/ptr"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func readTLSEnvPaths(t *testing.T) ([]byte, []byte, []byte) {
@@ -50,7 +45,7 @@ func tlsClickHousePort(t *testing.T) uint32 {
 	return uint32(port)
 }
 
-// TestClickHouseTLS_InlineCerts verifies that connclickhouse.Connect works
+// TestClickHouseTLSInlineCerts verifies that connclickhouse.Connect works
 // with inline PEM certificates against a TLS-enabled ClickHouse instance.
 func TestClickHouseTLSInlineCerts(t *testing.T) {
 	port := tlsClickHousePort(t)
@@ -78,12 +73,12 @@ func TestClickHouseTLSInlineCerts(t *testing.T) {
 		RootCa:      &caCertStr,
 	}
 
-	validateConnection(t, config, nil)
+	validateConnection(t, config)
 }
 
-// TestClickHouseTLS_K8sSecret verifies that connclickhouse.Connect works
-// with TLS certificates loaded from a (fake) Kubernetes Secret.
-func TestClickHouseTLSK8sSecret(t *testing.T) {
+// TestClickHouseTLSDirectory verifies that connclickhouse.Connect works
+// with TLS certificates loaded from a directory (simulating a volume-mounted K8s Secret).
+func TestClickHouseTLSDirectory(t *testing.T) {
 	port := tlsClickHousePort(t)
 	if port == 0 {
 		t.Skip("PEERDB_CLICKHOUSE_TLS_PORT not set, skipping TLS test")
@@ -94,62 +89,62 @@ func TestClickHouseTLSK8sSecret(t *testing.T) {
 		t.Skip("TLS certificate paths not set, skipping TLS test")
 	}
 
-	const (
-		testNamespace  = "test-namespace"
-		testSecretName = "test-ch-tls-secret" //nolint:gosec // not a credential
-	)
-
-	// Create a fake K8s clientset with our TLS secret
-	fakeClientset := fake.NewClientset()
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      testSecretName,
-			Namespace: testNamespace,
-		},
-		Type: corev1.SecretTypeTLS,
-		Data: map[string][]byte{
-			"tls.crt": clientCert,
-			"tls.key": clientKey,
-			"ca.crt":  caCert,
-		},
-	}
-	_, err := fakeClientset.CoreV1().Secrets(testNamespace).Create(
-		context.Background(), secret, metav1.CreateOptions{},
-	)
-	require.NoError(t, err, "failed to create fake K8s secret")
-
-	// Override the K8s clientset resolver and reset the singleton
-	originalResolver := utils.DefaultResolveKubernetesClientset
-	utils.DefaultResolveKubernetesClientset = func() (kubernetes.Interface, error) {
-		return fakeClientset, nil
-	}
-	t.Cleanup(func() {
-		utils.DefaultResolveKubernetesClientset = originalResolver
-		utils.ResetK8sSecretStoreForTest()
-	})
-	utils.ResetK8sSecretStoreForTest()
-
-	// Set POD_NAMESPACE for the secret store
-	t.Setenv("POD_NAMESPACE", testNamespace)
+	// Write cert files to a temp directory using cert-manager naming convention
+	certDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(certDir, "tls.crt"), clientCert, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(certDir, "tls.key"), clientKey, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(certDir, "ca.crt"), caCert, 0o600))
 
 	config := &protos.ClickhouseConfig{
-		Host:                     "localhost",
-		Port:                     port,
-		User:                     "peerdb_tls",
-		Database:                 "default",
-		DisableTls:               false,
-		TlsCertificateSecretName: ptr.To(testSecretName),
+		Host:                    "localhost",
+		Port:                    port,
+		User:                    "peerdb_tls",
+		Database:                "default",
+		DisableTls:              false,
+		TlsCertificateDirectory: shared.Ptr(certDir),
 	}
 
-	validateConnection(t, config, map[string]string{
-		"PEERDB_CLICKHOUSE_TLS_K8S_SECRET_ENABLED": "true",
-	})
+	validateConnection(t, config)
 }
 
-func validateConnection(t *testing.T, config *protos.ClickhouseConfig, env map[string]string) {
+// TestClickHouseTLSDirectoryWithoutCA verifies that the directory-based TLS config
+// works when ca.crt is not present (only tls.crt and tls.key).
+func TestClickHouseTLSDirectoryWithoutCA(t *testing.T) {
+	port := tlsClickHousePort(t)
+	if port == 0 {
+		t.Skip("PEERDB_CLICKHOUSE_TLS_PORT not set, skipping TLS test")
+	}
+
+	caCert, clientCert, clientKey := readTLSEnvPaths(t)
+	if caCert == nil {
+		t.Skip("TLS certificate paths not set, skipping TLS test")
+	}
+
+	// Write cert files to a temp directory without ca.crt
+	certDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(certDir, "tls.crt"), clientCert, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(certDir, "tls.key"), clientKey, 0o600))
+
+	// Also provide the CA via inline root_ca since the directory has no ca.crt
+	caCertStr := string(caCert)
+
+	config := &protos.ClickhouseConfig{
+		Host:                    "localhost",
+		Port:                    port,
+		User:                    "peerdb_tls",
+		Database:                "default",
+		DisableTls:              false,
+		TlsCertificateDirectory: shared.Ptr(certDir),
+		RootCa:                  &caCertStr,
+	}
+
+	validateConnection(t, config)
+}
+
+func validateConnection(t *testing.T, config *protos.ClickhouseConfig) {
 	t.Helper()
 
-	conn, err := connclickhouse.Connect(t.Context(), env, config)
+	conn, err := connclickhouse.Connect(t.Context(), nil, config)
 	require.NoError(t, err, "failed to connect to ClickHouse")
 	defer conn.Close()
 

@@ -19,7 +19,6 @@ import {
   CreatePeerResponse,
   CreatePeerStatus,
   createPeerStatusFromJSON,
-  PeerValidationFlags,
   ValidatePeerRequest,
   ValidatePeerResponse,
   ValidatePeerStatus,
@@ -213,8 +212,7 @@ export async function handleValidate(
   config: PeerConfig,
   notify: (msg: string, success?: boolean) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
-  name?: string,
-  validationFlags?: PeerValidationFlags
+  name?: string
 ) {
   const isValid = await validateFields(type, config, notify, name);
   if (!isValid) return;
@@ -222,7 +220,6 @@ export async function handleValidate(
 
   const validateReq: ValidatePeerRequest = {
     peer: constructPeer(name!, type, config),
-    flags: validationFlags,
   };
   const valid: ValidatePeerResponse = await fetch('/api/v1/peers/validate', {
     method: 'POST',
@@ -252,8 +249,7 @@ export async function handleCreate(
   notify: (msg: string) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
-  name?: string,
-  validationFlags?: PeerValidationFlags
+  name?: string
 ) {
   let isValid = await validateFields(type, config, notify, name);
   if (!isValid) return;
@@ -262,7 +258,6 @@ export async function handleCreate(
     peer: constructPeer(name!, type, config),
     allowUpdate: true,
     disableValidation: false,
-    validationFlags: validationFlags,
   };
   const createdPeer: CreatePeerResponse = await fetch('/api/v1/peers/create', {
     method: 'POST',

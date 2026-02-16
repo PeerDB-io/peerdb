@@ -17,14 +17,12 @@ import ElasticsearchConfigForm from '@/components/PeerForms/ElasticsearchConfigF
 import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig';
 import ThemedToastContainer from '@/components/ThemedToastContainer';
 import {
-  ClickhouseConfig,
   ElasticsearchConfig,
   EventHubGroupConfig,
   MongoConfig,
   MySqlConfig,
   PostgresConfig,
 } from '@/grpc_generated/peers';
-import { PeerValidationFlags } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -60,9 +58,6 @@ export default function CreateConfig({ params }: CreateConfigProps) {
   );
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
-  const [validationFlags, setValidationFlags] = useState<
-    PeerValidationFlags | undefined
-  >(undefined);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
   const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
 
@@ -104,12 +99,7 @@ export default function CreateConfig({ params }: CreateConfigProps) {
         return <BigqueryForm setter={setConfig} />;
       case 'CLICKHOUSE':
         return (
-          <ClickHouseForm
-            settings={clickhouseSetting}
-            setter={setConfig}
-            config={config as ClickhouseConfig}
-            onValidationFlagsChange={setValidationFlags}
-          />
+          <ClickHouseForm settings={clickhouseSetting} setter={setConfig} />
         );
       case 'S3':
         return <S3Form setter={setConfig} />;
@@ -233,14 +223,7 @@ export default function CreateConfig({ params }: CreateConfigProps) {
           <Button
             variant='warningSolid'
             onClick={() =>
-              handleValidate(
-                getDBType(),
-                config,
-                notifyErr,
-                setLoading,
-                name,
-                validationFlags
-              )
+              handleValidate(getDBType(), config, notifyErr, setLoading, name)
             }
           >
             Validate
@@ -254,8 +237,7 @@ export default function CreateConfig({ params }: CreateConfigProps) {
                 notifyErr,
                 setLoading,
                 listPeersRoute,
-                name,
-                validationFlags
+                name
               )
             }
           >
