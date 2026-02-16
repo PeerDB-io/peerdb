@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -158,7 +157,7 @@ func (c *MongoConnector) PullQRepRecords(
 	if err != nil {
 		return 0, 0, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
-	collection := c.client.Database(parseWatermarkTable.Namespace).Collection(parseWatermarkTable.Table)
+	db := c.client.Database(parseWatermarkTable.Namespace)
 
 	stream.SetSchema(GetDefaultSchema(config.Version))
 
@@ -189,9 +188,16 @@ func (c *MongoConnector) PullQRepRecords(
 
 	c.logger.Info("[mongo] pulling records start")
 
-	// MongoDb will use the lesser of batchSize and 16MiB
-	// https://www.mongodb.com/docs/manual/reference/method/cursor.batchsize/
-	cursor, err := collection.Find(ctx, filter, options.Find().SetBatchSize(int32(batchSize)))
+	// Use RunCommandCursor instead of collection.Find so the driver sends maxTimeMS
+	// (calculated from ctx deadline) to the server, overriding any server-side defaultMaxTimeMS.
+	// collection.Find hardcodes OmitMaxTimeMS(true) which prevents this.
+	findCmd := bson.D{
+		{Key: "find", Value: parseWatermarkTable.Table},
+		{Key: "filter", Value: filter},
+		{Key: "batchSize", Value: int32(batchSize)},
+		{Key: "readConcern", Value: bson.D{{Key: "level", Value: "majority"}}},
+	}
+	cursor, err := db.RunCommandCursor(ctx, findCmd)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to query for records: %w", err)
 	}
