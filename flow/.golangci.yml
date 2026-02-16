@@ -77,6 +77,8 @@ linters:
     lll:
       line-length: 144
       tab-width: 4
+    prealloc:
+      range-loops: false
     sloglint:
       context: all
     staticcheck:
