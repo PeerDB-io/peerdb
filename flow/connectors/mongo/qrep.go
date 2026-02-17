@@ -195,6 +195,8 @@ func (c *MongoConnector) PullQRepRecords(
 	findCmd := bson.D{
 		{Key: "find", Value: parseWatermarkTable.Table},
 		{Key: "filter", Value: filter},
+		// MongoDb will use the lesser of batchSize and 16MiB
+		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchsize/
 		{Key: "batchSize", Value: int32(batchSize)},
 		{Key: "readConcern", Value: bson.D{{Key: "level", Value: "majority"}}},
 	}
