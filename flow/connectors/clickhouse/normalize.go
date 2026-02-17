@@ -22,7 +22,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -68,7 +67,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		destinationTableIdentifier,
 		sourceTableSchema,
 		c.chVersion,
-		config.Version,
+		config.Flags,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
@@ -88,7 +87,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	chVersion *chproto.Version,
-	internalVersion uint32,
+	flags map[string]bool,
 ) ([]string, error) {
 	var engine string
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
@@ -208,7 +207,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				var err error
 				clickHouseType, err = qvalue.ToDWHColumnType(
 					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column,
-					tableSchema.NullableEnabled || columnNullableEnabled, internalVersion,
+					tableSchema.NullableEnabled || columnNullableEnabled, flags,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -268,14 +267,9 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			}
 		}
 
-		settings := chinternal.NewCHSettings(chVersion)
 		if allowNullableKey {
-			settings.Add(chinternal.SettingAllowNullableKey, "1")
+			stmtBuilder.WriteString(chinternal.NewCHSettingsString(chVersion, chinternal.SettingAllowNullableKey, "1"))
 		}
-		if internalVersion >= shared.InternalVersion_ClickHouseTime64 {
-			settings.Add(chinternal.SettingEnableTimeTime64Type, "1")
-		}
-		stmtBuilder.WriteString(settings.String())
 
 		if c.Config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
@@ -292,10 +286,6 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				}
 			}
 			stmtBuilderDistributed.WriteByte(')')
-			if internalVersion >= shared.InternalVersion_ClickHouseTime64 {
-				stmtBuilderDistributed.WriteString(chinternal.NewCHSettingsString(
-					chVersion, chinternal.SettingEnableTimeTime64Type, "1"))
-			}
 		}
 	}
 
@@ -588,6 +578,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				c.Config.Cluster != "",
 				req.SoftDeleteColName,
 				req.Version,
+				req.Flags,
 			)
 			query, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {

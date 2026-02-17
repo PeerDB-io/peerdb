@@ -53,14 +53,6 @@ type MirrorDestinationValidationConnector interface {
 	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigsCore, map[string]*protos.TableSchema) error
 }
 
-type InternalVersionAwareConnector interface {
-	Connector
-
-	// GetMaxSupportedInternalVersion returns the maximum internal version
-	// supported by this connector instance based on its server version.
-	GetMaxSupportedInternalVersion() uint32
-}
-
 type StatActivityConnector interface {
 	Connector
 
@@ -87,6 +79,14 @@ type GetSchemaConnector interface {
 	GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error)
 	GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error)
 	GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error)
+}
+
+type GetFlagsConnector interface {
+	Connector
+
+	// GetFlags detects peer capabilities (e.g., supported types) at flow creation time.
+	// Flags are stored on the flow config and used for type mapping backwards compatibility.
+	GetFlags(ctx context.Context) map[string]bool
 }
 
 type CDCPullConnectorCore interface {
@@ -193,7 +193,7 @@ type CDCSyncConnectorCore interface {
 	// This could involve adding multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
 	ReplayTableSchemaDeltas(ctx context.Context, env map[string]string, flowJobName string,
-		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, internalVersion uint32) error
+		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, flags map[string]bool) error
 }
 
 type CDCSyncConnector interface {
@@ -720,7 +720,7 @@ var (
 
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
 
-	_ InternalVersionAwareConnector = &connclickhouse.ClickHouseConnector{}
+	_ GetFlagsConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}

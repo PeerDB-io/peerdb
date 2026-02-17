@@ -243,6 +243,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Exclude:                    mapping.Exclude,
 		Columns:                    mapping.Columns,
 		Version:                    s.config.Version,
+		Flags:                      s.config.Flags,
 	}
 
 	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
