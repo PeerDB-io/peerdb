@@ -61,32 +61,21 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 	return id.Int32, nil
 }
 
-func (h *FlowRequestHandler) determineInternalVersion(
+func (h *FlowRequestHandler) determineFlags(
 	ctx context.Context,
 	env map[string]string,
 	destPeerName string,
-) (uint32, error) {
-	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, env)
+) (map[string]bool, error) {
+	conn, connClose, err := connectors.GetByNameAs[connectors.GetFlagsConnector](ctx, env, h.pool, destPeerName)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get internal version: %w", err)
-	}
-
-	conn, connClose, err := connectors.GetByNameAs[connectors.InternalVersionAwareConnector](ctx, env, h.pool, destPeerName)
-	if err != nil {
-		// Connector isn't aware of internal version, so just use the default version
 		if errors.Is(err, errors.ErrUnsupported) {
-			return internalVersion, nil
+			return nil, nil
 		}
-		return 0, fmt.Errorf("failed to get destination connector: %w", err)
+		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 	defer connClose(ctx)
 
-	maxSupportedInternalVersion := conn.GetMaxSupportedInternalVersion()
-	if maxSupportedInternalVersion < internalVersion {
-		return maxSupportedInternalVersion, nil
-	}
-
-	return internalVersion, nil
+	return conn.GetFlags(ctx), nil
 }
 
 func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName string) (bool, error) {
@@ -173,11 +162,16 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if cfg == nil {
 		return nil, NewInvalidArgumentApiError(errors.New("connection configs cannot be nil"))
 	}
-	internalVersion, err := h.determineInternalVersion(ctx, cfg.Env, cfg.DestinationName)
-	if err != nil {
+	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, cfg.Env); err != nil {
 		return nil, NewInternalApiError(err)
+	} else {
+		cfg.Version = internalVersion
 	}
-	cfg.Version = internalVersion
+	if flags, err := h.determineFlags(ctx, cfg.Env, cfg.DestinationName); err != nil {
+		return nil, NewInternalApiError(err)
+	} else {
+		cfg.Flags = flags
+	}
 
 	if !req.AttachToExisting {
 		if exists, err := h.cdcJobEntryExists(ctx, cfg.FlowJobName); err != nil {
@@ -255,11 +249,16 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, APIError) {
 	cfg := req.QrepConfig
-	internalVersion, err := h.determineInternalVersion(ctx, cfg.Env, cfg.DestinationName)
-	if err != nil {
+	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, cfg.Env); err != nil {
 		return nil, NewInternalApiError(err)
+	} else {
+		cfg.Version = internalVersion
 	}
-	cfg.Version = internalVersion
+	if flags, err := h.determineFlags(ctx, cfg.Env, cfg.DestinationName); err != nil {
+		return nil, NewInternalApiError(err)
+	} else {
+		cfg.Flags = flags
+	}
 
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{

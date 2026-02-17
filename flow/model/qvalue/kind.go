@@ -58,7 +58,7 @@ func ToDWHColumnType(
 	dwhVersion *chproto.Version,
 	column *protos.FieldDescription,
 	nullableEnabled bool,
-	internalVersion uint32,
+	flags map[string]bool,
 ) (string, error) {
 	var colType string
 	switch dwhType {
@@ -90,8 +90,7 @@ func ToDWHColumnType(
 			colType = fmt.Sprintf("Array(%s)", colType)
 		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
 			colType = "JSON"
-		} else if (kind == types.QValueKindTime || kind == types.QValueKindTimeTZ) &&
-			internalVersion >= shared.InternalVersion_ClickHouseTime64 {
+		} else if (kind == types.QValueKindTime || kind == types.QValueKindTimeTZ) && flags[shared.Flag_ClickHouseTime64Enabled] {
 			colType = "Time64(6)"
 		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
