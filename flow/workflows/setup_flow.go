@@ -33,8 +33,7 @@ import (
 //     - creating the normalized table on the destination peer
 type SetupFlowExecution struct {
 	log.Logger
-	tableNameMapping map[string]string
-	cdcFlowName      string
+	cdcFlowName string
 	executionID      string
 	resync           bool
 }
