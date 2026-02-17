@@ -80,6 +80,7 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
             (config.authType === MySqlAuthType.MYSQL_IAM_AUTH &&
               setting.field === 'awsAuth.authType')) ? (
           <div
+            key={id}
             style={{
               display: 'flex',
               flexDirection: 'row',
@@ -92,7 +93,6 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
               }}
             >
               <RowWithSelect
-                key={id}
                 label={<Label>{setting.label}</Label>}
                 action={
                   <ReactSelect
