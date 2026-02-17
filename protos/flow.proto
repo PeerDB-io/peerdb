@@ -100,12 +100,11 @@ message FlowConnectionConfigs {
 // When adding fields here, add them to FlowConnectionConfigs too
 // Equivalence with FlowConnectionConfigs is enforced during codegen
 message FlowConnectionConfigsCore {
-  reserved 2,3,17;
+  reserved 2,3,4,17;
   string flow_job_name = 1;
 
   // config for the CDC flow itself
   // currently, TableMappings, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
-  //repeated TableMapping table_mappings = 4;
   uint32 max_batch_size = 5;
   uint64 idle_timeout_seconds = 6;
   string cdc_staging_path = 7;

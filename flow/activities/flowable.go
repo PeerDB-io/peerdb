@@ -1121,8 +1121,7 @@ func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
 		if isActive {
 			activeFlows = append(activeFlows, info)
 		}
-		//TODO: this will need a special query as we can extract this straight from the DB.
-		//a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
+		// TODO(table-mappings-migration): Restore SyncedTablesGauge metric - requires DB query to count table mappings per flow
 		a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowStatusKey, info.status.String()),
 			attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),

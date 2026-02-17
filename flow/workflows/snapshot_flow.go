@@ -284,7 +284,6 @@ func (s *SnapshotFlowExecution) cloneTables(
 	}
 
 	tableMappingsCtx := context.Background()
-	defer tableMappingsCtx.Done()
 	tableMappings, err := internal.FetchTableMappingsFromDB(tableMappingsCtx, s.config.FlowJobName, s.config.TableMappingVersion)
 	if err != nil {
 		return err

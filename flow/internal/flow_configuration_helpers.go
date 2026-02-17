@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -15,17 +16,13 @@ import (
 
 func TableNameMapping(tableMappings []*protos.TableMapping, resync bool) map[string]string {
 	tblNameMapping := make(map[string]string, len(tableMappings))
-	if resync {
-		for _, mapping := range tableMappings {
-			if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-				mapping.DestinationTableIdentifier += "_resync"
-			}
-		}
-	}
 	for _, v := range tableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
+		dest := v.DestinationTableIdentifier
+		if resync && v.Engine != protos.TableEngine_CH_ENGINE_NULL {
+			dest += "_resync"
+		}
+		tblNameMapping[v.SourceTableIdentifier] = dest
 	}
-
 	return tblNameMapping
 }
 
@@ -70,18 +67,28 @@ func InsertTableMappingsToDB(
 		return fmt.Errorf("failed to begin transaction to insert table mappings: %w", err)
 	}
 	defer shared.RollbackTx(tx, logger)
+	if err := insertTableMappingsInTx(ctx, tx, flowJobName, tableMappings, version); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction to insert table mappings: %w", err)
+	}
+	return nil
+}
+
+func insertTableMappingsInTx(
+	ctx context.Context, tx pgx.Tx, flowJobName string, tableMappings []*protos.TableMapping, version uint32,
+) error {
 	tableMappingsBytes, err := TableMappingsToBytes(tableMappings)
 	if err != nil {
 		return fmt.Errorf("unable to marshal table mappings: %w", err)
 	}
 	jsonBlob, _ := json.MarshalIndent(tableMappings, "", "  ")
-	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings, json_blob) VALUES ($1, $2, $3, $4)`
+	stmt := `INSERT INTO table_mappings (flow_name, version, table_mappings, json_blob) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (flow_name, version) DO UPDATE SET table_mappings = EXCLUDED.table_mappings, json_blob = EXCLUDED.json_blob`
 	_, err = tx.Exec(ctx, stmt, flowJobName, version, tableMappingsBytes, jsonBlob)
 	if err != nil {
 		return fmt.Errorf("failed to execute statement to insert table mappings: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction to insert table mappings: %w", err)
 	}
 	return nil
 }
@@ -118,6 +125,7 @@ func RemoveTableFromTableMappings(
 func AddTableToTableMappings(
 	ctx context.Context, flowJobName string, tableMapping []*protos.TableMapping, version uint32,
 ) (*TableMappingVersionIDs, error) {
+	logger := LoggerFromCtx(ctx)
 	existingTableMappings, err := FetchTableMappingsFromDB(ctx, flowJobName, version)
 	if err != nil {
 		return nil, fmt.Errorf("unable to load existing table mappings: %w", err)
@@ -126,9 +134,18 @@ func AddTableToTableMappings(
 	existingTableMappings = append(existingTableMappings, tableMapping...)
 	slog.Info("Updated table mappings", slog.Int("num_mappings", len(existingTableMappings)), slog.Any("mappings", existingTableMappings))
 
-	version += 1
-	err = InsertTableMappingsToDB(ctx, flowJobName, tableMapping, version)
+	pool, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
+		return nil, err
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction to insert table mappings: %w", err)
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	version += 1
+	if err := insertTableMappingsInTx(ctx, tx, flowJobName, tableMapping, version); err != nil {
 		return nil, fmt.Errorf("unable to insert new tables only table mappings: %w", err)
 	}
 	versions := &TableMappingVersionIDs{
@@ -136,11 +153,14 @@ func AddTableToTableMappings(
 	}
 
 	version += 1
-	err = InsertTableMappingsToDB(ctx, flowJobName, existingTableMappings, version)
-	if err != nil {
+	if err := insertTableMappingsInTx(ctx, tx, flowJobName, existingTableMappings, version); err != nil {
 		return nil, fmt.Errorf("unable to insert updated table mappings: %w", err)
 	}
 	versions.FullTableMappingVersion = version
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction to insert table mappings: %w", err)
+	}
 
 	return versions, nil
 }

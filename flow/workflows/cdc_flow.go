@@ -282,7 +282,7 @@ func processTableAdditions(
 	}
 
 	addTablesSelector.AddFuture(alterPublicationAddAdditionalTablesFuture, func(f workflow.Future) {
-		addTablesFlowErr = f.Get(alterPublicationAddAdditionalTablesCtx, f)
+		addTablesFlowErr = f.Get(alterPublicationAddAdditionalTablesCtx, nil)
 		if addTablesFlowErr == nil {
 			logger.Info("additional tables added to publication")
 			additionalTablesUUID := GetUUID(ctx)
@@ -296,6 +296,7 @@ func processTableAdditions(
 			)
 			if err != nil {
 				addTablesFlowErr = fmt.Errorf("failed to update flow config table mappings for additional tables: %w", err)
+				return
 			}
 			tableMappingAdditionVersions = tableMappingVersions
 			additionalTablesCfg.TableMappingVersion = tableMappingVersions.PartialTableMappingVersion
@@ -339,8 +340,7 @@ func processTableAdditions(
 
 	// additional tables should also be resynced, we don't know how much was done so far
 	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
-	//state.SyncFlowOptions.TableMappingVersion = version
-	//TODO - ADD VERSION??
+	state.SyncFlowOptions.TableMappingVersion = tableMappingAdditionVersions.FullTableMappingVersion
 	cfg.TableMappingVersion = tableMappingAdditionVersions.FullTableMappingVersion
 
 	for res == nil {

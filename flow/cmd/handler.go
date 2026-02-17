@@ -184,7 +184,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	// Insert the table mappings into the DB
 
-	version := 12
+	version := 1
 	err = internal.InsertTableMappingsToDB(ctx, cfg.FlowJobName, req.ConnectionConfigs.TableMappings, uint32(version))
 
 	if err != nil {

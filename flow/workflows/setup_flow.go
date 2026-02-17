@@ -179,7 +179,6 @@ func (s *SetupFlowExecution) createRawTable(
 func (s *SetupFlowExecution) setupNormalizedTables(
 	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigsCore,
 ) error {
-	s.Info("fetching table schema for peer flow")
 	s.Info("fetching table schema for peer flow", slog.Any("cfg", flowConnectionConfigs))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
