@@ -73,7 +73,7 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:fb0a645725bc7e1b0952f9a00961cbd56bf0c0ded85ecb70d41a24343fa8c728
+        image: linuxserver/openssh-server:latest@sha256:5367818a2a39e1dbd8564503a7e8b2e13fbe83bb00df86fdb2df37ca3ba306e2
         ports:
           - 2222:2222
         env:
@@ -94,7 +94,7 @@ jobs:
 
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
-          go-version: '1.25.7'
+          go-version: '1.26.0'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
