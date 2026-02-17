@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aws/smithy-go/ptr"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -73,7 +72,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			slog.InfoContext(ctx, "Assuming maintenance workflows were skipped")
 			return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 				Skipped:       true,
-				SkippedReason: ptr.String("Assumed skipped by CLI Flag"),
+				SkippedReason: new("Assumed skipped by CLI Flag"),
 				CLIVersion:    internal.PeerDBVersionShaShort(),
 			})
 		}
@@ -143,7 +142,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			slog.InfoContext(ctx, "Skipping maintenance workflow due to missing k8s service", "service", args.SkipIfK8sServiceMissing)
 			return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 				Skipped:          true,
-				SkippedReason:    ptr.String(fmt.Sprintf("K8s service %s missing", args.SkipIfK8sServiceMissing)),
+				SkippedReason:    new(fmt.Sprintf("K8s service %s missing", args.SkipIfK8sServiceMissing)),
 				CLIVersion:       internal.PeerDBVersionShaShort(),
 				CLIDeployVersion: internal.PeerDBDeploymentVersion(),
 			})
@@ -189,11 +188,11 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 					"deployApiVersion", version.DeploymentVersion, "cliDeployVersion", internal.PeerDBDeploymentVersion())
 				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 					Skipped:          true,
-					SkippedReason:    ptr.String("Version Mismatch: " + strings.Join(skippedReasons, ", ")),
+					SkippedReason:    new("Version Mismatch: " + strings.Join(skippedReasons, ", ")),
 					CLIVersion:       internal.PeerDBVersionShaShort(),
 					CLIDeployVersion: internal.PeerDBDeploymentVersion(),
 					APIVersion:       version.Version,
-					APIDeployVersion: ptr.ToString(version.DeploymentVersion),
+					APIDeployVersion: shared.Val(version.DeploymentVersion),
 				})
 			}
 		}
@@ -208,7 +207,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 				slog.InfoContext(ctx, "Skipping maintenance workflow due to no mirrors")
 				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 					Skipped:       true,
-					SkippedReason: ptr.String("No mirrors found"),
+					SkippedReason: new("No mirrors found"),
 				})
 			}
 		}

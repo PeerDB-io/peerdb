@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/log"
@@ -92,7 +91,7 @@ func NewSnowflakeConnector(
 	}
 
 	additionalParams := make(map[string]*string)
-	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = ptr.String("true")
+	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = new("true")
 
 	snowflakeConfig := gosnowflake.Config{
 		Account:          snowflakeProtoConfig.AccountId,

@@ -85,10 +85,6 @@ const (
 	QRepChannelSize = 1024
 )
 
-func Ptr[T any](x T) *T {
-	return &x
-}
-
 func Val[T any](p *T) T {
 	if p == nil {
 		var zero T

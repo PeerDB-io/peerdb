@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/exp/constraints"
@@ -725,7 +724,7 @@ func PeerDBMaintenanceModeEnabled(ctx context.Context, env map[string]string) (b
 }
 
 func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool shared.CatalogPool, enabled bool) error {
-	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", ptr.String(strconv.FormatBool(enabled)))
+	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", new(strconv.FormatBool(enabled)))
 }
 
 func PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx context.Context, env map[string]string) (int64, error) {

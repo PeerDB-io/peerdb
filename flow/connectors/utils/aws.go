@@ -19,7 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
-	"github.com/aws/smithy-go/ptr"
 	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -199,7 +198,7 @@ func (a *AssumeRoleBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (A
 	}
 	return AWSCredentials{
 		AWS:         retrieved,
-		EndpointUrl: ptr.String(a.GetEndpointURL()),
+		EndpointUrl: new(a.GetEndpointURL()),
 	}, nil
 }
 

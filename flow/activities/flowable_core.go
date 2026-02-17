@@ -195,7 +195,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	startTime := time.Now()
-	syncState.Store(shared.Ptr("syncing"))
+	syncState.Store(new("syncing"))
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		return pull(srcConn, errCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
@@ -241,7 +241,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		defer dstClose(ctx)
 
-		syncState.Store(shared.Ptr("updating schema"))
+		syncState.Store(new("updating schema"))
 		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
@@ -310,7 +310,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
 		}
 	}
-	syncState.Store(shared.Ptr("bookkeeping"))
+	syncState.Store(new("bookkeeping"))
 
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
@@ -341,13 +341,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
-	syncState.Store(shared.Ptr("updating schema"))
+	syncState.Store(new("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
 
 	if recordBatchSync.NeedsNormalize() {
-		syncState.Store(shared.Ptr("normalizing"))
+		syncState.Store(new("normalizing"))
 		normRequests.Update(res.CurrentSyncBatchID)
 		normWaitThreshold := res.CurrentSyncBatchID - normBufferSize
 		if normResponses.Load() <= normWaitThreshold {

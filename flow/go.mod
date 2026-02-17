@@ -1,6 +1,6 @@
 module github.com/PeerDB-io/peerdb/flow
 
-go 1.25.5
+go 1.26.0
 
 require (
 	cloud.google.com/go v0.123.0
