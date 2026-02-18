@@ -54,10 +54,10 @@ type PostgresConnector struct {
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
 	rdsAuth                *utils.RDSAuth
+	done                   chan struct{}
 	connStr                string
 	metadataSchema         string
 	replLock               sync.Mutex
-	done                   chan struct{}
 	pgVersion              shared.PGVersion
 }
 
