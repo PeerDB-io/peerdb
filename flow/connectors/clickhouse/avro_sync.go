@@ -300,6 +300,9 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
 		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
 	}
+	if config.Version >= shared.InternalVersion_ClickHouseTime64 {
+		chSettings.Add(clickhouse.SettingEnableTimeTime64Type, "1")
+	}
 
 	// Process each chunk file individually
 	for chunkIdx, avroFile := range avroFiles {

@@ -18,7 +18,6 @@ import (
 
 type NormalizeQueryGenerator struct {
 	env                             map[string]string
-	flags                           map[string]bool
 	tableNameSchemaMapping          map[string]*protos.TableSchema
 	chVersion                       *chproto.Version
 	Query                           string
@@ -49,7 +48,6 @@ func NewNormalizeQueryGenerator(
 	cluster bool,
 	configuredSoftDeleteColName string,
 	version uint32,
-	flags map[string]bool,
 ) *NormalizeQueryGenerator {
 	isDeletedColumn := isDeletedColName
 	if configuredSoftDeleteColName != "" {
@@ -69,7 +67,6 @@ func NewNormalizeQueryGenerator(
 		cluster:                         cluster,
 		isDeletedColName:                isDeletedColumn,
 		version:                         version,
-		flags:                           flags,
 	}
 }
 
@@ -127,7 +124,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		if clickHouseType == "" {
 			var err error
 			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.flags,
+				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.version,
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
@@ -164,7 +161,9 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
 			// Handle legacy path where TIME is stored as DateTime64 (before Time64 support)
 			if colType == types.QValueKindTime || colType == types.QValueKindTimeTZ {
-				time64Supported := t.flags[shared.Flag_ClickHouseTime64Enabled]
+				minVersion, exists := clickhouse.GetMinVersion(clickhouse.SettingEnableTimeTime64Type)
+				time64Supported := exists && chproto.CheckMinVersion(minVersion, *t.chVersion)
+
 				fmt.Fprintf(&projection, "%s AS %s,",
 					extendedTimeToDateTime(fmt.Sprintf("JSONExtractString(_peerdb_data, %s)",
 						peerdb_clickhouse.QuoteLiteral(colName)), time64Supported),
@@ -322,6 +321,9 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	}
 	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
 		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
+	}
+	if t.version >= shared.InternalVersion_ClickHouseTime64 {
+		chSettings.Add(clickhouse.SettingEnableTimeTime64Type, "1")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",

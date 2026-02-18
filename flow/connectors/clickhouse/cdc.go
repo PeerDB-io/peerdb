@@ -132,7 +132,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}
 	warnings := numericTruncator.Warnings()
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, req.Flags); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, req.Version); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -166,7 +166,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	tableMappings []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
-	flags map[string]bool,
+	internalVersion uint32,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil
@@ -190,7 +190,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			clickHouseColType, err := qvalue.ToDWHColumnType(
-				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled, flags,
+				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled, internalVersion,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)

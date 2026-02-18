@@ -75,7 +75,7 @@ func (c *PubSubConnector) CreateRawTable(ctx context.Context, req *protos.Create
 }
 
 func (c *PubSubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ map[string]bool,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ uint32,
 ) error {
 	return nil
 }

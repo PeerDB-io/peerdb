@@ -91,10 +91,6 @@ message FlowConnectionConfigs {
 
   map<string, string> env = 24;
   uint32 version = 25;
-
-  // Connector capabilities detected at flow creation time.
-  // Used to control type mapping backwards compatibility.
-  map<string, bool> flags = 27;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -141,10 +137,6 @@ message FlowConnectionConfigsCore {
 
   map<string, string> env = 24;
   uint32 version = 25;
-
-  // Connector capabilities detected at flow creation time.
-  // Used to control type mapping backwards compatibility.
-  map<string, bool> flags = 27;
 }
 
 message RenameTableOption {
@@ -273,7 +265,6 @@ message SetupNormalizedTableBatchInput {
   string peer_name = 7;
   bool is_resync = 8;
   uint32 version = 9;
-  map<string, bool> flags = 10;
 }
 
 message SetupNormalizedTableOutput {
@@ -412,10 +403,6 @@ message QRepConfig {
   uint32 version = 28;
 
   peerdb_peers.DBType source_type = 30;
-
-  // Connector capabilities detected at flow creation time.
-  // Used to control type mapping backwards compatibility.
-  map<string, bool> flags = 31;
 }
 
 message QRepPartition {

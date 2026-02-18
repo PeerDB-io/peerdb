@@ -71,7 +71,7 @@ func timeFieldExpressionConverter(
 	}
 
 	// Handle legacy path where TIME was stored as DateTime64, before ClickHouse supported Time64 type
-	if !config.config.Flags[shared.Flag_ClickHouseTime64Enabled] {
+	if config.config.Version < shared.InternalVersion_ClickHouseTime64 {
 		return sourceFieldIdentifier, nil
 	}
 

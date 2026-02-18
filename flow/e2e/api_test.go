@@ -95,7 +95,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 	env WorkflowRun,
 	flowConnConfig *protos.FlowConnectionConfigs,
 	reason string,
-	expectedSyncBatchId int64,      //nolint:unparam
+	expectedSyncBatchId int64, //nolint:unparam
 	expectedNormalizeBatchId int64, //nolint:unparam
 ) {
 	EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
@@ -746,7 +746,6 @@ func (s APITestSuite) TestResyncCompleted() {
 	flowConnConfig.SnapshotNumTablesInParallel = 13
 	flowConnConfig.IdleTimeoutSeconds = 9
 	flowConnConfig.MaxBatchSize = 5040
-	flowConnConfig.Flags = map[string]bool{"dummy_config": true}
 	// if true, then the flow will be resynced
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
