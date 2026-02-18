@@ -57,6 +57,7 @@ type PostgresConnector struct {
 	connStr                string
 	metadataSchema         string
 	replLock               sync.Mutex
+	done                   chan struct{}
 	pgVersion              shared.PGVersion
 }
 
@@ -109,7 +110,8 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
-	return &PostgresConnector{
+	done := make(chan struct{})
+	connector := &PostgresConnector{
 		logger:                 logger,
 		Config:                 pgConfig,
 		ssh:                    tunnel,
@@ -122,10 +124,42 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		connStr:                connectionString,
 		metadataSchema:         metadataSchema,
 		replLock:               sync.Mutex{},
+		done:                   done,
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
-	}, nil
+	}
+
+	if tunnel != nil {
+		go func() {
+			bgCtx := context.Background()
+			keepaliveChan := tunnel.GetKeepaliveChan(bgCtx)
+			if keepaliveChan == nil {
+				return
+			}
+			select {
+			case <-keepaliveChan:
+				connector.logger.Info("SSH keepalive failed, closing connections")
+				timeout, cancel := context.WithTimeout(bgCtx, 5*time.Second)
+				defer cancel()
+				if err := connector.conn.Close(timeout); err != nil {
+					connector.logger.Error("Failed to close Postgres connection on SSH keepalive failure",
+						slog.Any("error", err))
+				}
+				if connector.replConn != nil {
+					timeout2, cancel2 := context.WithTimeout(bgCtx, 5*time.Second)
+					defer cancel2()
+					if err := connector.replConn.Close(timeout2); err != nil {
+						connector.logger.Error("Failed to close Postgres replication connection on SSH keepalive failure",
+							slog.Any("error", err))
+					}
+				}
+			case <-done:
+			}
+		}()
+	}
+
+	return connector, nil
 }
 
 func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
@@ -286,6 +320,7 @@ func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion
 func (c *PostgresConnector) Close() error {
 	var errs []error
 	if c != nil {
+		close(c.done)
 		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := c.conn.Close(timeout); err != nil {

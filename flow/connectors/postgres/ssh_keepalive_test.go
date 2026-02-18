@@ -1,8 +1,7 @@
-package connmysql
+package connpostgres
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,34 +21,33 @@ const (
 	sshServerPort             = "2222"
 	toxiproxyHost             = "localhost"
 	sshServerHost             = "openssh"
-	toxiproxyDownProxyPort    = 42001
-	toxiproxyLatencyProxyPort = 42002
-	toxiproxyResetProxyPort   = 42003
+	toxiproxyDownProxyPort    = 49001
+	toxiproxyLatencyProxyPort = 49002
+	toxiproxyResetProxyPort   = 49003
 )
 
-// setupMySQLConnectorWithSSH creates a toxiproxy and MySQL connector with SSH tunnel
-func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
+// setupPostgresConnectorWithSSH creates a toxiproxy and Postgres connector with SSH tunnel
+func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T,
 	toxiproxyClient *toxiproxy.Client, proxyName string, proxyPort int,
-) (*MySqlConnector, *toxiproxy.Proxy) {
+) (*PostgresConnector, *toxiproxy.Proxy) {
 	t.Helper()
 
 	// Create proxy from Toxiproxy to the OpenSSH server
 	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:"+strconv.Itoa(proxyPort), sshServerHost+":"+sshServerPort)
 	require.NoError(t, err)
 
-	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
-		Host:     "mysql",
-		Port:     3306,
-		User:     "root",
-		Password: "cipass",
-		Database: "mysql",
+	connector, err := NewPostgresConnector(ctx, nil, &protos.PostgresConfig{
+		Host:     "catalog",
+		Port:     5432,
+		User:     "postgres",
+		Password: "postgres",
+		Database: "postgres",
 		SshConfig: &protos.SSHConfig{
 			Host:     "localhost",
 			Port:     uint32(proxyPort),
 			User:     "testuser",
 			Password: "testpass",
 		},
-		DisableTls: true,
 	})
 	require.NoError(t, err)
 
@@ -60,21 +58,16 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 	return connector, sshProxy
 }
 
-func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
-	// Skip if running MariaDB instead of MySQL
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
-
+func TestPostgresSSHKeepaliveWithToxiproxy(t *testing.T) {
 	ctx := t.Context()
 
 	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
 	_, err := toxiproxyClient.Version()
 	require.NoError(t, err, "Toxiproxy not available")
 
-	// Create MySQL connector with SSH tunnel through Toxiproxy
-	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t,
-		toxiproxyClient, "my-ssh-keepalive-test", toxiproxyDownProxyPort)
+	// Create Postgres connector with SSH tunnel through Toxiproxy
+	connector, sshProxy := setupPostgresConnectorWithSSH(ctx, t,
+		toxiproxyClient, "pg-ssh-keepalive-test", toxiproxyDownProxyPort)
 	defer connector.Close()
 	defer func() {
 		if err := sshProxy.Delete(); err != nil {
@@ -90,7 +83,7 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 	queryDone := concurrency.NewLatch[error]()
 	go func() {
 		// This query will sleep for 60 seconds, giving us time to break the SSH tunnel
-		_, err := connector.Execute(ctx, "SELECT SLEEP(60)")
+		_, err := connector.conn.Exec(ctx, "SELECT pg_sleep(60)")
 		queryDone.Set(err)
 	}()
 
@@ -122,21 +115,16 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 	}
 }
 
-func TestMySQLSSHKeepaliveLatency(t *testing.T) {
-	// Skip if running MariaDB instead of MySQL
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
-
+func TestPostgresSSHKeepaliveLatency(t *testing.T) {
 	ctx := t.Context()
 
 	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
 	_, err := toxiproxyClient.Version()
 	require.NoError(t, err, "Toxiproxy not available")
 
-	// Create MySQL connector with SSH tunnel through Toxiproxy
-	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t,
-		toxiproxyClient, "my-ssh-latency-test", toxiproxyLatencyProxyPort)
+	// Create Postgres connector with SSH tunnel through Toxiproxy
+	connector, sshProxy := setupPostgresConnectorWithSSH(ctx, t,
+		toxiproxyClient, "pg-ssh-latency-test", toxiproxyLatencyProxyPort)
 	defer connector.Close()
 	defer func() {
 		if err := sshProxy.Delete(); err != nil {
@@ -166,21 +154,16 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 	}
 }
 
-func TestMySQLSSHResetPeer(t *testing.T) {
-	// Skip if running MariaDB instead of MySQL
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
-
+func TestPostgresSSHResetPeer(t *testing.T) {
 	ctx := t.Context()
 
 	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
 	_, err := toxiproxyClient.Version()
 	require.NoError(t, err, "Toxiproxy not available")
 
-	// Create MySQL connector with SSH tunnel through Toxiproxy
-	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t,
-		toxiproxyClient, "my-ssh-reset-peer-test", toxiproxyResetProxyPort)
+	// Create Postgres connector with SSH tunnel through Toxiproxy
+	connector, sshProxy := setupPostgresConnectorWithSSH(ctx, t,
+		toxiproxyClient, "pg-ssh-reset-peer-test", toxiproxyResetProxyPort)
 	defer connector.Close()
 	defer func() {
 		if err := sshProxy.Delete(); err != nil {
@@ -194,7 +177,7 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 	// Start a long-running query
 	queryDone := concurrency.NewLatch[error]()
 	go func() {
-		_, err := connector.Execute(ctx, "SELECT SLEEP(60)")
+		_, err := connector.conn.Exec(ctx, "SELECT pg_sleep(60)")
 		queryDone.Set(err)
 	}()
 
