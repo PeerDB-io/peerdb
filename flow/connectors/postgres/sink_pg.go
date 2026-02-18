@@ -128,6 +128,18 @@ func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx
 	for _, col := range cols {
 		quotedCols = append(quotedCols, common.QuoteIdentifier(col))
 	}
+
+	// Monitor context cancellation and close pipe to unblock reads
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.PipeReader.CloseWithError(ctx.Err())
+		case <-done:
+		}
+	}()
+
 	ct, err := tx.Conn().PgConn().CopyFrom(
 		ctx,
 		p.PipeReader,

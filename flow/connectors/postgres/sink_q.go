@@ -116,6 +116,18 @@ func (stream RecordStreamSink) CopyInto(ctx context.Context, _ *PostgresConnecto
 	if err != nil {
 		return 0, err
 	}
+
+	// Monitor context cancellation and close stream to unblock reads
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			stream.QRecordStream.Close(ctx.Err())
+		case <-done:
+		}
+	}()
+
 	return tx.CopyFrom(ctx, table, columnNames, model.NewQRecordCopyFromSource(stream.QRecordStream))
 }
 
