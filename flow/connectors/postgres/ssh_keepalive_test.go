@@ -2,39 +2,26 @@ package connpostgres
 
 import (
 	"context"
-	"strconv"
-	"strings"
 	"testing"
-	"time"
 
-	toxiproxy "github.com/Shopify/toxiproxy/v2/client"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 )
 
 const (
-	toxiproxyAPIPort          = "18474"
-	sshServerPort             = "2222"
-	toxiproxyHost             = "localhost"
-	sshServerHost             = "openssh"
 	toxiproxyDownProxyPort    = 49001
 	toxiproxyLatencyProxyPort = 49002
 	toxiproxyResetProxyPort   = 49003
 )
 
-// setupPostgresConnectorWithSSH creates a toxiproxy and Postgres connector with SSH tunnel
-func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T,
-	toxiproxyClient *toxiproxy.Client, proxyName string, proxyPort int,
-) (*PostgresConnector, *toxiproxy.Proxy) {
+func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
+) (*PostgresConnector, utils.SSHKeepaliveTestConfig) {
 	t.Helper()
 
-	// Create proxy from Toxiproxy to the OpenSSH server
-	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:"+strconv.Itoa(proxyPort), sshServerHost+":"+sshServerPort)
-	require.NoError(t, err)
+	toxiproxyClient := utils.NewToxiproxyClient(t)
+	sshProxy := utils.CreateSSHProxy(t, toxiproxyClient, proxyName, proxyPort)
 
 	connector, err := NewPostgresConnector(ctx, nil, &protos.PostgresConfig{
 		Host:     "catalog",
@@ -55,162 +42,32 @@ func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T,
 	err = connector.ConnectionActive(ctx)
 	require.NoError(t, err, "Initial connection should work")
 
-	return connector, sshProxy
+	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
+
+	return connector, utils.SSHKeepaliveTestConfig{
+		SSHProxy:      sshProxy,
+		KeepaliveChan: keepaliveChan,
+		RunLongQuery: func(ctx context.Context) error {
+			_, err := connector.conn.Exec(ctx, "SELECT pg_sleep(60)")
+			return err
+		},
+	}
 }
 
 func TestPostgresSSHKeepaliveWithToxiproxy(t *testing.T) {
-	ctx := t.Context()
-
-	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
-	_, err := toxiproxyClient.Version()
-	require.NoError(t, err, "Toxiproxy not available")
-
-	// Create Postgres connector with SSH tunnel through Toxiproxy
-	connector, sshProxy := setupPostgresConnectorWithSSH(ctx, t,
-		toxiproxyClient, "pg-ssh-keepalive-test", toxiproxyDownProxyPort)
+	connector, cfg := setupPostgresConnectorWithSSH(t.Context(), t, "pg-ssh-keepalive-test", toxiproxyDownProxyPort)
 	defer connector.Close()
-	defer func() {
-		if err := sshProxy.Delete(); err != nil {
-			t.Logf("Failed to delete toxiproxy proxy: %v", err)
-		}
-	}()
-
-	// Get the SSH keepalive channel
-	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
-	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
-
-	// Start a long-running query in a goroutine
-	queryDone := concurrency.NewLatch[error]()
-	go func() {
-		// This query will sleep for 60 seconds, giving us time to break the SSH tunnel
-		_, err := connector.conn.Exec(ctx, "SELECT pg_sleep(60)")
-		queryDone.Set(err)
-	}()
-
-	// Wait a bit for the query to start
-	time.Sleep(2 * time.Second)
-
-	// Simulate network going down - this requires keepalives to detect the failure
-	t.Log("Disabling proxy to simulate network failure during long-running query")
-	require.NoError(t, sshProxy.Disable())
-
-	// Wait for keepalive failure detection (should happen within ~15-20 seconds)
-	t.Log("Waiting for SSH keepalive failure detection...")
-	select {
-	case <-keepaliveChan:
-		t.Log("SSH keepalive failure detected successfully")
-		// Channel closing indicates tunnel failure was detected
-	case <-time.After(2 * utils.SSHKeepaliveInterval):
-		t.Fatal("SSH keepalive failure not detected within 2 intervals")
-	}
-
-	// The long-running query should fail due to broken connection
-	select {
-	case <-queryDone.Chan():
-		queryErr := queryDone.Wait()
-		require.Error(t, queryErr, "Long-running query should fail after SSH tunnel failure")
-		t.Logf("Long-running query failed as expected: %v", queryErr)
-	case <-time.After(10 * time.Second):
-		t.Fatal("Long-running query should have failed after SSH tunnel broke")
-	}
+	utils.RunSSHKeepaliveDownTest(t, cfg)
 }
 
 func TestPostgresSSHKeepaliveLatency(t *testing.T) {
-	ctx := t.Context()
-
-	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
-	_, err := toxiproxyClient.Version()
-	require.NoError(t, err, "Toxiproxy not available")
-
-	// Create Postgres connector with SSH tunnel through Toxiproxy
-	connector, sshProxy := setupPostgresConnectorWithSSH(ctx, t,
-		toxiproxyClient, "pg-ssh-latency-test", toxiproxyLatencyProxyPort)
+	connector, cfg := setupPostgresConnectorWithSSH(t.Context(), t, "pg-ssh-latency-test", toxiproxyLatencyProxyPort)
 	defer connector.Close()
-	defer func() {
-		if err := sshProxy.Delete(); err != nil {
-			t.Logf("Failed to delete toxiproxy proxy: %v", err)
-		}
-	}()
-
-	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
-	require.NotNil(t, keepaliveChan)
-
-	// Add high latency that should cause keepalive timeouts
-	// SSH keepalives happen every 15 seconds, so 25s latency should cause timeout
-	t.Log("Adding latency toxic to cause SSH keepalive timeouts")
-	_, err = sshProxy.AddToxic("latency", "latency", "", 1.0, toxiproxy.Attributes{
-		"latency": 25000, // 25 seconds
-	})
-	require.NoError(t, err, "Failed to add latency toxic")
-
-	// Should detect keepalive failure due to timeout
-	t.Log("Waiting for SSH keepalive timeout...")
-	select {
-	case <-keepaliveChan:
-		t.Log("SSH keepalive timeout detected successfully")
-		// Channel closing indicates tunnel timeout was detected
-	case <-time.After(3 * utils.SSHKeepaliveInterval):
-		t.Fatal("SSH keepalive timeout not detected within 3 intervals")
-	}
+	utils.RunSSHKeepaliveLatencyTest(t, cfg)
 }
 
 func TestPostgresSSHResetPeer(t *testing.T) {
-	ctx := t.Context()
-
-	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
-	_, err := toxiproxyClient.Version()
-	require.NoError(t, err, "Toxiproxy not available")
-
-	// Create Postgres connector with SSH tunnel through Toxiproxy
-	connector, sshProxy := setupPostgresConnectorWithSSH(ctx, t,
-		toxiproxyClient, "pg-ssh-reset-peer-test", toxiproxyResetProxyPort)
+	connector, cfg := setupPostgresConnectorWithSSH(t.Context(), t, "pg-ssh-reset-peer-test", toxiproxyResetProxyPort)
 	defer connector.Close()
-	defer func() {
-		if err := sshProxy.Delete(); err != nil {
-			t.Logf("Failed to delete toxiproxy proxy: %v", err)
-		}
-	}()
-
-	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
-	require.NotNil(t, keepaliveChan)
-
-	// Start a long-running query
-	queryDone := concurrency.NewLatch[error]()
-	go func() {
-		_, err := connector.conn.Exec(ctx, "SELECT pg_sleep(60)")
-		queryDone.Set(err)
-	}()
-
-	// Wait for query to start
-	time.Sleep(2 * time.Second)
-
-	// Use reset_peer toxic - this immediately closes connections, bypassing keepalives
-	t.Log("Adding reset_peer toxic - should cause immediate connection failure")
-	_, err = sshProxy.AddToxic("ssh-reset-peer", "reset_peer", "", 1.0, toxiproxy.Attributes{})
-	require.NoError(t, err, "Failed to add reset_peer toxic")
-
-	// The long-running query should fail quickly due to connection reset
-	select {
-	case <-queryDone.Chan():
-		queryErr := queryDone.Wait()
-		require.Error(t, queryErr, "Query should fail due to connection reset")
-
-		// Assert on specific error messages that indicate immediate connection failure
-		errorMsg := queryErr.Error()
-		t.Logf("Connection reset error: %v", errorMsg)
-
-		// Check for common connection reset error patterns
-		hasExpectedError := false
-		expectedErrors := []string{"connection reset", "broken pipe", "EOF", "connection closed", "use of closed network connection"}
-		for _, expected := range expectedErrors {
-			if strings.Contains(errorMsg, expected) {
-				hasExpectedError = true
-				break
-			}
-		}
-		assert.True(t, hasExpectedError, "Error should indicate immediate connection failure, got: %s", errorMsg)
-
-	case <-time.After(utils.SSHKeepaliveInterval):
-		t.Fatal("Query should have failed quickly due to connection reset, not timeout")
-	}
+	utils.RunSSHResetPeerTest(t, cfg)
 }
