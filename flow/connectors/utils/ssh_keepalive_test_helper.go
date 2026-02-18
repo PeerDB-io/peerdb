@@ -21,6 +21,7 @@ const (
 	SSHServerHost    = "openssh"
 )
 
+// Callbacks avoid adding test-only methods to the connector interfaces in core.go.
 type SSHKeepaliveTestConfig struct {
 	SSHProxy      *toxiproxy.Proxy
 	KeepaliveChan <-chan struct{}
