@@ -1306,13 +1306,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 			case protos.TypeSystem_Q:
 				columnType = qValueKindToPostgresType(columnType)
 			case protos.TypeSystem_PG:
-				if addedColumn.TypeSchemaName != "" {
-					schemaQualifiedType := common.QualifiedTable{
-						Namespace: addedColumn.TypeSchemaName,
-						Table:     columnType,
-					}
-					columnType = schemaQualifiedType.String()
-				}
+				// schema qualification handled after numeric typmod check
 			default:
 				return fmt.Errorf("unknown type system %d", schemaDelta.System)
 			}
@@ -1320,6 +1314,12 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 			if strings.EqualFold(columnType, "numeric") && addedColumn.TypeModifier != -1 {
 				precision, scale := numeric.ParseNumericTypmod(addedColumn.TypeModifier)
 				columnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
+			} else if schemaDelta.System == protos.TypeSystem_PG && addedColumn.TypeSchemaName != "" {
+				schemaQualifiedType := common.QualifiedTable{
+					Namespace: addedColumn.TypeSchemaName,
+					Table:     columnType,
+				}
+				columnType = schemaQualifiedType.String()
 			}
 
 			dstSchemaTable, err := common.ParseTableIdentifier(schemaDelta.DstTableName)

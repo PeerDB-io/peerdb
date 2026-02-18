@@ -61,6 +61,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 }
 
 func (s PostgresSchemaDeltaTestSuite) testSimpleAddColumn(t *testing.T, system protos.TypeSystem) {
+	t.Helper()
 	tableName := fmt.Sprintf("%s.simple_add_column_%s", s.schema, strings.ToLower(system.String()))
 	_, err := s.connector.conn.Exec(t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
@@ -122,6 +123,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 }
 
 func (s PostgresSchemaDeltaTestSuite) testAddAllColumnTypes(t *testing.T, system protos.TypeSystem) {
+	t.Helper()
 	tableName := fmt.Sprintf("%s.add_drop_all_column_types_%s", s.schema, strings.ToLower(system.String()))
 	_, err := s.connector.conn.Exec(t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
@@ -165,6 +167,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 }
 
 func (s PostgresSchemaDeltaTestSuite) testAddTrickyColumnNames(t *testing.T, system protos.TypeSystem) {
+	t.Helper()
 	tableName := fmt.Sprintf("%s.add_drop_tricky_column_names_%s", s.schema, strings.ToLower(system.String()))
 	_, err := s.connector.conn.Exec(t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
@@ -208,6 +211,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 }
 
 func (s PostgresSchemaDeltaTestSuite) testAddDropWhitespaceColumnNames(t *testing.T, system protos.TypeSystem) {
+	t.Helper()
 	tableName := fmt.Sprintf("%s.add_drop_whitespace_column_names_%s", s.schema, strings.ToLower(system.String()))
 	_, err := s.connector.conn.Exec(t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(\" \" INT PRIMARY KEY)", tableName))
