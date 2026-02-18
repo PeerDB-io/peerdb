@@ -482,7 +482,7 @@ func syncQRepRecords(
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to create tx pool: %w", err)
 	}
-	defer txConn.Close(ctx)
+	defer txConn.Close(context.Background())
 
 	if err := shared.RegisterExtensions(ctx, txConn, config.Version); err != nil {
 		return 0, nil, fmt.Errorf("failed to register extensions: %w", err)
