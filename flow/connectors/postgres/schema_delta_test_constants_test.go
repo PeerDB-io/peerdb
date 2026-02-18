@@ -1,6 +1,8 @@
 package connpostgres
 
 import (
+	"fmt"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -31,7 +33,10 @@ func fieldsForSystem(qFields []*protos.FieldDescription, system protos.TypeSyste
 	}
 	result := make([]*protos.FieldDescription, len(qFields))
 	for i, f := range qFields {
-		pgType := qValueKindToPgName[f.Type]
+		pgType, ok := qValueKindToPgName[f.Type]
+		if !ok {
+			panic(fmt.Sprintf("no PG type mapping for QValueKind %q", f.Type))
+		}
 		result[i] = &protos.FieldDescription{
 			Name:           f.Name,
 			Type:           pgType,

@@ -1317,7 +1317,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 				return fmt.Errorf("unknown type system %d", schemaDelta.System)
 			}
 
-			if addedColumn.Type == "numeric" && addedColumn.TypeModifier != -1 {
+			if strings.EqualFold(columnType, "numeric") && addedColumn.TypeModifier != -1 {
 				precision, scale := numeric.ParseNumericTypmod(addedColumn.TypeModifier)
 				columnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 			}
