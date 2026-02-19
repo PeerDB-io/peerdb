@@ -670,7 +670,7 @@ func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestMongoHostUnreachableErrorShouldBeRecoverable(t *testing.T) {
+func TestMongoCursorErrors(t *testing.T) {
 	err := mongo.CommandError{
 		Code:    6,
 		Message: "(HostUnreachable) Error on remote shard test.mongodb.net:27017 :: caused by :: interrupted at shutdown",
@@ -680,6 +680,17 @@ func TestMongoHostUnreachableErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "6",
+	}, errInfo)
+
+	err = mongo.CommandError{
+		Code:    43,
+		Message: "cursor id 1234567890 not found",
+	}
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("cursor error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "43",
 	}, errInfo)
 }
 
