@@ -43,7 +43,12 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 
 	if s, ok := a.SlotSnapshotStates[flowJobName]; ok {
 		if s.slotConn != nil {
-			s.slotConn.Close(ctx)
+			logger := internal.LoggerFromCtx(ctx)
+			if err := s.slotConn.Close(ctx); err != nil {
+				logger.Error("failed to close the slot connection", slog.Any("error", err))
+			} else {
+				logger.Info("closed the slot connection")
+			}
 		}
 		s.connectorClose(ctx)
 		delete(a.SlotSnapshotStates, flowJobName)
