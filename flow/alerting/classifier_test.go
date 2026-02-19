@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
+	pErrors "github.com/pingcap/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -726,6 +727,16 @@ func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
 		Source: ErrorSourceMySQL,
 		Code:   "STREAMING_TRANSIENT_ERROR",
 	}, errInfo, "Unexpected error info")
+
+	tlsErr := tls.RecordHeaderError{Msg: "remote error: tls: error decoding message"}
+	innerErr := pErrors.Wrapf(mysql.ErrBadConn, "io.ReadFull(header) failed. err %v", tlsErr)
+	err = exceptions.NewMySQLStreamingError(pErrors.Errorf("failed to set @slave_gtid_strict_mode=1: %v", innerErr))
+	errorClass, errInfo = GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "STREAMING_TRANSIENT_ERROR",
+	}, errInfo)
 }
 
 func TestClickHouseTooManyPartsWithTableName(t *testing.T) {

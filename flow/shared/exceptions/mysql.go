@@ -5,6 +5,9 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
 type MySQLIncompatibleColumnTypeError struct {
@@ -74,6 +77,10 @@ func NewMySQLStreamingError(err error) *MySQLStreamingError {
 		if recordHeaderError.Msg == "first record does not look like a TLS handshake" {
 			return &MySQLStreamingError{err, true}
 		}
+	}
+
+	if strings.Contains(err.Error(), mysql.ErrBadConn.Error()) {
+		return &MySQLStreamingError{err, true}
 	}
 
 	return &MySQLStreamingError{err, false}
