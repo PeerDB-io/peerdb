@@ -167,6 +167,9 @@ var (
 	ErrorNotifyReplicationStandbySetup = ErrorClass{
 		Class: "NOTIFY_REPLICATION_STANDBY_SETUP", action: NotifyUser,
 	}
+	ErrorNotifyLogicalDecodingStandbyNotSupported = ErrorClass{
+		Class: "NOTIFY_LOGICAL_DECODING_STANDBY_NOT_SUPPORTED", action: NotifyUser,
+	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
@@ -605,6 +608,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.QueryCanceled:
 			return ErrorNotifyConnectivity, pgErrorInfo
+
+		case pgerrcode.FeatureNotSupported:
+			if strings.Contains(pgErr.Message, "logical decoding cannot be used while in recovery") {
+				return ErrorNotifyLogicalDecodingStandbyNotSupported, pgErrorInfo
+			}
 
 		case pgerrcode.DeadlockDetected,
 			pgerrcode.SerializationFailure,

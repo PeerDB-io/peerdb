@@ -326,6 +326,20 @@ func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.FeatureNotSupported,
+		Message:  "logical decoding cannot be used while in recovery",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error starting replication at startLsn - 11763874329649: %w", err))
+	assert.Equal(t, ErrorNotifyLogicalDecodingStandbyNotSupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.FeatureNotSupported,
+	}, errInfo)
+}
+
 func TestPostgresCreatingSlotOnReader(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
