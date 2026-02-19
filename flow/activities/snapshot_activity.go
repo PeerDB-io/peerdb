@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
@@ -134,15 +135,26 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 	start := time.Now()
 	for {
 		logger.Info("maintaining export snapshot transaction", slog.Int64("seconds", int64(time.Since(start).Round(time.Second)/time.Second)))
-		if ctx.Err() != nil {
+		if err := conn.ConnectionActive(ctx); err != nil {
 			a.SnapshotStatesMutex.Lock()
 			delete(a.TxSnapshotStates, sessionID)
 			a.SnapshotStatesMutex.Unlock()
-			if err := conn.FinishExport(tx); err != nil {
-				logger.Error("finish export error", slog.Any("error", err))
-				return err
+			if ctx.Err() != nil {
+				if err := conn.FinishExport(tx); err != nil {
+					logger.Error("finish export error", slog.Any("error", err))
+					return err
+				}
+				return nil
+			} else {
+				logger.Error("failed to ping the snapshot transaction connection", slog.Any("error", err))
+
+				// Don't retry - as TCP would already retry if the connection is there, and getting an error means it broke
+				// and we don't have the transaction/snapshot anymore
+				return temporal.NewNonRetryableApplicationError("snapshot connection lost", "disconnect", err)
+
+				// TODO: MaintainTx is not called on snapshot+CDC path, that path would need a separate background activity and a selector
+				// TODO: this error is not handled by the workflow after cloning tables has started, so would just
 			}
-			return nil
 		}
 		time.Sleep(time.Minute)
 	}
