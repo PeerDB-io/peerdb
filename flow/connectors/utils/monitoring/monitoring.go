@@ -417,8 +417,13 @@ func UpdateEndTimeForPartition(ctx context.Context, pool shared.CatalogPool, run
 func UpdateRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, rowsSynced int64, runUUID string,
 	partition *protos.QRepPartition,
 ) error {
+	// Source peers like BigQuery are not able to report number of pulled records.
+	// For such cases, we backfill `rows_in_partition` with `rows_synced` since they would be the same.
+
 	if _, err := pool.Exec(ctx,
-		`UPDATE peerdb_stats.qrep_partitions SET rows_synced=$1 WHERE run_uuid=$2 AND partition_uuid=$3`,
+		`UPDATE peerdb_stats.qrep_partitions
+		SET rows_synced=$1, rows_in_partition=CASE WHEN rows_in_partition=0 THEN $1 ELSE rows_in_partition END
+		WHERE run_uuid=$2 AND partition_uuid=$3`,
 		rowsSynced, runUUID, partition.PartitionId,
 	); err != nil {
 		return fmt.Errorf("error while updating rows_synced in qrep_partitions: %w", err)
