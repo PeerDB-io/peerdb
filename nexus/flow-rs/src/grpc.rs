@@ -60,6 +60,7 @@ impl FlowGrpcClient {
         let create_peer_flow_req = pt::peerdb_route::CreateCdcFlowRequest {
             connection_configs: Some(peer_flow_config),
             attach_to_existing: false,
+            table_mappings: vec![],
         };
         let response = self.client.create_cdc_flow(create_peer_flow_req).await?;
         let workflow_id = response.into_inner().workflow_id;
@@ -147,6 +148,7 @@ impl FlowGrpcClient {
             idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
             env: Default::default(),
             version: 0, // filled in by server
+            table_mapping_version: 0,
         };
 
         if job.disable_peerdb_columns {

@@ -18,6 +18,7 @@ import (
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -164,13 +165,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Not_Supported() {
 	bqConn := source.conn
 
 	flowConfig := &protos.FlowConnectionConfigsCore{
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-				DestinationTableIdentifier: "trips_1k_dst",
-				Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
-			},
-		},
 		SnapshotStagingPath: stagingTestBucket + "/test",
 	}
 
@@ -200,15 +194,19 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Required() {
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
+	flowJobName := "test_staging_required_" + strings.ToLower(shared.RandomString(8))
+	tableMappings := []*protos.TableMapping{
+		{
+			SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
+			DestinationTableIdentifier: "trips_1k_dst",
+		},
+	}
+	require.NoError(t, internal.InsertTableMappingsToDB(ctx, flowJobName, tableMappings, 0))
+
 	flowConfig := &protos.FlowConnectionConfigsCore{
+		FlowJobName:         flowJobName,
 		InitialSnapshotOnly: true,
 		DoInitialSnapshot:   true,
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-				DestinationTableIdentifier: "trips_1k_dst",
-			},
-		},
 		SnapshotStagingPath: "", // empty
 	}
 
@@ -224,6 +222,15 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Invalid_Forma
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
+	flowJobName := "test_staging_invalid_" + strings.ToLower(shared.RandomString(8))
+	tableMappings := []*protos.TableMapping{
+		{
+			SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
+			DestinationTableIdentifier: "trips_1k_dst",
+		},
+	}
+	require.NoError(t, internal.InsertTableMappingsToDB(ctx, flowJobName, tableMappings, 0))
+
 	invalidPaths := []string{
 		"not-a-gcs-path",
 		"http://example.com/path",
@@ -235,14 +242,9 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Invalid_Forma
 	for _, invalidPath := range invalidPaths {
 		t.Run("Invalid Staging Path: "+invalidPath, func(t *testing.T) {
 			flowConfig := &protos.FlowConnectionConfigsCore{
+				FlowJobName:         flowJobName,
 				InitialSnapshotOnly: true,
 				DoInitialSnapshot:   true,
-				TableMappings: []*protos.TableMapping{
-					{
-						SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-						DestinationTableIdentifier: "trips_1k_dst",
-					},
-				},
 				SnapshotStagingPath: invalidPath,
 			}
 
@@ -260,15 +262,19 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Inaccessible(
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
+	flowJobName := "test_staging_inaccessible_" + strings.ToLower(shared.RandomString(8))
+	tableMappings := []*protos.TableMapping{
+		{
+			SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
+			DestinationTableIdentifier: "trips_1k_dst",
+		},
+	}
+	require.NoError(t, internal.InsertTableMappingsToDB(ctx, flowJobName, tableMappings, 0))
+
 	flowConfig := &protos.FlowConnectionConfigsCore{
+		FlowJobName:         flowJobName,
 		InitialSnapshotOnly: true,
 		DoInitialSnapshot:   true,
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-				DestinationTableIdentifier: "trips_1k_dst",
-			},
-		},
 		SnapshotStagingPath: "gs://nonexistent-bucket-peerdb-test-12345/path",
 	}
 
@@ -284,15 +290,19 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Invalid_Table_Mappings() {
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
+	flowJobName := "test_invalid_mappings_" + strings.ToLower(shared.RandomString(8))
+	tableMappings := []*protos.TableMapping{
+		{
+			SourceTableIdentifier:      source.config.DatasetId + ".nonexistent_table",
+			DestinationTableIdentifier: "nonexistent_dst",
+		},
+	}
+	require.NoError(t, internal.InsertTableMappingsToDB(ctx, flowJobName, tableMappings, 0))
+
 	flowConfig := &protos.FlowConnectionConfigsCore{
+		FlowJobName:         flowJobName,
 		InitialSnapshotOnly: true,
 		DoInitialSnapshot:   true,
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      source.config.DatasetId + ".nonexistent_table",
-				DestinationTableIdentifier: "nonexistent_dst",
-			},
-		},
 		SnapshotStagingPath: stagingTestBucket + "/test",
 	}
 
@@ -308,15 +318,19 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_ValidateMirrorSource_Succe
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
+	flowJobName := "test_validate_success_" + strings.ToLower(shared.RandomString(8))
+	tableMappings := []*protos.TableMapping{
+		{
+			SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
+			DestinationTableIdentifier: "trips_1k_dst",
+		},
+	}
+	require.NoError(t, internal.InsertTableMappingsToDB(ctx, flowJobName, tableMappings, 0))
+
 	flowConfig := &protos.FlowConnectionConfigsCore{
+		FlowJobName:         flowJobName,
 		InitialSnapshotOnly: true,
 		DoInitialSnapshot:   true,
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-				DestinationTableIdentifier: "trips_1k_dst",
-			},
-		},
 		SnapshotStagingPath: stagingTestBucket + "/test",
 	}
 

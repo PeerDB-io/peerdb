@@ -38,7 +38,16 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	flowConfig := flowConfigFetchOutput.FlowConnectionConfigs
 	originalWorkflowId := flowConfigFetchOutput.WorkflowId
 	sourcePeerType := flowConfigFetchOutput.SourcePeerType
-	logger.Info("Retrieved flow config", "flowName", flowJobName, "tableCount", len(flowConfig.TableMappings))
+
+	// Fetch table mappings from catalog
+	var originalTableMappings []*protos.TableMapping
+	err = workflow.ExecuteActivity(getFlowConfigCtx,
+		cancelTableAddition.GetTableMappingsFromCatalog, flowJobName, flowConfig.TableMappingVersion).Get(ctx, &originalTableMappings)
+	if err != nil {
+		logger.Error("Failed to get table mappings from catalog", "error", err)
+		return nil, err
+	}
+	logger.Info("Retrieved flow config", "flowName", flowJobName, "tableCount", len(originalTableMappings))
 
 	currentlyReplicatingTableSet := make(map[string]bool)
 	for _, mapping := range input.CurrentlyReplicatingTables {
@@ -46,7 +55,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 
 	var removedTables []*protos.TableMapping
-	for _, mapping := range flowConfig.TableMappings {
+	for _, mapping := range originalTableMappings {
 		if !currentlyReplicatingTableSet[mapping.SourceTableIdentifier] {
 			removedTables = append(removedTables, mapping)
 		}
@@ -100,7 +109,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 
 	finalListOfTables := make([]*protos.TableMapping, 0)
 	// final list of tables = tables in catalog (still before addition/removal) + tables in this table addition that have completed snapshotting
-	finalListOfTables = append(finalListOfTables, flowConfig.TableMappings...)
+	finalListOfTables = append(finalListOfTables, originalTableMappings...)
 	for _, mapping := range input.CurrentlyReplicatingTables {
 		if snapshottedTableSet[mapping.SourceTableIdentifier] {
 			finalListOfTables = append(finalListOfTables, mapping)
@@ -138,8 +147,15 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 		return nil, fmt.Errorf("PostgreSQL schema has zero OID for table: %s", tableName)
 	}
 
-	// update table mappings for upcoming request
-	flowConfig.TableMappings = finalListOfTables
+	// update table mappings in catalog and get new version
+	newTableMappingVersion := flowConfig.TableMappingVersion + 1
+	err = workflow.ExecuteActivity(getFlowConfigCtx,
+		cancelTableAddition.InsertTableMappingsIntoCatalog, flowJobName, finalListOfTables, newTableMappingVersion).Get(ctx, nil)
+	if err != nil {
+		logger.Error("Failed to insert updated table mappings into catalog", "error", err)
+		return nil, err
+	}
+	flowConfig.TableMappingVersion = newTableMappingVersion
 
 	state := cdc_state.NewCDCFlowWorkflowState(ctx, logger, flowConfig)
 	state.SyncFlowOptions.SrcTableIdNameMapping = tableOIDs
@@ -203,7 +219,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	logger.Info("Successfully started CDC flow with updated configuration",
 		"flowName", flowJobName,
 		"workflowId", originalWorkflowId,
-		"originalTableCount", len(flowConfig.TableMappings),
+		"originalTableCount", len(originalTableMappings),
 		"finalTableCount", len(finalListOfTables),
 		"completedTableCount", len(snapshottedSourceTables),
 		"oidMappingCount", len(tableOIDs))

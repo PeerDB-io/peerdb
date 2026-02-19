@@ -1,4 +1,4 @@
-import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import {FlowConnectionConfigs} from '@/grpc_generated/flow';
 
 export default function MirrorValues(
   mirrorConfig: FlowConnectionConfigs | undefined
@@ -35,6 +35,10 @@ export default function MirrorValues(
         mirrorConfig?.publicationName ||
         `peerflow_pub_${mirrorConfig?.flowJobName}`,
       label: 'Publication Name',
+    },
+    {
+      value: mirrorConfig?.tableMappingVersion || 'N/A',
+      label: 'Table Mapping Version',
     },
   ];
 }

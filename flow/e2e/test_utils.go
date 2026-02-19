@@ -667,11 +667,11 @@ func ExecutePeerflow(t *testing.T, tc client.Client, config *protos.FlowConnecti
 	}
 }
 
-func ExecuteDropFlow(ctx context.Context, tc client.Client, config *protos.FlowConnectionConfigs, tableMappingsVersion int64) WorkflowRun {
+func ExecuteDropFlow(ctx context.Context, tc client.Client, config *protos.FlowConnectionConfigs) WorkflowRun {
 	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           config.FlowJobName,
 		DropFlowStats:         false,
-		FlowConnectionConfigs: proto_conversions.FlowConnectionConfigsToCore(config, tableMappingsVersion),
+		FlowConnectionConfigs: proto_conversions.FlowConnectionConfigsToCore(config),
 	})
 }
 

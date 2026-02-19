@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -228,8 +229,13 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	sourceTables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
-	for _, tableMapping := range cfg.TableMappings {
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return fmt.Errorf("failed to fetch table mappings: %w", err)
+	}
+
+	sourceTables := make([]*common.QualifiedTable, 0, len(tableMappings))
+	for _, tableMapping := range tableMappings {
 		parsedTable, parseErr := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
@@ -250,7 +256,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
+	if err := c.CheckSourceTables(ctx, sourceTables, tableMappings, pubName, noCDC); err != nil {
 		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 

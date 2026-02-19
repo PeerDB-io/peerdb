@@ -196,6 +196,7 @@ export function reformattedTableMapping(
       shardingKey: row.shardingKey,
       policyName: row.policyName,
       partitionByExpr: row.partitionByExpr,
+      version: 0,
     }));
 }
 
@@ -233,6 +234,7 @@ export function changesToTablesMapping(
           shardingKey: row.shardingKey,
           policyName: row.policyName,
           partitionByExpr: row.partitionByExpr,
+          version: 0,
         }) as TableMapping
     );
   return mapping;

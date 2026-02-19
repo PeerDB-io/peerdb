@@ -165,8 +165,17 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 	if state.SyncFlowOptions != nil {
 		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 		config.MaxBatchSize = state.SyncFlowOptions.BatchSize
-		config.TableMappings = state.SyncFlowOptions.TableMappings
 	}
+	slog.Info("Fetched CDC flow config from catalog",
+		slog.Any("config", config),
+	)
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
+	if err != nil {
+		slog.ErrorContext(ctx, "unable to fetch table mappings from DB", slog.Any("error", err))
+		return nil, err
+	}
+
+	config.TableMappings = tableMappings
 
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
 	if err != nil {
