@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"syscall"
 	"testing"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
@@ -442,6 +443,31 @@ func TestPeerCreateTimeoutErrorShouldBeConnectivity(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "CONTEXT_DEADLINE_EXCEEDED",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestConnectionResetDuringPeerCreateShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewPeerCreateError(
+		fmt.Errorf("failed to open connection to ClickHouse peer: failed to ping to ClickHouse peer: read: %w", syscall.ECONNRESET))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to recreate destination connector: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   syscall.ECONNRESET.Error(),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestConnectionResetFromSourceShouldBeIgnored(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("failed to pull records: read tcp 10.0.0.1:5432: %w", syscall.ECONNRESET)
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorIgnoreConnTemporary, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   syscall.ECONNRESET.Error(),
 	}, errInfo, "Unexpected error info")
 }
 

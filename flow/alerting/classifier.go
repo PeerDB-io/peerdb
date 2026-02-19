@@ -351,7 +351,23 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	// Connection reset errors can mostly be ignored
+	var peerCreateError *exceptions.PeerCreateError
+	if errors.As(err, &peerCreateError) {
+		if errors.Is(peerCreateError, context.DeadlineExceeded) {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceOther,
+				Code:   "CONTEXT_DEADLINE_EXCEEDED",
+			}
+		}
+		if errors.Is(peerCreateError, syscall.ECONNRESET) {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceNet,
+				Code:   syscall.ECONNRESET.Error(),
+			}
+		}
+	}
+
+	// Other connection reset errors can mostly be ignored
 	if errors.Is(err, syscall.ECONNRESET) {
 		return ErrorIgnoreConnTemporary, ErrorInfo{
 			Source: ErrorSourceNet,
@@ -909,17 +925,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		return ErrorOther, chErrorInfo
-	}
-
-	var peerCreateError *exceptions.PeerCreateError
-	if errors.As(err, &peerCreateError) {
-		// Check for context deadline exceeded error
-		if errors.Is(peerCreateError, context.DeadlineExceeded) {
-			return ErrorNotifyConnectivity, ErrorInfo{
-				Source: ErrorSourceOther,
-				Code:   "CONTEXT_DEADLINE_EXCEEDED",
-			}
-		}
 	}
 
 	var numericOutOfRangeError *exceptions.NumericOutOfRangeError
