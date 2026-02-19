@@ -488,13 +488,13 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow_Metrics() {
 	EnvWaitForFinished(t, env, 3*time.Minute)
 
 	runMetrics := requireQRepRunMetrics(t, ctx, flowConnConfig.FlowJobName)
-	t.Logf("qrep_runs: %d runs, all metrics populated", runMetrics.RunCount)
+	t.Logf("qrep_runs: %d runs, all metrics populated", runMetrics.runCount)
 
 	partMetrics := requireQRepPartitionMetrics(t, ctx, flowConnConfig.FlowJobName)
-	require.Equal(t, int64(count), partMetrics.TotalRowsSynced, "total rows_synced should equal source row count")
-	require.Equal(t, int64(count), partMetrics.TotalRowsInPartition, "total rows_in_partition should equal source row count")
+	require.Equal(t, int64(count), partMetrics.totalRowsSynced, "total rows_synced should equal source row count")
+	require.Equal(t, int64(count), partMetrics.totalRowsInPartition, "total rows_in_partition should equal source row count")
 	t.Logf("qrep_partitions: %d partitions, total rows_synced=%d, total rows_in_partition=%d",
-		partMetrics.PartitionCount, partMetrics.TotalRowsSynced, partMetrics.TotalRowsInPartition)
+		partMetrics.partitionCount, partMetrics.totalRowsSynced, partMetrics.totalRowsInPartition)
 }
 
 func (s BigQueryClickhouseSuite) Test_Trips_Flow_Small_Partitions() {

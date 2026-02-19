@@ -889,11 +889,11 @@ func EnvGetWorkflowState(t *testing.T, env WorkflowRun) cdc_state.CDCFlowWorkflo
 }
 
 type qrepRunMetrics struct {
-	RunCount              int
-	AllStartTimeSet       bool
-	AllEndTimeSet         bool
-	AllFetchComplete      bool
-	AllConsolidateComplete bool
+	runCount               int
+	allStartTimeSet        bool
+	allEndTimeSet          bool
+	allFetchComplete       bool
+	allConsolidateComplete bool
 }
 
 func requireQRepRunMetrics(t *testing.T, ctx context.Context, flowJobName string) qrepRunMetrics {
@@ -911,23 +911,23 @@ func requireQRepRunMetrics(t *testing.T, ctx context.Context, flowJobName string
 			bool_and(consolidate_complete)
 		FROM peerdb_stats.qrep_runs WHERE parent_mirror_name = $1`,
 		flowJobName,
-	).Scan(&m.RunCount, &m.AllStartTimeSet, &m.AllEndTimeSet, &m.AllFetchComplete, &m.AllConsolidateComplete)
+	).Scan(&m.runCount, &m.allStartTimeSet, &m.allEndTimeSet, &m.allFetchComplete, &m.allConsolidateComplete)
 	require.NoError(t, err, "should query qrep_runs")
-	require.Positive(t, m.RunCount, "should have at least one qrep run")
-	require.True(t, m.AllStartTimeSet, "all runs should have start_time set")
-	require.True(t, m.AllEndTimeSet, "all runs should have end_time set")
-	require.True(t, m.AllFetchComplete, "all runs should have fetch_complete = true")
-	require.True(t, m.AllConsolidateComplete, "all runs should have consolidate_complete = true")
+	require.Positive(t, m.runCount, "should have at least one qrep run")
+	require.True(t, m.allStartTimeSet, "all runs should have start_time set")
+	require.True(t, m.allEndTimeSet, "all runs should have end_time set")
+	require.True(t, m.allFetchComplete, "all runs should have fetch_complete = true")
+	require.True(t, m.allConsolidateComplete, "all runs should have consolidate_complete = true")
 	return m
 }
 
 type qrepPartitionMetrics struct {
-	PartitionCount       int
-	AllStartTimeSet      bool
-	AllEndTimeSet        bool
-	AllPullEndTimeSet    bool
-	TotalRowsSynced      int64
-	TotalRowsInPartition int64
+	partitionCount       int
+	allStartTimeSet      bool
+	allEndTimeSet        bool
+	allPullEndTimeSet    bool
+	totalRowsSynced      int64
+	totalRowsInPartition int64
 }
 
 func requireQRepPartitionMetrics(t *testing.T, ctx context.Context, flowJobName string) qrepPartitionMetrics {
@@ -946,12 +946,12 @@ func requireQRepPartitionMetrics(t *testing.T, ctx context.Context, flowJobName 
 			COALESCE(SUM(rows_in_partition), 0)
 		FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowJobName,
-	).Scan(&m.PartitionCount, &m.AllStartTimeSet, &m.AllEndTimeSet, &m.AllPullEndTimeSet, &m.TotalRowsSynced, &m.TotalRowsInPartition)
+	).Scan(&m.partitionCount, &m.allStartTimeSet, &m.allEndTimeSet, &m.allPullEndTimeSet, &m.totalRowsSynced, &m.totalRowsInPartition)
 	require.NoError(t, err, "should query qrep_partitions")
-	require.Positive(t, m.PartitionCount, "should have at least one partition")
-	require.True(t, m.AllStartTimeSet, "all partitions should have start_time set")
-	require.True(t, m.AllEndTimeSet, "all partitions should have end_time set")
-	require.True(t, m.AllPullEndTimeSet, "all partitions should have pull_end_time set")
+	require.Positive(t, m.partitionCount, "should have at least one partition")
+	require.True(t, m.allStartTimeSet, "all partitions should have start_time set")
+	require.True(t, m.allEndTimeSet, "all partitions should have end_time set")
+	require.True(t, m.allPullEndTimeSet, "all partitions should have pull_end_time set")
 	return m
 }
 
