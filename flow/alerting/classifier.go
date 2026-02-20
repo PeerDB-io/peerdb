@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
+	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
@@ -239,7 +241,7 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 	return NotifyTelemetry
 }
 
-func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
+func GetErrorClass(ctx context.Context, logger log.Logger, err error) (ErrorClass, ErrorInfo) {
 	var pgErr *pgconn.PgError
 	var pgWalErr *exceptions.PostgresWalError
 	if errors.As(err, &pgWalErr) {
@@ -938,6 +940,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyMVOrView, chErrorInfo
 		} else if errors.As(err, &normalizationErr) {
 			// notify if normalization hits error on destination
+			logger.Warn("Assuming a normalization error is bad MV or view", slog.Any("error", err))
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		return ErrorOther, chErrorInfo
