@@ -202,6 +202,12 @@ type SetupReplicationResult struct {
 	SupportsTIDScans bool
 }
 
+type PullResult struct {
+	NumRecords       int64
+	NumBytes         int64
+	RecordCountKnown bool
+}
+
 type RemoveFlowDetailsFromCatalogRequest struct {
 	FlowName string
 	Resync   bool

@@ -32,27 +32,27 @@ func (c *BigQueryConnector) PullQRepObjects(
 	_ protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QObjectStream,
-) (int64, int64, error) {
+) (model.PullResult, error) {
 	stream.SetFormat(model.QObjectStreamBigQueryExportParquetFormat)
 
 	schema, err := c.getQRepSchema(ctx, config)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get QRep schema: %w", err)
+		return model.PullResult{}, fmt.Errorf("failed to get QRep schema: %w", err)
 	}
 	stream.SetSchema(schema)
 
 	if partition == nil || partition.Range == nil {
-		return 0, 0, errors.New("partition and partition range must be provided")
+		return model.PullResult{}, errors.New("partition and partition range must be provided")
 	}
 
 	objectRange := partition.Range.GetObjectIdRange()
 	if objectRange == nil {
-		return 0, 0, errors.New("invalid partition range")
+		return model.PullResult{}, errors.New("invalid partition range")
 	}
 
 	stagingPath, err := parseGCSPath(config.StagingPath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
+		return model.PullResult{}, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
 	}
 	tablePath := stagingPath.JoinPath(config.WatermarkTable)
 	bucketName := tablePath.Bucket()
@@ -83,7 +83,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 
 		attrs, err := bucket.Object(startOffset).Attrs(ctx)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to get object attrs for bucket %s with prefix %s and object %s: %w",
+			return model.PullResult{}, fmt.Errorf("failed to get object attrs for bucket %s with prefix %s and object %s: %w",
 				bucketName, prefix, startOffset, err)
 		}
 		processObject(attrs)
@@ -91,7 +91,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 			slog.String("bucket", bucketName),
 			slog.String("prefix", prefix),
 			slog.Int64("totalBytes", totalBytes))
-		return 0, totalBytes, nil
+		return model.PullResult{NumBytes: totalBytes}, nil
 	}
 
 	it := bucket.Objects(ctx, &storage.Query{
@@ -111,7 +111,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 			break
 		}
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
+			return model.PullResult{}, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
 		}
 
 		if attrs.Name == "" {
@@ -128,7 +128,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 		slog.String("prefix", prefix),
 		slog.Int64("totalBytes", totalBytes))
 
-	return 0, totalBytes, nil
+	return model.PullResult{NumBytes: totalBytes}, nil
 }
 
 func (c *BigQueryConnector) GetQRepPartitions(

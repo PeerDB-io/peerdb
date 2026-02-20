@@ -426,6 +426,18 @@ func UpdateRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, 
 	return nil
 }
 
+func UpdateRowsSyncedAndRowsInPartition(ctx context.Context, pool shared.CatalogPool, rows int64,
+	runUUID string, partition *protos.QRepPartition,
+) error {
+	if _, err := pool.Exec(ctx,
+		`UPDATE peerdb_stats.qrep_partitions SET rows_synced=$1, rows_in_partition=$1 WHERE run_uuid=$2 AND partition_uuid=$3`,
+		rows, runUUID, partition.PartitionId,
+	); err != nil {
+		return fmt.Errorf("error while updating rows_synced and rows_in_partition in qrep_partitions: %w", err)
+	}
+	return nil
+}
+
 func DeleteMirrorStats(ctx context.Context, logger log.Logger, pool shared.CatalogPool, flowJobName string) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {

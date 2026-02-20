@@ -235,7 +235,7 @@ type QRepPullConnector interface {
 	// PullQRepRecords returns the records for a given partition.
 	PullQRepRecords(
 		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, protos.DBType, *protos.QRepPartition, *model.QRecordStream,
-	) (int64, int64, error)
+	) (model.PullResult, error)
 }
 
 type QRepSyncConnectorCore interface {
@@ -267,7 +267,7 @@ type QRepPullObjectsConnector interface {
 		protos.DBType,
 		*protos.QRepPartition,
 		*model.QObjectStream,
-	) (int64, int64, error)
+	) (model.PullResult, error)
 }
 
 type QRepSyncObjectsConnector interface {

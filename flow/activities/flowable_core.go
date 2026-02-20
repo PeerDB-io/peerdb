@@ -427,7 +427,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		protos.DBType,
 		*protos.QRepPartition,
 		TWrite,
-	) (int64, int64, error),
+	) (model.PullResult, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -452,22 +452,21 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 
 	logger.Info("replicating partition", slog.String("partitionId", partition.PartitionId))
 
+	var pullRecordCountKnown bool
 	var rowsSynced int64
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, stream)
+		pullResult, err := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, stream)
 		stream.Close(err)
 		if err != nil {
 			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", err)
 		}
 
-		// for Postgres source, reports all bytes fetched from source
-		// for MySQL and MongoDB source, connector reports bytes fetched but some bytes are counted here
-		// since the reporting is asynchronous (goroutine)
-		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
+		pullRecordCountKnown = pullResult.RecordCountKnown
+		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, pullResult.NumBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
-			errCtx, a.CatalogPool, runUUID, partition, numRecords,
+			errCtx, a.CatalogPool, runUUID, partition, pullResult.NumRecords,
 		); err != nil {
 			logger.Error(err.Error())
 		}
@@ -493,8 +492,14 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 
 	if rowsSynced > 0 {
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
-		if err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
-			return err
+		if pullRecordCountKnown {
+			if err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
+				return err
+			}
+		} else {
+			if err := monitoring.UpdateRowsSyncedAndRowsInPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -608,8 +613,7 @@ func replicateXminPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	}
 
 	if rowsSynced > 0 {
-		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
-		if err != nil {
+		if err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
 			return 0, err
 		}
 

@@ -151,12 +151,12 @@ func (c *MongoConnector) PullQRepRecords(
 	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, int64, error) {
+) (model.PullResult, error) {
 	var totalRecords int64
 
 	parseWatermarkTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
-		return 0, 0, fmt.Errorf("unable to parse watermark table: %w", err)
+		return model.PullResult{}, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
 	db := c.client.Database(parseWatermarkTable.Namespace)
 
@@ -174,7 +174,7 @@ func (c *MongoConnector) PullQRepRecords(
 	if !partition.FullTablePartition {
 		filter, err = toRangeFilter(config.WatermarkColumn, partition.Range)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
+			return model.PullResult{}, fmt.Errorf("failed to convert partition range to filter: %w", err)
 		}
 	}
 	c.logger.Info("[mongo] filter for partition",
@@ -203,7 +203,7 @@ func (c *MongoConnector) PullQRepRecords(
 	cursor, err := db.RunCommandCursor(ctx, findCmd,
 		options.RunCmd().SetReadPreference(protoToReadPref[c.config.ReadPreference]))
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to query for records: %w", err)
+		return model.PullResult{}, fmt.Errorf("failed to query for records: %w", err)
 	}
 	defer cursor.Close(ctx)
 
@@ -213,12 +213,12 @@ func (c *MongoConnector) PullQRepRecords(
 			c.logger.Error("failed to unmarshal record",
 				slog.String("error", err.Error()),
 				slog.Any("recordSize", len(cursor.Current)))
-			return 0, 0, fmt.Errorf("failed to unmarshal record: %w", err)
+			return model.PullResult{}, fmt.Errorf("failed to unmarshal record: %w", err)
 		}
 
 		record, err := QValuesFromDocument(doc, config.Version)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
+			return model.PullResult{}, fmt.Errorf("failed to convert record: %w", err)
 		}
 		stream.Records <- record
 		totalRecords += 1
@@ -240,14 +240,18 @@ func (c *MongoConnector) PullQRepRecords(
 				slog.String("watermark_table", config.WatermarkTable),
 				slog.String("error", err.Error()))
 		}
-		return 0, 0, fmt.Errorf("cursor error: %w", err)
+		return model.PullResult{}, fmt.Errorf("cursor error: %w", err)
 	}
 
 	c.logger.Info("[mongo] pulled records",
 		slog.Int64("records", totalRecords),
 		slog.Int64("bytes", c.totalBytesRead.Load()),
 		slog.Int("channelLen", len(stream.Records)))
-	return totalRecords, c.deltaBytesRead.Swap(0), nil
+	return model.PullResult{
+		NumRecords:       totalRecords,
+		NumBytes:         c.deltaBytesRead.Swap(0),
+		RecordCountKnown: true,
+	}, nil
 }
 
 func GetDefaultSchema(internalVersion uint32) types.QRecordSchema {

@@ -332,7 +332,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, int64, error) {
+) (model.PullResult, error) {
 	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
 		QRecordStream:   stream,
 		DestinationType: dstType,
@@ -346,7 +346,7 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
-) (int64, int64, error) {
+) (model.PullResult, error) {
 	return corePullQRepRecords(c, ctx, config, partition, stream)
 }
 
@@ -356,7 +356,7 @@ func corePullQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
-) (int64, int64, error) {
+) (model.PullResult, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
 	if partition.FullTablePartition {
@@ -364,9 +364,14 @@ func corePullQRepRecords(
 		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.SnapshotName,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
+			return model.PullResult{}, fmt.Errorf("failed to create query executor: %w", err)
 		}
-		return executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
+		numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
+		return model.PullResult{
+			NumRecords:       numRecords,
+			NumBytes:         numBytes,
+			RecordCountKnown: true,
+		}, err
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
@@ -393,32 +398,36 @@ func corePullQRepRecords(
 			Valid:        true,
 		}
 	default:
-		return 0, 0, fmt.Errorf("unknown range type: %v", x)
+		return model.PullResult{}, fmt.Errorf("unknown range type: %v", x)
 	}
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
 	query, err := BuildQuery(c.logger, config.Query, config.FlowJobName)
 	if err != nil {
-		return 0, 0, err
+		return model.PullResult{}, err
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(
 		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
+		return model.PullResult{}, fmt.Errorf("failed to create query executor: %w", err)
 	}
 
 	numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
 	if err != nil {
-		return numRecords, numBytes, err
+		return model.PullResult{}, err
 	}
 
 	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords),
 		partitionIdLog,
 		slog.Int64("records", numRecords),
 		slog.Int64("bytes", numBytes))
-	return numRecords, numBytes, nil
+	return model.PullResult{
+		NumRecords:       numRecords,
+		NumBytes:         numBytes,
+		RecordCountKnown: true,
+	}, nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(

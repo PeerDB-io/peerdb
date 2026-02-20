@@ -183,11 +183,11 @@ func (c *MySqlConnector) PullQRepRecords(
 	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, int64, error) {
+) (model.PullResult, error) {
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
+		return model.PullResult{}, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
 	c.logger.Info("[mysql] pulling records start")
@@ -238,7 +238,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query
 		if err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult); err != nil {
-			return 0, 0, err
+			return model.PullResult{}, err
 		}
 	} else {
 		var rangeStart string
@@ -256,18 +256,18 @@ func (c *MySqlConnector) PullQRepRecords(
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 		default:
-			return 0, 0, fmt.Errorf("unknown range type: %v", x)
+			return model.PullResult{}, fmt.Errorf("unknown range type: %v", x)
 		}
 
 		// Build the query to pull records within the range from the source table
 		// Be sure to order the results by the watermark column to ensure consistency across pulls
 		query, err := BuildQuery(c.logger, config.Query, rangeStart, rangeEnd)
 		if err != nil {
-			return 0, 0, err
+			return model.PullResult{}, err
 		}
 
 		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
-			return 0, 0, err
+			return model.PullResult{}, err
 		}
 	}
 
@@ -275,7 +275,11 @@ func (c *MySqlConnector) PullQRepRecords(
 		slog.Int64("records", totalRecords),
 		slog.Int64("bytes", c.totalBytesRead.Load()),
 		slog.Int("channelLen", len(stream.Records)))
-	return totalRecords, c.deltaBytesRead.Swap(0), nil
+	return model.PullResult{
+		NumRecords:       totalRecords,
+		NumBytes:         c.deltaBytesRead.Swap(0),
+		RecordCountKnown: true,
+	}, nil
 }
 
 func BuildQuery(logger log.Logger, query string, start string, end string) (string, error) {
