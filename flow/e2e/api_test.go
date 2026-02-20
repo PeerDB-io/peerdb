@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	tp "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -301,6 +302,74 @@ func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
+}
+
+func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int, val text)", AttachSchema(s, "no_pkey"))))
+	case *MongoSource:
+		s.t.Skip("MongoDB always has _id as primary key")
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	chVersion, err := s.ch.connector.GetVersion(s.t.Context())
+	require.NoError(s.t, err)
+	isAtLeast25_12 := chproto.CheckMinVersion(
+		chproto.Version{Major: 25, Minor: 12, Patch: 0}, chproto.ParseVersion(chVersion))
+
+	srcTable := AttachSchema(s, "no_pkey")
+
+	tests := []struct {
+		name      string
+		dstTable  string
+		engine    protos.TableEngine
+		expectErr bool
+	}{
+		{
+			name:      "ReplacingMergeTree rejects empty ordering on 25.12+",
+			dstTable:  "no_pkey_rmt",
+			engine:    protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE,
+			expectErr: isAtLeast25_12,
+		},
+		{
+			name:     "Null engine allows empty ordering",
+			dstTable: "no_pkey_null",
+			engine:   protos.TableEngine_CH_ENGINE_NULL,
+		},
+	}
+
+	for _, tc := range tests {
+		s.t.Run(tc.name, func(t *testing.T) {
+			connectionGen := FlowConnectionGenerationConfig{
+				FlowJobName: "ch_no_pkey_" + tc.dstTable + "_" + s.suffix,
+				TableMappings: []*protos.TableMapping{{
+					SourceTableIdentifier:      srcTable,
+					DestinationTableIdentifier: tc.dstTable,
+					Engine:                     tc.engine,
+				}},
+				Destination: s.ch.Peer().Name,
+			}
+			flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+			flowConnConfig.DoInitialSnapshot = true
+
+			response, err := s.ValidateCDCMirror(t.Context(),
+				&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+			if tc.expectErr {
+				require.Error(t, err)
+				require.Nil(t, response)
+				st, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, codes.FailedPrecondition, st.Code())
+				require.Contains(t, st.Message(), "has no primary key columns")
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, response)
+			}
+		})
+	}
 }
 
 func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {

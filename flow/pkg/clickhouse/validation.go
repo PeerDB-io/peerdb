@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"go.temporal.io/sdk/log"
 )
 
@@ -139,4 +140,24 @@ func storeColumnInfoForTable(ctx context.Context, logger log.Logger, conn clickh
 	}
 
 	return nil
+}
+
+func CheckEmptyOrderingKeySupported(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
+	chVersion *chproto.Version, sourceTable string,
+) error {
+	if chVersion == nil || !chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 12, Patch: 0}, *chVersion) {
+		return nil
+	}
+	var settingVal string
+	if err := QueryRow(ctx, logger, conn,
+		"SELECT value FROM system.settings WHERE name = 'allow_suspicious_primary_key'",
+	).Scan(&settingVal); err == nil && settingVal == "1" {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"source table %s has no primary key columns; add a primary key to the source table, "+
+			"specify custom ordering columns, or set allow_suspicious_primary_key=1 in your ClickHouse server profile",
+		sourceTable,
+	)
 }
