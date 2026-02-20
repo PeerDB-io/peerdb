@@ -251,13 +251,23 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
-		dstConn, dstClose, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
-		if err != nil {
-			return fmt.Errorf("failed to recreate destination connector: %w", err)
-		}
-		defer dstClose(ctx)
-
-		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
+		syncBatchID, err := func() (int64, error) {
+			// special case pg-pg replication, where batch ID is stored on destination instead of catalog
+			if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
+				dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
+				if err != nil {
+					if !errors.Is(err, errors.ErrUnsupported) {
+						return 0, fmt.Errorf("failed to get destination connector to get last sync batch ID: %w", err)
+					}
+					// else fallthrough to loading from catalog
+				} else {
+					defer dstPgClose(ctx)
+					return dstPgConn.GetLastSyncBatchID(errCtx, flowName)
+				}
+			}
+			pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+			return pgMetadata.GetLastSyncBatchID(errCtx, flowName)
+		}()
 		if err != nil {
 			return err
 		}
@@ -273,6 +283,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
+
+		dstConn, dstClose, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+		if err != nil {
+			return fmt.Errorf("failed to get destination connector: %w", err)
+		}
+		defer dstClose(ctx)
 
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
 			SyncBatchID:            syncBatchID,
