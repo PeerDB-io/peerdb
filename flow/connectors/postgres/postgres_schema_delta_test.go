@@ -50,150 +50,200 @@ func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	}
 }
 
-func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
-	tableName := s.schema + ".simple_add_column"
-	_, err := s.connector.conn.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
-	require.NoError(s.t, err)
+var typeSystems = []protos.TypeSystem{protos.TypeSystem_Q, protos.TypeSystem_PG}
 
-	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
+	for _, system := range typeSystems {
+		s.t.Run(system.String(), func(t *testing.T) {
+			s.testSimpleAddColumn(t, system)
+		})
+	}
+}
+
+func (s PostgresSchemaDeltaTestSuite) testSimpleAddColumn(t *testing.T, system protos.TypeSystem) {
+	t.Helper()
+	tableName := fmt.Sprintf("%s.simple_add_column_%s", s.schema, strings.ToLower(system.String()))
+	_, err := s.connector.conn.Exec(t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
+	require.NoError(t, err)
+
+	addedColumns := fieldsForSystem([]*protos.FieldDescription{
+		{
+			Name:           "hi",
+			Type:           string(types.QValueKindInt64),
+			TypeModifier:   -1,
+			Nullable:       true,
+			TypeSchemaName: "pg_catalog",
+		},
+	}, system)
+
+	require.NoError(t, s.connector.ReplayTableSchemaDeltas(t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
-		AddedColumns: []*protos.FieldDescription{
-			{
-				Name:           "hi",
-				Type:           string(types.QValueKindInt64),
-				TypeModifier:   -1,
-				Nullable:       true,
-				TypeSchemaName: "pg_catalog",
-			},
-		},
+		AddedColumns: addedColumns,
+		System:       system,
 	}}))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
-	require.NotEqual(s.t, 0, output[tableName].TableOid)
+	require.NoError(t, err)
+	require.NotEqual(t, 0, output[tableName].TableOid)
 	output[tableName].TableOid = 0 // zero out TableOid for comparison
-	require.NoError(s.t, err)
-	require.Equal(s.t, &protos.TableSchema{
+
+	expectedColumns := fieldsForSystem([]*protos.FieldDescription{
+		{
+			Name:           "id",
+			Type:           string(types.QValueKindInt32),
+			TypeModifier:   -1,
+			TypeSchemaName: "pg_catalog",
+		},
+		{
+			Name:           "hi",
+			Type:           string(types.QValueKindInt64),
+			TypeModifier:   -1,
+			Nullable:       true,
+			TypeSchemaName: "pg_catalog",
+		},
+	}, system)
+
+	require.Equal(t, &protos.TableSchema{
 		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{"id"},
-		System:            protos.TypeSystem_Q,
-		Columns: []*protos.FieldDescription{
-			{
-				Name:           "id",
-				Type:           string(types.QValueKindInt32),
-				TypeModifier:   -1,
-				TypeSchemaName: "pg_catalog",
-			},
-			{
-				Name:           "hi",
-				Type:           string(types.QValueKindInt64),
-				TypeModifier:   -1,
-				Nullable:       true,
-				TypeSchemaName: "pg_catalog",
-			},
-		},
+		System:            system,
+		Columns:           expectedColumns,
 	}, output[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
-	tableName := s.schema + ".add_drop_all_column_types"
-	_, err := s.connector.conn.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
-	require.NoError(s.t, err)
+	for _, system := range typeSystems {
+		s.t.Run(system.String(), func(t *testing.T) {
+			s.testAddAllColumnTypes(t, system)
+		})
+	}
+}
 
+func (s PostgresSchemaDeltaTestSuite) testAddAllColumnTypes(t *testing.T, system protos.TypeSystem) {
+	t.Helper()
+	tableName := fmt.Sprintf("%s.add_drop_all_column_types_%s", s.schema, strings.ToLower(system.String()))
+	_, err := s.connector.conn.Exec(t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
+	require.NoError(t, err)
+
+	fields := fieldsForSystem(AddAllColumnTypesFields, system)
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{"id"},
-		Columns:           AddAllColumnTypesFields,
-		System:            protos.TypeSystem_Q,
+		Columns:           fields,
+		System:            system,
 	}
 	addedColumns := make([]*protos.FieldDescription, 0)
-	for _, column := range expectedTableSchema.Columns {
+	for _, column := range fields {
 		if column.Name != "id" {
 			addedColumns = append(addedColumns, column)
 		}
 	}
 
-	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+	require.NoError(t, s.connector.ReplayTableSchemaDeltas(t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
+		System:       system,
 	}}))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
-	require.NotEqual(s.t, 0, output[tableName].TableOid)
+	require.NoError(t, err)
+	require.NotEqual(t, 0, output[tableName].TableOid)
 	output[tableName].TableOid = 0 // zero out TableOid for comparison
-	require.NoError(s.t, err)
-	require.Equal(s.t, expectedTableSchema, output[tableName])
+	require.Equal(t, expectedTableSchema, output[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
-	tableName := s.schema + ".add_drop_tricky_column_names"
-	_, err := s.connector.conn.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
-	require.NoError(s.t, err)
+	for _, system := range typeSystems {
+		s.t.Run(system.String(), func(t *testing.T) {
+			s.testAddTrickyColumnNames(t, system)
+		})
+	}
+}
 
+func (s PostgresSchemaDeltaTestSuite) testAddTrickyColumnNames(t *testing.T, system protos.TypeSystem) {
+	t.Helper()
+	tableName := fmt.Sprintf("%s.add_drop_tricky_column_names_%s", s.schema, strings.ToLower(system.String()))
+	_, err := s.connector.conn.Exec(t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
+	require.NoError(t, err)
+
+	fields := fieldsForSystem(TrickyFields, system)
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{"id"},
-		Columns:           TrickyFields,
-		System:            protos.TypeSystem_Q,
+		Columns:           fields,
+		System:            system,
 	}
 	addedColumns := make([]*protos.FieldDescription, 0)
-	for _, column := range expectedTableSchema.Columns {
+	for _, column := range fields {
 		if column.Name != "id" {
 			addedColumns = append(addedColumns, column)
 		}
 	}
 
-	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+	require.NoError(t, s.connector.ReplayTableSchemaDeltas(t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
+		System:       system,
 	}}))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
-	require.NotEqual(s.t, 0, output[tableName].TableOid)
+	require.NoError(t, err)
+	require.NotEqual(t, 0, output[tableName].TableOid)
 	output[tableName].TableOid = 0 // zero out TableOid for comparison
-	require.NoError(s.t, err)
-	require.Equal(s.t, expectedTableSchema, output[tableName])
+	require.Equal(t, expectedTableSchema, output[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
-	tableName := s.schema + ".add_drop_whitespace_column_names"
-	_, err := s.connector.conn.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(\" \" INT PRIMARY KEY)", tableName))
-	require.NoError(s.t, err)
+	for _, system := range typeSystems {
+		s.t.Run(system.String(), func(t *testing.T) {
+			s.testAddDropWhitespaceColumnNames(t, system)
+		})
+	}
+}
 
+func (s PostgresSchemaDeltaTestSuite) testAddDropWhitespaceColumnNames(t *testing.T, system protos.TypeSystem) {
+	t.Helper()
+	tableName := fmt.Sprintf("%s.add_drop_whitespace_column_names_%s", s.schema, strings.ToLower(system.String()))
+	_, err := s.connector.conn.Exec(t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(\" \" INT PRIMARY KEY)", tableName))
+	require.NoError(t, err)
+
+	fields := fieldsForSystem(WhitespaceFields, system)
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{" "},
-		Columns:           WhitespaceFields,
-		System:            protos.TypeSystem_Q,
+		Columns:           fields,
+		System:            system,
 	}
 	addedColumns := make([]*protos.FieldDescription, 0)
-	for _, column := range expectedTableSchema.Columns {
+	for _, column := range fields {
 		if column.Name != " " {
 			addedColumns = append(addedColumns, column)
 		}
 	}
 
-	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+	require.NoError(t, s.connector.ReplayTableSchemaDeltas(t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
+		System:       system,
 	}}))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
-	require.NotEqual(s.t, 0, output[tableName].TableOid)
+	require.NoError(t, err)
+	require.NotEqual(t, 0, output[tableName].TableOid)
 	output[tableName].TableOid = 0 // zero out TableOid for comparison
-	require.NoError(s.t, err)
-	require.Equal(s.t, expectedTableSchema, output[tableName])
+	require.Equal(t, expectedTableSchema, output[tableName])
 }
 
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {

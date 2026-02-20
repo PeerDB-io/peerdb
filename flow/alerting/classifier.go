@@ -167,6 +167,9 @@ var (
 	ErrorNotifyReplicationStandbySetup = ErrorClass{
 		Class: "NOTIFY_REPLICATION_STANDBY_SETUP", action: NotifyUser,
 	}
+	ErrorNotifyLogicalDecodingStandbyNotSupported = ErrorClass{
+		Class: "NOTIFY_LOGICAL_DECODING_STANDBY_NOT_SUPPORTED", action: NotifyUser,
+	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
@@ -351,7 +354,23 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	// Connection reset errors can mostly be ignored
+	var peerCreateError *exceptions.PeerCreateError
+	if errors.As(err, &peerCreateError) {
+		if errors.Is(peerCreateError, context.DeadlineExceeded) {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceOther,
+				Code:   "CONTEXT_DEADLINE_EXCEEDED",
+			}
+		}
+		if errors.Is(peerCreateError, syscall.ECONNRESET) {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceNet,
+				Code:   syscall.ECONNRESET.Error(),
+			}
+		}
+	}
+
+	// Other connection reset errors can mostly be ignored
 	if errors.Is(err, syscall.ECONNRESET) {
 		return ErrorIgnoreConnTemporary, ErrorInfo{
 			Source: ErrorSourceNet,
@@ -424,7 +443,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: ErrorSourcePostgres,
 				Code:   temporalErr.Type(),
 			}
-
+		case exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot:
+			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   temporalErr.Type(),
+			}
 		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot, exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
 			return ErrorNotifyConnectivity, ErrorInfo{
 				Source: ErrorSourcePostgres,
@@ -606,6 +629,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.QueryCanceled:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
+		case pgerrcode.FeatureNotSupported:
+			if strings.Contains(pgErr.Message, "logical decoding cannot be used while in recovery") {
+				return ErrorNotifyLogicalDecodingStandbyNotSupported, pgErrorInfo
+			}
+
 		case pgerrcode.DeadlockDetected,
 			pgerrcode.SerializationFailure,
 			pgerrcode.IdleInTransactionSessionTimeout:
@@ -701,10 +729,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		// https://www.mongodb.com/docs/manual/reference/error-codes/
 		switch mongoCmdErr.Code {
+		case 6: // HostUnreachable
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 18: // AuthenticationFailed
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 43: // CursorNotFound
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 91: // ShutdownInProgress
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 202: // NetworkInterfaceExceededTimeLimit
@@ -909,17 +941,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		return ErrorOther, chErrorInfo
-	}
-
-	var peerCreateError *exceptions.PeerCreateError
-	if errors.As(err, &peerCreateError) {
-		// Check for context deadline exceeded error
-		if errors.Is(peerCreateError, context.DeadlineExceeded) {
-			return ErrorNotifyConnectivity, ErrorInfo{
-				Source: ErrorSourceOther,
-				Code:   "CONTEXT_DEADLINE_EXCEEDED",
-			}
-		}
 	}
 
 	var numericOutOfRangeError *exceptions.NumericOutOfRangeError

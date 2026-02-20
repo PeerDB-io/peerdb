@@ -76,7 +76,7 @@ func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, upda
 
 	// Only logging fields that don't need old values to compare to
 	if len(update.AdditionalTables) > 0 {
-		var addedTables []string
+		addedTables := make([]string, 0, len(update.AdditionalTables))
 		for _, t := range update.AdditionalTables {
 			addedTables = append(addedTables, t.SourceTableIdentifier)
 		}
@@ -84,7 +84,7 @@ func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, upda
 	}
 
 	if len(update.RemovedTables) > 0 {
-		var removedTables []string
+		removedTables := make([]string, 0, len(update.RemovedTables))
 		for _, t := range update.RemovedTables {
 			removedTables = append(removedTables, t.SourceTableIdentifier)
 		}
@@ -143,7 +143,7 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 	}
 
 	if len(update.AdditionalTables) > 0 {
-		var addedTables []string
+		addedTables := make([]string, 0, len(update.AdditionalTables))
 		for _, t := range update.AdditionalTables {
 			addedTables = append(addedTables, t.SourceTableIdentifier)
 		}
@@ -151,7 +151,7 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 	}
 
 	if len(update.RemovedTables) > 0 {
-		var removedTables []string
+		removedTables := make([]string, 0, len(update.RemovedTables))
 		for _, t := range update.RemovedTables {
 			removedTables = append(removedTables, t.SourceTableIdentifier)
 		}

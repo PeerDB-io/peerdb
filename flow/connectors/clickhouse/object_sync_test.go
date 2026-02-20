@@ -12,7 +12,7 @@ import (
 )
 
 func collectBatches(ch <-chan *objectBatch) []*objectBatch {
-	var batches []*objectBatch //nolint:prealloc
+	var batches []*objectBatch
 	for batch := range ch {
 		batches = append(batches, batch)
 	}

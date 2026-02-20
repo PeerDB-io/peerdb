@@ -1,9 +1,52 @@
 package connpostgres
 
 import (
+	"fmt"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+var qValueKindToPgName = map[string]string{
+	string(types.QValueKindBoolean):     "bool",
+	string(types.QValueKindBytes):       "bytea",
+	string(types.QValueKindDate):        "date",
+	string(types.QValueKindFloat32):     "float4",
+	string(types.QValueKindFloat64):     "float8",
+	string(types.QValueKindInt16):       "int2",
+	string(types.QValueKindInt32):       "int4",
+	string(types.QValueKindInt64):       "int8",
+	string(types.QValueKindJSON):        "json",
+	string(types.QValueKindNumeric):     "numeric",
+	string(types.QValueKindString):      "text",
+	string(types.QValueKindQChar):       "char",
+	string(types.QValueKindTime):        "time",
+	string(types.QValueKindTimestamp):   "timestamp",
+	string(types.QValueKindTimestampTZ): "timestamptz",
+	string(types.QValueKindUUID):        "uuid",
+}
+
+func fieldsForSystem(qFields []*protos.FieldDescription, system protos.TypeSystem) []*protos.FieldDescription {
+	if system == protos.TypeSystem_Q {
+		return qFields
+	}
+	result := make([]*protos.FieldDescription, len(qFields))
+	for i, f := range qFields {
+		pgType, ok := qValueKindToPgName[f.Type]
+		if !ok {
+			panic(fmt.Sprintf("no PG type mapping for QValueKind %q", f.Type))
+		}
+		result[i] = &protos.FieldDescription{
+			Name:           f.Name,
+			Type:           pgType,
+			TypeModifier:   f.TypeModifier,
+			Nullable:       f.Nullable,
+			TypeSchemaName: f.TypeSchemaName,
+		}
+	}
+	return result
+}
 
 var AddAllColumnTypesFields = []*protos.FieldDescription{
 	{
@@ -122,6 +165,13 @@ var AddAllColumnTypesFields = []*protos.FieldDescription{
 		Name:           "c17",
 		Type:           string(types.QValueKindUUID),
 		TypeModifier:   -1,
+		Nullable:       true,
+		TypeSchemaName: "pg_catalog",
+	},
+	{
+		Name:           "c18",
+		Type:           string(types.QValueKindNumeric),
+		TypeModifier:   numeric.MakeNumericTypmod(10, 2),
 		Nullable:       true,
 		TypeSchemaName: "pg_catalog",
 	},

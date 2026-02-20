@@ -217,7 +217,14 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	requestLoggingMiddleware := middleware.RequestLoggingMiddleware(ctx)
 	recoveryMiddleware := middleware.RecoveryMiddleware()
 
-	serverOptions := []grpc.ServerOption{
+	componentManager, err := otel_metrics.SetupComponentMetricsProvider(
+		ctx, otel_metrics.FlowApiServiceName, "grpc-api", args.EnableOtelMetrics,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to metrics provider for grpc api: %w", err)
+	}
+
+	grpcServer := grpc.NewServer(
 		// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged
 		grpc.ChainUnaryInterceptor(
 			authGrpcMiddleware,
@@ -225,19 +232,10 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 			requestLoggingMiddleware,
 			recoveryMiddleware,
 		),
-	}
-
-	componentManager, err := otel_metrics.SetupComponentMetricsProvider(
-		ctx, otel_metrics.FlowApiServiceName, "grpc-api", args.EnableOtelMetrics,
+		grpc.StatsHandler(otelgrpc.NewServerHandler(
+			otelgrpc.WithMeterProvider(componentManager),
+		)),
 	)
-	if err != nil {
-		return fmt.Errorf("unable to metrics provider for grpc api: %w", err)
-	}
-	serverOptions = append(serverOptions, grpc.StatsHandler(otelgrpc.NewServerHandler(
-		otelgrpc.WithMeterProvider(componentManager),
-	)))
-
-	grpcServer := grpc.NewServer(serverOptions...)
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {

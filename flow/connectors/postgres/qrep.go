@@ -153,6 +153,10 @@ func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.T
 			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
 				return temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
 					exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(), err)
+			} else if shared.IsSQLStateErrorSubstring(err,
+				pgerrcode.ObjectNotInPrerequisiteState, "could not import the requested snapshot") {
+				return temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
+					exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot.String(), err)
 			}
 			return fmt.Errorf("failed to set transaction snapshot: %w", err)
 		}
