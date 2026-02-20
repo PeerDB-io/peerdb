@@ -367,11 +367,14 @@ func corePullQRepRecords(
 			return model.PullResult{}, fmt.Errorf("failed to create query executor: %w", err)
 		}
 		numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
+		if err != nil {
+			return model.PullResult{}, err
+		}
 		return model.PullResult{
 			NumRecords:       numRecords,
 			NumBytes:         numBytes,
 			RecordCountKnown: true,
-		}, err
+		}, nil
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
