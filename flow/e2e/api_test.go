@@ -1367,6 +1367,21 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	require.Equal(s.t, int64(2), mirrorTotalRowsSynced.TotalCountInitialLoad)
 	require.Equal(s.t, int64(4), mirrorTotalRowsSynced.TotalCount)
 
+	// check initial load NumRowsSynced via mirror status API
+	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
+		FlowJobName:     flowConnConfig.FlowJobName,
+		IncludeFlowInfo: true,
+	})
+	require.NoError(s.t, err)
+	cdcStatus := statusResponse.GetCdcStatus()
+	require.NotNil(s.t, cdcStatus)
+	require.NotNil(s.t, cdcStatus.SnapshotStatus)
+	var initialLoadRowsSynced int64
+	for _, clone := range cdcStatus.SnapshotStatus.Clones {
+		initialLoadRowsSynced += clone.NumRowsSynced
+	}
+	require.Equal(s.t, int64(2), initialLoadRowsSynced)
+
 	// check table stats cdc
 	tableStats, err := s.CDCTableTotalCounts(s.t.Context(), &protos.CDCTableTotalCountsRequest{
 		FlowJobName: flowConnConfig.FlowJobName,
@@ -1556,6 +1571,13 @@ func (s APITestSuite) TestQRep() {
 	qStatus := statusResponse.GetQrepStatus()
 	require.NotNil(s.t, qStatus)
 	require.Len(s.t, qStatus.Partitions, 2)
+
+	var totalRowsSynced int64
+	for _, p := range qStatus.Partitions {
+		require.Positive(s.t, p.RowsSynced, "each partition should have rows_synced > 0")
+		totalRowsSynced += p.RowsSynced
+	}
+	require.Equal(s.t, int64(2), totalRowsSynced)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
