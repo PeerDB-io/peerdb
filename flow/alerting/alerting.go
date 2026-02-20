@@ -501,7 +501,7 @@ func (a *Alerter) logFlowErrorInternal(
 		tags = append(tags, string(shared.ErrTypeNet))
 	}
 
-	errorClass, errInfo := GetErrorClass(ctx, logger, inErr)
+	errorClass, errInfo := GetErrorClass(ctx, inErr)
 	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
 
 	// Only send alerts to telemetry sender (incident.io) if the env is enabled

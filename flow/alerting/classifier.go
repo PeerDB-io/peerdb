@@ -21,10 +21,10 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
-	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -241,7 +241,7 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 	return NotifyTelemetry
 }
 
-func GetErrorClass(ctx context.Context, logger log.Logger, err error) (ErrorClass, ErrorInfo) {
+func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var pgErr *pgconn.PgError
 	var pgWalErr *exceptions.PostgresWalError
 	if errors.As(err, &pgWalErr) {
@@ -940,6 +940,7 @@ func GetErrorClass(ctx context.Context, logger log.Logger, err error) (ErrorClas
 			return ErrorNotifyMVOrView, chErrorInfo
 		} else if errors.As(err, &normalizationErr) {
 			// notify if normalization hits error on destination
+			logger := internal.LoggerFromCtx(ctx)
 			logger.Warn("Assuming a normalization error is bad MV or view", slog.Any("error", err))
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
