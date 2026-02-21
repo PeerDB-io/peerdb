@@ -7,6 +7,9 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgproto3"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
+
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"

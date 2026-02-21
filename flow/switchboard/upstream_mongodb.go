@@ -7,13 +7,14 @@ import (
 	"math/rand/v2"
 	"slices"
 
+	"github.com/jackc/pgx/v5/pgproto3"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/switchboard/mongosh"
 	"github.com/PeerDB-io/peerdb/flow/switchboard/mongosh/command"
-	"github.com/jackc/pgx/v5/pgproto3"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // wrapMongoError converts a MongoDB error to an UpstreamError
