@@ -2,11 +2,11 @@ name: Flow build and test
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, switchboard-pg]
   push:
     branches: [main]
   pull_request_target:
-    branches: [main]
+    branches: [main, switchboard-pg]
 
 permissions:
   id-token: write
