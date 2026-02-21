@@ -57,10 +57,13 @@ func authenticateSCRAM(conn net.Conn, writeTimeout time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("failed to create SCRAM client: %w", err)
 	}
-	storedCreds := client.GetStoredCredentials(scram.KeyFactors{
+	storedCreds, err := client.GetStoredCredentialsWithError(scram.KeyFactors{
 		Salt:  salt,
 		Iters: scramIterations,
 	})
+	if err != nil {
+		return fmt.Errorf("failed to derive SCRAM credentials: %w", err)
+	}
 
 	// Create SCRAM server (credential lookup ignores username, uses fixed password)
 	server, err := scram.SHA256.NewServer(func(_ string) (scram.StoredCredentials, error) {
