@@ -1,0 +1,325 @@
+// Package parser provides a MongoDB shell parser that compiles mongosh-style
+// statements into Go-ready BSON command documents for use with the MongoDB Go driver.
+package mongosh
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/PeerDB-io/peerdb/flow/switchboard/mongosh/command"
+	"github.com/PeerDB-io/peerdb/flow/switchboard/mongosh/parser"
+)
+
+// ResultKind indicates whether a command returns a cursor or a scalar value.
+type ResultKind = command.ResultKind
+
+const (
+	ResultScalar = command.ResultScalar // command returns a single value
+	ResultCursor = command.ResultCursor // command returns a cursor
+)
+
+// ExecHints provides optional execution hints derived from shell sugar.
+type ExecHints = command.ExecHints
+
+// Formatter transforms MongoDB results into columnar output.
+// It receives the raw result (either a cursor's documents or a scalar document)
+// and returns column names and rows of cell values.
+type Formatter func(docs []bson.D) (columns []string, rows [][]string)
+
+// ExecSpec represents the compiled output of a MongoDB shell statement.
+//
+//nolint:govet // fieldalignment: readability preferred
+type ExecSpec struct {
+	Command     bson.D     // normalized command document
+	ResultKind  ResultKind // whether result is Cursor or Scalar
+	Hints       ExecHints  // optional execution hints
+	Collection  string     // target collection (if any)
+	HelpColumns []string   // column names for help output
+	HelpRows    [][]string // row data for help output
+	AdminDB     bool       // if true, run against admin database instead of connection database
+	Formatter   Formatter  // optional formatter for columnar output
+}
+
+// ErrorKind represents the type of compilation error.
+type ErrorKind int
+
+const (
+	ErrUnsupportedSyntax  ErrorKind = iota // unsupported shell syntax
+	ErrParse                               // general parsing error
+	ErrInvalidLiteral                      // invalid BSON literal
+	ErrDeniedCommand                       // command not allowed
+	ErrMultipleStatements                  // multiple statements provided
+	ErrTrailingContent                     // unexpected content after statement
+	ErrInvalidJSON                         // invalid JSON in arguments
+)
+
+func (e ErrorKind) String() string {
+	switch e {
+	case ErrUnsupportedSyntax:
+		return "UnsupportedSyntax"
+	case ErrParse:
+		return "Parse"
+	case ErrInvalidLiteral:
+		return "InvalidLiteral"
+	case ErrDeniedCommand:
+		return "DeniedCommand"
+	case ErrMultipleStatements:
+		return "MultipleStatements"
+	case ErrTrailingContent:
+		return "TrailingContent"
+	case ErrInvalidJSON:
+		return "InvalidJSON"
+	default:
+		return "Unknown"
+	}
+}
+
+// CompileError represents a rich compilation error with context.
+//
+//nolint:govet // fieldalignment: readability preferred
+type CompileError struct {
+	Kind     ErrorKind
+	Detail   string
+	Position int
+	Hint     string
+}
+
+func NewCompileError(kind ErrorKind, detail string) *CompileError {
+	return &CompileError{Kind: kind, Detail: detail}
+}
+
+func (e *CompileError) Error() string {
+	msg := fmt.Sprintf("%s: %s", e.Kind, e.Detail)
+	if e.Position > 0 {
+		msg = fmt.Sprintf("%s (at position %d)", msg, e.Position)
+	}
+	if e.Hint != "" {
+		msg = fmt.Sprintf("%s; %s", msg, e.Hint)
+	}
+	return msg
+}
+
+func (e *CompileError) WithPosition(pos int) *CompileError {
+	e.Position = pos
+	return e
+}
+
+func (e *CompileError) WithHint(hint string) *CompileError {
+	e.Hint = hint
+	return e
+}
+
+// Shell command patterns
+var (
+	showCollectionsRe = regexp.MustCompile(`^show\s+collections\s*;?\s*$`)
+	showDatabasesRe   = regexp.MustCompile(`^show\s+(databases|dbs)\s*;?\s*$`)
+	helpGlobalRe      = regexp.MustCompile(`^help\s*\(\s*\)\s*;?\s*$`)
+	helpCommandsRe    = regexp.MustCompile(`^helpCommands\s*\(\s*\)\s*;?\s*$`)
+)
+
+func tryShellCommand(input string) (ExecSpec, bool) {
+	if showCollectionsRe.MatchString(input) {
+		return ExecSpec{
+			Command: bson.D{
+				{Key: "listCollections", Value: 1},
+				{Key: "nameOnly", Value: true},
+				{Key: "authorizedCollections", Value: true},
+			},
+			ResultKind: ResultCursor,
+			// Each doc: {"name": "collection_name", "type": "collection"}
+			Formatter: func(docs []bson.D) ([]string, [][]string) {
+				rows := make([][]string, 0, len(docs))
+				for _, doc := range docs {
+					for _, elem := range doc {
+						if elem.Key == "name" {
+							if name, ok := elem.Value.(string); ok {
+								rows = append(rows, []string{name})
+							}
+							break
+						}
+					}
+				}
+				return []string{"name"}, rows
+			},
+		}, true
+	}
+
+	if showDatabasesRe.MatchString(input) {
+		return ExecSpec{
+			Command: bson.D{
+				{Key: "listDatabases", Value: 1},
+				{Key: "nameOnly", Value: true},
+				{Key: "authorizedDatabases", Value: true},
+			},
+			ResultKind: ResultScalar,
+			AdminDB:    true,
+			// Response: {"databases": [{"name": "db1"}, {"name": "db2"}], "ok": 1}
+			Formatter: func(docs []bson.D) ([]string, [][]string) {
+				if len(docs) == 0 {
+					return []string{"name"}, nil
+				}
+				var rows [][]string
+				for _, elem := range docs[0] {
+					if elem.Key == "databases" {
+						if arr, ok := elem.Value.(bson.A); ok {
+							for _, item := range arr {
+								if d, ok := item.(bson.D); ok {
+									for _, field := range d {
+										if field.Key == "name" {
+											if name, ok := field.Value.(string); ok {
+												rows = append(rows, []string{name})
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				return []string{"name"}, rows
+			},
+		}, true
+	}
+
+	if helpGlobalRe.MatchString(input) {
+		return helpSpec(command.GlobalHelp()), true
+	}
+
+	if helpCommandsRe.MatchString(input) {
+		return helpSpec(command.WireCommandHelp()), true
+	}
+
+	return ExecSpec{}, false
+}
+
+// Compile parses and compiles a single mongosh-style statement into an ExecSpec.
+func Compile(input string) (ExecSpec, error) {
+	input = strings.TrimSpace(input)
+
+	if input == "" {
+		return ExecSpec{}, NewCompileError(ErrParse, "empty input")
+	}
+
+	if spec, ok := tryShellCommand(input); ok {
+		return spec, nil
+	}
+
+	if err := command.ValidateInput(input); err != nil {
+		return ExecSpec{}, NewCompileError(ErrParse, err.Error())
+	}
+
+	shellStmt, err := parser.ParseStatement(input)
+	if err != nil {
+		return ExecSpec{}, NewCompileError(ErrParse, err.Error()).
+			WithHint("check syntax; supported: db.collection.find(), db.collection.aggregate(), etc.")
+	}
+
+	if shellStmt.IsHelp {
+		return helpSpec(helpFor(shellStmt.HelpContext)), nil
+	}
+
+	if err := validateStatement(shellStmt); err != nil {
+		return ExecSpec{}, NewCompileError(ErrDeniedCommand, err.Error()).
+			WithHint("check supported methods in registry")
+	}
+
+	cmd, hints, resultKind, err := buildCommandWithRegistry(shellStmt)
+	if err != nil {
+		return ExecSpec{}, NewCompileError(ErrParse, err.Error())
+	}
+
+	if err := command.ValidateCommand(cmd); err != nil {
+		return ExecSpec{}, NewCompileError(ErrDeniedCommand, err.Error())
+	}
+
+	return ExecSpec{
+		Command:    cmd,
+		ResultKind: resultKind,
+		Hints:      hints,
+		Collection: shellStmt.Collection,
+	}, nil
+}
+
+func helpSpec(columns []string, rows [][]string) ExecSpec {
+	return ExecSpec{HelpColumns: columns, HelpRows: rows}
+}
+
+func helpFor(context string) ([]string, [][]string) {
+	switch context {
+	case "database":
+		return command.DatabaseHelp()
+	case "collection":
+		return command.CollectionHelp()
+	default:
+		return command.MethodHelp(context)
+	}
+}
+
+// validateStatement validates a statement against the registry.
+func validateStatement(stmt *parser.Statement) error {
+	methodName := strings.ToLower(stmt.Method)
+	spec, ok := command.Registry[methodName]
+	if !ok {
+		return fmt.Errorf("unsupported method: %s", stmt.Method)
+	}
+
+	for _, chainer := range stmt.Chainers {
+		chainerName := strings.ToLower(chainer.Name)
+		if _, ok := spec.Chainers[chainerName]; !ok {
+			return fmt.Errorf("unsupported chainer .%s() for method %s", chainer.Name, stmt.Method)
+		}
+	}
+
+	return nil
+}
+
+func buildCommandWithRegistry(stmt *parser.Statement) (bson.D, command.ExecHints, command.ResultKind, error) {
+	methodName := strings.ToLower(stmt.Method)
+
+	spec, ok := command.Registry[methodName]
+	if !ok {
+		return nil, command.ExecHints{}, command.ResultScalar,
+			fmt.Errorf("unsupported method: %s", stmt.Method)
+	}
+
+	parsedArgs, err := command.ParseArgsAccordingTo(spec.Args, stmt.Arguments)
+	if err != nil {
+		return nil, command.ExecHints{}, command.ResultScalar,
+			fmt.Errorf("method %s: %w", stmt.Method, err)
+	}
+
+	cmd, hints, kind, err := spec.Build(stmt.Collection, parsedArgs)
+	if err != nil {
+		return nil, hints, kind, err
+	}
+
+	for _, chainer := range stmt.Chainers {
+		chainerName := strings.ToLower(chainer.Name)
+
+		chainerSpec, ok := spec.Chainers[chainerName]
+		if !ok {
+			return nil, hints, kind,
+				fmt.Errorf("unsupported chainer .%s() for method %s", chainer.Name, stmt.Method)
+		}
+
+		chainerArgs, err := command.ParseArgsAccordingTo(chainerSpec.Args, chainer.Arguments)
+		if err != nil {
+			return nil, hints, kind, fmt.Errorf(".%s(): %w", chainer.Name, err)
+		}
+
+		cmd, err = chainerSpec.Apply(cmd, &hints, chainerArgs)
+		if err != nil {
+			return nil, hints, kind, fmt.Errorf(".%s(): %w", chainer.Name, err)
+		}
+	}
+
+	if stmt.IsExplain {
+		cmd = command.WrapExplain(cmd, stmt.ExplainVerbosity)
+		kind = command.ResultScalar
+	}
+
+	return cmd, hints, kind, nil
+}
