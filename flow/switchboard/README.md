@@ -1,6 +1,6 @@
 # Switchboard
 
-A PostgreSQL wire protocol proxy that lets standard PostgreSQL clients (psql, pgcli, any driver) query upstream PostgreSQL, MySQL, and MongoDB databases. SQL queries are passed through verbatim to PostgreSQL and MySQL upstreams — no SQL translation occurs. MongoDB accepts mongosh JavaScript syntax, which is compiled into BSON commands.
+A PostgreSQL wire protocol proxy that lets standard PostgreSQL clients (psql, pgcli, any driver) query upstream PostgreSQL databases. SQL queries are passed through verbatim to the upstream — no SQL translation occurs.
 
 Built for operator debugging and diagnostics against production databases. The security model is designed to prevent accidental mistakes (fat-fingered DROPs, unintended writes), not to stop a motivated attacker — the trust boundary is infrastructure-level access control.
 
@@ -20,29 +20,7 @@ Write queries in the upstream's native SQL dialect:
 ```sql
 SELECT * FROM users WHERE active = true LIMIT 10;
 EXPLAIN SELECT * FROM orders;
--- MySQL
-SHOW TABLES;
-SELECT @@GLOBAL.gtid_executed;
 ```
-
-**MongoDB** — write mongosh JavaScript instead of SQL or BSON:
-
-```js
-db.users.find({ active: true })
-db.users.find({ age: { $gt: 21 } }).sort({ name: 1 }).limit(10)
-db.orders.aggregate([{ $match: { status: "A" } }, { $group: { _id: "$item", total: { $sum: "$amount" } } }])
-db.users.findOne({ _id: ObjectId("507f1f77bcf86cd799439011") })
-db.runCommand({ ping: 1 })
-show collections
-show databases
-```
-
-MongoDB results are returned as Extended JSON. Common BSON constructors are supported (`ObjectId()`, `ISODate()`, `NumberLong()`, `Decimal128()`, `UUID()`, `BinData()`, `Timestamp()`, `MinKey()`, `MaxKey()`, regex literals, `new Date()`, `new RegExp()`). Built-in help:
-
-- `help()` — overview of all shell commands, methods, and wire commands
-- `db.help()` — database-level methods
-- `db.coll.help()` — collection-level methods
-- `db.coll.find().help()` — chainers for a specific method
 
 ## Architecture
 
@@ -72,10 +50,10 @@ psql / pgcli / any pgwire client
 ┌──────────────────────▼──────────────────────────────┐
 │  Upstream interface (upstream.go)                   │
 │                                                     │
-│  ┌─────────────┐ ┌────────────┐ ┌────────────────┐  │
-│  │  PostgreSQL │ │   MySQL    │ │    MongoDB     │  │
-│  │  (pgx)      │ │ (go-mysql) │ │ (mongo-driver) │  │
-│  └─────────────┘ └────────────┘ └────────────────┘  │
+│  ┌─────────────┐                                    │
+│  │  PostgreSQL │                                    │
+│  │  (pgx)      │                                    │
+│  └─────────────┘                                    │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -107,8 +85,6 @@ psql / pgcli / any pgwire client
 Client sends a `CancelRequest` with (pid, secret). Server looks up the session and calls `upstream.Cancel()`:
 
 - **PostgreSQL**: native `CancelRequest` on the pgconn.
-- **MySQL**: opens an ephemeral connection, runs `KILL QUERY <connection_id>`.
-- **MongoDB**: queries `currentOp` for operations matching a per-session comment tag, kills via `killOp`.
 
 ### Guardrails (guardrails.go)
 
@@ -164,27 +140,6 @@ type ResultIterator interface {
 - `CheckQuery`: splits with `pgsplit`, then first-keyword blocklist (COPY, VACUUM, ANALYZE, CLUSTER, REINDEX, REFRESH, LISTEN/NOTIFY/UNLISTEN, DO, LOCK) + substring checks for `default_transaction_read_only` and `set_config` bypass attempts. Not a full parser — relies on `default_transaction_read_only = on` as the primary write gate.
 - `FieldDescriptions` forwarded as-is from pgx (preserves OIDs, type info).
 - `TxStatus` reflects real transaction state from the upstream connection.
-
-**MySQL** (`upstream_mysql.go`)
-- Forwards queries via go-mysql `Execute()`.
-- Sets `SESSION TRANSACTION READ ONLY`, `max_execution_time`, lock wait timeouts at session init.
-- `CheckQuery`: allowlist approach using TiDB SQL parser. Allows SELECT (with restrictions), SHOW, DESCRIBE, EXPLAIN, transaction control. Blocks `SELECT INTO`, locking reads, dangerous functions (`load_file`, `get_lock`, etc.). Recursively checks subqueries.
-- Maps MySQL column types to PostgreSQL OIDs for display alignment (numeric types → right-aligned in psql).
-- `TxStatus` always returns `'I'` (idle).
-- Cancel via `KILL QUERY` over ephemeral connection.
-
-**MongoDB** (`upstream_mongodb.go`, `mongosh/`)
-- Unlike the SQL upstreams, queries are not forwarded verbatim. `mongosh.Compile()` parses mongosh JavaScript via goja, builds a BSON command, and validates it before execution. pgwire protocol allows it because it only sees strings in and tables of strings out.
-- Two input forms: shell commands (`show collections`, `show databases`, `help()`) matched by regex, and method calls (`db.coll.find(...)`, `db.runCommand(...)`) parsed as JavaScript AST. Method calls support chainers (`.sort()`, `.limit()`, etc.) and `explain()` wrapping.
-- `CheckQuery`: compilation itself is the validation — the method registry (`mongosh/command/registry.go`) only contains read operations, and the command allowlist (`mongosh/command/allowlist.go`) rejects anything not explicitly listed. Default-deny at both layers.
-- BSON constructors (`ObjectId()`, `ISODate()`, `NumberLong()`, `Decimal128()`, regex literals, etc.) are handled in the parser (`mongosh/parser/literal.go`). Object field order is preserved.
-- Three result paths, all presented as PostgreSQL result sets:
-  - **Cursor results** (find, aggregate) — streamed one document per row via `MongoCursorIterator`. Each row is a single `result` column (OID 114, json) containing canonical Extended JSON (`bson.MarshalExtJSON` with relaxed mode off). Command tag: `SELECT <n>`.
-  - **Scalar results** (findOne, runCommand) — one row, one `result` column, same Extended JSON encoding, via `MongoScalarIterator`. Command tag: `OK`.
-  - **Formatted results** (show collections, show databases, help) — the `Formatter` callback collects documents, extracts specific fields, and returns columnar TEXT output via `FormattedIterator`. This makes `show collections` render as a clean `name` column in psql rather than raw JSON. Command tag: `SELECT <n>`.
-- Cancel embeds a per-session comment tag (`peerdb-<8hex>`) in commands, then uses `currentOp` / `killOp` to stop matching operations.
-- `TxStatus` always returns `'I'`.
-- The `mongosh/` subpackage is structured in three layers: `parser/` (JavaScript AST → `Statement`), `command/` (registry, allowlist, builders, chainers), and `mongosh.go` (orchestration). Only a subset of mongosh is implemented — enough for read-only diagnostics, not a full shell. The test suite (`mongosh/mongosh_test.go`) aims to validate that the supported surface is as well-supported as in native mongosh and that necessary operation denials hold.
 
 ## Requirements for a new upstream
 
