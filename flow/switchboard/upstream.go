@@ -124,22 +124,7 @@ func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName s
 		}
 		return NewMySQLUpstream(ctx, mysqlConfig, queryTimeout)
 
-	case protos.DBType_MONGO:
-		mongoConfig := peer.GetMongoConfig()
-		if mongoConfig == nil {
-			return nil, fmt.Errorf("peer '%s' has no MongoDB configuration", peerName)
-		}
-		cs, err := connstring.Parse(mongoConfig.Uri)
-		if err != nil {
-			return nil, fmt.Errorf("peer '%s' has invalid MongoDB URI: %w", peerName, err)
-		}
-		database := cs.Database
-		if database == "" {
-			return nil, fmt.Errorf("peer '%s' MongoDB URI must specify a database", peerName)
-		}
-		return NewMongoUpstream(ctx, mongoConfig, database)
-
 	default:
-		return nil, fmt.Errorf("peer '%s' is type %s, only PostgreSQL, MySQL, and MongoDB are supported", peerName, peer.Type)
+		return nil, fmt.Errorf("peer '%s' is type %s, only PostgreSQL and MySQL are supported", peerName, peer.Type)
 	}
 }
