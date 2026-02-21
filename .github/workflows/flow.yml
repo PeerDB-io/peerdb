@@ -2,11 +2,11 @@ name: Flow build and test
 
 on:
   pull_request:
-    branches: [main, switchboard-pg]
+    branches: [main, switchboard-pg, switchboard-mysql]
   push:
     branches: [main]
   pull_request_target:
-    branches: [main, switchboard-pg]
+    branches: [main, switchboard-pg, switchboard-mysql]
 
 permissions:
   id-token: write
