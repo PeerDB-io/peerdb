@@ -90,8 +90,7 @@ func (e *UpstreamError) Error() string {
 }
 
 // NewUpstream creates an upstream connection based on peer configuration
-//nolint:iface // single impl now, more coming in subsequent PRs
-func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName string, queryTimeout time.Duration) (Upstream, error) {
+func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName string, queryTimeout time.Duration) (Upstream, error) { //nolint:iface // single impl now, more coming in subsequent PRs
 	if peerName == "" {
 		return nil, errors.New("database name (peer name) is required")
 	}
