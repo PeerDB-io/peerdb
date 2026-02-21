@@ -44,8 +44,6 @@ MongoDB results are returned as Extended JSON. Common BSON constructors are supp
 - `db.coll.help()` — collection-level methods
 - `db.coll.find().help()` — chainers for a specific method
 
-To preview help output without a running server: `go test ./mongosh/command/ -run TestPrintAllHelp -v`
-
 ## Architecture
 
 ```
