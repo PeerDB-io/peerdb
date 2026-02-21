@@ -7,12 +7,11 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgproto3"
-
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/jackc/pgx/v5/pgproto3"
 )
 
 // SqlSelectPgCatalogRe detects psql \d \dt \dt+ commands which query pg_catalog
