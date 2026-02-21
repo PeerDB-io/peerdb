@@ -2,11 +2,11 @@ name: Dev Docker Images
 
 on:
   push:
-    branches: [main]
+    branches: [main, switchboard-pg]
   pull_request:
-    branches: [main]
+    branches: [main, switchboard-pg]
   pull_request_target:
-    branches: [main]
+    branches: [main, switchboard-pg]
 
 jobs:
   docker-build:
