@@ -7,13 +7,11 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgproto3"
-	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
-
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/jackc/pgx/v5/pgproto3"
 )
 
 // SqlSelectPgCatalogRe detects psql \d \dt \dt+ commands which query pg_catalog
@@ -92,6 +90,8 @@ func (e *UpstreamError) Error() string {
 }
 
 // NewUpstream creates an upstream connection based on peer configuration
+//
+//nolint:iface // single impl now, more coming in subsequent PRs
 func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName string, queryTimeout time.Duration) (Upstream, error) {
 	if peerName == "" {
 		return nil, errors.New("database name (peer name) is required")
