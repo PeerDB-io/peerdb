@@ -577,15 +577,14 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 }
 
 // newOtelResource returns a resource describing this application.
-func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*resource.Resource, error) {
-	allAttrs := append([]attribute.KeyValue{
-		attribute.Key("service.name").String(otelServiceName),
-		attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
-		attribute.Key("service.version").String(internal.PeerDBVersionShaShort()),
-	}, attrs...)
+func newOtelResource(otelServiceName string) (*resource.Resource, error) {
 	return resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes("", allAttrs...),
+		resource.NewWithAttributes("",
+			attribute.Key("service.name").String(otelServiceName),
+			attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
+			attribute.Key("service.version").String(internal.PeerDBVersionShaShort()),
+		),
 	)
 }
 
