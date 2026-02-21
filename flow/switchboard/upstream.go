@@ -7,11 +7,12 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgproto3"
+
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/jackc/pgx/v5/pgproto3"
 )
 
 // SqlSelectPgCatalogRe detects psql \d \dt \dt+ commands which query pg_catalog
@@ -115,7 +116,14 @@ func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName s
 		}
 		return NewPostgresUpstream(ctx, pgConfig, queryTimeout)
 
+	case protos.DBType_MYSQL:
+		mysqlConfig := peer.GetMysqlConfig()
+		if mysqlConfig == nil {
+			return nil, fmt.Errorf("peer '%s' has no MySQL configuration", peerName)
+		}
+		return NewMySQLUpstream(ctx, mysqlConfig, queryTimeout)
+
 	default:
-		return nil, fmt.Errorf("peer '%s' is type %s, only PostgreSQL is supported", peerName, peer.Type)
+		return nil, fmt.Errorf("peer '%s' is type %s, only PostgreSQL and MySQL are supported", peerName, peer.Type)
 	}
 }
