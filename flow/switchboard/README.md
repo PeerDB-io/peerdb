@@ -1,6 +1,6 @@
 # Switchboard
 
-A PostgreSQL wire protocol proxy that lets standard PostgreSQL clients (psql, pgcli, any driver) query upstream PostgreSQL and MySQL databases. SQL queries are passed through verbatim to the upstream — no SQL translation occurs.
+A PostgreSQL wire protocol proxy that lets standard PostgreSQL clients (psql, pgcli, any driver) query upstream PostgreSQL databases. SQL queries are passed through verbatim to the upstream — no SQL translation occurs.
 
 Built for operator debugging and diagnostics against production databases. The security model is designed to prevent accidental mistakes (fat-fingered DROPs, unintended writes), not to stop a motivated attacker — the trust boundary is infrastructure-level access control.
 
@@ -20,9 +20,6 @@ Write queries in the upstream's native SQL dialect:
 ```sql
 SELECT * FROM users WHERE active = true LIMIT 10;
 EXPLAIN SELECT * FROM orders;
--- MySQL
-SHOW TABLES;
-SELECT @@GLOBAL.gtid_executed;
 ```
 
 ## Architecture
@@ -53,10 +50,10 @@ psql / pgcli / any pgwire client
 ┌──────────────────────▼──────────────────────────────┐
 │  Upstream interface (upstream.go)                   │
 │                                                     │
-│  ┌─────────────┐ ┌────────────┐                     │
-│  │  PostgreSQL │ │   MySQL    │                     │
-│  │  (pgx)      │ │ (go-mysql) │                     │
-│  └─────────────┘ └────────────┘                     │
+│  ┌─────────────┐                                    │
+│  │  PostgreSQL │                                    │
+│  │  (pgx)      │                                    │
+│  └─────────────┘                                    │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -88,7 +85,6 @@ psql / pgcli / any pgwire client
 Client sends a `CancelRequest` with (pid, secret). Server looks up the session and calls `upstream.Cancel()`:
 
 - **PostgreSQL**: native `CancelRequest` on the pgconn.
-- **MySQL**: opens an ephemeral connection, runs `KILL QUERY <connection_id>`.
 
 ### Guardrails (guardrails.go)
 
@@ -144,14 +140,6 @@ type ResultIterator interface {
 - `CheckQuery`: splits with `pgsplit`, then first-keyword allowlist (SELECT, TABLE, VALUES, WITH, EXPLAIN, SHOW, transaction control, SET/RESET/DISCARD, cursor ops, PREPARE/EXECUTE/DEALLOCATE) + substring checks for `default_transaction_read_only` and `set_config` bypass attempts + blocks `RESET ALL` and `DISCARD ALL` (would undo session-level read-only). Anything not on the allowlist is rejected. Defense-in-depth with `default_transaction_read_only = on` as the upstream write gate.
 - `FieldDescriptions` forwarded as-is from pgx (preserves OIDs, type info).
 - `TxStatus` reflects real transaction state from the upstream connection.
-
-**MySQL** (`upstream_mysql.go`)
-- Forwards queries via go-mysql `Execute()`.
-- Sets `SESSION TRANSACTION READ ONLY`, `max_execution_time`, lock wait timeouts at session init.
-- `CheckQuery`: allowlist approach using TiDB SQL parser. Allows SELECT (with restrictions), SHOW, DESCRIBE, EXPLAIN, transaction control. Blocks `SELECT INTO`, locking reads, dangerous functions (`load_file`, `get_lock`, etc.). Recursively checks subqueries.
-- Maps MySQL column types to PostgreSQL OIDs for display alignment (numeric types → right-aligned in psql).
-- `TxStatus` always returns `'I'` (idle).
-- Cancel via `KILL QUERY` over ephemeral connection.
 
 ## Requirements for a new upstream
 
