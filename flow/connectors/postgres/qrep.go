@@ -208,7 +208,7 @@ func (c *PostgresConnector) getPartitions(
 		lastRangeEnd:    lastRangeEnd,
 		logger:          c.logger,
 		// we only add null partition for InitialCopyOnly replication, because for ongoing QRep replication clients should avoid having null values, otherwise it's impossible to not duplicate rows where watermark column is null on repeated runs
-		addNullParition: config.InitialCopyOnly,
+		addNullPartition: config.InitialCopyOnly,
 	}
 
 	if config.NumPartitionsOverride <= 0 {

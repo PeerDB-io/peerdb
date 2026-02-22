@@ -18,13 +18,13 @@ import (
 )
 
 type PartitionParams struct {
-	tx              pgx.Tx
-	lastRangeEnd    any
-	logger          log.Logger
-	watermarkTable  string
-	watermarkColumn string
-	numPartitions   int64
-	addNullParition bool
+	tx               pgx.Tx
+	lastRangeEnd     any
+	logger           log.Logger
+	watermarkTable   string
+	watermarkColumn  string
+	numPartitions    int64
+	addNullPartition bool
 }
 
 type PartitioningFunc func(context.Context, PartitionParams) ([]*protos.QRepPartition, error)
@@ -69,7 +69,7 @@ func NTileBucketPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
-	if pp.addNullParition {
+	if pp.addNullPartition {
 		partitionHelper.AddNullPartition()
 	}
 	return partitionHelper.GetPartitions(), nil
@@ -105,7 +105,7 @@ func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 	}
 
 	// add null values partition to the end, if nulls aren't present it will be an empty partition that gets skipped during replication, but if nulls are present it ensures they get replicated
-	if pp.addNullParition {
+	if pp.addNullPartition {
 		partitionHelper.AddNullPartition()
 	}
 
