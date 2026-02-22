@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -938,6 +940,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyMVOrView, chErrorInfo
 		} else if errors.As(err, &normalizationErr) {
 			// notify if normalization hits error on destination
+			logger := internal.LoggerFromCtx(ctx)
+			logger.Warn("Assuming a normalization error is bad MV or view", slog.Any("error", err))
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		return ErrorOther, chErrorInfo
