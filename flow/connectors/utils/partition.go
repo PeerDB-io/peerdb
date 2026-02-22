@@ -156,6 +156,13 @@ func NewPartitionHelper(logger log.Logger) *PartitionHelper {
 	}
 }
 
+func (p *PartitionHelper) AddNullPartition() {
+	p.partitions = append(p.partitions, &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_NullRange{NullRange: &protos.NullPartitionRange{}}},
+	})
+}
+
 // Function to compare the end of a partition with the start of another
 func (p *PartitionHelper) comparePartitionRanges(
 	previousPartition PartitionRangeForComparison,

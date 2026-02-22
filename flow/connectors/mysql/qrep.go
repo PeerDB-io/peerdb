@@ -60,22 +60,16 @@ func (c *MySqlConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to parse watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	var minmaxQuery string
+	minmaxQuery := fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s",
+		parsedWatermarkTable.MySQL(), config.WatermarkColumn)
 	var minmaxHasCount bool
-	if last != nil && last.Range != nil {
-		// partial query, append minVal later
-		if numPartitions == 0 {
-			minmaxHasCount = true
-			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`),COUNT(*) FROM %[1]s WHERE `%[2]s` > ",
-				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
-		} else {
-			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s WHERE `%[2]s` > ",
-				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
-		}
-	} else if numPartitions == 0 {
-		minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s",
+	if last != nil && last.Range != nil && numPartitions == 0 {
+		// we resume replication from the last partition, we need to include count of the remaining rows in the query
+		minmaxHasCount = true
+		minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`),COUNT(*) FROM %[1]s",
 			parsedWatermarkTable.MySQL(), config.WatermarkColumn)
-
+	} else if numPartitions == 0 {
+		// we are starting replication from the beginning and need to estimate approximate rows count to calculate partitions
 		totalRows, err := c.tableRowEstimate(ctx, parsedWatermarkTable.Namespace, parsedWatermarkTable.Table)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
@@ -108,14 +102,17 @@ func (c *MySqlConnector) GetQRepPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			time := lastRange.TimestampRange.End.AsTime()
 			minVal = "'" + time.Format("2006-01-02 15:04:05.999999") + "'"
+		case *protos.PartitionRange_NullRange:
+			// handling it just in case to keep the query correct, but this case should never happen because we only add null partition for InitialCopyOnly replication
+			minVal = ""
 		}
 
-		c.logger.Info("querying min/max", slog.String("query", minmaxQuery), slog.String("minVal", minVal))
-		rs, err = c.Execute(ctx, minmaxQuery+minVal)
-	} else {
-		c.logger.Info("querying min/max", slog.String("query", minmaxQuery))
-		rs, err = c.Execute(ctx, minmaxQuery)
+		if minVal != "" {
+			minmaxQuery = fmt.Sprintf("%s WHERE `%s` > %s", minmaxQuery, config.WatermarkColumn, minVal)
+		}
 	}
+	c.logger.Info("querying min/max", slog.String("query", minmaxQuery))
+	rs, err = c.Execute(ctx, minmaxQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +159,11 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 	if err := partitionHelper.AddPartitionsWithRange(val1.Value(), val2.Value(), numPartitions); err != nil {
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
+	}
+
+	// add null values partition to the end, if nulls aren't present it will be an empty partition that gets skipped during replication, but if nulls are present it ensures they get replicated
+	if config.InitialCopyOnly {
+		partitionHelper.AddNullPartition()
 	}
 
 	return partitionHelper.GetPartitions(), nil
@@ -243,7 +245,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	} else {
 		var rangeStart string
 		var rangeEnd string
-
+		query := config.Query
 		// Depending on the type of the range, convert the range into the correct type
 		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -255,13 +257,15 @@ func (c *MySqlConnector) PullQRepRecords(
 		case *protos.PartitionRange_TimestampRange:
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
+		case *protos.PartitionRange_NullRange:
+			query = fmt.Sprintf("%s WHERE `%s` IS NULL", config.BaseQuery, config.WatermarkColumn)
 		default:
 			return 0, 0, fmt.Errorf("unknown range type: %v", x)
 		}
 
 		// Build the query to pull records within the range from the source table
 		// Be sure to order the results by the watermark column to ensure consistency across pulls
-		query, err := BuildQuery(c.logger, config.Query, rangeStart, rangeEnd)
+		query, err := BuildQuery(c.logger, query, rangeStart, rangeEnd)
 		if err != nil {
 			return 0, 0, err
 		}

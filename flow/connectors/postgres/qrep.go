@@ -207,6 +207,8 @@ func (c *PostgresConnector) getPartitions(
 		numPartitions:   numPartitions,
 		lastRangeEnd:    lastRangeEnd,
 		logger:          c.logger,
+		// we only add null partition for InitialCopyOnly replication, because for ongoing QRep replication clients should avoid having null values, otherwise it's impossible to not duplicate rows where watermark column is null on repeated runs
+		addNullParition: config.InitialCopyOnly,
 	}
 
 	if config.NumPartitionsOverride <= 0 {
@@ -372,6 +374,7 @@ func corePullQRepRecords(
 
 	var rangeStart any
 	var rangeEnd any
+	query := config.Query
 
 	// Depending on the type of the range, convert the range into the correct type
 	switch x := partition.Range.Range.(type) {
@@ -392,13 +395,15 @@ func corePullQRepRecords(
 			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
 			Valid:        true,
 		}
+	case *protos.PartitionRange_NullRange:
+		query = fmt.Sprintf("%s WHERE %s IS NULL", config.BaseQuery, common.QuoteIdentifier(config.WatermarkColumn))
 	default:
 		return 0, 0, fmt.Errorf("unknown range type: %v", x)
 	}
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(c.logger, config.Query, config.FlowJobName)
+	query, err := BuildQuery(c.logger, query, config.FlowJobName)
 	if err != nil {
 		return 0, 0, err
 	}

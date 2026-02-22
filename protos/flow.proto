@@ -301,6 +301,9 @@ message UIntPartitionRange {
   uint64 end = 2;
 }
 
+message NullPartitionRange {
+}
+
 message ObjectIdPartitionRange {
   string start = 1;
   string end = 2;
@@ -314,6 +317,7 @@ message PartitionRange {
     TIDPartitionRange tid_range = 3;
     UIntPartitionRange uint_range = 4;
     ObjectIdPartitionRange object_id_range = 5;
+    NullPartitionRange null_range = 6;
   }
 }
 
@@ -402,6 +406,9 @@ message QRepConfig {
   uint32 version = 28;
 
   peerdb_peers.DBType source_type = 30;
+
+  // the query to fetch the rows without any filters applied (e.g. select [cols] from [table])
+  string base_query = 31;
 }
 
 message QRepPartition {
