@@ -154,7 +154,7 @@ func TestGetQRepPartitions(t *testing.T) {
 			uint32(numRows)/3,
 			3,
 		),
-		// this is 5 partitions 33 rows and 7 rows per partition, would be 8, 8, 8, 8, 1
+		// this is 5 partitions 42 rows and 7 rows per partition, would be 10, 10, 10, 10, 2
 		newTestCaseForCTID(
 			schemaName,
 			"ensure all rows are in 5 partitions if num_rows_per_partition is 1/4 the size of table",
