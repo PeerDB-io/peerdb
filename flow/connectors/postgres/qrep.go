@@ -207,6 +207,8 @@ func (c *PostgresConnector) getPartitions(
 		numPartitions:   numPartitions,
 		lastRangeEnd:    lastRangeEnd,
 		logger:          c.logger,
+		// we only add null partition for InitialCopyOnly replication, because for ongoing QRep replication clients should avoid having null values, otherwise it's impossible to not duplicate rows where watermark column is null on repeated runs
+		addNullPartition: config.InitialCopyOnly,
 	}
 
 	if config.NumPartitionsOverride <= 0 {
@@ -216,8 +218,6 @@ func (c *PostgresConnector) getPartitions(
 		}
 		partitionParams.numPartitions = computedNumPartitions
 	}
-	// we only add null partition for InitialCopyOnly replication, because for ongoing QRep replication clients should avoid having null values, otherwise it's impossible to not duplicate rows where watermark column is null on repeated runs
-	partitionParams.addNullPartition = config.InitialCopyOnly && partitionParams.numPartitions > 1
 
 	isCTIDWatermarkCol := config.WatermarkColumn == ctidColumnName
 	hasPartitionOverride := config.NumPartitionsOverride > 0 // backwards-compatibility with old behavior
