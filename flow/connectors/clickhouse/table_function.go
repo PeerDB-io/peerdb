@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"go.temporal.io/sdk/log"
@@ -79,13 +80,7 @@ func buildInsertFromTableFunctionQuery(
 		colName := field.Name
 
 		// Skip excluded columns
-		excluded := false
-		for _, excludedColumn := range config.excludedColumns {
-			if colName == excludedColumn {
-				excluded = true
-				break
-			}
-		}
+		excluded := slices.Contains(config.excludedColumns, colName)
 		if excluded {
 			continue
 		}

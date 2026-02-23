@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"time"
 
@@ -88,7 +89,7 @@ func (r RecordItems) GetBytesByColName(colName string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []byte(fmt.Sprint(val.Value())), nil
+	return fmt.Append(nil, val.Value()), nil
 }
 
 func (r RecordItems) Len() int {
@@ -124,9 +125,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 					return nil, err
 				}
 
-				for k, v := range unnestStruct {
-					jsonStruct[k] = v
-				}
+				maps.Copy(jsonStruct, unnestStruct)
 			} else {
 				jsonStruct[col] = v.Val
 			}
