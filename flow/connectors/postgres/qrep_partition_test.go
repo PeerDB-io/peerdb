@@ -21,7 +21,6 @@ type testCase struct {
 	name                  string
 	config                *protos.QRepConfig
 	last                  *protos.QRepPartition
-	want                  []*protos.QRepPartition
 	expectedNumPartitions int
 	wantErr               bool
 }
@@ -39,8 +38,8 @@ func newTestCaseForNumRows(schema string, name string, rows uint32, expectedNum 
 			Query:               query,
 			WatermarkTable:      schemaQualifiedTable,
 			WatermarkColumn:     "from",
+			InitialCopyOnly:     true,
 		},
-		want:                  []*protos.QRepPartition{},
 		expectedNumPartitions: expectedNum,
 	}
 }
@@ -57,9 +56,8 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 			NumRowsPerPartition: rows,
 			Query:               query,
 			WatermarkTable:      schemaQualifiedTable,
-			WatermarkColumn:     "ctid",
+			WatermarkColumn:     ctidColumnName,
 		},
-		want:                  []*protos.QRepPartition{},
 		expectedNumPartitions: expectedNum,
 	}
 }
@@ -100,7 +98,7 @@ func TestGetQRepPartitions(t *testing.T) {
 		CREATE TABLE IF NOT EXISTS %s.test (
 			id SERIAL PRIMARY KEY,
 			value INT NOT NULL,
-			"from" TIMESTAMP NOT NULL
+			"from" TIMESTAMP
 		)
 	`, schemaName))
 	if err != nil {
@@ -130,12 +128,13 @@ func TestGetQRepPartitions(t *testing.T) {
 			uint32(numRows)/3,
 			3,
 		),
-		// this is 5 partitions 30 rows and 7 rows per partition, would be 7, 7, 7, 7, 2
+		// NTILE(5) groups 12 nulls into bucket 1 along with some timestamps, producing 4 distinct timestamp ranges
+		// + 1 explicit null partition = 5 total (4 timestamp + 1 null)
 		newTestCaseForNumRows(
 			schemaName,
 			"ensure all rows are in 5 partitions if num_rows_per_partition is 1/4 the size of table",
 			uint32(numRows)/4,
-			5,
+			4,
 		),
 		newTestCaseForCTID(
 			schemaName,
@@ -155,7 +154,7 @@ func TestGetQRepPartitions(t *testing.T) {
 			uint32(numRows)/3,
 			3,
 		),
-		// this is 5 partitions 30 rows and 7 rows per partition, would be 7, 7, 7, 7, 2
+		// this is 5 partitions 33 rows and 7 rows per partition, would be 8, 8, 8, 8, 1
 		newTestCaseForCTID(
 			schemaName,
 			"ensure all rows are in 5 partitions if num_rows_per_partition is 1/4 the size of table",
@@ -183,22 +182,13 @@ func TestGetQRepPartitions(t *testing.T) {
 				return
 			}
 
-			// If the expected number of partitions is set, just check that
-			// the number of partitions is equal to the expected number of
-			// partitions, we don't care about the actual partition ranges
-			// for now, but ideally we should check that the partition ranges
-			// are correct as well.
 			if tc.expectedNumPartitions != 0 {
-				assert.Len(t, got, tc.expectedNumPartitions)
+				expected := tc.expectedNumPartitions
+				if tc.expectedNumPartitions > 1 && tc.config.WatermarkColumn != ctidColumnName {
+					expected = expected + 1 // account for null partition when partitioning by non-ctid column
+				}
+				assert.Len(t, got, expected)
 				return
-			}
-
-			assert.Len(t, got, len(tc.want))
-			for i, val := range tc.want {
-				er := val.Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
-				gotr := got[i].Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
-				assert.Equal(t, er.Start.AsTime(), gotr.Start.AsTime())
-				assert.Equal(t, er.End.AsTime(), gotr.End.AsTime())
 			}
 		})
 	}
@@ -217,16 +207,27 @@ func prepareTestData(t *testing.T, pool *pgx.Conn, schema string) int {
 	startTime := time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC)
 	endTime := time.Date(2010, time.January, 31, 10, 0, 0, 0, time.UTC)
 
-	times := 0
+	rowsCount := 0
 	for tm := startTime; tm.Before(endTime); tm = tm.Add(24 * time.Hour) {
-		times += 1
+		rowsCount += 1
 		_, err := pool.Exec(t.Context(), fmt.Sprintf(`
 			INSERT INTO %s.test (value, "from") VALUES ($1, $2)
-		`, schema), times, tm)
+		`, schema), rowsCount, tm)
 		if err != nil {
 			t.Fatalf("Failed to insert test data: %v", err)
 		}
 	}
 
-	return times
+	// add some rows with null "from" value to ensure they get partitioned correctly as well
+	for i := range 12 {
+		rowsCount += 1
+		_, err := pool.Exec(t.Context(), fmt.Sprintf(`
+			INSERT INTO %s.test (value, "from") VALUES ($1, NULL)
+		`, schema), rowsCount+i+1)
+		if err != nil {
+			t.Fatalf("Failed to insert test data with null from value: %v", err)
+		}
+	}
+
+	return rowsCount
 }

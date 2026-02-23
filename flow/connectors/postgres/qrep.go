@@ -207,8 +207,6 @@ func (c *PostgresConnector) getPartitions(
 		numPartitions:   numPartitions,
 		lastRangeEnd:    lastRangeEnd,
 		logger:          c.logger,
-		// we only add null partition for InitialCopyOnly replication, because for ongoing QRep replication clients should avoid having null values, otherwise it's impossible to not duplicate rows where watermark column is null on repeated runs
-		addNullPartition: config.InitialCopyOnly,
 	}
 
 	if config.NumPartitionsOverride <= 0 {
@@ -218,6 +216,8 @@ func (c *PostgresConnector) getPartitions(
 		}
 		partitionParams.numPartitions = computedNumPartitions
 	}
+	// we only add null partition for InitialCopyOnly replication, because for ongoing QRep replication clients should avoid having null values, otherwise it's impossible to not duplicate rows where watermark column is null on repeated runs
+	partitionParams.addNullPartition = config.InitialCopyOnly && partitionParams.numPartitions > 1
 
 	isCTIDWatermarkCol := config.WatermarkColumn == ctidColumnName
 	hasPartitionOverride := config.NumPartitionsOverride > 0 // backwards-compatibility with old behavior
@@ -374,7 +374,9 @@ func corePullQRepRecords(
 
 	var rangeStart any
 	var rangeEnd any
+	var queryArgs []any
 	query := config.Query
+	templateParams := map[string]string{"start": "$1", "end": "$2"}
 
 	// Depending on the type of the range, convert the range into the correct type
 	switch x := partition.Range.Range.(type) {
@@ -397,13 +399,18 @@ func corePullQRepRecords(
 		}
 	case *protos.PartitionRange_NullRange:
 		query = fmt.Sprintf("%s WHERE %s IS NULL", config.BaseQuery, common.QuoteIdentifier(config.WatermarkColumn))
+		templateParams = map[string]string{}
 	default:
 		return 0, 0, fmt.Errorf("unknown range type: %v", x)
 	}
 
+	if rangeStart != nil && rangeEnd != nil {
+		queryArgs = []any{rangeStart, rangeEnd}
+	}
+
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(c.logger, query, config.FlowJobName)
+	query, err := BuildQuery(c.logger, query, config.FlowJobName, templateParams)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -414,7 +421,7 @@ func corePullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
 
-	numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
+	numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, queryArgs...)
 	if err != nil {
 		return numRecords, numBytes, err
 	}
@@ -718,17 +725,14 @@ func pullXminRecordStream(
 	return numRecords, numBytes, currentSnapshotXmin, nil
 }
 
-func BuildQuery(logger log.Logger, query string, flowJobName string) (string, error) {
+func BuildQuery(logger log.Logger, query string, flowJobName string, params map[string]string) (string, error) {
 	tmpl, err := template.New("query").Parse(query)
 	if err != nil {
 		return "", err
 	}
 
 	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, map[string]string{
-		"start": "$1",
-		"end":   "$2",
-	}); err != nil {
+	if err := tmpl.Execute(buf, params); err != nil {
 		return "", err
 	}
 	res := buf.String()

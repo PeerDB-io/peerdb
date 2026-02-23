@@ -354,6 +354,9 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		case *protos.PartitionRange_ObjectIdRange:
 			rangeStart = x.ObjectIdRange.Start
 			rangeEnd = x.ObjectIdRange.End
+		case *protos.PartitionRange_NullRange:
+			rangeStart = "NULL"
+			rangeEnd = "NULL"
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}

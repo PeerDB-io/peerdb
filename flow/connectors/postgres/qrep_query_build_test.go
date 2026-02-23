@@ -35,7 +35,7 @@ func TestBuildQuery(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual, err := BuildQuery(slog.Default(), tc.query, "test_flow")
+			actual, err := BuildQuery(slog.Default(), tc.query, "test_flow", map[string]string{"start": "$1", "end": "$2"})
 			if err != nil {
 				t.Fatalf("Error returned by BuildQuery: %v", err)
 			}
