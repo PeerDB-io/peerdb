@@ -1307,7 +1307,9 @@ func (s ClickHouseSuite) Test_Time64() {
 		s.t.Skip("only applies to postgres and mysql")
 	}
 
-	supportsTime64 := s.connector.GetFlags(s.t.Context())[shared.Flag_ClickHouseTime64Enabled]
+	flags, err := s.connector.GetFlags(s.t.Context())
+	require.NoError(s.t, err)
+	supportsTime64 := flags[shared.Flag_ClickHouseTime64Enabled]
 
 	srcTableName := "test_time"
 	srcFullName := s.attachSchemaSuffix(srcTableName)

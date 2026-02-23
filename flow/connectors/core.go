@@ -86,7 +86,7 @@ type GetFlagsConnector interface {
 
 	// GetFlags detects peer capabilities (e.g., supported types) at flow creation time.
 	// Flags are stored on the flow config and used for type mapping backwards compatibility.
-	GetFlags(ctx context.Context) map[string]bool
+	GetFlags(ctx context.Context) (map[string]bool, error)
 }
 
 type CDCPullConnectorCore interface {

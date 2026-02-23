@@ -95,7 +95,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 	env WorkflowRun,
 	flowConnConfig *protos.FlowConnectionConfigs,
 	reason string,
-	expectedSyncBatchId int64,      //nolint:unparam
+	expectedSyncBatchId int64, //nolint:unparam
 	expectedNormalizeBatchId int64, //nolint:unparam
 ) {
 	EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
