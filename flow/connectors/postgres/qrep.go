@@ -1,20 +1,18 @@
 package connpostgres
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -201,14 +199,13 @@ func (c *PostgresConnector) getPartitions(
 	}
 
 	partitionParams := PartitionParams{
-		tx:              tx,
-		watermarkTable:  watermarkTable,
-		watermarkColumn: watermarkColumn,
-		numPartitions:   numPartitions,
-		lastRangeEnd:    lastRangeEnd,
-		logger:          c.logger,
-		// we only add null partition for InitialCopyOnly replication, because for ongoing QRep replication clients should avoid having null values, otherwise it's impossible to not duplicate rows where watermark column is null on repeated runs
-		addNullPartition: config.InitialCopyOnly,
+		tx:               tx,
+		watermarkTable:   watermarkTable,
+		watermarkColumn:  watermarkColumn,
+		numPartitions:    numPartitions,
+		lastRangeEnd:     lastRangeEnd,
+		logger:           c.logger,
+		addNullPartition: config.WatermarkColumnNullable && config.InitialCopyOnly,
 	}
 
 	if config.NumPartitionsOverride <= 0 {
@@ -375,7 +372,7 @@ func corePullQRepRecords(
 	var rangeStart any
 	var rangeEnd any
 	var queryArgs []any
-	query := config.Query
+	queryTemplate := config.Query
 	templateParams := map[string]string{"start": "$1", "end": "$2"}
 
 	// Depending on the type of the range, convert the range into the correct type
@@ -398,7 +395,10 @@ func corePullQRepRecords(
 			Valid:        true,
 		}
 	case *protos.PartitionRange_NullRange:
-		query = fmt.Sprintf("%s WHERE %s IS NULL", config.BaseQuery, common.QuoteIdentifier(config.WatermarkColumn))
+		if config.BaseQuery == "" {
+			return 0, 0, errors.New("base_query must be provided for null range partitions")
+		}
+		queryTemplate = fmt.Sprintf("%s WHERE %s IS NULL", config.BaseQuery, common.QuoteIdentifier(config.WatermarkColumn))
 		templateParams = map[string]string{}
 	default:
 		return 0, 0, fmt.Errorf("unknown range type: %v", x)
@@ -410,7 +410,7 @@ func corePullQRepRecords(
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(c.logger, query, config.FlowJobName, templateParams)
+	query, err := utils.ExecuteTemplate(queryTemplate, templateParams)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -723,22 +723,6 @@ func pullXminRecordStream(
 
 	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords))
 	return numRecords, numBytes, currentSnapshotXmin, nil
-}
-
-func BuildQuery(logger log.Logger, query string, flowJobName string, params map[string]string) (string, error) {
-	tmpl, err := template.New("query").Parse(query)
-	if err != nil {
-		return "", err
-	}
-
-	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, params); err != nil {
-		return "", err
-	}
-	res := buf.String()
-
-	logger.Info("[pg] templated query", slog.String("query", res))
-	return res, nil
 }
 
 // IsQRepPartitionSynced checks whether a specific partition is synced

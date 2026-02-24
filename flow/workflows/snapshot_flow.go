@@ -219,6 +219,19 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 	}
 
+	watermarkColumnNullable := false
+	if mapping.PartitionKey != "" {
+		if err := initTableSchema(); err != nil {
+			return err
+		}
+		for _, col := range tableSchema.Columns {
+			if col.Name == mapping.PartitionKey && col.Nullable {
+				watermarkColumnNullable = true
+				break
+			}
+		}
+	}
+
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
 		SourceName:                 s.config.SourceName,
@@ -227,6 +240,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Query:                      query,
 		BaseQuery:                  baseQuery,
 		WatermarkColumn:            mapping.PartitionKey,
+		WatermarkColumnNullable:    watermarkColumnNullable,
 		WatermarkTable:             srcName,
 		InitialCopyOnly:            true,
 		SnapshotName:               snapshotName,

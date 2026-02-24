@@ -1,7 +1,6 @@
-package connpostgres
+package utils
 
 import (
-	"log/slog"
 	"testing"
 )
 
@@ -10,6 +9,7 @@ func TestBuildQuery(t *testing.T) {
 		name     string
 		query    string
 		expected string
+		err      bool
 	}{
 		{
 			name:     "Date range in template",
@@ -31,13 +31,22 @@ func TestBuildQuery(t *testing.T) {
 			query:    "SELECT * FROM table WHERE value BETWEEN {{.start}} AND {{.end}}",
 			expected: "SELECT * FROM table WHERE value BETWEEN $1 AND $2",
 		},
+
+		{
+			name:  "Wrong template",
+			query: "SELECT * FROM table WHERE value BETWEEN {{.start}} AND {{.end",
+			err:   true,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual, err := BuildQuery(slog.Default(), tc.query, "test_flow", map[string]string{"start": "$1", "end": "$2"})
-			if err != nil {
-				t.Fatalf("Error returned by BuildQuery: %v", err)
+			actual, err := ExecuteTemplate(tc.query, map[string]string{"start": "$1", "end": "$2"})
+			if !tc.err && err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if tc.err && err == nil {
+				t.Fatal("Expected error, got nil")
 			}
 
 			if actual != tc.expected {

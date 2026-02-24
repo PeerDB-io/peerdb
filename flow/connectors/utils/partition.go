@@ -388,8 +388,6 @@ func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition)
 			BlockNumber:  r.TidRange.End.BlockNumber,
 			OffsetNumber: uint16(r.TidRange.End.OffsetNumber),
 		}
-	case *protos.PartitionRange_NullRange:
-	// null partition is always last, no need to track prev start/end
 	default:
 		return fmt.Errorf("unsupported partition range type: %T", r)
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+//nolint:govet
 type testCase struct {
 	name                  string
 	config                *protos.QRepConfig
@@ -114,19 +115,19 @@ func TestGetQRepPartitions(t *testing.T) {
 			schemaName,
 			"ensure all rows are in 1 partition if num_rows_per_partition is size of table",
 			uint32(numRows),
-			1,
+			2, // 1 data partition + 1 null partition
 		),
 		newTestCaseForNumRows(
 			schemaName,
 			"ensure all rows are in 2 partitions if num_rows_per_partition is half the size of table",
 			uint32(numRows)/2,
-			2,
+			3, // +1 null partition
 		),
 		newTestCaseForNumRows(
 			schemaName,
 			"ensure all rows are in 3 partitions if num_rows_per_partition is 1/3 the size of table",
 			uint32(numRows)/3,
-			3,
+			4, // +1 null partition
 		),
 		// NTILE(5) groups 12 nulls into bucket 1 along with some timestamps, producing 4 distinct timestamp ranges
 		// + 1 explicit null partition = 5 total (4 timestamp + 1 null)
@@ -134,7 +135,7 @@ func TestGetQRepPartitions(t *testing.T) {
 			schemaName,
 			"ensure all rows are in 5 partitions if num_rows_per_partition is 1/4 the size of table",
 			uint32(numRows)/4,
-			4,
+			5, // +1 null partition
 		),
 		newTestCaseForCTID(
 			schemaName,
@@ -182,14 +183,8 @@ func TestGetQRepPartitions(t *testing.T) {
 				return
 			}
 
-			if tc.expectedNumPartitions != 0 {
-				expected := tc.expectedNumPartitions
-				if tc.expectedNumPartitions > 1 && tc.config.WatermarkColumn != ctidColumnName {
-					expected = expected + 1 // account for null partition when partitioning by non-ctid column
-				}
-				assert.Len(t, got, expected)
-				return
-			}
+			expected := tc.expectedNumPartitions
+			assert.Len(t, got, expected)
 		})
 	}
 
