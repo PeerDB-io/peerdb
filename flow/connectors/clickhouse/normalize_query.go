@@ -3,12 +3,14 @@ package connclickhouse
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -17,6 +19,7 @@ import (
 
 type NormalizeQueryGenerator struct {
 	env                             map[string]string
+	flags                           []string
 	tableNameSchemaMapping          map[string]*protos.TableSchema
 	chVersion                       *chproto.Version
 	Query                           string
@@ -47,6 +50,7 @@ func NewNormalizeQueryGenerator(
 	cluster bool,
 	configuredSoftDeleteColName string,
 	version uint32,
+	flags []string,
 ) *NormalizeQueryGenerator {
 	isDeletedColumn := isDeletedColName
 	if configuredSoftDeleteColName != "" {
@@ -66,6 +70,7 @@ func NewNormalizeQueryGenerator(
 		cluster:                         cluster,
 		isDeletedColName:                isDeletedColumn,
 		version:                         version,
+		flags:                           flags,
 	}
 }
 
@@ -123,7 +128,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		if clickHouseType == "" {
 			var err error
 			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled,
+				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.flags,
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
@@ -131,6 +136,19 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		}
 
 		switch clickHouseType {
+		case "Time64(6)", "Nullable(Time64(6))":
+			fmt.Fprintf(&projection,
+				"toTime64OrNull(JSONExtractString(_peerdb_data, %s), 6) AS %s,",
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					"toTime64OrNull(JSONExtractString(_peerdb_match_data, %s), 6) AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
 		case "Date32", "Nullable(Date32)":
 			fmt.Fprintf(&projection,
 				"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC')) AS %s,",
@@ -145,18 +163,18 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				)
 			}
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
+			// Handle legacy path where TIME is stored as DateTime64 (before Time64 support)
 			if colType == types.QValueKindTime || colType == types.QValueKindTimeTZ {
-				// parseDateTime64BestEffortOrNull for hh:mm:ss puts the year as current year
-				// (or previous year if result would be in future) so explicitly anchor to unix epoch
-				fmt.Fprintf(&projection,
-					"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_data, %s),6,'UTC') AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+				time64Supported := slices.Contains(t.flags, shared.Flag_ClickHouseTime64Enabled)
+				fmt.Fprintf(&projection, "%s AS %s,",
+					extendedTimeToDateTime(fmt.Sprintf("JSONExtractString(_peerdb_data, %s)",
+						peerdb_clickhouse.QuoteLiteral(colName)), time64Supported),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
-					fmt.Fprintf(&projectionUpdate,
-						"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_match_data, %s),6,'UTC') AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
+					fmt.Fprintf(&projectionUpdate, "%s AS %s,",
+						extendedTimeToDateTime(fmt.Sprintf("JSONExtractString(_peerdb_match_data, %s)",
+							peerdb_clickhouse.QuoteLiteral(colName)), time64Supported),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
@@ -297,14 +315,14 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 	}
 
-	chSettings := NewCHSettings(t.chVersion)
-	chSettings.Add(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := clickhouse.NewCHSettings(t.chVersion)
+	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
 	if t.cluster {
-		chSettings.Add(SettingParallelDistributedInsertSelect, "0")
+		chSettings.Add(clickhouse.SettingParallelDistributedInsertSelect, "0")
 	}
 	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(SettingJsonTypeEscapeDotsInKeys, "1")
+		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
@@ -313,4 +331,26 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	t.Query = insertIntoSelectQuery
 
 	return t.Query, nil
+}
+
+func extendedTimeToDateTime(jsonExtractExpr string, time64Supported bool) string {
+	if time64Supported {
+		return fmt.Sprintf("toDateTime64(toTime64OrNull(%s, 6), 6)", jsonExtractExpr)
+	}
+
+	// Fallback to manual string parsing for older ClickHouse versions (< 25.6)
+	// that don't support toTime64OrNull(). This expression parses extended time
+	// format "[-]HHH:MM:SS.xxxxxx" (e.g., "123:30:00.000000", "-1:30:00.000000")
+	// by splitting on ':' and '.', computing total microseconds using integer
+	// arithmetic instead of toDateTime64(<fractional_second>) to avoid precision
+	// loss.
+	return fmt.Sprintf(`if(length(%[1]s) > 0,
+		fromUnixTimestamp64Micro(
+			(if(startsWith(%[1]s, '-'), -1, 1)) *
+			(toInt64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[1]) * 3600 * 1000000 +
+			 toInt64(splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[2]) * 60 * 1000000 +
+			 toInt64(splitByChar('.', splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[3])[1]) * 1000000 +
+			 toInt64(splitByChar('.', splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[3])[2]))
+		),
+		NULL)`, jsonExtractExpr)
 }

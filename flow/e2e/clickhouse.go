@@ -261,6 +261,12 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				} else {
 					qrow = append(qrow, types.QValueTimestamp{Val: **v})
 				}
+			case **time.Duration:
+				if *v == nil {
+					qrow = append(qrow, types.QValueNull(types.QValueKindTime))
+				} else {
+					qrow = append(qrow, types.QValueTime{Val: **v})
+				}
 			case **uint8:
 				if *v == nil {
 					qrow = append(qrow, types.QValueNull(types.QValueKindUInt8))
@@ -301,6 +307,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *time.Time:
 				qrow = append(qrow, types.QValueTimestamp{Val: *v})
+			case *time.Duration:
+				qrow = append(qrow, types.QValueTime{Val: *v})
 			case *[]time.Time:
 				qrow = append(qrow, types.QValueArrayTimestamp{Val: *v})
 			case **decimal.Decimal:

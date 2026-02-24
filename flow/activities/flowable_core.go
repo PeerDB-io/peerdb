@@ -242,7 +242,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		defer dstClose(ctx)
 
 		syncState.Store(shared.Ptr("updating schema"))
-		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas); err != nil {
+		if err := dstConn.ReplayTableSchemaDeltas(
+			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags,
+		); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
@@ -285,6 +287,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			TableNameSchemaMapping: tableNameSchemaMapping,
 			Env:                    config.Env,
 			Version:                config.Version,
+			Flags:                  config.Flags,
 		})
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))
@@ -681,6 +684,7 @@ func (a *FlowableActivity) startNormalize(
 			SyncedAtColName:        config.SyncedAtColName,
 			SyncBatchID:            batchID,
 			Version:                config.Version,
+			Flags:                  config.Flags,
 		})
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName,

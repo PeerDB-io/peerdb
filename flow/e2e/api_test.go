@@ -746,6 +746,7 @@ func (s APITestSuite) TestResyncCompleted() {
 	flowConnConfig.SnapshotNumTablesInParallel = 13
 	flowConnConfig.IdleTimeoutSeconds = 9
 	flowConnConfig.MaxBatchSize = 5040
+	flowConnConfig.Flags = []string{"dummy_config"}
 	// if true, then the flow will be resynced
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
@@ -757,6 +758,9 @@ func (s APITestSuite) TestResyncCompleted() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	RequireEqualTables(s.ch, tableName, cols)
+
+	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
 
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
@@ -795,11 +799,10 @@ func (s APITestSuite) TestResyncCompleted() {
 	EnvWaitForFinished(s.t, env, time.Minute)
 
 	// check that custom config options persist across resync
-	config, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	flowConnConfig.Resync = true // this gets left true after resync
-	config.Env = nil             // env is modified by API
-	require.EqualExportedValues(s.t, flowConnConfig, config)
+	configBeforeResync.Resync = true
+	require.EqualExportedValues(s.t, configBeforeResync, configAfterResync)
 }
 
 func (s APITestSuite) TestResyncFailed() {
@@ -1367,6 +1370,21 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	require.Equal(s.t, int64(2), mirrorTotalRowsSynced.TotalCountInitialLoad)
 	require.Equal(s.t, int64(4), mirrorTotalRowsSynced.TotalCount)
 
+	// check initial load NumRowsSynced via mirror status API
+	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
+		FlowJobName:     flowConnConfig.FlowJobName,
+		IncludeFlowInfo: true,
+	})
+	require.NoError(s.t, err)
+	cdcStatus := statusResponse.GetCdcStatus()
+	require.NotNil(s.t, cdcStatus)
+	require.NotNil(s.t, cdcStatus.SnapshotStatus)
+	var initialLoadRowsSynced int64
+	for _, clone := range cdcStatus.SnapshotStatus.Clones {
+		initialLoadRowsSynced += clone.NumRowsSynced
+	}
+	require.Equal(s.t, int64(2), initialLoadRowsSynced)
+
 	// check table stats cdc
 	tableStats, err := s.CDCTableTotalCounts(s.t.Context(), &protos.CDCTableTotalCountsRequest{
 		FlowJobName: flowConnConfig.FlowJobName,
@@ -1556,6 +1574,13 @@ func (s APITestSuite) TestQRep() {
 	qStatus := statusResponse.GetQrepStatus()
 	require.NotNil(s.t, qStatus)
 	require.Len(s.t, qStatus.Partitions, 2)
+
+	var totalRowsSynced int64
+	for _, p := range qStatus.Partitions {
+		require.Positive(s.t, p.RowsSynced, "each partition should have rows_synced > 0")
+		totalRowsSynced += p.RowsSynced
+	}
+	require.Equal(s.t, int64(2), totalRowsSynced)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

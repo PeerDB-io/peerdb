@@ -96,3 +96,8 @@ func Val[T any](p *T) T {
 	}
 	return *p
 }
+
+// Flag constants for flow config Flags mapping
+const (
+	Flag_ClickHouseTime64Enabled = "clickhouse_time64_enabled"
+)

@@ -49,6 +49,7 @@ export const blankCDCSetting: CDCConfig = {
   env: {},
   envString: '',
   version: 0,
+  flags: [],
 };
 
 export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {
@@ -89,4 +90,5 @@ export const blankQRepSetting: QRepConfig = {
   exclude: [],
   columns: [],
   sourceType: DBType.DBTYPE_UNKNOWN,
+  flags: [],
 };
