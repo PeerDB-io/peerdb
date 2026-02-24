@@ -94,7 +94,7 @@ message FlowConnectionConfigs {
 
   // Connector capabilities detected at flow creation time.
   // Used to control type mapping backwards compatibility.
-  map<string, bool> flags = 27;
+  repeated string flags = 27;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -144,7 +144,7 @@ message FlowConnectionConfigsCore {
 
   // Connector capabilities detected at flow creation time.
   // Used to control type mapping backwards compatibility.
-  map<string, bool> flags = 27;
+  repeated string flags = 27;
 }
 
 message RenameTableOption {
@@ -273,7 +273,7 @@ message SetupNormalizedTableBatchInput {
   string peer_name = 7;
   bool is_resync = 8;
   uint32 version = 9;
-  map<string, bool> flags = 10;
+  repeated string flags = 10;
 }
 
 message SetupNormalizedTableOutput {
@@ -415,7 +415,7 @@ message QRepConfig {
 
   // Connector capabilities detected at flow creation time.
   // Used to control type mapping backwards compatibility.
-  map<string, bool> flags = 31;
+  repeated string flags = 31;
 }
 
 message QRepPartition {

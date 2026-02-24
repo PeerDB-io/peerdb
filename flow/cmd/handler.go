@@ -65,7 +65,7 @@ func (h *FlowRequestHandler) determineFlags(
 	ctx context.Context,
 	env map[string]string,
 	destPeerName string,
-) (map[string]bool, error) {
+) ([]string, error) {
 	conn, connClose, err := connectors.GetByNameAs[connectors.GetFlagsConnector](ctx, env, h.pool, destPeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {

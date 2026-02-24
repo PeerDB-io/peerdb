@@ -87,7 +87,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	chVersion *chproto.Version,
-	flags map[string]bool,
+	flags []string,
 ) ([]string, error) {
 	var engine string
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE

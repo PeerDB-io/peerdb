@@ -86,7 +86,7 @@ type GetFlagsConnector interface {
 
 	// GetFlags detects peer capabilities (e.g., supported types) at flow creation time.
 	// Flags are stored on the flow config and used for type mapping backwards compatibility.
-	GetFlags(ctx context.Context) (map[string]bool, error)
+	GetFlags(ctx context.Context) ([]string, error)
 }
 
 type CDCPullConnectorCore interface {
@@ -193,7 +193,8 @@ type CDCSyncConnectorCore interface {
 	// This could involve adding multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
 	ReplayTableSchemaDeltas(ctx context.Context, env map[string]string, flowJobName string,
-		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, flags map[string]bool) error
+		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, flags []string,
+	) error
 }
 
 type CDCSyncConnector interface {

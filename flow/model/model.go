@@ -157,12 +157,12 @@ type SyncRecordsRequest[T Items] struct {
 	TableMappings []*protos.TableMapping
 	SyncBatchID   int64
 	Version       uint32
-	Flags         map[string]bool
+	Flags         []string
 }
 type NormalizeRecordsRequest struct {
 	Env                    map[string]string
 	TableNameSchemaMapping map[string]*protos.TableSchema
-	Flags                  map[string]bool
+	Flags                  []string
 	FlowJobName            string
 	SoftDeleteColName      string
 	SyncedAtColName        string

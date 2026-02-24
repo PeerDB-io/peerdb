@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"go.temporal.io/sdk/log"
@@ -71,7 +72,7 @@ func timeFieldExpressionConverter(
 	}
 
 	// Handle legacy path where TIME was stored as DateTime64, before ClickHouse supported Time64 type
-	if !config.config.Flags[shared.Flag_ClickHouseTime64Enabled] {
+	if !slices.Contains(config.config.Flags, shared.Flag_ClickHouseTime64Enabled) {
 		return sourceFieldIdentifier, nil
 	}
 

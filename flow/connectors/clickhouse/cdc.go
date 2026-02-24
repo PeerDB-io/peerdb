@@ -166,7 +166,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	tableMappings []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
-	flags map[string]bool,
+	flags []string,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil

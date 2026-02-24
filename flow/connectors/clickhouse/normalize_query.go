@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
@@ -18,7 +19,7 @@ import (
 
 type NormalizeQueryGenerator struct {
 	env                             map[string]string
-	flags                           map[string]bool
+	flags                           []string
 	tableNameSchemaMapping          map[string]*protos.TableSchema
 	chVersion                       *chproto.Version
 	Query                           string
@@ -49,7 +50,7 @@ func NewNormalizeQueryGenerator(
 	cluster bool,
 	configuredSoftDeleteColName string,
 	version uint32,
-	flags map[string]bool,
+	flags []string,
 ) *NormalizeQueryGenerator {
 	isDeletedColumn := isDeletedColName
 	if configuredSoftDeleteColName != "" {
@@ -164,7 +165,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
 			// Handle legacy path where TIME is stored as DateTime64 (before Time64 support)
 			if colType == types.QValueKindTime || colType == types.QValueKindTimeTZ {
-				time64Supported := t.flags[shared.Flag_ClickHouseTime64Enabled]
+				time64Supported := slices.Contains(t.flags, shared.Flag_ClickHouseTime64Enabled)
 				fmt.Fprintf(&projection, "%s AS %s,",
 					extendedTimeToDateTime(fmt.Sprintf("JSONExtractString(_peerdb_data, %s)",
 						peerdb_clickhouse.QuoteLiteral(colName)), time64Supported),

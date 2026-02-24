@@ -407,22 +407,20 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	return clickhouseVersion.Version.String(), nil
 }
 
-func (c *ClickHouseConnector) GetFlags(ctx context.Context) (map[string]bool, error) {
-	flags := make(map[string]bool)
+func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
+	var flags []string
 
 	var time64Setting string
 	err := c.queryRow(ctx,
 		"SELECT value FROM system.settings WHERE name = 'enable_time_time64_type'",
 	).Scan(&time64Setting)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			c.logger.Warn("[clickhouse] enable_time_time64_type setting is not available")
-		} else {
+		if !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("failed to query enable_time_time64_type setting: %w", err)
 		}
 	} else if time64Setting == "1" {
 		c.logger.Info("[clickhouse] enable_time_time64_type is enabled")
-		flags[shared.Flag_ClickHouseTime64Enabled] = true
+		flags = append(flags, shared.Flag_ClickHouseTime64Enabled)
 	}
 
 	return flags, nil

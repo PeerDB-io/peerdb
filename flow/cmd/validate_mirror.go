@@ -178,8 +178,8 @@ func (h *FlowRequestHandler) checkFlagsCompatibility(
 		return false, nil
 	}
 
-	for flag, wasEnabled := range cfg.Flags {
-		if !wasEnabled || newFlags[flag] {
+	for _, flag := range cfg.Flags {
+		if slices.Contains(newFlags, flag) {
 			continue
 		}
 		constraint, ok := FlagConstraints[flag]

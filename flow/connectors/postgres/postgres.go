@@ -1282,7 +1282,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
-	_ map[string]bool,
+	_ []string,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil

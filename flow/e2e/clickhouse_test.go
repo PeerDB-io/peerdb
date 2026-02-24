@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1309,7 +1310,7 @@ func (s ClickHouseSuite) Test_Time64() {
 
 	flags, err := s.connector.GetFlags(s.t.Context())
 	require.NoError(s.t, err)
-	supportsTime64 := flags[shared.Flag_ClickHouseTime64Enabled]
+	supportsTime64 := slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled)
 
 	srcTableName := "test_time"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
