@@ -407,10 +407,13 @@ message QRepConfig {
 
   peerdb_peers.DBType source_type = 30;
 
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 31;
   // the query to fetch the rows without any filters applied (e.g. select [cols] from [table])
-  string base_query = 31;
+  string base_query = 32;
   // if true, then a separate null partition will be created for rows with null values in the watermark column
-  bool watermark_column_nullable = 32;
+  bool watermark_column_nullable = 33;
 }
 
 message QRepPartition {
