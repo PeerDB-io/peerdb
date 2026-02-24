@@ -868,8 +868,11 @@ type FlowConnectionConfigs struct {
 	DestinationName string            `protobuf:"bytes,23,opt,name=destination_name,json=destinationName,proto3" json:"destination_name,omitempty"`
 	Env             map[string]string `protobuf:"bytes,24,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Version         uint32            `protobuf:"varint,25,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Connector capabilities detected at flow creation time.
+	// Used to control type mapping backwards compatibility.
+	Flags         []string `protobuf:"bytes,27,rep,name=flags,proto3" json:"flags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FlowConnectionConfigs) Reset() {
@@ -1063,6 +1066,13 @@ func (x *FlowConnectionConfigs) GetVersion() uint32 {
 	return 0
 }
 
+func (x *FlowConnectionConfigs) GetFlags() []string {
+	if x != nil {
+		return x.Flags
+	}
+	return nil
+}
+
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
 // It still needs to be a proto because Temporal
 // When adding fields here, add them to FlowConnectionConfigs too
@@ -1101,8 +1111,11 @@ type FlowConnectionConfigsCore struct {
 	DestinationName string            `protobuf:"bytes,23,opt,name=destination_name,json=destinationName,proto3" json:"destination_name,omitempty"`
 	Env             map[string]string `protobuf:"bytes,24,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Version         uint32            `protobuf:"varint,25,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Connector capabilities detected at flow creation time.
+	// Used to control type mapping backwards compatibility.
+	Flags         []string `protobuf:"bytes,27,rep,name=flags,proto3" json:"flags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FlowConnectionConfigsCore) Reset() {
@@ -1294,6 +1307,13 @@ func (x *FlowConnectionConfigsCore) GetVersion() uint32 {
 		return x.Version
 	}
 	return 0
+}
+
+func (x *FlowConnectionConfigsCore) GetFlags() []string {
+	if x != nil {
+		return x.Flags
+	}
+	return nil
 }
 
 type RenameTableOption struct {
@@ -2387,11 +2407,13 @@ type SetupNormalizedTableBatchInput struct {
 	Env           map[string]string      `protobuf:"bytes,1,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	TableMappings []*TableMapping        `protobuf:"bytes,3,rep,name=table_mappings,json=tableMappings,proto3" json:"table_mappings,omitempty"`
 	// migration related columns
-	SoftDeleteColName string `protobuf:"bytes,4,opt,name=soft_delete_col_name,json=softDeleteColName,proto3" json:"soft_delete_col_name,omitempty"`
-	SyncedAtColName   string `protobuf:"bytes,5,opt,name=synced_at_col_name,json=syncedAtColName,proto3" json:"synced_at_col_name,omitempty"`
-	FlowName          string `protobuf:"bytes,6,opt,name=flow_name,json=flowName,proto3" json:"flow_name,omitempty"`
-	PeerName          string `protobuf:"bytes,7,opt,name=peer_name,json=peerName,proto3" json:"peer_name,omitempty"`
-	IsResync          bool   `protobuf:"varint,8,opt,name=is_resync,json=isResync,proto3" json:"is_resync,omitempty"`
+	SoftDeleteColName string   `protobuf:"bytes,4,opt,name=soft_delete_col_name,json=softDeleteColName,proto3" json:"soft_delete_col_name,omitempty"`
+	SyncedAtColName   string   `protobuf:"bytes,5,opt,name=synced_at_col_name,json=syncedAtColName,proto3" json:"synced_at_col_name,omitempty"`
+	FlowName          string   `protobuf:"bytes,6,opt,name=flow_name,json=flowName,proto3" json:"flow_name,omitempty"`
+	PeerName          string   `protobuf:"bytes,7,opt,name=peer_name,json=peerName,proto3" json:"peer_name,omitempty"`
+	IsResync          bool     `protobuf:"varint,8,opt,name=is_resync,json=isResync,proto3" json:"is_resync,omitempty"`
+	Version           uint32   `protobuf:"varint,9,opt,name=version,proto3" json:"version,omitempty"`
+	Flags             []string `protobuf:"bytes,10,rep,name=flags,proto3" json:"flags,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2473,6 +2495,20 @@ func (x *SetupNormalizedTableBatchInput) GetIsResync() bool {
 		return x.IsResync
 	}
 	return false
+}
+
+func (x *SetupNormalizedTableBatchInput) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *SetupNormalizedTableBatchInput) GetFlags() []string {
+	if x != nil {
+		return x.Flags
+	}
+	return nil
 }
 
 type SetupNormalizedTableOutput struct {
@@ -3108,8 +3144,11 @@ type QRepConfig struct {
 	Columns            []*ColumnSetting  `protobuf:"bytes,27,rep,name=columns,proto3" json:"columns,omitempty"`
 	Version            uint32            `protobuf:"varint,28,opt,name=version,proto3" json:"version,omitempty"`
 	SourceType         DBType            `protobuf:"varint,30,opt,name=source_type,json=sourceType,proto3,enum=peerdb_peers.DBType" json:"source_type,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Connector capabilities detected at flow creation time.
+	// Used to control type mapping backwards compatibility.
+	Flags         []string `protobuf:"bytes,31,rep,name=flags,proto3" json:"flags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QRepConfig) Reset() {
@@ -3329,6 +3368,13 @@ func (x *QRepConfig) GetSourceType() DBType {
 		return x.SourceType
 	}
 	return DBType_BIGQUERY
+}
+
+func (x *QRepConfig) GetFlags() []string {
+	if x != nil {
+		return x.Flags
+	}
+	return nil
 }
 
 type QRepPartition struct {
@@ -5187,7 +5233,7 @@ const file_flow_proto_rawDesc = "" +
 	"\tpeer_name\x18\x03 \x01(\tR\bpeerName\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbc\t\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd2\t\n" +
 	"\x15FlowConnectionConfigs\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12@\n" +
 	"\x0etable_mappings\x18\x04 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x12$\n" +
@@ -5213,10 +5259,11 @@ const file_flow_proto_rawDesc = "" +
 	"sourceName\x12)\n" +
 	"\x10destination_name\x18\x17 \x01(\tR\x0fdestinationName\x12=\n" +
 	"\x03env\x18\x18 \x03(\v2+.peerdb_flow.FlowConnectionConfigs.EnvEntryR\x03env\x12\x18\n" +
-	"\aversion\x18\x19 \x01(\rR\aversion\x1a6\n" +
+	"\aversion\x18\x19 \x01(\rR\aversion\x12\x14\n" +
+	"\x05flags\x18\x1b \x03(\tR\x05flags\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x11\x10\x12\"\xc4\t\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x11\x10\x12\"\xda\t\n" +
 	"\x19FlowConnectionConfigsCore\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12@\n" +
 	"\x0etable_mappings\x18\x04 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x12$\n" +
@@ -5242,7 +5289,8 @@ const file_flow_proto_rawDesc = "" +
 	"sourceName\x12)\n" +
 	"\x10destination_name\x18\x17 \x01(\tR\x0fdestinationName\x12A\n" +
 	"\x03env\x18\x18 \x03(\v2/.peerdb_flow.FlowConnectionConfigsCore.EnvEntryR\x03env\x12\x18\n" +
-	"\aversion\x18\x19 \x01(\rR\aversion\x1a6\n" +
+	"\aversion\x18\x19 \x01(\rR\aversion\x12\x14\n" +
+	"\x05flags\x18\x1b \x03(\tR\x05flags\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x11\x10\x12\"Q\n" +
@@ -5343,7 +5391,7 @@ const file_flow_proto_rawDesc = "" +
 	"\aversion\x18\a \x01(\rR\aversion\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03\"\x97\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03\"\xc7\x03\n" +
 	"\x1eSetupNormalizedTableBatchInput\x12F\n" +
 	"\x03env\x18\x01 \x03(\v24.peerdb_flow.SetupNormalizedTableBatchInput.EnvEntryR\x03env\x12@\n" +
 	"\x0etable_mappings\x18\x03 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x12/\n" +
@@ -5351,7 +5399,10 @@ const file_flow_proto_rawDesc = "" +
 	"\x12synced_at_col_name\x18\x05 \x01(\tR\x0fsyncedAtColName\x12\x1b\n" +
 	"\tflow_name\x18\x06 \x01(\tR\bflowName\x12\x1b\n" +
 	"\tpeer_name\x18\a \x01(\tR\bpeerName\x12\x1b\n" +
-	"\tis_resync\x18\b \x01(\bR\bisResync\x1a6\n" +
+	"\tis_resync\x18\b \x01(\bR\bisResync\x12\x18\n" +
+	"\aversion\x18\t \x01(\rR\aversion\x12\x14\n" +
+	"\x05flags\x18\n" +
+	" \x03(\tR\x05flags\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"n\n" +
@@ -5392,7 +5443,7 @@ const file_flow_proto_rawDesc = "" +
 	"\rQRepWriteMode\x129\n" +
 	"\n" +
 	"write_type\x18\x01 \x01(\x0e2\x1a.peerdb_flow.QRepWriteTypeR\twriteType\x12,\n" +
-	"\x12upsert_key_columns\x18\x02 \x03(\tR\x10upsertKeyColumns\"\xa8\n" +
+	"\x12upsert_key_columns\x18\x02 \x03(\tR\x10upsertKeyColumns\"\xbe\n" +
 	"\n" +
 	"\n" +
 	"QRepConfig\x12\"\n" +
@@ -5426,7 +5477,8 @@ const file_flow_proto_rawDesc = "" +
 	"\acolumns\x18\x1b \x03(\v2\x1a.peerdb_flow.ColumnSettingR\acolumns\x12\x18\n" +
 	"\aversion\x18\x1c \x01(\rR\aversion\x125\n" +
 	"\vsource_type\x18\x1e \x01(\x0e2\x14.peerdb_peers.DBTypeR\n" +
-	"sourceType\x1a6\n" +
+	"sourceType\x12\x14\n" +
+	"\x05flags\x18\x1f \x03(\tR\x05flags\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04\"\x97\x01\n" +
