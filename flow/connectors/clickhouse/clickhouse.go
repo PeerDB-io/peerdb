@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -406,6 +407,25 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	return clickhouseVersion.Version.String(), nil
 }
 
+func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
+	var flags []string
+
+	var time64Setting string
+	err := c.queryRow(ctx,
+		"SELECT value FROM system.settings WHERE name = 'enable_time_time64_type'",
+	).Scan(&time64Setting)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to query enable_time_time64_type setting: %w", err)
+		}
+	} else if time64Setting == "1" {
+		c.logger.Info("[clickhouse] enable_time_time64_type is enabled")
+		flags = append(flags, shared.Flag_ClickHouseTime64Enabled)
+	}
+
+	return flags, nil
+}
+
 func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType) (*protos.TableSchema, error) {
 	colFields := make([]*protos.FieldDescription, 0, len(columns))
 	for _, column := range columns {
@@ -443,6 +463,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindUUID
 		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
 			qkind = types.QValueKindTimestamp
+		case "Time64(6)", "Nullable(Time64(6))":
+			qkind = types.QValueKindTime
 		case "Date32", "Nullable(Date32)":
 			qkind = types.QValueKindDate
 		case "Float32", "Nullable(Float32)":

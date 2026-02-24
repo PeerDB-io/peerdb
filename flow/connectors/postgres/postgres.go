@@ -655,7 +655,7 @@ func syncRecordsCore[Items model.Items](
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -1282,6 +1282,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	_ []string,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil

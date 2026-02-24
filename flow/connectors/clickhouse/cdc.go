@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -131,7 +132,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}
 	warnings := numericTruncator.Warnings()
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, req.Flags); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -165,6 +166,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	tableMappings []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	flags []string,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil
@@ -188,7 +190,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			clickHouseColType, err := qvalue.ToDWHColumnType(
-				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled,
+				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled, flags,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
@@ -228,7 +230,8 @@ func (c *ClickHouseConnector) RenameTables(
 	req *protos.RenameTablesInput,
 ) (*protos.RenameTablesOutput, error) {
 	onCluster := c.onCluster()
-	dropTableSQLWithCHSetting := dropTableIfExistsSQL + NewCHSettingsString(c.chVersion, SettingMaxTableSizeToDrop, "0")
+	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
+		chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingMaxTableSizeToDrop, "0")
 	for _, renameRequest := range req.RenameTableOptions {
 		if renameRequest.CurrentName == renameRequest.NewName {
 			c.logger.Info("table rename is nop, probably Null table engine, skipping rename for it",
@@ -302,7 +305,8 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	// delete raw table if exists
 	rawTableIdentifier := c.GetRawTableName(jobName)
 	onCluster := c.onCluster()
-	dropTableSQLWithCHSetting := dropTableIfExistsSQL + NewCHSettingsString(c.chVersion, SettingMaxTableSizeToDrop, "0")
+	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
+		chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingMaxTableSizeToDrop, "0")
 	if err := c.execWithLogging(ctx,
 		fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), onCluster),
 	); err != nil {

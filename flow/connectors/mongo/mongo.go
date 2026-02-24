@@ -197,10 +197,7 @@ func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context,
 
 	latestWALTime := replSetStatus.OpTimes.LastCommittedOpTime.Ts
 
-	lagSeconds := int64(latestWALTime.T) - int64(clusterTime.T)
-	if lagSeconds < 0 {
-		lagSeconds = 0
-	}
+	lagSeconds := max(int64(latestWALTime.T)-int64(clusterTime.T), 0)
 
 	lagMicroseconds := lagSeconds * 1_000_000
 

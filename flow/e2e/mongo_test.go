@@ -379,7 +379,7 @@ func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
 	t := s.T()
 
 	nestedDoc := func(ch string) bson.D {
-		var v interface{} = ch
+		var v any = ch
 		for i := 100; i >= 1; i-- {
 			v = bson.D{bson.E{Key: fmt.Sprintf("lvl_%d", i), Value: v}}
 		}
@@ -533,7 +533,7 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 
 	coll1 := adminClient.Database(srcDatabase).Collection(srcTable1)
 	coll2 := adminClient.Database(srcDatabase).Collection(srcTable2)
-	res, err := session.WithTransaction(t.Context(), func(ctx context.Context) (interface{}, error) {
+	res, err := session.WithTransaction(t.Context(), func(ctx context.Context) (any, error) {
 		res1, err1 := coll1.InsertOne(t.Context(), bson.D{bson.E{Key: "foo", Value: 1}}, options.InsertOne())
 		res2, err2 := coll2.InsertOne(t.Context(), bson.D{bson.E{Key: "bar", Value: 2}}, options.InsertOne())
 		err := err1
@@ -553,7 +553,7 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
-	res, err = session.WithTransaction(t.Context(), func(ctx context.Context) (interface{}, error) {
+	res, err = session.WithTransaction(t.Context(), func(ctx context.Context) (any, error) {
 		res1, err1 := coll1.UpdateOne(t.Context(),
 			bson.D{bson.E{Key: "foo", Value: 1}},
 			bson.D{bson.E{Key: "$set", Value: bson.D{bson.E{Key: "foo", Value: 11}}}},

@@ -403,6 +403,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Get_Table_Schema() {
 
 func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 	t := s.T()
+	ctx := t.Context()
 
 	source := s.Source().(*bigQuerySource)
 	srcTable := "trips_1k"
@@ -410,7 +411,7 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 
 	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
 
-	count, err := source.helper.countRowsWithDataset(t.Context(), source.config.DatasetId, srcTable, "")
+	count, err := source.helper.countRowsWithDataset(ctx, source.config.DatasetId, srcTable, "")
 	require.NoError(t, err, "should be able to count rows in source table")
 	require.Positive(t, count, "source table should have data")
 	t.Logf("Source table %s has %d rows", srcTable, count)
@@ -442,7 +443,35 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 		"trip_id,vendor_id,passenger_count,trip_distance,fare_amount",
 	)
 
-	env.Cancel(t.Context())
+	EnvWaitForFinished(t, env, 3*time.Minute)
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+
+	statusResp, err := apiClient.MirrorStatus(ctx, &protos.MirrorStatusRequest{
+		FlowJobName:     flowConnConfig.FlowJobName,
+		IncludeFlowInfo: true,
+	})
+	require.NoError(t, err)
+
+	cdcStatus := statusResp.GetCdcStatus()
+	require.NotNil(t, cdcStatus)
+	require.NotNil(t, cdcStatus.SnapshotStatus)
+	require.NotEmpty(t, cdcStatus.SnapshotStatus.Clones)
+
+	var totalRowsSynced int64
+	for _, clone := range cdcStatus.SnapshotStatus.Clones {
+		totalRowsSynced += clone.NumRowsSynced
+	}
+	require.Equal(t, int64(count), totalRowsSynced,
+		"total NumRowsSynced across clones should equal source row count")
+
+	totalRowsResp, err := apiClient.TotalRowsSyncedByMirror(ctx, &protos.TotalRowsSyncedByMirrorRequest{
+		FlowJobName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(count), totalRowsResp.TotalCountInitialLoad,
+		"TotalCountInitialLoad should equal source row count")
 }
 
 func (s BigQueryClickhouseSuite) Test_Trips_Flow_Small_Partitions() {

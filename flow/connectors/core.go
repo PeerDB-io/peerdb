@@ -81,6 +81,14 @@ type GetSchemaConnector interface {
 	GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error)
 }
 
+type GetFlagsConnector interface {
+	Connector
+
+	// GetFlags detects peer capabilities (e.g., supported types) at flow creation time.
+	// Flags are stored on the flow config and used for type mapping backwards compatibility.
+	GetFlags(ctx context.Context) ([]string, error)
+}
+
 type CDCPullConnectorCore interface {
 	GetTableSchemaConnector
 
@@ -185,7 +193,8 @@ type CDCSyncConnectorCore interface {
 	// This could involve adding multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
 	ReplayTableSchemaDeltas(ctx context.Context, env map[string]string, flowJobName string,
-		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta) error
+		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, flags []string,
+	) error
 }
 
 type CDCSyncConnector interface {
@@ -711,6 +720,8 @@ var (
 	_ MirrorSourceValidationConnector = &connbigquery.BigQueryConnector{}
 
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
+
+	_ GetFlagsConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
