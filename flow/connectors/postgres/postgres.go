@@ -413,8 +413,7 @@ func pullCore[Items model.Items](
 		}
 	}()
 
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + req.FlowJobName
+	slotName := GetDefaultSlotName(req.FlowJobName)
 	if req.OverrideReplicationSlotName != "" {
 		slotName = req.OverrideReplicationSlotName
 	}
@@ -1462,8 +1461,7 @@ func (c *PostgresConnector) SetupReplication(
 		return model.SetupReplicationResult{}, fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
 	}
 
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + req.FlowJobName
+	slotName := GetDefaultSlotName(req.FlowJobName)
 	if req.ExistingReplicationSlotName != "" {
 		slotName = req.ExistingReplicationSlotName
 	}
@@ -1498,8 +1496,7 @@ func (c *PostgresConnector) SetupReplication(
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + jobName
+	slotName := GetDefaultSlotName(jobName)
 	if _, err := c.conn.Exec(
 		ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name=$1`, slotName,
 	); err != nil {
@@ -1573,7 +1570,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	slotInfos, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database)
+	slotInfos, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database, false, nil)
 	if err != nil {
 		logger.Warn("warning: failed to get slot info", slog.Any("error", err))
 		return err

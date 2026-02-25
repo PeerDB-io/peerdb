@@ -211,7 +211,10 @@ message ColumnsTypeConversionResponse {
   repeated ColumnsTypeConversion conversions = 1;
 }
 
-message PostgresPeerActivityInfoRequest { string peer_name = 1; }
+message PostgresPeerActivityInfoRequest {
+  string peer_name = 1;
+  bool peerdb_managed_only = 2;
+}
 
 message PeerInfoRequest { string peer_name = 1; }
 
