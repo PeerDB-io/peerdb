@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -198,6 +199,17 @@ func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]st
 	}
 	c.replConn = conn
 	return nil
+}
+
+// clearConnectionDeadline clears any TCP deadline set on the underlying net.Conn.
+// This is necessary when using context.Background() for database operations after
+// a cancellable context may have triggered pgx's ContextWatcher to set a deadline.
+func clearConnectionDeadline(conn interface{ Conn() net.Conn }, logger log.Logger, operation string) {
+	if clearErr := conn.Conn().SetDeadline(time.Time{}); clearErr != nil {
+		logger.Warn("failed to clear connection deadline",
+			slog.String("operation", operation),
+			slog.Any("error", clearErr))
+	}
 }
 
 // To keep connection alive between sync batches.
@@ -1447,6 +1459,10 @@ func (c *PostgresConnector) FinishExport(tx any) error {
 		return nil
 	}
 	pgtx := tx.(pgx.Tx)
+
+	// Clear any deadline set by cancelled context to ensure commit can proceed
+	clearConnectionDeadline(pgtx.Conn().PgConn(), c.logger, "finishing export")
+
 	timeout, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	return pgtx.Commit(timeout)
