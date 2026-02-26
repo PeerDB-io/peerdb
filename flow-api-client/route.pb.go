@@ -2976,10 +2976,11 @@ func (x *ColumnsTypeConversionResponse) GetConversions() []*ColumnsTypeConversio
 }
 
 type PostgresPeerActivityInfoRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PeerName      string                 `protobuf:"bytes,1,opt,name=peer_name,json=peerName,proto3" json:"peer_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	PeerName          string                 `protobuf:"bytes,1,opt,name=peer_name,json=peerName,proto3" json:"peer_name,omitempty"`
+	PeerdbManagedOnly bool                   `protobuf:"varint,2,opt,name=peerdb_managed_only,json=peerdbManagedOnly,proto3" json:"peerdb_managed_only,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *PostgresPeerActivityInfoRequest) Reset() {
@@ -3017,6 +3018,13 @@ func (x *PostgresPeerActivityInfoRequest) GetPeerName() string {
 		return x.PeerName
 	}
 	return ""
+}
+
+func (x *PostgresPeerActivityInfoRequest) GetPeerdbManagedOnly() bool {
+	if x != nil {
+		return x.PeerdbManagedOnly
+	}
+	return false
 }
 
 type PeerInfoRequest struct {
@@ -6379,9 +6387,10 @@ const file_route_proto_rawDesc = "" +
 	"\x05qkind\x18\x01 \x01(\tR\x05qkind\x12+\n" +
 	"\x11destination_types\x18\x02 \x03(\tR\x10destinationTypes\"f\n" +
 	"\x1dColumnsTypeConversionResponse\x12E\n" +
-	"\vconversions\x18\x01 \x03(\v2#.peerdb_route.ColumnsTypeConversionR\vconversions\">\n" +
+	"\vconversions\x18\x01 \x03(\v2#.peerdb_route.ColumnsTypeConversionR\vconversions\"n\n" +
 	"\x1fPostgresPeerActivityInfoRequest\x12\x1b\n" +
-	"\tpeer_name\x18\x01 \x01(\tR\bpeerName\".\n" +
+	"\tpeer_name\x18\x01 \x01(\tR\bpeerName\x12.\n" +
+	"\x13peerdb_managed_only\x18\x02 \x01(\bR\x11peerdbManagedOnly\".\n" +
 	"\x0fPeerInfoRequest\x12\x1b\n" +
 	"\tpeer_name\x18\x01 \x01(\tR\bpeerName\"T\n" +
 	"\x10PeerInfoResponse\x12&\n" +
