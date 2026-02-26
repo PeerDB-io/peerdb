@@ -223,6 +223,10 @@ var (
 	ErrorNotifyTooManyPartsError = ErrorClass{
 		Class: "NOTIFY_TOO_MANY_PARTS", action: NotifyUser,
 	}
+	// Catch-all for misc ClickHouse errors
+	ErrorNotifyClickHouseError = ErrorClass{
+		Class: "NOTIFY_CLICKHOUSE_ERROR", action: NotifyUser,
+	}
 	// Catch-all for unclassified errors
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
@@ -854,6 +858,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrUnfinished:
+			if strings.Contains(chException.Message, "Failed to load all data parts") {
+				return ErrorNotifyClickHouseError, chErrorInfo
+			}
 			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo

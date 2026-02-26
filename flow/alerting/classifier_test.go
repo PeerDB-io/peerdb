@@ -843,6 +843,32 @@ func TestClickHouseTooManyPartsWithoutTableName(t *testing.T) {
 	}, errInfo)
 }
 
+func TestClickHouseFailedToLoadAllDataPartsShouldNotifyUser(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnfinished),
+		Message: "Failed to load all data parts",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("clickhouse error: %w", err))
+	assert.Equal(t, ErrorNotifyClickHouseError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
+	}, errInfo)
+}
+
+func TestClickHouseOtherUnfinishedShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnfinished),
+		Message: "some other unfinished error",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("clickhouse error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
+	}, errInfo)
+}
+
 func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 	err := exceptions.NewMySQLUnsupportedDDLError("test_db.test_table")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
