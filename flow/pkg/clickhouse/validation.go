@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -149,15 +150,16 @@ func CheckEmptyOrderingKeySupported(ctx context.Context, logger log.Logger, conn
 		return nil
 	}
 	var settingVal string
-	if err := QueryRow(ctx, logger, conn,
-		"SELECT value FROM system.settings WHERE name = 'allow_suspicious_primary_key'",
-	).Scan(&settingVal); err == nil && settingVal == "1" {
+	err := QueryRow(ctx, logger, conn, "SELECT value FROM system.settings WHERE name = 'allow_suspicious_primary_key'").Scan(&settingVal)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to query ClickHouse settings: %w", err)
+	}
+	if settingVal == "1" {
 		return nil
 	}
 
 	return fmt.Errorf(
-		"source table %s has no primary key columns; add a primary key to the source table, "+
-			"specify custom ordering columns, or set allow_suspicious_primary_key=1 in your ClickHouse server profile",
+		"cannot determine ORDER BY key from source table %s; empty sort key is not supported",
 		sourceTable,
 	)
 }

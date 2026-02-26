@@ -84,7 +84,9 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 			slices.ContainsFunc(tableMapping.Columns, func(col *protos.ColumnSetting) bool {
 				return col.Ordering > 0
 			})
-		if !hasOrderingKeys && tableMapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
+		if !hasOrderingKeys &&
+			tableMapping.Engine != protos.TableEngine_CH_ENGINE_NULL &&
+			tableMapping.Engine != protos.TableEngine_CH_ENGINE_MERGE_TREE {
 			if err := chvalidate.CheckEmptyOrderingKeySupported(ctx, c.logger, c.database,
 				c.chVersion, tableMapping.SourceTableIdentifier,
 			); err != nil {

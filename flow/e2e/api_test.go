@@ -363,13 +363,43 @@ func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
 				st, ok := status.FromError(err)
 				require.True(t, ok)
 				require.Equal(t, codes.FailedPrecondition, st.Code())
-				require.Contains(t, st.Message(), "has no primary key columns")
+				require.Contains(t, st.Message(), "empty sort key is not supported")
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, response)
 			}
 		})
 	}
+}
+
+func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey_ReplicaIdentityFull() {
+	switch s.source.(type) {
+	case *PostgresSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf(`CREATE TABLE %s(id int, val text);
+				ALTER TABLE %[1]s REPLICA IDENTITY FULL`, AttachSchema(s, "no_pkey_rif"))))
+	default:
+		s.t.Skip("replica identity full only applies to Postgres")
+	}
+
+	srcTable := AttachSchema(s, "no_pkey_rif")
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "ch_no_pkey_rif_" + s.suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTable,
+			DestinationTableIdentifier: "no_pkey_rif",
+			Engine:                     protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE,
+		}},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	response, err := s.ValidateCDCMirror(s.t.Context(),
+		&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
 }
 
 func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
