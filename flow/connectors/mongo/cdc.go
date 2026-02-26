@@ -345,7 +345,7 @@ func (c *MongoConnector) PullRecords(
 		cumulativeBytesProcessed.Add(changeEventSize)
 
 		var changeEvent ChangeEvent
-		if err := changeStream.Decode(&changeEvent); err != nil {
+		if err := bson.Unmarshal(changeStream.Current, &changeEvent); err != nil {
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 
