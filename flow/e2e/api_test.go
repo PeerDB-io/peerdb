@@ -335,6 +335,11 @@ func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
 			expectErr: isAtLeast25_12,
 		},
 		{
+			name:     "MergeTree engine allows empty ordering",
+			dstTable: "no_pkey_mt",
+			engine:   protos.TableEngine_CH_ENGINE_MERGE_TREE,
+		},
+		{
 			name:     "Null engine allows empty ordering",
 			dstTable: "no_pkey_null",
 			engine:   protos.TableEngine_CH_ENGINE_NULL,
