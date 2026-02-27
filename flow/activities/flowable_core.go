@@ -429,14 +429,14 @@ func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-		TPull,
-		context.Context,
-		*otel_metrics.OtelManager,
-		*protos.QRepConfig,
-		protos.DBType,
-		*protos.QRepPartition,
-		TWrite,
-	) (int64, int64, error),
+	TPull,
+	context.Context,
+	*otel_metrics.OtelManager,
+	*protos.QRepConfig,
+	protos.DBType,
+	*protos.QRepPartition,
+	TWrite,
+) (int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -467,7 +467,7 @@ func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, stream)
 		stream.Close(err)
 		if err != nil {
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("[qrep] failed to pull records", err))
 		}
 
 		// for Postgres source, reports all bytes fetched from source
@@ -489,7 +489,7 @@ func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 		rowsSynced, warnings, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
 			stream.HandleQRepSyncError(err)
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to sync records", err))
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
@@ -521,13 +521,13 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-		*connpostgres.PostgresConnector,
-		context.Context,
-		*protos.QRepConfig,
-		protos.DBType,
-		*protos.QRepPartition,
-		TWrite,
-	) (int64, int64, int64, error),
+	*connpostgres.PostgresConnector,
+	context.Context,
+	*protos.QRepConfig,
+	protos.DBType,
+	*protos.QRepPartition,
+	TWrite,
+) (int64, int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -606,7 +606,7 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 		rowsSynced, warnings, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
 			stream.HandleQRepSyncError(err)
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to sync records", err))
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
