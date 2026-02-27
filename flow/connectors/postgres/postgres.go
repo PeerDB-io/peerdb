@@ -21,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -230,7 +229,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, lastOffset,
 		)
 		c.logger.Info(msg)
-		return temporal.NewNonRetryableApplicationError(msg, "desync", nil)
+		return exceptions.NewReplStateDesyncError(msg)
 	}
 
 	if c.replState == nil {
@@ -432,16 +431,12 @@ func pullCore[Items model.Items](
 
 	if !exists.PublicationExists {
 		c.logger.Warn("publication does not exist", slog.String("name", publicationName))
-		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("publication %s does not exist, restarting workflow", publicationName),
-			exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(), nil)
+		return exceptions.NewPublicationMissingError(publicationName)
 	}
 
 	if !exists.SlotExists {
 		c.logger.Warn("slot does not exist", slog.String("name", slotName))
-		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName),
-			exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(), nil)
+		return exceptions.NewSlotMissingError(slotName)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
@@ -452,11 +447,6 @@ func pullCore[Items model.Items](
 		return err
 	}
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion); err != nil {
-		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
-		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
-			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {
-			return temporal.NewNonRetryableApplicationError("reset connection to reconcile Aurora failover", "disconnect", err)
-		}
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}

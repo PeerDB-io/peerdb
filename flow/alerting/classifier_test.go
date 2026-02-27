@@ -627,20 +627,6 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 		errInfo    ErrorInfo
 	}
 	for code, cinfo := range map[exceptions.ApplicationErrorType]classAndInfo{
-		exceptions.ApplicationErrorTypeIrrecoverableSlotMissing: {
-			errorClass: ErrorNotifyReplicationSlotMissing,
-			errInfo: ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(),
-			},
-		},
-		exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing: {
-			errorClass: ErrorNotifyPublicationMissing,
-			errInfo: ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(),
-			},
-		},
 		exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot: {
 			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
 			errInfo: ErrorInfo{
@@ -853,5 +839,40 @@ func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 			ErrorAttributeKeyTable: "test_db.test_table",
 		},
+	}, errInfo)
+}
+
+func TestPublicationMissingErrorShouldBePublicationMissing(t *testing.T) {
+	err := exceptions.NewPublicationMissingError("test_pub")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
+	assert.Equal(t, ErrorNotifyPublicationMissing, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "irrecoverable_publication_missing",
+	}, errInfo)
+}
+
+func TestSlotMissingErrorShouldBeSlotMissing(t *testing.T) {
+	err := exceptions.NewSlotMissingError("test_slot")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
+	assert.Equal(t, ErrorNotifyReplicationSlotMissing, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "irrecoverable_slot_missing",
+	}, errInfo)
+}
+
+func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
+	pgErr := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.ObjectNotInPrerequisiteState,
+		Message:  "replication slots cannot be used on RO (Read Only) node",
+	}
+	err := fmt.Errorf("error starting replication at startLsn - 18598145761: %w", pgErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records when: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.ObjectNotInPrerequisiteState,
 	}, errInfo)
 }

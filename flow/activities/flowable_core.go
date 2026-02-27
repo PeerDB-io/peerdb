@@ -15,7 +15,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/temporal"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
@@ -143,7 +142,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+		return nil, a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
 	}
 
 	batchSize := options.BatchSize
@@ -222,16 +221,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
 			// don't log flow error for "replState changed" and "slot is already active"
-			var applicationError *temporal.ApplicationError
-			if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") ||
-				shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			var desyncErr *exceptions.ReplStateDesyncError
+			if !(errors.As(err, &desyncErr) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 				_ = a.Alerter.LogFlowError(ctx, flowName, err)
 			}
-			if temporal.IsApplicationError(err) {
-				return nil, err
-			} else {
-				return nil, fmt.Errorf("failed in pull records when: %w", err)
-			}
+			return nil, fmt.Errorf("failed in pull records when: %w", err)
 		}
 		logger.Info("no records to push")
 
@@ -303,15 +297,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		var applicationError *temporal.ApplicationError
-		if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+		var desyncErr *exceptions.ReplStateDesyncError
+		if !(errors.As(err, &desyncErr) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
-		if temporal.IsApplicationError(err) {
-			return nil, err
-		} else {
-			return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
-		}
+		return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
 	}
 	syncState.Store(shared.Ptr("bookkeeping"))
 
