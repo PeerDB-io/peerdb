@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -146,6 +147,21 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return buildInfo.Version, nil
+}
+
+func (c *MongoConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
+	if strings.Contains(c.config.Uri, ".mongodb.net") {
+		return protos.DatabaseVariant_MONGODB_ATLAS, nil
+	}
+	ss, err := peerdb_mongo.GetServerStatus(ctx, c.client)
+	if err != nil {
+		c.logger.Error("failed to get server status for determining variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+	if strings.Contains(ss.Host, peerdb_mongo.DocumentDBDomain) {
+		return protos.DatabaseVariant_AWS_DOCUMENTDB, nil
+	}
+	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
 
 func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, error) {
