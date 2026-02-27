@@ -842,7 +842,7 @@ func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 	}, errInfo)
 }
 
-func TestPublicationMissingErrorShouldBePublicationMissing(t *testing.T) {
+func TestPublicationMissingError(t *testing.T) {
 	err := exceptions.NewPublicationMissingError("test_pub")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
 	assert.Equal(t, ErrorNotifyPublicationMissing, errorClass)
@@ -852,7 +852,7 @@ func TestPublicationMissingErrorShouldBePublicationMissing(t *testing.T) {
 	}, errInfo)
 }
 
-func TestSlotMissingErrorShouldBeSlotMissing(t *testing.T) {
+func TestSlotMissingError(t *testing.T) {
 	err := exceptions.NewSlotMissingError("test_slot")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
 	assert.Equal(t, ErrorNotifyReplicationSlotMissing, errorClass)
