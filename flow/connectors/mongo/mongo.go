@@ -155,7 +155,6 @@ func (c *MongoConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 	}
 	ss, err := peerdb_mongo.GetServerStatus(ctx, c.client)
 	if err != nil {
-		c.logger.Error("failed to get server status for determining variant", slog.Any("error", err))
 		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
 	}
 	if strings.Contains(ss.Host, peerdb_mongo.DocumentDBDomain) {
