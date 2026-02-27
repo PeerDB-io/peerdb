@@ -89,7 +89,9 @@ func UpdateNumRowsAndEndLSNForCDCBatch(
 	batchEndCheckpoint model.CdcCheckpoint,
 ) error {
 	if _, err := pool.Exec(ctx,
-		"UPDATE peerdb_stats.cdc_batches SET rows_in_batch=$1,batch_end_lsn=$2,batch_end_lsn_text=$3 WHERE flow_name=$4 AND batch_id=$5",
+		`UPDATE peerdb_stats.cdc_batches
+		SET rows_in_batch=$1, batch_end_lsn=$2, batch_end_lsn_text=$3, sync_time=NOW()
+		WHERE flow_name=$4 AND batch_id=$5`,
 		numRows, uint64(batchEndCheckpoint.ID), batchEndCheckpoint.Text, flowJobName, batchID,
 	); err != nil {
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
@@ -112,6 +114,33 @@ func UpdateEndTimeForCDCBatch(
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
 	}
 	return nil
+}
+
+func GetPendingNormalizeLagByFlow(
+	ctx context.Context,
+	pool shared.CatalogPool,
+) (map[string]int64, error) {
+	// using server-side time delta to avoid clock skew
+	rows, err := pool.Query(ctx,
+		`SELECT flow_name, (EXTRACT(EPOCH FROM (NOW() - MIN(sync_time))) * 1000000)::bigint
+		FROM peerdb_stats.cdc_batches
+		WHERE end_time IS NULL AND sync_time IS NOT NULL
+		GROUP BY flow_name`)
+	if err != nil {
+		return nil, fmt.Errorf("error while querying normalize lag: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var flowName string
+		var lagMicroseconds int64
+		if err := rows.Scan(&flowName, &lagMicroseconds); err != nil {
+			return nil, fmt.Errorf("error while scanning normalize lag row: %w", err)
+		}
+		result[flowName] = lagMicroseconds
+	}
+	return result, rows.Err()
 }
 
 func AddCDCBatchTablesForFlow(

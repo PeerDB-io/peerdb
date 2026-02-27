@@ -1281,6 +1281,13 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		return fmt.Errorf("failed to process result of all flows for metrics: %w", err)
 	}
 
+	normalizeLagCtx, normalizeLagCancel := context.WithTimeout(ctx, 10*time.Second)
+	normalizeLagByFlow, qryErr := monitoring.GetPendingNormalizeLagByFlow(normalizeLagCtx, a.CatalogPool)
+	normalizeLagCancel()
+	if qryErr != nil {
+		logger.Error("Failed to query normalize lag", slog.Any("error", qryErr))
+	}
+
 	logger.Info("Recording slot size and emitting log retention where applicable", slog.Int("flows", len(infos)))
 	for _, info := range infos {
 		if err := ctx.Err(); err != nil {
@@ -1297,8 +1304,21 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			logger.Error("Failed to record server-side commit lag", slog.Any("error", err))
 		}
 		cancel()
+
+		if qryErr == nil {
+			flowName := info.config.FlowJobName
+			// record 0 as the lag if the flow is not in the normalizeLagByFlow map,
+			var lagMicroseconds int64
+			if lag, ok := normalizeLagByFlow[flowName]; ok {
+				lagMicroseconds = lag
+			}
+			a.OtelManager.Metrics.NormalizeLagGauge.Record(ctx, lagMicroseconds, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, flowName),
+			)))
+		}
 	}
 	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
+
 	return nil
 }
 
