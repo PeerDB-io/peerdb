@@ -249,3 +249,86 @@ func TestOrchestratePullAndSync_QRecordSyncError_WithNoSyncFailureHook_DoesNotPa
 		require.False(t, pullPanicked.Load(), "pull should not panic when sync fails")
 	})
 }
+
+func TestOrchestratePullAndSync_QRecordSyncError_OnSyncFailureHookUnblocksBlockedProducer(t *testing.T) {
+	defer goleak.VerifyNone(t, goLeakOpts...)
+
+	synctest.Test(t, func(t *testing.T) {
+		stream := model.NewQRecordStream(0)
+		syncErr := errors.New("destination error")
+
+		pull := func(_ context.Context, s *model.QRecordStream) error {
+			s.SetSchema(types.QRecordSchema{})
+			s.Records <- nil
+			// This blocks after sync returns unless onSyncFailure drains the stream.
+			s.Records <- nil
+			return nil
+		}
+		sync := func(_ context.Context, out *model.QRecordStream) (int64, error) {
+			if _, err := out.Schema(); err != nil {
+				return 0, err
+			}
+			if _, ok := <-out.Records; !ok {
+				return 0, errors.New("stream closed before sync consumed first record")
+			}
+			return 0, syncErr
+		}
+
+		_, retErr, completed := runOrchestrateQRecord(
+			stream,
+			pull,
+			sync,
+			drainQRecordStreamOnSyncFailure(stream),
+		)
+
+		require.True(t, completed, "deadlocked: blocked producer was not unblocked on sync failure")
+		require.ErrorIs(t, retErr, syncErr)
+	})
+}
+
+func TestOrchestratePullAndSync_QRecordSyncError_WithoutHookDeadlocks(t *testing.T) {
+	defer goleak.VerifyNone(t, goLeakOpts...)
+
+	synctest.Test(t, func(t *testing.T) {
+		stream := model.NewQRecordStream(0)
+		syncErr := errors.New("destination error")
+		var done atomic.Bool
+		var retErr error
+
+		pull := func(_ context.Context, s *model.QRecordStream) error {
+			s.SetSchema(types.QRecordSchema{})
+			s.Records <- nil
+			// This send blocks forever without a sync-failure hook that drains/aborts.
+			s.Records <- nil
+			return nil
+		}
+		sync := func(_ context.Context, out *model.QRecordStream) (int64, error) {
+			if _, err := out.Schema(); err != nil {
+				return 0, err
+			}
+			if _, ok := <-out.Records; !ok {
+				return 0, errors.New("stream closed before sync consumed first record")
+			}
+			return 0, syncErr
+		}
+
+		go func() {
+			_, retErr = orchestratePullAndSync(context.Background(), stream, stream, pull, sync, nil)
+			done.Store(true)
+		}()
+
+		// Reproduces the original bug: pull is stuck on send after sync returned an error.
+		synctest.Wait()
+		require.False(t, done.Load(), "expected deadlock without sync-failure hook")
+
+		// Cleanup the blocked sender so goleak stays clean.
+		go func() {
+			for range stream.Records {
+			}
+		}()
+		synctest.Wait()
+
+		require.True(t, done.Load(), "expected cleanup drain to unblock deadlocked pull")
+		require.ErrorIs(t, retErr, syncErr)
+	})
+}

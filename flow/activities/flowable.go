@@ -55,6 +55,24 @@ type StreamCloser interface {
 	Close(error)
 }
 
+func drainQRecordStreamOnSyncFailure(stream *model.QRecordStream) func(error) {
+	return func(error) {
+		go func() {
+			for range stream.Records {
+			}
+		}()
+	}
+}
+
+func drainQObjectStreamOnSyncFailure(stream *model.QObjectStream) func(error) {
+	return func(error) {
+		go func() {
+			for range stream.Objects {
+			}
+		}()
+	}
+}
+
 func cdcIdleTimeout(value int) time.Duration {
 	if value == 0 {
 		value = 10
@@ -663,7 +681,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, outstream,
 				connectors.QRepPullConnector.PullQRepRecords,
 				connectors.QRepSyncConnector.SyncQRepRecords,
-				nil,
+				drainQRecordStreamOnSyncFailure(outstream),
 			)
 		}, nil
 	}
@@ -688,7 +706,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
 				connectors.QRepPullObjectsConnector.PullQRepObjects,
 				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
-				nil,
+				drainQObjectStreamOnSyncFailure(stream),
 			)
 		}, nil
 	}
