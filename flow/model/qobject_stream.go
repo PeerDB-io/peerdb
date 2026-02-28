@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"net/http"
+	"sync"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -35,6 +36,7 @@ type QObjectStream struct {
 	schemaLatch         *concurrency.Latch[types.QRecordSchema]
 	headerProviderLatch *concurrency.Latch[HeaderProvider]
 	err                 error
+	closeOnce           sync.Once
 }
 
 func NewQObjectStream(buffer int) *QObjectStream {
@@ -76,8 +78,8 @@ func (s *QObjectStream) Err() error {
 }
 
 func (s *QObjectStream) Close(err error) {
-	if s.err == nil {
+	s.closeOnce.Do(func() {
 		s.err = err
 		close(s.Objects)
-	}
+	})
 }

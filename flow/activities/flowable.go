@@ -663,6 +663,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, outstream,
 				connectors.QRepPullConnector.PullQRepRecords,
 				connectors.QRepSyncConnector.SyncQRepRecords,
+				nil,
 			)
 		}, nil
 	}
@@ -687,6 +688,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
 				connectors.QRepPullObjectsConnector.PullQRepObjects,
 				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
+				nil,
 			)
 		}, nil
 	}
@@ -708,6 +710,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, write, read,
 				(*connpostgres.PostgresConnector).PullPgQRepRecords,
 				(*connpostgres.PostgresConnector).SyncPgQRepRecords,
+				func(err error) { read.CloseWithError(err) },
 			)
 		}, nil
 	}

@@ -416,6 +416,55 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 	})
 }
 
+// orchestratePullAndSync runs pull and sync concurrently, connected by a stream.
+// pull writes to stream (via the TWrite end), sync reads from outstream (via the TRead end).
+// stream.Close is called after pull returns. Returns rows synced by the sync side.
+//
+// onSyncFailure is called only when the sync side returns an error.
+// For io.Pipe-based streams, this MUST close the read end of the pipe
+// so that a blocked pipe.Write() returns immediately.
+// Without this, a sync-side error causes a permanent deadlock: the pull goroutine
+// blocks forever in pipe.Write() because nobody closes the read end.
+func orchestratePullAndSync[TRead any, TWrite StreamCloser](
+	ctx context.Context,
+	stream TWrite,
+	outstream TRead,
+	pull func(ctx context.Context, stream TWrite) error,
+	sync func(ctx context.Context, outstream TRead) (int64, error),
+	onSyncFailure func(error),
+) (int64, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	var rowsSynced int64
+	errGroup, errCtx := errgroup.WithContext(ctx)
+
+	errGroup.Go(func() error {
+		err := pull(errCtx, stream)
+		if err != nil {
+			logger.Error("pull side failed", slog.Any("error", err))
+		}
+		stream.Close(err)
+		return err
+	})
+
+	errGroup.Go(func() error {
+		var err error
+		rowsSynced, err = sync(errCtx, outstream)
+		if err != nil {
+			if onSyncFailure != nil {
+				onSyncFailure(err)
+			}
+			logger.Error("sync side failed", slog.Any("error", err))
+			return err
+		}
+		return context.Canceled
+	})
+
+	if err := errGroup.Wait(); err != nil && err != context.Canceled {
+		return 0, err
+	}
+	return rowsSynced, nil
+}
+
 // replicateQRepPartition replicates a QRepPartition from the source to the destination.
 func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
 	ctx context.Context,
@@ -438,6 +487,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		TWrite,
 	) (int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
+	onSyncFailure func(error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
@@ -461,42 +511,35 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 
 	logger.Info("replicating partition", slog.String("partitionId", partition.PartitionId))
 
-	var rowsSynced int64
-	errGroup, errCtx := errgroup.WithContext(ctx)
-	errGroup.Go(func() error {
-		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, stream)
-		stream.Close(err)
-		if err != nil {
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", err)
-		}
-
-		// for Postgres source, reports all bytes fetched from source
-		// for MySQL and MongoDB source, connector reports bytes fetched but some bytes are counted here
-		// since the reporting is asynchronous (goroutine)
-		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
-
-		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
-			errCtx, a.CatalogPool, runUUID, partition, numRecords,
-		); err != nil {
-			logger.Error(err.Error())
-		}
-		return nil
-	})
-
-	errGroup.Go(func() error {
-		var warnings shared.QRepWarnings
-		var err error
-		rowsSynced, warnings, err = syncRecords(dstConn, errCtx, config, partition, outstream)
-		if err != nil {
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
-		}
-		for _, warning := range warnings {
-			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
-		}
-		return context.Canceled
-	})
-
-	if err := errGroup.Wait(); err != nil && err != context.Canceled {
+	rowsSynced, err := orchestratePullAndSync(ctx, stream, outstream,
+		func(errCtx context.Context, s TWrite) error {
+			numRecords, numBytes, pullErr := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, s)
+			if pullErr != nil {
+				a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", pullErr)
+				return pullErr
+			}
+			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
+			if monErr := monitoring.UpdatePullEndTimeAndRowsForPartition(
+				errCtx, a.CatalogPool, runUUID, partition, numRecords,
+			); monErr != nil {
+				logger.Error(monErr.Error())
+			}
+			return nil
+		},
+		func(errCtx context.Context, o TRead) (int64, error) {
+			synced, warnings, syncErr := syncRecords(dstConn, errCtx, config, partition, o)
+			if syncErr != nil {
+				a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", syncErr)
+				return 0, syncErr
+			}
+			for _, warning := range warnings {
+				a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
+			}
+			return synced, nil
+		},
+		onSyncFailure,
+	)
+	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
