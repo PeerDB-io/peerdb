@@ -21,6 +21,23 @@ func TestSSHTunnel_GetKeepaliveChan_NilCases(t *testing.T) {
 	require.Nil(t, tunnel.GetKeepaliveChan(context.Background()), "Bad tunnel should return nil channel")
 }
 
+func TestSSHTunnel_StartKeepalive_NilCases(t *testing.T) {
+	called := false
+	onFailure := func() { called = true }
+
+	var tunnel *SSHTunnel = nil
+	tunnel.StartKeepalive(context.Background(), onFailure)
+	require.False(t, called, "Nil tunnel should not call onFailure")
+
+	tunnel = &SSHTunnel{Client: nil}
+	tunnel.StartKeepalive(context.Background(), onFailure)
+	require.False(t, called, "Tunnel with nil client should not call onFailure")
+
+	tunnel = &SSHTunnel{Client: nil, badTunnel: true}
+	tunnel.StartKeepalive(context.Background(), onFailure)
+	require.False(t, called, "Bad tunnel should not call onFailure")
+}
+
 func TestSSHTunnel_Close_NilCases(t *testing.T) {
 	// Nil tunnel
 	var tunnel *SSHTunnel = nil

@@ -108,7 +108,79 @@ func (tunnel *SSHTunnel) Close() error {
 	return nil
 }
 
-// returns a channel that will receive a value if the SSH keepalive fails
+func (tunnel *SSHTunnel) runKeepaliveLoop(
+	ctx context.Context, stopChan <-chan struct{}, onFailure func(),
+) {
+	ticker := time.NewTicker(SSHKeepaliveInterval)
+	defer ticker.Stop()
+	logger := internal.LoggerFromCtx(ctx)
+	// in case request hangs, we want to detect that and not send another request
+	requestSent := atomic.Bool{}
+	var keepaliveErr error
+	// closed by request making goroutine to signal error, keepaliveErr
+	errChan := make(chan struct{})
+
+	for {
+		select {
+		case <-ticker.C:
+			if requestSent.Load() {
+				// Previous keepalive request didn't return yet, something's wrong
+				logger.Error("Previous keepalive request still pending, marking tunnel as bad")
+				if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
+					close(*keepaliveChan)
+				}
+				tunnel.badTunnel = true
+				if onFailure != nil {
+					onFailure()
+				}
+				return
+			}
+			go func() {
+				requestSent.Store(true)
+				_, _, err := tunnel.Client.SendRequest("keepalive@openssh.com", true, nil)
+				requestSent.Store(false)
+				if err != nil {
+					keepaliveErr = err
+					close(errChan)
+				}
+			}()
+		case <-ctx.Done():
+			if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
+				close(*keepaliveChan)
+			}
+			return
+		case <-stopChan:
+			// channel closed from outside
+			return
+		case <-errChan:
+			logger.Error("Keepalive request failed, marking tunnel as bad", slog.Any("error", keepaliveErr))
+			if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
+				close(*keepaliveChan)
+			}
+			tunnel.badTunnel = true
+			if onFailure != nil {
+				onFailure()
+			}
+			return
+		}
+	}
+}
+
+func (tunnel *SSHTunnel) StartKeepalive(ctx context.Context, onFailure func()) {
+	if tunnel == nil || tunnel.Client == nil || tunnel.badTunnel {
+		return
+	}
+	if tunnel.keepaliveChan.Load() != nil {
+		// Already started
+		return
+	}
+	stopChan := make(chan struct{})
+	tunnel.keepaliveChan.Store(&stopChan)
+
+	go tunnel.runKeepaliveLoop(ctx, stopChan, onFailure)
+}
+
+// returns a channel that is closed if the SSH keepalive fails,
 // or nil if no SSH tunnel is configured
 func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) <-chan struct{} {
 	if tunnel == nil || tunnel.Client == nil || tunnel.badTunnel {
@@ -123,54 +195,6 @@ func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) <-chan struct{} {
 	keepaliveChan := make(chan struct{})
 	tunnel.keepaliveChan.Store(&keepaliveChan)
 
-	go func() {
-		ticker := time.NewTicker(SSHKeepaliveInterval)
-		defer ticker.Stop()
-		logger := internal.LoggerFromCtx(ctx)
-		// in case request hangs, we want to detect that and not send another request
-		requestSent := atomic.Bool{}
-		var keepaliveErr error
-		// closed by request making goroutine to signal error, keepaliveErr
-		errChan := make(chan struct{})
-
-		for {
-			select {
-			case <-ticker.C:
-				if requestSent.Load() {
-					// Previous keepalive request didn't return yet, something's wrong
-					logger.Error("Previous keepalive request still pending, marking tunnel as bad")
-					if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
-						close(*keepaliveChan)
-					}
-					tunnel.badTunnel = true
-					return
-				}
-				go func() {
-					requestSent.Store(true)
-					_, _, err := tunnel.Client.SendRequest("keepalive@openssh.com", true, nil)
-					requestSent.Store(false)
-					if err != nil {
-						keepaliveErr = err
-						close(errChan)
-					}
-				}()
-			case <-ctx.Done():
-				if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
-					close(*keepaliveChan)
-				}
-				return
-			case <-keepaliveChan:
-				// channel closed from outside
-				return
-			case <-errChan:
-				logger.Error("Keepalive request failed, marking tunnel as bad", slog.Any("error", keepaliveErr))
-				if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
-					close(*keepaliveChan)
-				}
-				tunnel.badTunnel = true
-				return
-			}
-		}
-	}()
+	go tunnel.runKeepaliveLoop(ctx, keepaliveChan, nil)
 	return keepaliveChan
 }
