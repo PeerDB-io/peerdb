@@ -32,15 +32,6 @@ const (
 
 var s3CompatibleServiceEndpointPattern = regexp.MustCompile(`^https?://[a-zA-Z0-9.-]+(:\d+)?$`)
 
-type AWSSecrets struct {
-	AccessKeyID     string
-	SecretAccessKey string
-	AwsRoleArn      string
-	Region          string
-	Endpoint        string
-	SessionToken    string
-}
-
 type PeerAWSCredentials struct {
 	Credentials    aws.Credentials
 	RoleArn        *string

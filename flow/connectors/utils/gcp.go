@@ -18,7 +18,7 @@ type GcpServiceAccount struct {
 	Type                    string `json:"type"`
 	ProjectID               string `json:"project_id"`
 	PrivateKeyID            string `json:"private_key_id"`
-	PrivateKey              string `json:"private_key"`
+	PrivateKey              string `json:"private_key"` //nolint:gosec // G117: deserialized from Google credential files, by design
 	ClientEmail             string `json:"client_email"`
 	ClientID                string `json:"client_id"`
 	AuthURI                 string `json:"auth_uri"`
