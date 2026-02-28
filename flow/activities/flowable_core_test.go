@@ -223,9 +223,15 @@ func TestOrchestratePullAndSync_QRecordSyncError_WithNoSyncFailureHook_DoesNotPa
 
 			s.SetSchema(types.QRecordSchema{})
 			s.Records <- nil
-			// Wait for cancellation from sync error, then return.
-			<-ctx.Done()
-			return ctx.Err()
+			// After sync consumes the first record and errors, this second
+			// send blocks on the unbuffered channel. Pull must select on
+			// ctx.Done() to avoid deadlocking here.
+			select {
+			case s.Records <- nil:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			return nil
 		}
 		sync := func(_ context.Context, out *model.QRecordStream) (int64, error) {
 			if _, err := out.Schema(); err != nil {
