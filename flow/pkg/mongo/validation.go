@@ -6,8 +6,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 const (

@@ -63,7 +63,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 
 		if mirrorExists {
 			return nil, NewAlreadyExistsApiError(
-				fmt.Errorf("mirror with name %s already exists: "+connectionConfigs.FlowJobName),
+				fmt.Errorf("mirror with name %s already exists", connectionConfigs.FlowJobName),
 				NewMirrorErrorInfo(map[string]string{
 					ErrorMetadataOffendingField: "flow_job_name",
 				}))
@@ -89,7 +89,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	for _, tm := range connectionConfigs.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
-				return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid custom column type " + col.DestinationType))
+				return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid custom column type %s", col.DestinationType))
 			}
 		}
 	}
@@ -191,7 +191,7 @@ func (h *FlowRequestHandler) checkFlagsCompatibility(
 			return NewInternalApiError(fmt.Errorf("failed to check schema for flag %q: %w", flag, err))
 		}
 		if affected {
-			return NewFailedPreconditionApiError(fmt.Errorf(constraint.ErrorMessage))
+			return NewFailedPreconditionApiError(errors.New(constraint.ErrorMessage))
 		}
 	}
 	return nil

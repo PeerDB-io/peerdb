@@ -104,7 +104,7 @@ func (c *PostgresConnector) CheckSourceTables(
 			}
 
 			if len(missing) != 0 {
-				return fmt.Errorf("some tables missing from publication: " + strings.Join(missing, ", "))
+				return fmt.Errorf("some tables missing from publication: %s", strings.Join(missing, ", "))
 			}
 		}
 	}
