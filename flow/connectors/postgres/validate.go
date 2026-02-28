@@ -34,7 +34,7 @@ func (c *PostgresConnector) CheckSourceTables(
 	noCDC bool,
 ) error {
 	if c.conn == nil {
-		return errors.New("check tables: conn is nil")
+		return fmt.Errorf("check tables: conn is nil")
 	}
 
 	// Check that we can select from all tables
@@ -104,7 +104,7 @@ func (c *PostgresConnector) CheckSourceTables(
 			}
 
 			if len(missing) != 0 {
-				return errors.New("some tables missing from publication: " + strings.Join(missing, ", "))
+				return fmt.Errorf("some tables missing from publication: " + strings.Join(missing, ", "))
 			}
 		}
 	}
@@ -114,7 +114,7 @@ func (c *PostgresConnector) CheckSourceTables(
 
 func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, username string) error {
 	if c.conn == nil {
-		return errors.New("check replication permissions: conn is nil")
+		return fmt.Errorf("check replication permissions: conn is nil")
 	}
 
 	// check wal_level
@@ -124,7 +124,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	}
 
 	if walLevel != "logical" {
-		return errors.New("wal_level is not logical")
+		return fmt.Errorf("wal_level is not logical")
 	}
 
 	var replicationRes bool
@@ -144,7 +144,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		err := c.conn.QueryRow(ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication'").Scan(&setting)
 		if !errors.Is(err, pgx.ErrNoRows) {
 			if err != nil || setting != "on" {
-				return errors.New("rds.logical_replication setting must be enabled")
+				return fmt.Errorf("rds.logical_replication setting must be enabled")
 			}
 		}
 	}
@@ -158,7 +158,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	}
 
 	if insufficientMaxWalSenders {
-		return errors.New("max_wal_senders must be at least 2")
+		return fmt.Errorf("max_wal_senders must be at least 2")
 	}
 
 	serverVersion, err := shared.GetMajorVersion(ctx, c.conn)
@@ -170,7 +170,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		return fmt.Errorf("failed to check if Postgres is in recovery: %w", err)
 	} else if recoveryRes {
 		if serverVersion < shared.POSTGRES_16 {
-			return errors.New("cannot create replication slots on a standby server with version <16")
+			return fmt.Errorf("cannot create replication slots on a standby server with version <16")
 		}
 
 		var hsFeedback bool
@@ -180,7 +180,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 			return fmt.Errorf("failed to check hot_standby_feedback: %w", err)
 		}
 		if !hsFeedback {
-			return errors.New("hot_standby_feedback setting must be enabled on standby servers")
+			return fmt.Errorf("hot_standby_feedback setting must be enabled on standby servers")
 		}
 	}
 

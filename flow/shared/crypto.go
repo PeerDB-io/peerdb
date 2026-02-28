@@ -5,7 +5,6 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"io"
 
@@ -16,7 +15,7 @@ import (
 func DecodePKCS8PrivateKey(rawKey []byte, password *string) (*rsa.PrivateKey, error) {
 	PEMBlock, _ := pem.Decode(rawKey)
 	if PEMBlock == nil {
-		return nil, errors.New("failed to decode private key PEM block")
+		return nil, fmt.Errorf("failed to decode private key PEM block")
 	}
 
 	var privateKey *rsa.PrivateKey
@@ -69,11 +68,11 @@ func (key PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
 	}
 
 	if len(decodedKey) != 32 {
-		return nil, errors.New("invalid key length, must be 32 bytes")
+		return nil, fmt.Errorf("invalid key length, must be 32 bytes")
 	}
 
 	if len(ciphertext) < nonceSize {
-		return nil, errors.New("ciphertext too short")
+		return nil, fmt.Errorf("ciphertext too short")
 	}
 
 	nonce := ciphertext[:nonceSize]
@@ -104,7 +103,7 @@ func (key PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
 	}
 
 	if len(decodedKey) != 32 {
-		return nil, errors.New("invalid key length, must be 32 bytes")
+		return nil, fmt.Errorf("invalid key length, must be 32 bytes")
 	}
 
 	aead, err := chacha20poly1305.NewX(decodedKey)

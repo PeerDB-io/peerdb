@@ -2,7 +2,6 @@ package monitoring
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -310,7 +309,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	if partition == nil {
 		internal.LoggerFromCtx(ctx).Info("cannot add nil partition to qrep run",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
-		return errors.New("cannot add nil partition to qrep run")
+		return fmt.Errorf("cannot add nil partition to qrep run")
 	}
 	if partition.Range == nil && partition.FullTablePartition && !supportsStatsForFullTablePartition(partition) {
 		internal.LoggerFromCtx(ctx).Info("partition "+partition.PartitionId+

@@ -3,7 +3,6 @@ package utils
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -50,7 +49,7 @@ func GetSSHClientConfig(config *protos.SSHConfig) (*ssh.ClientConfig, error) {
 	}
 
 	if len(authMethods) == 0 {
-		return nil, errors.New("no authentication methods provided")
+		return nil, fmt.Errorf("no authentication methods provided")
 	}
 
 	var hostKeyCallback ssh.HostKeyCallback

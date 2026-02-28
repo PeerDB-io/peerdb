@@ -139,7 +139,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 				replyToAddresses:     replyToAddresses,
 			}
 			if emailServiceConfig.sourceEmail == "" {
-				return alertSenderConfig, errors.New("missing sourceEmail for Email alerting service")
+				return alertSenderConfig, fmt.Errorf("missing sourceEmail for Email alerting service")
 			}
 			if err := json.Unmarshal(serviceConfig, &emailServiceConfig); err != nil {
 				return alertSenderConfig, fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)

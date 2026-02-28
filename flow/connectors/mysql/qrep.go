@@ -3,7 +3,6 @@ package connmysql
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -49,7 +48,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 
 	if config.NumPartitionsOverride == 0 && config.NumRowsPerPartition == 0 {
-		return nil, errors.New("num rows per partition must be greater than 0")
+		return nil, fmt.Errorf("num rows per partition must be greater than 0")
 	}
 
 	numPartitions := int64(config.NumPartitionsOverride)

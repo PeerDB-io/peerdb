@@ -63,7 +63,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 
 		if mirrorExists {
 			return nil, NewAlreadyExistsApiError(
-				errors.New("mirror with name %s already exists: "+connectionConfigs.FlowJobName),
+				fmt.Errorf("mirror with name %s already exists: "+connectionConfigs.FlowJobName),
 				NewMirrorErrorInfo(map[string]string{
 					ErrorMetadataOffendingField: "flow_job_name",
 				}))
@@ -78,18 +78,18 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 
 	if connectionConfigs == nil {
 		slog.ErrorContext(ctx, "/validatecdc connection configs is nil")
-		return nil, NewInvalidArgumentApiError(errors.New("connection configs is nil"))
+		return nil, NewInvalidArgumentApiError(fmt.Errorf("connection configs is nil"))
 	}
 
 	if !connectionConfigs.DoInitialSnapshot && connectionConfigs.InitialSnapshotOnly {
 		return nil, NewInvalidArgumentApiError(
-			errors.New("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
+			fmt.Errorf("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
 	for _, tm := range connectionConfigs.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
-				return nil, NewInvalidArgumentApiError(errors.New("invalid custom column type " + col.DestinationType))
+				return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid custom column type " + col.DestinationType))
 			}
 		}
 	}
@@ -99,7 +99,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
-			return nil, NewUnimplementedApiError(errors.New("connector is not a supported source type"))
+			return nil, NewUnimplementedApiError(fmt.Errorf("connector is not a supported source type"))
 		}
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to create source connector: %s", err))
 	}
@@ -191,7 +191,7 @@ func (h *FlowRequestHandler) checkFlagsCompatibility(
 			return NewInternalApiError(fmt.Errorf("failed to check schema for flag %q: %w", flag, err))
 		}
 		if affected {
-			return NewFailedPreconditionApiError(errors.New(constraint.ErrorMessage))
+			return NewFailedPreconditionApiError(fmt.Errorf(constraint.ErrorMessage))
 		}
 	}
 	return nil

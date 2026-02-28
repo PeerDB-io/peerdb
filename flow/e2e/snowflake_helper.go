@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -34,7 +33,7 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 
 	jsonPath := os.Getenv("TEST_SF_CREDS")
 	if jsonPath == "" {
-		return nil, errors.New("TEST_SF_CREDS env var not set")
+		return nil, fmt.Errorf("TEST_SF_CREDS env var not set")
 	}
 
 	content, err := e2eshared.ReadFileToBytes(jsonPath)
@@ -159,7 +158,7 @@ func (s *SnowflakeTestHelper) checkSyncedAt(ctx context.Context, query string) e
 		for _, entry := range record {
 			_, ok := entry.(types.QValueTimestamp)
 			if !ok {
-				return errors.New("synced_at column failed: _PEERDB_SYNCED_AT is not a timestamp")
+				return fmt.Errorf("synced_at column failed: _PEERDB_SYNCED_AT is not a timestamp")
 			}
 		}
 	}
@@ -177,7 +176,7 @@ func (s *SnowflakeTestHelper) checkIsDeleted(ctx context.Context, query string) 
 		for _, entry := range record {
 			_, ok := entry.(types.QValueBoolean)
 			if !ok {
-				return errors.New("is_deleted column failed: _PEERDB_IS_DELETED is not a boolean")
+				return fmt.Errorf("is_deleted column failed: _PEERDB_IS_DELETED is not a boolean")
 			}
 		}
 	}

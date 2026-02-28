@@ -37,7 +37,7 @@ func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger
 		return fmt.Errorf("failed to validate cloud_mode_engine setting: %w", err)
 	}
 	if !cloudModeEngine {
-		return errors.New("ClickHouse service is not migrated to use SharedMergeTree tables, please contact support")
+		return fmt.Errorf("ClickHouse service is not migrated to use SharedMergeTree tables, please contact support")
 	}
 	return nil
 }

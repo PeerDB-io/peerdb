@@ -57,7 +57,7 @@ func parseGCSPath(gcsPathStr string) (*gcsPath, error) {
 	}
 
 	if u.Host == "" {
-		return nil, &url.Error{Op: "parse", URL: gcsPathStr, Err: errors.New("bucket name is required")}
+		return nil, &url.Error{Op: "parse", URL: gcsPathStr, Err: fmt.Errorf("bucket name is required")}
 	}
 
 	return &gcsPath{URL: u}, nil

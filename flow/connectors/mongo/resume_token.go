@@ -3,7 +3,6 @@ package connmongo
 import (
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -25,7 +24,7 @@ func decodeTimestampFromResumeToken(resumeToken bson.Raw) (bson.Timestamp, error
 	}
 
 	if tokenDoc.Data == "" {
-		return bson.Timestamp{}, errors.New("missing _data field")
+		return bson.Timestamp{}, fmt.Errorf("missing _data field")
 	}
 
 	return decodeTimestampFromKeyString(tokenDoc.Data)
@@ -44,7 +43,7 @@ func decodeTimestampFromKeyString(hexData string) (bson.Timestamp, error) {
 	// - first byte encodes kTimestamp
 	// - next 8 bytes encode the 64-bit timestamp value in big-endian order
 	if len(keyStringBytes) < 9 {
-		return bson.Timestamp{}, errors.New("KeyString data too short for timestamp")
+		return bson.Timestamp{}, fmt.Errorf("KeyString data too short for timestamp")
 	}
 	typeByte := keyStringBytes[0]
 	if int32(typeByte) != kTimestamp {

@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -218,7 +217,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 
 func constructFlowClient(ctx context.Context, args *MaintenanceCLIParams) (protos.FlowServiceClient, error) {
 	if args.FlowGrpcAddress == "" {
-		return nil, errors.New("flow address is required")
+		return nil, fmt.Errorf("flow address is required")
 	}
 	slog.InfoContext(ctx, "Constructing flow client")
 	transportCredentials := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13})

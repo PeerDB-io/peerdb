@@ -2,7 +2,6 @@ package connclickhouse
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -179,7 +178,7 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 	if totalPartitions > 1 {
 		// Get the first field for hash partitioning
 		if len(config.schema.Fields) == 0 {
-			return "", errors.New("schema has no fields for partitioning")
+			return "", fmt.Errorf("schema has no fields for partitioning")
 		}
 
 		hashFieldName := config.schema.Fields[0].Name
