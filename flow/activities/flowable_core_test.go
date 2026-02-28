@@ -9,6 +9,7 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	"github.com/stretchr/testify/require"
@@ -284,7 +285,7 @@ func TestOrchestratePullAndSync_QRecordSyncError_OnSyncFailureHookUnblocksBlocke
 			stream,
 			pull,
 			sync,
-			drainQRecordStreamOnSyncFailure(stream),
+			drainQRecordStreamOnSyncFailure(internal.LoggerFromCtx(context.Background()), stream),
 		)
 
 		require.True(t, completed, "deadlocked: blocked producer was not unblocked on sync failure")

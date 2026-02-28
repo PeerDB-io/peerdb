@@ -55,8 +55,9 @@ type StreamCloser interface {
 	Close(error)
 }
 
-func drainQRecordStreamOnSyncFailure(stream *model.QRecordStream) func(error) {
-	return func(error) {
+func drainQRecordStreamOnSyncFailure(logger log.Logger, stream *model.QRecordStream) func(error) {
+	return func(syncErr error) {
+		logger.Warn("draining record stream to unblock pull after sync failure", "error", syncErr)
 		go func() {
 			for range stream.Records {
 			}
@@ -64,8 +65,9 @@ func drainQRecordStreamOnSyncFailure(stream *model.QRecordStream) func(error) {
 	}
 }
 
-func drainQObjectStreamOnSyncFailure(stream *model.QObjectStream) func(error) {
-	return func(error) {
+func drainQObjectStreamOnSyncFailure(logger log.Logger, stream *model.QObjectStream) func(error) {
+	return func(syncErr error) {
+		logger.Warn("draining object stream to unblock pull after sync failure", "error", syncErr)
 		go func() {
 			for range stream.Objects {
 			}
@@ -681,7 +683,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, outstream,
 				connectors.QRepPullConnector.PullQRepRecords,
 				connectors.QRepSyncConnector.SyncQRepRecords,
-				drainQRecordStreamOnSyncFailure(outstream),
+				drainQRecordStreamOnSyncFailure(logger, outstream),
 			)
 		}, nil
 	}
@@ -706,7 +708,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
 				connectors.QRepPullObjectsConnector.PullQRepObjects,
 				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
-				drainQObjectStreamOnSyncFailure(stream),
+				drainQObjectStreamOnSyncFailure(logger, stream),
 			)
 		}, nil
 	}
@@ -728,7 +730,10 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, write, read,
 				(*connpostgres.PostgresConnector).PullPgQRepRecords,
 				(*connpostgres.PostgresConnector).SyncPgQRepRecords,
-				func(err error) { read.CloseWithError(err) },
+				func(syncErr error) {
+					logger.Warn("closing pipe read end to unblock pull after sync failure", "error", syncErr)
+					read.CloseWithError(syncErr)
+				},
 			)
 		}, nil
 	}
