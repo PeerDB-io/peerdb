@@ -17,6 +17,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -66,6 +67,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		destinationTableIdentifier,
 		sourceTableSchema,
 		c.chVersion,
+		config.Flags,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
@@ -85,6 +87,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	chVersion *chproto.Version,
+	flags []string,
 ) ([]string, error) {
 	var engine string
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
@@ -203,7 +206,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			if clickHouseType == "" {
 				var err error
 				clickHouseType, err = qvalue.ToDWHColumnType(
-					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column, tableSchema.NullableEnabled || columnNullableEnabled,
+					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column,
+					tableSchema.NullableEnabled || columnNullableEnabled, flags,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -264,7 +268,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		}
 
 		if allowNullableKey {
-			stmtBuilder.WriteString(NewCHSettingsString(chVersion, SettingAllowNullableKey, "1"))
+			stmtBuilder.WriteString(chinternal.NewCHSettingsString(chVersion, chinternal.SettingAllowNullableKey, "1"))
 		}
 
 		if c.Config.Cluster != "" {
@@ -574,6 +578,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				c.Config.Cluster != "",
 				req.SoftDeleteColName,
 				req.Version,
+				req.Flags,
 			)
 			query, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {

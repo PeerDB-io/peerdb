@@ -305,7 +305,7 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 		qr.consolidate_complete as ConsolidateCompleted,
 		COUNT(CASE WHEN qp.flow_name IS NOT NULL THEN 1 END) AS NumPartitionsTotal,
 		COUNT(CASE WHEN qp.end_time IS NOT NULL THEN 1 END) AS NumPartitionsCompleted,
-		SUM(qp.rows_in_partition) FILTER (WHERE qp.end_time IS NOT NULL) AS NumRowsSynced,
+		SUM(qp.rows_synced) FILTER (WHERE qp.end_time IS NOT NULL) AS NumRowsSynced,
 		AVG(EXTRACT(EPOCH FROM (qp.end_time - qp.start_time)) * 1000) FILTER (WHERE qp.end_time IS NOT NULL) AS AvgTimePerPartitionMs
 	FROM peerdb_stats.qrep_partitions qp
 	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
@@ -659,7 +659,7 @@ func (h *FlowRequestHandler) TotalRowsSyncedByMirror(
 	var totalRowsCDC int64
 	var totalRowsInitialLoad int64
 	if !req.ExcludeCdc {
-		cdcErr := h.pool.QueryRow(ctx, `SELECT SUM(total_count)
+		cdcErr := h.pool.QueryRow(ctx, `SELECT COALESCE(SUM(total_count), 0)
 		FROM peerdb_stats.cdc_table_aggregate_counts
 		WHERE flow_name = $1`, req.FlowJobName).Scan(&totalRowsCDC)
 		if cdcErr != nil {
@@ -670,7 +670,7 @@ func (h *FlowRequestHandler) TotalRowsSyncedByMirror(
 
 	if !req.ExcludeInitialLoad {
 		err := h.pool.QueryRow(ctx, `
-		SELECT SUM(rows_in_partition) AS NumRowsSynced
+		SELECT COALESCE(SUM(rows_synced), 0) AS NumRowsSynced
         FROM peerdb_stats.qrep_partitions
         WHERE parent_mirror_name = $1 AND end_time IS NOT NULL`, req.FlowJobName).Scan(&totalRowsInitialLoad)
 		if err != nil {

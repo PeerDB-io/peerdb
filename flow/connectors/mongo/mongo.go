@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -35,6 +36,15 @@ var protoReadPrefToString = map[protos.ReadPreference]string{
 	protos.ReadPreference_SECONDARY_PREFERRED: peerdb_mongo.ReadPreferenceSecondaryPreferred,
 	protos.ReadPreference_NEAREST:             peerdb_mongo.ReadPreferenceNearest,
 	protos.ReadPreference_PREFERENCE_UNKNOWN:  peerdb_mongo.ReadPreferenceSecondaryPreferred,
+}
+
+var protoToReadPref = map[protos.ReadPreference]*readpref.ReadPref{
+	protos.ReadPreference_PRIMARY:             readpref.Primary(),
+	protos.ReadPreference_PRIMARY_PREFERRED:   readpref.PrimaryPreferred(),
+	protos.ReadPreference_SECONDARY:           readpref.Secondary(),
+	protos.ReadPreference_SECONDARY_PREFERRED: readpref.SecondaryPreferred(),
+	protos.ReadPreference_NEAREST:             readpref.Nearest(),
+	protos.ReadPreference_PREFERENCE_UNKNOWN:  readpref.SecondaryPreferred(),
 }
 
 type MongoConnector struct {
@@ -187,10 +197,7 @@ func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context,
 
 	latestWALTime := replSetStatus.OpTimes.LastCommittedOpTime.Ts
 
-	lagSeconds := int64(latestWALTime.T) - int64(clusterTime.T)
-	if lagSeconds < 0 {
-		lagSeconds = 0
-	}
+	lagSeconds := max(int64(latestWALTime.T)-int64(clusterTime.T), 0)
 
 	lagMicroseconds := lagSeconds * 1_000_000
 

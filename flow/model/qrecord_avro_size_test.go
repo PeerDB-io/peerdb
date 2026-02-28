@@ -253,7 +253,7 @@ func getActualUncompressedSize(t *testing.T, filePath string, avroSchema *QRecor
 
 	n := 0
 	for decoder.HasNext() {
-		var record map[string]interface{}
+		var record map[string]any
 		err := decoder.Decode(&record)
 		require.NoError(t, err)
 		err = encoder.Encode(record)

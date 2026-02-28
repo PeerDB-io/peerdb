@@ -74,10 +74,26 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		if dstTableName == "" {
 			return errors.New("destination table identifier is empty")
 		}
-		if _, ok := processedMapping[dstTableName]; !ok {
+		processedSchema, ok := processedMapping[dstTableName]
+		if !ok {
 			// if destination table is not a key, that means source table was not a key in the original schema mapping(?)
 			return fmt.Errorf("source table %s not found in schema mapping", tableMapping.SourceTableIdentifier)
 		}
+
+		hasOrderingKeys := len(processedSchema.PrimaryKeyColumns) > 0 ||
+			slices.ContainsFunc(tableMapping.Columns, func(col *protos.ColumnSetting) bool {
+				return col.Ordering > 0
+			})
+		if !hasOrderingKeys &&
+			tableMapping.Engine != protos.TableEngine_CH_ENGINE_NULL &&
+			tableMapping.Engine != protos.TableEngine_CH_ENGINE_MERGE_TREE {
+			if err := chvalidate.CheckEmptyOrderingKeySupported(ctx, c.logger, c.database,
+				c.chVersion, tableMapping.SourceTableIdentifier,
+			); err != nil {
+				return err
+			}
+		}
+
 		// if destination table does not exist, we're good
 		if _, ok := chTableColumnsMapping[dstTableName]; !ok {
 			continue

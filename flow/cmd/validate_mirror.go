@@ -6,15 +6,30 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
+
+type flagConstraint struct {
+	ErrorMessage  string
+	AffectedTypes []types.QValueKind
+}
+
+var FlagConstraints = map[string]flagConstraint{
+	shared.Flag_ClickHouseTime64Enabled: {
+		AffectedTypes: []types.QValueKind{types.QValueKindTime, types.QValueKindTimeTZ},
+		ErrorMessage: "mirror uses time/timetz columns that require ClickHouse setting 'enable_time_time64_type';" +
+			" re-enable it or recreate the mirror",
+	},
+}
 
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
@@ -52,6 +67,12 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 				NewMirrorErrorInfo(map[string]string{
 					ErrorMetadataOffendingField: "flow_job_name",
 				}))
+		}
+	}
+
+	if connectionConfigs.Resync {
+		if apiErr := h.checkFlagsCompatibility(ctx, connectionConfigs); apiErr != nil {
+			return nil, apiErr
 		}
 	}
 
@@ -124,4 +145,54 @@ func (h *FlowRequestHandler) checkIfMirrorNameExists(ctx context.Context, mirror
 	}
 
 	return nameExists, nil
+}
+
+// checkFlagsCompatibility blocks resync when a destination feature flag that was
+// enabled at mirror creation is now disabled and the stored schema contains
+// column types whose type mapping depends on that flag.
+func (h *FlowRequestHandler) checkFlagsCompatibility(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+) APIError {
+	newFlags, err := h.determineFlags(ctx, cfg.Env, cfg.DestinationName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to determine destination flags: %w", err))
+	}
+
+	schemaHasColumnTypes := func(colTypes []types.QValueKind) (bool, error) {
+		tableNames := make([]string, 0, len(cfg.TableMappings))
+		for _, tm := range cfg.TableMappings {
+			tableNames = append(tableNames, tm.DestinationTableIdentifier)
+		}
+		schemas, err := internal.LoadTableSchemasFromCatalog(ctx, h.pool, cfg.FlowJobName, tableNames)
+		if err != nil {
+			return false, err
+		}
+		for _, schema := range schemas {
+			for _, col := range schema.Columns {
+				if slices.Contains(colTypes, types.QValueKind(col.Type)) {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}
+
+	for _, flag := range cfg.Flags {
+		if slices.Contains(newFlags, flag) {
+			continue
+		}
+		constraint, ok := FlagConstraints[flag]
+		if !ok {
+			continue
+		}
+		affected, err := schemaHasColumnTypes(constraint.AffectedTypes)
+		if err != nil {
+			return NewInternalApiError(fmt.Errorf("failed to check schema for flag %q: %w", flag, err))
+		}
+		if affected {
+			return NewFailedPreconditionApiError(errors.New(constraint.ErrorMessage))
+		}
+	}
+	return nil
 }

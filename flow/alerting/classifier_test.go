@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"syscall"
 	"testing"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
+	pErrors "github.com/pingcap/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -326,6 +328,20 @@ func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.FeatureNotSupported,
+		Message:  "logical decoding cannot be used while in recovery",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error starting replication at startLsn - 11763874329649: %w", err))
+	assert.Equal(t, ErrorNotifyLogicalDecodingStandbyNotSupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.FeatureNotSupported,
+	}, errInfo)
+}
+
 func TestPostgresCreatingSlotOnReader(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
@@ -442,6 +458,31 @@ func TestPeerCreateTimeoutErrorShouldBeConnectivity(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "CONTEXT_DEADLINE_EXCEEDED",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestConnectionResetDuringPeerCreateShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewPeerCreateError(
+		fmt.Errorf("failed to open connection to ClickHouse peer: failed to ping to ClickHouse peer: read: %w", syscall.ECONNRESET))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to recreate destination connector: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   syscall.ECONNRESET.Error(),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestConnectionResetFromSourceShouldBeIgnored(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("failed to pull records: read tcp 10.0.0.1:5432: %w", syscall.ECONNRESET)
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorIgnoreConnTemporary, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   syscall.ECONNRESET.Error(),
 	}, errInfo, "Unexpected error info")
 }
 
@@ -586,25 +627,18 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 		errInfo    ErrorInfo
 	}
 	for code, cinfo := range map[exceptions.ApplicationErrorType]classAndInfo{
-		exceptions.ApplicationErrorTypeIrrecoverableSlotMissing: {
-			errorClass: ErrorNotifyReplicationSlotMissing,
-			errInfo: ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(),
-			},
-		},
-		exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing: {
-			errorClass: ErrorNotifyPublicationMissing,
-			errInfo: ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(),
-			},
-		},
 		exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot: {
 			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
 				Code:   exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(),
+			},
+		},
+		exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot: {
+			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot.String(),
 			},
 		},
 	} {
@@ -670,6 +704,30 @@ func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMongoCursorErrors(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    6,
+		Message: "(HostUnreachable) Error on remote shard test.mongodb.net:27017 :: caused by :: interrupted at shutdown",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("cursor error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "6",
+	}, errInfo)
+
+	err = mongo.CommandError{
+		Code:    43,
+		Message: "cursor id 1234567890 not found",
+	}
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("cursor error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "43",
+	}, errInfo)
+}
+
 func TestAuroraMySQLZeroDowntimePatchErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate Aurora MySQL Zero Downtime Patch error
 	mysqlErr := &mysql.MyError{
@@ -726,6 +784,16 @@ func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
 		Source: ErrorSourceMySQL,
 		Code:   "STREAMING_TRANSIENT_ERROR",
 	}, errInfo, "Unexpected error info")
+
+	tlsErr := tls.RecordHeaderError{Msg: "remote error: tls: error decoding message"}
+	innerErr := pErrors.Wrapf(mysql.ErrBadConn, "io.ReadFull(header) failed. err %v", tlsErr)
+	err = exceptions.NewMySQLStreamingError(pErrors.Errorf("failed to set @slave_gtid_strict_mode=1: %v", innerErr))
+	errorClass, errInfo = GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "STREAMING_TRANSIENT_ERROR",
+	}, errInfo)
 }
 
 func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
@@ -761,6 +829,32 @@ func TestClickHouseTooManyPartsWithoutTableName(t *testing.T) {
 	}, errInfo)
 }
 
+func TestClickHouseFailedToLoadAllDataPartsShouldNotifyUser(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnfinished),
+		Message: "Failed to load all data parts",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("clickhouse error: %w", err))
+	assert.Equal(t, ErrorNotifyClickHouseError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
+	}, errInfo)
+}
+
+func TestClickHouseOtherUnfinishedShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnfinished),
+		Message: "some other unfinished error",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("clickhouse error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
+	}, errInfo)
+}
+
 func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 	err := exceptions.NewMySQLUnsupportedDDLError("test_db.test_table")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
@@ -771,5 +865,40 @@ func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 			ErrorAttributeKeyTable: "test_db.test_table",
 		},
+	}, errInfo)
+}
+
+func TestPublicationMissingError(t *testing.T) {
+	err := exceptions.NewPublicationMissingError("test_pub")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
+	assert.Equal(t, ErrorNotifyPublicationMissing, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "irrecoverable_publication_missing",
+	}, errInfo)
+}
+
+func TestSlotMissingError(t *testing.T) {
+	err := exceptions.NewSlotMissingError("test_slot")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
+	assert.Equal(t, ErrorNotifyReplicationSlotMissing, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "irrecoverable_slot_missing",
+	}, errInfo)
+}
+
+func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
+	pgErr := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.ObjectNotInPrerequisiteState,
+		Message:  "replication slots cannot be used on RO (Read Only) node",
+	}
+	err := fmt.Errorf("error starting replication at startLsn - 18598145761: %w", pgErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records when: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.ObjectNotInPrerequisiteState,
 	}, errInfo)
 }

@@ -162,7 +162,7 @@ func (c *KafkaConnector) CreateRawTable(ctx context.Context, req *protos.CreateR
 }
 
 func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil
 }

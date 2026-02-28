@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"syscall"
 	"time"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
@@ -42,7 +43,7 @@ func isRetryableException(err error) bool {
 		_, yes := retryableExceptions[chproto.Error(ex.Code)]
 		return yes
 	}
-	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET)
 }
 
 func Exec(ctx context.Context, logger log.Logger,

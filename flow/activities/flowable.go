@@ -1333,7 +1333,7 @@ func (a *FlowableActivity) recordSlotInformation(
 	}
 	defer srcClose(ctx)
 
-	slotName := "peerflow_slot_" + info.config.FlowJobName
+	slotName := connpostgres.GetDefaultSlotName(info.config.FlowJobName)
 	if info.config.ReplicationSlotName != "" {
 		slotName = info.config.ReplicationSlotName
 	}
