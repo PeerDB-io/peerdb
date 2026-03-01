@@ -1,0 +1,69 @@
+# Source/destination databases for running e2e tests locally.
+# Usage:
+#   docker compose -f docker-compose-e2e.yml up -d
+#   docker compose -f docker-compose-e2e.yml --profile mysql up -d   # include MySQL
+#   docker compose -f docker-compose-e2e.yml --profile mongo up -d   # include MongoDB
+#
+# Prerequisites: dev-peerdb.sh must be running (provides catalog, temporal, minio, flow workers).
+# Also requires 127.0.0.1 host.docker.internal in /etc/hosts on macOS.
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-e2e
+    ports:
+      - "9000:9000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      CLICKHOUSE_PASSWORD: ""
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mysql:
+    image: mysql:9.5
+    container_name: mysql-e2e
+    profiles: ["mysql"]
+    ports:
+      - "3306:3306"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      MYSQL_ROOT_PASSWORD: cipass
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pcipass"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:6.0
+    container_name: mongo-e2e
+    profiles: ["mongo"]
+    ports:
+      - "27017:27017"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    entrypoint: >
+      bash -c '
+        openssl rand -base64 756 > /data/mongo.key &&
+        chmod 400 /data/mongo.key &&
+        mongod --replSet rs0 --oplogMinRetentionHours 24 --bind_ip_all --keyFile /data/mongo.key &
+        MONGOD_PID=$$!;
+        until mongosh --quiet --eval "db.runCommand(\"ping\").ok" 2>/dev/null; do sleep 1; done;
+        mongosh --eval "rs.initiate({_id:\"rs0\",members:[{_id:0,host:\"host.docker.internal:27017\"}]})";
+        sleep 2;
+        mongosh --eval "db=db.getSiblingDB(\"admin\");db.createUser({user:\"admin\",pwd:\"admin\",roles:[\"root\"]})";
+        mongosh -u admin -p admin --eval "db=db.getSiblingDB(\"admin\");db.createUser({user:\"csuser\",pwd:\"cspass\",roles:[\"readAnyDatabase\",\"clusterMonitor\"]})";
+        wait $$MONGOD_PID
+      '
+    healthcheck:
+      test: ["CMD", "mongosh", "-u", "admin", "-p", "admin", "--eval", "rs.status().ok", "--quiet"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
