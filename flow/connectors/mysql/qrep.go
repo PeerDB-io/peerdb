@@ -254,6 +254,9 @@ func (c *MySqlConnector) PullQRepRecords(
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 		case *protos.PartitionRange_NullRange:
+			if config.BaseQuery == "" {
+				return 0, 0, errors.New("base query must be provided for null range partition")
+			}
 			queryTemplate = fmt.Sprintf("%s WHERE `%s` IS NULL", config.BaseQuery, config.WatermarkColumn)
 		default:
 			return 0, 0, fmt.Errorf("unknown range type: %v", x)
