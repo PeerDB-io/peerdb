@@ -3,6 +3,7 @@
 #   docker compose -f docker-compose-e2e.yml up -d
 #   docker compose -f docker-compose-e2e.yml --profile mysql up -d   # include MySQL
 #   docker compose -f docker-compose-e2e.yml --profile mongo up -d   # include MongoDB
+#   docker compose -f docker-compose-e2e.yml --profile mysql --profile mongo up -d # include both MySQL and MongoDB
 #
 # Prerequisites: dev-peerdb.sh must be running (provides catalog, temporal, minio, flow workers).
 # Also requires 127.0.0.1 host.docker.internal in /etc/hosts on macOS.
@@ -62,7 +63,18 @@ services:
         wait $$MONGOD_PID
       '
     healthcheck:
-      test: ["CMD", "mongosh", "-u", "admin", "-p", "admin", "--eval", "rs.status().ok", "--quiet"]
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "-u",
+          "admin",
+          "-p",
+          "admin",
+          "--eval",
+          "rs.status().ok",
+          "--quiet",
+        ]
       interval: 5s
       timeout: 5s
       retries: 20
