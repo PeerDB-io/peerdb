@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -255,4 +256,111 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) ValidateMirrorDestination(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) error {
+	// Validate that all source columns exist in destination tables
+	for _, tableMapping := range cfg.TableMappings {
+		srcTableIdentifier := tableMapping.SourceTableIdentifier
+		dstTableIdentifier := tableMapping.DestinationTableIdentifier
+
+		if dstTableIdentifier == "" {
+			return errors.New("destination table identifier is empty")
+		}
+
+		// Get the source table schema
+		srcSchema, ok := tableNameSchemaMapping[srcTableIdentifier]
+		if !ok {
+			return fmt.Errorf("source table %s not found in schema mapping", srcTableIdentifier)
+		}
+
+		// Parse destination table identifier
+		dstTable, err := common.ParseTableIdentifier(dstTableIdentifier)
+		if err != nil {
+			return fmt.Errorf("invalid destination table identifier %s: %w", dstTableIdentifier, err)
+		}
+
+		// Get destination table columns
+		dstColumns, err := c.getDestinationTableColumns(ctx, dstTable)
+		if err != nil {
+			// If table doesn't exist, that's fine - we'll create it
+			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "does not exist") {
+				continue
+			}
+			return fmt.Errorf("failed to get columns for destination table %s: %w", dstTableIdentifier, err)
+		}
+
+		// Build a set of destination column names for quick lookup
+		dstColumnSet := make(map[string]struct{})
+		for _, col := range dstColumns {
+			dstColumnSet[col] = struct{}{}
+		}
+
+		// Check if all source columns exist in destination
+		for _, srcField := range srcSchema.Columns {
+			colName := srcField.Name
+
+			// Skip excluded columns
+			if slices.Contains(tableMapping.Exclude, colName) {
+				continue
+			}
+
+			// Check if column is renamed in the mapping
+			for _, col := range tableMapping.Columns {
+				if col.SourceName == colName && col.DestinationName != "" {
+					colName = col.DestinationName
+					break
+				}
+			}
+
+			// Check if the column exists in destination
+			if _, exists := dstColumnSet[colName]; !exists {
+				return fmt.Errorf("source column %s (as %s) not found in destination table %s",
+					srcField.Name, colName, dstTableIdentifier)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) getDestinationTableColumns(ctx context.Context, table *common.QualifiedTable) ([]string, error) {
+	rows, err := c.conn.Query(ctx, `
+		SELECT attname
+		FROM pg_attribute
+		JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
+		JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
+		WHERE pg_namespace.nspname = $1
+			AND pg_class.relname = $2
+			AND pg_attribute.attnum > 0
+			AND NOT pg_attribute.attisdropped
+		ORDER BY attname
+	`, table.Namespace, table.Table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var columns []string
+	for rows.Next() {
+		var colName string
+		if err := rows.Scan(&colName); err != nil {
+			return nil, err
+		}
+		columns = append(columns, colName)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(columns) == 0 {
+		return nil, pgx.ErrNoRows
+	}
+
+	return columns, nil
 }

@@ -720,6 +720,7 @@ var (
 	_ MirrorSourceValidationConnector = &connbigquery.BigQueryConnector{}
 
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
+	_ MirrorDestinationValidationConnector = &connpostgres.PostgresConnector{}
 
 	_ GetFlagsConnector = &connclickhouse.ClickHouseConnector{}
 
