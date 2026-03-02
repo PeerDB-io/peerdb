@@ -482,7 +482,13 @@ func syncQRepRecords(
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to create tx pool: %w", err)
 	}
-	defer txConn.Close(ctx)
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := txConn.Close(closeCtx); err != nil {
+			c.logger.Warn("failed to close transaction connection", slog.Any("error", err))
+		}
+	}()
 
 	if err := shared.RegisterExtensions(ctx, txConn, config.Version); err != nil {
 		return 0, nil, fmt.Errorf("failed to register extensions: %w", err)
@@ -494,6 +500,13 @@ func syncQRepRecords(
 	}
 	defer shared.RollbackTx(tx, c.logger)
 
+	// Clear any existing deadline at the start to ensure clean state
+	clearConnectionDeadline(txConn.PgConn(), c.logger, "qrep start")
+
+	// Clear any deadline set during execution to ensure commit/rollback can proceed
+	// Must happen regardless of function exit path, so use defer
+	defer clearConnectionDeadline(txConn.PgConn(), c.logger, "qrep cleanup")
+
 	// Step 2: Insert records into destination table
 	var numRowsSynced int64
 
@@ -503,7 +516,8 @@ func syncQRepRecords(
 		if writeMode != nil && writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
 			// Truncate destination table before copying records
 			c.logger.Info(fmt.Sprintf("Truncating table %s for overwrite mode", dstTable), syncLog)
-			_, err = c.execWithLoggingTx(ctx,
+			// Use context.Background() to prevent ContextWatcher creation
+			_, err = c.execWithLoggingTx(context.Background(),
 				"TRUNCATE TABLE "+dstTable.String(), tx)
 			if err != nil {
 				return -1, nil, fmt.Errorf("failed to TRUNCATE table before copy: %w", err)
@@ -522,7 +536,8 @@ func syncQRepRecords(
 				common.QuoteIdentifier(syncedAtCol),
 				common.QuoteIdentifier(syncedAtCol),
 			)
-			if _, err := tx.Exec(ctx, updateSyncedAtStmt); err != nil {
+			// Use context.Background() to prevent ContextWatcher creation
+			if _, err := tx.Exec(context.Background(), updateSyncedAtStmt); err != nil {
 				return -1, nil, fmt.Errorf("failed to update synced_at column: %w", err)
 			}
 		}
@@ -534,7 +549,8 @@ func syncQRepRecords(
 
 		// From PG docs: The cost of setting a large value in sessions that do not actually need many
 		// temporary buffers is only a buffer descriptor, or about 64 bytes, per increment in temp_buffers.
-		if _, err := tx.Exec(ctx, "SET temp_buffers = '4GB';"); err != nil {
+		// Use context.Background() to prevent ContextWatcher creation
+		if _, err := tx.Exec(context.Background(), "SET temp_buffers = '4GB';"); err != nil {
 			return -1, nil, fmt.Errorf("failed to set temp_buffers: %w", err)
 		}
 
@@ -546,7 +562,8 @@ func syncQRepRecords(
 
 		c.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
 			stagingTableName, createStagingTableStmt), syncLog)
-		if _, err := c.execWithLoggingTx(ctx, createStagingTableStmt, tx); err != nil {
+		// Use context.Background() to prevent ContextWatcher creation
+		if _, err := c.execWithLoggingTx(context.Background(), createStagingTableStmt, tx); err != nil {
 			return -1, nil, fmt.Errorf("failed to create staging table: %w", err)
 		}
 
@@ -594,7 +611,8 @@ func syncQRepRecords(
 			setClause,
 		)
 		c.logger.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
-		if _, err := tx.Exec(ctx, upsertStmt); err != nil {
+		// Use context.Background() to prevent ContextWatcher creation
+		if _, err := tx.Exec(context.Background(), upsertStmt); err != nil {
 			return -1, nil, fmt.Errorf("failed to perform upsert operation: %w", err)
 		}
 	}
@@ -613,8 +631,9 @@ func syncQRepRecords(
 		metadataTableIdentifier.Sanitize(),
 	)
 	c.logger.Info("Executing transaction inside QRep sync", syncLog)
+	// Use context.Background() to prevent ContextWatcher creation
 	if _, err := tx.Exec(
-		ctx,
+		context.Background(),
 		insertMetadataStmt,
 		flowJobName,
 		partitionID,
@@ -625,7 +644,9 @@ func syncQRepRecords(
 		return -1, nil, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	commitCtx, commitCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer commitCancel()
+	if err := tx.Commit(commitCtx); err != nil {
 		return -1, nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
