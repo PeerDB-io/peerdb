@@ -343,13 +343,7 @@ func (c *PostgresConnector) getDestinationTableColumns(ctx context.Context, tabl
 		return nil, err
 	}
 
-	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
-		var colName string
-		if err := row.Scan(&colName); err != nil {
-			return "", err
-		}
-		return colName, nil
-	})
+	columns, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
 		return nil, err
 	}
