@@ -19,6 +19,7 @@ const (
 // HeaderProvider provides HTTP headers for authenticating object requests.
 type HeaderProvider interface {
 	GetHeaders(ctx context.Context) (http.Header, error)
+	InvalidateToken()
 }
 
 type Object struct {
