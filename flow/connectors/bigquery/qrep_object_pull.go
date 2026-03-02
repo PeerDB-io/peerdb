@@ -65,13 +65,16 @@ func (c *BigQueryConnector) PullQRepObjects(
 
 	var totalBytes int64
 
-	processObject := func(attrs *storage.ObjectAttrs) {
-		stream.Objects <- &model.Object{
+	processObject := func(attrs *storage.ObjectAttrs) error {
+		if err := stream.Send(ctx, &model.Object{
 			URL:  fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, url.PathEscape(attrs.Name)),
 			Size: attrs.Size,
+		}); err != nil {
+			return err
 		}
 
 		totalBytes += attrs.Size
+		return nil
 	}
 
 	startOffset := objectRange.Start
@@ -86,7 +89,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 			return 0, 0, fmt.Errorf("failed to get object attrs for bucket %s with prefix %s and object %s: %w",
 				bucketName, prefix, startOffset, err)
 		}
-		processObject(attrs)
+		if err := processObject(attrs); err != nil {
+			return 0, totalBytes, err
+		}
 		c.logger.Info("finished pulling single downloadable object",
 			slog.String("bucket", bucketName),
 			slog.String("prefix", prefix),
@@ -120,7 +125,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 			continue
 		}
 
-		processObject(attrs)
+		if err := processObject(attrs); err != nil {
+			return 0, totalBytes, err
+		}
 	}
 
 	c.logger.Info("finished pulling downloadable objects",

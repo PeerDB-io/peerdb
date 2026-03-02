@@ -75,6 +75,18 @@ func (s *QObjectStream) Err() error {
 	return s.err
 }
 
+func (s *QObjectStream) Send(ctx context.Context, object *Object) error {
+	if s.err != nil {
+		return s.err
+	}
+	select {
+	case s.Objects <- object:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (s *QObjectStream) ReportSyncError(err error) {
 	// no-op for QObjectStream
 }
