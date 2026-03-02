@@ -295,7 +295,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 		}
 
 		// Build a set of destination column names for quick lookup
-		dstColumnSet := make(map[string]struct{})
+		dstColumnSet := make(map[string]struct{}, len(dstColumns))
 		for _, col := range dstColumns {
 			dstColumnSet[col] = struct{}{}
 		}
@@ -338,7 +338,6 @@ func (c *PostgresConnector) getDestinationTableColumns(ctx context.Context, tabl
 			AND pg_class.relname = $2
 			AND pg_attribute.attnum > 0
 			AND NOT pg_attribute.attisdropped
-		ORDER BY attname
 	`, table.Namespace, table.Table)
 	if err != nil {
 		return nil, err
