@@ -70,7 +70,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 			URL:  fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, url.PathEscape(attrs.Name)),
 			Size: attrs.Size,
 		}); err != nil {
-			return err
+			return fmt.Errorf("failed to send object to stream: %w", err)
 		}
 
 		totalBytes += attrs.Size

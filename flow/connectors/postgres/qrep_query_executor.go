@@ -317,7 +317,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 
 		if err := stream.Send(ctx, record); err != nil {
 			qe.logger.Info("Context canceled while sending record to stream, exiting processRowsStream early")
-			return numRows, numBytes, err
+			return numRows, numBytes, fmt.Errorf("failed to send record to stream: %w", err)
 		}
 
 		numRows++

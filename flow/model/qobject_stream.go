@@ -75,6 +75,7 @@ func (s *QObjectStream) Err() error {
 	return s.err
 }
 
+// Sends the object into the channel, erroring out on context cancellation instead of waiting for the reader indefinitely
 func (s *QObjectStream) Send(ctx context.Context, object *Object) error {
 	if s.err != nil {
 		return s.err
@@ -87,7 +88,7 @@ func (s *QObjectStream) Send(ctx context.Context, object *Object) error {
 	}
 }
 
-func (s *QObjectStream) ReportSyncError(err error) {
+func (s *QObjectStream) ReportQRepSyncError(err error) {
 	// no-op for QObjectStream
 }
 

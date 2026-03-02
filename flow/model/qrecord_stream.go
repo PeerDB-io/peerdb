@@ -48,11 +48,15 @@ func (s *QRecordStream) SchemaChan() <-chan struct{} {
 	return s.schemaLatch.Chan()
 }
 
-func (s *QRecordStream) ReportSyncError(err error) {
+func (s *QRecordStream) ReportQRepSyncError(err error) {
 	// no-op for QRecordStream
 }
 
+// Sends the record into the channel, erroring out on context cancellation instead of waiting for the reader indefinitely
 func (s *QRecordStream) Send(ctx context.Context, record []types.QValue) error {
+	if s.err != nil {
+		return s.err
+	}
 	select {
 	case s.Records <- record:
 		return nil
