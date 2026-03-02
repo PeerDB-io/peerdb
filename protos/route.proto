@@ -66,7 +66,9 @@ message PostScriptResponse { int32 id = 1; }
 message DeleteScriptRequest { int32 id = 1; }
 message DeleteScriptResponse {}
 
-message ValidatePeerRequest { peerdb_peers.Peer peer = 1; }
+message ValidatePeerRequest {
+  peerdb_peers.Peer peer = 1;
+}
 
 message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;

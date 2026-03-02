@@ -109,6 +109,24 @@ export const clickhouseSetting: PeerSetting[] = [
     tips: 'If not provided, host CA roots will be used.',
   },
   {
+    label: 'TLS Certificate Directory',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        setter((curr) => {
+          const newCurr = { ...curr } as ClickhouseConfig;
+          delete newCurr.tlsCertificateDirectory;
+          return newCurr;
+        });
+      } else
+        setter((curr) => ({
+          ...curr,
+          tlsCertificateDirectory: value as string,
+        }));
+    },
+    optional: true,
+    tips: 'Path to a directory containing TLS certificate files (tls.crt, tls.key, and optionally ca.crt). Typically a Kubernetes Secret mounted as a volume. When set, inline certificate/private key fields are ignored.',
+  },
+  {
     label: 'S3 Path',
     stateHandler: (value, setter) =>
       setter((curr) => ({

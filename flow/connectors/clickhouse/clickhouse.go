@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -232,30 +234,115 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	return nil
 }
 
-func Connect(ctx context.Context, env map[string]string, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
-	var tlsSetting *tls.Config
-	if !config.DisableTls {
-		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
-		if config.Certificate != nil || config.PrivateKey != nil {
-			if config.Certificate == nil || config.PrivateKey == nil {
-				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
-			}
-			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
-			}
-			tlsSetting.Certificates = []tls.Certificate{cert}
+// configureDirectoryTLS configures the tls.Config by loading certificate files
+// from a directory. It expects tls.crt and tls.key files, and optionally ca.crt.
+// This is typically used when a Kubernetes Secret is mounted as a volume.
+//
+// Client certificates are loaded via GetClientCertificate so that every TLS
+// handshake re-reads the files from disk, automatically picking up rotated
+// certificates (e.g. renewed by cert-manager) without requiring a reconnect.
+func configureDirectoryTLS(tlsConfig *tls.Config, dir string) error {
+	certPath := filepath.Join(dir, "tls.crt")
+	keyPath := filepath.Join(dir, "tls.key")
+	caPath := filepath.Join(dir, "ca.crt")
+
+	// Verify that the required files are readable at configuration time
+	if _, err := os.ReadFile(certPath); err != nil {
+		return fmt.Errorf("failed to read TLS certificate from %q: %w", certPath, err)
+	}
+	if _, err := os.ReadFile(keyPath); err != nil {
+		return fmt.Errorf("failed to read TLS private key from %q: %w", keyPath, err)
+	}
+
+	// Use GetClientCertificate so the cert/key are re-read on every TLS
+	// handshake, ensuring rotated certificates are picked up immediately.
+	tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		certPEM, err := os.ReadFile(certPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TLS certificate from %q: %w", certPath, err)
 		}
-		if config.RootCa != nil {
+		keyPEM, err := os.ReadFile(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TLS private key from %q: %w", keyPath, err)
+		}
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse TLS certificate from directory %q: %w", dir, err)
+		}
+
+		caCertPEM, err := os.ReadFile(caPath)
+		if err == nil && len(caCertPEM) > 0 {
 			caPool := x509.NewCertPool()
-			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-				return nil, errors.New("failed to parse provided root CA")
+			if !caPool.AppendCertsFromPEM(caCertPEM) {
+				return nil, fmt.Errorf("failed to parse CA certificate from %q", caPath)
 			}
-			tlsSetting.RootCAs = caPool
+			tlsConfig.RootCAs = caPool
 		}
-		if config.TlsHost != "" {
-			tlsSetting.ServerName = config.TlsHost
+
+		return &cert, nil
+	}
+
+	return nil
+}
+
+// configureInlineTLS configures the tls.Config using inline certificate/key
+// PEM values from the ClickHouse peer config.
+func configureInlineTLS(tlsConfig *tls.Config, config *protos.ClickhouseConfig) error {
+	if config.Certificate != nil || config.PrivateKey != nil {
+		if config.Certificate == nil || config.PrivateKey == nil {
+			return errors.New("both certificate and private key must be provided if using certificate-based authentication")
 		}
+		cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+		if err != nil {
+			return fmt.Errorf("failed to parse provided certificate: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+	if config.RootCa != nil {
+		caPool := x509.NewCertPool()
+		if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
+			return errors.New("failed to parse provided root CA")
+		}
+		tlsConfig.RootCAs = caPool
+	}
+	return nil
+}
+
+// buildTLSConfig builds the TLS configuration for a ClickHouse connection.
+// When a TLS certificate directory is configured, it loads certificates from the directory.
+// Otherwise, inline certificates are used.
+func buildTLSConfig(config *protos.ClickhouseConfig) (*tls.Config, error) {
+	if config.DisableTls {
+		return nil, nil
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		ServerName: config.TlsHost,
+	}
+	certDir := config.GetTlsCertificateDirectory()
+
+	if certDir != "" {
+		if err := configureDirectoryTLS(tlsConfig, certDir); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := configureInlineTLS(tlsConfig, config); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(tlsConfig.Certificates) == 0 {
+		return nil, fmt.Errorf("TLS is enabled but it was not possible to configure it")
+	}
+
+	return tlsConfig, nil
+}
+
+func Connect(ctx context.Context, env map[string]string, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
+	tlsSetting, err := buildTLSConfig(config)
+	if err != nil {
+		return nil, err
 	}
 
 	settings := clickhouse.Settings{
