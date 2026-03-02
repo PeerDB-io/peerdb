@@ -460,6 +460,120 @@ func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
 	}
 }
 
+func (s APITestSuite) TestPostgresDestinationValidation_MissingColumns() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	// Create source table with multiple columns
+	srcTableName := AttachSchema(s, "validation_src")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, col2 int, col3 timestamp)", srcTableName)))
+
+	// Create destination table with missing columns (only id and col1)
+	dstTableName := AttachSchema(s, "validation_dst")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableName))
+	require.NoError(s.t, err)
+
+	// Test validation should fail because col2 and col3 are missing from destination
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_fail_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err, "expected validation to fail due to missing columns")
+	require.Nil(s.t, response)
+
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error")
+	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition error code")
+	require.Contains(s.t, st.Message(), "not found in destination table")
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_ExtraColumnsOk() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	// Create source table with two columns
+	srcTableName := AttachSchema(s, "validation_src_extra")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", srcTableName)))
+
+	// Create destination table with extra columns (should be fine)
+	dstTableName := AttachSchema(s, "validation_dst_extra")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, col2 int, col3 timestamp)", dstTableName))
+	require.NoError(s.t, err)
+
+	// Test validation should succeed
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_pass_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err, "validation should succeed when destination has extra columns")
+	require.NotNil(s.t, response)
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_WithExcludedColumns() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	// Create source table with multiple columns
+	srcTableName := AttachSchema(s, "validation_src_exclude")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, excluded_col int)", srcTableName)))
+
+	// Create destination table without the excluded column (should be fine)
+	dstTableName := AttachSchema(s, "validation_dst_exclude")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableName))
+	require.NoError(s.t, err)
+
+	// Test validation should succeed because excluded_col is excluded
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_exclude_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"excluded_col"},
+			},
+		},
+		DoInitialSnapshot: true,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err, "validation should succeed when excluded columns are not in destination")
+	require.NotNil(s.t, response)
+}
+
 func (s APITestSuite) TestSchemaEndpoints() {
 	tableName := "listing"
 	peer := s.source.GeneratePeer(s.t)
