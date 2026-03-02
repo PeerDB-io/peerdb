@@ -465,8 +465,6 @@ func syncQRepRecords(
 
 	c.logger.Info("SyncRecords called and initial checks complete.")
 
-	//time.Sleep(2 * time.Second)
-
 	flowJobName := config.FlowJobName
 	writeMode := config.WriteMode
 	syncedAtCol := config.SyncedAtColName
