@@ -515,8 +515,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		func(errCtx context.Context, s TWrite) error {
 			numRecords, numBytes, pullErr := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, s)
 			if pullErr != nil {
-				a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", pullErr)
-				return pullErr
+				return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", pullErr)
 			}
 			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 			if monErr := monitoring.UpdatePullEndTimeAndRowsForPartition(
@@ -529,8 +528,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		func(errCtx context.Context, o TRead) (int64, error) {
 			synced, warnings, syncErr := syncRecords(dstConn, errCtx, config, partition, o)
 			if syncErr != nil {
-				a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", syncErr)
-				return 0, syncErr
+				return 0, a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", syncErr)
 			}
 			for _, warning := range warnings {
 				a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)

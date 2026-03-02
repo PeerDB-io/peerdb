@@ -285,7 +285,7 @@ func TestOrchestratePullAndSync_QRecordSyncError_OnSyncFailureHookUnblocksBlocke
 			stream,
 			pull,
 			sync,
-			drainQRecordStreamOnSyncFailure(internal.LoggerFromCtx(context.Background()), stream),
+			drainChannelOnSyncFailure(internal.LoggerFromCtx(context.Background()), "draining record stream to unblock pull", stream.Records),
 		)
 
 		require.True(t, completed, "deadlocked: blocked producer was not unblocked on sync failure")

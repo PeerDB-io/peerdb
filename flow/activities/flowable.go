@@ -55,21 +55,11 @@ type StreamCloser interface {
 	Close(error)
 }
 
-func drainQRecordStreamOnSyncFailure(logger log.Logger, stream *model.QRecordStream) func(error) {
+func drainChannelOnSyncFailure[T any](logger log.Logger, msg string, ch <-chan T) func(error) {
 	return func(syncErr error) {
-		logger.Warn("draining record stream to unblock pull after sync failure", "error", syncErr)
+		logger.Warn(msg, "error", syncErr)
 		go func() {
-			for range stream.Records {
-			}
-		}()
-	}
-}
-
-func drainQObjectStreamOnSyncFailure(logger log.Logger, stream *model.QObjectStream) func(error) {
-	return func(syncErr error) {
-		logger.Warn("draining object stream to unblock pull after sync failure", "error", syncErr)
-		go func() {
-			for range stream.Objects {
+			for range ch {
 			}
 		}()
 	}
@@ -683,7 +673,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, outstream,
 				connectors.QRepPullConnector.PullQRepRecords,
 				connectors.QRepSyncConnector.SyncQRepRecords,
-				drainQRecordStreamOnSyncFailure(logger, outstream),
+				drainChannelOnSyncFailure(logger, "draining record stream to unblock pull after sync failure", outstream.Records),
 			)
 		}, nil
 	}
@@ -708,7 +698,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
 				connectors.QRepPullObjectsConnector.PullQRepObjects,
 				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
-				drainQObjectStreamOnSyncFailure(logger, stream),
+				drainChannelOnSyncFailure(logger, "draining object stream to unblock pull after sync failure", stream.Objects),
 			)
 		}, nil
 	}
