@@ -90,7 +90,7 @@ func (s *QObjectStream) Send(ctx context.Context, object *Object) error {
 	}
 }
 
-func (s *QObjectStream) ReportQRepSyncError(err error) {
+func (s *QObjectStream) HandleQRepSyncError(err error) {
 	// no-op for QObjectStream
 }
 

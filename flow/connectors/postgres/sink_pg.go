@@ -45,7 +45,7 @@ func (p PgCopyWriter) SetSchema(schema []string) {
 	p.schema.schemaLatch.Set(schema)
 }
 
-func (p PgCopyWriter) ReportQRepSyncError(err error) {
+func (p PgCopyWriter) HandleQRepSyncError(err error) {
 	p.Close(err)
 }
 

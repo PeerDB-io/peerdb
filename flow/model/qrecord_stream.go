@@ -48,7 +48,7 @@ func (s *QRecordStream) SchemaChan() <-chan struct{} {
 	return s.schemaLatch.Chan()
 }
 
-func (s *QRecordStream) ReportQRepSyncError(err error) {
+func (s *QRecordStream) HandleQRepSyncError(err error) {
 	// no-op for QRecordStream
 }
 

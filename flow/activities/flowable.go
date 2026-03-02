@@ -52,7 +52,7 @@ type FlowableActivity struct {
 }
 
 type QRepStreamCloser interface {
-	ReportQRepSyncError(error)
+	HandleQRepSyncError(error)
 	Close(error)
 }
 

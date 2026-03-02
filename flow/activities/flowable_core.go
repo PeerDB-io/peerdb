@@ -488,7 +488,7 @@ func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
-			stream.ReportQRepSyncError(err)
+			stream.HandleQRepSyncError(err)
 			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
 		}
 		for _, warning := range warnings {
@@ -605,7 +605,7 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
-			stream.ReportQRepSyncError(err)
+			stream.HandleQRepSyncError(err)
 			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
 		}
 		for _, warning := range warnings {
