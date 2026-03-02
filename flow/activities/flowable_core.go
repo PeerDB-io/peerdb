@@ -488,6 +488,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
+			stream.ReportSyncError(err)
 			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
 		}
 		for _, warning := range warnings {

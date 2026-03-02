@@ -12,11 +12,11 @@ type QRecordBatch struct {
 
 func (q *QRecordBatch) ToQRecordStream(buffer int) *QRecordStream {
 	stream := NewQRecordStream(min(buffer, len(q.Records)))
-	go q.FeedToQRecordStream(stream)
+	go q.feedToQRecordStream(stream)
 	return stream
 }
 
-func (q *QRecordBatch) FeedToQRecordStream(stream *QRecordStream) {
+func (q *QRecordBatch) feedToQRecordStream(stream *QRecordStream) {
 	stream.SetSchema(q.Schema)
 
 	for _, record := range q.Records {

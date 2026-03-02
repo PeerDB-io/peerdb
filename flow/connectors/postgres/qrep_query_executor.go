@@ -314,7 +314,12 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
 		}
-		stream.Records <- record
+
+		if err := stream.Send(ctx, record); err != nil {
+			qe.logger.Info("Context canceled while sending record to stream, exiting processRowsStream early")
+			return numRows, numBytes, err
+		}
+
 		numRows++
 		for _, val := range rows.RawValues() {
 			numBytes += int64(len(val))

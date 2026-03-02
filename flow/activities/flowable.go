@@ -52,6 +52,7 @@ type FlowableActivity struct {
 }
 
 type StreamCloser interface {
+	ReportSyncError(error)
 	Close(error)
 }
 

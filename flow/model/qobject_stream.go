@@ -75,6 +75,10 @@ func (s *QObjectStream) Err() error {
 	return s.err
 }
 
+func (s *QObjectStream) ReportSyncError(err error) {
+	// no-op for QObjectStream
+}
+
 func (s *QObjectStream) Close(err error) {
 	if s.err == nil {
 		s.err = err

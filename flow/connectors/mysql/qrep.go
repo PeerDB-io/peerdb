@@ -218,7 +218,11 @@ func (c *MySqlConnector) PullQRepRecords(
 			}
 			record = append(record, qv)
 		}
-		stream.Records <- record
+
+		if err := stream.Send(ctx, record); err != nil {
+			return fmt.Errorf("failed to send record to stream: %w", err)
+		}
+
 		if totalRecords%50000 == 0 {
 			c.logger.Info("[mysql] pulling records",
 				slog.Int64("records", totalRecords),

@@ -45,6 +45,10 @@ func (p PgCopyWriter) SetSchema(schema []string) {
 	p.schema.schemaLatch.Set(schema)
 }
 
+func (p PgCopyWriter) ReportSyncError(err error) {
+	p.Close(err)
+}
+
 func (p PgCopyWriter) ExecuteQueryWithTx(
 	ctx context.Context,
 	qe *QRepQueryExecutor,

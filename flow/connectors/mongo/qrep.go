@@ -220,7 +220,11 @@ func (c *MongoConnector) PullQRepRecords(
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
 		}
-		stream.Records <- record
+
+		if err = stream.Send(ctx, record); err != nil {
+			return 0, 0, fmt.Errorf("failed to send record to stream: %w", err)
+		}
+
 		totalRecords += 1
 		if totalRecords%50000 == 0 {
 			c.logger.Info("[mongo] pulling records",
