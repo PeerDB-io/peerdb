@@ -342,18 +342,15 @@ func (c *PostgresConnector) getDestinationTableColumns(ctx context.Context, tabl
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var columns []string
-	for rows.Next() {
+	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
 		var colName string
-		if err := rows.Scan(&colName); err != nil {
-			return nil, err
+		if err := row.Scan(&colName); err != nil {
+			return "", err
 		}
-		columns = append(columns, colName)
-	}
-
-	if err := rows.Err(); err != nil {
+		return colName, nil
+	})
+	if err != nil {
 		return nil, err
 	}
 
