@@ -904,13 +904,14 @@ func processMessage[Items model.Items](
 		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
-		// treat all relation messages as corresponding to parent if partitioned.
-		msg.RelationID, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
+		// For child tables (partitioned/inherited), we still process the message but store under actual relID
+		// so that tuple decoding uses the correct per-relation schema. Use effective (parent) relID only for "do we care" check.
+		effectiveRelID, err := p.checkIfUnknownTableInherits(ctx, msg.RelationID)
 		if err != nil {
 			return nil, err
 		}
 
-		if _, exists := p.srcTableIDNameMapping[msg.RelationID]; !exists {
+		if _, exists := p.srcTableIDNameMapping[effectiveRelID]; !exists {
 			return nil, nil
 		}
 
@@ -952,7 +953,10 @@ func processInsertMessage[Items model.Items](
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
-	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
+	// Use actual relation (child) for decoding tuple; use parent only for table/schema mapping.
+	// For inherited tables, the child can have different column types than the parent (e.g. TEXT vs UUID).
+	actualRelID := msg.RelationID
+	relID := p.getParentRelIDIfPartitioned(actualRelID)
 
 	tableName, exists := p.srcTableIDNameMapping[relID]
 	if !exists {
@@ -962,9 +966,10 @@ func processInsertMessage[Items model.Items](
 	// log lsn and relation id for debugging
 	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
 
-	rel, ok := p.relationMessageMapping[relID]
+	// Decode using the relation that produced this tuple (child), not the parent's schema.
+	rel, ok := p.relationMessageMapping[actualRelID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", relID)
+		return nil, fmt.Errorf("unknown relation id: %d", actualRelID)
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -994,7 +999,9 @@ func processUpdateMessage[Items model.Items](
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
-	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
+	// Use actual relation (child) for decoding tuple; use parent only for table/schema mapping.
+	actualRelID := msg.RelationID
+	relID := p.getParentRelIDIfPartitioned(actualRelID)
 
 	tableName, exists := p.srcTableIDNameMapping[relID]
 	if !exists {
@@ -1004,9 +1011,10 @@ func processUpdateMessage[Items model.Items](
 	// log lsn and relation id for debugging
 	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
 
-	rel, ok := p.relationMessageMapping[relID]
+	// Decode using the relation that produced this tuple (child), not the parent's schema.
+	rel, ok := p.relationMessageMapping[actualRelID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", relID)
+		return nil, fmt.Errorf("unknown relation id: %d", actualRelID)
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -1057,7 +1065,9 @@ func processDeleteMessage[Items model.Items](
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
-	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
+	// Use actual relation (child) for decoding tuple; use parent only for table/schema mapping.
+	actualRelID := msg.RelationID
+	relID := p.getParentRelIDIfPartitioned(actualRelID)
 
 	tableName, exists := p.srcTableIDNameMapping[relID]
 	if !exists {
@@ -1067,9 +1077,10 @@ func processDeleteMessage[Items model.Items](
 	// log lsn and relation id for debugging
 	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
 
-	rel, ok := p.relationMessageMapping[relID]
+	// Decode using the relation that produced this tuple (child), not the parent's schema.
+	rel, ok := p.relationMessageMapping[actualRelID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", relID)
+		return nil, fmt.Errorf("unknown relation id: %d", actualRelID)
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -1098,13 +1109,38 @@ func processRelationMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	currRel *pglogrepl.RelationMessage,
 ) (model.Record[Items], error) {
-	// not present in tables to sync, return immediately
-	currRelName, ok := p.srcTableIDNameMapping[currRel.RelationID]
+	// Resolve to logical (parent) table for name/schema lookups; we still store under actual relID for correct tuple decoding.
+	effectiveRelID := p.getParentRelIDIfPartitioned(currRel.RelationID)
+	currRelName, ok := p.srcTableIDNameMapping[effectiveRelID]
 	if !ok {
 		p.logger.Warn("relid not present in srcTableIDNameMapping, skipping relation message",
 			slog.Uint64("relId", uint64(currRel.RelationID)))
 		return nil, nil
 	}
+
+	// For child tables (partitioned/inherited), query the parent's actual columns
+	// to distinguish child-specific columns from genuinely new parent columns.
+	// Without this, columns unique to a child table are falsely detected as schema
+	// changes on the parent, triggering spurious ALTER TABLE statements on the destination.
+	isChildTable := currRel.RelationID != effectiveRelID
+	var parentColumnSet map[string]struct{}
+	if isChildTable {
+		parentRows, err := p.conn.Query(ctx,
+			"select attname from pg_attribute where attrelid=$1 and attnum > 0 and not attisdropped",
+			effectiveRelID)
+		if err != nil {
+			return nil, fmt.Errorf("error querying parent table columns for schema delta: %w", err)
+		}
+		parentColumns, err := pgx.CollectRows[string](parentRows, pgx.RowTo)
+		if err != nil {
+			return nil, fmt.Errorf("error collecting parent table columns for schema delta: %w", err)
+		}
+		parentColumnSet = make(map[string]struct{}, len(parentColumns))
+		for _, name := range parentColumns {
+			parentColumnSet[name] = struct{}{}
+		}
+	}
+
 	customTypeMapping, err := p.fetchCustomTypeMapping(ctx)
 	if err != nil {
 		return nil, err
@@ -1154,8 +1190,8 @@ func processRelationMessage[Items model.Items](
 
 	var potentiallyNullableAddedColumns []string
 	schemaDelta := &protos.TableSchemaDelta{
-		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
-		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
+		SrcTableName:    p.srcTableIDNameMapping[effectiveRelID],
+		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[effectiveRelID]].Name,
 		AddedColumns:    nil,
 		System:          prevSchema.System,
 		NullableEnabled: prevSchema.NullableEnabled,
@@ -1166,7 +1202,14 @@ func processRelationMessage[Items model.Items](
 		if inPrevRel {
 			return false
 		}
-		_, isExcluded := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[columnName]
+		// For child tables, only propagate columns that actually exist on the parent table.
+		// Columns unique to the child should not trigger schema deltas.
+		if parentColumnSet != nil {
+			if _, onParent := parentColumnSet[columnName]; !onParent {
+				return false
+			}
+		}
+		_, isExcluded := p.tableNameMapping[p.srcTableIDNameMapping[effectiveRelID]].Exclude[columnName]
 		return !isExcluded
 	}
 
