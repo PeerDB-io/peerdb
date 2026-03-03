@@ -39,7 +39,7 @@ func (c *MongoConnector) GetQRepPartitions(
 	}
 
 	if config.NumRowsPerPartition <= 0 {
-		return nil, errors.New("num rows per partition must be greater than 0")
+		return nil, fmt.Errorf("num rows per partition must be greater than 0")
 	} else if last != nil && last.Range != nil {
 		return nil, fmt.Errorf("last partition is not supported for MongoDB connector, got: %v", last)
 	}
@@ -295,7 +295,7 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 			}},
 		}, nil
 	default:
-		return nil, errors.New("unsupported partition range type")
+		return nil, fmt.Errorf("unsupported partition range type")
 	}
 }
 

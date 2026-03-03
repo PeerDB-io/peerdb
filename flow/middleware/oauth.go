@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -135,7 +134,7 @@ func validateRequestToken(authHeader string, claims map[string]string, ip ...ide
 // it truncates the "Bearer" prefix from the header value if exists.
 func jwtFromRequest(authHeader string) ([]byte, error) {
 	if authHeader == "" {
-		return nil, errors.New("missing Authorization header")
+		return nil, fmt.Errorf("missing Authorization header")
 	}
 
 	return []byte(strings.TrimPrefix(authHeader, "Bearer ")), nil
@@ -164,7 +163,7 @@ func identityProviderByToken(ip []identityProvider, token jwt.Token) (identityPr
 
 		return identityProvider{}, fmt.Errorf("identity provider for issuer %s not found", issuer)
 	}
-	return identityProvider{}, errors.New("no identity provider on token")
+	return identityProvider{}, fmt.Errorf("no identity provider on token")
 }
 
 type identityProviderResolver func(ctx context.Context, cfg AuthenticationConfig) (*identityProvider, error)
@@ -190,7 +189,7 @@ func identityProvidersFromConfig(ctx context.Context, cfg AuthenticationConfig) 
 	}
 
 	if len(ip) == 0 {
-		return nil, errors.New("no identity providers configured")
+		return nil, fmt.Errorf("no identity providers configured")
 	}
 
 	return ip, nil

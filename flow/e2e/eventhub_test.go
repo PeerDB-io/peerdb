@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -49,7 +48,7 @@ func (s EventhubsSuite) Suffix() string {
 func EventhubsCreds() (*protos.EventHubConfig, error) {
 	jsonPath := os.Getenv("TEST_EH_CREDS")
 	if jsonPath == "" {
-		return nil, errors.New("TEST_EH_CREDS env var not set")
+		return nil, fmt.Errorf("TEST_EH_CREDS env var not set")
 	}
 
 	content, err := e2eshared.ReadFileToBytes(jsonPath)

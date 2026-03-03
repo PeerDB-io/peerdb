@@ -447,7 +447,7 @@ func CDCFlowWorkflow(
 	state *cdc_state.CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
 	if cfg == nil {
-		return nil, errors.New("invalid connection configs")
+		return nil, fmt.Errorf("invalid connection configs")
 	}
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))

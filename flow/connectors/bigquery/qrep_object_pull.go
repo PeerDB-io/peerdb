@@ -42,12 +42,12 @@ func (c *BigQueryConnector) PullQRepObjects(
 	stream.SetSchema(schema)
 
 	if partition == nil || partition.Range == nil {
-		return 0, 0, errors.New("partition and partition range must be provided")
+		return 0, 0, fmt.Errorf("partition and partition range must be provided")
 	}
 
 	objectRange := partition.Range.GetObjectIdRange()
 	if objectRange == nil {
-		return 0, 0, errors.New("invalid partition range")
+		return 0, 0, fmt.Errorf("invalid partition range")
 	}
 
 	stagingPath, err := parseGCSPath(config.StagingPath)

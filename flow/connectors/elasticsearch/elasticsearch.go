@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -281,7 +280,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 	if cacheCloser() {
 		esc.logger.Error("[elasticsearch] failed to close bulk indexer(s)")
-		return nil, errors.New("[elasticsearch] failed to close bulk indexer(s)")
+		return nil, fmt.Errorf("[elasticsearch] failed to close bulk indexer(s)")
 	}
 	if len(bulkIndexErrors) > 0 {
 		for _, err := range bulkIndexErrors {

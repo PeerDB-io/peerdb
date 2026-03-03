@@ -426,7 +426,7 @@ func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T
 
 func TestPostgresQueryCancelledDuringWalShouldBeNotifyConnectivity(t *testing.T) {
 	// Simulate a query cancelled error during WAL
-	err := exceptions.NewPostgresWalError(errors.New("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
+	err := exceptions.NewPostgresWalError(fmt.Errorf("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
 		Severity: "ERROR",
 		Code:     pgerrcode.QueryCanceled,
 		Message:  "canceling statement due to user request",
@@ -441,7 +441,7 @@ func TestPostgresQueryCancelledDuringWalShouldBeNotifyConnectivity(t *testing.T)
 
 func TestRandomErrorShouldBeOther(t *testing.T) {
 	// Simulate a random error
-	err := errors.New("some random error")
+	err := fmt.Errorf("some random error")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
 	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -695,7 +695,7 @@ func TestMongoShutdownInProgressErrorShouldBeIgnored(t *testing.T) {
 
 func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 	//nolint:lll
-	err := errors.New("change stream error: connection pool for abc.123.mongodb.net:27017 was cleared because another operation failed with: (InterruptedDueToReplStateChange) operation was interrupted")
+	err := fmt.Errorf("change stream error: connection pool for abc.123.mongodb.net:27017 was cleared because another operation failed with: (InterruptedDueToReplStateChange) operation was interrupted")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{

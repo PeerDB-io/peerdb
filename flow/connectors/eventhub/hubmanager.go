@@ -186,7 +186,7 @@ func (m *EventHubManager) getEventHubMgmtClient(ctx context.Context, subID strin
 		envSubID := internal.GetEnvString("AZURE_SUBSCRIPTION_ID", "")
 		if envSubID == "" {
 			slog.ErrorContext(ctx, "couldn't find AZURE_SUBSCRIPTION_ID in environment")
-			return nil, errors.New("couldn't find AZURE_SUBSCRIPTION_ID in environment")
+			return nil, fmt.Errorf("couldn't find AZURE_SUBSCRIPTION_ID in environment")
 		}
 		subID = envSubID
 	}

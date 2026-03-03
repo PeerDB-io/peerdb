@@ -293,7 +293,7 @@ func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion
 		pubOpt := "publication_names " + utils.QuoteLiteral(publicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
-		return pglogrepl.StartReplicationOptions{}, errors.New("publication name is not set")
+		return pglogrepl.StartReplicationOptions{}, fmt.Errorf("publication name is not set")
 	}
 
 	if pgVersion >= shared.POSTGRES_14 {
@@ -338,7 +338,7 @@ func (c *PostgresConnector) Conn() *pgx.Conn {
 // ConnectionActive returns nil if the connection is active.
 func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 	if c.conn == nil {
-		return errors.New("connection is nil")
+		return fmt.Errorf("connection is nil")
 	}
 	_, pingErr := c.conn.Exec(ctx, "SELECT 1")
 	return pingErr
@@ -2036,7 +2036,7 @@ func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, tabl
 		return 0, err
 	}
 	if !tableSizeBytes.Valid {
-		return 0, errors.New("table size is not valid")
+		return 0, fmt.Errorf("table size is not valid")
 	}
 	return tableSizeBytes.Int64, nil
 }

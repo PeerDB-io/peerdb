@@ -88,7 +88,7 @@ func generateFlowConfigConverter() error {
 	}
 
 	if len(fields) == 0 {
-		return errors.New("no fields found in FlowConnectionConfigs")
+		return fmt.Errorf("no fields found in FlowConnectionConfigs")
 	}
 
 	// Generate the conversion functions
@@ -160,11 +160,11 @@ func extractAndCompareFields(node *ast.File) ([]string, []string, error) {
 	})
 
 	if !seenFlowConnectionConfigs {
-		return nil, nil, errors.New("couldn't find FlowConnectionConfigs struct, are protos correctly generated?")
+		return nil, nil, fmt.Errorf("couldn't find FlowConnectionConfigs struct, are protos correctly generated?")
 	}
 
 	if !seenFlowConnectionConfigsCore {
-		return nil, nil, errors.New("couldn't find FlowConnectionConfigsCore struct, are protos correctly generated?")
+		return nil, nil, fmt.Errorf("couldn't find FlowConnectionConfigsCore struct, are protos correctly generated?")
 	}
 
 	// Sort for comparison

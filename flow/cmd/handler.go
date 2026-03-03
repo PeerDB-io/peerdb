@@ -160,7 +160,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 ) (*protos.CreateCDCFlowResponse, APIError) {
 	cfg := req.ConnectionConfigs
 	if cfg == nil {
-		return nil, NewInvalidArgumentApiError(errors.New("connection configs cannot be nil"))
+		return nil, NewInvalidArgumentApiError(fmt.Errorf("connection configs cannot be nil"))
 	}
 	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, cfg.Env); err != nil {
 		return nil, NewInternalApiError(err)
@@ -490,7 +490,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, NewInternalApiError(fmt.Errorf("unable to determine if mirror is cdc: %w", err))
 			} else if !isCDC {
-				return nil, NewInvalidArgumentApiError(errors.New("resync is only supported for CDC mirrors"))
+				return nil, NewInvalidArgumentApiError(fmt.Errorf("resync is only supported for CDC mirrors"))
 			} else {
 				slog.InfoContext(ctx, "resync requested for cdc flow", logs)
 				// getting config before dropping the flow since the flow entry is deleted unconditionally
@@ -657,7 +657,7 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 		return err
 	}
 	if !isCDC {
-		return errors.New("resync is only supported for CDC mirrors")
+		return fmt.Errorf("resync is only supported for CDC mirrors")
 	}
 	// getting config before dropping the flow since the flow entry is deleted unconditionally
 	config, err := h.getFlowConfigFromCatalog(ctx, flowName)
@@ -729,7 +729,7 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 			RunId:      workflowRun.GetRunID(),
 		}, nil
 	}
-	return nil, NewInvalidArgumentApiError(errors.New("invalid maintenance status"))
+	return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid maintenance status"))
 }
 
 type maintenanceWorkflowType string
@@ -866,7 +866,7 @@ func (h *FlowRequestHandler) SkipSnapshotWaitFlows(
 		return &protos.SkipSnapshotWaitFlowsResponse{
 			SignalSent: false,
 			Message:    "StartMaintenanceWorkflow is not currently running",
-		}, NewInternalApiError(errors.New("StartMaintenanceWorkflow is not currently running"))
+		}, NewInternalApiError(fmt.Errorf("StartMaintenanceWorkflow is not currently running"))
 	}
 
 	// Send the signal with the list of flow names using StartMaintenanceSignal
