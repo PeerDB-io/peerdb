@@ -103,26 +103,26 @@ func (c *PostgresConnector) GetTablesInSchema(
 
 func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error) {
 	rows, err := c.conn.Query(ctx, `SELECT
-    DISTINCT attname AS column_name,
+    attname AS column_name,
     atttypid AS oid,
     format_type(atttypid, atttypmod) AS data_type,
-    (pg_constraint.contype = 'p') AS is_primary_key,
-    (idx.indkey IS NOT NULL) AS is_replica_identity
-	FROM pg_attribute
-	JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
-	JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
-	LEFT JOIN pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
-		AND pg_attribute.attnum = ANY(pg_constraint.conkey)
-		AND pg_constraint.contype = 'p'
-	LEFT JOIN pg_index idx ON pg_attribute.attrelid = idx.indrelid
-		AND ((idx.indisprimary AND pg_class.relreplident = 'd') OR idx.indisreplident)
-		AND pg_attribute.attnum = ANY(idx.indkey)
-		AND idx.indisvalid AND idx.indisready AND idx.indislive
-	WHERE pg_namespace.nspname = $1
-		AND relname = $2
-		AND pg_attribute.attnum > 0
-		AND NOT attisdropped
-	ORDER BY column_name;`, schema, table)
+    COALESCE(bool_or(pg_constraint.contype = 'p'), false) AS is_primary_key,
+    COALESCE(bool_or(idx.indkey IS NOT NULL AND pg_attribute.attnum = ANY(idx.indkey)), false) AS is_replica_identity
+    FROM pg_attribute
+    JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
+    JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
+    LEFT JOIN pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
+        AND pg_attribute.attnum = ANY(pg_constraint.conkey)
+        AND pg_constraint.contype = 'p'
+    LEFT JOIN pg_index idx ON pg_attribute.attrelid = idx.indrelid
+        AND ((idx.indisprimary AND pg_class.relreplident = 'd') OR idx.indisreplident)
+        AND idx.indisvalid AND idx.indisready AND idx.indislive
+    WHERE pg_namespace.nspname = $1
+        AND relname = $2
+        AND pg_attribute.attnum > 0
+        AND NOT attisdropped
+    GROUP BY attname, atttypid, atttypmod
+    ORDER BY attname;`, schema, table)
 	if err != nil {
 		return nil, err
 	}
