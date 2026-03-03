@@ -186,6 +186,9 @@ message ClickhouseConfig{
   optional S3Config s3 = 16;
   string cluster = 17;
   bool replicated = 18;
+  // Kubernetes Secret name containing TLS client certificate (created by cert-manager format).
+  // When set, it takes precedence over `certificate` and `private_key` fields.
+  optional string tls_certificate_secret_name = 19;
 }
 
 message SqlServerConfig {
