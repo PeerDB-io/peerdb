@@ -51,7 +51,8 @@ type FlowableActivity struct {
 	TemporalClient client.Client
 }
 
-type StreamCloser interface {
+type QRepStreamCloser interface {
+	HandleQRepSyncError(error)
 	Close(error)
 }
 
