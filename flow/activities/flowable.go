@@ -1307,11 +1307,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 		if qryErr == nil {
 			flowName := info.config.FlowJobName
-			// record 0 as the lag if the flow is not in the normalizeLagByFlow map,
-			var lagMicroseconds int64
-			if lag, ok := normalizeLagByFlow[flowName]; ok {
-				lagMicroseconds = lag
-			}
+			lagMicroseconds := normalizeLagByFlow[flowName] // record 0 as the lag if the flow is not in the map
 			a.OtelManager.Metrics.NormalizeLagGauge.Record(ctx, lagMicroseconds, metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.FlowNameKey, flowName),
 			)))
