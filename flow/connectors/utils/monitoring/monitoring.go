@@ -120,7 +120,7 @@ func GetPendingNormalizeLagByFlow(
 	ctx context.Context,
 	pool shared.CatalogPool,
 ) (map[string]int64, error) {
-	// using server-side time delta to avoid clock skew
+	// using catalog time to avoid clock skew with ScheduledTasks
 	rows, err := pool.Query(ctx,
 		`SELECT flow_name, (EXTRACT(EPOCH FROM (NOW() - MIN(sync_time))) * 1000000)::bigint
 		FROM peerdb_stats.cdc_batches
