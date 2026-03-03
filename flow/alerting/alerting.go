@@ -460,8 +460,8 @@ func (a *Alerter) recordFlowErrorInternal(
 	err error,
 ) {
 	logger := internal.LoggerFromCtx(ctx)
-	errorClass, errInfo := GetErrorClass(ctx, err)
-	errWithStack := fmt.Sprintf("%+v", err)
+	errClass, errInfo := GetErrorClass(ctx, err)
+	errMessage := fmt.Sprintf("%+v", err)
 
 	// 1. Log the error internally
 	logFn := logger.Error
@@ -469,15 +469,14 @@ func (a *Alerter) recordFlowErrorInternal(
 		logFn = logger.Warn
 	}
 	logFn(err.Error(),
-		slog.Any("errorClass", errorClass),
+		slog.Any("errorClass", errClass),
 		slog.Any("errorInfo", errInfo),
-		slog.Any("stack", errWithStack),
+		slog.Any("errorMessage", errMessage),
 		slog.String("flowErrorType", errorType.String()),
-		slog.String("logAudience", "user"),
 	)
 
 	// 2. Insert log to flow_errors table
-	if err := InsertFlowLog(ctx, a.CatalogPool, flowName, errWithStack, errorType); err != nil {
+	if err := InsertFlowLog(ctx, a.CatalogPool, flowName, errMessage, errorType); err != nil {
 		logger.Error("failed to insert flow error", slog.Any("error", err))
 	}
 
@@ -518,14 +517,14 @@ func (a *Alerter) recordFlowErrorInternal(
 		if errors.As(err, &sshErr) {
 			tags = append(tags, string(shared.ErrTypeNet))
 		}
-		tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
-		a.sendTelemetryMessage(ctx, flowName, errWithStack, telemetry.ERROR, tags...)
+		tags = append(tags, "errorClass:"+errClass.String(), "errorAction:"+errClass.ErrorAction().String())
+		a.sendTelemetryMessage(ctx, flowName, errMessage, telemetry.ERROR, tags...)
 	}
 
 	// 4. Record error metrics
 	errorAttributes := []attribute.KeyValue{
-		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
-		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
+		attribute.Stringer(otel_metrics.ErrorClassKey, errClass),
+		attribute.Stringer(otel_metrics.ErrorActionKey, errClass.ErrorAction()),
 		attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),
 		attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
 	}
@@ -554,15 +553,14 @@ func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, err error
 	a.recordFlowErrorInternal(ctx, flowName, FlowErrorTypeWarn, err)
 }
 
-func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {
-	logger := internal.LoggerFromCtx(ctx)
-	logger.Info(info, slog.String("logAudience", "user"))
-	if err := InsertFlowLog(ctx, a.CatalogPool, flowName, info, FlowErrorTypeInfo); err != nil {
-		logger.Warn("failed to insert flow info", slog.Any("error", err))
+func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, message string) {
+	if err := InsertFlowLog(ctx, a.CatalogPool, flowName, message, FlowErrorTypeInfo); err != nil {
+		logger := internal.SlogLoggerFromCtx(ctx)
+		logger.WarnContext(ctx, "failed to insert flow info", slog.Any("error", err))
 	}
 }
 
-// Historically flow_errors table only stored errors, hence the name.
+// InsertFlowLog Historically flow_errors table only stored errors, hence the name.
 // It has since evolved to surface all user-facing logs.
 func InsertFlowLog(
 	ctx context.Context,
@@ -571,6 +569,13 @@ func InsertFlowLog(
 	message string,
 	errorType FlowErrorType,
 ) error {
+	logger := internal.SlogLoggerFromCtx(ctx)
+	logger.InfoContext(ctx, fmt.Sprintf("inserting user-facing flow log: [%s] %s", errorType.String(), message),
+		slog.String("flowName", flowName),
+		slog.String("severity", errorType.String()),
+		slog.String("message", message),
+		slog.String("logAudience", "user"),
+	)
 	_, err := catalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, message, errorType.String(),
