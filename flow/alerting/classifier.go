@@ -881,6 +881,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyClickHouseError, chErrorInfo
 			}
 			return ErrorRetryRecoverable, chErrorInfo
+		case chproto.ErrCannotAssignAlter:
+			return ErrorNotifyClickHouseError, chErrorInfo
 		case chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
@@ -935,8 +937,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
 			chproto.ErrSocketTimeout,
-			chproto.ErrTableIsReadOnly,
-			chproto.ErrCannotAssignAlter:
+			chproto.ErrTableIsReadOnly:
 			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrTimeoutExceeded:
 			if strings.HasSuffix(chException.Message, "distributed_ddl_task_timeout") {
