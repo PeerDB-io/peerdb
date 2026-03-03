@@ -306,7 +306,7 @@ func (a *FlowableActivity) SyncFlow(
 	var normalizeWaiting atomic.Bool
 	var syncingBatchID atomic.Int64
 	var syncState atomic.Pointer[string]
-	syncState.Store(shared.Ptr("setup"))
+	syncState.Store(new("setup"))
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
 		sBatchID := syncingBatchID.Load()
@@ -400,7 +400,7 @@ func (a *FlowableActivity) SyncFlow(
 				break
 			}
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
-			syncState.Store(shared.Ptr("cleanup"))
+			syncState.Store(new("cleanup"))
 			close(syncDone)
 			normRequests.Close()
 			normResponses.Close()
@@ -419,7 +419,7 @@ func (a *FlowableActivity) SyncFlow(
 		}
 	}
 
-	syncState.Store(shared.Ptr("cleanup"))
+	syncState.Store(new("cleanup"))
 	close(syncDone)
 	normRequests.Close()
 	normResponses.Close()
