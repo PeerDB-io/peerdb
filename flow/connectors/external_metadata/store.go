@@ -15,6 +15,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -60,10 +61,7 @@ func (p *PostgresMetadata) Ping(ctx context.Context) error {
 }
 
 func (p *PostgresMetadata) LogFlowInfo(ctx context.Context, flowName string, info string) error {
-	_, err := p.pool.Exec(ctx,
-		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
-		flowName, info, "info")
-	return err
+	return alerting.InsertFlowLog(ctx, p.pool, flowName, info, alerting.FlowErrorTypeInfo)
 }
 
 func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) (bool, error) {
