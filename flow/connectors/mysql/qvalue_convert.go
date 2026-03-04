@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/paulmach/orb/encoding/wkb"
 	"github.com/shopspring/decimal"
-	geom "github.com/twpayne/go-geos"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -129,20 +129,24 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 	return types.QRecordSchema{Fields: schema}, nil
 }
 
-// Helper function to convert MySQL geometry binary data to WKT format
-func geometryValueFromBytes(wkbData []byte) (string, error) {
-	// Try to parse it as WKB with the MySQL header
-	g, err := geom.NewGeomFromWKB(wkbData)
+// Helper function to convert MySQL geometry binary data to WKT format.
+// MySQL geometry binary = [4-byte SRID LE] + [standard WKB].
+func geometryValueFromBytes(data []byte) (string, error) {
+	if len(data) < 4 {
+		return "", fmt.Errorf("mysql geometry data too short: %d bytes", len(data))
+	}
+
+	srid := binary.LittleEndian.Uint32(data[:4])
+	geom, err := wkb.Unmarshal(data[4:])
 	if err != nil {
 		return "", err
 	}
 
-	// Convert to WKT format
-	wkt := g.ToWKT()
-	if srid := g.SRID(); srid != 0 {
-		wkt = fmt.Sprintf("SRID=%d;%s", srid, wkt)
+	wktStr := datatypes.GeosMarshalWKT(geom)
+	if srid != 0 {
+		wktStr = fmt.Sprintf("SRID=%d;%s", srid, wktStr)
 	}
-	return wkt, nil
+	return wktStr, nil
 }
 
 // Helper function to process geometry data and return a QValueGeometry

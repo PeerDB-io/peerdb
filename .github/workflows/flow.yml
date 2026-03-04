@@ -439,7 +439,7 @@ jobs:
           mkdir coverage
           mkdir -p ../logs
           temporal server start-dev --namespace default --headless > ../logs/temporal.log 2>&1 &
-          go build -cover -ldflags="-s -w" -o peer-flow
+          CGO_ENABLED=0 go build -cover -ldflags="-s -w" -o peer-flow
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker > ../logs/peer-flow-worker.log 2>&1 &
           ./peer-flow snapshot-worker > ../logs/peer-flow-snapshot-worker.log 2>&1 &

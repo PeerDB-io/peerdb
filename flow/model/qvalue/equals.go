@@ -11,8 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/encoding/wkt"
 	"github.com/shopspring/decimal"
-	geom "github.com/twpayne/go-geos"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -242,23 +243,27 @@ func compareHStore(str1 string, value2 any) bool {
 }
 
 func compareGeometry(geoWkt string, value2 any) bool {
-	geo2, err := geom.NewGeomFromWKT(value2.(string))
+	wkt2 := value2.(string)
+	if strings.HasPrefix(wkt2, "SRID=") {
+		if _, after, found := strings.Cut(wkt2, ";"); found {
+			wkt2 = after
+		}
+	}
+	geo2, err := wkt.Unmarshal(wkt2)
 	if err != nil {
 		panic(err)
 	}
 
 	if strings.HasPrefix(geoWkt, "SRID=") {
-		_, wkt, found := strings.Cut(geoWkt, ";")
-		if found {
-			geoWkt = wkt
+		if _, after, found := strings.Cut(geoWkt, ";"); found {
+			geoWkt = after
 		}
 	}
-
-	geo1, err := geom.NewGeomFromWKT(geoWkt)
+	geo1, err := wkt.Unmarshal(geoWkt)
 	if err != nil {
 		panic(err)
 	}
-	return geo1.Equals(geo2)
+	return orb.Equal(geo1, geo2)
 }
 
 func convertNativeNumericArrayToFloat64Array(val any) []float64 {
