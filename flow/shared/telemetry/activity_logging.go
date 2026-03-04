@@ -176,7 +176,7 @@ func logActivity(ctx context.Context, action string, additionalAttrs ...any) {
 	slog.InfoContext(ctx, "[flow activity] "+action, attrs...)
 }
 
-type FlowConfigForLogging struct {
+type flowConfigForLogging struct {
 	FlowName                    string `json:"flow_name"`
 	SourcePeerName              string `json:"source_peer_name"`
 	PublicationName             string `json:"pg_publication_name"`
@@ -192,7 +192,7 @@ type FlowConfigForLogging struct {
 	NumTables                   int    `json:"num_tables"`
 }
 
-type TableMappingForLogging struct {
+type tableMappingForLogging struct {
 	TableName           string   `json:"table_name"`
 	DestTableName       string   `json:"destination_table_name"`
 	PartitionKey        string   `json:"partition_key"`
@@ -205,26 +205,28 @@ type TableMappingForLogging struct {
 	TotalDeletes        int64    `json:"total_deletes"`
 }
 
-type SourcePeerInfoForLogging struct {
-	PeerName        string `json:"peer_name"`
-	PeerType        string `json:"peer_type"`
-	DatabaseVersion string `json:"database_version,omitempty"`
-	DatabaseVariant string `json:"database_variant,omitempty"`
-	CustomTLS       bool   `json:"custom_tls"`
-	SSHTunnel       bool   `json:"ssh_tunnel"`
+//nolint:govet // field order is intentional for readability
+type sourcePeerInfoForLogging struct {
+	PeerName             string `json:"peer_name"`
+	PeerType             string `json:"peer_type"`
+	Host                 string `json:"host"`
+	DatabaseVersion      string `json:"database_version,omitempty"`
+	DatabaseVariant      string `json:"database_variant,omitempty"`
+	DisableTLS           bool   `json:"disable_tls,omitempty"`
+	TLSHost              string `json:"tls_host"`
+	DatabaseName         string `json:"database_name"`
+	SshHost              string `json:"ssh_host"`
+	AuthType             string `json:"auth_type"`
+	Flavor               string `json:"flavor"`                // mysql
+	Compression          uint32 `json:"compression"`           // mysql
+	ReplicationMechanism string `json:"replication_mechanism"` // mysql
+	ReadPreference       string `json:"read_preference"`       // mongo
 }
-
-type (
-	LoadPeersFunc               func(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]*protos.Peer, error)
-	PopulateRuntimePeerInfoFunc func(ctx context.Context, peer *protos.Peer, info *SourcePeerInfoForLogging)
-)
 
 func LogFlowConfigs(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
-	loadPeers LoadPeersFunc,
-	populateRuntimeInfo PopulateRuntimePeerInfoFunc,
-) error {
+) ([]flowConfigForLogging, error) {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
 
 	batch := pgx.Batch{}
@@ -238,7 +240,7 @@ func LogFlowConfigs(
 
 	configRows, err := batchResults.Query()
 	if err != nil {
-		return fmt.Errorf("failed to query flow configs: %w", err)
+		return nil, fmt.Errorf("failed to query flow configs: %w", err)
 	}
 	configs, err := pgx.CollectRows(configRows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigsCore, error) {
 		var name string
@@ -253,7 +255,7 @@ func LogFlowConfigs(
 		return cfg, nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to collect flow configs: %w", err)
+		return nil, fmt.Errorf("failed to collect flow configs: %w", err)
 	}
 
 	type tableCounts struct {
@@ -303,11 +305,9 @@ func LogFlowConfigs(
 		}
 	}
 
-	sourcePeerNames := make(map[string]struct{})
+	flowConfigs := make([]flowConfigForLogging, 0, len(configs))
 	for _, cfg := range configs {
-		sourcePeerNames[cfg.SourceName] = struct{}{}
-
-		logAsJSON(logger, "[flow config]", FlowConfigForLogging{
+		fc := flowConfigForLogging{
 			FlowName:                    cfg.FlowJobName,
 			SourcePeerName:              cfg.SourceName,
 			MaxBatchSize:                cfg.MaxBatchSize,
@@ -321,7 +321,10 @@ func LogFlowConfigs(
 			SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 			Resync:                      cfg.Resync,
 			NumTables:                   len(cfg.TableMappings),
-		}, slog.String("flowName", cfg.FlowJobName))
+		}
+		flowConfigs = append(flowConfigs, fc)
+
+		logAsJSON(logger, "[flow config]", fc, slog.String("flowName", cfg.FlowJobName))
 
 		flowReplicaIdentity := replicaIdentityByFlow[cfg.FlowJobName]
 		flowCounts := countsByFlow[cfg.FlowJobName]
@@ -330,7 +333,7 @@ func LogFlowConfigs(
 			hasCustomSortKey := slices.ContainsFunc(tm.Columns, func(col *protos.ColumnSetting) bool {
 				return col.Ordering > 0
 			})
-			logAsJSON(logger, "[table config]", TableMappingForLogging{
+			logAsJSON(logger, "[table config]", tableMappingForLogging{
 				TableName:           tm.SourceTableIdentifier,
 				DestTableName:       tm.DestinationTableIdentifier,
 				PartitionKey:        tm.PartitionKey,
@@ -345,42 +348,45 @@ func LogFlowConfigs(
 		}
 	}
 
-	nameList := make([]string, 0, len(sourcePeerNames))
-	for name := range sourcePeerNames {
-		nameList = append(nameList, name)
-	}
-
-	peers, err := loadPeers(ctx, catalogPool, nameList)
-	if err != nil {
-		return fmt.Errorf("failed to load source peers: %w", err)
-	}
-
-	for _, peer := range peers {
-		info := sourcePeerInfoFromDB(peer)
-		populateRuntimeInfo(ctx, peer, &info)
-		logAsJSON(logger, "[source info]", info, slog.String("peerName", peer.Name))
-	}
-
-	return nil
+	return flowConfigs, nil
 }
 
-func sourcePeerInfoFromDB(peer *protos.Peer) SourcePeerInfoForLogging {
-	info := SourcePeerInfoForLogging{
-		PeerName: peer.Name,
-		PeerType: peer.Type.String(),
+func LogPeerConfig(ctx context.Context, peer *protos.Peer, version string, variant string) {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
+	info := &sourcePeerInfoForLogging{
+		PeerName:        peer.Name,
+		PeerType:        peer.Type.String(),
+		DatabaseVersion: version,
+		DatabaseVariant: variant,
 	}
 	switch config := peer.Config.(type) {
 	case *protos.Peer_PostgresConfig:
-		info.CustomTLS = config.PostgresConfig.RootCa != nil
-		info.SSHTunnel = config.PostgresConfig.SshConfig != nil
+		info.Host = config.PostgresConfig.Host
+		info.DisableTLS = !config.PostgresConfig.RequireTls
+		info.TLSHost = config.PostgresConfig.TlsHost
+		info.SshHost = config.PostgresConfig.SshConfig.GetHost()
+		info.DatabaseName = config.PostgresConfig.Database
+		info.AuthType = config.PostgresConfig.AuthType.String()
 	case *protos.Peer_MysqlConfig:
-		info.CustomTLS = !config.MysqlConfig.DisableTls && config.MysqlConfig.RootCa != nil
-		info.SSHTunnel = config.MysqlConfig.SshConfig != nil
+		info.Host = config.MysqlConfig.Host
+		info.DisableTLS = config.MysqlConfig.DisableTls
+		info.TLSHost = config.MysqlConfig.TlsHost
+		info.SshHost = config.MysqlConfig.SshConfig.GetHost()
+		info.DatabaseName = config.MysqlConfig.Database
+		info.AuthType = config.MysqlConfig.AuthType.String()
+		info.Flavor = config.MysqlConfig.Flavor.String()
+		info.ReplicationMechanism = config.MysqlConfig.ReplicationMechanism.String()
+		info.Compression = config.MysqlConfig.Compression
 	case *protos.Peer_MongoConfig:
-		info.CustomTLS = !config.MongoConfig.DisableTls && config.MongoConfig.RootCa != nil
-		info.SSHTunnel = config.MongoConfig.SshConfig != nil
+		info.Host = config.MongoConfig.Uri
+		info.DisableTLS = config.MongoConfig.DisableTls
+		info.TLSHost = config.MongoConfig.TlsHost
+		info.SshHost = config.MongoConfig.SshConfig.GetHost()
+		info.ReadPreference = config.MongoConfig.ReadPreference.String()
+	case *protos.Peer_BigqueryConfig:
+		info.AuthType = config.BigqueryConfig.AuthType
 	}
-	return info
+	logAsJSON(logger, "[source info]", info, slog.String("peerName", peer.Name))
 }
 
 func logAsJSON(logger log.Logger, msg string, data any, attrs ...any) {

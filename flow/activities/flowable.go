@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -943,7 +945,23 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		return nil
 	}))()
 	defer common.Interval(ctx, 1*time.Hour, wrapWithLog("LogFlowConfigs", func() error {
-		return telemetry.LogFlowConfigs(ctx, a.CatalogPool, connectors.LoadPeers, a.populateRuntimePeerInfo)
+		flowConfigsForLogging, err := telemetry.LogFlowConfigs(ctx, a.CatalogPool)
+		if err != nil {
+			return err
+		}
+		sourcePeerNames := make(map[string]struct{}, len(flowConfigsForLogging))
+		for _, fc := range flowConfigsForLogging {
+			sourcePeerNames[fc.SourcePeerName] = struct{}{}
+		}
+		peers, err := connectors.LoadPeers(ctx, a.CatalogPool, slices.Collect(maps.Keys(sourcePeerNames)))
+		if err != nil {
+			return fmt.Errorf("failed to load source peers: %w", err)
+		}
+		for _, peer := range peers {
+			version, variant := a.getRuntimePeerInfo(ctx, peer)
+			telemetry.LogPeerConfig(ctx, peer, version, variant)
+		}
+		return nil
 	}))()
 	defer common.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
 		return a.RecordSlotSizes(ctx)
@@ -953,35 +971,35 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) populateRuntimePeerInfo(
-	ctx context.Context, peer *protos.Peer, info *telemetry.SourcePeerInfoForLogging,
-) {
+func (a *FlowableActivity) getRuntimePeerInfo(ctx context.Context, peer *protos.Peer) (string, string) {
 	logger := internal.LoggerFromCtx(ctx)
+	version := "N/A"
+	variant := "N/A"
 
 	conn, err := connectors.GetConnector(ctx, nil, peer)
 	if err != nil {
-		logger.Error("failed to create connector for source peer info",
-			slog.String("peer", peer.Name), slog.Any("error", err))
-		return
+		logger.Error("failed to create connector for source peer info", slog.String("peer", peer.Name), slog.Any("error", err))
+		return version, variant
 	}
 	defer conn.Close()
 
 	if vc, ok := conn.(connectors.GetVersionConnector); ok {
-		if version, err := vc.GetVersion(ctx); err != nil {
+		if v, err := vc.GetVersion(ctx); err != nil {
 			logger.Error("failed to get version",
 				slog.String("peer", peer.Name), slog.Any("error", err))
 		} else {
-			info.DatabaseVersion = version
+			version = v
 		}
 	}
 	if dvc, ok := conn.(connectors.DatabaseVariantConnector); ok {
-		if variant, err := dvc.GetDatabaseVariant(ctx); err != nil {
+		if v, err := dvc.GetDatabaseVariant(ctx); err != nil {
 			logger.Error("failed to get database variant",
 				slog.String("peer", peer.Name), slog.Any("error", err))
 		} else {
-			info.DatabaseVariant = variant.String()
+			variant = v.String()
 		}
 	}
+	return version, variant
 }
 
 type flowInformation struct {
