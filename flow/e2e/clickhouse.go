@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -63,13 +62,6 @@ func (s ClickHouseSuite) Suffix() string {
 	return s.suffix
 }
 
-func clickhouseHost() string {
-	if host := os.Getenv("CI_CLICKHOUSE_HOST"); host != "" {
-		return host
-	}
-	return "localhost"
-}
-
 func (s ClickHouseSuite) Peer() *protos.Peer {
 	dbname := "e2e_test_" + s.suffix
 	if s.cluster {
@@ -78,7 +70,7 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 			Type: protos.DBType_CLICKHOUSE,
 			Config: &protos.Peer_ClickhouseConfig{
 				ClickhouseConfig: &protos.ClickhouseConfig{
-					Host:       clickhouseHost(),
+					Host:       "localhost",
 					Port:       9001,
 					Database:   dbname,
 					DisableTls: true,
