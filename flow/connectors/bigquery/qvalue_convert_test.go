@@ -5,6 +5,8 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func TestFieldNormalizedTypeName(t *testing.T) {
@@ -166,6 +168,133 @@ func TestFieldNormalizedTypeName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := fieldNormalizedTypeName(tt.field)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestBigQueryTypeToQValueKind(t *testing.T) {
+	tests := []struct {
+		name     string
+		field    *bigquery.FieldSchema
+		expected types.QValueKind
+	}{
+		{
+			name:     "string",
+			field:    &bigquery.FieldSchema{Type: bigquery.StringFieldType},
+			expected: types.QValueKindString,
+		},
+		{
+			name:     "integer",
+			field:    &bigquery.FieldSchema{Type: bigquery.IntegerFieldType},
+			expected: types.QValueKindInt64,
+		},
+		{
+			name:     "float",
+			field:    &bigquery.FieldSchema{Type: bigquery.FloatFieldType},
+			expected: types.QValueKindFloat64,
+		},
+		{
+			name:     "boolean",
+			field:    &bigquery.FieldSchema{Type: bigquery.BooleanFieldType},
+			expected: types.QValueKindBoolean,
+		},
+		{
+			name:     "timestamp",
+			field:    &bigquery.FieldSchema{Type: bigquery.TimestampFieldType},
+			expected: types.QValueKindTimestamp,
+		},
+		{
+			name:     "datetime",
+			field:    &bigquery.FieldSchema{Type: bigquery.DateTimeFieldType},
+			expected: types.QValueKindTimestamp,
+		},
+		{
+			name:     "date",
+			field:    &bigquery.FieldSchema{Type: bigquery.DateFieldType},
+			expected: types.QValueKindDate,
+		},
+		{
+			name:     "time",
+			field:    &bigquery.FieldSchema{Type: bigquery.TimeFieldType},
+			expected: types.QValueKindTime,
+		},
+		{
+			name:     "bytes",
+			field:    &bigquery.FieldSchema{Type: bigquery.BytesFieldType},
+			expected: types.QValueKindBytes,
+		},
+		{
+			name:     "numeric",
+			field:    &bigquery.FieldSchema{Type: bigquery.NumericFieldType},
+			expected: types.QValueKindNumeric,
+		},
+		{
+			name:     "bignumeric",
+			field:    &bigquery.FieldSchema{Type: bigquery.BigNumericFieldType},
+			expected: types.QValueKindNumeric,
+		},
+		{
+			name:     "geography",
+			field:    &bigquery.FieldSchema{Type: bigquery.GeographyFieldType},
+			expected: types.QValueKindGeography,
+		},
+		{
+			name:     "json",
+			field:    &bigquery.FieldSchema{Type: bigquery.JSONFieldType},
+			expected: types.QValueKindJSON,
+		},
+		{
+			name:     "record",
+			field:    &bigquery.FieldSchema{Type: bigquery.RecordFieldType},
+			expected: types.QValueKindString,
+		},
+		// repeated (array) types
+		{
+			name:     "repeated string",
+			field:    &bigquery.FieldSchema{Type: bigquery.StringFieldType, Repeated: true},
+			expected: types.QValueKindArrayString,
+		},
+		{
+			name:     "repeated integer",
+			field:    &bigquery.FieldSchema{Type: bigquery.IntegerFieldType, Repeated: true},
+			expected: types.QValueKindArrayInt64,
+		},
+		{
+			name:     "repeated float",
+			field:    &bigquery.FieldSchema{Type: bigquery.FloatFieldType, Repeated: true},
+			expected: types.QValueKindArrayFloat64,
+		},
+		{
+			name:     "repeated boolean",
+			field:    &bigquery.FieldSchema{Type: bigquery.BooleanFieldType, Repeated: true},
+			expected: types.QValueKindArrayBoolean,
+		},
+		{
+			name:     "repeated timestamp",
+			field:    &bigquery.FieldSchema{Type: bigquery.TimestampFieldType, Repeated: true},
+			expected: types.QValueKindArrayTimestamp,
+		},
+		{
+			name:     "repeated date",
+			field:    &bigquery.FieldSchema{Type: bigquery.DateFieldType, Repeated: true},
+			expected: types.QValueKindArrayDate,
+		},
+		{
+			name:     "repeated numeric",
+			field:    &bigquery.FieldSchema{Type: bigquery.NumericFieldType, Repeated: true},
+			expected: types.QValueKindArrayNumeric,
+		},
+		{
+			name:     "repeated record",
+			field:    &bigquery.FieldSchema{Type: bigquery.RecordFieldType, Repeated: true},
+			expected: types.QValueKindArrayString,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := BigQueryTypeToQValueKind(tt.field)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

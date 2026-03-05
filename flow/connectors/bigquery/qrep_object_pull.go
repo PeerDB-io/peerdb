@@ -388,6 +388,11 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 		case bigquery.GeographyFieldType:
 			// Cast Geography to STRING since Parquet + ClickHouse doesn't support Geography type nicely
 			columnSelect = fmt.Sprintf("ST_AsText(%s) AS %s", quotedName, quotedName)
+		case bigquery.DateTimeFieldType:
+			// Cast DATETIME to TIMESTAMP for Parquet export since BigQuery DATETIME
+			// is timezone-unaware and its Parquet representation may not be compatible
+			// with ClickHouse. Casting to TIMESTAMP (UTC) preserves the value.
+			columnSelect = fmt.Sprintf("CAST(%s AS TIMESTAMP) AS %s", quotedName, quotedName)
 		}
 		columnSelects = append(columnSelects, columnSelect)
 	}

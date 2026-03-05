@@ -551,6 +551,7 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 		{Name: "array_bool", Type: bigquery.BooleanFieldType, Repeated: true},
 		{Name: "array_ts", Type: bigquery.TimestampFieldType, Repeated: true},
 		{Name: "array_date", Type: bigquery.DateFieldType, Repeated: true},
+		{Name: "datetime_col", Type: bigquery.DateTimeFieldType, Required: false},
 		{Name: "record_col", Type: bigquery.RecordFieldType, Required: false, Schema: bigquery.Schema{
 			{Name: "nested_str", Type: bigquery.StringFieldType},
 			{Name: "nested_int", Type: bigquery.IntegerFieldType},
@@ -605,6 +606,7 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 		GeographyCol  bigquery.NullGeography `bigquery:"geography_col"`
 		ArrayStr      []string               `bigquery:"array_str"`
 		ArrayInt      []int64                `bigquery:"array_int"`
+		DatetimeCol   bigquery.NullDateTime  `bigquery:"datetime_col"`
 		TimeCol       bigquery.NullTime      `bigquery:"time_col"`
 		DateCol       bigquery.NullDate      `bigquery:"date_col"`
 		IntCol        bigquery.NullInt64     `bigquery:"int_col"`
@@ -616,13 +618,19 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	testData := []TestRow{
 		{
-			ID:            1,
-			StrCol:        bigquery.NullString{StringVal: "test string", Valid: true},
-			BytesCol:      []byte("test bytes"),
-			IntCol:        bigquery.NullInt64{Int64: 42, Valid: true},
-			FloatCol:      bigquery.NullFloat64{Float64: 3.14159, Valid: true},
-			BoolCol:       bigquery.NullBool{Bool: true, Valid: true},
-			TsCol:         bigquery.NullTimestamp{Timestamp: now, Valid: true},
+			ID:       1,
+			StrCol:   bigquery.NullString{StringVal: "test string", Valid: true},
+			BytesCol: []byte("test bytes"),
+			IntCol:   bigquery.NullInt64{Int64: 42, Valid: true},
+			FloatCol: bigquery.NullFloat64{Float64: 3.14159, Valid: true},
+			BoolCol:  bigquery.NullBool{Bool: true, Valid: true},
+			TsCol:    bigquery.NullTimestamp{Timestamp: now, Valid: true},
+			DatetimeCol: bigquery.NullDateTime{
+				DateTime: civil.DateTime{
+					Date: civil.Date{Year: 2024, Month: 1, Day: 15},
+					Time: civil.Time{Hour: 14, Minute: 30, Second: 0},
+				}, Valid: true,
+			},
 			DateCol:       bigquery.NullDate{Date: civil.DateOf(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)), Valid: true},
 			TimeCol:       bigquery.NullTime{Time: civil.TimeOf(time.Date(0, 1, 1, 14, 30, 0, 0, time.UTC)), Valid: true},
 			NumericCol:    big.NewRat(12345, 100),                                                      // 123.45
@@ -649,12 +657,18 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 			},
 		},
 		{
-			ID:           2,
-			StrCol:       bigquery.NullString{StringVal: "another string", Valid: true},
-			IntCol:       bigquery.NullInt64{Int64: -999, Valid: true},
-			FloatCol:     bigquery.NullFloat64{Float64: -2.71828, Valid: true},
-			BoolCol:      bigquery.NullBool{Bool: false, Valid: true},
-			TsCol:        bigquery.NullTimestamp{Timestamp: now.Add(-48 * time.Hour), Valid: true},
+			ID:       2,
+			StrCol:   bigquery.NullString{StringVal: "another string", Valid: true},
+			IntCol:   bigquery.NullInt64{Int64: -999, Valid: true},
+			FloatCol: bigquery.NullFloat64{Float64: -2.71828, Valid: true},
+			BoolCol:  bigquery.NullBool{Bool: false, Valid: true},
+			TsCol:    bigquery.NullTimestamp{Timestamp: now.Add(-48 * time.Hour), Valid: true},
+			DatetimeCol: bigquery.NullDateTime{
+				DateTime: civil.DateTime{
+					Date: civil.Date{Year: 2023, Month: 12, Day: 31},
+					Time: civil.Time{Hour: 23, Minute: 59, Second: 59},
+				}, Valid: true,
+			},
 			DateCol:      bigquery.NullDate{Date: civil.DateOf(time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)), Valid: true},
 			TimeCol:      bigquery.NullTime{Time: civil.TimeOf(time.Date(0, 1, 1, 9, 15, 30, 0, time.UTC)), Valid: true},
 			ArrayStr:     []string{"single"},
@@ -671,6 +685,12 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 			FloatCol: bigquery.NullFloat64{Float64: 0.0, Valid: true},
 			BoolCol:  bigquery.NullBool{Bool: false, Valid: true},
 			TsCol:    bigquery.NullTimestamp{Timestamp: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			DatetimeCol: bigquery.NullDateTime{
+				DateTime: civil.DateTime{
+					Date: civil.Date{Year: 2000, Month: 1, Day: 1},
+					Time: civil.Time{Hour: 0, Minute: 0, Second: 0},
+				}, Valid: true,
+			},
 			DateCol:  bigquery.NullDate{Date: civil.DateOf(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)), Valid: true},
 			TimeCol:  bigquery.NullTime{Time: civil.TimeOf(time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)), Valid: true},
 			ArrayStr: []string{},
@@ -725,6 +745,18 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 		require.InDelta(t, 3.14159, firstRow[3].Value().(float64), 0.00001, "float column should match")
 		require.Equal(t, true, firstRow[4].Value(), "bool column should match")
 		t.Log("Basic type verification passed")
+	}
+
+	datetimeRows, err := s.GetRows(dstTable, "id,datetime_col")
+	require.NoError(t, err, "should fetch datetime column")
+	require.Len(t, datetimeRows.Records, len(testData), "should have all rows for datetime check")
+	if len(datetimeRows.Records) > 0 {
+		firstRow := datetimeRows.Records[0]
+		expectedDatetime := time.Date(2024, 1, 15, 14, 30, 0, 0, time.UTC)
+		actualDatetime, ok := firstRow[1].Value().(time.Time)
+		require.True(t, ok, "datetime column should be time.Time")
+		require.True(t, expectedDatetime.Equal(actualDatetime), "datetime column should match, got %v", actualDatetime)
+		t.Log("Datetime type verification passed")
 	}
 
 	arrayRows, err := s.GetRows(dstTable, "id,array_str,array_int,array_bool")
