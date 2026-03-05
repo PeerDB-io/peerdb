@@ -223,6 +223,10 @@ var (
 	ErrorNotifyTooManyPartsError = ErrorClass{
 		Class: "NOTIFY_TOO_MANY_PARTS", action: NotifyUser,
 	}
+	// Catch-all for misc ClickHouse errors
+	ErrorNotifyClickHouseError = ErrorClass{
+		Class: "NOTIFY_CLICKHOUSE_ERROR", action: NotifyUser,
+	}
 	// Catch-all for unclassified errors
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
@@ -356,6 +360,30 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var publicationMissingErr *exceptions.PublicationMissingError
+	if errors.As(err, &publicationMissingErr) {
+		return ErrorNotifyPublicationMissing, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "irrecoverable_publication_missing",
+		}
+	}
+
+	var slotMissingErr *exceptions.SlotMissingError
+	if errors.As(err, &slotMissingErr) {
+		return ErrorNotifyReplicationSlotMissing, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "irrecoverable_slot_missing",
+		}
+	}
+
+	var replStateDesyncErr *exceptions.ReplStateDesyncError
+	if errors.As(err, &replStateDesyncErr) {
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "desync",
+		}
+	}
+
 	var peerCreateError *exceptions.PeerCreateError
 	if errors.As(err, &peerCreateError) {
 		if errors.Is(peerCreateError, context.DeadlineExceeded) {
@@ -430,16 +458,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var temporalErr *temporal.ApplicationError
 	if errors.As(err, &temporalErr) {
 		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
-		case exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing:
-			return ErrorNotifyPublicationMissing, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   temporalErr.Type(),
-			}
-		case exceptions.ApplicationErrorTypeIrrecoverableSlotMissing:
-			return ErrorNotifyReplicationSlotMissing, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   temporalErr.Type(),
-			}
 		case exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot:
 			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
 				Source: ErrorSourcePostgres,
@@ -605,6 +623,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// from our perspective, the slot is missing
 			if strings.Contains(pgErr.Message, "was not created in this database") {
 				return ErrorNotifyReplicationSlotMissing, pgErrorInfo
+			}
+
+			// Aurora failover: reader was promoted, slot can't be used on old RO node
+			if strings.Contains(pgErr.Message, "replication slots cannot be used on RO (Read Only) node") {
+				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
 		case pgerrcode.InvalidParameterValue:
@@ -854,7 +877,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrUnfinished:
+			if strings.Contains(chException.Message, "Failed to load all data parts") {
+				return ErrorNotifyClickHouseError, chErrorInfo
+			}
 			return ErrorRetryRecoverable, chErrorInfo
+		case chproto.ErrCannotAssignAlter:
+			return ErrorNotifyClickHouseError, chErrorInfo
 		case chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
@@ -909,8 +937,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
 			chproto.ErrSocketTimeout,
-			chproto.ErrTableIsReadOnly,
-			chproto.ErrCannotAssignAlter:
+			chproto.ErrTableIsReadOnly:
 			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrTimeoutExceeded:
 			if strings.HasSuffix(chException.Message, "distributed_ddl_task_timeout") {

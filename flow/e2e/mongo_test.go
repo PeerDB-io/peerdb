@@ -509,6 +509,48 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	RequireEnvCanceled(t, env)
 }
 
+func (s MongoClickhouseSuite) Test_Long_Field_Name_Snapshot_And_CDC() {
+	t := s.T()
+
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_long_field_name"
+	dstTable := "test_long_field_name_dst"
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	// Regression coverage for GODRIVER-3809: long field names can trigger
+	// "bufio: buffer full" when decoded through cursor.Decode.
+	longFieldName := strings.Repeat("x", 5000)
+	longKeyDoc := bson.D{{Key: longFieldName, Value: "test"}}
+
+	res, err := collection.InsertOne(t.Context(), longKeyDoc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "initial load with long field name", srcTable, dstTable, "_id,doc")
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	res, err = collection.InsertOne(t.Context(), longKeyDoc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+	EnvWaitForEqualTablesWithNames(env, s, "cdc with long field name", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 	t := s.T()
 

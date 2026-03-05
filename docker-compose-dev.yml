@@ -41,7 +41,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: imresamu/postgis:18-3.5-alpine
+    image: postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
     command: -c config_file=/etc/postgresql.conf
     ports:
       - 9901:5432
@@ -112,7 +112,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3030
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.45.4@sha256:671f356ce0fbfdae8acfb98c9e9714e16b22b110474be36f5a5d5a8dc91f44da
+    image: temporalio/ui:2.47.2@sha256:2081da2b305d9c311a5d13dc6b98173c5aff2072a74000a7b79ef47a97210c0e
     ports:
       - 8085:8080
 

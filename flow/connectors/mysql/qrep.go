@@ -2,7 +2,6 @@ package connmysql
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -46,7 +45,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 
 	if config.NumPartitionsOverride == 0 && config.NumRowsPerPartition == 0 {
-		return nil, errors.New("num rows per partition must be greater than 0")
+		return nil, fmt.Errorf("num rows per partition must be greater than 0")
 	}
 
 	numPartitions := int64(config.NumPartitionsOverride)
@@ -215,7 +214,11 @@ func (c *MySqlConnector) PullQRepRecords(
 			}
 			record = append(record, qv)
 		}
-		stream.Records <- record
+
+		if err := stream.Send(ctx, record); err != nil {
+			return fmt.Errorf("failed to send record to stream: %w", err)
+		}
+
 		if totalRecords%50000 == 0 {
 			c.logger.Info("[mysql] pulling records",
 				slog.Int64("records", totalRecords),

@@ -117,6 +117,8 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKin
 			return types.QValueKindArrayTimestamp
 		}
 		return types.QValueKindTimestamp
+	case bigquery.DateTimeFieldType:
+		return types.QValueKindTimestamp
 	case bigquery.DateFieldType:
 		if fieldSchema.Repeated {
 			return types.QValueKindArrayDate

@@ -87,7 +87,7 @@ func NewClickHouseConnector(
 			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
 		}
 		if awsBucketName == "" {
-			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
+			return nil, fmt.Errorf("PeerDB ClickHouse Bucket Name not set")
 		}
 
 		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
@@ -238,7 +238,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
 		if config.Certificate != nil || config.PrivateKey != nil {
 			if config.Certificate == nil || config.PrivateKey == nil {
-				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+				return nil, fmt.Errorf("both certificate and private key must be provided if using certificate-based authentication")
 			}
 			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
 			if err != nil {
@@ -249,7 +249,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		if config.RootCa != nil {
 			caPool := x509.NewCertPool()
 			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-				return nil, errors.New("failed to parse provided root CA")
+				return nil, fmt.Errorf("failed to parse provided root CA")
 			}
 			tlsSetting.RootCAs = caPool
 		}

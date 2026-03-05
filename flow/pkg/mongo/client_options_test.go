@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func TestBuildClientOptions_TLS(t *testing.T) {

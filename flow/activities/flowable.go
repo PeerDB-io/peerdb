@@ -51,7 +51,8 @@ type FlowableActivity struct {
 	TemporalClient client.Client
 }
 
-type StreamCloser interface {
+type QRepStreamCloser interface {
+	HandleQRepSyncError(error)
 	Close(error)
 }
 
@@ -305,7 +306,7 @@ func (a *FlowableActivity) SyncFlow(
 	var normalizeWaiting atomic.Bool
 	var syncingBatchID atomic.Int64
 	var syncState atomic.Pointer[string]
-	syncState.Store(shared.Ptr("setup"))
+	syncState.Store(new("setup"))
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
 		sBatchID := syncingBatchID.Load()
@@ -399,7 +400,7 @@ func (a *FlowableActivity) SyncFlow(
 				break
 			}
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
-			syncState.Store(shared.Ptr("cleanup"))
+			syncState.Store(new("cleanup"))
 			close(syncDone)
 			normRequests.Close()
 			normResponses.Close()
@@ -418,7 +419,7 @@ func (a *FlowableActivity) SyncFlow(
 		}
 	}
 
-	syncState.Store(shared.Ptr("cleanup"))
+	syncState.Store(new("cleanup"))
 	close(syncDone)
 	normRequests.Close()
 	normResponses.Close()
@@ -557,7 +558,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
-		return nil, a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to get partitions from source", err)
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to get partitions from source", err))
 	}
 	if len(partitions) > 0 {
 		if err := monitoring.InitializeQRepRun(
@@ -1281,6 +1282,13 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		return fmt.Errorf("failed to process result of all flows for metrics: %w", err)
 	}
 
+	normalizeLagCtx, normalizeLagCancel := context.WithTimeout(ctx, 10*time.Second)
+	normalizeLagByFlow, qryErr := monitoring.GetPendingNormalizeLagByFlow(normalizeLagCtx, a.CatalogPool)
+	normalizeLagCancel()
+	if qryErr != nil {
+		logger.Error("Failed to query normalize lag", slog.Any("error", qryErr))
+	}
+
 	logger.Info("Recording slot size and emitting log retention where applicable", slog.Int("flows", len(infos)))
 	for _, info := range infos {
 		if err := ctx.Err(); err != nil {
@@ -1297,8 +1305,17 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			logger.Error("Failed to record server-side commit lag", slog.Any("error", err))
 		}
 		cancel()
+
+		if qryErr == nil {
+			flowName := info.config.FlowJobName
+			lagMicroseconds := normalizeLagByFlow[flowName] // record 0 as the lag if the flow is not in the map
+			a.OtelManager.Metrics.NormalizeLagGauge.Record(ctx, lagMicroseconds, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, flowName),
+			)))
+		}
 	}
 	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
+
 	return nil
 }
 
@@ -1333,7 +1350,7 @@ func (a *FlowableActivity) recordSlotInformation(
 	}
 	defer srcClose(ctx)
 
-	slotName := "peerflow_slot_" + info.config.FlowJobName
+	slotName := connpostgres.GetDefaultSlotName(info.config.FlowJobName)
 	if info.config.ReplicationSlotName != "" {
 		slotName = info.config.ReplicationSlotName
 	}

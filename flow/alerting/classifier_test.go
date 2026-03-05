@@ -426,7 +426,7 @@ func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T
 
 func TestPostgresQueryCancelledDuringWalShouldBeNotifyConnectivity(t *testing.T) {
 	// Simulate a query cancelled error during WAL
-	err := exceptions.NewPostgresWalError(errors.New("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
+	err := exceptions.NewPostgresWalError(fmt.Errorf("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
 		Severity: "ERROR",
 		Code:     pgerrcode.QueryCanceled,
 		Message:  "canceling statement due to user request",
@@ -441,7 +441,7 @@ func TestPostgresQueryCancelledDuringWalShouldBeNotifyConnectivity(t *testing.T)
 
 func TestRandomErrorShouldBeOther(t *testing.T) {
 	// Simulate a random error
-	err := errors.New("some random error")
+	err := fmt.Errorf("some random error")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
 	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -627,20 +627,6 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 		errInfo    ErrorInfo
 	}
 	for code, cinfo := range map[exceptions.ApplicationErrorType]classAndInfo{
-		exceptions.ApplicationErrorTypeIrrecoverableSlotMissing: {
-			errorClass: ErrorNotifyReplicationSlotMissing,
-			errInfo: ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(),
-			},
-		},
-		exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing: {
-			errorClass: ErrorNotifyPublicationMissing,
-			errInfo: ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(),
-			},
-		},
 		exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot: {
 			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
 			errInfo: ErrorInfo{
@@ -709,7 +695,7 @@ func TestMongoShutdownInProgressErrorShouldBeIgnored(t *testing.T) {
 
 func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 	//nolint:lll
-	err := errors.New("change stream error: connection pool for abc.123.mongodb.net:27017 was cleared because another operation failed with: (InterruptedDueToReplStateChange) operation was interrupted")
+	err := fmt.Errorf("change stream error: connection pool for abc.123.mongodb.net:27017 was cleared because another operation failed with: (InterruptedDueToReplStateChange) operation was interrupted")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -843,6 +829,32 @@ func TestClickHouseTooManyPartsWithoutTableName(t *testing.T) {
 	}, errInfo)
 }
 
+func TestClickHouseFailedToLoadAllDataPartsShouldNotifyUser(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnfinished),
+		Message: "Failed to load all data parts",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("clickhouse error: %w", err))
+	assert.Equal(t, ErrorNotifyClickHouseError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
+	}, errInfo)
+}
+
+func TestClickHouseOtherUnfinishedShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnfinished),
+		Message: "some other unfinished error",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("clickhouse error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
+	}, errInfo)
+}
+
 func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 	err := exceptions.NewMySQLUnsupportedDDLError("test_db.test_table")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
@@ -853,5 +865,40 @@ func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 			ErrorAttributeKeyTable: "test_db.test_table",
 		},
+	}, errInfo)
+}
+
+func TestPublicationMissingError(t *testing.T) {
+	err := exceptions.NewPublicationMissingError("test_pub")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
+	assert.Equal(t, ErrorNotifyPublicationMissing, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "irrecoverable_publication_missing",
+	}, errInfo)
+}
+
+func TestSlotMissingError(t *testing.T) {
+	err := exceptions.NewSlotMissingError("test_slot")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
+	assert.Equal(t, ErrorNotifyReplicationSlotMissing, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "irrecoverable_slot_missing",
+	}, errInfo)
+}
+
+func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
+	pgErr := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.ObjectNotInPrerequisiteState,
+		Message:  "replication slots cannot be used on RO (Read Only) node",
+	}
+	err := fmt.Errorf("error starting replication at startLsn - 18598145761: %w", pgErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records when: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.ObjectNotInPrerequisiteState,
 	}, errInfo)
 }

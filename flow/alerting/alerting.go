@@ -19,7 +19,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"go.temporal.io/sdk/log"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -139,7 +138,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 				replyToAddresses:     replyToAddresses,
 			}
 			if emailServiceConfig.sourceEmail == "" {
-				return alertSenderConfig, errors.New("missing sourceEmail for Email alerting service")
+				return alertSenderConfig, fmt.Errorf("missing sourceEmail for Email alerting service")
 			}
 			if err := json.Unmarshal(serviceConfig, &emailServiceConfig); err != nil {
 				return alertSenderConfig, fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
@@ -370,12 +369,12 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 
 func (a *Alerter) sendTelemetryMessage(
 	ctx context.Context,
-	logger log.Logger,
 	flowName string,
 	more string,
 	level telemetry.Level,
 	additionalTags ...string,
 ) {
+	logger := internal.LoggerFromCtx(ctx)
 	allTags := []string{flowName, internal.PeerDBDeploymentUID()}
 	allTags = append(allTags, additionalTags...)
 
@@ -412,112 +411,120 @@ func (a *Alerter) sendTelemetryMessage(
 	}
 }
 
+func (a *Alerter) emitNonFlowTelemetryEvent(
+	ctx context.Context, eventType telemetry.EventType, key string, message string, level telemetry.Level,
+) {
+	a.sendTelemetryMessage(ctx, string(eventType)+":"+key, message, level)
+}
+
 // Wrapper for different telemetry levels for non-flow events
-func (a *Alerter) LogNonFlowInfo(ctx context.Context, eventType telemetry.EventType, key string, message string) {
-	a.LogNonFlowEvent(ctx, eventType, key, message, telemetry.INFO)
+func (a *Alerter) EmitNonFlowInfoTelemetryEvent(ctx context.Context, eventType telemetry.EventType, key string, message string) {
+	a.emitNonFlowTelemetryEvent(ctx, eventType, key, message, telemetry.INFO)
 }
 
-func (a *Alerter) LogNonFlowWarning(ctx context.Context, eventType telemetry.EventType, key string, message string) {
-	a.LogNonFlowEvent(ctx, eventType, key, message, telemetry.WARN)
+func (a *Alerter) EmitNonFlowWarningTelemetryEvent(ctx context.Context, eventType telemetry.EventType, key string, message string) {
+	a.emitNonFlowTelemetryEvent(ctx, eventType, key, message, telemetry.WARN)
 }
 
-func (a *Alerter) LogNonFlowError(ctx context.Context, eventType telemetry.EventType, key string, message string) {
-	a.LogNonFlowEvent(ctx, eventType, key, message, telemetry.ERROR)
+func (a *Alerter) EmitNonFlowErrorTelemetryEvent(ctx context.Context, eventType telemetry.EventType, key string, message string) {
+	a.emitNonFlowTelemetryEvent(ctx, eventType, key, message, telemetry.ERROR)
 }
 
-func (a *Alerter) LogNonFlowCritical(ctx context.Context, eventType telemetry.EventType, key string, message string) {
-	a.LogNonFlowEvent(ctx, eventType, key, message, telemetry.CRITICAL)
+func (a *Alerter) EmitNonFlowCriticalTelemetryEvent(ctx context.Context, eventType telemetry.EventType, key string, message string) {
+	a.emitNonFlowTelemetryEvent(ctx, eventType, key, message, telemetry.CRITICAL)
 }
 
-func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.EventType, key string, message string, level telemetry.Level) {
+func (a *Alerter) EmitFlowInfoTelemetryEvent(ctx context.Context, flowName string, info string) {
 	logger := internal.LoggerFromCtx(ctx)
-	a.sendTelemetryMessage(ctx, logger, string(eventType)+":"+key, message, level)
+	logger.Info(info)
+	a.sendTelemetryMessage(ctx, flowName, info, telemetry.INFO)
 }
 
-type flowErrorType string
+type FlowErrorType string
 
-func (f flowErrorType) String() string {
+func (f FlowErrorType) String() string {
 	return string(f)
 }
 
 const (
-	flowErrorTypeWarn  flowErrorType = "warn"
-	flowErrorTypeError flowErrorType = "error"
+	FlowErrorTypeInfo  FlowErrorType = "info"
+	FlowErrorTypeWarn  FlowErrorType = "warn"
+	FlowErrorTypeError FlowErrorType = "error"
 )
 
-// logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
-func (a *Alerter) logFlowErrorInternal(
+// recordFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message.
+func (a *Alerter) recordFlowErrorInternal(
 	ctx context.Context,
 	flowName string,
-	errorType flowErrorType,
-	inErr error,
-	loggerFunc func(string, ...any),
+	errorType FlowErrorType,
+	err error,
 ) {
 	logger := internal.LoggerFromCtx(ctx)
-	inErrWithStack := fmt.Sprintf("%+v", inErr)
-	errError := inErr.Error()
-	loggerFunc(errError, slog.String("stack", inErrWithStack))
-	if _, err := a.CatalogPool.Exec(
-		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
-		flowName, inErrWithStack, errorType.String(),
-	); err != nil {
-		logger.Error("failed to insert flow error", slog.Any("error", err))
-		return
-	}
+	errClass, errInfo := GetErrorClass(ctx, err)
+	errMessage := fmt.Sprintf("%+v", err)
 
-	var tags []string
-	if errors.Is(inErr, context.Canceled) {
-		tags = append(tags, string(shared.ErrTypeCanceled))
+	// 1. Log the error internally
+	logFn := logger.Error
+	if errorType == FlowErrorTypeWarn {
+		logFn = logger.Warn
 	}
-	if errors.Is(inErr, io.EOF) || errors.Is(inErr, io.ErrUnexpectedEOF) {
-		tags = append(tags, string(shared.ErrTypeEOF))
-	}
-	if errors.Is(inErr, net.ErrClosed) || strings.HasSuffix(errError, "use of closed network connection") {
-		tags = append(tags, string(shared.ErrTypeClosed))
-	}
-	var pgErr *pgconn.PgError
-	if errors.As(inErr, &pgErr) {
-		tags = append(tags, "pgcode:"+pgErr.Code)
-	}
-	var myErr *mysql.MyError
-	if errors.As(inErr, &myErr) {
-		tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
-	}
-	var mongoErr *driver.Error
-	if errors.As(inErr, &mongoErr) {
-		tags = append(tags, fmt.Sprintf("mongocode:%d", mongoErr.Code))
-	}
-	var chErr *clickhouse.Exception
-	if errors.As(inErr, &chErr) {
-		tags = append(tags, fmt.Sprintf("chcode:%d", chErr.Code))
-	}
-	var netErr *net.OpError
-	if errors.As(inErr, &netErr) {
-		tags = append(tags, string(shared.ErrTypeNet))
-	}
-	// For SSH connection errors, we currently tag them as "err:Net"
-	var sshErr *ssh.OpenChannelError
-	if errors.As(inErr, &sshErr) {
-		tags = append(tags, string(shared.ErrTypeNet))
-	}
-
-	errorClass, errInfo := GetErrorClass(ctx, inErr)
-	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
-
-	// Only send alerts to telemetry sender (incident.io) if the env is enabled
-	if internal.PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx) {
-		a.sendTelemetryMessage(ctx, logger, flowName, inErrWithStack, telemetry.ERROR, tags...)
-	}
-	loggerFunc(fmt.Sprintf("Emitting error/warning metric: '%s'", errError),
-		slog.Any("error", inErr),
-		slog.Any("errorClass", errorClass),
+	logFn(err.Error(),
+		slog.Any("errorClass", errClass),
 		slog.Any("errorInfo", errInfo),
-		slog.Any("stack", inErrWithStack),
+		slog.Any("errorMessage", errMessage),
 		slog.String("flowErrorType", errorType.String()),
 	)
+
+	// 2. Insert log to flow_errors table
+	if err := InsertFlowLog(ctx, a.CatalogPool, flowName, errMessage, errorType); err != nil {
+		logger.Error("failed to insert flow error", slog.Any("error", err))
+	}
+
+	// 3. Only send alerts to telemetry sender (incident.io) if the env is enabled
+	if internal.PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx) {
+		var tags []string
+		if errors.Is(err, context.Canceled) {
+			tags = append(tags, string(shared.ErrTypeCanceled))
+		}
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			tags = append(tags, string(shared.ErrTypeEOF))
+		}
+		if errors.Is(err, net.ErrClosed) || strings.HasSuffix(err.Error(), "use of closed network connection") {
+			tags = append(tags, string(shared.ErrTypeClosed))
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			tags = append(tags, "pgcode:"+pgErr.Code)
+		}
+		var myErr *mysql.MyError
+		if errors.As(err, &myErr) {
+			tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
+		}
+		var mongoErr *driver.Error
+		if errors.As(err, &mongoErr) {
+			tags = append(tags, fmt.Sprintf("mongocode:%d", mongoErr.Code))
+		}
+		var chErr *clickhouse.Exception
+		if errors.As(err, &chErr) {
+			tags = append(tags, fmt.Sprintf("chcode:%d", chErr.Code))
+		}
+		var netErr *net.OpError
+		if errors.As(err, &netErr) {
+			tags = append(tags, string(shared.ErrTypeNet))
+		}
+		// For SSH connection errors, we currently tag them as "err:Net"
+		var sshErr *ssh.OpenChannelError
+		if errors.As(err, &sshErr) {
+			tags = append(tags, string(shared.ErrTypeNet))
+		}
+		tags = append(tags, "errorClass:"+errClass.String(), "errorAction:"+errClass.ErrorAction().String())
+		a.sendTelemetryMessage(ctx, flowName, errMessage, telemetry.ERROR, tags...)
+	}
+
+	// 4. Record error metrics
 	errorAttributes := []attribute.KeyValue{
-		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
-		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
+		attribute.Stringer(otel_metrics.ErrorClassKey, errClass),
+		attribute.Stringer(otel_metrics.ErrorActionKey, errClass.ErrorAction()),
 		attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),
 		attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
 	}
@@ -526,11 +533,10 @@ func (a *Alerter) logFlowErrorInternal(
 			errorAttributes = append(errorAttributes, attribute.String(k.String(), v))
 		}
 	}
-
 	errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(errorAttributes...))
 	counter := a.otelManager.Metrics.ErrorsEmittedCounter
 	gauge := a.otelManager.Metrics.ErrorEmittedGauge
-	if errorType == flowErrorTypeWarn {
+	if errorType == FlowErrorTypeWarn {
 		counter = a.otelManager.Metrics.WarningEmittedCounter
 		gauge = a.otelManager.Metrics.WarningsEmittedGauge
 	}
@@ -538,36 +544,41 @@ func (a *Alerter) logFlowErrorInternal(
 	gauge.Record(ctx, 1, errorAttributeSet)
 }
 
-func (a *Alerter) LogFlowWrappedError(ctx context.Context, flowName string, s string, inErr error) error {
-	logger := internal.LoggerFromCtx(ctx)
-	err := shared.WrapError(s, inErr)
-	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeError, err, logger.Error)
+func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) error {
+	a.recordFlowErrorInternal(ctx, flowName, FlowErrorTypeError, err)
 	return err
 }
 
-func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
-	logger := internal.LoggerFromCtx(ctx)
-	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeError, inErr, logger.Error)
-	return inErr
+func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, err error) {
+	a.recordFlowErrorInternal(ctx, flowName, FlowErrorTypeWarn, err)
 }
 
-func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, inErr error) {
-	logger := internal.LoggerFromCtx(ctx)
-	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeWarn, inErr, logger.Warn)
-}
-
-func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
-	logger := internal.LoggerFromCtx(ctx)
-	logger.Info(info)
-	a.sendTelemetryMessage(ctx, logger, flowName, info, telemetry.INFO)
-}
-
-func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {
-	logger := internal.LoggerFromCtx(ctx)
-	logger.Info(info)
-	if _, err := a.CatalogPool.Exec(
-		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)", flowName, info, "info",
-	); err != nil {
-		logger.Warn("failed to insert flow info", slog.Any("error", err))
+func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, message string) {
+	if err := InsertFlowLog(ctx, a.CatalogPool, flowName, message, FlowErrorTypeInfo); err != nil {
+		logger := internal.SlogLoggerFromCtx(ctx)
+		logger.WarnContext(ctx, "failed to insert flow info", slog.Any("error", err))
 	}
+}
+
+// InsertFlowLog Historically flow_errors table only stored errors, hence the name.
+// It has since evolved to surface all user-facing logs.
+func InsertFlowLog(
+	ctx context.Context,
+	catalogPool shared.CatalogPool,
+	flowName string,
+	message string,
+	errorType FlowErrorType,
+) error {
+	logger := internal.SlogLoggerFromCtx(ctx)
+	logger.InfoContext(ctx, fmt.Sprintf("inserting user-facing flow log: [%s] %s", errorType.String(), message),
+		slog.String("flowName", flowName),
+		slog.String("severity", errorType.String()),
+		slog.String("message", message),
+		slog.String("logAudience", "user"),
+	)
+	_, err := catalogPool.Exec(
+		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
+		flowName, message, errorType.String(),
+	)
+	return err
 }

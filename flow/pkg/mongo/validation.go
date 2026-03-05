@@ -2,13 +2,13 @@ package mongo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 const (
@@ -146,5 +146,5 @@ func GetTopologyType(ctx context.Context, client *mongo.Client) (string, error) 
 	if hello.Msg == "isdbgrid" {
 		return ShardedCluster, nil
 	}
-	return "", errors.New("topology type must be ReplicaSet or ShardedCluster")
+	return "", fmt.Errorf("topology type must be ReplicaSet or ShardedCluster")
 }

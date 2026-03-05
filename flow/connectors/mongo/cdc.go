@@ -233,7 +233,7 @@ func (c *MongoConnector) PullRecords(
 			}
 			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
 		} else {
-			return errors.New("document key _id not found")
+			return fmt.Errorf("document key _id not found")
 		}
 
 		if fullDocument != nil {
@@ -276,7 +276,7 @@ func (c *MongoConnector) PullRecords(
 		// extract the most recent resumeToken
 		resumeToken := changeStream.ResumeToken()
 		if resumeToken == nil {
-			return errors.New("resume token is nil")
+			return fmt.Errorf("resume token is nil")
 		}
 
 		// close existing change stream
@@ -313,7 +313,7 @@ func (c *MongoConnector) PullRecords(
 		if ok := changeStream.Next(timeoutCtx); !ok {
 			err := changeStream.Err()
 			if err == nil {
-				return errors.New("unexpected: changestream.Next() returned false but no change stream error was recorded")
+				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
 			}
 
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -345,7 +345,7 @@ func (c *MongoConnector) PullRecords(
 		cumulativeBytesProcessed.Add(changeEventSize)
 
 		var changeEvent ChangeEvent
-		if err := changeStream.Decode(&changeEvent); err != nil {
+		if err := bson.Unmarshal(changeStream.Current, &changeEvent); err != nil {
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 

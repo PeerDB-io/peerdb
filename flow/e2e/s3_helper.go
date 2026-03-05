@@ -30,7 +30,7 @@ type S3PeerCredentials struct {
 	AccessKeyID     string `json:"accessKeyId"`
 	SecretAccessKey string `json:"secretAccessKey"`
 	AwsRoleArn      string `json:"awsRoleArn"`
-	SessionToken    string `json:"sessionToken"`
+	SessionToken    string `json:"sessionToken"` //nolint:gosec // G117: sometimes provided from file
 	Region          string `json:"region"`
 	Endpoint        string `json:"endpoint"`
 }
@@ -73,7 +73,7 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 		if err != nil {
 			return nil, err
 		}
-		rootCA = shared.Ptr(base64.StdEncoding.EncodeToString(bytes))
+		rootCA = new(base64.StdEncoding.EncodeToString(bytes))
 		tlsHost = "minio.local"
 	default:
 		panic(fmt.Sprintf("invalid s3environment %d", s3environment))
@@ -97,7 +97,7 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 		AccessKeyId:     &config.AccessKeyID,
 		SecretAccessKey: &config.SecretAccessKey,
 		Region:          &config.Region,
-		Endpoint:        shared.Ptr(endpoint),
+		Endpoint:        new(endpoint),
 		RootCa:          rootCA,
 		TlsHost:         tlsHost,
 	}

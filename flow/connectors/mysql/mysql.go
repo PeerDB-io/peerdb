@@ -408,7 +408,7 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 		return nil, fmt.Errorf("failed to check gtid mode: %w", err)
 	}
 	if !gtidOn {
-		return nil, errors.New("gtid mode is not enabled")
+		return nil, fmt.Errorf("gtid mode is not enabled")
 	}
 
 	var query string
@@ -442,7 +442,7 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 		c.logger.Info("[mysql] version", slog.String("version", version))
 		return version, nil
 	}
-	return "", errors.New("failed to connect")
+	return "", fmt.Errorf("failed to connect")
 }
 
 func (c *MySqlConnector) StatActivity(

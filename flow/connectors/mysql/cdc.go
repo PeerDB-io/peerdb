@@ -672,7 +672,7 @@ func (c *MySqlConnector) PullRecords(
 						}
 					}
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
-					return errors.New("mysql v0 replication protocol not supported")
+					return fmt.Errorf("mysql v0 replication protocol not supported")
 				}
 			}
 			if event.Header.Timestamp > 0 {

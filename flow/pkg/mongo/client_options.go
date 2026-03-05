@@ -2,7 +2,6 @@ package mongo
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -38,7 +37,7 @@ func BuildClientOptions(config ClientConfig) (*options.ClientOptions, error) {
 	}
 
 	if connStr.UsernameSet {
-		return nil, errors.New("connection string should not contain username and password")
+		return nil, fmt.Errorf("connection string should not contain username and password")
 	}
 
 	clientOptions := options.Client().

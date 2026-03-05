@@ -87,3 +87,39 @@ func (e *PostgresLogicalMessageProcessingError) Error() string {
 func (e *PostgresLogicalMessageProcessingError) Unwrap() error {
 	return e.error
 }
+
+type PublicationMissingError struct {
+	PublicationName string
+}
+
+func NewPublicationMissingError(publicationName string) *PublicationMissingError {
+	return &PublicationMissingError{PublicationName: publicationName}
+}
+
+func (e *PublicationMissingError) Error() string {
+	return fmt.Sprintf("publication %s does not exist", e.PublicationName)
+}
+
+type SlotMissingError struct {
+	SlotName string
+}
+
+func NewSlotMissingError(slotName string) *SlotMissingError {
+	return &SlotMissingError{SlotName: slotName}
+}
+
+func (e *SlotMissingError) Error() string {
+	return fmt.Sprintf("replication slot %s does not exist", e.SlotName)
+}
+
+type ReplStateDesyncError struct {
+	Message string
+}
+
+func NewReplStateDesyncError(message string) *ReplStateDesyncError {
+	return &ReplStateDesyncError{Message: message}
+}
+
+func (e *ReplStateDesyncError) Error() string {
+	return e.Message
+}

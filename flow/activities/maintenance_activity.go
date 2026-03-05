@@ -384,7 +384,7 @@ func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 			activity.RecordHeartbeat(ctx, "Maintenance Workflow is still running")
 		case <-alertTicker.C:
 			slog.WarnContext(ctx, "Maintenance Workflow is still running")
-			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "Waiting", "Maintenance mode is still running")
+			a.Alerter.EmitNonFlowWarningTelemetryEvent(ctx, telemetry.MaintenanceWait, "Waiting", "Maintenance mode is still running")
 			a.OtelManager.Metrics.MaintenanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.WorkflowTypeKey, activity.GetInfo(ctx).WorkflowType.Name),
 			)))

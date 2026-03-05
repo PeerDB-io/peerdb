@@ -3,7 +3,6 @@ package connpostgres
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -81,7 +80,7 @@ func NTileBucketPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 // value range, or deleted rows.
 func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
 	if pp.numPartitions <= 1 {
-		return nil, errors.New("expect numPartitions to be greater than 1")
+		return nil, fmt.Errorf("expect numPartitions to be greater than 1")
 	}
 
 	const queryTemplate = "SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s"
@@ -117,7 +116,7 @@ func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 // may be skewed due to table bloat, deleted tuples, or uneven data distribution across blocks.
 func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
 	if pp.numPartitions <= 1 {
-		return nil, errors.New("expect numPartitions to be greater than 1")
+		return nil, fmt.Errorf("expect numPartitions to be greater than 1")
 	}
 
 	const partitionsQuery = "SELECT (pg_relation_size(to_regclass($1)) / current_setting('block_size')::int)::bigint"
