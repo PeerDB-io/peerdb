@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
