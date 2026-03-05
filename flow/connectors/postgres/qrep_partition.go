@@ -180,29 +180,30 @@ func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*prot
 
 // ComputeNumPartitions computes the number of partitions given desired number of rows
 // per partition, with automatic adjustment to respect the maximum partition limit.
-// TODO: use estimated row count instead to speed up query execution on large tables
 func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPartition int64) (int64, error) {
-	const queryTemplate = "SELECT COUNT(*) FROM %s %s"
-	var whereClause string
-	var queryArgs []any
-	if pp.lastRangeEnd != nil {
-		whereClause = fmt.Sprintf("WHERE %s > $1", pp.watermarkColumn)
-		queryArgs = []any{pp.lastRangeEnd}
-	}
 	var totalRows pgtype.Int8
-	countQuery := fmt.Sprintf(queryTemplate, pp.watermarkTable, whereClause)
-	pp.logger.Info("fetch row count", slog.String("query", countQuery))
-
-	if err := pp.tx.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows); err != nil {
-		return 0, fmt.Errorf("failed to query for total rows: %w", err)
+	if pp.lastRangeEnd != nil {
+		// Legacy use case with QRepFlowWorkflow
+		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s > $1", pp.watermarkTable, pp.watermarkColumn)
+		pp.logger.Info("fetch estimated row count", slog.String("query", countQuery))
+		if err := pp.tx.QueryRow(ctx, countQuery, pp.lastRangeEnd).Scan(&totalRows); err != nil {
+			return 0, fmt.Errorf("failed to query for remaining rows: %w", err)
+		}
+	} else {
+		// General use case with SnapshotFlowWorkflow
+		const estimateQuery = "SELECT reltuples::bigint FROM pg_class WHERE oid = to_regclass($1)"
+		pp.logger.Info("fetch estimated row count", slog.String("query", estimateQuery))
+		if err := pp.tx.QueryRow(ctx, estimateQuery, pp.watermarkTable).Scan(&totalRows); err != nil {
+			return 0, fmt.Errorf("failed to query for estimated row count: %w", err)
+		}
 	}
-	if totalRows.Int64 == 0 {
+	if totalRows.Int64 <= 0 {
 		pp.logger.Warn("no records to replicate, returning")
 		return 0, nil
 	}
 
 	adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
-	pp.logger.Info("[postgres] partition adjustment details",
+	pp.logger.Info("[postgres] partition details",
 		slog.Int64("totalRows", totalRows.Int64),
 		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
 		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
