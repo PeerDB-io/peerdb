@@ -1,6 +1,6 @@
 # Flow e2e flake analysis (last 20 main commits)
 
-Scope: inspected flow e2e CI runs for the latest 20 commits on `main` (Feb 26–Mar 4). Only two runs failed; both show the same ClickHouse destination-not-found pattern.
+ Scope: inspected flow e2e CI runs for the latest 20 commits on `main` (Feb 26–Mar 4). That produced two failing flow runs (out of the sampled set); both show the same ClickHouse destination-not-found pattern.
 
 ## Failing runs
 - Run 22661847388 (flow run #16458, commit 4ca4f810 “upgrade docker-compose stable image tags”): `flow_test (mysql-gtid, 6.0, lts)` failed in `TestApiMy/TestQRep`. ClickHouse returned `Unknown table expression identifier 'qrepapi_api_fxd6qyn0'...` during initial load; subsequent wait timed out (`UNEXPECTED TIMEOUT finish`). QRep destination table never appeared.
