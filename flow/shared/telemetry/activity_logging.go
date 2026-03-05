@@ -22,7 +22,6 @@ const (
 	ActionPauseFlow             = "pause_flow"
 	ActionResumeFlow            = "resume_flow"
 	ActionTerminateFlow         = "terminate_flow"
-	ActionStartFlowConfigUpdate = "start_flow_config_update"
 	ActionUpdateFlowConfig      = "update_flow_config"
 	ActionStartMaintenance      = "start_maintenance"
 	ActionEndMaintenance        = "end_maintenance"
@@ -69,31 +68,6 @@ func LogActivityCreatePeer(ctx context.Context) {
 
 func LogActivityDropPeer(ctx context.Context) {
 	logActivity(ctx, ActionDropPeer)
-}
-
-func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, update *protos.CDCFlowConfigUpdate) {
-	var changes []string
-
-	// Only logging fields that don't need old values to compare to
-	if len(update.AdditionalTables) > 0 {
-		addedTables := make([]string, 0, len(update.AdditionalTables))
-		for _, t := range update.AdditionalTables {
-			addedTables = append(addedTables, t.SourceTableIdentifier)
-		}
-		changes = append(changes, fmt.Sprintf("tables added: %v", addedTables))
-	}
-
-	if len(update.RemovedTables) > 0 {
-		removedTables := make([]string, 0, len(update.RemovedTables))
-		for _, t := range update.RemovedTables {
-			removedTables = append(removedTables, t.SourceTableIdentifier)
-		}
-		changes = append(changes, fmt.Sprintf("tables removed: %v", removedTables))
-	}
-
-	logActivity(ctx, ActionStartFlowConfigUpdate,
-		slog.String("flowName", flowName),
-		slog.String("activityDetails", strings.Join(changes, ", ")))
 }
 
 type OldCDCFlowValues struct {
