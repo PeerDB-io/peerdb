@@ -1,19 +1,29 @@
-# Flow e2e flake analysis (last 20 main commits)
+# Flow e2e flake analysis (last 20 commits to main)
 
- Scope: inspected flow e2e CI runs for the latest 20 commits on `main` (Feb 26–Mar 4). That produced two failing flow runs (out of the sampled set); both show the same ClickHouse destination-not-found pattern.
+Date: 2026-03-05
 
-## Failing runs
-- Run 22661847388 (flow run #16458, commit 4ca4f810 “upgrade docker-compose stable image tags”): `flow_test (mysql-gtid, 6.0, lts)` failed in `TestApiMy/TestQRep`. ClickHouse returned `Unknown table expression identifier 'qrepapi_api_fxd6qyn0'...` during initial load; subsequent wait timed out (`UNEXPECTED TIMEOUT finish`). QRep destination table never appeared.
-- Run 22652600730 (flow run #16451, commit bde2cdff “o11y: small refactor on user-facing logs”): `flow_test (maria, 8.0, latest)` failed in `TestBigQueryClickhouseSuite`. Two cases hit the same issue:
-  - `Test_Trips_Flow_Small_Partitions`: ClickHouse `Unknown table expression identifier 'trips_1k_dst_small_partitions'...` while comparing row counts.
-  - `Test_Types`: timed out waiting for initial load to materialize; destination table stayed empty (`q.NumRecords: 1000`, `other.NumRecords: 0`).
+## Runs inspected
+- Run 22661847388 (run_number 16458) on commit 4ca4f810614eab0203f98c3804ee61be1e9bde90, job `flow_test (ubuntu-latest-16-cores, 16, mysql-gtid, 6.0, lts)` — failed.
+- Run 22652600730 (run_number 16451) on commit bde2cdff604952c8e2af4fe4c2f3dc5ccadb760a, job `flow_test (ubuntu-latest-16-cores, 18, maria, 8.0, latest)` — failed.
+- Earlier main runs within the last 20 commits (e.g., run_number 16200 on commit f76458f2deaeebf898c605d0d94771e26b58232d) succeeded.
 
-## Pattern
-- All failures are “destination table missing/empty in ClickHouse” after the pipeline reports inserts, leading to unknown-table errors or timeouts.
-- Hits different suites (API MySQL QRep; BigQuery→ClickHouse) and connectors, suggesting a ClickHouse DDL propagation/race rather than source-specific data.
-- Other flow jobs in the same runs passed, so the issue is intermittent rather than systematic.
+## Failure signatures observed
+1) ClickHouse destination missing during qrep initial load (MySQL → CH):
+   - Test: `e2e TestApiMy/TestQRep`.
+   - Error: ClickHouse query errors with `Unknown table expression identifier 'qrepapi_api_fxd6qyn0' ... FINAL`, followed by `UNEXPECTED TIMEOUT` waiting for load (run 22661847388).
+   - Symptom: Source row count 2 vs destination 1; eventual timeout while waiting for finish.
 
-## Suggested mitigations
-- Add explicit waits/retries for ClickHouse table existence before SELECT checks in QRep and BigQuery suites; surface DDL create errors earlier.
-- Capture ClickHouse server logs around DDL/initial load to confirm whether tables fail to create or simply lag.
-- If reproducible, consider increasing ClickHouse settings for replication delay/DDL logging in CI to reduce eventual-consistency gaps.
+2) ClickHouse destination missing during BigQuery → ClickHouse flows:
+   - Tests: `TestBigQueryClickhouseSuite/Test_Trips_Flow_Small_Partitions` and `TestBigQueryClickhouseSuite/Test_Types`.
+   - Errors: `Unknown table expression identifier 'trips_1k_dst_small_partitions' ... FINAL` and timeout waiting for records to appear (run 22652600730).
+   - Symptom: Source rows (e.g., 1000) vs destination 0; repeated checks stuck at 0 until timeout.
+
+## Patterns and hypotheses
+- Both failures show ClickHouse complaining that the destination table is absent when the test begins reading with `FINAL`. This looks like a race where the apply-schema or initial-load table creation did not complete (or failed silently) before the verification loop.
+- The issue spans different suites (MySQL qrep and BigQuery ingestion) and different CH database names, suggesting a systemic CH table creation / propagation race rather than test data conflict.
+- Runs immediately before/after on main have passed, supporting “intermittent flake” rather than deterministic regression.
+
+## Recommended next steps
+- Add explicit waits/retries for ClickHouse destination table existence before issuing `SELECT ... FINAL` in flow e2e helpers to mask creation latency.
+- Increase logging around ClickHouse apply-schema and initial-load DDL (including failures) to confirm whether DDL is being skipped or delayed.
+- If possible, capture and emit ClickHouse DDL execution timing in CI artifacts to correlate with the verification timeouts.
