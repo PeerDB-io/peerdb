@@ -181,20 +181,30 @@ func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*prot
 // ComputeNumPartitions computes the number of partitions given desired number of rows
 // per partition, with automatic adjustment to respect the maximum partition limit.
 func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPartition int64) (int64, error) {
+	const preciseCountTemplate = "SELECT COUNT(*) FROM %s %s"
+	const estimatedCountTemplate = "SELECT reltuples::bigint FROM pg_class WHERE oid = to_regclass($1)"
+
 	var totalRows pgtype.Int8
-	if pp.lastRangeEnd != nil {
-		// Legacy use case with QRepFlowWorkflow
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s > $1", pp.watermarkTable, pp.watermarkColumn)
-		pp.logger.Info("fetch estimated row count", slog.String("query", countQuery))
-		if err := pp.tx.QueryRow(ctx, countQuery, pp.lastRangeEnd).Scan(&totalRows); err != nil {
-			return 0, fmt.Errorf("failed to query for remaining rows: %w", err)
+	var whereClause string
+	var queryArgs []any
+
+	if pp.lastRangeEnd == nil {
+		pp.logger.Info("fetch estimated row count", slog.String("query", estimatedCountTemplate))
+		if err := pp.tx.QueryRow(ctx, estimatedCountTemplate, pp.watermarkTable).Scan(&totalRows); err != nil {
+			return 0, fmt.Errorf("failed to query for estimated row count: %w", err)
 		}
 	} else {
-		// General use case with SnapshotFlowWorkflow
-		const estimateQuery = "SELECT reltuples::bigint FROM pg_class WHERE oid = to_regclass($1)"
-		pp.logger.Info("fetch estimated row count", slog.String("query", estimateQuery))
-		if err := pp.tx.QueryRow(ctx, estimateQuery, pp.watermarkTable).Scan(&totalRows); err != nil {
-			return 0, fmt.Errorf("failed to query for estimated row count: %w", err)
+		whereClause = fmt.Sprintf("WHERE %s > $1", pp.watermarkColumn)
+		queryArgs = []any{pp.lastRangeEnd}
+	}
+
+	// reltuples is -1 if the table has never been analyzed, or may be 0 when the table stats is stale,
+	// fall back to COUNT(*) in both cases; also used for polling-based flows with lastRangeEnd
+	if totalRows.Int64 <= 0 {
+		countQuery := fmt.Sprintf(preciseCountTemplate, pp.watermarkTable, whereClause)
+		pp.logger.Info("fetch row count", slog.String("query", countQuery))
+		if err := pp.tx.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows); err != nil {
+			return 0, fmt.Errorf("failed to query for precise row count: %w", err)
 		}
 	}
 	if totalRows.Int64 <= 0 {
