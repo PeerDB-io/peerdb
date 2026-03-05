@@ -17,17 +17,17 @@ import (
 )
 
 const (
-	ActionCreateFlow            = "create_flow"
-	ActionResyncFlow            = "resync_flow"
-	ActionPauseFlow             = "pause_flow"
-	ActionResumeFlow            = "resume_flow"
-	ActionTerminateFlow         = "terminate_flow"
-	ActionUpdateFlowConfig      = "update_flow_config"
-	ActionStartMaintenance      = "start_maintenance"
-	ActionEndMaintenance        = "end_maintenance"
-	ActionSkipSnapshotWaitFlows = "skip_snapshot_wait_flows"
-	ActionCreatePeer            = "create_peer"
-	ActionDropPeer              = "drop_peer"
+	ActionCreateFlow               = "create_flow"
+	ActionResyncFlow               = "resync_flow"
+	ActionPauseFlow                = "pause_flow"
+	ActionResumeFlow               = "resume_flow"
+	ActionTerminateFlow            = "terminate_flow"
+	ActionAppliedFlowConfigUpdates = "applied_flow_config_updates"
+	ActionStartMaintenance         = "start_maintenance"
+	ActionEndMaintenance           = "end_maintenance"
+	ActionSkipSnapshotWaitFlows    = "skip_snapshot_wait_flows"
+	ActionCreatePeer               = "create_peer"
+	ActionDropPeer                 = "drop_peer"
 )
 
 func LogActivityCreateFlow(ctx context.Context, flowName string) {
@@ -80,7 +80,7 @@ type OldCDCFlowValues struct {
 	SnapshotNumTablesInParallel   uint32
 }
 
-func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues OldCDCFlowValues, update *protos.CDCFlowConfigUpdate) {
+func LogActivityAppliedFlowConfigUpdates(ctx context.Context, flowName string, oldValues OldCDCFlowValues, update *protos.CDCFlowConfigUpdate) {
 	var changes []string
 
 	logIfChanged := func(name string, oldVal, newVal any) {
@@ -133,7 +133,7 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 	}
 
 	if len(changes) > 0 {
-		logActivity(ctx, ActionUpdateFlowConfig,
+		logActivity(ctx, ActionAppliedFlowConfigUpdates,
 			slog.String("flowName", flowName),
 			slog.String("activityDetails", strings.Join(changes, ", ")))
 	}

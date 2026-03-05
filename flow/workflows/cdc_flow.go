@@ -161,7 +161,7 @@ func processCDCFlowConfigUpdate(
 		}
 	}
 
-	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
+	telemetry.LogActivityAppliedFlowConfigUpdates(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	return nil
 }
