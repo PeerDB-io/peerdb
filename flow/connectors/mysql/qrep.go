@@ -100,7 +100,8 @@ func (c *MySqlConnector) GetQRepPartitions(
 			time := lastRange.TimestampRange.End.AsTime()
 			minVal = "'" + time.Format("2006-01-02 15:04:05.999999") + "'"
 		case *protos.PartitionRange_NullRange:
-			//nolint:lll // this case should never happen because we only add null partition for InitialCopyOnly replication (so there shouldn't be a resume scenario with null range),
+			// this case should never happen because we only add null partition for InitialCopyOnly replication
+			// (so there shouldn't be a resume scenario with null range)
 			return nil, errors.New("unexpected null range in last partition after resuming QRep")
 		}
 
@@ -156,7 +157,8 @@ func (c *MySqlConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
 	}
 
-	//nolint:lll // add null values partition to the end, if nulls aren't present it will be an empty partition that gets skipped during replication
+	// add null values partition to the end, if nulls aren't present it will be an empty partition
+	// that gets skipped during replication
 	if config.WatermarkColumnNullable && config.InitialCopyOnly {
 		partitionHelper.AddNullPartition()
 	}

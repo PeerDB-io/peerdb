@@ -17,7 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-//nolint:govet
+//nolint:govet // field alignment not important
 type testCase struct {
 	name                  string
 	config                *protos.QRepConfig

@@ -103,7 +103,8 @@ func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
 	}
 
-	//nolint:lll // add null values partition to the end, if nulls aren't present it will be an empty partition that gets skipped during replication
+	// add null values partition to the end, if nulls aren't present it will be an empty partition
+	// that gets skipped during replication
 	if pp.addNullPartition {
 		partitionHelper.AddNullPartition()
 	}
