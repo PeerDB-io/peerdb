@@ -397,6 +397,11 @@ func corePullQRepRecords(
 		}
 		return executor.ExecuteQueryIntoSink(ctx, sink, query)
 	}
+
+	if len(partition.ChildTableRanges) > 0 {
+		return pullChildTableRanges(c, ctx, config, partition, sink)
+	}
+
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
 	var rangeStart any
@@ -468,6 +473,67 @@ func corePullQRepRecords(
 		slog.Int64("records", numRecords),
 		slog.Int64("bytes", numBytes))
 	return numRecords, numBytes, nil
+}
+
+// pullChildTableRanges executes one query per ChildTableRange entry, replacing the
+// watermark table in the query template, and accumulates results.
+func pullChildTableRanges(
+	c *PostgresConnector,
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	sink QRepPullSink,
+) (int64, int64, error) {
+	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
+
+	executor, err := c.NewQRepQueryExecutorSnapshot(
+		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
+	}
+
+	queryTemplate := config.Query
+	templateParams := map[string]string{"start": "$1", "end": "$2"}
+	baseQuery, err := utils.ExecuteTemplate(queryTemplate, templateParams)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var totalRecords, totalBytes int64
+	for _, child := range partition.ChildTableRanges {
+		query := strings.ReplaceAll(baseQuery, config.WatermarkTable, child.Table)
+
+		rangeStart := pgtype.TID{
+			BlockNumber:  child.Range.Start.BlockNumber,
+			OffsetNumber: uint16(child.Range.Start.OffsetNumber),
+			Valid:        true,
+		}
+		rangeEnd := pgtype.TID{
+			BlockNumber:  child.Range.End.BlockNumber,
+			OffsetNumber: uint16(child.Range.End.OffsetNumber),
+			Valid:        true,
+		}
+
+		c.logger.Info("pulling child table range",
+			partitionIdLog,
+			slog.String("childTable", child.Table),
+			slog.Any("start", rangeStart),
+			slog.Any("end", rangeEnd))
+
+		numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
+		if err != nil {
+			return totalRecords, totalBytes, fmt.Errorf("failed to pull from child %s: %w", child.Table, err)
+		}
+		totalRecords += numRecords
+		totalBytes += numBytes
+	}
+
+	c.logger.Info("pulled records from child table ranges",
+		partitionIdLog,
+		slog.Int64("records", totalRecords),
+		slog.Int64("bytes", totalBytes),
+		slog.Int("childTableRanges", len(partition.ChildTableRanges)))
+	return totalRecords, totalBytes, nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(
