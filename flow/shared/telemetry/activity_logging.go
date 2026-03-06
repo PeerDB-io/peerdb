@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -191,23 +192,35 @@ type FlowConfigForLogging struct {
 }
 
 type TableMappingForLogging struct {
-	TableName     string   `json:"table_name"`
-	DestTableName string   `json:"destination_table_name"`
-	PartitionKey  string   `json:"partition_key"`
-	Engine        string   `json:"engine"`
-	Exclude       []string `json:"excluded_columns"`
+	TableName           string   `json:"table_name"`
+	DestTableName       string   `json:"destination_table_name"`
+	PartitionKey        string   `json:"partition_key"`
+	Engine              string   `json:"engine"`
+	Exclude             []string `json:"excluded_columns"`
+	ReplicaIdentityFull bool     `json:"replica_identity_full"`
+	UseCustomSortKey    bool     `json:"use_custom_sort_key"`
+	TotalInserts        int64    `json:"total_inserts"`
+	TotalUpdates        int64    `json:"total_updates"`
+	TotalDeletes        int64    `json:"total_deletes"`
 }
 
 func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
 
-	rows, err := catalogPool.Query(ctx,
-		`SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE config_proto IS NOT NULL`)
+	batch := pgx.Batch{}
+	batch.Queue(`SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE config_proto IS NOT NULL`)
+	batch.Queue(`SELECT flow_name, destination_table_name, inserts_count, updates_count, deletes_count
+		FROM peerdb_stats.cdc_table_aggregate_counts`)
+	batch.Queue(`SELECT flow_name, table_name, table_schema FROM table_schema_mapping`)
+
+	batchResults := catalogPool.Pool.SendBatch(ctx, &batch)
+	defer batchResults.Close()
+
+	configRows, err := batchResults.Query()
 	if err != nil {
 		return fmt.Errorf("failed to query flow configs: %w", err)
 	}
-
-	configs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigsCore, error) {
+	configs, err := pgx.CollectRows(configRows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigsCore, error) {
 		var name string
 		var configProto []byte
 		if err := row.Scan(&name, &configProto); err != nil {
@@ -221,6 +234,53 @@ func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to collect flow configs: %w", err)
+	}
+
+	type tableCounts struct {
+		inserts int64
+		updates int64
+		deletes int64
+	}
+	countsByFlow := make(map[string]map[string]tableCounts)
+
+	countRows, err := batchResults.Query()
+	if err != nil {
+		logger.Warn("failed to query table aggregate counts", slog.Any("error", err))
+	} else {
+		var flowName, destTable string
+		var counts tableCounts
+		if _, err := pgx.ForEachRow(countRows, []any{&flowName, &destTable, &counts.inserts, &counts.updates, &counts.deletes}, func() error {
+			if countsByFlow[flowName] == nil {
+				countsByFlow[flowName] = make(map[string]tableCounts)
+			}
+			countsByFlow[flowName][destTable] = counts
+			return nil
+		}); err != nil {
+			logger.Warn("failed to read table aggregate counts", slog.Any("error", err))
+		}
+	}
+
+	replicaIdentityByFlow := make(map[string]map[string]bool)
+
+	schemaRows, err := batchResults.Query()
+	if err != nil {
+		logger.Warn("failed to query table schema mapping", slog.Any("error", err))
+	} else {
+		var flowName, tableName string
+		var tableSchemaBytes []byte
+		if _, err := pgx.ForEachRow(schemaRows, []any{&flowName, &tableName, &tableSchemaBytes}, func() error {
+			tableSchema := &protos.TableSchema{}
+			if err := proto.Unmarshal(tableSchemaBytes, tableSchema); err != nil {
+				return err
+			}
+			if replicaIdentityByFlow[flowName] == nil {
+				replicaIdentityByFlow[flowName] = make(map[string]bool)
+			}
+			replicaIdentityByFlow[flowName][tableName] = tableSchema.IsReplicaIdentityFull
+			return nil
+		}); err != nil {
+			logger.Warn("failed to read table schema mapping", slog.Any("error", err))
+		}
 	}
 
 	for _, cfg := range configs {
@@ -248,13 +308,24 @@ func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
 			slog.String("flowName", cfg.FlowJobName),
 			slog.String("flowConfig", string(configJSON)))
 
+		flowReplicaIdentity := replicaIdentityByFlow[cfg.FlowJobName]
+		flowCounts := countsByFlow[cfg.FlowJobName]
 		for _, tm := range cfg.TableMappings {
+			counts := flowCounts[tm.DestinationTableIdentifier]
+			hasCustomSortKey := slices.ContainsFunc(tm.Columns, func(col *protos.ColumnSetting) bool {
+				return col.Ordering > 0
+			})
 			tableConfig := TableMappingForLogging{
-				TableName:     tm.SourceTableIdentifier,
-				DestTableName: tm.DestinationTableIdentifier,
-				PartitionKey:  tm.PartitionKey,
-				Engine:        tm.Engine.String(),
-				Exclude:       tm.Exclude,
+				TableName:           tm.SourceTableIdentifier,
+				DestTableName:       tm.DestinationTableIdentifier,
+				PartitionKey:        tm.PartitionKey,
+				Engine:              tm.Engine.String(),
+				Exclude:             tm.Exclude,
+				ReplicaIdentityFull: flowReplicaIdentity[tm.DestinationTableIdentifier],
+				UseCustomSortKey:    hasCustomSortKey,
+				TotalInserts:        counts.inserts,
+				TotalUpdates:        counts.updates,
+				TotalDeletes:        counts.deletes,
 			}
 			tableJSON, err := json.Marshal(tableConfig)
 			if err != nil {
