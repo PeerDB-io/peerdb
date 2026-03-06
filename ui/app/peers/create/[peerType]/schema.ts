@@ -125,6 +125,18 @@ export const pgSchema = z.object({
   tlsHost: z.string(),
   sshConfig: sshSchema,
 });
+
+export const crdbSchema = z.object({
+  host: z.string().min(1, 'Host is required').max(255),
+  port: z.int().min(1).max(65535),
+  database: z.string().min(1, 'Database is required').max(100),
+  user: z.string().min(1, 'User is required').max(64),
+  password: z.string().max(100),
+  requireTls: z.boolean().optional(),
+  rootCa: z.string().optional().transform((e) => (e === '' ? undefined : e)),
+  tlsHost: z.string().optional(),
+});
+
 export const mySchema = z.object({
   host: z
     .string({
