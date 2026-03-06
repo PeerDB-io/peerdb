@@ -47,6 +47,12 @@ func main() {
 		Usage:   "Enable OpenTelemetry metrics for the application",
 		Sources: cli.EnvVars("ENABLE_OTEL_METRICS"),
 	}
+	otelTracesFlag := &cli.BoolFlag{
+		Name:    "enable-otel-traces",
+		Value:   false,
+		Usage:   "Enable OpenTelemetry traces for the application",
+		Sources: cli.EnvVars("ENABLE_OTEL_TRACES"),
+	}
 
 	pprofPortFlag := &cli.Uint16Flag{
 		Name:    "pprof-port",
@@ -190,6 +196,7 @@ func main() {
 						TemporalMaxConcurrentWorkflowTasks: clicmd.Int(temporalMaxConcurrentWorkflowTasksFlag.Name),
 						UseMaintenanceTaskQueue:            clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
 						EnableOtelMetrics:                  clicmd.Bool(otelMetricsFlag.Name),
+						EnableOtelTraces:                   clicmd.Bool(otelTracesFlag.Name),
 					})
 					if err != nil {
 						return err
@@ -204,6 +211,7 @@ func main() {
 					temporalMaxConcurrentWorkflowTasksFlag,
 					useMaintenanceTaskQueueFlag,
 					otelMetricsFlag,
+					otelTracesFlag,
 				},
 			},
 			{
@@ -213,6 +221,7 @@ func main() {
 						TemporalHostPort:  clicmd.String(temporalHostPortFlag.Name),
 						TemporalNamespace: clicmd.String(temporalNamespaceFlag.Name),
 						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),
+						EnableOtelTraces:  clicmd.Bool(otelTracesFlag.Name),
 					})
 					if err != nil {
 						return err
@@ -224,6 +233,7 @@ func main() {
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
 					otelMetricsFlag,
+					otelTracesFlag,
 				},
 			},
 			{
@@ -234,6 +244,7 @@ func main() {
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
 					otelMetricsFlag,
+					otelTracesFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					return cmd.APIMain(ctx, &cmd.APIServerParams{
@@ -242,6 +253,7 @@ func main() {
 						TemporalHostPort:  clicmd.String(temporalHostPortFlag.Name),
 						TemporalNamespace: clicmd.String(temporalNamespaceFlag.Name),
 						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),
+						EnableOtelTraces:  clicmd.Bool(otelTracesFlag.Name),
 					})
 				},
 			},

@@ -24,6 +24,7 @@ type SnapshotWorkerOptions struct {
 	TemporalHostPort  string
 	TemporalNamespace string
 	EnableOtelMetrics bool
+	EnableOtelTraces  bool
 }
 
 func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*WorkerSetupResponse, error) {
@@ -49,6 +50,18 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 	clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
 		Meter: metricsProvider.Meter("temporal-sdk-go"),
 	})
+
+	tracerProvider, err := otel_metrics.SetupTracerProvider(ctx, otel_metrics.FlowSnapshotWorkerServiceName, opts.EnableOtelTraces)
+	if err != nil {
+		return nil, fmt.Errorf("unable to setup tracer provider: %w", err)
+	}
+	if opts.EnableOtelTraces {
+		tracingInterceptor, tracingErr := temporalotel.NewTracingInterceptor(temporalotel.TracerOptions{})
+		if tracingErr != nil {
+			return nil, fmt.Errorf("unable to create tracing interceptor: %w", tracingErr)
+		}
+		clientOptions.Interceptors = append(clientOptions.Interceptors, tracingInterceptor)
+	}
 
 	c, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
@@ -78,8 +91,9 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 	})
 
 	return &WorkerSetupResponse{
-		Client:      c,
-		Worker:      w,
-		OtelManager: otelManager,
+		Client:         c,
+		Worker:         w,
+		OtelManager:    otelManager,
+		TracerProvider: tracerProvider,
 	}, nil
 }

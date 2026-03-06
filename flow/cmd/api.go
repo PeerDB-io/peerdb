@@ -38,6 +38,7 @@ type APIServerParams struct {
 	Port              uint16
 	GatewayPort       uint16
 	EnableOtelMetrics bool
+	EnableOtelTraces  bool
 }
 
 type RecryptItem struct {
