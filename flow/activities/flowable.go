@@ -736,14 +736,26 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	for _, partition := range partitions.Partitions {
-		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, partition.PartitionId))
+	for i, partition := range partitions.Partitions {
+		partLogger := log.With(logger,
+			slog.Int64("batchId", int64(partitions.BatchId)),
+			slog.String("partitionId", partition.PartitionId),
+			slog.String("table", config.WatermarkTable),
+			slog.Int("partitionNum", i+1),
+			slog.Int("totalPartitions", numPartitions))
 
-		err := replicatePartition(partition)
-		if err != nil {
-			logger.Error("failed to replicate partition", slog.Any("error", err))
+		startTime := time.Now()
+		partLogger.Info(fmt.Sprintf("start replicating partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable))
+
+		if err := replicatePartition(partition); err != nil {
+			partLogger.Error(fmt.Sprintf("failed to replicate partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable),
+				slog.Any("error", err))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		}
+
+		partLogger.Info(fmt.Sprintf("finished replicating partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable),
+			slog.Time("startTime", startTime),
+			slog.Time("finishTime", time.Now()))
 	}
 
 	a.Alerter.LogFlowInfo(
