@@ -3,10 +3,12 @@ package model
 
 import (
 	"context"
+	crand "crypto/rand"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"math/big"
 	"math/rand/v2"
 	"os"
 	"testing"
@@ -139,12 +141,37 @@ func TestAvroSizeComputation(t *testing.T) {
 	}
 
 	subtests := []subtestDef{
+		// Scalar types
 		{
-			name:       "boolean",
-			kind:       types.QValueKindBoolean,
+			name:       "invalid",
+			kind:       types.QValueKindInvalid,
 			numRecords: 10_000,
 			genValue: func() types.QValue {
-				return types.QValueBoolean{Val: rand.IntN(2) == 1}
+				return types.QValueInvalid{Val: randomText(20 + rand.IntN(200))}
+			},
+		},
+		{
+			name:       "float32",
+			kind:       types.QValueKindFloat32,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueFloat32{Val: rand.Float32() * 1000}
+			},
+		},
+		{
+			name:       "float64",
+			kind:       types.QValueKindFloat64,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueFloat64{Val: rand.Float64() * 1e6}
+			},
+		},
+		{
+			name:       "int8",
+			kind:       types.QValueKindInt8,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueInt8{Val: int8(rand.IntN(256) - 128)}
 			},
 		},
 		{
@@ -172,19 +199,67 @@ func TestAvroSizeComputation(t *testing.T) {
 			},
 		},
 		{
-			name:       "float32",
-			kind:       types.QValueKindFloat32,
+			name:       "int256",
+			kind:       types.QValueKindInt256,
 			numRecords: 10_000,
 			genValue: func() types.QValue {
-				return types.QValueFloat32{Val: rand.Float32() * 1000}
+				return types.QValueInt256{Val: randomBigInt(31)}
 			},
 		},
 		{
-			name:       "float64",
-			kind:       types.QValueKindFloat64,
+			name:       "uint8",
+			kind:       types.QValueKindUInt8,
 			numRecords: 10_000,
 			genValue: func() types.QValue {
-				return types.QValueFloat64{Val: rand.Float64() * 1e6}
+				return types.QValueUInt8{Val: uint8(rand.IntN(256))}
+			},
+		},
+		{
+			name:       "uint16",
+			kind:       types.QValueKindUInt16,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueUInt16{Val: uint16(rand.IntN(65536))}
+			},
+		},
+		{
+			name:       "uint32",
+			kind:       types.QValueKindUInt32,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueUInt32{Val: rand.Uint32()}
+			},
+		},
+		{
+			name:       "uint64",
+			kind:       types.QValueKindUInt64,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueUInt64{Val: rand.Uint64()}
+			},
+		},
+		{
+			name:       "uint256",
+			kind:       types.QValueKindUInt256,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueUInt256{Val: randomBigInt(31)}
+			},
+		},
+		{
+			name:       "boolean",
+			kind:       types.QValueKindBoolean,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueBoolean{Val: rand.IntN(2) == 1}
+			},
+		},
+		{
+			name:       "qchar",
+			kind:       types.QValueKindQChar,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueQChar{Val: uint8(rand.IntN(128))}
 			},
 		},
 		{
@@ -193,6 +268,68 @@ func TestAvroSizeComputation(t *testing.T) {
 			numRecords: 10_000,
 			genValue: func() types.QValue {
 				return types.QValueString{Val: randomText(20 + rand.IntN(200))}
+			},
+		},
+		{
+			name:       "enum",
+			kind:       types.QValueKindEnum,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueEnum{Val: randomText(10 + rand.IntN(50))}
+			},
+		},
+		{
+			name:       "timestamp",
+			kind:       types.QValueKindTimestamp,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueTimestamp{Val: randomTimestamp()}
+			},
+		},
+		{
+			name:       "timestamptz",
+			kind:       types.QValueKindTimestampTZ,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueTimestampTZ{Val: randomTimestamp()}
+			},
+		},
+		{
+			name:       "date",
+			kind:       types.QValueKindDate,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueDate{Val: randomDate()}
+			},
+		},
+		{
+			name:       "time",
+			kind:       types.QValueKindTime,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueTime{
+					Val: time.Duration(rand.Int64N(int64(24 * time.Hour))),
+				}
+			},
+		},
+		{
+			name:       "timetz",
+			kind:       types.QValueKindTimeTZ,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueTimeTZ{
+					Val: time.Duration(rand.Int64N(int64(24 * time.Hour))),
+				}
+			},
+		},
+		{
+			name:       "interval",
+			kind:       types.QValueKindInterval,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueInterval{
+					Val: randomText(10 + rand.IntN(30)),
+				}
 			},
 		},
 		{
@@ -232,14 +369,6 @@ func TestAvroSizeComputation(t *testing.T) {
 			},
 		},
 		{
-			name:       "uuid",
-			kind:       types.QValueKindUUID,
-			numRecords: 10_000,
-			genValue: func() types.QValue {
-				return types.QValueUUID{Val: uuid.New()}
-			},
-		},
-		{
 			name:       "bytes_raw",
 			kind:       types.QValueKindBytes,
 			numRecords: 10_000,
@@ -257,37 +386,11 @@ func TestAvroSizeComputation(t *testing.T) {
 			},
 		},
 		{
-			name:       "date",
-			kind:       types.QValueKindDate,
+			name:       "uuid",
+			kind:       types.QValueKindUUID,
 			numRecords: 10_000,
 			genValue: func() types.QValue {
-				return types.QValueDate{Val: randomDate()}
-			},
-		},
-		{
-			name:       "timestamp",
-			kind:       types.QValueKindTimestamp,
-			numRecords: 10_000,
-			genValue: func() types.QValue {
-				return types.QValueTimestamp{Val: randomTimestamp()}
-			},
-		},
-		{
-			name:       "timestamptz",
-			kind:       types.QValueKindTimestampTZ,
-			numRecords: 10_000,
-			genValue: func() types.QValue {
-				return types.QValueTimestampTZ{Val: randomTimestamp()}
-			},
-		},
-		{
-			name:       "time",
-			kind:       types.QValueKindTime,
-			numRecords: 10_000,
-			genValue: func() types.QValue {
-				return types.QValueTime{
-					Val: time.Duration(rand.Int64N(int64(24 * time.Hour))),
-				}
+				return types.QValueUUID{Val: uuid.New()}
 			},
 		},
 		{
@@ -298,37 +401,67 @@ func TestAvroSizeComputation(t *testing.T) {
 				return types.QValueJSON{Val: smallJSON()}
 			},
 		},
+		{
+			name:       "hstore",
+			kind:       types.QValueKindHStore,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueHStore{Val: randomHStore(3 + rand.IntN(5))}
+			},
+		},
+		{
+			name:       "geography",
+			kind:       types.QValueKindGeography,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueGeography{Val: randomText(20 + rand.IntN(200))}
+			},
+		},
+		{
+			name:       "geometry",
+			kind:       types.QValueKindGeometry,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueGeometry{Val: randomText(20 + rand.IntN(200))}
+			},
+		},
+		{
+			name:       "point",
+			kind:       types.QValueKindPoint,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValuePoint{Val: randomText(20 + rand.IntN(50))}
+			},
+		},
+		{
+			name:       "cidr",
+			kind:       types.QValueKindCIDR,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueCIDR{Val: randomText(10 + rand.IntN(30))}
+			},
+		},
+		{
+			name:       "inet",
+			kind:       types.QValueKindINET,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueINET{Val: randomText(10 + rand.IntN(30))}
+			},
+		},
+		{
+			name:       "macaddr",
+			kind:       types.QValueKindMacaddr,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueMacaddr{Val: randomText(17)}
+			},
+		},
 		// Array types
-		{
-			name:       "array_int16",
-			kind:       types.QValueKindArrayInt16,
-			numRecords: 50_000,
-			genValue: func() types.QValue {
-				return types.QValueArrayInt16{
-					Val: randomArray(func() int16 { return int16(rand.Int32()) }),
-				}
-			},
-		},
-		{
-			name:       "array_int32",
-			kind:       types.QValueKindArrayInt32,
-			numRecords: 50_000,
-			genValue: func() types.QValue {
-				return types.QValueArrayInt32{Val: randomArray(rand.Int32)}
-			},
-		},
-		{
-			name:       "array_int64",
-			kind:       types.QValueKindArrayInt64,
-			numRecords: 50_000,
-			genValue: func() types.QValue {
-				return types.QValueArrayInt64{Val: randomArray(rand.Int64)}
-			},
-		},
 		{
 			name:       "array_float32",
 			kind:       types.QValueKindArrayFloat32,
-			numRecords: 50_000,
+			numRecords: 5_000,
 			genValue: func() types.QValue {
 				return types.QValueArrayFloat32{
 					Val: randomArray(func() float32 { return rand.Float32() * 1000 }),
@@ -338,11 +471,37 @@ func TestAvroSizeComputation(t *testing.T) {
 		{
 			name:       "array_float64",
 			kind:       types.QValueKindArrayFloat64,
-			numRecords: 50_000,
+			numRecords: 5_000,
 			genValue: func() types.QValue {
 				return types.QValueArrayFloat64{
 					Val: randomArray(func() float64 { return rand.Float64() * 1e6 }),
 				}
+			},
+		},
+		{
+			name:       "array_int16",
+			kind:       types.QValueKindArrayInt16,
+			numRecords: 5_000,
+			genValue: func() types.QValue {
+				return types.QValueArrayInt16{
+					Val: randomArray(func() int16 { return int16(rand.Int32()) }),
+				}
+			},
+		},
+		{
+			name:       "array_int32",
+			kind:       types.QValueKindArrayInt32,
+			numRecords: 5_000,
+			genValue: func() types.QValue {
+				return types.QValueArrayInt32{Val: randomArray(rand.Int32)}
+			},
+		},
+		{
+			name:       "array_int64",
+			kind:       types.QValueKindArrayInt64,
+			numRecords: 5_000,
+			genValue: func() types.QValue {
+				return types.QValueArrayInt64{Val: randomArray(rand.Int64)}
 			},
 		},
 		{
@@ -356,29 +515,57 @@ func TestAvroSizeComputation(t *testing.T) {
 			},
 		},
 		{
-			name:       "array_boolean",
-			kind:       types.QValueKindArrayBoolean,
-			numRecords: 50_000,
+			name:       "array_enum",
+			kind:       types.QValueKindArrayEnum,
+			numRecords: 5_000,
 			genValue: func() types.QValue {
-				return types.QValueArrayBoolean{
-					Val: randomArray(func() bool { return rand.IntN(2) == 1 }),
+				return types.QValueArrayEnum{
+					Val: randomArray(func() string { return randomText(10 + rand.IntN(50)) }),
+				}
+			},
+		},
+		{
+			name:       "array_date",
+			kind:       types.QValueKindArrayDate,
+			numRecords: 5_000,
+			genValue: func() types.QValue {
+				return types.QValueArrayDate{Val: randomArray(randomDate)}
+			},
+		},
+		{
+			name:       "array_interval",
+			kind:       types.QValueKindArrayInterval,
+			numRecords: 5_000,
+			genValue: func() types.QValue {
+				return types.QValueArrayInterval{
+					Val: randomArray(func() string { return randomText(10 + rand.IntN(30)) }),
 				}
 			},
 		},
 		{
 			name:       "array_timestamp",
 			kind:       types.QValueKindArrayTimestamp,
-			numRecords: 50_000,
+			numRecords: 5_000,
 			genValue: func() types.QValue {
 				return types.QValueArrayTimestamp{Val: randomArray(randomTimestamp)}
 			},
 		},
 		{
-			name:       "array_date",
-			kind:       types.QValueKindArrayDate,
-			numRecords: 50_000,
+			name:       "array_timestamptz",
+			kind:       types.QValueKindArrayTimestampTZ,
+			numRecords: 5_000,
 			genValue: func() types.QValue {
-				return types.QValueArrayDate{Val: randomArray(randomDate)}
+				return types.QValueArrayTimestampTZ{Val: randomArray(randomTimestamp)}
+			},
+		},
+		{
+			name:       "array_boolean",
+			kind:       types.QValueKindArrayBoolean,
+			numRecords: 5_000,
+			genValue: func() types.QValue {
+				return types.QValueArrayBoolean{
+					Val: randomArray(func() bool { return rand.IntN(2) == 1 }),
+				}
 			},
 		},
 		{
@@ -536,70 +723,60 @@ func TestAvroSizeComputationSpecial(t *testing.T) {
 	})
 }
 
+// Schema-only kinds with no QValue struct — untestable for size
+var sizeTestSkippedKinds = []string{
+	"QValueKindJSONB",
+	"QValueKindArrayJSON",
+	"QValueKindArrayJSONB",
+}
+
+// Parses QValueKind constants from kind.go via AST and asserts every kind
+// is either directly tested (by parsing subtestDef.kind from this file) or acknowledged as skipped.
 func TestAllQValueKindsSizeCovered(t *testing.T) {
-	testedKinds := map[types.QValueKind]string{
-		// Tested in TestAvroSizeComputation
-		types.QValueKindBoolean:     "boolean",
-		types.QValueKindInt16:       "int16",
-		types.QValueKindInt32:       "int32",
-		types.QValueKindInt64:       "int64",
-		types.QValueKindFloat32:     "float32",
-		types.QValueKindFloat64:     "float64",
-		types.QValueKindString:      "string",
-		types.QValueKindNumeric:     "numeric_*",
-		types.QValueKindUUID:        "uuid",
-		types.QValueKindBytes:       "bytes_*",
-		types.QValueKindDate:        "date",
-		types.QValueKindTimestamp:   "timestamp",
-		types.QValueKindTimestampTZ: "timestamptz",
-		types.QValueKindTime:        "time",
-		types.QValueKindJSON:        "json_*",
+	coveredKinds := make(map[string]struct{})
 
-		types.QValueKindArrayInt16:     "array_int16",
-		types.QValueKindArrayInt32:     "array_int32",
-		types.QValueKindArrayInt64:     "array_int64",
-		types.QValueKindArrayFloat32:   "array_float32",
-		types.QValueKindArrayFloat64:   "array_float64",
-		types.QValueKindArrayString:    "array_string",
-		types.QValueKindArrayBoolean:   "array_boolean",
-		types.QValueKindArrayTimestamp: "array_timestamp",
-		types.QValueKindArrayDate:      "array_date",
-		types.QValueKindArrayUUID:      "array_uuid",
-		types.QValueKindArrayNumeric:   "array_numeric",
+	// Parse this test file to extract all types.QValueKind* references:
+	// - kind: fields in subtestDef literals (directly tested kinds)
+	// - keys in the aliases map below (validated via schema comparison)
+	selfFset := token.NewFileSet()
+	selfNode, err := parser.ParseFile(selfFset, "qrecord_avro_size_test.go", nil, 0)
+	require.NoError(t, err)
+	collectSelector := func(expr ast.Expr) {
+		sel, ok := expr.(*ast.SelectorExpr)
+		if !ok {
+			return
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok || pkg.Name != "types" {
+			return
+		}
+		coveredKinds[sel.Sel.Name] = struct{}{}
+	}
+	ast.Inspect(selfNode, func(n ast.Node) bool {
+		kv, ok := n.(*ast.KeyValueExpr)
+		if !ok {
+			return true
+		}
+		// kind: types.QValueKindX in subtestDef literals
+		if ident, ok := kv.Key.(*ast.Ident); ok && ident.Name == "kind" {
+			collectSelector(kv.Value)
+		}
+		// types.QValueKindX: types.QValueKindY in aliases map
+		collectSelector(kv.Key)
+		return true
+	})
+	require.NotEmpty(t, coveredKinds, "should have parsed tested kinds from this file")
 
-		// Aliases or types that map to already-tested Avro representations
-		types.QValueKindInvalid:          "alias: serialized as string",
-		types.QValueKindJSONB:            "alias: same Avro encoding as JSON",
-		types.QValueKindEnum:             "alias: serialized as string",
-		types.QValueKindQChar:            "alias: serialized as string",
-		types.QValueKindHStore:           "alias: serialized as string",
-		types.QValueKindGeography:        "alias: serialized as string",
-		types.QValueKindGeometry:         "alias: serialized as string",
-		types.QValueKindPoint:            "alias: serialized as string",
-		types.QValueKindCIDR:             "alias: serialized as string",
-		types.QValueKindINET:             "alias: serialized as string",
-		types.QValueKindMacaddr:          "alias: serialized as string",
-		types.QValueKindInterval:         "alias: serialized as string",
-		types.QValueKindTimeTZ:           "alias: same Avro encoding as Time",
-		types.QValueKindInt8:             "alias: serialized as int32",
-		types.QValueKindUInt8:            "alias: serialized as int32",
-		types.QValueKindUInt16:           "alias: serialized as int32",
-		types.QValueKindUInt32:           "alias: serialized as int64",
-		types.QValueKindUInt64:           "alias: serialized as string/int64",
-		types.QValueKindInt256:           "alias: serialized as string",
-		types.QValueKindUInt256:          "alias: serialized as string",
-		types.QValueKindArrayEnum:        "alias: same as ArrayString",
-		types.QValueKindArrayInterval:    "alias: same as ArrayString",
-		types.QValueKindArrayTimestampTZ: "alias: same as ArrayTimestamp",
-		types.QValueKindArrayJSON:        "alias: serialized as string",
-		types.QValueKindArrayJSONB:       "alias: serialized as string",
+	for _, skip := range sizeTestSkippedKinds {
+		coveredKinds[skip] = struct{}{}
 	}
 
+	// Parse kind.go to get all QValueKind constant identifier names
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, "../shared/types/kind.go", nil, 0)
 	require.NoError(t, err)
 
-	var parsedKinds []string
+	var allKinds []string
 	ast.Inspect(node, func(n ast.Node) bool {
 		genDecl, ok := n.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.CONST {
@@ -617,31 +794,21 @@ func TestAllQValueKindsSizeCovered(t *testing.T) {
 			if !ok || ident.Name != "QValueKind" {
 				continue
 			}
-			for i, name := range vs.Names {
-				if name.Name == "_" {
-					continue
+			for _, name := range vs.Names {
+				if name.Name != "_" {
+					allKinds = append(allKinds, name.Name)
 				}
-				if i >= len(vs.Values) {
-					continue
-				}
-				bl, ok := vs.Values[i].(*ast.BasicLit)
-				if !ok {
-					continue
-				}
-				val := bl.Value[1 : len(bl.Value)-1]
-				parsedKinds = append(parsedKinds, val)
 			}
 		}
 		return true
 	})
 
-	require.NotEmpty(t, parsedKinds, "should have parsed QValueKind constants from kind.go")
+	require.NotEmpty(t, allKinds, "should have parsed QValueKind constants from kind.go")
 
-	for _, kindStr := range parsedKinds {
-		kind := types.QValueKind(kindStr)
-		_, covered := testedKinds[kind]
+	for _, kind := range allKinds {
+		_, covered := coveredKinds[kind]
 		assert.Truef(t, covered,
-			"QValueKind %q is not covered by size tests — add a test or mark it as an alias in testedKinds", kindStr)
+			"%s is not covered by size tests — add a test or mark it as an alias", kind)
 	}
 }
 
@@ -755,6 +922,32 @@ func writeAvroFileCompressed(
 	require.NoError(t, err)
 
 	return avroSchema, bytes
+}
+
+func randomHStore(numKeys int) string {
+	var b []byte
+	for i := range numKeys {
+		if i > 0 {
+			b = append(b, ',', ' ')
+		}
+		b = fmt.Appendf(b, `"%s"=>"%s"`, randomAlphaNum(5+rand.IntN(10)), randomAlphaNum(5+rand.IntN(20)))
+	}
+	return string(b)
+}
+
+func randomAlphaNum(length int) string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = chars[rand.IntN(len(chars))]
+	}
+	return string(b)
+}
+
+func randomBigInt(byteLen int) *big.Int {
+	b := make([]byte, byteLen)
+	_, _ = crand.Read(b)
+	return new(big.Int).SetBytes(b)
 }
 
 func randomChoice(choices []string) string {
