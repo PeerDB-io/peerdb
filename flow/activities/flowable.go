@@ -581,6 +581,83 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}, nil
 }
 
+func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
+	config *protos.QRepConfig,
+	partitions *protos.QRepPartitionBatch,
+	runUUID string,
+) error {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
+		return "replicating partitions for job"
+	})
+	defer shutdown()
+
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
+	if err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID); err != nil {
+		return fmt.Errorf("failed to update start time for qrep run: %w", err)
+	}
+
+	numPartitions := len(partitions.Partitions)
+	logger.Info("replicating partitions for batch",
+		slog.String("table", config.WatermarkTable),
+		slog.Int64("batchID", int64(partitions.BatchId)),
+		slog.Int("totalPartitions", numPartitions))
+
+	qRepPullCoreConn, qRepPullCoreClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](
+		ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep source connector: %w", err))
+	}
+	defer qRepPullCoreClose(ctx)
+
+	dstPeer, qRepSyncCoreConn, qRepSyncCoreClose, err := connectors.LoadPeerAndGetByNameAs[connectors.QRepSyncConnectorCore](
+		ctx,
+		config.Env,
+		a.CatalogPool,
+		config.DestinationName,
+	)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep destination connector: %w", err))
+	}
+	defer qRepSyncCoreClose(ctx)
+
+	replicatePartitionFunc, err := initializeReplicatePartitionFunc(ctx, a, config, runUUID, dstPeer.Type, qRepPullCoreConn, qRepSyncCoreConn)
+	if err != nil {
+		logger.Error("failed to initialize replication method", slog.Any("error", err))
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+
+	for i, partition := range partitions.Partitions {
+		partLogger := log.With(logger,
+			slog.Int64("batchID", int64(partitions.BatchId)),
+			slog.String("partitionId", partition.PartitionId),
+			slog.String("table", config.WatermarkTable),
+			slog.Int("partitionNum", i+1),
+			slog.Int("totalPartitions", numPartitions))
+
+		startTime := time.Now()
+		partLogger.Info(fmt.Sprintf("start replicating partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable))
+
+		if err := replicatePartitionFunc(partition); err != nil {
+			partLogger.Error(fmt.Sprintf("failed to replicate partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable),
+				slog.Any("error", err))
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		}
+
+		partLogger.Info(fmt.Sprintf("finished replicating partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable),
+			slog.Time("startTime", startTime),
+			slog.Time("finishTime", time.Now()))
+	}
+
+	a.Alerter.LogFlowInfo(
+		ctx,
+		config.FlowJobName,
+		fmt.Sprintf("replicated %d partitions to destination for table %s", numPartitions, config.DestinationTableIdentifier),
+	)
+	return nil
+}
+
 func initializeReplicatePartitionFunc(
 	ctx context.Context,
 	a *FlowableActivity,
@@ -665,83 +742,6 @@ func initializeReplicatePartitionFunc(
 	default:
 		return nil, fmt.Errorf("unsupported QRepSyncConnectorCore type %T", qRepPullCoreConn)
 	}
-}
-
-func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
-	config *protos.QRepConfig,
-	partitions *protos.QRepPartitionBatch,
-	runUUID string,
-) error {
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		return "replicating partitions for job"
-	})
-	defer shutdown()
-
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
-
-	if err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID); err != nil {
-		return fmt.Errorf("failed to update start time for qrep run: %w", err)
-	}
-
-	numPartitions := len(partitions.Partitions)
-	logger.Info("replicating partitions for batch",
-		slog.String("table", config.WatermarkTable),
-		slog.Int64("batchID", int64(partitions.BatchId)),
-		slog.Int("totalPartitions", numPartitions))
-
-	qRepPullCoreConn, qRepPullCoreClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](
-		ctx, config.Env, a.CatalogPool, config.SourceName)
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep source connector: %w", err))
-	}
-	defer qRepPullCoreClose(ctx)
-
-	dstPeer, qRepSyncCoreConn, qRepSyncCoreClose, err := connectors.LoadPeerAndGetByNameAs[connectors.QRepSyncConnectorCore](
-		ctx,
-		config.Env,
-		a.CatalogPool,
-		config.DestinationName,
-	)
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep destination connector: %w", err))
-	}
-	defer qRepSyncCoreClose(ctx)
-
-	replicatePartitionFunc, err := initializeReplicatePartitionFunc(ctx, a, config, runUUID, dstPeer.Type, qRepPullCoreConn, qRepSyncCoreConn)
-	if err != nil {
-		logger.Error("failed to initialize replication method", slog.Any("error", err))
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-	}
-
-	for i, partition := range partitions.Partitions {
-		partLogger := log.With(logger,
-			slog.Int64("batchID", int64(partitions.BatchId)),
-			slog.String("partitionId", partition.PartitionId),
-			slog.String("table", config.WatermarkTable),
-			slog.Int("partitionNum", i+1),
-			slog.Int("totalPartitions", numPartitions))
-
-		startTime := time.Now()
-		partLogger.Info(fmt.Sprintf("start replicating partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable))
-
-		if err := replicatePartitionFunc(partition); err != nil {
-			partLogger.Error(fmt.Sprintf("failed to replicate partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable),
-				slog.Any("error", err))
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		}
-
-		partLogger.Info(fmt.Sprintf("finished replicating partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable),
-			slog.Time("startTime", startTime),
-			slog.Time("finishTime", time.Now()))
-	}
-
-	a.Alerter.LogFlowInfo(
-		ctx,
-		config.FlowJobName,
-		fmt.Sprintf("replicated %d partitions to destination for table %s", numPartitions, config.DestinationTableIdentifier),
-	)
-	return nil
 }
 
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
