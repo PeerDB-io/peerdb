@@ -517,19 +517,24 @@ const (
 	DatabaseVariant_PLANETSCALE DatabaseVariant = 7
 	// only Postgres
 	DatabaseVariant_SUPABASE DatabaseVariant = 8
+	// only Mongo
+	DatabaseVariant_MONGODB_ATLAS  DatabaseVariant = 9
+	DatabaseVariant_AWS_DOCUMENTDB DatabaseVariant = 10
 )
 
 // Enum value maps for DatabaseVariant.
 var (
 	DatabaseVariant_name = map[int32]string{
-		0: "VARIANT_UNKNOWN",
-		2: "AWS_RDS",
-		3: "AWS_AURORA",
-		4: "GOOGLE_CLOUD_SQL",
-		5: "AZURE_DATABASE",
-		6: "NEON",
-		7: "PLANETSCALE",
-		8: "SUPABASE",
+		0:  "VARIANT_UNKNOWN",
+		2:  "AWS_RDS",
+		3:  "AWS_AURORA",
+		4:  "GOOGLE_CLOUD_SQL",
+		5:  "AZURE_DATABASE",
+		6:  "NEON",
+		7:  "PLANETSCALE",
+		8:  "SUPABASE",
+		9:  "MONGODB_ATLAS",
+		10: "AWS_DOCUMENTDB",
 	}
 	DatabaseVariant_value = map[string]int32{
 		"VARIANT_UNKNOWN":  0,
@@ -540,6 +545,8 @@ var (
 		"NEON":             6,
 		"PLANETSCALE":      7,
 		"SUPABASE":         8,
+		"MONGODB_ATLAS":    9,
+		"AWS_DOCUMENTDB":   10,
 	}
 )
 
@@ -2917,7 +2924,7 @@ const file_peers_proto_rawDesc = "" +
 	"\x12\r\n" +
 	"\tEVENTHUBS\x10\v\x12\x11\n" +
 	"\rELASTICSEARCH\x10\f\x12\x1b\n" +
-	"\x0eDBTYPE_UNKNOWN\x10\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01*\x96\x01\n" +
+	"\x0eDBTYPE_UNKNOWN\x10\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01*\xbd\x01\n" +
 	"\x0fDatabaseVariant\x12\x13\n" +
 	"\x0fVARIANT_UNKNOWN\x10\x00\x12\v\n" +
 	"\aAWS_RDS\x10\x02\x12\x0e\n" +
@@ -2927,7 +2934,10 @@ const file_peers_proto_rawDesc = "" +
 	"\x0eAZURE_DATABASE\x10\x05\x12\b\n" +
 	"\x04NEON\x10\x06\x12\x0f\n" +
 	"\vPLANETSCALE\x10\a\x12\f\n" +
-	"\bSUPABASE\x10\b:L\n" +
+	"\bSUPABASE\x10\b\x12\x11\n" +
+	"\rMONGODB_ATLAS\x10\t\x12\x12\n" +
+	"\x0eAWS_DOCUMENTDB\x10\n" +
+	":L\n" +
 	"\x0fpeerdb_redacted\x12\x1d.google.protobuf.FieldOptions\x18\xa2\x9f\xf2\a \x01(\bR\x0epeerdbRedacted\x88\x01\x01B|\n" +
 	"\x10com.peerdb_peersB\n" +
 	"PeersProtoP\x01Z\x10generated/protos\xa2\x02\x03PXX\xaa\x02\vPeerdbPeers\xca\x02\vPeerdbPeers\xe2\x02\x17PeerdbPeers\\GPBMetadata\xea\x02\vPeerdbPeersb\x06proto3"
