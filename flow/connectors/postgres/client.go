@@ -343,8 +343,12 @@ func getSlotInfo(
 	rows, err := conn.Query(ctx, fmt.Sprintf(`
 		WITH current_wal AS (
 			SELECT CASE
-				WHEN pg_is_in_recovery()
-				THEN pg_last_wal_receive_lsn()
+				WHEN pg_is_in_recovery() THEN
+					CASE
+						WHEN pg_last_wal_receive_lsn() IS NULL THEN pg_last_wal_replay_lsn()
+						WHEN pg_last_wal_replay_lsn()  IS NULL THEN pg_last_wal_receive_lsn()
+						ELSE GREATEST(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
+					END
 				ELSE pg_current_wal_lsn()
 			END AS current_lsn
 		)
