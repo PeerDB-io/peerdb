@@ -658,6 +658,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	return nil
 }
 
+// test
 func initializeReplicatePartitionFunc(
 	ctx context.Context,
 	a *FlowableActivity,
