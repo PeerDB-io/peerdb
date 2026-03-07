@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -42,10 +41,8 @@ func SetupSwitchboardMongoSuite(t *testing.T) SwitchboardMongoSuite {
 		t.Skipf("MongoDB setup failed: %v", err)
 	}
 
-	// Create test database name
 	testDb := GetTestDatabase(suffix)
 
-	// Create peer with unique name - append database to URI
 	peerConfig := &protos.MongoConfig{
 		Uri:        source.config.Uri + "/" + testDb,
 		Username:   source.config.Username,
@@ -61,7 +58,6 @@ func SetupSwitchboardMongoSuite(t *testing.T) SwitchboardMongoSuite {
 	}
 	CreatePeer(t, peer)
 
-	// Create test collection with sample documents
 	collection := source.AdminClient().Database(testDb).Collection("test_collection")
 	docs := []any{
 		bson.D{
@@ -86,7 +82,6 @@ func SetupSwitchboardMongoSuite(t *testing.T) SwitchboardMongoSuite {
 	_, err = collection.InsertMany(t.Context(), docs)
 	require.NoError(t, err, "failed to insert test documents")
 
-	// Verify Switchboard is available
 	conn, err := pgx.Connect(t.Context(), switchboardDSN(peer.Name, nil))
 	if err != nil {
 		source.Teardown(t, t.Context(), suffix)
@@ -106,22 +101,18 @@ func TestSwitchboardMongo(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSwitchboardMongoSuite)
 }
 
-// psql executes a mongosh query via psql and returns tuples-only output
 func (s SwitchboardMongoSuite) psql(query string) (string, error) {
 	return runPsql(s.t, s.peer.Name, "-tA", "-c", query)
 }
 
-// testCollection returns the test collection name
 func (s SwitchboardMongoSuite) testCollection() string {
 	return "test_collection"
 }
 
-// testDatabase returns the test database name
 func (s SwitchboardMongoSuite) testDatabase() string {
 	return GetTestDatabase(s.suffix)
 }
 
-// queryWithOptions executes a query with custom connection options
 func (s SwitchboardMongoSuite) queryWithOptions(query string, options map[string]string) error {
 	dsn := switchboardDSN(s.peer.Name, options)
 	cfg, err := pgx.ParseConfig(dsn)
@@ -149,242 +140,45 @@ func (s SwitchboardMongoSuite) queryWithOptions(query string, options map[string
 }
 
 // ========================================
-// Basic Connectivity
+// Result Paths (scalar, cursor, adminDB, formatter)
 // ========================================
 
-func (s SwitchboardMongoSuite) Test_BasicConnectivity_Ping() {
-	output, err := s.psql(`db.runCommand({ping: 1})`)
+func (s SwitchboardMongoSuite) Test_Scalar() {
+	output, err := s.psql(`{"ping": 1}`)
 	require.NoError(s.t, err)
 	require.Contains(s.t, output, `"ok"`)
 }
 
-func (s SwitchboardMongoSuite) Test_BasicConnectivity_ShowCollections() {
-	output, err := s.psql(`show collections`)
-	require.NoError(s.t, err)
-	require.Contains(s.t, output, "test_collection")
-}
-
-func (s SwitchboardMongoSuite) Test_BasicConnectivity_ShowDatabases() {
-	output, err := s.psql(`show databases`)
-	require.NoError(s.t, err)
-	// Should contain at least admin or the test database
-	require.NotEmpty(s.t, output)
-}
-
-// ========================================
-// Find Operations
-// ========================================
-
-func (s SwitchboardMongoSuite) Test_Find_AllDocuments() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.find({})`, s.testCollection()))
+func (s SwitchboardMongoSuite) Test_Cursor() {
+	output, err := s.psql(fmt.Sprintf(`{"find": "%s", "filter": {}}`, s.testCollection()))
 	require.NoError(s.t, err)
 	require.Contains(s.t, output, "alice")
 	require.Contains(s.t, output, "bob")
 	require.Contains(s.t, output, "charlie")
 }
 
-func (s SwitchboardMongoSuite) Test_Find_WithFilter() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.find({active: true})`, s.testCollection()))
+func (s SwitchboardMongoSuite) Test_CursorAggregate() {
+	query := fmt.Sprintf(
+		`{"aggregate": "%s", "pipeline": [{"$match": {"active": true}}], "cursor": {}}`,
+		s.testCollection(),
+	)
+	output, err := s.psql(query)
 	require.NoError(s.t, err)
 	require.Contains(s.t, output, "alice")
 	require.Contains(s.t, output, "charlie")
 	require.NotContains(s.t, output, "bob")
 }
 
-func (s SwitchboardMongoSuite) Test_Find_WithProjection() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.find({}, {_id: 0, name: 1})`, s.testCollection()))
+func (s SwitchboardMongoSuite) Test_AdminDB() {
+	output, err := s.psql(`{"listDatabases": 1, "nameOnly": true}`)
 	require.NoError(s.t, err)
-	require.Contains(s.t, output, "name")
-	// Should not contain age field
-	require.NotContains(s.t, output, `"age"`)
+	require.NotEmpty(s.t, output)
 }
 
-func (s SwitchboardMongoSuite) Test_FindOne_Basic() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.findOne({name: "alice"})`, s.testCollection()))
+func (s SwitchboardMongoSuite) Test_Help() {
+	output, err := s.psql(`help`)
 	require.NoError(s.t, err)
-	require.Contains(s.t, output, "alice")
-	require.Contains(s.t, output, "30")
-}
-
-func (s SwitchboardMongoSuite) Test_Find_WithChainers() {
-	s.t.Run("Sort", func(t *testing.T) {
-		output, err := s.psql(fmt.Sprintf(`db.%s.find({}).sort({age: -1})`, s.testCollection()))
-		require.NoError(t, err)
-		// charlie (35) should appear before alice (30) who appears before bob (25)
-		charlieIdx := strings.Index(output, "charlie")
-		aliceIdx := strings.Index(output, "alice")
-		bobIdx := strings.Index(output, "bob")
-		require.True(t, charlieIdx < aliceIdx && aliceIdx < bobIdx, "Documents should be sorted by age descending")
-	})
-
-	s.t.Run("Limit", func(t *testing.T) {
-		output, err := s.psql(fmt.Sprintf(`db.%s.find({}).limit(1)`, s.testCollection()))
-		require.NoError(t, err)
-		// Count occurrences - should only have one document
-		count := strings.Count(output, `"_id"`)
-		require.Equal(t, 1, count, "Should return only 1 document")
-	})
-
-	s.t.Run("Skip", func(t *testing.T) {
-		output, err := s.psql(fmt.Sprintf(`db.%s.find({}).skip(1).limit(1)`, s.testCollection()))
-		require.NoError(t, err)
-		require.NotEmpty(t, output)
-	})
-
-	s.t.Run("SortAndLimit", func(t *testing.T) {
-		output, err := s.psql(fmt.Sprintf(`db.%s.find({}).sort({age: 1}).limit(1)`, s.testCollection()))
-		require.NoError(t, err)
-		// bob has lowest age (25)
-		require.Contains(t, output, "bob")
-	})
-}
-
-// ========================================
-// Data Types
-// ========================================
-
-func (s SwitchboardMongoSuite) Test_DataTypes() {
-	// Insert documents with various data types
-	collection := s.source.AdminClient().Database(s.testDatabase()).Collection("types_test")
-	_, err := collection.InsertOne(s.t.Context(), bson.D{
-		{Key: "_id", Value: "types_doc"},
-		{Key: "string_field", Value: "hello"},
-		{Key: "int_field", Value: 42},
-		{Key: "float_field", Value: 3.14},
-		{Key: "bool_field", Value: true},
-		{Key: "null_field", Value: nil},
-		{Key: "array_field", Value: bson.A{1, 2, 3}},
-		{Key: "nested_field", Value: bson.D{{Key: "inner", Value: "value"}}},
-	})
-	require.NoError(s.t, err)
-
-	tests := []struct {
-		name     string
-		field    string
-		expected string
-	}{
-		{"String", "string_field", "hello"},
-		{"Integer", "int_field", `"$numberInt":"42"`},
-		{"Float", "float_field", `"$numberDouble":"3.14"`},
-		{"Boolean", "bool_field", "true"},
-		{"Array", "array_field", `"$numberInt":"1"`},  // Extended JSON array element
-		{"Nested", "nested_field", `"inner":"value"`}, // Nested object field
-	}
-
-	for _, tt := range tests {
-		s.t.Run(tt.name, func(t *testing.T) {
-			output, err := s.psql(`db.types_test.findOne({_id: "types_doc"})`)
-			require.NoError(t, err)
-			require.Contains(t, output, tt.expected)
-		})
-	}
-}
-
-// ========================================
-// Aggregation
-// ========================================
-
-func (s SwitchboardMongoSuite) Test_Aggregate_Match() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.aggregate([{$match: {active: true}}])`, s.testCollection()))
-	require.NoError(s.t, err)
-	require.Contains(s.t, output, "alice")
-	require.Contains(s.t, output, "charlie")
-	require.NotContains(s.t, output, "bob")
-}
-
-func (s SwitchboardMongoSuite) Test_Aggregate_Group() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.aggregate([{$group: {_id: "$active", count: {$sum: 1}}}])`, s.testCollection()))
-	require.NoError(s.t, err)
-	require.Contains(s.t, output, "count")
-}
-
-func (s SwitchboardMongoSuite) Test_Aggregate_Pipeline() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.aggregate([
-		{$match: {active: true}},
-		{$project: {name: 1, _id: 0}},
-		{$sort: {name: 1}}
-	])`, s.testCollection()))
-	require.NoError(s.t, err)
-	require.Contains(s.t, output, "alice")
-	require.Contains(s.t, output, "charlie")
-}
-
-// ========================================
-// Query Operators
-// ========================================
-
-func (s SwitchboardMongoSuite) Test_Operators_Comparison() {
-	tests := []struct {
-		name     string
-		filter   string
-		expected []string
-		excluded []string
-	}{
-		{"GreaterThan", `{age: {$gt: 30}}`, []string{"charlie"}, []string{"alice", "bob"}},
-		{"LessThan", `{age: {$lt: 30}}`, []string{"bob"}, []string{"alice", "charlie"}},
-		{"GreaterThanOrEqual", `{age: {$gte: 30}}`, []string{"alice", "charlie"}, []string{"bob"}},
-		{"In", `{name: {$in: ["alice", "bob"]}}`, []string{"alice", "bob"}, []string{"charlie"}},
-	}
-
-	for _, tt := range tests {
-		s.t.Run(tt.name, func(t *testing.T) {
-			output, err := s.psql(fmt.Sprintf(`db.%s.find(%s)`, s.testCollection(), tt.filter))
-			require.NoError(t, err)
-			for _, exp := range tt.expected {
-				require.Contains(t, output, exp)
-			}
-			for _, exc := range tt.excluded {
-				require.NotContains(t, output, exc)
-			}
-		})
-	}
-}
-
-func (s SwitchboardMongoSuite) Test_Operators_Logical() {
-	s.t.Run("And", func(t *testing.T) {
-		output, err := s.psql(fmt.Sprintf(`db.%s.find({$and: [{active: true}, {age: {$gt: 30}}]})`, s.testCollection()))
-		require.NoError(t, err)
-		require.Contains(t, output, "charlie")
-		require.NotContains(t, output, "alice")
-	})
-
-	s.t.Run("Or", func(t *testing.T) {
-		output, err := s.psql(fmt.Sprintf(`db.%s.find({$or: [{name: "alice"}, {name: "bob"}]})`, s.testCollection()))
-		require.NoError(t, err)
-		require.Contains(t, output, "alice")
-		require.Contains(t, output, "bob")
-		require.NotContains(t, output, "charlie")
-	})
-}
-
-// ========================================
-// Error Handling
-// ========================================
-
-func (s SwitchboardMongoSuite) Test_Error_SyntaxError() {
-	_, err := s.psql(`db.coll.find({invalid syntax`)
-	require.Error(s.t, err)
-}
-
-func (s SwitchboardMongoSuite) Test_Error_PsqlBackslashD() {
-	// psql \d and \dt commands query pg_catalog - should get helpful error
-	output, err := s.psql(`\d`)
-	require.Error(s.t, err)
-	require.Contains(s.t, output, "PostgreSQL catalog queries not supported")
-	require.Contains(s.t, output, "show collections")
-
-	output, err = s.psql(`\dt`)
-	require.Error(s.t, err)
-	require.Contains(s.t, output, "PostgreSQL catalog queries not supported")
-	require.Contains(s.t, output, "show collections")
-}
-
-func (s SwitchboardMongoSuite) Test_Error_EmptyCollection() {
-	// Querying non-existent collection should return empty result, not error
-	output, err := s.psql(`db.nonexistent_collection.find({})`)
-	require.NoError(s.t, err)
-	// Should be empty or show no documents
-	require.NotContains(s.t, output, "_id")
+	require.NotEmpty(s.t, output)
 }
 
 // ========================================
@@ -396,16 +190,11 @@ func (s SwitchboardMongoSuite) Test_DeniedOperations() {
 		name  string
 		query string
 	}{
-		{"InsertOne", `db.test.insertOne({a: 1})`},
-		{"InsertMany", `db.test.insertMany([{a: 1}])`},
-		{"UpdateOne", `db.test.updateOne({}, {$set: {a: 1}})`},
-		{"UpdateMany", `db.test.updateMany({}, {$set: {a: 1}})`},
-		{"DeleteOne", `db.test.deleteOne({})`},
-		{"DeleteMany", `db.test.deleteMany({})`},
-		{"Drop", `db.test.drop()`},
-		{"DropDatabase", `db.dropDatabase()`},
-		{"CreateCollection", `db.createCollection("new_coll")`},
-		{"CreateIndex", `db.test.createIndex({a: 1})`},
+		{"Insert", `{"insert": "test", "documents": [{"a": 1}]}`},
+		{"Update", `{"update": "test", "updates": [{"q": {}, "u": {"$set": {"a": 1}}}]}`},
+		{"Delete", `{"delete": "test", "deletes": [{"q": {}, "limit": 1}]}`},
+		{"Drop", `{"drop": "test"}`},
+		{"DropDatabase", `{"dropDatabase": 1}`},
 	}
 
 	for _, tt := range tests {
@@ -416,29 +205,11 @@ func (s SwitchboardMongoSuite) Test_DeniedOperations() {
 	}
 }
 
-func (s SwitchboardMongoSuite) Test_DeniedChainers() {
-	tests := []struct {
-		name  string
-		query string
-	}{
-		{"ToArray", fmt.Sprintf(`db.%s.find({}).toArray()`, s.testCollection())},
-		{"ForEach", fmt.Sprintf(`db.%s.find({}).forEach(function(d){})`, s.testCollection())},
-	}
-
-	for _, tt := range tests {
-		s.t.Run(tt.name, func(t *testing.T) {
-			_, err := s.psql(tt.query)
-			require.Error(t, err, "Chainer %s should be denied", tt.name)
-		})
-	}
-}
-
 // ========================================
 // Guardrails
 // ========================================
 
 func (s SwitchboardMongoSuite) Test_Guardrails_MaxRows() {
-	// Insert more documents for this test
 	collection := s.source.AdminClient().Database(s.testDatabase()).Collection("guardrails_test")
 	docs := make([]any, 20)
 	for i := range 20 {
@@ -447,14 +218,12 @@ func (s SwitchboardMongoSuite) Test_Guardrails_MaxRows() {
 	_, err := collection.InsertMany(s.t.Context(), docs)
 	require.NoError(s.t, err)
 
-	// Query with row limit
-	err = s.queryWithOptions(`db.guardrails_test.find({})`, map[string]string{"max_rows": "5"})
+	err = s.queryWithOptions(`{"find": "guardrails_test", "filter": {}}`, map[string]string{"max_rows": "5"})
 	require.Error(s.t, err)
 	require.Contains(s.t, err.Error(), "row limit")
 }
 
 func (s SwitchboardMongoSuite) Test_Guardrails_MaxBytes() {
-	// Insert a document with large data
 	collection := s.source.AdminClient().Database(s.testDatabase()).Collection("bytes_test")
 	largeString := strings.Repeat("x", 1000)
 	_, err := collection.InsertOne(s.t.Context(), bson.D{
@@ -463,14 +232,12 @@ func (s SwitchboardMongoSuite) Test_Guardrails_MaxBytes() {
 	})
 	require.NoError(s.t, err)
 
-	// Query with byte limit
-	err = s.queryWithOptions(`db.bytes_test.find({})`, map[string]string{"max_bytes": "100"})
+	err = s.queryWithOptions(`{"find": "bytes_test", "filter": {}}`, map[string]string{"max_bytes": "100"})
 	require.Error(s.t, err)
 	require.Contains(s.t, err.Error(), "byte limit")
 }
 
 func (s SwitchboardMongoSuite) Test_Guardrails_ResumeAfterRowLimit() {
-	// Insert documents
 	collection := s.source.AdminClient().Database(s.testDatabase()).Collection("resume_test")
 	docs := make([]any, 10)
 	for i := range 10 {
@@ -488,8 +255,7 @@ func (s SwitchboardMongoSuite) Test_Guardrails_ResumeAfterRowLimit() {
 	require.NoError(s.t, err)
 	defer conn.Close(s.t.Context())
 
-	// First query exceeds limit
-	rows, err := conn.Query(s.t.Context(), `db.resume_test.find({})`)
+	rows, err := conn.Query(s.t.Context(), `{"find": "resume_test", "filter": {}}`)
 	require.NoError(s.t, err, "Query should start successfully")
 
 	for rows.Next() {
@@ -500,9 +266,8 @@ func (s SwitchboardMongoSuite) Test_Guardrails_ResumeAfterRowLimit() {
 	require.Error(s.t, rowErr, "Query should fail due to row limit")
 	require.Contains(s.t, rowErr.Error(), "row limit")
 
-	// Connection should still be usable
 	var result string
-	err = conn.QueryRow(s.t.Context(), `db.runCommand({ping: 1})`).Scan(&result)
+	err = conn.QueryRow(s.t.Context(), `{"ping": 1}`).Scan(&result)
 	require.NoError(s.t, err, "Connection should still be usable after limit exceeded")
 	require.Contains(s.t, result, "ok")
 }
@@ -525,8 +290,7 @@ func (s SwitchboardMongoSuite) Test_Guardrails_ResumeAfterByteLimit() {
 	require.NoError(s.t, err)
 	defer conn.Close(s.t.Context())
 
-	// First query exceeds byte limit
-	rows, err := conn.Query(s.t.Context(), `db.resume_bytes_test.find({})`)
+	rows, err := conn.Query(s.t.Context(), `{"find": "resume_bytes_test", "filter": {}}`)
 	require.NoError(s.t, err)
 
 	for rows.Next() {
@@ -537,9 +301,8 @@ func (s SwitchboardMongoSuite) Test_Guardrails_ResumeAfterByteLimit() {
 	require.Error(s.t, rowErr, "Query should fail due to byte limit")
 	require.Contains(s.t, rowErr.Error(), "byte limit")
 
-	// Connection should still be usable
 	var result string
-	err = conn.QueryRow(s.t.Context(), `db.runCommand({ping: 1})`).Scan(&result)
+	err = conn.QueryRow(s.t.Context(), `{"ping": 1}`).Scan(&result)
 	require.NoError(s.t, err, "Connection should still be usable after byte limit exceeded")
 	require.Contains(s.t, result, "ok")
 }
@@ -549,7 +312,6 @@ func (s SwitchboardMongoSuite) Test_Guardrails_ResumeAfterByteLimit() {
 // ========================================
 
 func (s SwitchboardMongoSuite) Test_CancelRequest() {
-	// Insert many documents for a slow query
 	collection := s.source.AdminClient().Database(s.testDatabase()).Collection("cancel_test")
 	docs := make([]any, 10000)
 	for i := range 10000 {
@@ -558,68 +320,80 @@ func (s SwitchboardMongoSuite) Test_CancelRequest() {
 	_, err := collection.InsertMany(s.t.Context(), docs)
 	require.NoError(s.t, err)
 
-	s.t.Run("CancelLongRunningQuery", func(t *testing.T) {
-		dsn := switchboardDSN(s.peer.Name, nil)
-		cfg, err := pgx.ParseConfig(dsn)
-		require.NoError(t, err)
-		cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	dsn := switchboardDSN(s.peer.Name, nil)
+	cfg, err := pgx.ParseConfig(dsn)
+	require.NoError(s.t, err)
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-		conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
-		require.NoError(t, err)
-		defer conn.Close(s.t.Context())
+	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+	require.NoError(s.t, err)
+	defer conn.Close(s.t.Context())
 
-		errCh := make(chan error, 1)
-		go func() {
-			// Run a query that should take a while
-			rows, err := conn.Query(s.t.Context(), `db.cancel_test.aggregate([{$sort: {data: 1}}, {$group: {_id: "$data"}}])`)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			for rows.Next() {
-			}
-			errCh <- rows.Err()
-		}()
-
-		time.Sleep(100 * time.Millisecond)
-
-		err = conn.PgConn().CancelRequest(s.t.Context())
-		require.NoError(t, err, "Cancel request should be sent")
-
-		select {
-		case queryErr := <-errCh:
-			// Query may complete before cancel, that's ok
-			if queryErr != nil {
-				t.Logf("Query error (expected if canceled): %v", queryErr)
-			}
-		case <-time.After(10 * time.Second):
-			t.Fatal("Query should have completed or been canceled within 10 seconds")
+	errCh := make(chan error, 1)
+	go func() {
+		rows, err := conn.Query(s.t.Context(),
+			`{"aggregate": "cancel_test", "pipeline": [{"$sort": {"data": 1}}, {"$group": {"_id": "$data"}}], "cursor": {}}`,
+		)
+		if err != nil {
+			errCh <- err
+			return
 		}
-	})
+		for rows.Next() {
+		}
+		errCh <- rows.Err()
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	err = conn.PgConn().CancelRequest(s.t.Context())
+	require.NoError(s.t, err, "Cancel request should be sent")
+
+	select {
+	case queryErr := <-errCh:
+		if queryErr != nil {
+			s.t.Logf("Query error (expected if canceled): %v", queryErr)
+		}
+	case <-time.After(10 * time.Second):
+		s.t.Fatal("Query should have completed or been canceled within 10 seconds")
+	}
 }
 
 // ========================================
-// Help Commands
+// Error Handling
 // ========================================
 
-func (s SwitchboardMongoSuite) Test_Help() {
-	s.t.Run("GlobalHelp", func(t *testing.T) {
-		output, err := s.psql(`help()`)
-		require.NoError(t, err)
-		require.NotEmpty(t, output)
-	})
+func (s SwitchboardMongoSuite) Test_Error_InvalidJSON() {
+	_, err := s.psql(`{invalid json`)
+	require.Error(s.t, err)
+}
 
-	s.t.Run("DatabaseHelp", func(t *testing.T) {
-		output, err := s.psql(`db.help()`)
-		require.NoError(t, err)
-		require.NotEmpty(t, output)
-	})
+func (s SwitchboardMongoSuite) Test_Error_PsqlBackslashD() {
+	output, err := s.psql(`\d`)
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "PostgreSQL catalog queries not supported")
+	require.Contains(s.t, output, "show collections")
+}
 
-	s.t.Run("CollectionHelp", func(t *testing.T) {
-		output, err := s.psql(fmt.Sprintf(`db.%s.help()`, s.testCollection()))
-		require.NoError(t, err)
-		require.NotEmpty(t, output)
-	})
+func (s SwitchboardMongoSuite) Test_Error_InvalidCommand() {
+	_, err := s.psql(`{"invalidCommand": 1}`)
+	require.Error(s.t, err)
+}
+
+func (s SwitchboardMongoSuite) Test_Error_ConnectionRecovery() {
+	dsn := switchboardDSN(s.peer.Name, nil)
+	cfg, _ := pgx.ParseConfig(dsn)
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+	require.NoError(s.t, err)
+	defer conn.Close(s.t.Context())
+
+	_, err = conn.Exec(s.t.Context(), `{invalid`)
+	require.Error(s.t, err)
+
+	var result string
+	err = conn.QueryRow(s.t.Context(), `{"ping": 1}`).Scan(&result)
+	require.NoError(s.t, err, "Connection should still be usable after error")
+	require.Contains(s.t, result, "ok")
 }
 
 // ========================================
@@ -635,49 +409,11 @@ func (s SwitchboardMongoSuite) Test_LargeResults() {
 	_, err := collection.InsertMany(s.t.Context(), docs)
 	require.NoError(s.t, err)
 
-	output, err := s.psql(`db.large_test.find({})`)
+	output, err := s.psql(`{"find": "large_test", "filter": {}}`)
 	require.NoError(s.t, err)
 
-	// Count documents returned
 	count := strings.Count(output, `"_id"`)
 	require.Equal(s.t, 1000, count, "Should return all 1000 documents")
-}
-
-// ========================================
-// Misc Commands
-// ========================================
-
-func (s SwitchboardMongoSuite) Test_CountDocuments() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.countDocuments({})`, s.testCollection()))
-	require.NoError(s.t, err)
-	// Parse the result to check count
-	var result map[string]any
-	err = json.Unmarshal([]byte(output), &result)
-	require.NoError(s.t, err)
-	// countDocuments uses aggregation, result should contain "n": 3
-	if n, ok := result["n"].(float64); ok {
-		require.InDelta(s.t, 3, n, 0.001)
-	}
-}
-
-func (s SwitchboardMongoSuite) Test_EstimatedDocumentCount() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.estimatedDocumentCount()`, s.testCollection()))
-	require.NoError(s.t, err)
-	require.NotEmpty(s.t, output)
-}
-
-func (s SwitchboardMongoSuite) Test_GetIndexes() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.getIndexes()`, s.testCollection()))
-	require.NoError(s.t, err)
-	// Should at least have _id index
-	require.Contains(s.t, output, "_id")
-}
-
-func (s SwitchboardMongoSuite) Test_Distinct() {
-	output, err := s.psql(fmt.Sprintf(`db.%s.distinct("active")`, s.testCollection()))
-	require.NoError(s.t, err)
-	require.Contains(s.t, output, "true")
-	require.Contains(s.t, output, "false")
 }
 
 // ========================================
@@ -685,69 +421,19 @@ func (s SwitchboardMongoSuite) Test_Distinct() {
 // ========================================
 
 func (s SwitchboardMongoSuite) Test_EmptyQuery() {
-	tests := []struct {
-		name string
-		sql  string
-	}{
-		{"EmptySemicolon", ";"},
-		{"MultipleSemicolons", ";;;"},
-	}
+	dsn := switchboardDSN(s.peer.Name, nil)
+	cfg, _ := pgx.ParseConfig(dsn)
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+	require.NoError(s.t, err)
+	defer conn.Close(s.t.Context())
 
-	for _, tt := range tests {
-		s.t.Run(tt.name, func(t *testing.T) {
-			dsn := switchboardDSN(s.peer.Name, nil)
-			cfg, _ := pgx.ParseConfig(dsn)
-			cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-			conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
-			require.NoError(t, err)
-			defer conn.Close(s.t.Context())
-
-			// Empty queries should be handled as no-op by the proxy
-			_, err = conn.Exec(s.t.Context(), tt.sql)
-			require.NoError(t, err, "Empty query %q should succeed", tt.name)
-		})
-	}
+	_, err = conn.Exec(s.t.Context(), ";")
+	require.NoError(s.t, err, "Empty query should succeed")
 }
 
 // ========================================
-// Connection Recovery
-// ========================================
-
-func (s SwitchboardMongoSuite) Test_ConnectionRecovery() {
-	s.t.Run("SyntaxErrorInQuery", func(t *testing.T) {
-		// Syntax error should return an error
-		_, err := s.psql(`db.coll.find({invalid syntax here`)
-		require.Error(t, err, "Query with syntax error should fail")
-	})
-
-	s.t.Run("InvalidCommandError", func(t *testing.T) {
-		// Invalid command should return an error
-		_, err := s.psql(`db.runCommand({invalidCommand: 1})`)
-		require.Error(t, err, "Invalid command should fail")
-	})
-
-	s.t.Run("ConnectionUsableAfterError", func(t *testing.T) {
-		dsn := switchboardDSN(s.peer.Name, nil)
-		cfg, _ := pgx.ParseConfig(dsn)
-		cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-		conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
-		require.NoError(t, err)
-		defer conn.Close(s.t.Context())
-
-		// First query fails with syntax error
-		_, err = conn.Exec(s.t.Context(), `db.coll.find({invalid`)
-		require.Error(t, err, "Syntax error should fail")
-
-		// Connection should still be usable for valid queries
-		var result string
-		err = conn.QueryRow(s.t.Context(), `db.runCommand({ping: 1})`).Scan(&result)
-		require.NoError(t, err, "Connection should still be usable after error")
-		require.Contains(t, result, "ok")
-	})
-}
-
-// ========================================
-// Concurrent Connections
+// Connection Lifecycle
 // ========================================
 
 func (s SwitchboardMongoSuite) Test_ConcurrentConnections() {
@@ -759,7 +445,9 @@ func (s SwitchboardMongoSuite) Test_ConcurrentConnections() {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			output, err := s.psql(fmt.Sprintf(`db.%s.find({_id: %d})`, s.testCollection(), (id%3)+1))
+			output, err := s.psql(fmt.Sprintf(
+				`{"find": "%s", "filter": {"_id": %d}}`, s.testCollection(), (id%3)+1,
+			))
 			if err != nil {
 				errors <- fmt.Errorf("connection %d failed: %w (output: %s)", id, err, output)
 			}
@@ -774,23 +462,17 @@ func (s SwitchboardMongoSuite) Test_ConcurrentConnections() {
 	}
 }
 
-// ========================================
-// Sequential Connections
-// ========================================
-
-func (s SwitchboardMongoSuite) Test_MultipleSequentialConnections() {
+func (s SwitchboardMongoSuite) Test_SequentialConnections() {
 	for i := range 10 {
-		output, err := s.psql(fmt.Sprintf(`db.%s.find({_id: %d})`, s.testCollection(), (i%3)+1))
+		output, err := s.psql(fmt.Sprintf(
+			`{"find": "%s", "filter": {"_id": %d}}`, s.testCollection(), (i%3)+1,
+		))
 		require.NoError(s.t, err, "Sequential connection %d should succeed", i)
 		require.NotEmpty(s.t, output)
 	}
 }
 
-// ========================================
-// Idle Timeout
-// ========================================
-
-func (s SwitchboardMongoSuite) Test_IdleTimeout_Short() {
+func (s SwitchboardMongoSuite) Test_IdleTimeout() {
 	dsn := switchboardDSN(s.peer.Name, map[string]string{"idle_timeout": "1"})
 
 	cfg, err := pgx.ParseConfig(dsn)
@@ -801,16 +483,13 @@ func (s SwitchboardMongoSuite) Test_IdleTimeout_Short() {
 	require.NoError(s.t, err)
 	defer conn.Close(s.t.Context())
 
-	// First query should succeed
 	var result string
-	err = conn.QueryRow(s.t.Context(), `db.runCommand({ping: 1})`).Scan(&result)
-	require.NoError(s.t, err, "First query should succeed")
+	err = conn.QueryRow(s.t.Context(), `{"ping": 1}`).Scan(&result)
+	require.NoError(s.t, err)
 	require.Contains(s.t, result, "ok")
 
-	// Wait for idle timeout to expire
 	time.Sleep(1500 * time.Millisecond)
 
-	// Second query should fail due to closed connection
-	err = conn.QueryRow(s.t.Context(), `db.runCommand({ping: 1})`).Scan(&result)
+	err = conn.QueryRow(s.t.Context(), `{"ping": 1}`).Scan(&result)
 	require.Error(s.t, err, "Query should fail after idle timeout")
 }

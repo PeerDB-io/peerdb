@@ -70,7 +70,11 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 
 	// Add comment for cancel support only on commands that support it
 	cmd := spec.Command
-	if len(cmd) > 0 && command.CommandSupportsComment(cmd[0].Key) {
+	if len(cmd) > 0 &&
+		command.CommandSupportsComment(cmd[0].Key) &&
+		!slices.ContainsFunc(cmd, func(e bson.E) bool {
+			return e.Key == "comment"
+		}) {
 		cmd = slices.Concat(cmd, bson.D{{Key: "comment", Value: u.commentTag}})
 	}
 
@@ -87,24 +91,6 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 		if err != nil {
 			return nil, wrapMongoError(err)
 		}
-		// If formatter is set, collect all docs and format
-		if spec.Formatter != nil {
-			var docs []bson.D
-			for cursor.Next(ctx) {
-				var doc bson.D
-				if err := cursor.Decode(&doc); err != nil {
-					cursor.Close(ctx)
-					return nil, wrapMongoError(err)
-				}
-				docs = append(docs, doc)
-			}
-			if err := cursor.Err(); err != nil {
-				cursor.Close(ctx)
-				return nil, wrapMongoError(err)
-			}
-			cursor.Close(ctx)
-			return NewFormattedIterator(spec.Formatter(docs)), nil
-		}
 		return &MongoCursorIterator{cursor: cursor, consumed: false}, nil
 
 	default: // ResultScalar
@@ -112,14 +98,9 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 		if err := result.Err(); err != nil {
 			return nil, wrapMongoError(err)
 		}
-		// Decode the result document
 		var doc bson.D
 		if err := result.Decode(&doc); err != nil {
 			return nil, wrapMongoError(err)
-		}
-		// If formatter is set, apply it
-		if spec.Formatter != nil {
-			return NewFormattedIterator(spec.Formatter([]bson.D{doc})), nil
 		}
 		return &MongoScalarIterator{doc: doc, consumed: false}, nil
 	}

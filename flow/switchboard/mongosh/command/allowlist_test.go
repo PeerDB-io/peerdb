@@ -61,97 +61,6 @@ func TestValidateCommand(t *testing.T) {
 	}
 }
 
-func TestValidateInput(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		wantErr bool
-	}{
-		{
-			name:  "valid single statement",
-			input: `db.users.find({})`,
-		},
-		{
-			name:  "trailing semicolon allowed",
-			input: `db.users.find({});`,
-		},
-		{
-			name:    "multiple statements not allowed",
-			input:   `db.users.find({}); db.orders.find({})`,
-			wantErr: true,
-		},
-		{
-			name:  "semicolon in string is ok",
-			input: `db.users.find({"name": "test;value"})`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateInput(tt.input)
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestCheckMultipleStatements(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		wantErr bool
-	}{
-		{
-			name:  "single statement",
-			input: `db.users.find({})`,
-		},
-		{
-			name:  "trailing semicolon ok",
-			input: `db.users.find({});`,
-		},
-		{
-			name:  "trailing semicolon with whitespace ok",
-			input: `db.users.find({});  `,
-		},
-		{
-			name:    "multiple statements",
-			input:   `db.users.find({}); db.orders.find({})`,
-			wantErr: true,
-		},
-		{
-			name:  "semicolon in string",
-			input: `db.users.find({"name": "test;value"})`,
-		},
-		{
-			name:  "semicolon in single quotes",
-			input: `db.users.find({'name': 'test;value'})`,
-		},
-		{
-			name:  "escaped quote in string",
-			input: `db.users.find({"name": "test\";value"})`,
-		},
-		{
-			name:    "semicolon outside string",
-			input:   `db.users.find({"name": "test"}) ; db.orders.find({})`,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := checkMultipleStatements(tt.input)
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestIsCommandAllowed(t *testing.T) {
 	allowed := []string{"find", "aggregate", "ping", "hello", "FIND", "Aggregate"}
 	for _, cmd := range allowed {
@@ -168,16 +77,37 @@ func TestIsCommandAllowed(t *testing.T) {
 	}
 }
 
+func TestLookupCommand(t *testing.T) {
+	cmd, ok := LookupCommand("find")
+	require.True(t, ok)
+	require.True(t, cmd.ReturnsCursor)
+	require.False(t, cmd.AdminDB)
+
+	cmd, ok = LookupCommand("listDatabases")
+	require.True(t, ok)
+	require.False(t, cmd.ReturnsCursor)
+	require.True(t, cmd.AdminDB)
+
+	cmd, ok = LookupCommand("aggregate")
+	require.True(t, ok)
+	require.True(t, cmd.ReturnsCursor)
+
+	cmd, ok = LookupCommand("ping")
+	require.True(t, ok)
+	require.False(t, cmd.ReturnsCursor)
+	require.False(t, cmd.AdminDB)
+
+	_, ok = LookupCommand("insert")
+	require.False(t, ok)
+}
+
 func TestAllowedCommandsStructure(t *testing.T) {
-	// Verify commands with required args
 	hasRequired := map[string]int{
 		"aggregate": 1, "distinct": 1, "datasize": 1,
 	}
-	// Verify commands with optional args
 	hasOptional := map[string]struct{}{
 		"find": {}, "aggregate": {}, "collstats": {}, "dbstats": {},
 	}
-	// Verify commands with no args
 	noArgs := map[string]struct{}{
 		"ping": {}, "buildinfo": {}, "hostinfo": {},
 	}

@@ -14,82 +14,162 @@ type AllowedCommand struct {
 	Required        []string
 	Optional        []string
 	SupportsComment bool // whether the command supports the comment field for cancel tracking
+	ReturnsCursor   bool // whether the command returns a cursor (vs scalar)
+	AdminDB         bool // whether the command must run against the admin database
 }
 
-// AllowedCommands defines allowed MongoDB commands by category.
 var AllowedCommands = map[string][]AllowedCommand{
 	"Query": {
-		{"find", nil, []string{
-			"filter", "projection", "sort", "skip", "limit", "batchSize", "singleBatch",
-			"hint", "maxTimeMS", "readConcern", "collation", "allowDiskUse", "let",
-		}, true},
-		{"aggregate", []string{"pipeline"}, []string{"cursor", "allowDiskUse", "maxTimeMS", "readConcern", "collation", "hint", "let"}, true},
-		{"count", nil, []string{"query", "limit", "skip", "hint", "maxTimeMS", "readConcern", "collation"}, true},
-		{"distinct", []string{"key"}, []string{"query", "readConcern", "collation", "hint"}, true},
-		{"listIndexes", nil, []string{"cursor"}, true},
-		{"listCollections", nil, []string{"filter", "nameOnly", "authorizedCollections"}, true},
-		{"listDatabases", nil, []string{"filter", "nameOnly", "authorizedDatabases"}, true},
+		{
+			Name: "find",
+			Optional: []string{
+				"filter", "projection", "sort", "skip", "limit", "batchSize", "singleBatch",
+				"hint", "maxTimeMS", "readConcern", "collation", "allowDiskUse", "let",
+			},
+			SupportsComment: true, ReturnsCursor: true,
+		},
+		{
+			Name:            "aggregate",
+			Required:        []string{"pipeline"},
+			Optional:        []string{"cursor", "allowDiskUse", "maxTimeMS", "readConcern", "collation", "hint", "let"},
+			SupportsComment: true, ReturnsCursor: true,
+		},
+		{
+			Name:            "count",
+			Optional:        []string{"query", "limit", "skip", "hint", "maxTimeMS", "readConcern", "collation"},
+			SupportsComment: true,
+		},
+		{
+			Name:            "distinct",
+			Required:        []string{"key"},
+			Optional:        []string{"query", "readConcern", "collation", "hint"},
+			SupportsComment: true,
+		},
 	},
 	"User/Role Info": {
-		{"usersInfo", nil, []string{"showCredentials", "showCustomData", "showPrivileges", "showAuthenticationRestrictions", "filter"}, true},
-		{"rolesInfo", nil, []string{"showPrivileges", "showBuiltinRoles", "showAuthenticationRestrictions"}, true},
+		{
+			Name:            "usersInfo",
+			Optional:        []string{"showCredentials", "showCustomData", "showPrivileges", "showAuthenticationRestrictions", "filter"},
+			SupportsComment: true,
+		},
+		{
+			Name:            "rolesInfo",
+			Optional:        []string{"showPrivileges", "showBuiltinRoles", "showAuthenticationRestrictions"},
+			SupportsComment: true,
+		},
 	},
 	"Replication": {
-		{"hello", nil, []string{"saslSupportedMechs"}, true},
-		{"replSetGetConfig", nil, []string{"commitmentStatus"}, true},
-		{"replSetGetStatus", nil, nil, false},
+		{
+			Name:            "hello",
+			Optional:        []string{"saslSupportedMechs"},
+			SupportsComment: true,
+		},
+		{
+			Name:            "replSetGetConfig",
+			Optional:        []string{"commitmentStatus"},
+			SupportsComment: true,
+		},
+		{Name: "replSetGetStatus"},
 	},
 	"Sharding": {
-		{"getShardMap", nil, nil, false},
-		{"listShards", nil, nil, false},
-		{"balancerStatus", nil, nil, false},
-		{"isdbgrid", nil, nil, false},
+		{Name: "getShardMap"},
+		{Name: "listShards"},
+		{Name: "balancerStatus"},
+		{Name: "isdbgrid"},
 	},
 	"Sessions": {
-		{"startSession", nil, nil, false},
-		{"refreshSessions", nil, nil, false},
-		{"killSessions", nil, nil, false},
-		{"endSessions", nil, nil, false},
-		{"commitTransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}, true},
-		{"abortTransaction", nil, []string{"txnNumber", "writeConcern", "autocommit"}, true},
+		{Name: "startSession"},
+		{Name: "refreshSessions"},
+		{Name: "killSessions"},
+		{Name: "endSessions"},
+		{
+			Name:            "commitTransaction",
+			Optional:        []string{"txnNumber", "writeConcern", "autocommit"},
+			SupportsComment: true,
+		},
+		{
+			Name:            "abortTransaction",
+			Optional:        []string{"txnNumber", "writeConcern", "autocommit"},
+			SupportsComment: true,
+		},
 	},
 	"Admin": {
-		{"currentOp", nil, []string{"$ownOps", "$all"}, true},
-		{"getDefaultRWConcern", nil, []string{"inMemory"}, true},
-		{"getClusterParameter", nil, nil, false},
-		{"getParameter", nil, nil, true},
-		{"getCmdLineOpts", nil, nil, false},
+		{
+			Name:            "listCollections",
+			Optional:        []string{"filter", "nameOnly", "authorizedCollections"},
+			SupportsComment: true, ReturnsCursor: true,
+		},
+		{
+			Name:            "listDatabases",
+			Optional:        []string{"filter", "nameOnly", "authorizedDatabases"},
+			SupportsComment: true, AdminDB: true,
+		},
+		{
+			Name:            "listIndexes",
+			Optional:        []string{"cursor"},
+			SupportsComment: true, ReturnsCursor: true,
+		},
+		{
+			Name:            "currentOp",
+			Optional:        []string{"$ownOps", "$all"},
+			SupportsComment: true,
+		},
+		{
+			Name:            "getDefaultRWConcern",
+			Optional:        []string{"inMemory"},
+			SupportsComment: true,
+		},
+		{Name: "getClusterParameter"},
+		{Name: "getParameter", SupportsComment: true},
+		{Name: "getCmdLineOpts"},
 	},
 	"Diagnostic": {
-		{"ping", nil, nil, false},
-		{"buildInfo", nil, nil, false},
-		{"collStats", nil, []string{"scale"}, false},
-		{"connPoolStats", nil, nil, false},
-		{"connectionStatus", nil, []string{"showPrivileges"}, false},
-		{"dataSize", []string{"keyPattern"}, []string{"min", "max", "estimate"}, false},
-		{"dbStats", nil, []string{"scale", "freeStorage"}, false},
-		{"explain", nil, []string{"verbosity"}, true},
-		{"hostInfo", nil, nil, false},
-		{"listCommands", nil, nil, false},
-		{"lockInfo", nil, nil, false},
-		{"serverStatus", nil, nil, false},
-		{"top", nil, nil, false},
-		{"whatsmyuri", nil, nil, false},
+		{Name: "ping"},
+		{Name: "buildInfo"},
+		{
+			Name:     "collStats",
+			Optional: []string{"scale"},
+		},
+		{Name: "connPoolStats"},
+		{
+			Name:     "connectionStatus",
+			Optional: []string{"showPrivileges"},
+		},
+		{
+			Name:     "dataSize",
+			Required: []string{"keyPattern"},
+			Optional: []string{"min", "max", "estimate"},
+		},
+		{
+			Name:     "dbStats",
+			Optional: []string{"scale", "freeStorage"},
+		},
+		{
+			Name:            "explain",
+			Optional:        []string{"verbosity"},
+			SupportsComment: true,
+		},
+		{Name: "hostInfo"},
+		{Name: "listCommands"},
+		{Name: "lockInfo"},
+		{Name: "serverStatus"},
+		{Name: "top"},
+		{Name: "whatsmyuri"},
 	},
 }
 
 var (
-	allowedCommandsSet     map[string]struct{}
+	commandLookup          map[string]AllowedCommand
 	commandSupportsComment map[string]struct{}
 )
 
 func init() {
-	allowedCommandsSet = make(map[string]struct{})
+	commandLookup = make(map[string]AllowedCommand)
 	commandSupportsComment = make(map[string]struct{})
 	for _, cmds := range AllowedCommands {
 		for _, cmd := range cmds {
 			name := strings.ToLower(cmd.Name)
-			allowedCommandsSet[name] = struct{}{}
+			commandLookup[name] = cmd
 			if cmd.SupportsComment {
 				commandSupportsComment[name] = struct{}{}
 			}
@@ -99,8 +179,14 @@ func init() {
 
 // IsCommandAllowed returns whether a command is in the allow list.
 func IsCommandAllowed(cmd string) bool {
-	_, ok := allowedCommandsSet[strings.ToLower(cmd)]
+	_, ok := commandLookup[strings.ToLower(cmd)]
 	return ok
+}
+
+// LookupCommand returns the AllowedCommand for a given command name.
+func LookupCommand(cmd string) (AllowedCommand, bool) {
+	c, ok := commandLookup[strings.ToLower(cmd)]
+	return c, ok
 }
 
 // CommandSupportsComment returns whether a command supports the comment field.
@@ -117,47 +203,5 @@ func ValidateCommand(cmd bson.D) error {
 	if !IsCommandAllowed(cmd[0].Key) {
 		return fmt.Errorf("command %s is not allowed", cmd[0].Key)
 	}
-	return nil
-}
-
-// ValidateInput validates input constraints.
-func ValidateInput(input string) error {
-	return checkMultipleStatements(input)
-}
-
-func checkMultipleStatements(input string) error {
-	inString := false
-	stringChar := byte(0)
-	escaped := false
-
-	for i := range len(input) {
-		ch := input[i]
-
-		if escaped {
-			escaped = false
-			continue
-		}
-		if ch == '\\' {
-			escaped = true
-			continue
-		}
-
-		if !inString {
-			switch ch {
-			case '"', '\'', '`':
-				inString = true
-				stringChar = ch
-			case ';':
-				remaining := strings.TrimSpace(input[i+1:])
-				if remaining != "" {
-					return errors.New("multiple statements not supported")
-				}
-			}
-		} else if ch == stringChar {
-			inString = false
-			stringChar = 0
-		}
-	}
-
 	return nil
 }
