@@ -65,7 +65,7 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 	}
 
 	// Get connection_id for cancel support
-	rs, err := conn.Execute(ctx, "SELECT CONNECTION_ID()")
+	rs, err := conn.ExecuteNoRetry(ctx, "SELECT CONNECTION_ID()")
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to get connection ID: %w", err)
@@ -82,13 +82,13 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 		timeoutSec = 1
 	}
 
-	_, err = conn.Execute(ctx, "SET SESSION TRANSACTION READ ONLY")
+	_, err = conn.ExecuteNoRetry(ctx, "SET SESSION TRANSACTION READ ONLY")
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to set read-only mode: %w", err)
 	}
 
-	_, err = conn.Execute(ctx, fmt.Sprintf(
+	_, err = conn.ExecuteNoRetry(ctx, fmt.Sprintf(
 		"SET SESSION max_execution_time = %d, "+
 			"lock_wait_timeout = %d, "+
 			"innodb_lock_wait_timeout = %d",
@@ -114,7 +114,7 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 
 // Exec executes a query and returns results for streaming
 func (u *MySQLUpstream) Exec(ctx context.Context, query string) (ResultIterator, error) {
-	result, err := u.conn.Execute(ctx, query)
+	result, err := u.conn.ExecuteNoRetry(ctx, query)
 	if err != nil {
 		return nil, wrapMySQLError(err)
 	}
@@ -275,10 +275,40 @@ func checkSelectStatement(s *ast.SelectStmt) error {
 		}
 	}
 
-	// Check WHERE clause for subqueries
-	if s.Where != nil {
-		if err := checkExprForSubqueries(s.Where); err != nil {
+	// Check the rest of clauses for subqueries
+	if err := checkExprForSubqueries(s.Where); err != nil {
+		return err
+	}
+
+	if s.Having != nil {
+		if err := checkExprForSubqueries(s.Having.Expr); err != nil {
 			return err
+		}
+	}
+
+	if s.OrderBy != nil {
+		for _, item := range s.OrderBy.Items {
+			if err := checkExprForSubqueries(item.Expr); err != nil {
+				return err
+			}
+		}
+	}
+
+	if s.GroupBy != nil {
+		for _, item := range s.GroupBy.Items {
+			if err := checkExprForSubqueries(item.Expr); err != nil {
+				return err
+			}
+		}
+	}
+
+	if s.Fields != nil {
+		for _, field := range s.Fields.Fields {
+			if field.Expr != nil {
+				if err := checkExprForSubqueries(field.Expr); err != nil {
+					return err
+				}
+			}
 		}
 	}
 

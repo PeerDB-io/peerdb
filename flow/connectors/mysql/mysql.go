@@ -278,6 +278,15 @@ func (c *MySqlConnector) withRetries(ctx context.Context) iter.Seq2[*client.Conn
 	}
 }
 
+func (c *MySqlConnector) ExecuteNoRetry(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
+	defer c.watchCtx(ctx)()
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return conn.Execute(cmd, args...)
+}
+
 func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
 	var connectionErr error
 	for conn, err := range c.withRetries(ctx) {
