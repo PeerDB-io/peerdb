@@ -210,9 +210,9 @@ type sourcePeerInfoForLogging struct {
 	PeerName             string `json:"peer_name"`
 	PeerType             string `json:"peer_type"`
 	Host                 string `json:"host"`
-	DatabaseVersion      string `json:"database_version,omitempty"`
-	DatabaseVariant      string `json:"database_variant,omitempty"`
-	DisableTLS           bool   `json:"disable_tls,omitempty"`
+	DatabaseVersion      string `json:"database_version"`
+	DatabaseVariant      string `json:"database_variant"`
+	DisableTLS           bool   `json:"disable_tls"`
 	TLSHost              string `json:"tls_host"`
 	DatabaseName         string `json:"database_name"`
 	SshHost              string `json:"ssh_host"`
