@@ -2,7 +2,7 @@ name: GolangCI-Lint
 
 on:
   pull_request:
-    branches: [main, switchboard-pg]
+    branches: [main]
     paths: [flow/**, e2e_cleanup/**, .github/workflows/golang-lint.yml]
 
 permissions:
