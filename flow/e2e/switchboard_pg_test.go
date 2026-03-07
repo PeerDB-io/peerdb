@@ -14,13 +14,11 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type SwitchboardPostgresSuite struct {
-	t      *testing.T
-	peer   *protos.Peer
-	suffix string
+	t    *testing.T
+	peer *protos.Peer
 }
 
 func (s SwitchboardPostgresSuite) T() *testing.T {
@@ -34,7 +32,6 @@ func (s SwitchboardPostgresSuite) Teardown(context.Context) {
 func SetupSwitchboardPostgresSuite(t *testing.T) SwitchboardPostgresSuite {
 	t.Helper()
 
-	suffix := "pgwpg_" + strings.ToLower(shared.RandomString(8))
 	peer := GeneratePostgresPeer(t)
 
 	// Verify Switchboard is available
@@ -45,9 +42,8 @@ func SetupSwitchboardPostgresSuite(t *testing.T) SwitchboardPostgresSuite {
 	conn.Close(t.Context())
 
 	return SwitchboardPostgresSuite{
-		t:      t,
-		peer:   peer,
-		suffix: suffix,
+		t:    t,
+		peer: peer,
 	}
 }
 
