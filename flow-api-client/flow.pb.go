@@ -3116,8 +3116,7 @@ type QRepConfig struct {
 	// time to wait between getting partitions to process
 	WaitBetweenBatchesSeconds uint32         `protobuf:"varint,10,opt,name=wait_between_batches_seconds,json=waitBetweenBatchesSeconds,proto3" json:"wait_between_batches_seconds,omitempty"`
 	WriteMode                 *QRepWriteMode `protobuf:"bytes,11,opt,name=write_mode,json=writeMode,proto3" json:"write_mode,omitempty"`
-	// This is only used when sync_mode is AVRO
-	// this is the location where the avro files will be written
+	// The location where the avro files will be written
 	// if this starts with gs:// then it will be written to GCS
 	// if this starts with s3:// then it will be written to S3, only supported in Snowflake
 	// if nothing is specified then it will be written to local disk
