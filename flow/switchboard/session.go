@@ -50,26 +50,15 @@ type startupConfig struct {
 // and extracts peerdb.* parameters
 func parseStartupOptions(options string) map[string]string {
 	result := make(map[string]string)
-	if options == "" {
-		return result
-	}
-
-	// Split on -c, handling the format: -c key=value -c key2=value2
-	parts := strings.Split(options, "-c")
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		// Split on first = sign
-		if idx := strings.Index(part, "="); idx > 0 {
-			key := strings.TrimSpace(part[:idx])
-			value := strings.TrimSpace(part[idx+1:])
-			result[key] = value
+	fields := strings.Fields(options)
+	for i := 0; i < len(fields); i++ {
+		if fields[i] == "-c" && i+1 < len(fields) {
+			i++
+			if key, value, ok := strings.Cut(fields[i], "="); ok {
+				result[key] = value
+			}
 		}
 	}
-
 	return result
 }
 
