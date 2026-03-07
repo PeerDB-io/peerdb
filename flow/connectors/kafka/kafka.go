@@ -70,11 +70,14 @@ func NewKafkaConnector(
 ) (*KafkaConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	optionalOpts := append(
-		make([]kgo.Opt, 0, 7),
+		make([]kgo.Opt, 0, 8),
 		kgo.SeedBrokers(config.Servers...),
 		kgo.AllowAutoTopicCreation(),
 		kgo.WithLogger(kgoLogger(logger)),
 	)
+	if config.MaxRecordBatchBytes != nil {
+		optionalOpts = append(optionalOpts, kgo.ProducerBatchMaxBytes(*config.MaxRecordBatchBytes))
+	}
 	if !config.DisableTls {
 		tlsSetting := &tls.Config{MinVersion: tls.VersionTLS12}
 		if config.Certificate != nil || config.PrivateKey != nil {
