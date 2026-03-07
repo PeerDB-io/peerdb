@@ -157,7 +157,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 
 	//nolint:lll // add null values partition to the end, if nulls aren't present it will be an empty partition that gets skipped during replication
-	if config.WatermarkColumnNullable && config.InitialCopyOnly {
+	if config.AddNullPartition {
 		partitionHelper.AddNullPartition()
 	}
 

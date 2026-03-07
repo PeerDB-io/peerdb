@@ -351,14 +351,11 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	if partition.Range != nil {
 		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
-			s, e := strconv.FormatInt(x.IntRange.Start, 10), strconv.FormatInt(x.IntRange.End, 10)
-			rangeStart, rangeEnd = &s, &e
+			rangeStart, rangeEnd = new(strconv.FormatInt(x.IntRange.Start, 10)), new(strconv.FormatInt(x.IntRange.End, 10))
 		case *protos.PartitionRange_UintRange:
-			s, e := strconv.FormatUint(x.UintRange.Start, 10), strconv.FormatUint(x.UintRange.End, 10)
-			rangeStart, rangeEnd = &s, &e
+			rangeStart, rangeEnd = new(strconv.FormatUint(x.UintRange.Start, 10)), new(strconv.FormatUint(x.UintRange.End, 10))
 		case *protos.PartitionRange_TimestampRange:
-			s, e := x.TimestampRange.Start.AsTime().String(), x.TimestampRange.End.AsTime().String()
-			rangeStart, rangeEnd = &s, &e
+			rangeStart, rangeEnd = new(x.TimestampRange.Start.AsTime().String()), new(x.TimestampRange.End.AsTime().String())
 		case *protos.PartitionRange_TidRange:
 			rangeStartValue, err := pgtype.TID{
 				BlockNumber:  x.TidRange.Start.BlockNumber,
@@ -368,8 +365,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			if err != nil {
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
-			s := rangeStartValue.(string)
-			rangeStart = &s
+			rangeStart = new(rangeStartValue.(string))
 
 			rangeEndValue, err := pgtype.TID{
 				BlockNumber:  x.TidRange.End.BlockNumber,
@@ -379,8 +375,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			if err != nil {
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
-			e := rangeEndValue.(string)
-			rangeEnd = &e
+			rangeEnd = new(rangeEndValue.(string))
 		case *protos.PartitionRange_ObjectIdRange:
 			rangeStart, rangeEnd = &x.ObjectIdRange.Start, &x.ObjectIdRange.End
 		case *protos.PartitionRange_NullRange:

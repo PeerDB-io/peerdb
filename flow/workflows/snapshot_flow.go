@@ -240,7 +240,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Query:                      query,
 		BaseQuery:                  baseQuery,
 		WatermarkColumn:            mapping.PartitionKey,
-		WatermarkColumnNullable:    watermarkColumnNullable,
+		AddNullPartition:           watermarkColumnNullable,
 		WatermarkTable:             srcName,
 		InitialCopyOnly:            true,
 		SnapshotName:               snapshotName,

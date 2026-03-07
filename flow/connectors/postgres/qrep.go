@@ -205,7 +205,7 @@ func (c *PostgresConnector) getPartitions(
 		numPartitions:    numPartitions,
 		lastRangeEnd:     lastRangeEnd,
 		logger:           c.logger,
-		addNullPartition: config.WatermarkColumnNullable && config.InitialCopyOnly,
+		addNullPartition: config.AddNullPartition,
 	}
 
 	if config.NumPartitionsOverride <= 0 {

@@ -409,21 +409,21 @@ message QRepConfig {
 
   map<string, string> env = 24;
 
-  string parent_mirror_name = 25;
+  string parent_mirror_name = 25; // internal
   repeated string exclude = 26;
 
   repeated ColumnSetting columns = 27;
-  uint32 version = 28;
+  uint32 version = 28; // internal
 
   peerdb_peers.DBType source_type = 30;
 
   // Connector capabilities detected at flow creation time.
   // Used to control type mapping backwards compatibility.
-  repeated string flags = 31;
+  repeated string flags = 31; // internal
   // the query to fetch the rows without any filters applied (e.g. select [cols] from [table])
-  string base_query = 32;
+  string base_query = 32; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
-  bool watermark_column_nullable = 33;
+  bool add_null_partition = 33; // internal
 }
 
 message QRepPartition {
