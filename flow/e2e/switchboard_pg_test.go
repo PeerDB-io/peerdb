@@ -971,6 +971,6 @@ func (s SwitchboardPostgresSuite) Test_Catalog_Writable() {
 	require.NoError(s.t, err)
 	require.Equal(s.t, "hello", output)
 
-	err = s.psqlExecRW(fmt.Sprintf("DROP TABLE %s", tableName))
+	err = s.psqlExecRW("DROP TABLE " + tableName)
 	require.NoError(s.t, err, "DROP TABLE should succeed on catalog")
 }

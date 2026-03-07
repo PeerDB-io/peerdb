@@ -60,7 +60,9 @@ type PostgresUpstream struct {
 }
 
 // NewPostgresUpstream creates a new PostgreSQL upstream connection
-func NewPostgresUpstream(ctx context.Context, config *protos.PostgresConfig, queryTimeout time.Duration, readOnly bool) (*PostgresUpstream, error) {
+func NewPostgresUpstream(
+	ctx context.Context, config *protos.PostgresConfig, queryTimeout time.Duration, readOnly bool,
+) (*PostgresUpstream, error) {
 	conn, err := connpostgres.NewPostgresConnector(ctx, nil, config)
 	if err != nil {
 		return nil, err
