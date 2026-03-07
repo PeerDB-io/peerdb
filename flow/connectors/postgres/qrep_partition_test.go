@@ -17,11 +17,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+//nolint:govet // field alignment not important
 type testCase struct {
 	name                  string
 	config                *protos.QRepConfig
 	last                  *protos.QRepPartition
-	want                  []*protos.QRepPartition
 	expectedNumPartitions int
 	wantErr               bool
 }
@@ -39,10 +39,16 @@ func newTestCaseForNumRows(schema string, name string, rows uint32, expectedNum 
 			Query:               query,
 			WatermarkTable:      schemaQualifiedTable,
 			WatermarkColumn:     "from",
+			InitialCopyOnly:     true,
 		},
-		want:                  []*protos.QRepPartition{},
 		expectedNumPartitions: expectedNum,
 	}
+}
+
+func newTestCaseForNumRowsWithNulls(schema string, name string, rows uint32, expectedNum int) *testCase {
+	tc := newTestCaseForNumRows(schema, name, rows, expectedNum)
+	tc.config.AddNullPartition = true
+	return tc
 }
 
 func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int) *testCase {
@@ -57,19 +63,17 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 			NumRowsPerPartition: rows,
 			Query:               query,
 			WatermarkTable:      schemaQualifiedTable,
-			WatermarkColumn:     "ctid",
+			WatermarkColumn:     ctidColumnName,
 		},
-		want:                  []*protos.QRepPartition{},
 		expectedNumPartitions: expectedNum,
 	}
 }
 
-func TestGetQRepPartitions(t *testing.T) {
-	t.Parallel()
-	connStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
+func setupTestSchema(t *testing.T) (string, *pgx.Conn) {
+	t.Helper()
+	catalogConnStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
 
-	// Setup the DB
-	config, err := pgx.ParseConfig(connStr)
+	config, err := pgx.ParseConfig(catalogConnStr)
 	if err != nil {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
@@ -78,37 +82,47 @@ func TestGetQRepPartitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create tunnel: %v", err)
 	}
-	defer tunnel.Close()
+	t.Cleanup(func() { tunnel.Close() })
 
 	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, tunnel)
 	if err != nil {
 		t.Fatalf("Failed to create connection: %v", err)
 	}
-	defer conn.Close(t.Context())
+	t.Cleanup(func() { conn.Close(t.Context()) })
 
 	//nolint:gosec // Generate a random schema name, number has no cryptographic significance
 	schemaName := fmt.Sprintf("test_%d", rand.Uint64())
 
-	// Create the schema
 	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
 	if err != nil {
 		t.Fatalf("Failed to create schema: %v", err)
 	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName)); err != nil {
+			t.Logf("Failed to drop schema: %v", err)
+		}
+	})
 
-	// Create the table in the new schema
 	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s.test (
 			id SERIAL PRIMARY KEY,
 			value INT NOT NULL,
-			"from" TIMESTAMP NOT NULL
+			"from" TIMESTAMP
 		)
 	`, schemaName))
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
 
+	return schemaName, conn
+}
+
+func TestGetQRepPartitions(t *testing.T) {
+	t.Parallel()
+	schemaName, conn := setupTestSchema(t)
+
 	// from 2010 Jan 1 10:00 AM UTC to 2010 Jan 30 10:00 AM UTC
-	numRows := prepareTestData(t, conn, schemaName)
+	numRows := prepareTestData(t, conn, schemaName, false)
 
 	// Define the test cases
 	testCases := []*testCase{
@@ -130,7 +144,7 @@ func TestGetQRepPartitions(t *testing.T) {
 			uint32(numRows)/3,
 			3,
 		),
-		// this is 5 partitions 30 rows and 7 rows per partition, would be 7, 7, 7, 7, 2
+		// 30 rows / 7 rows per partition = DivCeil(30, 7) = 5 partitions
 		newTestCaseForNumRows(
 			schemaName,
 			"ensure all rows are in 5 partitions if num_rows_per_partition is 1/4 the size of table",
@@ -155,7 +169,7 @@ func TestGetQRepPartitions(t *testing.T) {
 			uint32(numRows)/3,
 			3,
 		),
-		// this is 5 partitions 30 rows and 7 rows per partition, would be 7, 7, 7, 7, 2
+		// 30 rows / 7 rows per partition = DivCeil(30, 7) = 5 partitions
 		newTestCaseForCTID(
 			schemaName,
 			"ensure all rows are in 5 partitions if num_rows_per_partition is 1/4 the size of table",
@@ -164,16 +178,12 @@ func TestGetQRepPartitions(t *testing.T) {
 		),
 	}
 
-	// Run the test cases
+	c := &PostgresConnector{
+		conn:   conn,
+		logger: log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
+	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := &PostgresConnector{
-				connStr: connStr,
-				Config:  &protos.PostgresConfig{},
-				conn:    conn,
-				logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
-			}
-
 			got, err := c.GetQRepPartitions(t.Context(), tc.config, tc.last)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
@@ -183,50 +193,101 @@ func TestGetQRepPartitions(t *testing.T) {
 				return
 			}
 
-			// If the expected number of partitions is set, just check that
-			// the number of partitions is equal to the expected number of
-			// partitions, we don't care about the actual partition ranges
-			// for now, but ideally we should check that the partition ranges
-			// are correct as well.
-			if tc.expectedNumPartitions != 0 {
-				assert.Len(t, got, tc.expectedNumPartitions)
-				return
-			}
-
-			assert.Len(t, got, len(tc.want))
-			for i, val := range tc.want {
-				er := val.Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
-				gotr := got[i].Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
-				assert.Equal(t, er.Start.AsTime(), gotr.Start.AsTime())
-				assert.Equal(t, er.End.AsTime(), gotr.End.AsTime())
-			}
+			expected := tc.expectedNumPartitions
+			assert.Len(t, got, expected)
 		})
 	}
 
-	// Drop the schema at the end
-	if _, err := conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName)); err != nil {
-		t.Fatalf("Failed to drop schema: %v", err)
+}
+
+func TestGetQRepPartitionsWithNulls(t *testing.T) {
+	t.Parallel()
+	schemaName, conn := setupTestSchema(t)
+
+	// 30 non-null rows + 12 null rows = 42 total
+	numRows := prepareTestData(t, conn, schemaName, true)
+
+	testCases := []*testCase{
+		newTestCaseForNumRowsWithNulls(
+			schemaName,
+			"1 data partition + 1 null partition",
+			uint32(numRows),
+			2,
+		),
+		newTestCaseForNumRowsWithNulls(
+			schemaName,
+			"2 data partitions + 1 null partition",
+			uint32(numRows)/2,
+			3,
+		),
+		newTestCaseForNumRowsWithNulls(
+			schemaName,
+			"3 data partitions + 1 null partition",
+			uint32(numRows)/3,
+			4,
+		),
+		// NTILE(5) groups 12 nulls into the last bucket along with some timestamps,
+		// producing 4 distinct timestamp ranges + 1 explicit null partition = 5 total
+		newTestCaseForNumRowsWithNulls(
+			schemaName,
+			"4 data partitions + 1 null partition when 1/4 table size",
+			uint32(numRows)/4,
+			5,
+		),
 	}
+
+	c := &PostgresConnector{
+		conn:   conn,
+		logger: log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitionsWithNulls"))),
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := c.GetQRepPartitions(t.Context(), tc.config, tc.last)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
+			}
+
+			if tc.wantErr {
+				return
+			}
+
+			assert.Len(t, got, tc.expectedNumPartitions)
+		})
+	}
+
 }
 
 // returns the number of rows inserted
-func prepareTestData(t *testing.T, pool *pgx.Conn, schema string) int {
+func prepareTestData(t *testing.T, pool *pgx.Conn, schema string, includeNulls bool) int {
 	t.Helper()
 
 	// Define the start and end times
 	startTime := time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC)
 	endTime := time.Date(2010, time.January, 31, 10, 0, 0, 0, time.UTC)
 
-	times := 0
+	rowsCount := 0
 	for tm := startTime; tm.Before(endTime); tm = tm.Add(24 * time.Hour) {
-		times += 1
+		rowsCount += 1
 		_, err := pool.Exec(t.Context(), fmt.Sprintf(`
 			INSERT INTO %s.test (value, "from") VALUES ($1, $2)
-		`, schema), times, tm)
+		`, schema), rowsCount, tm)
 		if err != nil {
 			t.Fatalf("Failed to insert test data: %v", err)
 		}
 	}
 
-	return times
+	if includeNulls {
+		// add some rows with null "from" value to ensure they get partitioned correctly as well
+		for i := range 12 {
+			rowsCount += 1
+			_, err := pool.Exec(t.Context(), fmt.Sprintf(`
+				INSERT INTO %s.test (value, "from") VALUES ($1, NULL)
+			`, schema), rowsCount+i+1)
+			if err != nil {
+				t.Fatalf("Failed to insert test data with null from value: %v", err)
+			}
+		}
+	}
+
+	return rowsCount
 }

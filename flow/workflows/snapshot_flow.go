@@ -198,12 +198,13 @@ func (s *SnapshotFlowExecution) cloneTable(
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
 	}
 
+	baseQuery := fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
 	var query string
 	if mapping.PartitionKey == "" || numPartitionsOverride == 1 {
-		query = fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
+		query = baseQuery
 	} else {
-		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, srcTableEscaped, common.QuoteIdentifier(mapping.PartitionKey))
+		query = fmt.Sprintf("%s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+			baseQuery, common.QuoteIdentifier(mapping.PartitionKey))
 	}
 
 	// ensure document IDs are synchronized across initial load and CDC
@@ -218,13 +219,28 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 	}
 
+	watermarkColumnNullable := false
+	if mapping.PartitionKey != "" {
+		if err := initTableSchema(); err != nil {
+			return err
+		}
+		for _, col := range tableSchema.Columns {
+			if col.Name == mapping.PartitionKey && col.Nullable {
+				watermarkColumnNullable = true
+				break
+			}
+		}
+	}
+
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
 		SourceName:                 s.config.SourceName,
 		SourceType:                 sourcePeerType,
 		DestinationName:            s.config.DestinationName,
 		Query:                      query,
+		BaseQuery:                  baseQuery,
 		WatermarkColumn:            mapping.PartitionKey,
+		AddNullPartition:           watermarkColumnNullable,
 		WatermarkTable:             srcName,
 		InitialCopyOnly:            true,
 		SnapshotName:               snapshotName,
