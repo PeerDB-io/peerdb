@@ -150,9 +150,9 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 }
 
 func (c *MongoConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
-	// matches private link connections as well
+	// AtlasDomain matches private link connections as well
 	// https://www.mongodb.com/docs/atlas/security-private-endpoint/?cloud-provider=aws#private-endpoint-aware-connection-strings
-	if strings.Contains(c.config.Uri, ".mongodb.net") {
+	if strings.Contains(c.config.Uri, peerdb_mongo.AtlasDomain) {
 		return protos.DatabaseVariant_MONGODB_ATLAS, nil
 	}
 	ss, err := peerdb_mongo.GetServerStatus(ctx, c.client)

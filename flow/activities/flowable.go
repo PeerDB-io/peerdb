@@ -959,7 +959,7 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		}
 		for _, peer := range peers {
 			version, variant := a.getRuntimePeerInfo(ctx, peer)
-			telemetry.LogPeerConfig(ctx, peer, version, variant)
+			telemetry.LogPeerInfo(ctx, peer, version, variant)
 		}
 		return nil
 	}))()

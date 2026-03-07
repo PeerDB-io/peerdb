@@ -351,7 +351,7 @@ func LogFlowConfigs(
 	return flowConfigs, nil
 }
 
-func LogPeerConfig(ctx context.Context, peer *protos.Peer, version string, variant string) {
+func LogPeerInfo(ctx context.Context, peer *protos.Peer, version string, variant string) {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
 	info := &sourcePeerInfoForLogging{
 		PeerName:        peer.Name,
@@ -386,7 +386,7 @@ func LogPeerConfig(ctx context.Context, peer *protos.Peer, version string, varia
 	case *protos.Peer_BigqueryConfig:
 		info.AuthType = config.BigqueryConfig.AuthType
 	}
-	logAsJSON(logger, "[source info]", info, slog.String("peerName", peer.Name))
+	logAsJSON(logger, "[peer info]", info, slog.String("peerName", peer.Name))
 }
 
 func logAsJSON(logger log.Logger, msg string, data any, attrs ...any) {
