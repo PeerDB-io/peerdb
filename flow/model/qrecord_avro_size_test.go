@@ -25,16 +25,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-// TODO: remove
-func TestMain(m *testing.M) {
-	os.Setenv("PEERDB_CATALOG_HOST", "localhost")
-	os.Setenv("PEERDB_CATALOG_PORT", "9901")
-	os.Setenv("PEERDB_CATALOG_USER", "postgres")
-	os.Setenv("PEERDB_CATALOG_PASSWORD", "postgres")
-	os.Setenv("PEERDB_CATALOG_DATABASE", "postgres")
-	os.Exit(m.Run())
-}
-
 // This test verifies that avro size computation is sufficiently accurate for MongoDB documents
 // by comparing them against actual uncompressed Avro file sizes. MongoDB CDC connector
 // produces records with _id (string) and doc (JSON).
