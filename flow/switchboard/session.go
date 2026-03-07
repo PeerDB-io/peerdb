@@ -252,7 +252,7 @@ func (s *Session) messageLoop(ctx context.Context) error {
 
 		msg, err := s.backend.Receive()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				s.logger.InfoContext(ctx, "Client disconnected")
 				return nil
 			}

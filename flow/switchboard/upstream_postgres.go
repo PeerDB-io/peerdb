@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -55,21 +56,6 @@ type PostgresUpstream struct {
 	conn   *connpostgres.PostgresConnector
 	pid    uint32
 	secret uint32
-}
-
-// postgresBlockedCommands are statements that are always denied for PostgreSQL
-var postgresBlockedCommands = map[string]string{
-	"COPY":     "protocol not supported, TO PROGRAM security risk",
-	"VACUUM":   "maintenance op with I/O impact",
-	"ANALYZE":  "writes to system catalogs",
-	"CLUSTER":  "rewrites entire tables",
-	"REINDEX":  "rebuilds indexes, can lock tables",
-	"REFRESH":  "REFRESH MATERIALIZED VIEW modifies stored data",
-	"LISTEN":   "async messaging not supported by proxy",
-	"NOTIFY":   "async messaging not supported by proxy",
-	"UNLISTEN": "async messaging not supported by proxy",
-	"DO":       "anonymous PL/pgSQL blocks can execute dynamic SQL",
-	"LOCK":     "can lock tables, potential for blocking/deadlocks",
 }
 
 // NewPostgresUpstream creates a new PostgreSQL upstream connection
@@ -152,6 +138,35 @@ func (u *PostgresUpstream) Close() error {
 	return u.conn.Close()
 }
 
+var postgresAllowedFirstKeywords = map[string]struct{}{
+	"SELECT":     {},
+	"TABLE":      {},
+	"VALUES":     {},
+	"WITH":       {},
+	"EXPLAIN":    {},
+	"SHOW":       {},
+	"BEGIN":      {},
+	"START":      {},
+	"COMMIT":     {},
+	"END":        {},
+	"ROLLBACK":   {},
+	"ABORT":      {},
+	"SAVEPOINT":  {},
+	"RELEASE":    {},
+	"SET":        {},
+	"RESET":      {},
+	"DISCARD":    {},
+	"DECLARE":    {},
+	"FETCH":      {},
+	"MOVE":       {},
+	"CLOSE":      {},
+	"PREPARE":    {},
+	"EXECUTE":    {},
+	"DEALLOCATE": {},
+}
+
+var postgresAllRe = regexp.MustCompile(`(?i)^\s*ALL\b`)
+
 // CheckQuery validates a query against PostgreSQL security rules
 func (u *PostgresUpstream) CheckQuery(query string) error {
 	query = strings.TrimSpace(query)
@@ -168,16 +183,22 @@ func (u *PostgresUpstream) CheckQuery(query string) error {
 		return errors.New("set_config is not allowed")
 	}
 
-	// Check each statement against blocked commands using pgsplit
+	// Check each statement against allowlist using pgsplit
 	statements, err := pgsplit.SplitStatements(query)
 	if err != nil {
 		return fmt.Errorf("failed to parse SQL: %w", err)
 	}
 	for _, stmt := range statements {
-		keyword, _, _ := strings.Cut(stmt, " ")
+		keyword, rest, _ := strings.Cut(stmt, " ")
 		keyword = strings.ToUpper(strings.TrimSpace(keyword))
-		if reason, blocked := postgresBlockedCommands[keyword]; blocked {
-			return fmt.Errorf("statement denied: %s (%s)", keyword, reason)
+		if _, allowed := postgresAllowedFirstKeywords[keyword]; !allowed {
+			return fmt.Errorf("statement not allowed: %s", keyword)
+		}
+		if keyword == "RESET" && postgresAllRe.MatchString(rest) {
+			return errors.New("RESET ALL not allowed: would disable read-only mode")
+		}
+		if keyword == "DISCARD" && postgresAllRe.MatchString(rest) {
+			return errors.New("DISCARD ALL not allowed: would disable read-only mode")
 		}
 	}
 

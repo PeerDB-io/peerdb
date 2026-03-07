@@ -137,7 +137,7 @@ type ResultIterator interface {
 **PostgreSQL** (`upstream_postgres.go`)
 - Forwards queries via `pgconn.Exec()` (multi-statement aware).
 - Sets `default_transaction_read_only = on`, `statement_timeout`, and `idle_in_transaction_session_timeout` at session init.
-- `CheckQuery`: splits with `pgsplit`, then first-keyword blocklist (COPY, VACUUM, ANALYZE, CLUSTER, REINDEX, REFRESH, LISTEN/NOTIFY/UNLISTEN, DO, LOCK) + substring checks for `default_transaction_read_only` and `set_config` bypass attempts. Not a full parser — relies on `default_transaction_read_only = on` as the primary write gate.
+- `CheckQuery`: splits with `pgsplit`, then first-keyword allowlist (SELECT, TABLE, VALUES, WITH, EXPLAIN, SHOW, transaction control, SET/RESET/DISCARD, cursor ops, PREPARE/EXECUTE/DEALLOCATE) + substring checks for `default_transaction_read_only` and `set_config` bypass attempts + blocks `RESET ALL` and `DISCARD ALL` (would undo session-level read-only). Anything not on the allowlist is rejected. Defense-in-depth with `default_transaction_read_only = on` as the upstream write gate.
 - `FieldDescriptions` forwarded as-is from pgx (preserves OIDs, type info).
 - `TxStatus` reflects real transaction state from the upstream connection.
 
@@ -164,7 +164,7 @@ Key constraints:
 This runs before `Exec` and must reject anything dangerous for a read-only diagnostic session. The bar is "prevent accidental damage," not "withstand adversarial bypass" — catch honest mistakes reliably, but don't over-invest in edge cases that only matter if someone is actively trying to break out.
 
 Guidelines:
-- Use a real parser where practical. MySQL uses TiDB's AST parser, MongoDB uses goja + a command registry/allowlist. PostgreSQL gets away with keyword-level blocklisting because `default_transaction_read_only = on` does the heavy lifting. Match the approach to what the upstream's security model requires.
+- Use a real parser where practical. MySQL uses TiDB's AST parser, MongoDB uses goja + a command registry/allowlist. PostgreSQL uses a first-keyword allowlist with `pgsplit` for statement splitting and a `default_transaction_read_only = on` filter, because a real parser would be a very heavy CGo dependency. Match the approach to what the upstream's security model requires.
 - Default-deny is preferred: allowlist safe operations rather than blocklisting dangerous ones, where the query language makes this practical.
 - Reject `pg_catalog` queries (psql `\d` commands) — they don't work against non-PostgreSQL upstreams. Use the shared `SqlSelectPgCatalogRe` regex from `upstream.go`.
 - Return a clear error message explaining what was blocked and why.

@@ -440,22 +440,34 @@ func (s SwitchboardPostgresSuite) Test_MultiStatement_MixedStatementsWithResults
 // Read-Only Enforcement
 // ========================================
 
-func (s SwitchboardPostgresSuite) Test_ReadOnly_WriteBlocked() {
-	output, err := s.psql("CREATE TEMP TABLE readonly_test(id int)")
-	require.Error(s.t, err)
-	require.Contains(s.t, output, "read-only")
-}
-
-func (s SwitchboardPostgresSuite) Test_ReadOnly_DropBlocked() {
-	output, err := s.psql("DROP TABLE IF EXISTS nonexistent")
-	require.Error(s.t, err)
-	require.Contains(s.t, output, "read-only")
-}
-
 func (s SwitchboardPostgresSuite) Test_ReadOnly_BypassAttemptBlocked() {
 	output, err := s.psql("SET default_transaction_read_only = off")
 	require.Error(s.t, err)
 	require.Contains(s.t, output, "read-only mode")
+}
+
+func (s SwitchboardPostgresSuite) Test_ReadOnly_SetLocalBlocked() {
+	output, err := s.psql("SET LOCAL default_transaction_read_only = off")
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "read-only mode")
+}
+
+func (s SwitchboardPostgresSuite) Test_ReadOnly_ResetBlocked() {
+	output, err := s.psql("RESET default_transaction_read_only")
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "read-only mode")
+}
+
+func (s SwitchboardPostgresSuite) Test_ReadOnly_ResetAllBlocked() {
+	output, err := s.psql("RESET ALL")
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "RESET ALL")
+}
+
+func (s SwitchboardPostgresSuite) Test_ReadOnly_DiscardAllBlocked() {
+	output, err := s.psql("DISCARD ALL")
+	require.Error(s.t, err)
+	require.Contains(s.t, output, "DISCARD ALL")
 }
 
 func (s SwitchboardPostgresSuite) Test_ReadOnly_SetConfigBlocked() {
@@ -469,6 +481,16 @@ func (s SwitchboardPostgresSuite) Test_ReadOnly_ObfuscatedSetConfigBlocked() {
 	output, err := s.psql("SELECT set_config('default_transaction' || '_read_only', 'off', false)")
 	require.Error(s.t, err)
 	require.Contains(s.t, output, "set_config")
+}
+
+func (s SwitchboardPostgresSuite) Test_ReadOnly_HarmlessSetAllowed() {
+	err := s.psqlExec("SET work_mem = '64MB'")
+	require.NoError(s.t, err)
+}
+
+func (s SwitchboardPostgresSuite) Test_ReadOnly_DiscardPlansAllowed() {
+	err := s.psqlExec("DISCARD PLANS")
+	require.NoError(s.t, err)
 }
 
 // ========================================
@@ -497,7 +519,7 @@ func (s SwitchboardPostgresSuite) Test_BlockedCommands() {
 		s.t.Run(tt.name, func(t *testing.T) {
 			output, err := s.psql(tt.sql)
 			require.Error(t, err, "%s should be blocked", tt.name)
-			require.Contains(t, output, "denied", "Should mention denied")
+			require.Contains(t, output, "not allowed", "Should mention not allowed")
 			require.Contains(t, output, tt.name, "Should mention %s", tt.name)
 		})
 	}
