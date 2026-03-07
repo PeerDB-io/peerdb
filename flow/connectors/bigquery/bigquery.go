@@ -239,6 +239,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	_ []string,
 ) error {
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {

@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -293,11 +294,11 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 	}
 	numParts = max(numParts, 1)
 
-	chSettings := NewCHSettings(s.chVersion)
-	chSettings.Add(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := clickhouse.NewCHSettings(s.chVersion)
+	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
 	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(SettingJsonTypeEscapeDotsInKeys, "1")
+		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
 	}
 
 	// Process each chunk file individually

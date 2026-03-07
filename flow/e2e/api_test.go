@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	tp "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -303,6 +304,109 @@ func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	require.NotNil(s.t, response)
 }
 
+func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int, val text)", AttachSchema(s, "no_pkey"))))
+	case *MongoSource:
+		s.t.Skip("MongoDB always has _id as primary key")
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	chVersion, err := s.ch.connector.GetVersion(s.t.Context())
+	require.NoError(s.t, err)
+	isAtLeast25_12 := chproto.CheckMinVersion(
+		chproto.Version{Major: 25, Minor: 12, Patch: 0}, chproto.ParseVersion(chVersion))
+
+	srcTable := AttachSchema(s, "no_pkey")
+
+	tests := []struct {
+		name      string
+		dstTable  string
+		engine    protos.TableEngine
+		expectErr bool
+	}{
+		{
+			name:      "ReplacingMergeTree rejects empty ordering on 25.12+",
+			dstTable:  "no_pkey_rmt",
+			engine:    protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE,
+			expectErr: isAtLeast25_12,
+		},
+		{
+			name:     "MergeTree engine allows empty ordering",
+			dstTable: "no_pkey_mt",
+			engine:   protos.TableEngine_CH_ENGINE_MERGE_TREE,
+		},
+		{
+			name:     "Null engine allows empty ordering",
+			dstTable: "no_pkey_null",
+			engine:   protos.TableEngine_CH_ENGINE_NULL,
+		},
+	}
+
+	for _, tc := range tests {
+		s.t.Run(tc.name, func(t *testing.T) {
+			connectionGen := FlowConnectionGenerationConfig{
+				FlowJobName: "ch_no_pkey_" + tc.dstTable + "_" + s.suffix,
+				TableMappings: []*protos.TableMapping{{
+					SourceTableIdentifier:      srcTable,
+					DestinationTableIdentifier: tc.dstTable,
+					Engine:                     tc.engine,
+				}},
+				Destination: s.ch.Peer().Name,
+			}
+			flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+			flowConnConfig.DoInitialSnapshot = true
+
+			response, err := s.ValidateCDCMirror(t.Context(),
+				&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+			if tc.expectErr {
+				require.Error(t, err)
+				require.Nil(t, response)
+				st, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, codes.FailedPrecondition, st.Code())
+				require.Contains(t, st.Message(), "empty sort key is not supported")
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, response)
+			}
+		})
+	}
+}
+
+func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey_ReplicaIdentityFull() {
+	switch s.source.(type) {
+	case *PostgresSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf(`CREATE TABLE %s(id int, val text);
+				ALTER TABLE %[1]s REPLICA IDENTITY FULL`, AttachSchema(s, "no_pkey_rif"))))
+	default:
+		s.t.Skip("replica identity full only applies to Postgres")
+	}
+
+	srcTable := AttachSchema(s, "no_pkey_rif")
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "ch_no_pkey_rif_" + s.suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTable,
+			DestinationTableIdentifier: "no_pkey_rif",
+			Engine:                     protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE,
+		}},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	response, err := s.ValidateCDCMirror(s.t.Context(),
+		&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+}
+
 func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
 	tests := []struct {
 		name                       string
@@ -354,6 +458,120 @@ func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
 			require.Equal(t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition error code")
 		})
 	}
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_MissingColumns() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	// Create source table with multiple columns
+	srcTableName := AttachSchema(s, "validation_src")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, col2 int, col3 timestamp)", srcTableName)))
+
+	// Create destination table with missing columns (only id and col1)
+	dstTableName := AttachSchema(s, "validation_dst")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableName))
+	require.NoError(s.t, err)
+
+	// Test validation should fail because col2 and col3 are missing from destination
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_fail_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err, "expected validation to fail due to missing columns")
+	require.Nil(s.t, response)
+
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error")
+	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition error code")
+	require.Contains(s.t, st.Message(), "not found in destination table")
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_ExtraColumnsOk() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	// Create source table with two columns
+	srcTableName := AttachSchema(s, "validation_src_extra")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", srcTableName)))
+
+	// Create destination table with extra columns (should be fine)
+	dstTableName := AttachSchema(s, "validation_dst_extra")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, col2 int, col3 timestamp)", dstTableName))
+	require.NoError(s.t, err)
+
+	// Test validation should succeed
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_pass_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err, "validation should succeed when destination has extra columns")
+	require.NotNil(s.t, response)
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_WithExcludedColumns() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	// Create source table with multiple columns
+	srcTableName := AttachSchema(s, "validation_src_exclude")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, excluded_col int)", srcTableName)))
+
+	// Create destination table without the excluded column (should be fine)
+	dstTableName := AttachSchema(s, "validation_dst_exclude")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableName))
+	require.NoError(s.t, err)
+
+	// Test validation should succeed because excluded_col is excluded
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_exclude_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"excluded_col"},
+			},
+		},
+		DoInitialSnapshot: true,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err, "validation should succeed when excluded columns are not in destination")
+	require.NotNil(s.t, response)
 }
 
 func (s APITestSuite) TestSchemaEndpoints() {
@@ -746,6 +964,7 @@ func (s APITestSuite) TestResyncCompleted() {
 	flowConnConfig.SnapshotNumTablesInParallel = 13
 	flowConnConfig.IdleTimeoutSeconds = 9
 	flowConnConfig.MaxBatchSize = 5040
+	flowConnConfig.Flags = []string{"dummy_config"}
 	// if true, then the flow will be resynced
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
@@ -757,6 +976,9 @@ func (s APITestSuite) TestResyncCompleted() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	RequireEqualTables(s.ch, tableName, cols)
+
+	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
 
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
@@ -795,11 +1017,10 @@ func (s APITestSuite) TestResyncCompleted() {
 	EnvWaitForFinished(s.t, env, time.Minute)
 
 	// check that custom config options persist across resync
-	config, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	flowConnConfig.Resync = true // this gets left true after resync
-	config.Env = nil             // env is modified by API
-	require.EqualExportedValues(s.t, flowConnConfig, config)
+	configBeforeResync.Resync = true
+	require.EqualExportedValues(s.t, configBeforeResync, configAfterResync)
 }
 
 func (s APITestSuite) TestResyncFailed() {
@@ -1367,6 +1588,21 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	require.Equal(s.t, int64(2), mirrorTotalRowsSynced.TotalCountInitialLoad)
 	require.Equal(s.t, int64(4), mirrorTotalRowsSynced.TotalCount)
 
+	// check initial load NumRowsSynced via mirror status API
+	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
+		FlowJobName:     flowConnConfig.FlowJobName,
+		IncludeFlowInfo: true,
+	})
+	require.NoError(s.t, err)
+	cdcStatus := statusResponse.GetCdcStatus()
+	require.NotNil(s.t, cdcStatus)
+	require.NotNil(s.t, cdcStatus.SnapshotStatus)
+	var initialLoadRowsSynced int64
+	for _, clone := range cdcStatus.SnapshotStatus.Clones {
+		initialLoadRowsSynced += clone.NumRowsSynced
+	}
+	require.Equal(s.t, int64(2), initialLoadRowsSynced)
+
 	// check table stats cdc
 	tableStats, err := s.CDCTableTotalCounts(s.t.Context(), &protos.CDCTableTotalCountsRequest{
 		FlowJobName: flowConnConfig.FlowJobName,
@@ -1556,6 +1792,13 @@ func (s APITestSuite) TestQRep() {
 	qStatus := statusResponse.GetQrepStatus()
 	require.NotNil(s.t, qStatus)
 	require.Len(s.t, qStatus.Partitions, 2)
+
+	var totalRowsSynced int64
+	for _, p := range qStatus.Partitions {
+		require.Positive(s.t, p.RowsSynced, "each partition should have rows_synced > 0")
+		totalRowsSynced += p.RowsSynced
+	}
+	require.Equal(s.t, int64(2), totalRowsSynced)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

@@ -15,7 +15,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/temporal"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
@@ -143,7 +142,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+		return nil, a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
 	}
 
 	batchSize := options.BatchSize
@@ -195,7 +194,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	startTime := time.Now()
-	syncState.Store(shared.Ptr("syncing"))
+	syncState.Store(new("syncing"))
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		return pull(srcConn, errCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
@@ -222,16 +221,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
 			// don't log flow error for "replState changed" and "slot is already active"
-			var applicationError *temporal.ApplicationError
-			if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") ||
-				shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			var desyncErr *exceptions.ReplStateDesyncError
+			if !(errors.As(err, &desyncErr) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 				_ = a.Alerter.LogFlowError(ctx, flowName, err)
 			}
-			if temporal.IsApplicationError(err) {
-				return nil, err
-			} else {
-				return nil, fmt.Errorf("failed in pull records when: %w", err)
-			}
+			return nil, fmt.Errorf("failed in pull records when: %w", err)
 		}
 		logger.Info("no records to push")
 
@@ -241,8 +235,10 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		defer dstClose(ctx)
 
-		syncState.Store(shared.Ptr("updating schema"))
-		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas); err != nil {
+		syncState.Store(new("updating schema"))
+		if err := dstConn.ReplayTableSchemaDeltas(
+			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags,
+		); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
@@ -251,13 +247,23 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
-		dstConn, dstClose, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
-		if err != nil {
-			return fmt.Errorf("failed to recreate destination connector: %w", err)
-		}
-		defer dstClose(ctx)
-
-		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
+		syncBatchID, err := func() (int64, error) {
+			// special case pg-pg replication, where batch ID is stored on destination instead of catalog
+			if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
+				dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
+				if err != nil {
+					if !errors.Is(err, errors.ErrUnsupported) {
+						return 0, fmt.Errorf("failed to get destination connector to get last sync batch ID: %w", err)
+					}
+					// else fallthrough to loading from catalog
+				} else {
+					defer dstPgClose(ctx)
+					return dstPgConn.GetLastSyncBatchID(errCtx, flowName)
+				}
+			}
+			pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+			return pgMetadata.GetLastSyncBatchID(errCtx, flowName)
+		}()
 		if err != nil {
 			return err
 		}
@@ -274,6 +280,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 
+		dstConn, dstClose, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+		if err != nil {
+			return fmt.Errorf("failed to get destination connector: %w", err)
+		}
+		defer dstClose(ctx)
+
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
 			SyncBatchID:            syncBatchID,
 			Records:                recordBatchSync,
@@ -285,6 +297,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			TableNameSchemaMapping: tableNameSchemaMapping,
 			Env:                    config.Env,
 			Version:                config.Version,
+			Flags:                  config.Flags,
 		})
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))
@@ -300,17 +313,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		var applicationError *temporal.ApplicationError
-		if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+		var desyncErr *exceptions.ReplStateDesyncError
+		if !(errors.As(err, &desyncErr) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
-		if temporal.IsApplicationError(err) {
-			return nil, err
-		} else {
-			return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
-		}
+		return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
 	}
-	syncState.Store(shared.Ptr("bookkeeping"))
+	syncState.Store(new("bookkeeping"))
 
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
@@ -341,13 +350,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
-	syncState.Store(shared.Ptr("updating schema"))
+	syncState.Store(new("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
 
 	if recordBatchSync.NeedsNormalize() {
-		syncState.Store(shared.Ptr("normalizing"))
+		syncState.Store(new("normalizing"))
 		normRequests.Update(res.CurrentSyncBatchID)
 		normWaitThreshold := res.CurrentSyncBatchID - normBufferSize
 		if normResponses.Load() <= normWaitThreshold {
@@ -408,7 +417,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 }
 
 // replicateQRepPartition replicates a QRepPartition from the source to the destination.
-func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
+func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
 	srcConn TPull,
@@ -458,7 +467,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, stream)
 		stream.Close(err)
 		if err != nil {
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("[qrep] failed to pull records", err))
 		}
 
 		// for Postgres source, reports all bytes fetched from source
@@ -479,7 +488,8 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
+			stream.HandleQRepSyncError(err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to sync records", err))
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
@@ -502,7 +512,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 }
 
 // replicateXminPartition replicates a XminPartition from the source to the destination.
-func replicateXminPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore](
+func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors.QRepSyncConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.QRepConfig,
@@ -595,7 +605,8 @@ func replicateXminPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
+			stream.HandleQRepSyncError(err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to sync records", err))
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
@@ -681,6 +692,7 @@ func (a *FlowableActivity) startNormalize(
 			SyncedAtColName:        config.SyncedAtColName,
 			SyncBatchID:            batchID,
 			Version:                config.Version,
+			Flags:                  config.Flags,
 		})
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName,

@@ -3,7 +3,6 @@ package common
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"net"
 )
@@ -40,7 +39,7 @@ func CreateTlsConfig(minVersion uint16, rootCAs *string, host string, tlsHost st
 	if rootCAs != nil {
 		caPool := x509.NewCertPool()
 		if !caPool.AppendCertsFromPEM([]byte(*rootCAs)) {
-			return nil, errors.New("failed to parse provided root CA")
+			return nil, fmt.Errorf("failed to parse provided root CA")
 		}
 		config.RootCAs = caPool
 	}

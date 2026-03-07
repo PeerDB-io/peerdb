@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -144,7 +143,7 @@ func generateGRPCWrapper() error {
 	})
 
 	if len(methods) == 0 {
-		return errors.New("no methods found in FlowServiceServer interface")
+		return fmt.Errorf("no methods found in FlowServiceServer interface")
 	}
 
 	// Generate the output

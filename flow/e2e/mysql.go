@@ -46,10 +46,17 @@ func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	return SetupMyCore(t, suffix, replicationMode, mysqlFlavor)
 }
 
+func mysqlHost() string {
+	if host := os.Getenv("CI_MYSQL_HOST"); host != "" {
+		return host
+	}
+	return "localhost"
+}
+
 func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicationMechanism, flavor protos.MySqlFlavor) (*MySqlSource, error) {
 	t.Helper()
 	config := &protos.MySqlConfig{
-		Host:                 "localhost",
+		Host:                 mysqlHost(),
 		Port:                 3306,
 		User:                 "root",
 		Password:             "cipass",

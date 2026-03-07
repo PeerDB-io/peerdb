@@ -91,6 +91,10 @@ message FlowConnectionConfigs {
 
   map<string, string> env = 24;
   uint32 version = 25;
+
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 27;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -137,6 +141,10 @@ message FlowConnectionConfigsCore {
 
   map<string, string> env = 24;
   uint32 version = 25;
+
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 27;
 }
 
 message RenameTableOption {
@@ -264,6 +272,8 @@ message SetupNormalizedTableBatchInput {
   string flow_name = 6;
   string peer_name = 7;
   bool is_resync = 8;
+  uint32 version = 9;
+  repeated string flags = 10;
 }
 
 message SetupNormalizedTableOutput {
@@ -364,8 +374,7 @@ message QRepConfig {
 
   QRepWriteMode write_mode = 11;
 
-  // This is only used when sync_mode is AVRO
-  // this is the location where the avro files will be written
+  // The location where the avro files will be written
   // if this starts with gs:// then it will be written to GCS
   // if this starts with s3:// then it will be written to S3, only supported in Snowflake
   // if nothing is specified then it will be written to local disk
@@ -402,6 +411,10 @@ message QRepConfig {
   uint32 version = 28;
 
   peerdb_peers.DBType source_type = 30;
+
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 31;
 }
 
 message QRepPartition {

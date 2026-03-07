@@ -139,6 +139,7 @@ func RecToTablePKey[T Items](
 	}, nil
 }
 
+//nolint:govet // keeping field comments over alignment
 type SyncRecordsRequest[T Items] struct {
 	Records *CDCStream[T]
 	// ConsumedOffset allows destination to confirm lsn for slot
@@ -156,11 +157,12 @@ type SyncRecordsRequest[T Items] struct {
 	TableMappings []*protos.TableMapping
 	SyncBatchID   int64
 	Version       uint32
+	Flags         []string
 }
-
 type NormalizeRecordsRequest struct {
 	Env                    map[string]string
 	TableNameSchemaMapping map[string]*protos.TableSchema
+	Flags                  []string
 	FlowJobName            string
 	SoftDeleteColName      string
 	SyncedAtColName        string

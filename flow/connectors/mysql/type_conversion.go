@@ -24,8 +24,10 @@ func QkindFromMysqlColumnType(ct string) (types.QValueKind, error) {
 		return types.QValueKindBytes, nil
 	case "date":
 		return types.QValueKindDate, nil
-	case "datetime", "timestamp", "time":
+	case "datetime", "timestamp":
 		return types.QValueKindTimestamp, nil
+	case "time":
+		return types.QValueKindTime, nil
 	case "decimal", "numeric":
 		return types.QValueKindNumeric, nil
 	case "float":

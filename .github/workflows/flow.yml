@@ -46,12 +46,12 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:8dff633b6bae296523c79aae8297290b158f62fcb262831d46d5d67f9d3cdba7
+        image: redpandadata/redpanda@sha256:a6340e8d52455996b6fbe34df219305cb934eddceab2da2ce8e1ef32bbe04703
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.3.0@sha256:89738cb1d6042ac20eddc3768eb3bb7e92bdf816a83a261b3bf11fb3544ae751
+        image: elasticsearch:9.3.1@sha256:2cc6bb7210e693c9ee96a2d37833dbd8d3edaacfc0e468d9daa04cb7a125e9a0
         ports:
           - 9200:9200
         env:
@@ -59,7 +59,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.145.0@sha256:a7343f01869071ea3f4c5e1e97df1bb1b3c4d5c77247db80e053a80b9df530c4
+        image: otel/opentelemetry-collector-contrib:0.147.0@sha256:e7c92c715f28ff142f3bcaccd4fc5603cf4c71276ef09954a38eb4038500a5a5
         ports:
           - 4317:4317
       toxiproxy:
@@ -72,8 +72,11 @@ jobs:
           - 42001:42001
           - 42002:42002
           - 42003:42003
+          - 49001:49001
+          - 49002:49002
+          - 49003:49003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:5367818a2a39e1dbd8564503a7e8b2e13fbe83bb00df86fdb2df37ca3ba306e2
+        image: linuxserver/openssh-server:latest@sha256:fdd9783e0fa4c52592c8405765c5de04dcf657db1b4d6ab073c14c4b998ca1fa
         ports:
           - 2222:2222
         env:
@@ -92,7 +95,7 @@ jobs:
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
         with:
           go-version: '1.26.0'
           cache-dependency-path: flow/go.sum
@@ -248,7 +251,7 @@ jobs:
           if [ "${{ matrix.db-version.ch }}" = "lts" ]; then
             echo "ch_version=v25.8.11.66-lts" >> $GITHUB_OUTPUT
           elif [ "${{ matrix.db-version.ch }}" = "stable" ]; then
-            echo "ch_version=v25.11.1.558-stable" >> $GITHUB_OUTPUT
+            echo "ch_version=v25.12.4.35-stable" >> $GITHUB_OUTPUT
           elif [ "${{ matrix.db-version.ch }}" = "latest" ]; then
             # note: latest tag does not always reflect the latest version (could be an update on an lts),
             # but that is okay as we are only using it to invalidate the cache.
@@ -514,7 +517,7 @@ jobs:
 
       - name: Upload peer-flow logs
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
           path: logs/

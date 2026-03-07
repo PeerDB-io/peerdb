@@ -35,8 +35,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 	if _, err := pgx.ForEachRow(rows, []any{&name, &value}, func() error {
 		if idx, ok := internal.DynamicIndex[name]; ok {
 			settings[idx] = proto.CloneOf(settings[idx])
-			newValue := value // create a new string reference as value can be overwritten by the next iteration.
-			settings[idx].Value = &newValue
+			settings[idx].Value = new(value) // create a new string reference as value can be overwritten by the next iteration.
 		}
 		return nil
 	}); err != nil {

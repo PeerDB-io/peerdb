@@ -278,7 +278,14 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 	}, nil
 }
 
-func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database string) ([]*protos.SlotInfo, error) {
+func getSlotInfo(
+	ctx context.Context,
+	conn *pgx.Conn,
+	slotName string,
+	database string,
+	peerdbManagedOnly bool,
+	customSlotNames []string,
+) ([]*protos.SlotInfo, error) {
 	pgversion, err := shared.GetMajorVersion(ctx, conn)
 	if err != nil {
 		return nil, err
@@ -322,6 +329,16 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 		whereClause = "WHERE prs.slot_name=" + utils.QuoteLiteral(slotName)
 	} else {
 		whereClause = "WHERE prs.database=" + utils.QuoteLiteral(database)
+		if peerdbManagedOnly {
+			var slotFilter strings.Builder
+			slotFilter.WriteString("prs.slot_name LIKE ")
+			slotFilter.WriteString(utils.QuoteLiteral(DefaultSlotPrefix + "%"))
+			for _, name := range customSlotNames {
+				slotFilter.WriteString(" OR prs.slot_name=")
+				slotFilter.WriteString(utils.QuoteLiteral(name))
+			}
+			whereClause += " AND (" + slotFilter.String() + ")"
+		}
 	}
 	rows, err := conn.Query(ctx, fmt.Sprintf(`
 		WITH current_wal AS (
@@ -444,11 +461,18 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 	return slotInfoRows, nil
 }
 
-// GetSlotInfo gets the information about the replication slot size and LSNs
-// If slotName input is empty, all slot info rows are returned - this is for UI.
-// Else, only the row pertaining to that slotName will be returned.
-func (c *PostgresConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	return getSlotInfo(ctx, c.conn, slotName, c.Config.Database)
+// GetSlotInfo gets the information about the replication slot size and LSNs.
+// If slotName is non-empty, only that slot is returned.
+// If slotName is empty and peerdbManagedOnly is false, all slots in the database are returned.
+// If slotName is empty and peerdbManagedOnly is true, only slots with the peerflow_slot_ prefix
+// (plus any explicitly listed customSlotNames) are returned.
+func (c *PostgresConnector) GetSlotInfo(
+	ctx context.Context,
+	slotName string,
+	peerdbManagedOnly bool,
+	customSlotNames []string,
+) ([]*protos.SlotInfo, error) {
+	return getSlotInfo(ctx, c.conn, slotName, c.Config.Database, peerdbManagedOnly, customSlotNames)
 }
 
 func (c *PostgresConnector) CreatePublication(
@@ -792,6 +816,12 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (NullableLSN, err
 		return NullableLSN{}, fmt.Errorf("error while parsing LSN %s: %w", result.String, err)
 	}
 	return NullableLSN{LSN: lsn}, nil
+}
+
+const DefaultSlotPrefix = "peerflow_slot_"
+
+func GetDefaultSlotName(jobName string) string {
+	return DefaultSlotPrefix + jobName
 }
 
 func GetDefaultPublicationName(jobName string) string {

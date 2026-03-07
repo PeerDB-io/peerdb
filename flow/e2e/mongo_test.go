@@ -379,7 +379,7 @@ func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
 	t := s.T()
 
 	nestedDoc := func(ch string) bson.D {
-		var v interface{} = ch
+		var v any = ch
 		for i := 100; i >= 1; i-- {
 			v = bson.D{bson.E{Key: fmt.Sprintf("lvl_%d", i), Value: v}}
 		}
@@ -509,6 +509,48 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	RequireEnvCanceled(t, env)
 }
 
+func (s MongoClickhouseSuite) Test_Long_Field_Name_Snapshot_And_CDC() {
+	t := s.T()
+
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_long_field_name"
+	dstTable := "test_long_field_name_dst"
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	// Regression coverage for GODRIVER-3809: long field names can trigger
+	// "bufio: buffer full" when decoded through cursor.Decode.
+	longFieldName := strings.Repeat("x", 5000)
+	longKeyDoc := bson.D{{Key: longFieldName, Value: "test"}}
+
+	res, err := collection.InsertOne(t.Context(), longKeyDoc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "initial load with long field name", srcTable, dstTable, "_id,doc")
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	res, err = collection.InsertOne(t.Context(), longKeyDoc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+	EnvWaitForEqualTablesWithNames(env, s, "cdc with long field name", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 	t := s.T()
 
@@ -533,7 +575,7 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 
 	coll1 := adminClient.Database(srcDatabase).Collection(srcTable1)
 	coll2 := adminClient.Database(srcDatabase).Collection(srcTable2)
-	res, err := session.WithTransaction(t.Context(), func(ctx context.Context) (interface{}, error) {
+	res, err := session.WithTransaction(t.Context(), func(ctx context.Context) (any, error) {
 		res1, err1 := coll1.InsertOne(t.Context(), bson.D{bson.E{Key: "foo", Value: 1}}, options.InsertOne())
 		res2, err2 := coll2.InsertOne(t.Context(), bson.D{bson.E{Key: "bar", Value: 2}}, options.InsertOne())
 		err := err1
@@ -553,7 +595,7 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
-	res, err = session.WithTransaction(t.Context(), func(ctx context.Context) (interface{}, error) {
+	res, err = session.WithTransaction(t.Context(), func(ctx context.Context) (any, error) {
 		res1, err1 := coll1.UpdateOne(t.Context(),
 			bson.D{bson.E{Key: "foo", Value: 1}},
 			bson.D{bson.E{Key: "$set", Value: bson.D{bson.E{Key: "foo", Value: 11}}}},
