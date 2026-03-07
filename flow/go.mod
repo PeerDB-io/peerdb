@@ -42,8 +42,10 @@ require (
 	github.com/lestrrat-go/httprc/v3 v3.0.4
 	github.com/lestrrat-go/jwx/v3 v3.0.13
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee
+	github.com/nickbruun/pgsplit v0.0.0-20240103043353-43e6c2dddfad
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/pgvector/pgvector-go v0.3.0
+	github.com/pingcap/errors v0.11.5-0.20250523034308-74f78ae071ee
 	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20260209104850-2d3173484f25
 	github.com/shopspring/decimal v1.4.0
@@ -55,6 +57,7 @@ require (
 	github.com/twmb/franz-go/plugin/kslog v1.0.0
 	github.com/twpayne/go-geos v0.20.2
 	github.com/urfave/cli/v3 v3.6.2
+	github.com/xdg-go/scram v1.2.0
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	github.com/yuin/gopher-lua v1.1.1
 	go.mongodb.org/mongo-driver/v2 v2.5.0
@@ -89,8 +92,6 @@ require (
 )
 
 require github.com/quasilyte/go-ruleguard/dsl v0.3.23
-
-require github.com/aws/aws-sdk-go-v2/service/signin v1.0.5 // indirect
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -130,6 +131,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.17 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.17 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.0.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.13 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -225,7 +227,6 @@ require (
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.25 // indirect
-	github.com/pingcap/errors v0.11.5-0.20250523034308-74f78ae071ee
 	github.com/pingcap/failpoint v0.0.0-20251231045439-91d91e123837 // indirect
 	github.com/pingcap/kvproto v0.0.0-20260204083606-f3cc97745222 // indirect
 	github.com/pingcap/log v1.1.1-0.20241212030209-7e3ff8601a2a // indirect
@@ -258,7 +259,6 @@ require (
 	github.com/valyala/fastjson v1.6.7 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
-	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect

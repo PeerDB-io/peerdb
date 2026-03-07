@@ -18,6 +18,7 @@ const (
 	ReplicaSet     = "ReplicaSet"
 	ShardedCluster = "ShardedCluster"
 
+	AtlasDomain      = ".mongodb.net"
 	DocumentDBDomain = "docdb.amazonaws.com"
 )
 
