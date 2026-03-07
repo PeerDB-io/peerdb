@@ -14,11 +14,13 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type SwitchboardPostgresSuite struct {
-	t    *testing.T
-	peer *protos.Peer
+	t      *testing.T
+	peer   *protos.Peer
+	suffix string
 }
 
 func (s SwitchboardPostgresSuite) T() *testing.T {
@@ -32,6 +34,7 @@ func (s SwitchboardPostgresSuite) Teardown(context.Context) {
 func SetupSwitchboardPostgresSuite(t *testing.T) SwitchboardPostgresSuite {
 	t.Helper()
 
+	suffix := "switchboard_pg_" + strings.ToLower(shared.RandomString(8))
 	peer := GeneratePostgresPeer(t)
 
 	// Verify Switchboard is available
@@ -42,8 +45,9 @@ func SetupSwitchboardPostgresSuite(t *testing.T) SwitchboardPostgresSuite {
 	conn.Close(t.Context())
 
 	return SwitchboardPostgresSuite{
-		t:    t,
-		peer: peer,
+		t:      t,
+		peer:   peer,
+		suffix: suffix,
 	}
 }
 
@@ -51,13 +55,24 @@ func TestSwitchboardPostgres(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSwitchboardPostgresSuite)
 }
 
-// psql executes a SQL query via psql and returns tuples-only output
+// psql executes a SQL query via psql against catalog_ro (read-only) and returns tuples-only output
 func (s SwitchboardPostgresSuite) psql(sql string) (string, error) {
+	return runPsql(s.t, "catalog_ro", "-tA", "-c", sql)
+}
+
+// psqlExec executes a SQL statement via psql against catalog_ro (read-only, no output expected)
+func (s SwitchboardPostgresSuite) psqlExec(sql string) error {
+	_, err := runPsql(s.t, "catalog_ro", "-c", sql)
+	return err
+}
+
+// psqlRW executes a SQL query via psql against catalog (writable) and returns tuples-only output
+func (s SwitchboardPostgresSuite) psqlRW(sql string) (string, error) {
 	return runPsql(s.t, s.peer.Name, "-tA", "-c", sql)
 }
 
-// psqlExec executes a SQL statement via psql (no output expected)
-func (s SwitchboardPostgresSuite) psqlExec(sql string) error {
+// psqlExecRW executes a SQL statement via psql against catalog (writable, no output expected)
+func (s SwitchboardPostgresSuite) psqlExecRW(sql string) error {
 	_, err := runPsql(s.t, s.peer.Name, "-c", sql)
 	return err
 }
@@ -937,4 +952,25 @@ func (s SwitchboardPostgresSuite) Test_IdleTimeout_Short() {
 
 	err = conn.QueryRow(s.t.Context(), "SELECT 2").Scan(&result)
 	require.Error(s.t, err, "Query should fail after idle timeout")
+}
+
+// ========================================
+// Catalog Write Access
+// ========================================
+
+func (s SwitchboardPostgresSuite) Test_Catalog_Writable() {
+	tableName := "switchboard_test_" + s.suffix
+
+	err := s.psqlExecRW(fmt.Sprintf("CREATE TABLE %s (id int, val text)", tableName))
+	require.NoError(s.t, err, "CREATE TABLE should succeed on catalog")
+
+	err = s.psqlExecRW(fmt.Sprintf("INSERT INTO %s VALUES (1, 'hello')", tableName))
+	require.NoError(s.t, err, "INSERT should succeed on catalog")
+
+	output, err := s.psqlRW(fmt.Sprintf("SELECT val FROM %s WHERE id = 1", tableName))
+	require.NoError(s.t, err)
+	require.Equal(s.t, "hello", output)
+
+	err = s.psqlExecRW(fmt.Sprintf("DROP TABLE %s", tableName))
+	require.NoError(s.t, err, "DROP TABLE should succeed on catalog")
 }

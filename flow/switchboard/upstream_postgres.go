@@ -53,33 +53,37 @@ func wrapPgError(err error) error {
 
 // PostgresUpstream implements Upstream for PostgreSQL databases
 type PostgresUpstream struct {
-	conn   *connpostgres.PostgresConnector
-	pid    uint32
-	secret uint32
+	conn     *connpostgres.PostgresConnector
+	pid      uint32
+	secret   uint32
+	readOnly bool
 }
 
 // NewPostgresUpstream creates a new PostgreSQL upstream connection
-func NewPostgresUpstream(ctx context.Context, config *protos.PostgresConfig, queryTimeout time.Duration) (*PostgresUpstream, error) {
+func NewPostgresUpstream(ctx context.Context, config *protos.PostgresConfig, queryTimeout time.Duration, readOnly bool) (*PostgresUpstream, error) {
 	conn, err := connpostgres.NewPostgresConnector(ctx, nil, config)
 	if err != nil {
 		return nil, err
 	}
 
-	// Set Switchboard-specific runtime params (read-only mode, timeouts)
-	_, err = conn.Conn().Exec(ctx, fmt.Sprintf(
-		"SET statement_timeout = '%dms'; SET idle_in_transaction_session_timeout = '%dms'; SET default_transaction_read_only = on",
+	initSQL := fmt.Sprintf(
+		"SET statement_timeout = '%dms'; SET idle_in_transaction_session_timeout = '%dms'",
 		queryTimeout.Milliseconds(), queryTimeout.Milliseconds(),
-	))
-	if err != nil {
+	)
+	if readOnly {
+		initSQL += "; SET default_transaction_read_only = on"
+	}
+	if _, err = conn.Conn().Exec(ctx, initSQL); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to set session parameters: %w", err)
 	}
 
 	pgConn := conn.Conn().PgConn()
 	return &PostgresUpstream{
-		conn:   conn,
-		pid:    pgConn.PID(),
-		secret: pgConn.SecretKey(),
+		conn:     conn,
+		pid:      pgConn.PID(),
+		secret:   pgConn.SecretKey(),
+		readOnly: readOnly,
 	}, nil
 }
 
@@ -169,6 +173,10 @@ var postgresAllRe = regexp.MustCompile(`(?i)^\s*ALL\b`)
 
 // CheckQuery validates a query against PostgreSQL security rules
 func (u *PostgresUpstream) CheckQuery(query string) error {
+	if !u.readOnly {
+		return nil
+	}
+
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil

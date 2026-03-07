@@ -98,10 +98,10 @@ func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName s
 		return nil, errors.New("database name (peer name) is required")
 	}
 
-	// Special case: "catalog" connects to the PeerDB catalog database
-	if peerName == "catalog" {
+	// Special cases: "catalog" (writable) and "catalog_ro" (read-only) connect to the PeerDB catalog database
+	if peerName == "catalog" || peerName == "catalog_ro" {
 		pgConfig := internal.GetCatalogPostgresConfigFromEnv(ctx)
-		return NewPostgresUpstream(ctx, pgConfig, queryTimeout)
+		return NewPostgresUpstream(ctx, pgConfig, queryTimeout, peerName == "catalog_ro")
 	}
 
 	// Load peer from catalog
@@ -116,7 +116,7 @@ func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName s
 		if pgConfig == nil {
 			return nil, fmt.Errorf("peer '%s' has no PostgreSQL configuration", peerName)
 		}
-		return NewPostgresUpstream(ctx, pgConfig, queryTimeout)
+		return NewPostgresUpstream(ctx, pgConfig, queryTimeout, true)
 
 	default:
 		return nil, fmt.Errorf("peer '%s' is type %s, only PostgreSQL is supported", peerName, peer.Type)
