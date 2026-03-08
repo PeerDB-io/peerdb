@@ -192,6 +192,7 @@ func parseEnumOptions(columnType string) []string {
 	return options
 }
 
+// GetEnumColumnsInfo queries the information schema to get the possible options for enum columns in the specified table and columns
 func (c *MySqlConnector) GetEnumColumnsInfo(ctx context.Context, table string, cols []string) (map[string][]string, error) {
 	qualifiedTable, err := common.ParseTableIdentifier(table)
 	if err != nil {
