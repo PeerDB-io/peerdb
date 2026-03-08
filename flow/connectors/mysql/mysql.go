@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -496,6 +497,18 @@ func (c *MySqlConnector) StatActivity(
 	return &protos.PeerStatResponse{
 		StatData: statInfoRows,
 	}, nil
+}
+
+func (c *MySqlConnector) IsBinlogMetadataSupported(ctx context.Context) (bool, error) {
+	versionToCmp := mysql_validation.MySQLMinVersionForBinlogRowMetadata
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		versionToCmp = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
+	}
+	cmp, err := c.CompareServerVersion(ctx, versionToCmp)
+	if err != nil {
+		return false, fmt.Errorf("failed to get server version: %w", err)
+	}
+	return cmp >= 0, nil
 }
 
 func (c *MySqlConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {

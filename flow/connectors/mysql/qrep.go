@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
@@ -175,6 +177,100 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	}, nil
 }
 
+// parseEnumOptions parses the column type string for an enum column and returns the possible options for the enum
+func parseEnumOptions(columnType string) []string {
+	// columnType looks like enum('a','b','c')
+	_, optionsStr, _ := strings.Cut(columnType, "(")
+	optionsStr = strings.TrimSuffix(optionsStr, ")")
+	// this will break for enum values with commas
+	options := strings.Split(optionsStr, ",")
+	for i, option := range options {
+		option = strings.TrimSpace(option)
+		option = strings.Trim(option, "'")
+		options[i] = option
+	}
+	return options
+}
+
+func (c *MySqlConnector) GetEnumColumnsInfo(ctx context.Context, table string, cols []string) (map[string][]string, error) {
+	qualifiedTable, err := common.ParseTableIdentifier(table)
+	if err != nil {
+		return nil, err
+	}
+
+	quotedColumns := make([]string, len(cols))
+	for i, col := range cols {
+		quotedColumns[i] = fmt.Sprintf("'%s'", mysql.Escape(col))
+	}
+
+	rs, err := c.Execute(ctx, fmt.Sprintf(`select column_name, column_type 
+		from information_schema.columns where table_schema = '%s' and table_name = '%s' and column_name in (%s)`,
+		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table), strings.Join(quotedColumns, ",")))
+	if err != nil {
+		return nil, fmt.Errorf("could not query information schema for enum options: %w", err)
+	}
+	defer rs.Close()
+
+	res := make(map[string][]string)
+	for idx := range rs.RowNumber() {
+		columnName, err := rs.GetString(idx, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		dataType, err := rs.GetString(idx, 1)
+		if err != nil {
+			return nil, err
+		}
+		res[columnName] = parseEnumOptions(dataType)
+	}
+
+	return res, nil
+}
+
+// mapQValue maps QValue for certain mysql versions and types.
+// For example, for mysql versions that do not support binlog row metadata,
+// we need to map enums to integers to align with how mysql streams enum values in the binlog.
+func (c *MySqlConnector) mapQValue(qv types.QValue, field types.QField, enumMap map[string][]string, binlogMetadataSupported bool) (types.QValue, error) {
+	switch qvTyped := qv.(type) {
+	// for enum types, we need to map the string to it's index since mysql versions prior to 8.0 stream enum values as integers during CDC
+	case types.QValueEnum:
+		if binlogMetadataSupported {
+			break
+		}
+
+		enumOptions, ok := enumMap[field.Name]
+		if !ok {
+			return nil, fmt.Errorf("could not find enum options for column %q", field.Name)
+		}
+
+		enumToInt := func(val string) (string, error) {
+			// MySQL enum index 0 is the empty string (invalid/unset enum value)
+			if val == "" {
+				return "", nil
+			}
+
+			matchingEnumIdx := slices.Index(enumOptions, val)
+			if matchingEnumIdx == -1 {
+				return "", fmt.Errorf("could not find matching enum option for value %q in column %q", qv.Value(), field.Name)
+			}
+
+			// MySQL enum indexes are 1-based, so add 1 to the index
+			return strconv.Itoa(matchingEnumIdx + 1), nil
+		}
+
+		intVal, err := enumToInt(qvTyped.Val)
+		if err != nil {
+			return nil, err
+		}
+		qv = types.QValueEnum{
+			Val: intVal,
+		}
+	}
+
+	return qv, nil
+}
+
 func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,
@@ -187,6 +283,24 @@ func (c *MySqlConnector) PullQRepRecords(
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
+	}
+
+	var enumColNames []string
+	for _, col := range tableSchema.Columns {
+		if col.Type == string(types.QValueKindEnum) {
+			enumColNames = append(enumColNames, col.Name)
+		}
+	}
+
+	enumMap, err := c.GetEnumColumnsInfo(ctx, config.WatermarkTable, enumColNames)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get enum column options: %w", err)
+	}
+
+	// Pre-compute before the streaming query — can't issue queries inside row callbacks
+	binlogMetadataSupported, err := c.IsBinlogMetadataSupported(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to determine if binlog metadata is supported: %w", err)
 	}
 
 	c.logger.Info("[mysql] pulling records start")
@@ -211,11 +325,18 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val)
+			field := schema.Fields[idx]
+			qv, err := QValueFromMysqlFieldValue(field.Type, rs.Fields[idx].Type, val)
 			if err != nil {
-				return fmt.Errorf("could not convert mysql value for %s: %w", schema.Fields[idx].Name, err)
+				return fmt.Errorf("could not convert mysql value for %s: %w", field.Name, err)
 			}
-			record = append(record, qv)
+
+			mapped, err := c.mapQValue(qv, field, enumMap, binlogMetadataSupported)
+			if err != nil {
+				return fmt.Errorf("failed to map qvalue for column %s: %w", field.Name, err)
+			}
+
+			record = append(record, mapped)
 		}
 
 		if err := stream.Send(ctx, record); err != nil {

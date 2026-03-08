@@ -27,7 +27,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -77,6 +76,8 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, err
 	}
+	defer rs.Close()
+
 	columns := make([]*protos.FieldDescription, 0, rs.RowNumber())
 	primary := make([]string, 0)
 
@@ -320,15 +321,10 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
-	versionToCmp := mysql_validation.MySQLMinVersionForBinlogRowMetadata
-	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		versionToCmp = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
-	}
-	cmp, err := c.CompareServerVersion(ctx, versionToCmp)
+	binlogRowMetadataSupported, err := c.IsBinlogMetadataSupported(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get server version: %w", err)
+		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
-	binlogRowMetadataSupported := cmp >= 0
 
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
