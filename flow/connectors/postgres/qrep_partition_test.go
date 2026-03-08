@@ -197,7 +197,6 @@ func TestGetQRepPartitions(t *testing.T) {
 			assert.Len(t, got, expected)
 		})
 	}
-
 }
 
 func TestGetQRepPartitionsWithNulls(t *testing.T) {
@@ -254,7 +253,6 @@ func TestGetQRepPartitionsWithNulls(t *testing.T) {
 			assert.Len(t, got, tc.expectedNumPartitions)
 		})
 	}
-
 }
 
 // returns the number of rows inserted
