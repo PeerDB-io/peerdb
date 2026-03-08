@@ -231,7 +231,9 @@ func (c *MySqlConnector) GetEnumColumnsInfo(ctx context.Context, table string, c
 // mapQValue maps QValue for certain mysql versions and types.
 // For example, for mysql versions that do not support binlog row metadata,
 // we need to map enums to integers to align with how mysql streams enum values in the binlog.
-func (c *MySqlConnector) mapQValue(qv types.QValue, field types.QField, enumMap map[string][]string, binlogMetadataSupported bool) (types.QValue, error) {
+func (c *MySqlConnector) mapQValue(
+	qv types.QValue, field types.QField, enumMap map[string][]string, binlogMetadataSupported bool,
+) (types.QValue, error) {
 	switch qvTyped := qv.(type) {
 	// for enum types, we need to map the string to it's index since mysql versions prior to 8.0 stream enum values as integers during CDC
 	case types.QValueEnum:

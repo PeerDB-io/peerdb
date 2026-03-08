@@ -6,10 +6,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
-	"github.com/stretchr/testify/require"
 )
 
 func TestMapQValue(t *testing.T) {
@@ -27,8 +28,8 @@ func TestMapQValue(t *testing.T) {
 	testCases := []struct {
 		name                string
 		qv                  types.QValue
-		field               types.QField
 		expected            types.QValue
+		field               types.QField
 		err                 bool
 		versionWithMetadata bool
 	}{
@@ -147,7 +148,6 @@ func TestMapQValue(t *testing.T) {
 				require.Equal(t, tc.expected.Value(), res.Value())
 			})
 		}
-
 	}
 }
 
@@ -232,7 +232,7 @@ func TestGetEnumColumnsInfo(t *testing.T) {
 	_, err = connector.Execute(ctx, fmt.Sprintf("CREATE DATABASE `%s`", dbName))
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		connector.Execute(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", dbName))
+		_, _ = connector.Execute(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", dbName))
 	})
 
 	_, err = connector.Execute(ctx, fmt.Sprintf(`CREATE TABLE %s.test_enums (
@@ -244,7 +244,7 @@ func TestGetEnumColumnsInfo(t *testing.T) {
 	require.NoError(t, err)
 
 	result, err := connector.GetEnumColumnsInfo(ctx,
-		fmt.Sprintf("%s.test_enums", dbName),
+		dbName+".test_enums",
 		[]string{"status", "priority"},
 	)
 	require.NoError(t, err)
