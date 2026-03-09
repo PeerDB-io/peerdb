@@ -228,11 +228,9 @@ func parseEnumOptions(columnType string) []string {
 	}
 
 	// Flush the final option, if any.
-	{
-		option := strings.TrimSpace(current.String())
-		if option != "" || hadQuote {
-			options = append(options, option)
-		}
+	option := strings.TrimSpace(current.String())
+	if option != "" || hadQuote {
+		options = append(options, option)
 	}
 
 	return options
