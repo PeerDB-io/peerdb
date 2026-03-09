@@ -583,6 +583,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
+			// Transient reorderbuffer spill file restoration failure (e.g. "Resource temporarily unavailable")
+			if PostgresSpillFileMissingRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// Shared invalidation message corruption - usually transient, reconnect helps
 			// https://github.com/postgres/postgres/blob/e82e9aaa6a2942505c2c328426778787e4976ea6/src/backend/utils/cache/inval.c#L901
 			if strings.Contains(pgErr.Message, "unrecognized SI message ID:") {
