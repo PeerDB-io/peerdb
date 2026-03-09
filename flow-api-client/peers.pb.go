@@ -2168,18 +2168,19 @@ func (x *MySqlConfig) GetSkipCertVerification() bool {
 }
 
 type KafkaConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Servers       []string               `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
-	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
-	Password      string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
-	Sasl          string                 `protobuf:"bytes,4,opt,name=sasl,proto3" json:"sasl,omitempty"`
-	DisableTls    bool                   `protobuf:"varint,5,opt,name=disable_tls,json=disableTls,proto3" json:"disable_tls,omitempty"`
-	Partitioner   string                 `protobuf:"bytes,6,opt,name=partitioner,proto3" json:"partitioner,omitempty"`
-	Certificate   *string                `protobuf:"bytes,7,opt,name=certificate,proto3,oneof" json:"certificate,omitempty"`
-	PrivateKey    *string                `protobuf:"bytes,8,opt,name=private_key,json=privateKey,proto3,oneof" json:"private_key,omitempty"`
-	RootCa        *string                `protobuf:"bytes,9,opt,name=root_ca,json=rootCa,proto3,oneof" json:"root_ca,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Servers             []string               `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
+	Username            string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Password            string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
+	Sasl                string                 `protobuf:"bytes,4,opt,name=sasl,proto3" json:"sasl,omitempty"`
+	DisableTls          bool                   `protobuf:"varint,5,opt,name=disable_tls,json=disableTls,proto3" json:"disable_tls,omitempty"`
+	Partitioner         string                 `protobuf:"bytes,6,opt,name=partitioner,proto3" json:"partitioner,omitempty"`
+	Certificate         *string                `protobuf:"bytes,7,opt,name=certificate,proto3,oneof" json:"certificate,omitempty"`
+	PrivateKey          *string                `protobuf:"bytes,8,opt,name=private_key,json=privateKey,proto3,oneof" json:"private_key,omitempty"`
+	RootCa              *string                `protobuf:"bytes,9,opt,name=root_ca,json=rootCa,proto3,oneof" json:"root_ca,omitempty"`
+	MaxRecordBatchBytes *int32                 `protobuf:"varint,10,opt,name=max_record_batch_bytes,json=maxRecordBatchBytes,proto3,oneof" json:"max_record_batch_bytes,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *KafkaConfig) Reset() {
@@ -2273,6 +2274,13 @@ func (x *KafkaConfig) GetRootCa() string {
 		return *x.RootCa
 	}
 	return ""
+}
+
+func (x *KafkaConfig) GetMaxRecordBatchBytes() int32 {
+	if x != nil && x.MaxRecordBatchBytes != nil {
+		return *x.MaxRecordBatchBytes
+	}
+	return 0
 }
 
 type ElasticsearchConfig struct {
@@ -2825,7 +2833,7 @@ const file_peers_proto_rawDesc = "" +
 	"\v_ssh_configB\n" +
 	"\n" +
 	"\b_root_caB\v\n" +
-	"\t_aws_auth\"\xe9\x02\n" +
+	"\t_aws_auth\"\xbe\x03\n" +
 	"\vKafkaConfig\x12\x18\n" +
 	"\aservers\x18\x01 \x03(\tR\aservers\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12!\n" +
@@ -2837,11 +2845,14 @@ const file_peers_proto_rawDesc = "" +
 	"\vcertificate\x18\a \x01(\tB\x05\x90\xfa\x91?\x01H\x00R\vcertificate\x88\x01\x01\x12+\n" +
 	"\vprivate_key\x18\b \x01(\tB\x05\x90\xfa\x91?\x01H\x01R\n" +
 	"privateKey\x88\x01\x01\x12#\n" +
-	"\aroot_ca\x18\t \x01(\tB\x05\x90\xfa\x91?\x01H\x02R\x06rootCa\x88\x01\x01B\x0e\n" +
+	"\aroot_ca\x18\t \x01(\tB\x05\x90\xfa\x91?\x01H\x02R\x06rootCa\x88\x01\x01\x128\n" +
+	"\x16max_record_batch_bytes\x18\n" +
+	" \x01(\x05H\x03R\x13maxRecordBatchBytes\x88\x01\x01B\x0e\n" +
 	"\f_certificateB\x0e\n" +
 	"\f_private_keyB\n" +
 	"\n" +
-	"\b_root_ca\"\x89\x02\n" +
+	"\b_root_caB\x19\n" +
+	"\x17_max_record_batch_bytes\"\x89\x02\n" +
 	"\x13ElasticsearchConfig\x12\x1c\n" +
 	"\taddresses\x18\x01 \x03(\tR\taddresses\x12@\n" +
 	"\tauth_type\x18\x02 \x01(\x0e2#.peerdb_peers.ElasticsearchAuthTypeR\bauthType\x12\x1f\n" +
