@@ -18,7 +18,7 @@ type GcpServiceAccount struct {
 	Type                    string `json:"type"`
 	ProjectID               string `json:"project_id"`
 	PrivateKeyID            string `json:"private_key_id"`
-	PrivateKey              string `json:"private_key"` //nolint:gosec // G117: deserialized from Google credential files, by design
+	PrivateKey              string `json:"private_key"`
 	ClientEmail             string `json:"client_email"`
 	ClientID                string `json:"client_id"`
 	AuthURI                 string `json:"auth_uri"`
@@ -55,7 +55,7 @@ func (sa *GcpServiceAccount) Validate() error {
 
 // CreateBigQueryClient creates a new BigQuery client from a GcpServiceAccount.
 func (sa *GcpServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquery.Client, error) {
-	saJSON, err := json.Marshal(sa)
+	saJSON, err := json.Marshal(sa) //nolint:gosec // G117: credential struct marshaled for inline use
 	if err != nil {
 		return nil, fmt.Errorf("failed to get json: %v", err)
 	}
@@ -74,7 +74,7 @@ func (sa *GcpServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquer
 
 // CreateStorageClient creates a new Storage client from a GcpServiceAccount.
 func (sa *GcpServiceAccount) CreateStorageClient(ctx context.Context) (*storage.Client, error) {
-	saJSON, err := json.Marshal(sa)
+	saJSON, err := json.Marshal(sa) //nolint:gosec // G117: credential struct marshaled for inline use
 	if err != nil {
 		return nil, fmt.Errorf("failed to get json: %v", err)
 	}
@@ -92,7 +92,7 @@ func (sa *GcpServiceAccount) CreateStorageClient(ctx context.Context) (*storage.
 
 // CreatePubSubClient creates a new PubSub client from a GcpServiceAccount.
 func (sa *GcpServiceAccount) CreatePubSubClient(ctx context.Context) (*pubsub.Client, error) {
-	saJSON, err := json.Marshal(sa)
+	saJSON, err := json.Marshal(sa) //nolint:gosec // G117: credential struct marshaled for inline use
 	if err != nil {
 		return nil, fmt.Errorf("failed to get json: %v", err)
 	}

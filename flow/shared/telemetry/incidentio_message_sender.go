@@ -130,7 +130,7 @@ func (i *IncidentIoMessageSender) SendMessage(
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+i.config.Token)
 
-	resp, err := i.http.Do(req) //nolint:gosec // G704: URL from trusted config
+	resp, err := i.http.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("incident.io request failed: %w", err)
 	}

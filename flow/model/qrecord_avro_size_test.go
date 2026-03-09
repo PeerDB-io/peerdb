@@ -75,7 +75,7 @@ func TestMongoDBAvroSizeComputation(t *testing.T) {
 				"Estimated size should be within 5% of actual (upper bound)")
 
 			// for completion, print out the compression ratio
-			fileInfo, err := os.Stat(tmpfile.Name()) //nolint:gosec // G703: temp file path
+			fileInfo, err := os.Stat(tmpfile.Name())
 			require.NoError(t, err)
 			compressedSize := fileInfo.Size()
 			compressionRatio := float64(actualSize) / float64(compressedSize)
@@ -106,7 +106,7 @@ func writeAvroFileCompressed(
 		ConstructColumnNameAvroFieldMap(schema.Fields),
 	)
 	require.NoError(t, err)
-	file, err := os.Create(filePath) //nolint:gosec // G703: temp file path
+	file, err := os.Create(filePath)
 	require.NoError(t, err)
 	defer file.Close()
 
@@ -233,7 +233,7 @@ func (w *MeteredWriter) Write(p []byte) (int, error) {
 func getActualUncompressedSize(t *testing.T, filePath string, avroSchema *QRecordAvroSchemaDefinition, numRecords int) int64 {
 	t.Helper()
 
-	file, err := os.Open(filePath) //nolint:gosec // G703: temp file path
+	file, err := os.Open(filePath)
 	require.NoError(t, err)
 	defer file.Close()
 	decoder, err := ocf.NewDecoder(file)
