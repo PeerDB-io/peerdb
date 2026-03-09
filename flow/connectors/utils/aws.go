@@ -19,7 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
 	"github.com/aws/smithy-go/middleware"
-	"github.com/aws/smithy-go/ptr"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/google/uuid"
 
@@ -418,7 +417,7 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 		rootCAs, tlsHost := credsProvider.GetTlsConfig()
 		if rootCAs != nil || tlsHost != "" {
 			// start with a clone of DefaultTransport so we keep http2, idle-conns, etc.
-			tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
+			tlsConfig, err := common.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
 			if err != nil {
 				return nil, err
 			}
