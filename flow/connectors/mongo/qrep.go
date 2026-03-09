@@ -39,7 +39,7 @@ func (c *MongoConnector) GetQRepPartitions(
 	}
 
 	if config.NumRowsPerPartition <= 0 {
-		return nil, errors.New("num rows per partition must be greater than 0")
+		return nil, fmt.Errorf("num rows per partition must be greater than 0")
 	} else if last != nil && last.Range != nil {
 		return nil, fmt.Errorf("last partition is not supported for MongoDB connector, got: %v", last)
 	}
@@ -103,8 +103,8 @@ func (c *MongoConnector) GetQRepPartitions(
 				Max bson.ObjectID `bson:"max"`
 			} `bson:"_id"`
 		}
-		if err := cursor.Decode(&bucket); err != nil {
-			return nil, fmt.Errorf("failed to decode bucket: %w", err)
+		if err := bson.Unmarshal(cursor.Current, &bucket); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal bucket: %w", err)
 		}
 
 		partitions = append(partitions, &protos.QRepPartition{
@@ -158,7 +158,7 @@ func (c *MongoConnector) PullQRepRecords(
 	if err != nil {
 		return 0, 0, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
-	collection := c.client.Database(parseWatermarkTable.Namespace).Collection(parseWatermarkTable.Table)
+	db := c.client.Database(parseWatermarkTable.Namespace)
 
 	stream.SetSchema(GetDefaultSchema(config.Version))
 
@@ -189,9 +189,19 @@ func (c *MongoConnector) PullQRepRecords(
 
 	c.logger.Info("[mongo] pulling records start")
 
-	// MongoDb will use the lesser of batchSize and 16MiB
-	// https://www.mongodb.com/docs/manual/reference/method/cursor.batchsize/
-	cursor, err := collection.Find(ctx, filter, options.Find().SetBatchSize(int32(batchSize)))
+	// Use RunCommandCursor instead of collection.Find so the driver sends maxTimeMS
+	// (calculated from ctx deadline) to the server, overriding any server-side defaultMaxTimeMS.
+	// collection.Find hardcodes OmitMaxTimeMS(true) which prevents this.
+	findCmd := bson.D{
+		{Key: "find", Value: parseWatermarkTable.Table},
+		{Key: "filter", Value: filter},
+		// MongoDb will use the lesser of batchSize and 16MiB
+		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchsize/
+		{Key: "batchSize", Value: int32(batchSize)},
+		{Key: "readConcern", Value: bson.D{{Key: "level", Value: "majority"}}},
+	}
+	cursor, err := db.RunCommandCursor(ctx, findCmd,
+		options.RunCmd().SetReadPreference(protoToReadPref[c.config.ReadPreference]))
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to query for records: %w", err)
 	}
@@ -199,15 +209,22 @@ func (c *MongoConnector) PullQRepRecords(
 
 	for cursor.Next(ctx) {
 		var doc bson.D
-		if err := cursor.Decode(&doc); err != nil {
-			return 0, 0, fmt.Errorf("failed to decode record: %w", err)
+		if err := bson.Unmarshal(cursor.Current, &doc); err != nil {
+			c.logger.Error("failed to unmarshal record",
+				slog.String("error", err.Error()),
+				slog.Any("recordSize", len(cursor.Current)))
+			return 0, 0, fmt.Errorf("failed to unmarshal record: %w", err)
 		}
 
 		record, err := QValuesFromDocument(doc, config.Version)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
 		}
-		stream.Records <- record
+
+		if err = stream.Send(ctx, record); err != nil {
+			return 0, 0, fmt.Errorf("failed to send record to stream: %w", err)
+		}
+
 		totalRecords += 1
 		if totalRecords%50000 == 0 {
 			c.logger.Info("[mongo] pulling records",
@@ -278,7 +295,7 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 			}},
 		}, nil
 	default:
-		return nil, errors.New("unsupported partition range type")
+		return nil, fmt.Errorf("unsupported partition range type")
 	}
 }
 

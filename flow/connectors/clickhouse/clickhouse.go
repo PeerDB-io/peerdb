@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -86,7 +87,7 @@ func NewClickHouseConnector(
 			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
 		}
 		if awsBucketName == "" {
-			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
+			return nil, fmt.Errorf("PeerDB ClickHouse Bucket Name not set")
 		}
 
 		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
@@ -237,7 +238,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
 		if config.Certificate != nil || config.PrivateKey != nil {
 			if config.Certificate == nil || config.PrivateKey == nil {
-				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+				return nil, fmt.Errorf("both certificate and private key must be provided if using certificate-based authentication")
 			}
 			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
 			if err != nil {
@@ -248,7 +249,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		if config.RootCa != nil {
 			caPool := x509.NewCertPool()
 			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-				return nil, errors.New("failed to parse provided root CA")
+				return nil, fmt.Errorf("failed to parse provided root CA")
 			}
 			tlsSetting.RootCAs = caPool
 		}
@@ -406,6 +407,25 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	return clickhouseVersion.Version.String(), nil
 }
 
+func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
+	var flags []string
+
+	var time64Setting string
+	err := c.queryRow(ctx,
+		"SELECT value FROM system.settings WHERE name = 'enable_time_time64_type'",
+	).Scan(&time64Setting)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to query enable_time_time64_type setting: %w", err)
+		}
+	} else if time64Setting == "1" {
+		c.logger.Info("[clickhouse] enable_time_time64_type is enabled")
+		flags = append(flags, shared.Flag_ClickHouseTime64Enabled)
+	}
+
+	return flags, nil
+}
+
 func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType) (*protos.TableSchema, error) {
 	colFields := make([]*protos.FieldDescription, 0, len(columns))
 	for _, column := range columns {
@@ -443,6 +463,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindUUID
 		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
 			qkind = types.QValueKindTimestamp
+		case "Time64(6)", "Nullable(Time64(6))":
+			qkind = types.QValueKindTime
 		case "Date32", "Nullable(Date32)":
 			qkind = types.QValueKindDate
 		case "Float32", "Nullable(Float32)":

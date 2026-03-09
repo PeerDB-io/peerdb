@@ -1,6 +1,9 @@
 package model
 
 import (
+	"context"
+	"sync"
+
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -10,6 +13,7 @@ type QRecordStream struct {
 	Records     chan []types.QValue
 	schemaDebug *types.NullableSchemaDebug
 	err         error
+	closeOnce   sync.Once
 }
 
 func NewQRecordStream(buffer int) *QRecordStream {
@@ -44,19 +48,34 @@ func (s *QRecordStream) SchemaChan() <-chan struct{} {
 	return s.schemaLatch.Chan()
 }
 
+func (s *QRecordStream) HandleQRepSyncError(err error) {
+	// no-op for QRecordStream
+}
+
+// Sends the record into the channel, erroring out on context cancellation instead of waiting for the reader indefinitely
+func (s *QRecordStream) Send(ctx context.Context, record []types.QValue) error {
+	if s.err != nil {
+		return s.err
+	}
+	select {
+	case s.Records <- record:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (s *QRecordStream) Err() error {
 	return s.err
 }
 
-// Set error & close stream. Calling with multiple errors only tracks first error & does not panic.
-// Close(nil) after an error won't panic, but Close after Close(nil) will panic,
-// this is enough to be able to safely `defer stream.Close(nil)`.
+// Set error and close stream. Calling Close multiple times tracks only the first error.
 func (s *QRecordStream) Close(err error) {
-	if s.err == nil {
+	s.closeOnce.Do(func() {
 		s.err = err
 		close(s.Records)
-	}
-	if !s.schemaLatch.IsSet() {
-		s.SetSchema(types.QRecordSchema{})
-	}
+		if !s.schemaLatch.IsSet() {
+			s.SetSchema(types.QRecordSchema{})
+		}
+	})
 }

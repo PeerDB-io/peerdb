@@ -14,9 +14,7 @@ export default function RestPage() {
           display: 'block',
         }}
         value={url}
-        onInput={(e: React.ChangeEvent<HTMLInputElement>) =>
-          setUrl(e.target.value)
-        }
+        onChange={(e) => setUrl(e.target.value)}
       />
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         {method}&emsp;
@@ -27,9 +25,7 @@ export default function RestPage() {
       <textarea
         style={{ width: '100%' }}
         value={body}
-        onInput={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-          setBody(e.target.value)
-        }
+        onChange={(e) => setBody(e.target.value)}
       />
       <input
         style={{

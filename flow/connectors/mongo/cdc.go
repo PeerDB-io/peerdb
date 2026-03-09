@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -214,7 +215,7 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	addRecordItems := func(documentKey bson.D, fullDocument bson.D, items *model.RecordItems) error {
+	addRecordItems := func(documentKey bson.D, fullDocument bson.D, items *model.RecordItems, tableName string) error {
 		if documentKey != nil {
 			var idValue any
 			for _, elem := range documentKey {
@@ -224,7 +225,7 @@ func (c *MongoConnector) PullRecords(
 				}
 			}
 			if idValue == nil {
-				return errors.New("document key _id not found")
+				return exceptions.NewInvalidIdValueError(tableName)
 			}
 			qValue, err := qValueStringFromKey(idValue, req.InternalVersion)
 			if err != nil {
@@ -232,7 +233,7 @@ func (c *MongoConnector) PullRecords(
 			}
 			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
 		} else {
-			return errors.New("document key _id not found")
+			return fmt.Errorf("document key _id not found")
 		}
 
 		if fullDocument != nil {
@@ -275,7 +276,7 @@ func (c *MongoConnector) PullRecords(
 		// extract the most recent resumeToken
 		resumeToken := changeStream.ResumeToken()
 		if resumeToken == nil {
-			return errors.New("resume token is nil")
+			return fmt.Errorf("resume token is nil")
 		}
 
 		// close existing change stream
@@ -312,7 +313,7 @@ func (c *MongoConnector) PullRecords(
 		if ok := changeStream.Next(timeoutCtx); !ok {
 			err := changeStream.Err()
 			if err == nil {
-				return errors.New("unexpected: changestream.Next() returned false but no change stream error was recorded")
+				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
 			}
 
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -344,7 +345,7 @@ func (c *MongoConnector) PullRecords(
 		cumulativeBytesProcessed.Add(changeEventSize)
 
 		var changeEvent ChangeEvent
-		if err := changeStream.Decode(&changeEvent); err != nil {
+		if err := bson.Unmarshal(changeStream.Current, &changeEvent); err != nil {
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 
@@ -363,7 +364,7 @@ func (c *MongoConnector) PullRecords(
 		items := model.NewMongoRecordItems(2)
 		switch changeEvent.OperationType {
 		case "insert":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
@@ -376,7 +377,7 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("failed to add insert record: %w", err)
 			}
 		case "update", "replace":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
@@ -389,7 +390,7 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("failed to add update record: %w", err)
 			}
 		case "delete":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 

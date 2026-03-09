@@ -8,7 +8,7 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useEffect, useMemo, useState } from 'react';
 import { DurationDisplay, getStatData } from './helpers';
-import { tableStyle } from './style';
+import { tableStyleMaxHeight } from './style';
 
 export default function StatTable({ peerName }: { peerName: string }) {
   const [search, setSearch] = useState('');
@@ -49,7 +49,7 @@ export default function StatTable({ peerName }: { peerName: string }) {
       >
         Stat Activity Information
       </Label>
-      <div style={tableStyle}>
+      <div style={tableStyleMaxHeight}>
         <Table
           header={
             <TableRow>

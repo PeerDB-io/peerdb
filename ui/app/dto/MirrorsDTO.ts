@@ -23,4 +23,5 @@ export type TableMapRow = Omit<
   canMirror: boolean;
   tableSize: string;
   editingDisabled: boolean;
+  isReplicaIdentityFull: boolean;
 };

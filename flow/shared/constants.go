@@ -85,10 +85,6 @@ const (
 	QRepChannelSize = 1024
 )
 
-func Ptr[T any](x T) *T {
-	return &x
-}
-
 func Val[T any](p *T) T {
 	if p == nil {
 		var zero T
@@ -96,3 +92,8 @@ func Val[T any](p *T) T {
 	}
 	return *p
 }
+
+// Flag constants for flow config Flags mapping
+const (
+	Flag_ClickHouseTime64Enabled = "clickhouse_time64_enabled"
+)

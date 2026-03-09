@@ -2,7 +2,6 @@ package utils
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -358,7 +357,7 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 
 func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition) error {
 	if partition == nil {
-		return errors.New("partition is nil")
+		return fmt.Errorf("partition is nil")
 	}
 	p.partitions = append(p.partitions, partition)
 

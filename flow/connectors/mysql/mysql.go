@@ -167,7 +167,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 				conn.SetCapability(mysql.CLIENT_COMPRESS)
 			}
 			if !c.config.DisableTls {
-				config, err := shared.CreateTlsConfig(
+				config, err := common.CreateTlsConfig(
 					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
 				)
 				if err != nil {
@@ -229,6 +229,11 @@ func (c *MySqlConnector) setSessionSettings() error {
 		}
 	}
 
+	// MariaDB <= 11.5 defaults to latin1, which can result in Unicode to not be replicated correctly
+	if _, err := conn.Execute("SET NAMES utf8mb4"); err != nil {
+		c.logger.Warn("utf8mb4 not supported, ignoring", slog.Any("error", err))
+	}
+
 	switch c.Flavor() {
 	case mysql.MySQLFlavor:
 		// set max_execution_time to unlimited
@@ -271,6 +276,15 @@ func (c *MySqlConnector) withRetries(ctx context.Context) iter.Seq2[*client.Conn
 			conn.Close()
 		}
 	}
+}
+
+func (c *MySqlConnector) ExecuteNoRetry(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
+	defer c.watchCtx(ctx)()
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return conn.Execute(cmd, args...)
 }
 
 func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
@@ -403,7 +417,7 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 		return nil, fmt.Errorf("failed to check gtid mode: %w", err)
 	}
 	if !gtidOn {
-		return nil, errors.New("gtid mode is not enabled")
+		return nil, fmt.Errorf("gtid mode is not enabled")
 	}
 
 	var query string
@@ -437,7 +451,7 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 		c.logger.Info("[mysql] version", slog.String("version", version))
 		return version, nil
 	}
-	return "", errors.New("failed to connect")
+	return "", fmt.Errorf("failed to connect")
 }
 
 func (c *MySqlConnector) StatActivity(

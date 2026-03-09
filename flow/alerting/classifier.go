@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -50,6 +52,7 @@ var (
 	)
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
 	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
+	ClickHouseTooManyPartsTableRe     = regexp.MustCompile(`in table '(.+)'\.`)
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
 	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
@@ -151,6 +154,9 @@ var (
 	ErrorUnsupportedDatatype = ErrorClass{
 		Class: "NOTIFY_UNSUPPORTED_DATATYPE", action: NotifyUser,
 	}
+	ErrorNotifyInvalidSortKey = ErrorClass{
+		Class: "NOTIFY_INVALID_SORT_KEY", action: NotifyUser,
+	}
 	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
 		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
 	}
@@ -162,6 +168,9 @@ var (
 	}
 	ErrorNotifyReplicationStandbySetup = ErrorClass{
 		Class: "NOTIFY_REPLICATION_STANDBY_SETUP", action: NotifyUser,
+	}
+	ErrorNotifyLogicalDecodingStandbyNotSupported = ErrorClass{
+		Class: "NOTIFY_LOGICAL_DECODING_STANDBY_NOT_SUPPORTED", action: NotifyUser,
 	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
@@ -210,6 +219,13 @@ var (
 	}
 	ErrorNotifyClickHouseSupportIsDisabledError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_SUPPORT_IS_DISABLED_ERROR", action: NotifyUser,
+	}
+	ErrorNotifyTooManyPartsError = ErrorClass{
+		Class: "NOTIFY_TOO_MANY_PARTS", action: NotifyUser,
+	}
+	// Catch-all for misc ClickHouse errors
+	ErrorNotifyClickHouseError = ErrorClass{
+		Class: "NOTIFY_CLICKHOUSE_ERROR", action: NotifyUser,
 	}
 	// Catch-all for unclassified errors
 	ErrorOther = ErrorClass{
@@ -344,7 +360,47 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	// Connection reset errors can mostly be ignored
+	var publicationMissingErr *exceptions.PublicationMissingError
+	if errors.As(err, &publicationMissingErr) {
+		return ErrorNotifyPublicationMissing, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "irrecoverable_publication_missing",
+		}
+	}
+
+	var slotMissingErr *exceptions.SlotMissingError
+	if errors.As(err, &slotMissingErr) {
+		return ErrorNotifyReplicationSlotMissing, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "irrecoverable_slot_missing",
+		}
+	}
+
+	var replStateDesyncErr *exceptions.ReplStateDesyncError
+	if errors.As(err, &replStateDesyncErr) {
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "desync",
+		}
+	}
+
+	var peerCreateError *exceptions.PeerCreateError
+	if errors.As(err, &peerCreateError) {
+		if errors.Is(peerCreateError, context.DeadlineExceeded) {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceOther,
+				Code:   "CONTEXT_DEADLINE_EXCEEDED",
+			}
+		}
+		if errors.Is(peerCreateError, syscall.ECONNRESET) {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceNet,
+				Code:   syscall.ECONNRESET.Error(),
+			}
+		}
+	}
+
+	// Other connection reset errors can mostly be ignored
 	if errors.Is(err, syscall.ECONNRESET) {
 		return ErrorIgnoreConnTemporary, ErrorInfo{
 			Source: ErrorSourceNet,
@@ -402,22 +458,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var temporalErr *temporal.ApplicationError
 	if errors.As(err, &temporalErr) {
 		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
-		case exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing:
-			return ErrorNotifyPublicationMissing, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   temporalErr.Type(),
-			}
-		case exceptions.ApplicationErrorTypeIrrecoverableSlotMissing:
-			return ErrorNotifyReplicationSlotMissing, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   temporalErr.Type(),
-			}
 		case exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot:
 			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
 				Source: ErrorSourcePostgres,
 				Code:   temporalErr.Type(),
 			}
-
+		case exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot:
+			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   temporalErr.Type(),
+			}
 		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot, exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
 			return ErrorNotifyConnectivity, ErrorInfo{
 				Source: ErrorSourcePostgres,
@@ -543,6 +593,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrNotifyPostgresCreatingSlotOnReader, pgErrorInfo
 			}
 
+			// low-level Postgres memory management bug, single occurrence and fixed by retry
+			if pgErr.Routine == "GenerationFree" && strings.Contains(pgErr.Message, "could not find block containing chunk") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
@@ -570,6 +625,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyReplicationSlotMissing, pgErrorInfo
 			}
 
+			// Aurora failover: reader was promoted, slot can't be used on old RO node
+			if strings.Contains(pgErr.Message, "replication slots cannot be used on RO (Read Only) node") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
@@ -593,6 +653,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.QueryCanceled:
 			return ErrorNotifyConnectivity, pgErrorInfo
+
+		case pgerrcode.FeatureNotSupported:
+			if strings.Contains(pgErr.Message, "logical decoding cannot be used while in recovery") {
+				return ErrorNotifyLogicalDecodingStandbyNotSupported, pgErrorInfo
+			}
 
 		case pgerrcode.DeadlockDetected,
 			pgerrcode.SerializationFailure,
@@ -689,10 +754,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		// https://www.mongodb.com/docs/manual/reference/error-codes/
 		switch mongoCmdErr.Code {
+		case 6: // HostUnreachable
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 18: // AuthenticationFailed
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 43: // CursorNotFound
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 91: // ShutdownInProgress
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 202: // NetworkInterfaceExceededTimeLimit
@@ -808,7 +877,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrUnfinished:
+			if strings.Contains(chException.Message, "Failed to load all data parts") {
+				return ErrorNotifyClickHouseError, chErrorInfo
+			}
 			return ErrorRetryRecoverable, chErrorInfo
+		case chproto.ErrCannotAssignAlter:
+			return ErrorNotifyClickHouseError, chErrorInfo
 		case chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
@@ -863,8 +937,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
 			chproto.ErrSocketTimeout,
-			chproto.ErrTableIsReadOnly,
-			chproto.ErrCannotAssignAlter:
+			chproto.ErrTableIsReadOnly:
 			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrTimeoutExceeded:
 			if strings.HasSuffix(chException.Message, "distributed_ddl_task_timeout") {
@@ -876,26 +949,29 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		case chproto.ErrSupportIsDisabled:
 			return ErrorNotifyClickHouseSupportIsDisabledError, chErrorInfo
+		case chproto.ErrTooManyParts:
+			var additionalAttributes map[AdditionalErrorAttributeKey]string
+			if matches := ClickHouseTooManyPartsTableRe.FindStringSubmatch(chException.Message); len(matches) > 1 {
+				additionalAttributes = map[AdditionalErrorAttributeKey]string{
+					ErrorAttributeKeyTable: matches[1],
+				}
+			}
+			return ErrorNotifyTooManyPartsError, ErrorInfo{
+				Source:               chErrorInfo.Source,
+				Code:                 chErrorInfo.Code,
+				AdditionalAttributes: additionalAttributes,
+			}
 		}
 		var normalizationErr *exceptions.NormalizationError
 		if isClickHouseMvError(chException) {
 			return ErrorNotifyMVOrView, chErrorInfo
 		} else if errors.As(err, &normalizationErr) {
 			// notify if normalization hits error on destination
+			logger := internal.LoggerFromCtx(ctx)
+			logger.Warn("Assuming a normalization error is bad MV or view", slog.Any("error", err))
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		return ErrorOther, chErrorInfo
-	}
-
-	var peerCreateError *exceptions.PeerCreateError
-	if errors.As(err, &peerCreateError) {
-		// Check for context deadline exceeded error
-		if errors.Is(peerCreateError, context.DeadlineExceeded) {
-			return ErrorNotifyConnectivity, ErrorInfo{
-				Source: ErrorSourceOther,
-				Code:   "CONTEXT_DEADLINE_EXCEEDED",
-			}
-		}
 	}
 
 	var numericOutOfRangeError *exceptions.NumericOutOfRangeError
@@ -942,6 +1018,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var unsupportedDDLError *exceptions.MySQLUnsupportedDDLError
+	if errors.As(err, &unsupportedDDLError) {
+		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: unsupportedDDLError.TableName,
+			},
+		}
+	}
+
 	var mysqlStreamingError *exceptions.MySQLStreamingError
 	if errors.As(err, &mysqlStreamingError) {
 		if mysqlStreamingError.Retryable {
@@ -976,7 +1063,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresReplicaIdentityIndexError.Table,
-				ErrorAttributeKeyColumn: "n\a",
+				ErrorAttributeKeyColumn: "n/a",
+			},
+		}
+	}
+
+	var mongoInvalidIdValueError *exceptions.MongoInvalidIdValueError
+	if errors.As(err, &mongoInvalidIdValueError) {
+		return ErrorNotifyInvalidSortKey, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "INVALID_SORT_KEY",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: mongoInvalidIdValueError.Table,
 			},
 		}
 	}

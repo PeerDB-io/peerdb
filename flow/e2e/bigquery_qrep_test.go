@@ -30,14 +30,14 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 
 	require.NoError(s.t, err)
 
-	var rows []string
-	row := `(CURRENT_TIMESTAMP,
+	rows := []string{
+		`(CURRENT_TIMESTAMP,
 			'10001-03-14 23:05:52',
 			'50001-03-14 23:05:52.216809+00',
 			'1534-03-14 23:05:52.216809+00',
 			'10000-03-14',
-			CURRENT_TIMESTAMP)`
-	rows = append(rows, row)
+			CURRENT_TIMESTAMP)`,
+	}
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO e2e_test_%s.%s (

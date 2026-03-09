@@ -4,7 +4,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/aws/smithy-go/ptr"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -29,7 +28,7 @@ func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 				AuthConfig: &protos.AwsAuthenticationConfig_Role{
 					Role: &protos.AWSAuthAssumeRoleConfig{
 						AssumeRoleArn:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),
-						ChainedRoleArn: ptr.String(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
+						ChainedRoleArn: new(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
 					},
 				},
 			},
@@ -60,7 +59,7 @@ func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
 				AuthConfig: &protos.AwsAuthenticationConfig_Role{
 					Role: &protos.AWSAuthAssumeRoleConfig{
 						AssumeRoleArn:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),
-						ChainedRoleArn: ptr.String(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
+						ChainedRoleArn: new(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
 					},
 				},
 			},

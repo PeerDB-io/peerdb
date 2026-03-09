@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -35,11 +34,11 @@ func (s PeerFlowE2ETestSuitePG) checkPeerdbColumns(dstSchemaQualified string, ro
 	}
 
 	if !isDeleted.Bool {
-		return errors.New("isDeleted is not true")
+		return fmt.Errorf("isDeleted is not true")
 	}
 
 	if !syncedAt.Valid {
-		return errors.New("syncedAt is not valid")
+		return fmt.Errorf("syncedAt is not valid")
 	}
 
 	return nil
@@ -1283,6 +1282,127 @@ func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 	env = ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Other_Schema_Enums() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_enum_flow")
+	dstTableName := s.attachSchemaSuffix("test_enum_flow_dst")
+
+	// Create a mixed case schema for the enum
+	enumSchema := fmt.Sprintf("\"EnumSchema_%s\"", s.suffix)
+	_, err := s.Conn().Exec(s.t.Context(), "CREATE SCHEMA IF NOT EXISTS "+enumSchema)
+	require.NoError(s.t, err)
+
+	// Create a mixed case enum in the custom schema
+	createMoodEnum := fmt.Sprintf("CREATE TYPE %s.\"MoodType\" AS ENUM ('happy', 'sad', 'angry');", enumSchema)
+	_, enumErr := s.Conn().Exec(s.t.Context(), createMoodEnum)
+	if enumErr != nil &&
+		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
+		require.NoError(s.t, enumErr)
+	}
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			my_mood %s."MoodType",
+			my_null_mood %s."MoodType",
+			moods %s."MoodType"[]
+		);
+	`, srcTableName, enumSchema, enumSchema, enumSchema))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_enum_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.System = protos.TypeSystem_PG
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(my_mood, my_null_mood, moods) VALUES ('happy',null,'{happy,angry}')`, srcTableName))
+	EnvNoError(s.t, env, err)
+	s.t.Log("Inserted enums into the source table")
+	EnvWaitFor(s.t, env, 3*time.Minute, "normalize enum", func() bool {
+		return s.checkEnums(srcTableName, dstTableName) == nil
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Table_With_Excluded_PK_And_ReplicaIdentityFull() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_excluded_pk_replfull")
+	dstTableName := s.attachSchemaSuffix("test_excluded_pk_replfull_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			message TEXT NOT NULL UNIQUE,
+			updated_at TIMESTAMPTZ
+		);
+		CREATE UNIQUE INDEX test_excluded_pk_replfull_message_idx ON %s(message);
+		ALTER TABLE %s REPLICA IDENTITY USING INDEX test_excluded_pk_replfull_message_idx;
+	`, srcTableName, srcTableName, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			message TEXT NOT NULL UNIQUE,
+			updated_at TIMESTAMPTZ
+		);
+	`, dstTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("test_excluded_pk_replfull"),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"id"},
+			},
+		},
+		Destination: s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.SyncedAtColName = ""
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.MaxBatchSize = 100
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(message, updated_at) VALUES ('initial message', NOW())`, srcTableName))
+	EnvNoError(s.t, env, err)
+	s.t.Log("Inserted initial row into the source table")
+
+	EnvWaitFor(s.t, env, 1*time.Minute, "normalize insert", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "message,updated_at") == nil
+	})
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		UPDATE %s SET updated_at = NOW() WHERE message = 'initial message'`, srcTableName))
+	EnvNoError(s.t, env, err)
+	s.t.Log("Updated row in the source table")
+
+	EnvWaitFor(s.t, env, 1*time.Minute, "normalize update", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "message") == nil
+	})
+
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }

@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -65,7 +64,7 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 
 	setupTx, err := conn.Begin(t.Context())
 	if err != nil {
-		return errors.New("failed to start setup transaction")
+		return fmt.Errorf("failed to start setup transaction")
 	}
 
 	// create an e2e_test schema

@@ -73,7 +73,7 @@ func NewBigQueryTestHelper(t *testing.T, datasetID string) (*BigQueryTestHelper,
 func bigQueryConfigFromEnv() (*protos.BigqueryConfig, error) {
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {
-		return nil, errors.New("TEST_BQ_CREDS env var not set")
+		return nil, fmt.Errorf("TEST_BQ_CREDS env var not set")
 	}
 
 	content, err := e2eshared.ReadFileToBytes(jsonPath)
@@ -180,7 +180,7 @@ func (b *BigQueryTestHelper) countRowsWithDataset(ctx context.Context, dataset, 
 
 	cntI64, ok := row[0].(int64)
 	if !ok {
-		return 0, errors.New("failed to convert row count to int64")
+		return 0, fmt.Errorf("failed to convert row count to int64")
 	}
 
 	return int(cntI64), nil
@@ -351,7 +351,7 @@ func (b *BigQueryTestHelper) CheckNull(ctx context.Context, tableName string, co
 
 	cntI64, ok := row[0].(int64)
 	if !ok {
-		return false, errors.New("failed to convert row count to int64")
+		return false, fmt.Errorf("failed to convert row count to int64")
 	}
 	if cntI64 > 0 {
 		return false, nil

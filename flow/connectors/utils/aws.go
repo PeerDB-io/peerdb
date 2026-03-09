@@ -25,7 +25,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 const (
@@ -33,15 +33,6 @@ const (
 )
 
 var s3CompatibleServiceEndpointPattern = regexp.MustCompile(`^https?://[a-zA-Z0-9.-]+(:\d+)?$`)
-
-type AWSSecrets struct {
-	AccessKeyID     string
-	SecretAccessKey string
-	AwsRoleArn      string
-	Region          string
-	Endpoint        string
-	SessionToken    string
-}
 
 type PeerAWSCredentials struct {
 	Credentials    aws.Credentials
@@ -200,7 +191,7 @@ func (a *AssumeRoleBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (A
 	}
 	return AWSCredentials{
 		AWS:         retrieved,
-		EndpointUrl: ptr.String(a.GetEndpointURL()),
+		EndpointUrl: new(a.GetEndpointURL()),
 	}, nil
 }
 

@@ -69,6 +69,7 @@ export default function SchemaBox({
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
+  const [fetchedSchemas, setFetchedSchemas] = useState<Set<string>>(new Set());
   const [tableQuery, setTableQuery] = useState<string>('');
   const [defaultTargetSchema, setDefaultTargetSchema] =
     useState<string>(schema);
@@ -244,6 +245,8 @@ export default function SchemaBox({
           );
           return [...filteredRows, ...newRows];
         });
+
+        setFetchedSchemas((prev) => new Set(prev).add(schemaName));
       } catch (error) {
         // Handle error if needed
         console.error('Error fetching tables:', error);
@@ -270,10 +273,16 @@ export default function SchemaBox({
   ];
 
   useEffect(() => {
-    if (schemaIsExpanded(schema)) {
+    if (schemaIsExpanded(schema) && !fetchedSchemas.has(schema)) {
       fetchTablesForSchema(schema);
     }
-  }, [schema, fetchTablesForSchema, schemaIsExpanded, initialLoadOnly]);
+  }, [
+    schema,
+    fetchTablesForSchema,
+    schemaIsExpanded,
+    fetchedSchemas,
+    initialLoadOnly,
+  ]);
 
   return (
     <div style={schemaBoxStyle}>

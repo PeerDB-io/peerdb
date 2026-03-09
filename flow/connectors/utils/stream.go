@@ -13,8 +13,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func RecordsToRawTableStream[Items model.Items](
-	req *model.RecordsToStreamRequest[Items], numericTruncator model.StreamNumericTruncator,
+func RecordsToRawTableStream(
+	req *model.RecordsToStreamRequest[model.RecordItems], numericTruncator model.StreamNumericTruncator,
 ) (*model.QRecordStream, error) {
 	recordStream := model.NewQRecordStream(1024)
 	recordStream.SetSchema(types.QRecordSchema{
@@ -81,13 +81,13 @@ func RecordsToRawTableStream[Items model.Items](
 	return recordStream, nil
 }
 
-func recordToQRecordOrError[Items model.Items](
-	batchID int64, record model.Record[Items], targetDWH protos.DBType, unboundedNumericAsString bool,
+func recordToQRecordOrError(
+	batchID int64, record model.Record[model.RecordItems], targetDWH protos.DBType, unboundedNumericAsString bool,
 	numericTruncator model.StreamNumericTruncator,
 ) ([]types.QValue, error) {
 	var entries [8]types.QValue
 	switch typedRecord := record.(type) {
-	case *model.InsertRecord[Items]:
+	case *model.InsertRecord[model.RecordItems]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
 		preprocessedItems := truncateNumerics(
 			typedRecord.Items, targetDWH, unboundedNumericAsString, tableNumericTruncator,
@@ -101,7 +101,7 @@ func recordToQRecordOrError[Items model.Items](
 		entries[4] = types.QValueInt64{Val: 0}
 		entries[5] = types.QValueString{Val: ""}
 		entries[7] = types.QValueString{Val: ""}
-	case *model.UpdateRecord[Items]:
+	case *model.UpdateRecord[model.RecordItems]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
 		preprocessedItems := truncateNumerics(
 			typedRecord.NewItems, targetDWH, unboundedNumericAsString, tableNumericTruncator,
@@ -120,7 +120,7 @@ func recordToQRecordOrError[Items model.Items](
 		entries[5] = types.QValueString{Val: oldItemsJSON}
 		entries[7] = types.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
 
-	case *model.DeleteRecord[Items]:
+	case *model.DeleteRecord[model.RecordItems]:
 		itemsJSON, err := model.ItemsToJSON(typedRecord.Items)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
@@ -131,7 +131,7 @@ func recordToQRecordOrError[Items model.Items](
 		entries[5] = types.QValueString{Val: itemsJSON}
 		entries[7] = types.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
 
-	case *model.MessageRecord[Items]:
+	case *model.MessageRecord[model.RecordItems]:
 		return nil, nil
 
 	default:
@@ -156,13 +156,9 @@ func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.
 }
 
 func truncateNumerics(
-	items model.Items, targetDWH protos.DBType, unboundedNumericAsString bool,
+	recordItems model.RecordItems, targetDWH protos.DBType, unboundedNumericAsString bool,
 	numericTruncator model.CdcTableNumericTruncator,
-) model.Items {
-	recordItems, ok := items.(model.RecordItems)
-	if !ok {
-		return items
-	}
+) model.RecordItems {
 	hasNumerics := false
 	for col, val := range recordItems.ColToVal {
 		if numericTruncator.Get(col).Stat != nil {
@@ -173,7 +169,7 @@ func truncateNumerics(
 		}
 	}
 	if !hasNumerics {
-		return items
+		return recordItems
 	}
 
 	newItems := model.NewRecordItems(recordItems.Len())

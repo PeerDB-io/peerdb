@@ -57,7 +57,7 @@ const (
 	mergeStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
-		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
+		FROM %s.%s WHERE _peerdb_batch_id = $1 AND _peerdb_destination_table_name=$2
 	)
 	MERGE INTO %s dst
 	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE _peerdb_rank=1) src
@@ -278,7 +278,14 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 	}, nil
 }
 
-func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database string) ([]*protos.SlotInfo, error) {
+func getSlotInfo(
+	ctx context.Context,
+	conn *pgx.Conn,
+	slotName string,
+	database string,
+	peerdbManagedOnly bool,
+	customSlotNames []string,
+) ([]*protos.SlotInfo, error) {
 	pgversion, err := shared.GetMajorVersion(ctx, conn)
 	if err != nil {
 		return nil, err
@@ -322,6 +329,16 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 		whereClause = "WHERE prs.slot_name=" + utils.QuoteLiteral(slotName)
 	} else {
 		whereClause = "WHERE prs.database=" + utils.QuoteLiteral(database)
+		if peerdbManagedOnly {
+			var slotFilter strings.Builder
+			slotFilter.WriteString("prs.slot_name LIKE ")
+			slotFilter.WriteString(utils.QuoteLiteral(DefaultSlotPrefix + "%"))
+			for _, name := range customSlotNames {
+				slotFilter.WriteString(" OR prs.slot_name=")
+				slotFilter.WriteString(utils.QuoteLiteral(name))
+			}
+			whereClause += " AND (" + slotFilter.String() + ")"
+		}
 	}
 	rows, err := conn.Query(ctx, fmt.Sprintf(`
 		WITH current_wal AS (
@@ -444,11 +461,18 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 	return slotInfoRows, nil
 }
 
-// GetSlotInfo gets the information about the replication slot size and LSNs
-// If slotName input is empty, all slot info rows are returned - this is for UI.
-// Else, only the row pertaining to that slotName will be returned.
-func (c *PostgresConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	return getSlotInfo(ctx, c.conn, slotName, c.Config.Database)
+// GetSlotInfo gets the information about the replication slot size and LSNs.
+// If slotName is non-empty, only that slot is returned.
+// If slotName is empty and peerdbManagedOnly is false, all slots in the database are returned.
+// If slotName is empty and peerdbManagedOnly is true, only slots with the peerflow_slot_ prefix
+// (plus any explicitly listed customSlotNames) are returned.
+func (c *PostgresConnector) GetSlotInfo(
+	ctx context.Context,
+	slotName string,
+	peerdbManagedOnly bool,
+	customSlotNames []string,
+) ([]*protos.SlotInfo, error) {
+	return getSlotInfo(ctx, c.conn, slotName, c.Config.Database, peerdbManagedOnly, customSlotNames)
 }
 
 func (c *PostgresConnector) CreatePublication(
@@ -601,13 +625,23 @@ func generateCreateTableSQLForNormalizedTable(
 	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
 	for _, column := range tableSchema.Columns {
 		pgColumnType := column.Type
-		if tableSchema.System == protos.TypeSystem_Q {
+
+		// handle schema-qualified custom types first (for TypeSystem_PG)
+		if tableSchema.System == protos.TypeSystem_PG && column.TypeSchemaName != "" {
+			schemaQualifiedPgType := common.QualifiedTable{
+				Namespace: column.TypeSchemaName,
+				Table:     pgColumnType,
+			}
+			pgColumnType = schemaQualifiedPgType.String()
+		} else if tableSchema.System == protos.TypeSystem_Q {
 			pgColumnType = qValueKindToPostgresType(pgColumnType)
 		}
+
 		if column.Type == "numeric" && column.TypeModifier != -1 {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
+
 		var notNull string
 		if tableSchema.NullableEnabled && !column.Nullable {
 			notNull = " NOT NULL"
@@ -706,22 +740,6 @@ func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName 
 	return nil
 }
 
-func (c *PostgresConnector) updateNormalizeMetadata(
-	ctx context.Context,
-	flowJobName string,
-	normalizeBatchID int64,
-	normalizeRecordsTx pgx.Tx,
-) error {
-	if _, err := normalizeRecordsTx.Exec(ctx,
-		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		normalizeBatchID, flowJobName,
-	); err != nil {
-		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
-	}
-
-	return nil
-}
-
 func (c *PostgresConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
@@ -798,6 +816,12 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (NullableLSN, err
 		return NullableLSN{}, fmt.Errorf("error while parsing LSN %s: %w", result.String, err)
 	}
 	return NullableLSN{LSN: lsn}, nil
+}
+
+const DefaultSlotPrefix = "peerflow_slot_"
+
+func GetDefaultSlotName(jobName string) string {
+	return DefaultSlotPrefix + jobName
 }
 
 func GetDefaultPublicationName(jobName string) string {

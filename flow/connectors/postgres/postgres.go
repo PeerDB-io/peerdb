@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -30,6 +31,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -107,7 +109,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
-	return &PostgresConnector{
+	connector := &PostgresConnector{
 		logger:                 logger,
 		Config:                 pgConfig,
 		ssh:                    tunnel,
@@ -123,7 +125,28 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
-	}, nil
+	}
+
+	tunnel.StartKeepalive(context.Background(), func() {
+		connector.logger.Info("SSH keepalive failed, closing connections")
+		bgCtx := context.Background()
+		timeout, cancel := context.WithTimeout(bgCtx, 5*time.Second)
+		defer cancel()
+		if err := connector.conn.Close(timeout); err != nil {
+			connector.logger.Error("Failed to close Postgres connection on SSH keepalive failure",
+				slog.Any("error", err))
+		}
+		if connector.replConn != nil {
+			timeout2, cancel2 := context.WithTimeout(bgCtx, 5*time.Second)
+			defer cancel2()
+			if err := connector.replConn.Close(timeout2); err != nil {
+				connector.logger.Error("Failed to close Postgres replication connection on SSH keepalive failure",
+					slog.Any("error", err))
+			}
+		}
+	})
+
+	return connector, nil
 }
 
 func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
@@ -132,7 +155,7 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 	if pgConfig.RequireTls || pgConfig.RootCa != nil {
-		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, false)
+		tlsConfig, err := common.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, false)
 		if err != nil {
 			return nil, err
 		}
@@ -227,7 +250,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, lastOffset,
 		)
 		c.logger.Info(msg)
-		return temporal.NewNonRetryableApplicationError(msg, "desync", nil)
+		return exceptions.NewReplStateDesyncError(msg)
 	}
 
 	if c.replState == nil {
@@ -270,7 +293,7 @@ func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion
 		pubOpt := "publication_names " + utils.QuoteLiteral(publicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
-		return pglogrepl.StartReplicationOptions{}, errors.New("publication name is not set")
+		return pglogrepl.StartReplicationOptions{}, fmt.Errorf("publication name is not set")
 	}
 
 	if pgVersion >= shared.POSTGRES_14 {
@@ -315,7 +338,7 @@ func (c *PostgresConnector) Conn() *pgx.Conn {
 // ConnectionActive returns nil if the connection is active.
 func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 	if c.conn == nil {
-		return errors.New("connection is nil")
+		return fmt.Errorf("connection is nil")
 	}
 	_, pingErr := c.conn.Exec(ctx, "SELECT 1")
 	return pingErr
@@ -410,8 +433,7 @@ func pullCore[Items model.Items](
 		}
 	}()
 
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + req.FlowJobName
+	slotName := GetDefaultSlotName(req.FlowJobName)
 	if req.OverrideReplicationSlotName != "" {
 		slotName = req.OverrideReplicationSlotName
 	}
@@ -429,16 +451,12 @@ func pullCore[Items model.Items](
 
 	if !exists.PublicationExists {
 		c.logger.Warn("publication does not exist", slog.String("name", publicationName))
-		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("publication %s does not exist, restarting workflow", publicationName),
-			exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(), nil)
+		return exceptions.NewPublicationMissingError(publicationName)
 	}
 
 	if !exists.SlotExists {
 		c.logger.Warn("slot does not exist", slog.String("name", slotName))
-		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName),
-			exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(), nil)
+		return exceptions.NewSlotMissingError(slotName)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
@@ -449,11 +467,6 @@ func pullCore[Items model.Items](
 		return err
 	}
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion); err != nil {
-		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
-		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
-			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {
-			return temporal.NewNonRetryableApplicationError("reset connection to reconcile Aurora failover", "disconnect", err)
-		}
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
@@ -652,7 +665,7 @@ func syncRecordsCore[Items model.Items](
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -707,12 +720,6 @@ func (c *PostgresConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
-	normalizeRecordsTx, err := c.conn.Begin(ctx)
-	if err != nil {
-		return model.NormalizeResponse{}, fmt.Errorf("error starting transaction for normalizing records: %w", err)
-	}
-	defer shared.RollbackTx(normalizeRecordsTx, c.logger)
-
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return model.NormalizeResponse{}, err
@@ -731,38 +738,89 @@ func (c *PostgresConnector) NormalizeRecords(
 		metadataSchema: c.metadataSchema,
 	}
 
-	for _, destinationTableName := range destinationTableNames {
-		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
-		for _, normalizeStatement := range normalizeStatements {
-			ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName)
-			if err != nil {
-				c.logger.Error("error executing normalize statement",
-					slog.String("statement", normalizeStatement),
-					slog.Int64("normBatchID", normBatchID),
-					slog.Int64("syncBatchID", req.SyncBatchID),
-					slog.String("destinationTableName", destinationTableName),
-					slog.Any("error", err),
-				)
-				return model.NormalizeResponse{}, fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
-			}
-			totalRowsAffected += int(ct.RowsAffected())
+	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
+		rowsAffected, err := c.normalizeBatch(ctx, batchID, req, destinationTableNames, &normalizeStmtGen)
+		if err != nil {
+			return model.NormalizeResponse{}, err
 		}
+		totalRowsAffected += rowsAffected
+		c.logger.Info("normalize: committed batch to destination",
+			slog.Int64("batchID", batchID),
+			slog.Int64("syncBatchID", req.SyncBatchID),
+			slog.Int("rowsAffected", rowsAffected),
+		)
 	}
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
-
-	// updating metadata with new normalizeBatchID
-	if err := c.updateNormalizeMetadata(ctx, req.FlowJobName, req.SyncBatchID, normalizeRecordsTx); err != nil {
-		return model.NormalizeResponse{}, err
-	}
-	// transaction commits
-	if err := normalizeRecordsTx.Commit(ctx); err != nil {
-		return model.NormalizeResponse{}, err
-	}
 
 	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
+}
+
+type batchEntry struct {
+	tableName string
+	statement string
+}
+
+func (c *PostgresConnector) normalizeBatch(
+	ctx context.Context,
+	batchID int64,
+	req *model.NormalizeRecordsRequest,
+	destinationTableNames []string,
+	normalizeStmtGen *normalizeStmtGenerator,
+) (int, error) {
+	tx, err := c.conn.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error starting transaction for normalizing records: %w", err)
+	}
+	defer shared.RollbackTx(tx, c.logger)
+
+	batch := &pgx.Batch{}
+	var entries []batchEntry
+	for _, destinationTableName := range destinationTableNames {
+		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
+		for _, stmt := range normalizeStatements {
+			batch.Queue(stmt, batchID, destinationTableName)
+			entries = append(entries, batchEntry{tableName: destinationTableName, statement: stmt})
+		}
+	}
+	batch.Queue(
+		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+		batchID, req.FlowJobName,
+	)
+
+	results := tx.SendBatch(ctx, batch)
+	defer results.Close()
+
+	totalRowsAffected := 0
+	for _, entry := range entries {
+		ct, err := results.Exec()
+		if err != nil {
+			c.logger.Error("error executing normalize statement",
+				slog.String("statement", entry.statement),
+				slog.Int64("batchID", batchID),
+				slog.String("destinationTableName", entry.tableName),
+				slog.Any("error", err),
+			)
+			return 0, fmt.Errorf("error executing normalize statement for table %s: %w", entry.tableName, err)
+		}
+		totalRowsAffected += int(ct.RowsAffected())
+	}
+
+	if _, err := results.Exec(); err != nil {
+		return 0, fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
+	}
+
+	if err := results.Close(); err != nil {
+		return 0, fmt.Errorf("failed to close batch results: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("failed to commit normalize transaction: %w", err)
+	}
+
+	return totalRowsAffected, nil
 }
 
 type SlotCheckResult struct {
@@ -886,9 +944,9 @@ func (c *PostgresConnector) GetTableSchema(
 	tableMapping []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMapping))
-
+	typeSchemaNameMapping := make(map[uint32]string, len(tableMapping))
 	for _, tm := range tableMapping {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version, typeSchemaNameMapping)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -966,9 +1024,9 @@ func (c *PostgresConnector) GetTablesFromPublication(
 			tables[i] = schemaTable.Table
 		}
 		getTablesSQL = `
-            SELECT schemaname, tablename 
-            FROM pg_publication_tables 
-            WHERE pubname = $1 
+            SELECT schemaname, tablename
+            FROM pg_publication_tables
+            WHERE pubname = $1
             AND (schemaname, tablename) NOT IN (
                 SELECT a.val AS schemaname, b.val AS tablename
                 FROM unnest($2::text[]) WITH ORDINALITY AS a(val, idx)
@@ -1001,12 +1059,45 @@ func (c *PostgresConnector) GetTablesFromPublication(
 	return tables, nil
 }
 
+/*
+GetSchemaNameOfColumnTypeByOID returns a map of type OID to schema name for the given OIDs.
+If the type is in the "pg_catalog" schema, it returns an empty string for that OID.
+*/
+func (c *PostgresConnector) GetSchemaNameOfColumnTypeByOID(ctx context.Context, typeOIDs []uint32) (map[uint32]string, error) {
+	if len(typeOIDs) == 0 {
+		return make(map[uint32]string), nil
+	}
+
+	rows, err := c.conn.Query(ctx, `
+		SELECT t.oid, n.nspname
+		FROM pg_type t
+		JOIN pg_namespace n ON t.typnamespace = n.oid
+		WHERE t.oid = ANY($1)
+	`, typeOIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error getting schema of column types: %w", err)
+	}
+
+	result := make(map[uint32]string, len(typeOIDs))
+	var oid uint32
+	var schemaName string
+	if _, err := pgx.ForEachRow(rows, []any{&oid, &schemaName}, func() error {
+		result[oid] = schemaName
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("error scanning rows for schema of column types: %w", err)
+	}
+
+	return result, nil
+}
+
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 	version uint32,
+	typeSchemaNameMapping map[uint32]string,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 	if err != nil {
@@ -1067,11 +1158,35 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
-	defer rows.Close()
 
-	fields := rows.FieldDescriptions()
+	// Make a copy of field descriptions since pgx may reuse the underlying array
+	fields := slices.Clone(rows.FieldDescriptions())
+	rows.Close() // Close rows before making another query
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error after fetching field descriptions for table %s: %w", schemaTable, err)
+	}
+
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
+	// Collect OIDs that we haven't fetched yet (deduplicate using a map)
+	unfetchedOIDsMap := make(map[uint32]struct{})
+	for _, fieldDescription := range fields {
+		if _, exists := typeSchemaNameMapping[fieldDescription.DataTypeOID]; !exists {
+			unfetchedOIDsMap[fieldDescription.DataTypeOID] = struct{}{}
+		}
+	}
+
+	unfetchedOIDs := slices.Collect(maps.Keys(unfetchedOIDsMap))
+
+	// Fetch schema names for unfetched OIDs and add to shared map
+	if len(unfetchedOIDs) > 0 {
+		newTypeSchemaNames, err := c.GetSchemaNameOfColumnTypeByOID(ctx, unfetchedOIDs)
+		if err != nil {
+			return nil, fmt.Errorf("error getting schema names for column types: %w", err)
+		}
+		maps.Copy(typeSchemaNameMapping, newTypeSchemaNames)
+	}
+
 	for _, fieldDescription := range fields {
 		var colType string
 		var err error
@@ -1089,16 +1204,14 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		columnNames = append(columnNames, fieldDescription.Name)
 		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
-			Name:         fieldDescription.Name,
-			Type:         colType,
-			TypeModifier: fieldDescription.TypeModifier,
-			Nullable:     nullable,
+			Name:           fieldDescription.Name,
+			Type:           colType,
+			TypeModifier:   fieldDescription.TypeModifier,
+			Nullable:       nullable,
+			TypeSchemaName: typeSchemaNameMapping[fieldDescription.DataTypeOID],
 		})
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over table schema: %w", err)
-	}
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
 	if replicaIdentityType == ReplicaIdentityFull && len(pKeyCols) == 0 {
 		pKeyCols = columnNames
@@ -1179,6 +1292,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	_ []string,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil
@@ -1199,8 +1313,24 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			columnType := addedColumn.Type
-			if schemaDelta.System == protos.TypeSystem_Q {
+			switch schemaDelta.System {
+			case protos.TypeSystem_Q:
 				columnType = qValueKindToPostgresType(columnType)
+			case protos.TypeSystem_PG:
+				// schema qualification handled after numeric typmod check
+			default:
+				return fmt.Errorf("unknown type system %d", schemaDelta.System)
+			}
+
+			if strings.EqualFold(columnType, "numeric") && addedColumn.TypeModifier != -1 {
+				precision, scale := numeric.ParseNumericTypmod(addedColumn.TypeModifier)
+				columnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
+			} else if schemaDelta.System == protos.TypeSystem_PG && addedColumn.TypeSchemaName != "" {
+				schemaQualifiedType := common.QualifiedTable{
+					Namespace: addedColumn.TypeSchemaName,
+					Table:     columnType,
+				}
+				columnType = schemaQualifiedType.String()
 			}
 
 			dstSchemaTable, err := common.ParseTableIdentifier(schemaDelta.DstTableName)
@@ -1342,8 +1472,7 @@ func (c *PostgresConnector) SetupReplication(
 		return model.SetupReplicationResult{}, fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
 	}
 
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + req.FlowJobName
+	slotName := GetDefaultSlotName(req.FlowJobName)
 	if req.ExistingReplicationSlotName != "" {
 		slotName = req.ExistingReplicationSlotName
 	}
@@ -1378,8 +1507,7 @@ func (c *PostgresConnector) SetupReplication(
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + jobName
+	slotName := GetDefaultSlotName(jobName)
 	if _, err := c.conn.Exec(
 		ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name=$1`, slotName,
 	); err != nil {
@@ -1453,7 +1581,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	slotInfos, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database)
+	slotInfos, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database, false, nil)
 	if err != nil {
 		logger.Warn("warning: failed to get slot info", slog.Any("error", err))
 		return err
@@ -1908,7 +2036,7 @@ func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, tabl
 		return 0, err
 	}
 	if !tableSizeBytes.Valid {
-		return 0, errors.New("table size is not valid")
+		return 0, fmt.Errorf("table size is not valid")
 	}
 	return tableSizeBytes.Int64, nil
 }

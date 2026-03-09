@@ -147,6 +147,7 @@ impl FlowGrpcClient {
             idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
             env: Default::default(),
             version: 0, // filled in by server
+            flags: Default::default(),
         };
 
         if job.disable_peerdb_columns {

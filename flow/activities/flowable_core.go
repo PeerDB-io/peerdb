@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sync/atomic"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/temporal"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
@@ -65,7 +63,6 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 func (a *FlowableActivity) applySchemaDeltas(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
-	options *protos.SyncFlowOptions,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
@@ -75,123 +72,48 @@ func (a *FlowableActivity) applySchemaDeltas(
 		dstTableNamesInDeltas = append(dstTableNamesInDeltas, schemaDelta.DstTableName)
 	}
 
-	applyV2, err := internal.PeerDBApplySchemaDeltaToCatalogEnabled(ctx, config.Env)
-	if err != nil {
-		logger.Warn("failed to check if schema delta v2 is enabled, defaulting to false", slog.Any("error", err))
-		applyV2 = false
-	}
-
-	if applyV2 {
-		err := internal.ReadModifyWriteTableSchemasToCatalog(
-			ctx,
-			a.CatalogPool,
-			logger,
-			config.FlowJobName,
-			dstTableNamesInDeltas,
-			// use a closure to keep ReadModifyWriteTableSchemasToCatalog's `modifyFn` flexible
-			func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
-				return applySchemaDeltaV2(ctx, schemas, schemaDeltas)
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update table schemas in catalog: %w", err)
-		}
-		return nil
-	} else {
-		skipValidate := false
-		baseSchema, err := internal.LoadTableSchemasFromCatalog(ctx, a.CatalogPool, config.FlowJobName, dstTableNamesInDeltas)
-		if err != nil {
-			logger.Warn("skipping v2 validation: cannot load base schemas", slog.Any("error", err))
-			skipValidate = true
-		}
-
-		if err := a.applySchemaDeltasV1(ctx, config, options, schemaDeltas); err != nil {
-			return err
-		}
-
-		if !skipValidate {
-			validateV2AgainstV1(ctx, a.CatalogPool, config.FlowJobName, baseSchema, schemaDeltas, dstTableNamesInDeltas)
-		}
-	}
-	return nil
-}
-
-// existing approach to applying schemaDeltas. `applySchemaDeltas` is actually
-// a bit misleading, as we are fetching the latest schema from the source database.
-// schemaDeltas is only used to identify matching tables.
-// This approach has a race condition where schema deltas do not get correctly
-// applied because the latest schema from source db includes the added column.
-func (a *FlowableActivity) applySchemaDeltasV1(ctx context.Context,
-	config *protos.FlowConnectionConfigsCore,
-	options *protos.SyncFlowOptions,
-	schemaDeltas []*protos.TableSchemaDelta,
-) error {
-	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
-	for _, tableMapping := range options.TableMappings {
-		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
-			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
-				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
-		}) {
-			filteredTableMappings = append(filteredTableMappings, tableMapping)
-		}
-	}
-
-	if len(schemaDeltas) > 0 {
-		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
-			PeerName:      config.SourceName,
-			TableMappings: filteredTableMappings,
-			FlowName:      config.FlowJobName,
-			System:        config.System,
-			Env:           config.Env,
-			Version:       config.Version,
-		}); err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
-		}
-	}
-	return nil
-}
-
-// this is the updated approach of applying schema deltas to catalog. Unlike v1,
-// we use `table_schema_mapping` from catalog as base, and add new columns from
-// schemaDeltas that are not in the existing mapping. This function returns
-// a copy of schemasInCatalog with schemaDeltas applied.
-func applySchemaDeltaV2(
-	ctx context.Context,
-	schemasInCatalog map[string]*protos.TableSchema,
-	schemaDeltas []*protos.TableSchemaDelta,
-) (map[string]*protos.TableSchema, error) {
-	logger := internal.LoggerFromCtx(ctx)
-
-	// deep copy to avoid mutating input
-	schemasInCatalogCopy := make(map[string]*protos.TableSchema, len(schemasInCatalog))
-	for tableName, schema := range schemasInCatalog {
-		if schema == nil {
-			return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
-		}
-		schemasInCatalogCopy[tableName] = proto.CloneOf(schema)
-	}
-
-	for _, schemaDelta := range schemaDeltas {
-		if schema, exists := schemasInCatalogCopy[schemaDelta.DstTableName]; exists {
-			columnNames := make(map[string]struct{}, len(schema.GetColumns()))
-			for _, col := range schema.GetColumns() {
-				columnNames[col.Name] = struct{}{}
+	if err := internal.ReadModifyWriteTableSchemasToCatalog(
+		ctx,
+		a.CatalogPool,
+		logger,
+		config.FlowJobName,
+		dstTableNamesInDeltas,
+		func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
+			// deep copy to avoid mutating input
+			schemasCopy := make(map[string]*protos.TableSchema, len(schemas))
+			for tableName, schema := range schemas {
+				if schema == nil {
+					return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
+				}
+				schemasCopy[tableName] = proto.CloneOf(schema)
 			}
-			for _, newCol := range schemaDelta.GetAddedColumns() {
-				// only add columns that don't already exist
-				if _, exists := columnNames[newCol.Name]; !exists {
-					schema.Columns = append(schema.Columns, newCol)
-					columnNames[newCol.Name] = struct{}{}
+
+			for _, schemaDelta := range schemaDeltas {
+				if schema, exists := schemasCopy[schemaDelta.DstTableName]; exists {
+					columnNames := make(map[string]struct{}, len(schema.GetColumns()))
+					for _, col := range schema.GetColumns() {
+						columnNames[col.Name] = struct{}{}
+					}
+					for _, newCol := range schemaDelta.GetAddedColumns() {
+						// only add columns that don't already exist
+						if _, exists := columnNames[newCol.Name]; !exists {
+							schema.Columns = append(schema.Columns, newCol)
+							columnNames[newCol.Name] = struct{}{}
+						} else {
+							logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
+								newCol.Name, newCol.Type, schemaDelta.DstTableName))
+						}
+					}
 				} else {
-					logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
-						newCol.Name, newCol.Type, schemaDelta.DstTableName))
+					logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
 				}
 			}
-		} else {
-			logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
-		}
+			return schemasCopy, nil
+		},
+	); err != nil {
+		return fmt.Errorf("failed to update table schemas in catalog: %w", err)
 	}
-	return schemasInCatalogCopy, nil
+	return nil
 }
 
 func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
@@ -220,7 +142,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+		return nil, a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
 	}
 
 	batchSize := options.BatchSize
@@ -272,7 +194,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	startTime := time.Now()
-	syncState.Store(shared.Ptr("syncing"))
+	syncState.Store(new("syncing"))
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		return pull(srcConn, errCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
@@ -299,16 +221,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
 			// don't log flow error for "replState changed" and "slot is already active"
-			var applicationError *temporal.ApplicationError
-			if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") ||
-				shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			var desyncErr *exceptions.ReplStateDesyncError
+			if !(errors.As(err, &desyncErr) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 				_ = a.Alerter.LogFlowError(ctx, flowName, err)
 			}
-			if temporal.IsApplicationError(err) {
-				return nil, err
-			} else {
-				return nil, fmt.Errorf("failed in pull records when: %w", err)
-			}
+			return nil, fmt.Errorf("failed in pull records when: %w", err)
 		}
 		logger.Info("no records to push")
 
@@ -318,23 +235,35 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		defer dstClose(ctx)
 
-		syncState.Store(shared.Ptr("updating schema"))
-		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas); err != nil {
+		syncState.Store(new("updating schema"))
+		if err := dstConn.ReplayTableSchemaDeltas(
+			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags,
+		); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
+		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
 	}
 
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
-		dstConn, dstClose, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
-		if err != nil {
-			return fmt.Errorf("failed to recreate destination connector: %w", err)
-		}
-		defer dstClose(ctx)
-
-		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
+		syncBatchID, err := func() (int64, error) {
+			// special case pg-pg replication, where batch ID is stored on destination instead of catalog
+			if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
+				dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
+				if err != nil {
+					if !errors.Is(err, errors.ErrUnsupported) {
+						return 0, fmt.Errorf("failed to get destination connector to get last sync batch ID: %w", err)
+					}
+					// else fallthrough to loading from catalog
+				} else {
+					defer dstPgClose(ctx)
+					return dstPgConn.GetLastSyncBatchID(errCtx, flowName)
+				}
+			}
+			pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+			return pgMetadata.GetLastSyncBatchID(errCtx, flowName)
+		}()
 		if err != nil {
 			return err
 		}
@@ -351,6 +280,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 
+		dstConn, dstClose, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+		if err != nil {
+			return fmt.Errorf("failed to get destination connector: %w", err)
+		}
+		defer dstClose(ctx)
+
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
 			SyncBatchID:            syncBatchID,
 			Records:                recordBatchSync,
@@ -362,6 +297,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			TableNameSchemaMapping: tableNameSchemaMapping,
 			Env:                    config.Env,
 			Version:                config.Version,
+			Flags:                  config.Flags,
 		})
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))
@@ -377,17 +313,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		var applicationError *temporal.ApplicationError
-		if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+		var desyncErr *exceptions.ReplStateDesyncError
+		if !(errors.As(err, &desyncErr) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
-		if temporal.IsApplicationError(err) {
-			return nil, err
-		} else {
-			return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
-		}
+		return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
 	}
-	syncState.Store(shared.Ptr("bookkeeping"))
+	syncState.Store(new("bookkeeping"))
 
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
@@ -418,13 +350,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
-	syncState.Store(shared.Ptr("updating schema"))
-	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
+	syncState.Store(new("updating schema"))
+	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
 
 	if recordBatchSync.NeedsNormalize() {
-		syncState.Store(shared.Ptr("normalizing"))
+		syncState.Store(new("normalizing"))
 		normRequests.Update(res.CurrentSyncBatchID)
 		normWaitThreshold := res.CurrentSyncBatchID - normBufferSize
 		if normResponses.Load() <= normWaitThreshold {
@@ -485,7 +417,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 }
 
 // replicateQRepPartition replicates a QRepPartition from the source to the destination.
-func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
+func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
 	srcConn TPull,
@@ -535,7 +467,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, stream)
 		stream.Close(err)
 		if err != nil {
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("[qrep] failed to pull records", err))
 		}
 
 		// for Postgres source, reports all bytes fetched from source
@@ -556,7 +488,8 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
+			stream.HandleQRepSyncError(err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to sync records", err))
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
@@ -579,7 +512,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 }
 
 // replicateXminPartition replicates a XminPartition from the source to the destination.
-func replicateXminPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore](
+func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors.QRepSyncConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.QRepConfig,
@@ -672,7 +605,8 @@ func replicateXminPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
-			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
+			stream.HandleQRepSyncError(err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to sync records", err))
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
@@ -758,6 +692,7 @@ func (a *FlowableActivity) startNormalize(
 			SyncedAtColName:        config.SyncedAtColName,
 			SyncBatchID:            batchID,
 			Version:                config.Version,
+			Flags:                  config.Flags,
 		})
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName,

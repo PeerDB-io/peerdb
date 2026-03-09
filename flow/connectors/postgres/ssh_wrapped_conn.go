@@ -2,10 +2,12 @@ package connpostgres
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgproto3"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -50,6 +52,15 @@ func NewPostgresConnFromConfig(
 		connConfig = connConfig.Copy()
 		connConfig.Password = token
 	}
+
+	// If the endpoint is misbehaved (e.g. a TCP tunnel started pointing at something new),
+	// the random initial sequence of bytes may be misinterpreted as a multi-GB message and
+	// crash the process. Avoid that by limiting the max body length just for the initial handshake.
+	connConfig.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+		frontend := pgproto3.NewFrontend(r, w)
+		frontend.SetMaxBodyLen(16 * 1024 * 1024)
+		return frontend
+	}
 	conn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
 		logger.Error("Failed to create connection", slog.Any("error", err))
@@ -61,6 +72,8 @@ func NewPostgresConnFromConfig(
 		conn.Close(ctx)
 		return nil, err
 	}
+
+	conn.PgConn().Frontend().SetMaxBodyLen(0)
 
 	return conn, nil
 }

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -18,14 +17,14 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer provided",
-		}, NewInvalidArgumentApiError(errors.New("no peer provided"))
+		}, NewInvalidArgumentApiError(fmt.Errorf("no peer provided"))
 	}
 
 	if req.Peer.Name == "" {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer name provided",
-		}, NewInvalidArgumentApiError(errors.New("no peer name provided"))
+		}, NewInvalidArgumentApiError(fmt.Errorf("no peer name provided"))
 	}
 
 	validatePeerDeadline := 15 * time.Second

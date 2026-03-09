@@ -1160,32 +1160,53 @@ func processRelationMessage[Items model.Items](
 		System:          prevSchema.System,
 		NullableEnabled: prevSchema.NullableEnabled,
 	}
+
+	isAddedColumnAndNotExcluded := func(columnName string) bool {
+		_, inPrevRel := prevRelMap[columnName]
+		if inPrevRel {
+			return false
+		}
+		_, isExcluded := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[columnName]
+		return !isExcluded
+	}
+
+	addedColumnTypeOIDs := make([]uint32, 0)
+	for _, column := range currRel.Columns {
+		if isAddedColumnAndNotExcluded(column.Name) {
+			addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
+		}
+	}
+
+	typeSchemaNameMapping, err := p.GetSchemaNameOfColumnTypeByOID(ctx, addedColumnTypeOIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error getting schema names for added column types: %w", err)
+	}
+
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
-		if _, ok := prevRelMap[column.Name]; !ok {
-			// only add to delta if not excluded
-			if _, ok := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[column.Name]; !ok {
-				schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.FieldDescription{
-					Name:         column.Name,
-					Type:         currRelMap[column.Name],
-					TypeModifier: column.TypeModifier,
-					Nullable:     false,
-				})
-				// pg does not send nullable info, only whether column is part of replica identity
-				// After loop we will correct this based on pg_catalog,
-				// but can skip specific scenario where replident is default or index
-				if currRel.ReplicaIdentity == uint8(ReplicaIdentityFull) ||
-					currRel.ReplicaIdentity == uint8(ReplicaIdentityNothing) || column.Flags == 0 {
-					potentiallyNullableAddedColumns = append(potentiallyNullableAddedColumns, utils.QuoteLiteral(column.Name))
-				}
-				p.logger.Info("Detected added column",
-					slog.String("columnName", column.Name),
-					slog.String("columnType", currRelMap[column.Name]),
-					slog.String("relationName", schemaDelta.SrcTableName))
-			} else {
-				p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
-					column.Name, schemaDelta.SrcTableName))
+		if isAddedColumnAndNotExcluded(column.Name) {
+			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.FieldDescription{
+				Name:           column.Name,
+				Type:           currRelMap[column.Name],
+				TypeModifier:   column.TypeModifier,
+				Nullable:       false,
+				TypeSchemaName: typeSchemaNameMapping[column.DataType],
+			})
+			// pg does not send nullable info, only whether column is part of replica identity
+			// After loop we will correct this based on pg_catalog,
+			// but can skip specific scenario where replident is default or index
+			if currRel.ReplicaIdentity == uint8(ReplicaIdentityFull) ||
+				currRel.ReplicaIdentity == uint8(ReplicaIdentityNothing) || column.Flags == 0 {
+				potentiallyNullableAddedColumns = append(potentiallyNullableAddedColumns, utils.QuoteLiteral(column.Name))
 			}
+			p.logger.Info("Detected added column",
+				slog.String("columnName", column.Name),
+				slog.String("columnType", currRelMap[column.Name]),
+				slog.String("relationName", schemaDelta.SrcTableName))
+		} else if _, inPrevRel := prevRelMap[column.Name]; !inPrevRel {
+			// Column is added but excluded
+			p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
+				column.Name, schemaDelta.SrcTableName))
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
 			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
 				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))

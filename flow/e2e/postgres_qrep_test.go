@@ -118,7 +118,7 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 		}
 
 		if !syncedAt.Valid {
-			return errors.New("synced_at is not valid")
+			return fmt.Errorf("synced_at is not valid")
 		}
 	}
 

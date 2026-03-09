@@ -175,6 +175,7 @@ message TableResponse {
   string table_name = 1;
   bool can_mirror = 2;
   string table_size = 3;
+  bool is_replica_identity_full = 4;
 }
 
 message AllTablesResponse { repeated string tables = 1; }
@@ -190,6 +191,7 @@ message ColumnsItem {
   string type = 2;
   bool is_key = 3;
   string qkind = 4;
+  bool is_replica_identity = 5;
 }
 
 message TableColumnsResponse {
@@ -209,7 +211,10 @@ message ColumnsTypeConversionResponse {
   repeated ColumnsTypeConversion conversions = 1;
 }
 
-message PostgresPeerActivityInfoRequest { string peer_name = 1; }
+message PostgresPeerActivityInfoRequest {
+  string peer_name = 1;
+  bool peerdb_managed_only = 2;
+}
 
 message PeerInfoRequest { string peer_name = 1; }
 

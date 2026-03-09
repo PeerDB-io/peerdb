@@ -287,6 +287,9 @@ enum DatabaseVariant {
   PLANETSCALE = 7;
   // only Postgres
   SUPABASE = 8;
+  // only Mongo
+  MONGODB_ATLAS = 9;
+  AWS_DOCUMENTDB = 10;
 }
 
 message Peer {

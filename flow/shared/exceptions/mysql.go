@@ -5,6 +5,9 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
 type MySQLIncompatibleColumnTypeError struct {
@@ -46,6 +49,19 @@ func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
 		e.SchemaName, e.TableName)
 }
 
+type MySQLUnsupportedDDLError struct {
+	TableName string
+}
+
+func NewMySQLUnsupportedDDLError(tableName string) *MySQLUnsupportedDDLError {
+	return &MySQLUnsupportedDDLError{TableName: tableName}
+}
+
+func (e *MySQLUnsupportedDDLError) Error() string {
+	return fmt.Sprintf(
+		"Detected position-shifting DDL on table %s but binlog_row_metadata is not supported by this MySQL version.", e.TableName)
+}
+
 type MySQLStreamingError struct {
 	error
 	Retryable bool
@@ -61,6 +77,10 @@ func NewMySQLStreamingError(err error) *MySQLStreamingError {
 		if recordHeaderError.Msg == "first record does not look like a TLS handshake" {
 			return &MySQLStreamingError{err, true}
 		}
+	}
+
+	if strings.Contains(err.Error(), mysql.ErrBadConn.Error()) {
+		return &MySQLStreamingError{err, true}
 	}
 
 	return &MySQLStreamingError{err, false}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,7 @@ const (
 	ActionPauseFlow             = "pause_flow"
 	ActionResumeFlow            = "resume_flow"
 	ActionTerminateFlow         = "terminate_flow"
+	ActionStartFlowConfigUpdate = "start_flow_config_update"
 	ActionUpdateFlowConfig      = "update_flow_config"
 	ActionStartMaintenance      = "start_maintenance"
 	ActionEndMaintenance        = "end_maintenance"
@@ -68,6 +70,31 @@ func LogActivityCreatePeer(ctx context.Context) {
 
 func LogActivityDropPeer(ctx context.Context) {
 	logActivity(ctx, ActionDropPeer)
+}
+
+func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, update *protos.CDCFlowConfigUpdate) {
+	var changes []string
+
+	// Only logging fields that don't need old values to compare to
+	if len(update.AdditionalTables) > 0 {
+		addedTables := make([]string, 0, len(update.AdditionalTables))
+		for _, t := range update.AdditionalTables {
+			addedTables = append(addedTables, t.SourceTableIdentifier)
+		}
+		changes = append(changes, fmt.Sprintf("tables added: %v", addedTables))
+	}
+
+	if len(update.RemovedTables) > 0 {
+		removedTables := make([]string, 0, len(update.RemovedTables))
+		for _, t := range update.RemovedTables {
+			removedTables = append(removedTables, t.SourceTableIdentifier)
+		}
+		changes = append(changes, fmt.Sprintf("tables removed: %v", removedTables))
+	}
+
+	logActivity(ctx, ActionStartFlowConfigUpdate,
+		slog.String("flowName", flowName),
+		slog.String("activityDetails", strings.Join(changes, ", ")))
 }
 
 type OldCDCFlowValues struct {
@@ -117,7 +144,7 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 	}
 
 	if len(update.AdditionalTables) > 0 {
-		var addedTables []string
+		addedTables := make([]string, 0, len(update.AdditionalTables))
 		for _, t := range update.AdditionalTables {
 			addedTables = append(addedTables, t.SourceTableIdentifier)
 		}
@@ -125,7 +152,7 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 	}
 
 	if len(update.RemovedTables) > 0 {
-		var removedTables []string
+		removedTables := make([]string, 0, len(update.RemovedTables))
 		for _, t := range update.RemovedTables {
 			removedTables = append(removedTables, t.SourceTableIdentifier)
 		}
@@ -149,8 +176,9 @@ func logActivity(ctx context.Context, action string, additionalAttrs ...any) {
 	slog.InfoContext(ctx, "[flow activity] "+action, attrs...)
 }
 
-type FlowConfigForLogging struct {
+type flowConfigForLogging struct {
 	FlowName                    string `json:"flow_name"`
+	SourcePeerName              string `json:"source_peer_name"`
 	PublicationName             string `json:"pg_publication_name"`
 	ReplicationSlotName         string `json:"pg_replication_slot_name"`
 	IdleTimeoutSeconds          uint64 `json:"sync_interval"`
@@ -164,24 +192,57 @@ type FlowConfigForLogging struct {
 	NumTables                   int    `json:"num_tables"`
 }
 
-type TableMappingForLogging struct {
-	TableName     string   `json:"table_name"`
-	DestTableName string   `json:"destination_table_name"`
-	PartitionKey  string   `json:"partition_key"`
-	Engine        string   `json:"engine"`
-	Exclude       []string `json:"excluded_columns"`
+type tableMappingForLogging struct {
+	TableName           string   `json:"table_name"`
+	DestTableName       string   `json:"destination_table_name"`
+	PartitionKey        string   `json:"partition_key"`
+	Engine              string   `json:"engine"`
+	Exclude             []string `json:"excluded_columns"`
+	ReplicaIdentityFull bool     `json:"replica_identity_full"`
+	UseCustomSortKey    bool     `json:"use_custom_sort_key"`
+	TotalInserts        int64    `json:"total_inserts"`
+	TotalUpdates        int64    `json:"total_updates"`
+	TotalDeletes        int64    `json:"total_deletes"`
 }
 
-func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
+//nolint:govet // field order is intentional for readability
+type sourcePeerInfoForLogging struct {
+	PeerName             string `json:"peer_name"`
+	PeerType             string `json:"peer_type"`
+	Host                 string `json:"host"`
+	DatabaseVersion      string `json:"database_version"`
+	DatabaseVariant      string `json:"database_variant"`
+	DisableTLS           bool   `json:"disable_tls"`
+	TLSHost              string `json:"tls_host"`
+	DatabaseName         string `json:"database_name"`
+	SshHost              string `json:"ssh_host"`
+	AuthType             string `json:"auth_type"`
+	Flavor               string `json:"flavor"`                // mysql
+	Compression          uint32 `json:"compression"`           // mysql
+	ReplicationMechanism string `json:"replication_mechanism"` // mysql
+	ReadPreference       string `json:"read_preference"`       // mongo
+}
+
+func LogFlowConfigs(
+	ctx context.Context,
+	catalogPool shared.CatalogPool,
+) ([]flowConfigForLogging, error) {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
 
-	rows, err := catalogPool.Query(ctx,
-		`SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE config_proto IS NOT NULL`)
-	if err != nil {
-		return fmt.Errorf("failed to query flow configs: %w", err)
-	}
+	batch := pgx.Batch{}
+	batch.Queue(`SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE config_proto IS NOT NULL`)
+	batch.Queue(`SELECT flow_name, destination_table_name, inserts_count, updates_count, deletes_count
+		FROM peerdb_stats.cdc_table_aggregate_counts`)
+	batch.Queue(`SELECT flow_name, table_name, table_schema FROM table_schema_mapping`)
 
-	configs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigsCore, error) {
+	batchResults := catalogPool.Pool.SendBatch(ctx, &batch)
+	defer batchResults.Close()
+
+	configRows, err := batchResults.Query()
+	if err != nil {
+		return nil, fmt.Errorf("failed to query flow configs: %w", err)
+	}
+	configs, err := pgx.CollectRows(configRows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigsCore, error) {
 		var name string
 		var configProto []byte
 		if err := row.Scan(&name, &configProto); err != nil {
@@ -194,13 +255,61 @@ func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
 		return cfg, nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to collect flow configs: %w", err)
+		return nil, fmt.Errorf("failed to collect flow configs: %w", err)
 	}
 
+	type tableCounts struct {
+		inserts int64
+		updates int64
+		deletes int64
+	}
+	countsByFlow := make(map[string]map[string]tableCounts)
+
+	countRows, err := batchResults.Query()
+	if err != nil {
+		logger.Warn("failed to query table aggregate counts", slog.Any("error", err))
+	} else {
+		var flowName, destTable string
+		var counts tableCounts
+		if _, err := pgx.ForEachRow(countRows, []any{&flowName, &destTable, &counts.inserts, &counts.updates, &counts.deletes}, func() error {
+			if countsByFlow[flowName] == nil {
+				countsByFlow[flowName] = make(map[string]tableCounts)
+			}
+			countsByFlow[flowName][destTable] = counts
+			return nil
+		}); err != nil {
+			logger.Warn("failed to read table aggregate counts", slog.Any("error", err))
+		}
+	}
+
+	replicaIdentityByFlow := make(map[string]map[string]bool)
+
+	schemaRows, err := batchResults.Query()
+	if err != nil {
+		logger.Warn("failed to query table schema mapping", slog.Any("error", err))
+	} else {
+		var flowName, tableName string
+		var tableSchemaBytes []byte
+		if _, err := pgx.ForEachRow(schemaRows, []any{&flowName, &tableName, &tableSchemaBytes}, func() error {
+			tableSchema := &protos.TableSchema{}
+			if err := proto.Unmarshal(tableSchemaBytes, tableSchema); err != nil {
+				return err
+			}
+			if replicaIdentityByFlow[flowName] == nil {
+				replicaIdentityByFlow[flowName] = make(map[string]bool)
+			}
+			replicaIdentityByFlow[flowName][tableName] = tableSchema.IsReplicaIdentityFull
+			return nil
+		}); err != nil {
+			logger.Warn("failed to read table schema mapping", slog.Any("error", err))
+		}
+	}
+
+	flowConfigs := make([]flowConfigForLogging, 0, len(configs))
 	for _, cfg := range configs {
-		numTables := len(cfg.TableMappings)
-		flowConfig := FlowConfigForLogging{
+		fc := flowConfigForLogging{
 			FlowName:                    cfg.FlowJobName,
+			SourcePeerName:              cfg.SourceName,
 			MaxBatchSize:                cfg.MaxBatchSize,
 			IdleTimeoutSeconds:          cfg.IdleTimeoutSeconds,
 			PublicationName:             cfg.PublicationName,
@@ -211,36 +320,81 @@ func LogFlowConfigs(ctx context.Context, catalogPool shared.CatalogPool) error {
 			SnapshotMaxParallelWorkers:  cfg.SnapshotMaxParallelWorkers,
 			SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 			Resync:                      cfg.Resync,
-			NumTables:                   numTables,
+			NumTables:                   len(cfg.TableMappings),
 		}
-		configJSON, err := json.Marshal(flowConfig)
-		if err != nil {
-			logger.Error("failed to marshal flow configs", slog.Any("error", err))
-			continue
-		}
-		logger.Info("[flow config]",
-			slog.String("flowName", cfg.FlowJobName),
-			slog.String("flowConfig", string(configJSON)))
+		flowConfigs = append(flowConfigs, fc)
 
+		logAsJSON(logger, "[flow config]", fc, slog.String("flowName", cfg.FlowJobName))
+
+		flowReplicaIdentity := replicaIdentityByFlow[cfg.FlowJobName]
+		flowCounts := countsByFlow[cfg.FlowJobName]
 		for _, tm := range cfg.TableMappings {
-			tableConfig := TableMappingForLogging{
-				TableName:     tm.SourceTableIdentifier,
-				DestTableName: tm.DestinationTableIdentifier,
-				PartitionKey:  tm.PartitionKey,
-				Engine:        tm.Engine.String(),
-				Exclude:       tm.Exclude,
-			}
-			tableJSON, err := json.Marshal(tableConfig)
-			if err != nil {
-				logger.Error("failed to marshal table config", slog.Any("error", err))
-				continue
-			}
-			logger.Info("[table config]",
-				slog.String("flowName", cfg.FlowJobName),
-				slog.String("tableName", tm.SourceTableIdentifier),
-				slog.String("tableConfig", string(tableJSON)))
+			counts := flowCounts[tm.DestinationTableIdentifier]
+			hasCustomSortKey := slices.ContainsFunc(tm.Columns, func(col *protos.ColumnSetting) bool {
+				return col.Ordering > 0
+			})
+			logAsJSON(logger, "[table config]", tableMappingForLogging{
+				TableName:           tm.SourceTableIdentifier,
+				DestTableName:       tm.DestinationTableIdentifier,
+				PartitionKey:        tm.PartitionKey,
+				Engine:              tm.Engine.String(),
+				Exclude:             tm.Exclude,
+				ReplicaIdentityFull: flowReplicaIdentity[tm.DestinationTableIdentifier],
+				UseCustomSortKey:    hasCustomSortKey,
+				TotalInserts:        counts.inserts,
+				TotalUpdates:        counts.updates,
+				TotalDeletes:        counts.deletes,
+			}, slog.String("flowName", cfg.FlowJobName), slog.String("tableName", tm.SourceTableIdentifier))
 		}
 	}
 
-	return nil
+	return flowConfigs, nil
+}
+
+func LogPeerInfo(ctx context.Context, peer *protos.Peer, version string, variant string) {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
+	info := &sourcePeerInfoForLogging{
+		PeerName:        peer.Name,
+		PeerType:        peer.Type.String(),
+		DatabaseVersion: version,
+		DatabaseVariant: variant,
+	}
+	switch config := peer.Config.(type) {
+	case *protos.Peer_PostgresConfig:
+		info.Host = config.PostgresConfig.Host
+		info.DisableTLS = !config.PostgresConfig.RequireTls
+		info.TLSHost = config.PostgresConfig.TlsHost
+		info.SshHost = config.PostgresConfig.SshConfig.GetHost()
+		info.DatabaseName = config.PostgresConfig.Database
+		info.AuthType = config.PostgresConfig.AuthType.String()
+	case *protos.Peer_MysqlConfig:
+		info.Host = config.MysqlConfig.Host
+		info.DisableTLS = config.MysqlConfig.DisableTls
+		info.TLSHost = config.MysqlConfig.TlsHost
+		info.SshHost = config.MysqlConfig.SshConfig.GetHost()
+		info.DatabaseName = config.MysqlConfig.Database
+		info.AuthType = config.MysqlConfig.AuthType.String()
+		info.Flavor = config.MysqlConfig.Flavor.String()
+		info.ReplicationMechanism = config.MysqlConfig.ReplicationMechanism.String()
+		info.Compression = config.MysqlConfig.Compression
+	case *protos.Peer_MongoConfig:
+		info.Host = config.MongoConfig.Uri
+		info.DisableTLS = config.MongoConfig.DisableTls
+		info.TLSHost = config.MongoConfig.TlsHost
+		info.SshHost = config.MongoConfig.SshConfig.GetHost()
+		info.ReadPreference = config.MongoConfig.ReadPreference.String()
+	case *protos.Peer_BigqueryConfig:
+		info.AuthType = config.BigqueryConfig.AuthType
+	}
+	logAsJSON(logger, "[peer info]", info, slog.String("peerName", peer.Name))
+}
+
+func logAsJSON(logger log.Logger, msg string, data any, attrs ...any) {
+	dataJSON, err := json.Marshal(data)
+	if err != nil {
+		logger.Error("failed to marshal "+msg, "error", err)
+		return
+	}
+	attrs = append(attrs, slog.String("data", string(dataJSON)))
+	logger.Info(msg, attrs...)
 }

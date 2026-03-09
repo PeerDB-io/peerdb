@@ -79,7 +79,7 @@ func NewKafkaConnector(
 		tlsSetting := &tls.Config{MinVersion: tls.VersionTLS12}
 		if config.Certificate != nil || config.PrivateKey != nil {
 			if config.Certificate == nil || config.PrivateKey == nil {
-				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+				return nil, fmt.Errorf("both certificate and private key must be provided if using certificate-based authentication")
 			}
 			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
 			if err != nil {
@@ -90,7 +90,7 @@ func NewKafkaConnector(
 		if config.RootCa != nil {
 			caPool := x509.NewCertPool()
 			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-				return nil, errors.New("failed to parse provided root CA")
+				return nil, fmt.Errorf("failed to parse provided root CA")
 			}
 			tlsSetting.RootCAs = caPool
 		}
@@ -162,7 +162,7 @@ func (c *KafkaConnector) CreateRawTable(ctx context.Context, req *protos.CreateR
 }
 
 func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil
 }
