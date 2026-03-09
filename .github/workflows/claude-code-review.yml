@@ -9,8 +9,9 @@ on:
 jobs:
   claude-review:
     if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
+      !github.event.pull_request.draft &&
+      ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository))
     environment: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) && 'external-contributor' || null }}
     runs-on: ubuntu-latest
     permissions:
