@@ -179,21 +179,71 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 
 // parseEnumOptions parses the column type string for an enum column and returns the possible options for the enum
 func parseEnumOptions(columnType string) []string {
-	// columnType looks like enum('a','b','c')
-	_, optionsStr, _ := strings.Cut(columnType, "(")
-	optionsStr = strings.TrimSuffix(optionsStr, ")")
-	// this will break for enum values with commas
-	options := strings.Split(optionsStr, ",")
-	for i, option := range options {
-		option = strings.TrimSpace(option)
-		option = strings.Trim(option, "'")
-		options[i] = option
+	// columnType typically looks like: enum('a','b','c')
+	// but enum labels may contain commas and escaped quotes, so we cannot just strings.Split on ",".
+	// Extract the contents between the first '(' and the last ')'.
+	start := strings.Index(columnType, "(")
+	end := strings.LastIndex(columnType, ")")
+	if start == -1 || end == -1 || end <= start+1 {
+		return nil
 	}
+	optionsStr := columnType[start+1 : end]
+	var (
+		options  []string
+		current  bytes.Buffer
+		inQuotes bool
+		hadQuote bool
+	)
+	for i := 0; i < len(optionsStr); i++ {
+		ch := optionsStr[i]
+		// Handle backslash-escaped characters: treat the backslash and the next
+		// character as literal content so they don't affect parsing (e.g., an
+		// escaped comma or quote).
+		if ch == '\\' {
+			current.WriteByte(ch)
+			if i+1 < len(optionsStr) {
+				i++
+				current.WriteByte(optionsStr[i])
+			}
+			continue
+		}
+		// Toggle quote state on unescaped single quotes, but don't include them
+		// in the final option values.
+		if ch == '\'' {
+			inQuotes = !inQuotes
+			hadQuote = true
+			continue
+		}
+		// Comma outside of quotes separates enum options.
+		if ch == ',' && !inQuotes {
+			option := strings.TrimSpace(current.String())
+			if option != "" || hadQuote {
+				options = append(options, option)
+			}
+			current.Reset()
+			hadQuote = false
+			continue
+		}
+		current.WriteByte(ch)
+	}
+
+	// Flush the final option, if any.
+	{
+		option := strings.TrimSpace(current.String())
+		if option != "" || hadQuote {
+			options = append(options, option)
+		}
+	}
+
 	return options
 }
 
 // GetEnumColumnsInfo queries the information schema to get the possible options for enum columns in the specified table and columns
 func (c *MySqlConnector) GetEnumColumnsInfo(ctx context.Context, table string, cols []string) (map[string][]string, error) {
+	if len(cols) == 0 {
+		return make(map[string][]string), nil
+	}
+
 	qualifiedTable, err := common.ParseTableIdentifier(table)
 	if err != nil {
 		return nil, err

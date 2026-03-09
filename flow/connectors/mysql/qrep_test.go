@@ -34,7 +34,7 @@ func TestMapQValue(t *testing.T) {
 		versionWithMetadata bool
 	}{
 		{
-			name: "without metadata, should convert enum value to string",
+			name: "without metadata, should convert enum value to it's index",
 			qv: types.QValueEnum{
 				Val: "small",
 			},
@@ -181,6 +181,26 @@ func TestParseEnumOptions(t *testing.T) {
 			name:       "empty string value",
 			columnType: "enum('')",
 			expected:   []string{""},
+		},
+		{
+			name:       "value with comma inside",
+			columnType: "enum('a,b','c')",
+			expected:   []string{"a,b", "c"},
+		},
+		{
+			name:       "multiple values with commas inside",
+			columnType: "enum('a,b','c,d,e','f')",
+			expected:   []string{"a,b", "c,d,e", "f"},
+		},
+		{
+			name:       "value with escaped single quote",
+			columnType: `enum('it''s','fine')`,
+			expected:   []string{"its", "fine"},
+		},
+		{
+			name:       "empty string among other values",
+			columnType: "enum('active','','pending')",
+			expected:   []string{"active", "", "pending"},
 		},
 	}
 
