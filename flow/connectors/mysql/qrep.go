@@ -296,7 +296,7 @@ func (c *MySqlConnector) mapQValue(
 		}
 
 		enumToInt := func(val string) (string, error) {
-			// MySQL enum index 0 is the empty string (invalid/unset enum value)
+			// empty enum value is represented as an empty string, same on CDC level
 			if val == "" {
 				return "", nil
 			}
