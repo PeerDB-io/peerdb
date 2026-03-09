@@ -225,6 +225,22 @@ func (v QValueUInt64) LValue(ls *lua.LState) lua.LValue {
 	return glua64.U64.New(ls, v.Val)
 }
 
+type QValueUInt128 struct {
+	Val *big.Int
+}
+
+func (QValueUInt128) Kind() QValueKind {
+	return QValueKindUInt128
+}
+
+func (v QValueUInt128) Value() any {
+	return v.Val
+}
+
+func (v QValueUInt128) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaBigInt.New(ls, v.Val)
+}
+
 type QValueUInt256 struct {
 	Val *big.Int
 }

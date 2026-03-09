@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math/big"
 	"slices"
 	"strings"
 	"sync"
@@ -405,6 +406,12 @@ func (p *PostgresCDCSource) decodeColumnData(
 			} else {
 				return types.QValueGeometry{Val: wkt}, nil
 			}
+		case types.QValueKindUInt128:
+			bigInt := new(big.Int)
+			if _, ok := bigInt.SetString(string(data), 10); !ok {
+				return nil, fmt.Errorf("failed to parse uint128 value: %s", string(data))
+			}
+			return types.QValueUInt128{Val: bigInt}, nil
 		case types.QValueKindHStore:
 			return types.QValueHStore{Val: string(data)}, nil
 		case types.QValueKindString:

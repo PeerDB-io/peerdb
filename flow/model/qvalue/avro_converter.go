@@ -99,6 +99,8 @@ func GetAvroSchemaFromQValueKind(
 		return getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
 	case types.QValueKindInt256:
 		return avro.NewFixedSchema("int256", "", 32, nil)
+	case types.QValueKindUInt128:
+		return avro.NewFixedSchema("uint128", "", 16, nil)
 	case types.QValueKindUInt256:
 		return avro.NewFixedSchema("uint256", "", 32, nil)
 	case types.QValueKindDate:
@@ -295,6 +297,8 @@ func QValueToAvro(
 		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt64:
 		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+	case types.QValueUInt128:
+		return c.processUInt128(v.Val), constSize(16, sizeOpt), nil
 	case types.QValueUInt256:
 		return c.processUInt256(v.Val), constSize(32, sizeOpt), nil
 	case types.QValueBoolean:
@@ -485,6 +489,29 @@ func (c *QValueAvroConverter) processInt256(num *big.Int) any {
 	}
 
 	return c.processNullableUnion(bigIntTo32Bytes(num))
+}
+
+var twoPow128 = new(big.Int).Lsh(big.NewInt(1), 128)
+
+func bigIntTo16Bytes(n *big.Int) [16]uint8 {
+	var out [16]uint8
+	b := n.Bytes()
+	for i := range b {
+		out[i] = b[len(b)-1-i]
+	}
+	return out
+}
+
+func (c *QValueAvroConverter) processUInt128(num *big.Int) any {
+	if num.Sign() < 0 || num.Cmp(twoPow128) >= 0 {
+		c.Stat.BigInt256ClearedCount++
+		if c.Nullable {
+			return nil
+		}
+		return bigIntTo16Bytes(big.NewInt(0))
+	}
+
+	return c.processNullableUnion(bigIntTo16Bytes(num))
 }
 
 func (c *QValueAvroConverter) processUInt256(num *big.Int) any {

@@ -92,6 +92,7 @@ func init() {
 	gob.Register(types.QValueUInt16{})
 	gob.Register(types.QValueUInt32{})
 	gob.Register(types.QValueUInt64{})
+	gob.Register(types.QValueUInt128{})
 	gob.Register(types.QValueUInt256{})
 	gob.Register(types.QValueBoolean{})
 	gob.Register(types.QValueQChar{})
