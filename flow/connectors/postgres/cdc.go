@@ -496,6 +496,7 @@ func PullCdcRecords[Items model.Items](
 	}
 
 	pullStart := time.Now()
+	var latestServerWALEnd, lastXLogDataServerWALEnd atomic.Int64
 	defer func() {
 		if totalRecords == 0 {
 			records.SignalAsEmpty()
@@ -522,6 +523,10 @@ func PullCdcRecords[Items model.Items](
 	shutdown := common.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+
+		p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,
+			max(latestServerWALEnd.Load()-lastXLogDataServerWALEnd.Load(), 0))
+
 		logger.Info("pulling records",
 			slog.Int64("records", totalRecords),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
@@ -683,6 +688,9 @@ func PullCdcRecords[Items model.Items](
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 				}
 
+				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
+					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
+				}
 				if pkm.ServerWALEnd > clientXLogPos {
 					clientXLogPos = pkm.ServerWALEnd
 				}
@@ -696,6 +704,9 @@ func PullCdcRecords[Items model.Items](
 				xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
 				if err != nil {
 					return fmt.Errorf("ParseXLogData failed: %w", err)
+				}
+				if int64(xld.ServerWALEnd) > lastXLogDataServerWALEnd.Load() {
+					lastXLogDataServerWALEnd.Store(int64(xld.ServerWALEnd))
 				}
 
 				logger.Debug("XLogData",
