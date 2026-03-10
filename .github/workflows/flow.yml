@@ -444,7 +444,7 @@ jobs:
           ./peer-flow worker > ../logs/peer-flow-worker.log 2>&1 &
           ./peer-flow snapshot-worker > ../logs/peer-flow-snapshot-worker.log 2>&1 &
           ./peer-flow api --port 8112 --gateway-port 8113 > ../logs/peer-flow-api.log 2>&1 &
-          gotestsum --format standard-quiet --no-color --junitfile ../test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
@@ -516,7 +516,7 @@ jobs:
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
 
-      - name: Upload peer-flow logs
+      - name: Upload peer-flow logs and test results
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
@@ -529,7 +529,7 @@ jobs:
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
         with:
           report_type: test_results
-          files: test-results.xml
+          files: logs/test-results.xml
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
