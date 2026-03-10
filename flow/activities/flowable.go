@@ -1287,6 +1287,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
 	slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
 	slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
+	slotMetricGauges.OldestTxnDurationGauge = a.OtelManager.Metrics.OldestTxnDurationGauge
 
 	logger.Info("Querying for flows to emit slot metrics")
 	rows, err := a.CatalogPool.Query(ctx,

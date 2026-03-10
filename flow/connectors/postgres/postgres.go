@@ -1723,6 +1723,18 @@ func (c *PostgresConnector) HandleSlotInfo(
 		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
 	}
 
+	var oldestTxnDuration *time.Duration
+	if err := c.conn.QueryRow(ctx,
+		// xact_start is automatically set to NULL when a transaction ends (commit/rollback)
+		"SELECT age(now(), xact_start) AS transaction_duration FROM pg_stat_activity"+
+			" WHERE xact_start IS NOT NULL ORDER BY transaction_duration DESC LIMIT 1",
+	).Scan(&oldestTxnDuration); err != nil {
+		logger.Warn("failed to get oldest transaction duration", slog.Any("error", err))
+	}
+	if oldestTxnDuration != nil {
+		slotMetricGauges.OldestTxnDurationGauge.Record(ctx, oldestTxnDuration.Microseconds(), attributeSet)
+	}
+
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo)
 }
 

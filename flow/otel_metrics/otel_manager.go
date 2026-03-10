@@ -79,6 +79,7 @@ const (
 	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 	CodeNotificationCounterName          = "code_notification"
+	OldestTxnDurationGaugeName           = "oldest_txn_duration"
 )
 
 type Metrics struct {
@@ -133,6 +134,7 @@ type Metrics struct {
 	LatestConsumedLogEventGauge      metric.Int64Gauge
 	LogRetentionGauge                metric.Float64Gauge
 	UnchangedToastValuesCounter      metric.Int64Counter
+	OldestTxnDurationGauge           metric.Int64Gauge
 }
 
 type SlotMetricGauges struct {
@@ -158,6 +160,7 @@ type SlotMetricGauges struct {
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
 	InstanceStatusGauge             metric.Int64Gauge
+	OldestTxnDurationGauge         metric.Int64Gauge
 }
 
 func BuildMetricName(baseName string) string {
@@ -578,6 +581,13 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if CodeNotificationCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CodeNotificationCounterName),
 		metric.WithDescription("One-off notifications with unique `message` attribute, triggers generic non-paging alert"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.OldestTxnDurationGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(OldestTxnDurationGaugeName),
+		metric.WithUnit("us"),
+		metric.WithDescription("Duration in microseconds of the oldest active transaction on the source database"),
 	); err != nil {
 		return err
 	}
