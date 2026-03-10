@@ -2854,7 +2854,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Empty() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// edge case: min/max will be null. initial load should skip these for now, & not panic
+// edge case: min/max will be null, but null partition should still replicate all null rows
 func (s ClickHouseSuite) Test_Partition_Key_Null() {
 	srcTableName := "test_partition_key_null"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -2890,13 +2890,15 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
+
 	countRow := s.Conn().QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
 	var partitionCount int
 	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
-	require.Zero(s.t, partitionCount, "expected no partitions to be created")
+	require.Equal(s.t, 1, partitionCount, "expected exactly 1 null partition to be created")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
