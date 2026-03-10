@@ -2878,6 +2878,11 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "updated_at",
 			ShardingKey:                "id",
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "id", NullableEnabled: true},
+				{SourceName: "myname", NullableEnabled: true},
+				{SourceName: "updated_at", NullableEnabled: true},
+			},
 		}},
 		Destination: s.Peer().Name,
 	}
