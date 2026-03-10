@@ -126,11 +126,22 @@ func GetAvroSchemaDefinition(
 	avroNameMap map[string]string,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]*avro.Field, 0, len(qRecordSchema.Fields))
+	namedSchemaSeen := make(map[string]avro.NamedSchema)
 
 	for _, qField := range qRecordSchema.Fields {
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
+		}
+
+		// Avro named types (fixed, enum, record) must only be defined once per schema;
+		// subsequent references use RefSchema to emit just the type name.
+		if named, ok := avroType.(avro.NamedSchema); ok {
+			if _, seen := namedSchemaSeen[named.FullName()]; seen {
+				avroType = avro.NewRefSchema(named)
+			} else {
+				namedSchemaSeen[named.FullName()] = named
+			}
 		}
 
 		if qField.Nullable {
