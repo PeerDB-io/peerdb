@@ -1,20 +1,18 @@
 package connpostgres
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -201,12 +199,13 @@ func (c *PostgresConnector) getPartitions(
 	}
 
 	partitionParams := PartitionParams{
-		tx:              tx,
-		watermarkTable:  watermarkTable,
-		watermarkColumn: watermarkColumn,
-		numPartitions:   numPartitions,
-		lastRangeEnd:    lastRangeEnd,
-		logger:          c.logger,
+		tx:               tx,
+		watermarkTable:   watermarkTable,
+		watermarkColumn:  watermarkColumn,
+		numPartitions:    numPartitions,
+		lastRangeEnd:     lastRangeEnd,
+		logger:           c.logger,
+		addNullPartition: config.AddNullPartition,
 	}
 
 	if config.NumPartitionsOverride <= 0 {
@@ -372,6 +371,9 @@ func corePullQRepRecords(
 
 	var rangeStart any
 	var rangeEnd any
+	var queryArgs []any
+	queryTemplate := config.Query
+	templateParams := map[string]string{"start": "$1", "end": "$2"}
 
 	// Depending on the type of the range, convert the range into the correct type
 	switch x := partition.Range.Range.(type) {
@@ -392,13 +394,23 @@ func corePullQRepRecords(
 			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
 			Valid:        true,
 		}
+	case *protos.PartitionRange_NullRange:
+		if config.BaseQuery == "" {
+			return 0, 0, errors.New("base_query must be provided for null range partitions")
+		}
+		queryTemplate = fmt.Sprintf("%s WHERE %s IS NULL", config.BaseQuery, common.QuoteIdentifier(config.WatermarkColumn))
+		templateParams = map[string]string{}
 	default:
 		return 0, 0, fmt.Errorf("unknown range type: %v", x)
 	}
 
+	if rangeStart != nil && rangeEnd != nil {
+		queryArgs = []any{rangeStart, rangeEnd}
+	}
+
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(c.logger, config.Query, config.FlowJobName)
+	query, err := utils.ExecuteTemplate(queryTemplate, templateParams)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -409,7 +421,7 @@ func corePullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
 
-	numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
+	numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, queryArgs...)
 	if err != nil {
 		return numRecords, numBytes, err
 	}
@@ -711,25 +723,6 @@ func pullXminRecordStream(
 
 	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords))
 	return numRecords, numBytes, currentSnapshotXmin, nil
-}
-
-func BuildQuery(logger log.Logger, query string, flowJobName string) (string, error) {
-	tmpl, err := template.New("query").Parse(query)
-	if err != nil {
-		return "", err
-	}
-
-	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, map[string]string{
-		"start": "$1",
-		"end":   "$2",
-	}); err != nil {
-		return "", err
-	}
-	res := buf.String()
-
-	logger.Info("[pg] templated query", slog.String("query", res))
-	return res, nil
 }
 
 // IsQRepPartitionSynced checks whether a specific partition is synced

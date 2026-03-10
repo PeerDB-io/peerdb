@@ -2362,3 +2362,43 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s APITestSuite) TestSnapshotNullPartitionKey() {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+	default:
+		s.t.Skip("only testing with PostgreSQL and MySQL")
+	}
+
+	tableName := "null_partition"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text, updated_at timestamp)", AttachSchema(s, tableName))))
+	// insert rows with both non-null and null partition key values
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val, updated_at) VALUES (1,'a','2024-01-01'), (2,'b',NULL), (3,'c','2024-01-02'), (4,'d',NULL)",
+			AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "snapshot_null_pk_" + s.suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      AttachSchema(s, tableName),
+			DestinationTableIdentifier: tableName,
+			PartitionKey:               "updated_at",
+		}},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	EnvWaitForCount(env, s.ch, "all 4 rows including nulls should be snapshotted", tableName, "*", 4)
+}

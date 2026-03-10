@@ -347,18 +347,15 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		return nil
 	}
 
-	var rangeStart, rangeEnd string
+	var rangeStart, rangeEnd *string
 	if partition.Range != nil {
 		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
-			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
-			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
+			rangeStart, rangeEnd = new(strconv.FormatInt(x.IntRange.Start, 10)), new(strconv.FormatInt(x.IntRange.End, 10))
 		case *protos.PartitionRange_UintRange:
-			rangeStart = strconv.FormatUint(x.UintRange.Start, 10)
-			rangeEnd = strconv.FormatUint(x.UintRange.End, 10)
+			rangeStart, rangeEnd = new(strconv.FormatUint(x.UintRange.Start, 10)), new(strconv.FormatUint(x.UintRange.End, 10))
 		case *protos.PartitionRange_TimestampRange:
-			rangeStart = x.TimestampRange.Start.AsTime().String()
-			rangeEnd = x.TimestampRange.End.AsTime().String()
+			rangeStart, rangeEnd = new(x.TimestampRange.Start.AsTime().String()), new(x.TimestampRange.End.AsTime().String())
 		case *protos.PartitionRange_TidRange:
 			rangeStartValue, err := pgtype.TID{
 				BlockNumber:  x.TidRange.Start.BlockNumber,
@@ -368,7 +365,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			if err != nil {
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
-			rangeStart = rangeStartValue.(string)
+			rangeStart = new(rangeStartValue.(string))
 
 			rangeEndValue, err := pgtype.TID{
 				BlockNumber:  x.TidRange.End.BlockNumber,
@@ -378,10 +375,11 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			if err != nil {
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
-			rangeEnd = rangeEndValue.(string)
+			rangeEnd = new(rangeEndValue.(string))
 		case *protos.PartitionRange_ObjectIdRange:
-			rangeStart = x.ObjectIdRange.Start
-			rangeEnd = x.ObjectIdRange.End
+			rangeStart, rangeEnd = &x.ObjectIdRange.Start, &x.ObjectIdRange.End
+		case *protos.PartitionRange_NullRange:
+			// leave rangeStart and rangeEnd as nil
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}
