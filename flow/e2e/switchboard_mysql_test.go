@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -238,6 +239,9 @@ func (s SwitchboardMySQLSuite) Test_QueryComplexity_GroupBy() {
 }
 
 func (s SwitchboardMySQLSuite) Test_QueryComplexity_CTE() {
+	if os.Getenv("CI_MYSQL_VERSION") == "mysql-pos" {
+		s.t.Skip("MySQL 5.7 does not support CTEs")
+	}
 	output, err := s.psql("WITH cte AS (SELECT 1 AS x) SELECT * FROM cte")
 	require.NoError(s.t, err)
 	require.Equal(s.t, "1", output)

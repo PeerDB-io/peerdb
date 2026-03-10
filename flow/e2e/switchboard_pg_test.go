@@ -718,7 +718,7 @@ func (s SwitchboardPostgresSuite) Test_MidBatchError_ErrorStopsExecution() {
 	if err != nil {
 		errorText += err.Error()
 	}
-	require.Contains(s.t, strings.ToLower(errorText), "syntax", "Should report syntax error")
+	require.Contains(s.t, strings.ToLower(errorText), "not allowed", "Should report statement not allowed")
 	require.NotContains(s.t, output, "333", "First query result should not appear")
 	require.NotContains(s.t, output, "999", "Third query result should not appear")
 }
@@ -730,7 +730,7 @@ func (s SwitchboardPostgresSuite) Test_MidBatchError_ErrorInTransaction() {
 	if err != nil {
 		errorText += err.Error()
 	}
-	require.Contains(s.t, strings.ToLower(errorText), "syntax", "Should report syntax error")
+	require.Contains(s.t, strings.ToLower(errorText), "not allowed", "Should report statement not allowed")
 }
 
 // ========================================
