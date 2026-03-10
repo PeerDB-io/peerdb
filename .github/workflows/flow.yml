@@ -46,7 +46,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:a6340e8d52455996b6fbe34df219305cb934eddceab2da2ce8e1ef32bbe04703
+        image: redpandadata/redpanda@sha256:75d20ebc35b42d1b611a952f6f5abf85360940470a1469328ec4f9005f30f664
         ports:
           - 9092:9092
           - 9644:9644
@@ -76,7 +76,7 @@ jobs:
           - 49002:49002
           - 49003:49003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:fdd9783e0fa4c52592c8405765c5de04dcf657db1b4d6ab073c14c4b998ca1fa
+        image: linuxserver/openssh-server:latest@sha256:68b605929e83b2efe000da09269688f6d82a44579e8a18e2d9e8c8d272917cf7
         ports:
           - 2222:2222
         env:
@@ -97,7 +97,7 @@ jobs:
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
         with:
-          go-version: '1.26.0'
+          go-version: '1.26.1'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
@@ -480,6 +480,7 @@ jobs:
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
+          PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}

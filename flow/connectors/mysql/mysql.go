@@ -68,7 +68,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		rdsAuth:          rdsAuth,
 	}
 	c.contexts.Store(&contexts)
-	go func() {
+	go func() { //nolint:gosec // G118: long-lived goroutine, not request-scoped
 		ctx := context.Background()
 		for {
 			var ok bool
@@ -276,6 +276,15 @@ func (c *MySqlConnector) withRetries(ctx context.Context) iter.Seq2[*client.Conn
 			conn.Close()
 		}
 	}
+}
+
+func (c *MySqlConnector) ExecuteNoRetry(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
+	defer c.watchCtx(ctx)()
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return conn.Execute(cmd, args...)
 }
 
 func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {

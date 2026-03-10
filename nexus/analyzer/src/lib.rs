@@ -862,6 +862,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 certificate: opts.get("certificate").map(|s| s.to_string()),
                 private_key: opts.get("private_key").map(|s| s.to_string()),
                 root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                max_record_batch_bytes: opts
+                    .get("max_record_batch_bytes")
+                    .and_then(|s| s.parse::<i32>().ok()),
             };
             Config::KafkaConfig(kafka_config)
         }

@@ -75,7 +75,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.29@sha256:9be7b8d98f60d00f4f2ff74731c071a17848d8182bbc8429e314a24c94ea105b
+    image: temporalio/auto-setup:1.29@sha256:bdd857aa9574fbc1544028ee37795e29fdce5017c767dabf86957a10732afc15
     ports:
       - 7233:7233
     volumes:
@@ -127,11 +127,13 @@ services:
     ports:
       - 8112:8112
       - 8113:8113
+      - 5732:5732
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
       PEERDB_ALLOWED_TARGETS:
       PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
       PEERDB_API_REQUEST_LOGGING_ENABLED: true
+      PEERDB_SWITCHBOARD_ENABLED: true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
