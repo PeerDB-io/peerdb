@@ -1,0 +1,1 @@
+-- test duplicate migration number
