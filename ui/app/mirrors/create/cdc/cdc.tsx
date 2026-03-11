@@ -179,6 +179,12 @@ export default function CDCConfigForm({
     );
   };
 
+  const shouldHideDisableAllPeerDBColumns = (label: string) => {
+    return (
+      label.includes('disable all peerdb columns') && !isClickhouseDestination()
+    );
+  };
+
   const shouldHideBigQuerySourceIncompatibleFields = (label: string) => {
     if (!isBigQuerySource()) {
       return false;
@@ -206,6 +212,7 @@ export default function CDCConfigForm({
       shouldHideSoftDelete(label),
       shoudlHideHardDelete(label),
       shouldHideClickhouseScript(label),
+      shouldHideDisableAllPeerDBColumns(label),
       shouldHideBigQuerySourceIncompatibleFields(label),
     ];
 
