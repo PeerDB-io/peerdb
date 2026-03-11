@@ -478,6 +478,18 @@ export const kaSchema = z.object({
     )
     .optional(),
   disableTls: z.boolean().optional(),
+  maxRecordBatchBytes: z
+    .number({
+      error: () => 'Max record batch bytes must be a number',
+    })
+    .int({
+      message: 'Max record batch bytes must be an integer',
+    })
+    .min(1, { message: 'Max record batch bytes must be greater than 0' })
+    .max(2147483647, {
+      message: 'Max record batch bytes must be less than or equal to 2147483647',
+    })
+    .optional(),
 });
 
 const urlSchema = z

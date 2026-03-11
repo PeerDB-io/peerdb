@@ -409,6 +409,24 @@ func TestPostgresReorderbufferSpillFileBadFileDescriptorErrorShouldBeRecoverable
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresReorderBufferIterTXNNextResourceUnavailableShouldBeRecoverable(t *testing.T) {
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message: "Unable to restore changes for xid 468194444. " +
+				"Restored 10/9 changes from disk and currently at segno 8846. Resource temporarily unavailable",
+			Routine: "ReorderBufferIterTXNNext",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T) {
 	// Simulate an "undefined object" error without publication related message
 	err := &pgconn.PgError{

@@ -190,6 +190,7 @@ func (c *MongoConnector) PullRecords(
 	}()
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
+	//nolint:gosec // G118: cancelTimeout called in defer, gosec can't track reassignment
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 
 	reportBytesShutdown := common.Interval(ctx, time.Second*10, func() {
@@ -260,7 +261,7 @@ func (c *MongoConnector) PullRecords(
 		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
-			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout) //nolint:gosec // G118: cancelTimeout called in defer
 		}
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mongo] PullRecords streaming",

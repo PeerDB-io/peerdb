@@ -199,8 +199,12 @@ func (u *PostgresUpstream) CheckQuery(query string) error {
 		return fmt.Errorf("failed to parse SQL: %w", err)
 	}
 	for _, stmt := range statements {
-		keyword, rest, _ := strings.Cut(stmt, " ")
-		keyword = strings.ToUpper(strings.TrimSpace(keyword))
+		fields := strings.Fields(stmt)
+		if len(fields) == 0 {
+			continue
+		}
+		keyword := strings.ToUpper(fields[0])
+		rest := strings.TrimSpace(strings.TrimPrefix(stmt, fields[0]))
 		if _, allowed := postgresAllowedFirstKeywords[keyword]; !allowed {
 			return fmt.Errorf("statement not allowed: %s", keyword)
 		}

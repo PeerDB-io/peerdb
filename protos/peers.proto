@@ -240,6 +240,7 @@ message KafkaConfig {
   optional string certificate = 7 [(peerdb_redacted) = true];
   optional string private_key = 8 [(peerdb_redacted) = true];
   optional string root_ca = 9 [(peerdb_redacted) = true];
+  optional int32 max_record_batch_bytes = 10;
 }
 
 enum ElasticsearchAuthType {

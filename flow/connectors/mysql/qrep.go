@@ -1,16 +1,14 @@
 package connmysql
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
-	"text/template"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
-	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -59,22 +57,16 @@ func (c *MySqlConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to parse watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	var minmaxQuery string
+	minmaxQuery := fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s",
+		parsedWatermarkTable.MySQL(), config.WatermarkColumn)
 	var minmaxHasCount bool
-	if last != nil && last.Range != nil {
-		// partial query, append minVal later
-		if numPartitions == 0 {
-			minmaxHasCount = true
-			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`),COUNT(*) FROM %[1]s WHERE `%[2]s` > ",
-				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
-		} else {
-			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s WHERE `%[2]s` > ",
-				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
-		}
-	} else if numPartitions == 0 {
-		minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s",
+	if last != nil && last.Range != nil && numPartitions == 0 {
+		// we resume replication from the last partition, we need to include count of the remaining rows in the query
+		minmaxHasCount = true
+		minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`),COUNT(*) FROM %[1]s",
 			parsedWatermarkTable.MySQL(), config.WatermarkColumn)
-
+	} else if numPartitions == 0 {
+		// we are starting replication from the beginning and need to estimate approximate rows count to calculate partitions
 		totalRows, err := c.tableRowEstimate(ctx, parsedWatermarkTable.Namespace, parsedWatermarkTable.Table)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
@@ -107,14 +99,16 @@ func (c *MySqlConnector) GetQRepPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			time := lastRange.TimestampRange.End.AsTime()
 			minVal = "'" + time.Format("2006-01-02 15:04:05.999999") + "'"
+		case *protos.PartitionRange_NullRange:
+			// this case should never happen because we only add null partition for InitialCopyOnly replication
+			// (so there shouldn't be a resume scenario with null range)
+			return nil, errors.New("unexpected null range in last partition after resuming QRep")
 		}
 
-		c.logger.Info("querying min/max", slog.String("query", minmaxQuery), slog.String("minVal", minVal))
-		rs, err = c.Execute(ctx, minmaxQuery+minVal)
-	} else {
-		c.logger.Info("querying min/max", slog.String("query", minmaxQuery))
-		rs, err = c.Execute(ctx, minmaxQuery)
+		minmaxQuery = fmt.Sprintf("%s WHERE `%s` > %s", minmaxQuery, config.WatermarkColumn, minVal)
 	}
+	c.logger.Info("querying min/max", slog.String("query", minmaxQuery))
+	rs, err = c.Execute(ctx, minmaxQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +155,12 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 	if err := partitionHelper.AddPartitionsWithRange(val1.Value(), val2.Value(), numPartitions); err != nil {
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
+	}
+
+	// add null values partition to the end, if nulls aren't present it will be an empty partition
+	// that gets skipped during replication
+	if config.AddNullPartition {
+		partitionHelper.AddNullPartition()
 	}
 
 	return partitionHelper.GetPartitions(), nil
@@ -247,6 +247,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		var rangeStart string
 		var rangeEnd string
 
+		queryTemplate := config.Query
 		// Depending on the type of the range, convert the range into the correct type
 		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -258,13 +259,24 @@ func (c *MySqlConnector) PullQRepRecords(
 		case *protos.PartitionRange_TimestampRange:
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
+		case *protos.PartitionRange_NullRange:
+			if config.BaseQuery == "" {
+				return 0, 0, errors.New("base query must be provided for null range partition")
+			}
+			queryTemplate = fmt.Sprintf("%s WHERE `%s` IS NULL", config.BaseQuery, config.WatermarkColumn)
 		default:
 			return 0, 0, fmt.Errorf("unknown range type: %v", x)
 		}
 
+		templateParams := map[string]string{}
+		if rangeStart != "" && rangeEnd != "" {
+			templateParams["start"] = rangeStart
+			templateParams["end"] = rangeEnd
+		}
+
 		// Build the query to pull records within the range from the source table
 		// Be sure to order the results by the watermark column to ensure consistency across pulls
-		query, err := BuildQuery(c.logger, config.Query, rangeStart, rangeEnd)
+		query, err := utils.ExecuteTemplate(queryTemplate, templateParams)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -279,23 +291,4 @@ func (c *MySqlConnector) PullQRepRecords(
 		slog.Int64("bytes", c.totalBytesRead.Load()),
 		slog.Int("channelLen", len(stream.Records)))
 	return totalRecords, c.deltaBytesRead.Swap(0), nil
-}
-
-func BuildQuery(logger log.Logger, query string, start string, end string) (string, error) {
-	tmpl, err := template.New("query").Parse(query)
-	if err != nil {
-		return "", err
-	}
-
-	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, map[string]string{
-		"start": start,
-		"end":   end,
-	}); err != nil {
-		return "", err
-	}
-	res := buf.String()
-
-	logger.Info("[mysql] templated query", slog.String("query", res))
-	return res, nil
 }

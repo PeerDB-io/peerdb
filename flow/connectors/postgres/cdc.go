@@ -208,7 +208,7 @@ func (pgProcessor) Process(
 			col.DataType,
 		)
 	default:
-		return fmt.Errorf("unknown column data type: %s", string(tuple.DataType))
+		return fmt.Errorf("unknown column data type for column %s: %s", col.Name, string(tuple.DataType))
 	}
 	return nil
 }
@@ -241,7 +241,7 @@ func (qProcessor) Process(
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
 				slog.String("columnName", col.Name), slog.Uint64("dataType", uint64(col.DataType)))
-			return fmt.Errorf("error decoding text column data: %w", err)
+			return fmt.Errorf("error decoding text data for column %s: %w", col.Name, err)
 		}
 		items.AddColumn(col.Name, data)
 	case 'b': // binary
@@ -249,11 +249,11 @@ func (qProcessor) Process(
 			tuple.Data, col.DataType, col.TypeModifier, pgtype.BinaryFormatCode, customTypeMapping, p.internalVersion,
 		)
 		if err != nil {
-			return fmt.Errorf("error decoding binary column data: %w", err)
+			return fmt.Errorf("error decoding binary data for column %s: %w", col.Name, err)
 		}
 		items.AddColumn(col.Name, data)
 	default:
-		return fmt.Errorf("unknown column data type: %s", string(tuple.DataType))
+		return fmt.Errorf("unknown data type for column %s: %s", col.Name, string(tuple.DataType))
 	}
 	return nil
 }
@@ -964,7 +964,7 @@ func processInsertMessage[Items model.Items](
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", relID)
+		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -975,7 +975,7 @@ func processInsertMessage[Items model.Items](
 	baseRecord := p.baseRecord(lsn)
 	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
-		return nil, fmt.Errorf("error converting tuple to map: %w", err)
+		return nil, fmt.Errorf("failed to process insert message for table %s: %w", tableName, err)
 	}
 
 	return &model.InsertRecord[Items]{
@@ -1006,7 +1006,7 @@ func processUpdateMessage[Items model.Items](
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", relID)
+		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -1016,14 +1016,14 @@ func processUpdateMessage[Items model.Items](
 
 	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, "", model.BaseRecord{})
 	if err != nil {
-		return nil, fmt.Errorf("error converting old tuple to map: %w", err)
+		return nil, fmt.Errorf("failed to process update message (OldTuple) for table %s: %w", tableName, err)
 	}
 
 	baseRecord := p.baseRecord(lsn)
 	newItems, unchangedToastColumns, err := processTuple(
 		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
-		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
+		return nil, fmt.Errorf("failed to process update message (NewTuple) for table %s: %w", tableName, err)
 	}
 
 	/*
@@ -1069,7 +1069,7 @@ func processDeleteMessage[Items model.Items](
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", relID)
+		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -1080,7 +1080,7 @@ func processDeleteMessage[Items model.Items](
 	baseRecord := p.baseRecord(lsn)
 	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
-		return nil, fmt.Errorf("error converting tuple to map: %w", err)
+		return nil, fmt.Errorf("failed to process delete message for table %s: %w", tableName, err)
 	}
 
 	return &model.DeleteRecord[Items]{

@@ -109,6 +109,28 @@ export const kaSetting: PeerSetting[] = [
     optional: true,
     tips: 'If not provided, host CA roots will be used.',
   },
+  {
+    label: 'Max Record Batch Bytes',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        setter((curr) => {
+          const newCurr = { ...curr } as KafkaConfig;
+          delete newCurr.maxRecordBatchBytes;
+          return newCurr;
+        });
+      } else {
+        setter((curr) => ({
+          ...curr,
+          maxRecordBatchBytes: parseInt(value as string, 10),
+        }));
+      }
+    },
+    type: 'number',
+    optional: true,
+    tips: 'Overrides the default batch size (1000012 bytes) to match broker settings.',
+    helpfulLink:
+      'https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#ProducerBatchMaxBytes',
+  },
 ];
 
 export const blankKafkaSetting: KafkaConfig = {
