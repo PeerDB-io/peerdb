@@ -191,6 +191,7 @@ func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*prot
 
 // ComputeNumPartitions computes the number of partitions given desired number of rows
 // per partition, with automatic adjustment to respect the maximum partition limit.
+// TODO: use estimated row count for partitioned/inherited tables as well
 func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPartition int64) (int64, error) {
 	const preciseCountTemplate = "SELECT COUNT(*) FROM %s %s"
 	// Use reltuples/relpages density multiplied by the current on-disk page count
