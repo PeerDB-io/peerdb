@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   actions: write
+  id-token: write
 
 jobs:
   detect-flaky:
