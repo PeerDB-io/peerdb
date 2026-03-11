@@ -167,7 +167,7 @@ export const cdcSettings: MirrorSetting[] = [
     required: true,
   },
   {
-    label: 'Hard delete',
+    label: 'Delete rows on ReplacingMergeTree MERGE',
     stateHandler: (value, setter) =>
       setter(
         (curr: CDCConfig): CDCConfig => ({

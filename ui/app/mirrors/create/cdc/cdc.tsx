@@ -159,11 +159,18 @@ export default function CDCConfigForm({
   };
 
   const shouldHideSoftDelete = (label: string) => {
-    return label.includes('soft delete') && !supportsSoftDelete();
+    return (
+      label.includes('soft delete') &&
+      !supportsSoftDelete() &&
+      !IsClickHousePeer(destinationType)
+    );
   };
 
   const shoudlHideHardDelete = (label: string) => {
-    return label.includes('hard delete') && !supportsHardDelete();
+    return (
+      label.includes('delete rows on replacingmergetree merge') &&
+      !supportsHardDelete()
+    );
   };
 
   const shouldHideClickhouseScript = (label: string) => {
