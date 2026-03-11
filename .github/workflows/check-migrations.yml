@@ -3,10 +3,8 @@ name: Migration Versions
 on:
   push:
     branches: [main]
-    paths: [nexus/catalog/migrations/**]
   pull_request:
     branches: [main]
-    paths: [nexus/catalog/migrations/**]
 
 permissions:
   contents: read
