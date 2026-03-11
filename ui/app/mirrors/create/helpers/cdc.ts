@@ -178,7 +178,7 @@ export const cdcSettings: MirrorSetting[] = [
             : '',
         })
       ),
-    tips: 'Places the is_deleted column inside the ReplacingMergeTree syntax - allowing FINAL and merges to remove records marked as deleted',
+    tips: 'Places the _peerdb_is_deleted column inside the ReplacingMergeTree syntax - allowing FINAL and merges to remove records marked as deleted',
     default: false,
     type: 'switch',
     required: false,
