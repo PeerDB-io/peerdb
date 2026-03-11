@@ -16,7 +16,8 @@ jobs:
   detect-flaky:
     if: |
       github.event.workflow_run.conclusion == 'failure' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.run_attempt <= 5
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -63,8 +64,7 @@ jobs:
           echo ""
           echo "Triggering automatic retry..."
 
-          gh workflow run "${{ github.event.workflow_run.name }}" \
-            --ref "${{ github.event.workflow_run.head_branch }}"
+          gh run rerun ${{ github.event.workflow_run.id }} --failed
 
       # Low confidence flaky detection - skip retry
       - name: Low confidence detection
@@ -92,9 +92,12 @@ jobs:
           pr_number=$(gh pr list --head "${{ github.event.workflow_run.head_branch }}" --json number --jq '.[0].number')
 
           if [ -n "$pr_number" ]; then
-            if [ "$IS_FLAKY" = "true" ]; then
+            if [ "$IS_FLAKY" = "true" ] && [ "$(echo "$CONFIDENCE >= 0.7" | bc)" -eq 1 ]; then
               TITLE="🔄 Flaky Test Detected"
               ACTION="✅ Automatically retrying the workflow"
+            elif [ "$IS_FLAKY" = "true" ]; then
+              TITLE="🔄 Possible Flaky Test"
+              ACTION="⚠️ Confidence too low ($CONFIDENCE) to retry automatically - manual review recommended"
             else
               TITLE="❌ Test Failure"
               ACTION="⚠️ This appears to be a real bug - manual intervention needed"
