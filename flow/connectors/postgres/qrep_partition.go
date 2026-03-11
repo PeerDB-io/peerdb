@@ -193,7 +193,18 @@ func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*prot
 // per partition, with automatic adjustment to respect the maximum partition limit.
 func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPartition int64) (int64, error) {
 	const preciseCountTemplate = "SELECT COUNT(*) FROM %s %s"
-	const estimatedCountTemplate = "SELECT reltuples::bigint FROM pg_class WHERE oid = to_regclass($1)"
+	// Use reltuples/relpages density multiplied by the current on-disk page count
+	// for a more accurate estimate than just reltuples (this is what the planner uses,
+	// see https://www.citusdata.com/blog/2016/10/12/count-performance/#dup_counts_estimated_full).
+	// For inherited/partitioned tables pg_relation_size, reltuples, and relpages
+	// only reflect the parent table, so we return 0 and fall back to precise count query.
+	const estimatedCountTemplate = `SELECT CASE
+		WHEN c.relhassubclass THEN 0
+		WHEN c.reltuples >= 0 AND c.relpages > 0 THEN
+			(c.reltuples / c.relpages * (pg_relation_size(c.oid) / current_setting('block_size')::integer))::bigint
+		ELSE c.reltuples::bigint
+		END
+		FROM pg_class c WHERE c.oid = to_regclass($1)`
 
 	var totalRows pgtype.Int8
 	var whereClause string
@@ -209,8 +220,12 @@ func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPar
 		queryArgs = []any{pp.lastRangeEnd}
 	}
 
-	// reltuples is -1 if the table has never been analyzed, or may be 0 when the table stats is stale,
-	// fall back to COUNT(*) in both cases; also used for polling-based flows with lastRangeEnd
+	// reltuples is -1 if the table has never been analyzed
+	// reltuples is 0 if:
+	//   - table is new and stats is stale; or
+	//   - table is inherited/partitioned (see query above); or
+	//   - polling-based flows (estimated row count is skipped)
+	// In all cases, fall back to precise count query
 	if totalRows.Int64 <= 0 {
 		countQuery := fmt.Sprintf(preciseCountTemplate, pp.watermarkTable, whereClause)
 		pp.logger.Info("fetch row count", slog.String("query", countQuery))
