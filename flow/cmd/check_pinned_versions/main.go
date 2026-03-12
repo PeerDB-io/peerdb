@@ -24,7 +24,11 @@ var pinnedVersions = map[string]string{
 }
 
 func main() {
-	_, thisFile, _, _ := runtime.Caller(0)
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "failed to determine source file path")
+		os.Exit(1)
+	}
 	goModPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "go.mod")
 	data, err := os.ReadFile(goModPath)
 	if err != nil {
@@ -60,19 +64,22 @@ func main() {
 	for mod, pinnedVer := range pinnedVersions {
 		ver, ok := found[mod]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "pinned module %s (expected %s) not found with PINNED comment in go.mod — was the comment removed?\n", mod, pinnedVer)
+			fmt.Fprintf(os.Stderr, "pinned module %s (expected %s) not found with"+
+				" PINNED comment in go.mod — was the comment removed?\n", mod, pinnedVer)
 			failed = true
 			continue
 		}
 		if ver != pinnedVer {
-			fmt.Fprintf(os.Stderr, "pinned module %s: go.mod has %s, expected %s — if this upgrade is intentional, update pinnedVersions in cmd/check_pinned_versions/main.go\n", mod, ver, pinnedVer)
+			fmt.Fprintf(os.Stderr, "pinned module %s: go.mod has %s, expected %s —"+
+				" if this upgrade is intentional, update pinnedVersions in cmd/check_pinned_versions/main.go\n", mod, ver, pinnedVer)
 			failed = true
 		}
 	}
 
 	for mod := range found {
 		if _, ok := pinnedVersions[mod]; !ok {
-			fmt.Fprintf(os.Stderr, "module %s has a PINNED comment in go.mod but is not in pinnedVersions — add it to cmd/check_pinned_versions/main.go\n", mod)
+			fmt.Fprintf(os.Stderr, "module %s has a PINNED comment in go.mod but is"+
+				" not in pinnedVersions — add it to cmd/check_pinned_versions/main.go\n", mod)
 			failed = true
 		}
 	}
