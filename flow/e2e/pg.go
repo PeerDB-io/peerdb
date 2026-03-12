@@ -23,6 +23,14 @@ import (
 )
 
 func cleanPostgres(ctx context.Context, conn *pgx.Conn, suffix string) error {
+	// terminate backends by suffix
+	if _, err := conn.Exec(ctx,
+		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid != pg_backend_pid() AND query LIKE $1",
+		"%"+suffix+"%",
+	); err != nil {
+		return fmt.Errorf("failed to terminate backends: %w", err)
+	}
+
 	// drop the e2e_test schema with the given suffix if it exists
 	if _, err := conn.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS e2e_test_%s CASCADE", suffix)); err != nil {
 		return fmt.Errorf("failed to drop e2e_test schema: %w", err)

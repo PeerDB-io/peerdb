@@ -1,0 +1,21 @@
+name: Rerun Flow Tests
+
+on:
+  workflow_run:
+    workflows: ["Flow build and test"]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  rerun:
+    if: github.event.workflow_run.head_branch != 'main' && github.event.workflow_run.run_attempt < 40
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rerun
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Attempt ${{ github.event.workflow_run.run_attempt }}/40 finished (${{ github.event.workflow_run.conclusion }}), triggering rerun..."
+          gh run rerun ${{ github.event.workflow_run.id }} --repo ${{ github.repository }}
