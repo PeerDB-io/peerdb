@@ -21,9 +21,11 @@ Make a to-do list for the following sequence, then execute it:
     b. flag if anything else was breaking and doesn't have an easy fix
     c. validate with `go build`
     d. run the linters from `golang-lint.yml`
+    e. run `go run ./cmd/check_pinned_versions` from `flow/` to verify pinned versions are consistent
 6. Update Buf plugins in `buf.gen.yaml`, flag if anything is more than a simple version bump
 7. Report the summary to the user, listing all deps that needed a manual intervention. Prompt them to run the UI app locally to check for runtime errors. If there are unresolved Go dependency breaks, ask the user if they want to tackle them now or have you revert and mark as // PINNED. If downgrading:
     a. Carefully discover all related dependencies and restore the last working versions of them
     b. Add a // PINNED with a one-line explanantion to the dependency that broke
     c. Add a // PINNED to parent dependenices with a pointer to the root cause package
-    d. Outline an up to half-paragraph description of the hurdle to the user so they can put it in a task
+    d. Update the `pinnedVersions` map in `flow/cmd/check_pinned_versions/main.go` to match
+    e. Outline an up to half-paragraph description of the hurdle to the user so they can put it in a task

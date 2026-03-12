@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
-	"testing"
 
 	"golang.org/x/mod/modfile"
 )
@@ -21,15 +23,19 @@ var pinnedVersions = map[string]string{
 	"github.com/tikv/pd/client":                       "v0.0.0-20251229071808-6173d50c004c",
 }
 
-func TestPinnedDependencies(t *testing.T) {
-	data, err := os.ReadFile("go.mod")
+func main() {
+	_, thisFile, _, _ := runtime.Caller(0)
+	goModPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "go.mod")
+	data, err := os.ReadFile(goModPath)
 	if err != nil {
-		t.Fatalf("failed to read go.mod: %v", err)
+		fmt.Fprintf(os.Stderr, "failed to read go.mod: %v\n", err)
+		os.Exit(1)
 	}
 
 	f, err := modfile.Parse("go.mod", data, nil)
 	if err != nil {
-		t.Fatalf("failed to parse go.mod: %v", err)
+		fmt.Fprintf(os.Stderr, "failed to parse go.mod: %v\n", err)
+		os.Exit(1)
 	}
 
 	found := make(map[string]string)
@@ -50,23 +56,28 @@ func TestPinnedDependencies(t *testing.T) {
 		}
 	}
 
+	failed := false
 	for mod, pinnedVer := range pinnedVersions {
 		ver, ok := found[mod]
 		if !ok {
-			t.Errorf("pinned module %s (expected %s) not found with PINNED comment in go.mod — "+
-				"was the comment removed?", mod, pinnedVer)
+			fmt.Fprintf(os.Stderr, "pinned module %s (expected %s) not found with PINNED comment in go.mod — was the comment removed?\n", mod, pinnedVer)
+			failed = true
 			continue
 		}
 		if ver != pinnedVer {
-			t.Errorf("pinned module %s: go.mod has %s, expected %s — "+
-				"if this upgrade is intentional, update pinnedVersions in go_mod_test.go", mod, ver, pinnedVer)
+			fmt.Fprintf(os.Stderr, "pinned module %s: go.mod has %s, expected %s — if this upgrade is intentional, update pinnedVersions in cmd/check_pinned_versions/main.go\n", mod, ver, pinnedVer)
+			failed = true
 		}
 	}
 
 	for mod := range found {
 		if _, ok := pinnedVersions[mod]; !ok {
-			t.Errorf("module %s has a PINNED comment in go.mod but is not in pinnedVersions — "+
-				"add it to go_mod_test.go", mod)
+			fmt.Fprintf(os.Stderr, "module %s has a PINNED comment in go.mod but is not in pinnedVersions — add it to cmd/check_pinned_versions/main.go\n", mod)
+			failed = true
 		}
+	}
+
+	if failed {
+		os.Exit(1)
 	}
 }

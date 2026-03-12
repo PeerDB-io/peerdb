@@ -1,0 +1,24 @@
+name: Pinned dependency versions
+
+on:
+  pull_request:
+    branches: [main]
+    paths: [flow/go.mod, flow/cmd/check_pinned_versions/**, .github/workflows/pinned-versions.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  pinned_versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
+        with:
+          go-version: '1.26.1'
+          cache-dependency-path: flow/go.sum
+
+      - name: Check pinned dependency versions
+        run: go run ./cmd/check_pinned_versions
+        working-directory: ./flow
