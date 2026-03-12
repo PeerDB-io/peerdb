@@ -501,6 +501,7 @@ func pullChildTableRanges(
 
 	var totalRecords, totalBytes int64
 	for _, child := range partition.ChildTableRanges {
+		// TODO: update with structured query components once introduced
 		query := strings.ReplaceAll(baseQuery, config.WatermarkTable, child.Table)
 
 		rangeStart := pgtype.TID{

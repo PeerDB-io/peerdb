@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand/v2"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,7 +71,7 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 	}
 }
 
-func setupTestSchema(t *testing.T) (string, *pgx.Conn) {
+func setupTestSchema(t *testing.T) (string, *pgx.Conn, string) {
 	t.Helper()
 	catalogConnStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
 
@@ -92,8 +92,7 @@ func setupTestSchema(t *testing.T) (string, *pgx.Conn) {
 	}
 	t.Cleanup(func() { conn.Close(t.Context()) })
 
-	//nolint:gosec // Generate a random schema name, number has no cryptographic significance
-	schemaName := fmt.Sprintf("test_%d", rand.Uint64())
+	schemaName := "test_" + strings.ToLower(shared.RandomString(8))
 
 	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
 	if err != nil {
@@ -105,7 +104,14 @@ func setupTestSchema(t *testing.T) (string, *pgx.Conn) {
 		}
 	})
 
-	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
+	return schemaName, conn, catalogConnStr
+}
+
+func setupTestSchemaAndTable(t *testing.T) (string, *pgx.Conn) {
+	t.Helper()
+	schemaName, conn, _ := setupTestSchema(t)
+
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s.test (
 			id SERIAL PRIMARY KEY,
 			value INT NOT NULL,
@@ -121,7 +127,7 @@ func setupTestSchema(t *testing.T) (string, *pgx.Conn) {
 
 func TestGetQRepPartitions(t *testing.T) {
 	t.Parallel()
-	schemaName, conn := setupTestSchema(t)
+	schemaName, conn := setupTestSchemaAndTable(t)
 
 	// from 2010 Jan 1 10:00 AM UTC to 2010 Jan 30 10:00 AM UTC
 	numRows := prepareTestData(t, conn, schemaName, false)
@@ -203,7 +209,7 @@ func TestGetQRepPartitions(t *testing.T) {
 
 func TestGetQRepPartitionsWithNulls(t *testing.T) {
 	t.Parallel()
-	schemaName, conn := setupTestSchema(t)
+	schemaName, conn := setupTestSchemaAndTable(t)
 
 	// 30 non-null rows + 12 null rows = 42 total
 	numRows := prepareTestData(t, conn, schemaName, true)
@@ -259,37 +265,10 @@ func TestGetQRepPartitionsWithNulls(t *testing.T) {
 
 func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 	t.Parallel()
-	connStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
-
-	config, err := pgx.ParseConfig(connStr)
-	if err != nil {
-		t.Fatalf("Failed to parse config: %v", err)
-	}
-
-	tunnel, err := utils.NewSSHTunnel(t.Context(), nil)
-	if err != nil {
-		t.Fatalf("Failed to create tunnel: %v", err)
-	}
-	defer tunnel.Close()
-
-	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, tunnel)
-	if err != nil {
-		t.Fatalf("Failed to create connection: %v", err)
-	}
-	defer conn.Close(t.Context())
-
-	//nolint:gosec
-	schemaName := fmt.Sprintf("test_%d", rand.Uint64())
-	_, err = conn.Exec(t.Context(), "CREATE SCHEMA "+schemaName)
-	if err != nil {
-		t.Fatalf("Failed to create schema: %v", err)
-	}
-	defer func() {
-		_, _ = conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schemaName))
-	}()
+	schemaName, conn, connStr := setupTestSchema(t)
 
 	parentTable := schemaName + ".partitioned_test"
-	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL,
 			partition_key INT NOT NULL,
@@ -301,11 +280,14 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 		t.Fatalf("Failed to create partitioned table: %v", err)
 	}
 
-	childTables := make([]string, 4)
-	for i := range 4 {
+	rowsPerPartition := 25
+	numChildTables := 4
+	childTables := make([]string, numChildTables)
+
+	for i := range numChildTables {
 		childTables[i] = fmt.Sprintf("%s.child_%d", schemaName, i)
-		lo := i * 25
-		hi := (i + 1) * 25
+		lo := i * rowsPerPartition
+		hi := (i + 1) * rowsPerPartition
 		_, err = conn.Exec(t.Context(), fmt.Sprintf(
 			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
 			childTables[i], parentTable, lo, hi))
@@ -314,44 +296,17 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 		}
 	}
 
-	for i := range 4 {
-		for j := range 25 {
+	for i := range numChildTables {
+		for j := range rowsPerPartition {
 			_, err = conn.Exec(t.Context(), fmt.Sprintf(
 				`INSERT INTO %s (partition_key, value) VALUES ($1, $2)`, parentTable),
-				i*25+j, fmt.Sprintf("val_%d_%d", i, j))
+				i*rowsPerPartition+j, fmt.Sprintf("val_%d_%d", i, j))
 			if err != nil {
 				t.Fatalf("Failed to insert row: %v", err)
 			}
 		}
 	}
 
-	// pg_relation_size on parent should be 0
-	var parentSize int64
-	err = conn.QueryRow(t.Context(),
-		`SELECT pg_relation_size(to_regclass($1))`, parentTable).Scan(&parentSize)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), parentSize, "parent partitioned table should have 0 relation size")
-
-	// pg_relation_size on each child should be > 0
-	for _, child := range childTables {
-		var childSize int64
-		err = conn.QueryRow(t.Context(),
-			`SELECT pg_relation_size(to_regclass($1))`, child).Scan(&childSize)
-		require.NoError(t, err)
-		require.Positive(t, childSize, "child table %s should have non-zero relation size", child)
-	}
-
-	// CTID-based queries should work on each child
-	for i, child := range childTables {
-		var count int64
-		err = conn.QueryRow(t.Context(), fmt.Sprintf(
-			`SELECT COUNT(*) FROM %s WHERE ctid >= '(0,0)'`, child)).Scan(&count)
-		require.NoError(t, err)
-		require.Equal(t, int64(25), count, "child %d should have 25 rows accessible via CTID", i)
-	}
-
-	// GetQRepPartitions on the parent table should detect children and produce
-	// CTID partitions with ChildTableRanges set to child table names.
 	c := &PostgresConnector{
 		connStr: connStr,
 		Config:  &protos.PostgresConfig{},
@@ -369,20 +324,20 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
-	require.NotEmpty(t, partitions, "should produce partitions for partitioned parent table")
+	require.NotEmpty(t, partitions)
 
 	childTableCounts := make(map[string]int)
 	for _, p := range partitions {
-		require.NotEmpty(t, p.ChildTableRanges, "partitions from partitioned table must have ChildTableRanges")
+		require.Nil(t, p.Range)
+		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
-			require.NotNil(t, ctr.Range, "each ChildTableRange must have a TID range")
-			require.NotEmpty(t, ctr.Table, "each ChildTableRange must name a child table")
+			require.NotNil(t, ctr.Range)
+			require.NotEmpty(t, ctr.Table)
 			childTableCounts[ctr.Table]++
 		}
 	}
 
-	// Every non-empty child should appear in at least one ChildTableRange
-	require.Len(t, childTableCounts, 4, "should have ranges for all 4 child tables")
+	require.Len(t, childTableCounts, numChildTables)
 	for _, child := range childTables {
 		require.Positive(t, childTableCounts[child], "child %s should appear in at least one partition", child)
 	}
@@ -390,38 +345,11 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 
 func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	t.Parallel()
-	connStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
-
-	config, err := pgx.ParseConfig(connStr)
-	if err != nil {
-		t.Fatalf("Failed to parse config: %v", err)
-	}
-
-	tunnel, err := utils.NewSSHTunnel(t.Context(), nil)
-	if err != nil {
-		t.Fatalf("Failed to create tunnel: %v", err)
-	}
-	defer tunnel.Close()
-
-	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, tunnel)
-	if err != nil {
-		t.Fatalf("Failed to create connection: %v", err)
-	}
-	defer conn.Close(t.Context())
-
-	//nolint:gosec
-	schemaName := fmt.Sprintf("test_%d", rand.Uint64())
-	_, err = conn.Exec(t.Context(), "CREATE SCHEMA "+schemaName)
-	if err != nil {
-		t.Fatalf("Failed to create schema: %v", err)
-	}
-	defer func() {
-		_, _ = conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schemaName))
-	}()
+	schemaName, conn, connStr := setupTestSchema(t)
 
 	// Root table partitioned by region
 	rootTable := schemaName + ".multi_level"
-	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL,
 			region INT NOT NULL,
@@ -432,8 +360,12 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	`, rootTable))
 	require.NoError(t, err)
 
+	rowsPerPartition := 20
+	numMidLevelTables := 2
+	numLeafChildTablesPerMidLevelTable := 3
+
 	// Two mid-level partitions, each sub-partitioned by category
-	for r := range 2 {
+	for r := range numMidLevelTables {
 		mid := fmt.Sprintf("%s.region_%d", schemaName, r)
 		_, err = conn.Exec(t.Context(), fmt.Sprintf(
 			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d) PARTITION BY RANGE (category)`,
@@ -441,44 +373,28 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		require.NoError(t, err)
 
 		// Three leaf partitions per mid-level
-		for c := range 3 {
+		for c := range numLeafChildTablesPerMidLevelTable {
 			leaf := fmt.Sprintf("%s.region_%d_cat_%d", schemaName, r, c)
 			_, err = conn.Exec(t.Context(), fmt.Sprintf(
 				`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
-				leaf, mid, c*34, (c+1)*34))
+				leaf, mid, c*33, (c+1)*33))
 			require.NoError(t, err)
 		}
 	}
 
 	// 6 leaf tables total, insert 20 rows into each
-	expectedLeaves := make([]string, 0, 6)
-	for r := range 2 {
-		for c := range 3 {
+	expectedLeaves := make([]string, 0, numLeafChildTablesPerMidLevelTable*numMidLevelTables)
+	for r := range numMidLevelTables {
+		for c := range numLeafChildTablesPerMidLevelTable {
 			leaf := fmt.Sprintf("%s.region_%d_cat_%d", schemaName, r, c)
 			expectedLeaves = append(expectedLeaves, leaf)
-			for j := range 20 {
+			for j := range rowsPerPartition {
 				_, err = conn.Exec(t.Context(), fmt.Sprintf(
 					`INSERT INTO %s (region, category, value) VALUES ($1, $2, $3)`, rootTable),
-					r*50, c*34+j%34, fmt.Sprintf("v_%d_%d_%d", r, c, j))
+					r*50, c*33+j%33, fmt.Sprintf("v_%d_%d_%d", r, c, j))
 				require.NoError(t, err)
 			}
 		}
-	}
-
-	// Root table should have 0 blocks, mid-level tables should also have 0 blocks
-	var rootSize int64
-	err = conn.QueryRow(t.Context(),
-		`SELECT pg_relation_size(to_regclass($1))`, rootTable).Scan(&rootSize)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), rootSize)
-
-	for r := range 2 {
-		var midSize int64
-		mid := fmt.Sprintf("%s.region_%d", schemaName, r)
-		err = conn.QueryRow(t.Context(),
-			`SELECT pg_relation_size(to_regclass($1))`, mid).Scan(&midSize)
-		require.NoError(t, err)
-		require.Equal(t, int64(0), midSize, "mid-level partition %s should have 0 blocks", mid)
 	}
 
 	c := &PostgresConnector{
@@ -502,6 +418,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 
 	childTableCounts := make(map[string]int)
 	for _, p := range partitions {
+		require.Nil(t, p.Range)
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
 			require.NotNil(t, ctr.Range)
@@ -510,50 +427,22 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		}
 	}
 
-	// All 6 leaf tables should appear, no mid-level tables
-	require.Len(t, childTableCounts, 6, "should have ranges for all 6 leaf tables")
+	require.Len(t, childTableCounts, numLeafChildTablesPerMidLevelTable*numMidLevelTables)
 	for _, leaf := range expectedLeaves {
-		require.Positive(t, childTableCounts[leaf], "leaf %s should appear in at least one partition", leaf)
+		require.Positive(t, childTableCounts[leaf])
 	}
-	for r := range 2 {
+	for r := range numMidLevelTables {
 		mid := fmt.Sprintf("%s.region_%d", schemaName, r)
-		require.Zero(t, childTableCounts[mid], "mid-level partition %s should NOT appear in child table ranges", mid)
+		require.Zero(t, childTableCounts[mid], mid)
 	}
 }
 
 func TestCTIDPartitioningOnEmptyPartitionedTable(t *testing.T) {
 	t.Parallel()
-	connStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
-
-	config, err := pgx.ParseConfig(connStr)
-	if err != nil {
-		t.Fatalf("Failed to parse config: %v", err)
-	}
-
-	tunnel, err := utils.NewSSHTunnel(t.Context(), nil)
-	if err != nil {
-		t.Fatalf("Failed to create tunnel: %v", err)
-	}
-	defer tunnel.Close()
-
-	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, tunnel)
-	if err != nil {
-		t.Fatalf("Failed to create connection: %v", err)
-	}
-	defer conn.Close(t.Context())
-
-	//nolint:gosec
-	schemaName := fmt.Sprintf("test_%d", rand.Uint64())
-	_, err = conn.Exec(t.Context(), "CREATE SCHEMA "+schemaName)
-	if err != nil {
-		t.Fatalf("Failed to create schema: %v", err)
-	}
-	defer func() {
-		_, _ = conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schemaName))
-	}()
+	schemaName, conn, connStr := setupTestSchema(t)
 
 	parentTable := schemaName + ".empty_partitioned"
-	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL,
 			partition_key INT NOT NULL,
@@ -588,42 +477,15 @@ func TestCTIDPartitioningOnEmptyPartitionedTable(t *testing.T) {
 		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
-	require.Empty(t, partitions, "empty partitioned table should produce no partitions")
+	require.Empty(t, partitions)
 }
 
 func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 	t.Parallel()
-	connStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
-
-	config, err := pgx.ParseConfig(connStr)
-	if err != nil {
-		t.Fatalf("Failed to parse config: %v", err)
-	}
-
-	tunnel, err := utils.NewSSHTunnel(t.Context(), nil)
-	if err != nil {
-		t.Fatalf("Failed to create tunnel: %v", err)
-	}
-	defer tunnel.Close()
-
-	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, tunnel)
-	if err != nil {
-		t.Fatalf("Failed to create connection: %v", err)
-	}
-	defer conn.Close(t.Context())
-
-	//nolint:gosec
-	schemaName := fmt.Sprintf("test_%d", rand.Uint64())
-	_, err = conn.Exec(t.Context(), "CREATE SCHEMA "+schemaName)
-	if err != nil {
-		t.Fatalf("Failed to create schema: %v", err)
-	}
-	defer func() {
-		_, _ = conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schemaName))
-	}()
+	schemaName, conn, connStr := setupTestSchema(t)
 
 	parentTable := schemaName + ".many_children"
-	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL,
 			partition_key INT NOT NULL,
@@ -633,10 +495,11 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 	`, parentTable))
 	require.NoError(t, err)
 
-	numChildren := 20
+	numRowsPerChildTable := 10
+	numChildTables := 20
 	numPartitionsBudget := uint32(8)
-	allChildren := make([]string, numChildren)
-	for i := range numChildren {
+	allChildren := make([]string, numChildTables)
+	for i := range numChildTables {
 		allChildren[i] = fmt.Sprintf("%s.many_child_%d", schemaName, i)
 		lo := i * 5
 		hi := (i + 1) * 5
@@ -646,8 +509,8 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	for i := range numChildren {
-		for j := range 10 {
+	for i := range numChildTables {
+		for j := range numRowsPerChildTable {
 			_, err = conn.Exec(t.Context(), fmt.Sprintf(
 				`INSERT INTO %s (partition_key, value) VALUES ($1, $2)`, parentTable),
 				i*5+(j%5), fmt.Sprintf("val_%d_%d", i, j))
@@ -673,63 +536,70 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
-	require.LessOrEqual(t, len(partitions), int(numPartitionsBudget),
-		"total partitions should not exceed budget")
+	require.LessOrEqual(t, len(partitions), int(numPartitionsBudget))
 
-	// Verify all children are covered
-	coveredChildren := make(map[string]bool)
+	childTablesCovered := make(map[string]bool)
 	for _, p := range partitions {
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
 			require.NotNil(t, ctr.Range)
 			require.NotEmpty(t, ctr.Table)
-			coveredChildren[ctr.Table] = true
+			childTablesCovered[ctr.Table] = true
 		}
 	}
-	require.Len(t, coveredChildren, numChildren,
-		"all %d non-empty children should be covered", numChildren)
+	require.Len(t, childTablesCovered, numChildTables)
 	for _, child := range allChildren {
-		require.True(t, coveredChildren[child], "child %s should be covered", child)
+		require.True(t, childTablesCovered[child])
 	}
 }
 
 func TestCtidPartitionsForPartitionedTableOffsetNumberBounds(t *testing.T) {
 	t.Parallel()
 	pp := PartitionParams{
-		numPartitions: 3,
+		numPartitions: 8,
 		logger:        log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testOffsetBounds"))),
 	}
 	leafBlocks := map[string]int64{
 		"public.t1": 100,
-		"public.t2": 50,
+		"public.t2": 45,
 		"public.t3": 10,
 	}
-	partitions, err := ctidPartitionsForPartitionedTable(pp, leafBlocks, 160)
+	// blocksPerPartition = DivCeil(160, 8) = 20
+	partitions, err := ctidPartitionsForPartitionedTable(pp, leafBlocks, 100+45+10)
 	require.NoError(t, err)
-	require.NotEmpty(t, partitions)
+	require.Len(t, partitions, 8)
 
-	for _, p := range partitions {
-		require.NotEmpty(t, p.ChildTableRanges)
-		for _, ctr := range p.ChildTableRanges {
-			require.LessOrEqual(t, ctr.Range.Start.OffsetNumber, uint32(math.MaxUint16),
-				"start OffsetNumber must fit in uint16")
-			require.LessOrEqual(t, ctr.Range.End.OffsetNumber, uint32(math.MaxUint16),
-				"end OffsetNumber must fit in uint16")
+	tidRange := func(table string, startBlock, endBlock uint32) *protos.ChildTableRange {
+		return &protos.ChildTableRange{
+			Table: table,
+			Range: &protos.TIDPartitionRange{
+				Start: &protos.TID{BlockNumber: startBlock, OffsetNumber: 0},
+				End:   &protos.TID{BlockNumber: endBlock, OffsetNumber: math.MaxUint16},
+			},
 		}
 	}
-
-	// Verify all tables are covered and block ranges are contiguous within each table
-	tableRanges := make(map[string][][2]uint32) // table -> list of [startBlock, endBlock]
-	for _, p := range partitions {
-		for _, ctr := range p.ChildTableRanges {
-			tableRanges[ctr.Table] = append(tableRanges[ctr.Table],
-				[2]uint32{ctr.Range.Start.BlockNumber, ctr.Range.End.BlockNumber})
-		}
+	expected := [][]*protos.ChildTableRange{
+		{tidRange("public.t1", 0, 19)},
+		{tidRange("public.t1", 20, 39)},
+		{tidRange("public.t1", 40, 59)},
+		{tidRange("public.t1", 60, 79)},
+		{tidRange("public.t1", 80, 99)},
+		{tidRange("public.t2", 0, 19)},
+		{tidRange("public.t2", 20, 39)},
+		{tidRange("public.t2", 40, 44), tidRange("public.t3", 0, 9)},
 	}
-	require.Len(t, tableRanges, 3)
-	// First range of each table should start at block 0
-	for _, ranges := range tableRanges {
-		require.Equal(t, uint32(0), ranges[0][0], "first range should start at block 0")
+
+	for i, p := range partitions {
+		require.Len(t, p.ChildTableRanges, len(expected[i]))
+		for j, ctr := range p.ChildTableRanges {
+			exp := expected[i][j]
+			msg := fmt.Sprintf("partition %d range %d", i, j)
+			assert.Equal(t, exp.Table, ctr.Table, msg)
+			assert.Equal(t, exp.Range.Start.BlockNumber, ctr.Range.Start.BlockNumber)
+			assert.Equal(t, exp.Range.Start.OffsetNumber, ctr.Range.Start.OffsetNumber)
+			assert.Equal(t, exp.Range.End.BlockNumber, ctr.Range.End.BlockNumber)
+			assert.Equal(t, exp.Range.End.OffsetNumber, ctr.Range.End.OffsetNumber)
+		}
 	}
 }
 

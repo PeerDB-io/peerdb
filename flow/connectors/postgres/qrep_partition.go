@@ -118,6 +118,7 @@ func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 // CTIDBlockPartitioningFunc is a table partition strategy where partitions are created by dividing table
 // blocks uniformly. Note that partition boundaries (block ranges) are uniform, but actual row distribution
 // may be skewed due to table bloat, deleted tuples, or uneven data distribution across blocks.
+// TODO: add support for inherited tables
 func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
 	if pp.numPartitions <= 1 {
 		return nil, fmt.Errorf("expect numPartitions to be greater than 1")
@@ -239,7 +240,7 @@ func ctidPartitionsForPartitionedTable(
 	totalChildBlocks int64,
 ) ([]*protos.QRepPartition, error) {
 	sortedTables := slices.Sorted(maps.Keys(blocksPerTable))
-	blocksPerPartition := max(int64(1), (totalChildBlocks+pp.numPartitions-1)/pp.numPartitions) // ceiling division
+	blocksPerPartition := max(int64(1), shared.DivCeil(totalChildBlocks, pp.numPartitions))
 
 	var partitions []*protos.QRepPartition
 	childIdx := 0
@@ -307,7 +308,7 @@ func isPartitionedTable(ctx context.Context, tx pgx.Tx, table string) (bool, err
 // recursively handle multi-level partitioned tables.
 func getPartitionedTables(ctx context.Context, tx pgx.Tx, table string) (map[string]int64, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT format('%I.%I', n.nspname, c.relname), c.relkind::text,
+		SELECT format('%s.%s', n.nspname, c.relname), c.relkind::text,
 			(pg_relation_size(c.oid) / current_setting('block_size')::int)::bigint
 		FROM pg_inherits i
 		JOIN pg_class c ON i.inhrelid = c.oid
