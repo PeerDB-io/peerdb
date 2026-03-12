@@ -273,6 +273,9 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 
 			if calcSize {
 				p.sizeTracker.Bytes.Add(size)
+				if p.sizeTracker.RecordSizeDistribution != nil {
+					p.sizeTracker.RecordSizeDistribution.Record(ctx, size)
+				}
 			}
 
 			numRows.Add(1)

@@ -214,6 +214,9 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 		go func() {
 			recordsDone := true
 			for record := range stream.Records {
+				if stream.ChannelSizeDistribution != nil {
+					stream.ChannelSizeDistribution.Record(ctx, int64(len(stream.Records)))
+				}
 				substream.Records <- record
 				if sizeTracker.Bytes.Load() >= bytesPerAvroFile {
 					recordsDone = false

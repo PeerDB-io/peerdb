@@ -79,6 +79,8 @@ const (
 	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 	CodeNotificationCounterName          = "code_notification"
+	RecordSizeDistributionName           = "record_size"
+	ChannelSizeDistributionName          = "channel_size"
 )
 
 type Metrics struct {
@@ -133,6 +135,8 @@ type Metrics struct {
 	LatestConsumedLogEventGauge      metric.Int64Gauge
 	LogRetentionGauge                metric.Float64Gauge
 	UnchangedToastValuesCounter      metric.Int64Counter
+	RecordSizeDistribution           metric.Int64Histogram
+	ChannelSizeDistribution          metric.Int64Histogram
 }
 
 type SlotMetricGauges struct {
@@ -165,13 +169,14 @@ func BuildMetricName(baseName string) string {
 }
 
 type OtelManager struct {
-	Metrics            Metrics
-	MetricsProvider    metric.MeterProvider
-	Meter              metric.Meter
-	Float64GaugesCache map[string]metric.Float64Gauge
-	Int64GaugesCache   map[string]metric.Int64Gauge
-	Int64CountersCache map[string]metric.Int64Counter
-	Enabled            bool
+	Metrics              Metrics
+	MetricsProvider      metric.MeterProvider
+	Meter                metric.Meter
+	Float64GaugesCache   map[string]metric.Float64Gauge
+	Int64GaugesCache     map[string]metric.Int64Gauge
+	Int64CountersCache   map[string]metric.Int64Counter
+	Int64HistogramsCache map[string]metric.Int64Histogram
+	Enabled              bool
 }
 
 func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*OtelManager, error) {
@@ -181,12 +186,13 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 	}
 
 	otelManager := OtelManager{
-		Enabled:            enabled,
-		MetricsProvider:    metricsProvider,
-		Meter:              metricsProvider.Meter("io.peerdb." + serviceName),
-		Float64GaugesCache: make(map[string]metric.Float64Gauge),
-		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
-		Int64CountersCache: make(map[string]metric.Int64Counter),
+		Enabled:              enabled,
+		MetricsProvider:      metricsProvider,
+		Meter:                metricsProvider.Meter("io.peerdb." + serviceName),
+		Float64GaugesCache:   make(map[string]metric.Float64Gauge),
+		Int64GaugesCache:     make(map[string]metric.Int64Gauge),
+		Int64CountersCache:   make(map[string]metric.Int64Counter),
+		Int64HistogramsCache: make(map[string]metric.Int64Histogram),
 	}
 	if err := otelManager.setupMetrics(ctx); err != nil {
 		return nil, err
@@ -233,6 +239,13 @@ func (om *OtelManager) GetOrInitFloat64Gauge(name string, opts ...metric.Float64
 
 func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
 	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
+}
+
+func (om *OtelManager) GetOrInitInt64Histogram(name string, sampleRate float64, opts ...metric.Int64HistogramOption) (metric.Int64Histogram, error) {
+	cons := func(meter metric.Meter, name string, opts ...metric.Int64HistogramOption) (metric.Int64Histogram, error) {
+		return NewContextAwareInt64Histogram(meter, name, sampleRate, opts...)
+	}
+	return getOrInitMetric(cons, om.Meter, om.Int64HistogramsCache, name, opts...)
 }
 
 // CodeNotificationCounter is a global counter for emitting notifications for one-off things we want to know about with the least effort.
@@ -572,6 +585,19 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
 		metric.WithDescription(
 			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.RecordSizeDistribution, err = om.GetOrInitInt64Histogram(BuildMetricName(RecordSizeDistributionName), 0.001,
+		metric.WithUnit("By"),
+		metric.WithDescription("Distribution of uncompressed record sizes in bytes"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ChannelSizeDistribution, err = om.GetOrInitInt64Histogram(BuildMetricName(ChannelSizeDistributionName), 0.001,
+		metric.WithDescription("Distribution of channel sizes (number of pending records in channel) at time of record processing"),
 	); err != nil {
 		return err
 	}

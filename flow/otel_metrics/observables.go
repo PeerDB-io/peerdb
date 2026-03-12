@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -216,4 +217,37 @@ func NewContextAwareInt64Counter(meter metric.Meter, name string, opts ...metric
 	}
 
 	return &ContextAwareInt64Counter{Int64Counter: counter}, nil
+}
+
+type ContextAwareInt64Histogram struct {
+	metric.Int64Histogram
+	count        atomic.Int64
+	sampleEveryN int64
+}
+
+func (a *ContextAwareInt64Histogram) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
+	if a.count.Add(1)%a.sampleEveryN != 0 {
+		return
+	}
+	newOptions := append([]metric.RecordOption{buildContextualAttributes(ctx)}, options...)
+	a.Int64Histogram.Record(ctx, value, newOptions...)
+}
+
+func NewContextAwareInt64Histogram(meter metric.Meter, name string, sampleRate float64, opts ...metric.Int64HistogramOption) (metric.Int64Histogram, error) {
+	histogramConfig := metric.NewInt64HistogramConfig(opts...)
+	histogram, err := meter.Int64Histogram(name,
+		metric.WithDescription(histogramConfig.Description()),
+		metric.WithUnit(histogramConfig.Unit()),
+		metric.WithExplicitBucketBoundaries(histogramConfig.ExplicitBucketBoundaries()...),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sampleEveryN := int64(1)
+	if sampleRate > 0 && sampleRate < 1 {
+		sampleEveryN = int64(1 / sampleRate)
+	}
+
+	return &ContextAwareInt64Histogram{Int64Histogram: histogram, sampleEveryN: sampleEveryN}, nil
 }

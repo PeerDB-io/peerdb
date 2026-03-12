@@ -4,16 +4,19 @@ import (
 	"context"
 	"sync"
 
+	"go.opentelemetry.io/otel/metric"
+
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRecordStream struct {
-	schemaLatch *concurrency.Latch[types.QRecordSchema]
-	Records     chan []types.QValue
-	schemaDebug *types.NullableSchemaDebug
-	err         error
-	closeOnce   sync.Once
+	schemaLatch             *concurrency.Latch[types.QRecordSchema]
+	Records                 chan []types.QValue
+	ChannelSizeDistribution metric.Int64Histogram
+	schemaDebug             *types.NullableSchemaDebug
+	err                     error
+	closeOnce               sync.Once
 }
 
 func NewQRecordStream(buffer int) *QRecordStream {
