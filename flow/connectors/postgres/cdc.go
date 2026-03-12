@@ -38,6 +38,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+//nolint:govet // fieldalignment: fields grouped by purpose for readability
 type PostgresCDCSource struct {
 	*PostgresConnector
 	srcTableIDNameMapping  map[uint32]string
