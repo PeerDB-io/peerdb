@@ -919,6 +919,7 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	srcSchemaTable := AttachSchema(s, srcTable)
 	srcPublicationName := fmt.Sprintf("%s_%s_pub", srcTable, s.Suffix())
 
+	// q2 is an attached table with different column order
 	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 			CREATE TABLE %[1]s(
 				id SERIAL NOT NULL,
@@ -929,14 +930,19 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 			CREATE TABLE %[1]s_2024q1
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-01-01') TO ('2024-04-01');
-			CREATE TABLE %[1]s_2024q2
-				PARTITION OF %[1]s
+			CREATE TABLE %[1]s_2024q2(
+				created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
+				name TEXT,
+				id SERIAL NOT NULL,
+				PRIMARY KEY (created_at, id)
+			);
+			ALTER TABLE %[1]s ATTACH PARTITION %[1]s_2024q2
 				FOR VALUES FROM ('2024-04-01') TO ('2024-07-01');
 			CREATE TABLE %[1]s_2024q3
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-07-01') TO ('2024-10-01');
 			CREATE PUBLICATION %[2]s FOR ALL TABLES;
-	`, srcSchemaTable, srcPublicationName, Schema(s)))
+	`, srcSchemaTable, srcPublicationName))
 	require.NoError(t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{

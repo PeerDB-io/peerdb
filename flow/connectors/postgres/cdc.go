@@ -948,7 +948,7 @@ func processMessage[Items model.Items](
 			slog.String("RelationName", msg.RelationName),
 			slog.Any("Columns", msg.Columns))
 
-		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg)
+		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg, originalRelID)
 	case *pglogrepl.LogicalDecodingMessage:
 		logger.Debug("LogicalDecodingMessage",
 			slog.Bool("Transactional", msg.Transactional),
@@ -979,22 +979,25 @@ func processInsertMessage[Items model.Items](
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
-	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
+	parentRelID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
-	tableName, exists := p.srcTableIDNameMapping[relID]
+	tableName, exists := p.srcTableIDNameMapping[parentRelID]
 	if !exists {
 		return nil, nil
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+	p.logger.Debug("InsertMessage",
+		slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(msg.RelationID)),
+		slog.String("Relation Name", tableName))
 
-	rel, ok := p.relationMessageMapping[relID]
+	rel, ok := p.relationMessageMapping[msg.RelationID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
+		return nil, fmt.Errorf("unknown relation id %d for table %s", msg.RelationID, tableName)
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(parentRelID, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -1021,22 +1024,25 @@ func processUpdateMessage[Items model.Items](
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
-	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
+	parentRelID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
-	tableName, exists := p.srcTableIDNameMapping[relID]
+	tableName, exists := p.srcTableIDNameMapping[parentRelID]
 	if !exists {
 		return nil, nil
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+	p.logger.Debug("UpdateMessage",
+		slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(msg.RelationID)),
+		slog.String("Relation Name", tableName))
 
-	rel, ok := p.relationMessageMapping[relID]
+	rel, ok := p.relationMessageMapping[msg.RelationID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
+		return nil, fmt.Errorf("unknown relation id %d for table %s", msg.RelationID, tableName)
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(parentRelID, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -1084,22 +1090,25 @@ func processDeleteMessage[Items model.Items](
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
-	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
+	parentRelID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
-	tableName, exists := p.srcTableIDNameMapping[relID]
+	tableName, exists := p.srcTableIDNameMapping[parentRelID]
 	if !exists {
 		return nil, nil
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+	p.logger.Debug("DeleteMessage",
+		slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(msg.RelationID)),
+		slog.String("Relation Name", tableName))
 
-	rel, ok := p.relationMessageMapping[relID]
+	rel, ok := p.relationMessageMapping[msg.RelationID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
+		return nil, fmt.Errorf("unknown relation id %d for table %s", msg.RelationID, tableName)
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(parentRelID, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -1124,6 +1133,7 @@ func processRelationMessage[Items model.Items](
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
 	currRel *pglogrepl.RelationMessage,
+	originalRelID uint32,
 ) (model.Record[Items], error) {
 	// not present in tables to sync, return immediately
 	currRelName, ok := p.srcTableIDNameMapping[currRel.RelationID]
@@ -1276,7 +1286,7 @@ func processRelationMessage[Items model.Items](
 		}
 	}
 
-	p.relationMessageMapping[currRel.RelationID] = currRel
+	p.relationMessageMapping[originalRelID] = currRel
 	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
 		return &model.RelationRecord[Items]{
