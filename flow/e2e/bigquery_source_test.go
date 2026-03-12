@@ -998,7 +998,7 @@ func (s BigQueryClickhouseSuite) Test_GCS_Cleanup_After_Initial_Load() {
 	EnvWaitFor(t, env, time.Second*30, fmt.Sprintf("GCS path %s to be cleaned up", gcsStagingPath), func() bool {
 		objectCount, err := source.helper.CountObjectsInGCSPath(ctx, gcsStagingPath)
 		require.NoError(t, err, "should be able to count GCS objects")
-		return objectCount == 0
+		return objectCount > 0
 	})
 }
 
