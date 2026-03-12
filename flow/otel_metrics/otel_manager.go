@@ -160,7 +160,7 @@ type SlotMetricGauges struct {
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
 	InstanceStatusGauge             metric.Int64Gauge
-	OldestTxnDurationGauge         metric.Int64Gauge
+	OldestTxnDurationGauge          metric.Int64Gauge
 }
 
 func BuildMetricName(baseName string) string {
