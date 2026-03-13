@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 )
 
@@ -21,7 +22,10 @@ func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesRes
 			return nil, fmt.Errorf("failed to get collections: %w", err)
 		}
 		for _, collName := range collNames {
-			tableNames = append(tableNames, fmt.Sprintf("%s.%s", dbName, collName))
+			tableNames = append(tableNames, (&common.QualifiedTable{
+				Namespace: dbName,
+				Table:     collName,
+			}).Deparse())
 		}
 	}
 	return &protos.AllTablesResponse{

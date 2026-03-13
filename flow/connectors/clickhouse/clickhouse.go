@@ -25,7 +25,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -528,12 +527,7 @@ func (c *ClickHouseConnector) GetTableSchema(
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMappings))
 	for _, tm := range tableMappings {
-		parsedTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
-		if err != nil {
-			return nil, err
-		}
-
-		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", parsedTable.String()))
+		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tm.SourceTableIdentifier))
 		if err != nil {
 			return nil, err
 		}
