@@ -2,11 +2,8 @@ package common
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
-
-var loneDotRe = regexp.MustCompile(`[^.]\.[^.]`)
 
 type QualifiedTable struct {
 	Namespace string // schema in PG, database in MySQL/Mongo
@@ -26,24 +23,32 @@ func (t *QualifiedTable) MySQL() string {
 }
 
 // ParseTableIdentifier parses a table name into namespace and table name.
+// Dots within namespace or table are escaped as ".." by Deparse.
+// A lone single dot (not part of "..") separates namespace from table.
 func ParseTableIdentifier(tableIdentifier string) (*QualifiedTable, error) {
-	if !strings.Contains(tableIdentifier, "..") {
-		// fast path
-		ns, table, hasDot := strings.Cut(tableIdentifier, ".")
-		if !hasDot || ns == "" || table == "" || strings.ContainsRune(table, '.') {
+	// Walk the string looking for the separator: a dot not adjacent to another dot.
+	// Escaped dots ("..") are skipped in pairs.
+	sep := -1
+	for i := 0; i < len(tableIdentifier); i++ {
+		if tableIdentifier[i] != '.' {
+			continue
+		}
+		if i+1 < len(tableIdentifier) && tableIdentifier[i+1] == '.' {
+			i++ // skip escaped dot pair
+			continue
+		}
+		if sep != -1 {
 			return nil, fmt.Errorf("invalid table name: %s", tableIdentifier)
 		}
-		return &QualifiedTable{ns, table}, nil
-	} else {
-		splits := loneDotRe.Split(tableIdentifier, 3)
-		if len(splits) != 2 {
-			return nil, fmt.Errorf("invalid table name: %s", tableIdentifier)
-		}
-		return &QualifiedTable{
-			Namespace: strings.ReplaceAll(splits[0], "..", "."),
-			Table:     strings.ReplaceAll(splits[1], "..", "."),
-		}, nil
+		sep = i
 	}
+	if sep <= 0 || sep >= len(tableIdentifier)-1 {
+		return nil, fmt.Errorf("invalid table name: %s", tableIdentifier)
+	}
+	return &QualifiedTable{
+		Namespace: strings.ReplaceAll(tableIdentifier[:sep], "..", "."),
+		Table:     strings.ReplaceAll(tableIdentifier[sep+1:], "..", "."),
+	}, nil
 }
 
 // QuoteIdentifier quotes an "identifier" (e.g. a table or a column name) to be
