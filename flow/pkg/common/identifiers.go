@@ -2,30 +2,48 @@ package common
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+var loneDotRe = regexp.MustCompile(`[^.]\.[^.]`)
 
 type QualifiedTable struct {
 	Namespace string // schema in PG, database in MySQL/Mongo
 	Table     string // table or collection
 }
 
-func (t QualifiedTable) String() string {
+func (t *QualifiedTable) Deparse() string {
+	return fmt.Sprintf("%s.%s", strings.ReplaceAll(t.Namespace, ".", ".."), strings.ReplaceAll(t.Table, ".", ".."))
+}
+
+func (t *QualifiedTable) String() string {
 	return fmt.Sprintf("%s.%s", QuoteIdentifier(t.Namespace), QuoteIdentifier(t.Table))
 }
 
-func (t QualifiedTable) MySQL() string {
+func (t *QualifiedTable) MySQL() string {
 	return fmt.Sprintf("%s.%s", QuoteMySQLIdentifier(t.Namespace), QuoteMySQLIdentifier(t.Table))
 }
 
 // ParseTableIdentifier parses a table name into namespace and table name.
 func ParseTableIdentifier(tableIdentifier string) (*QualifiedTable, error) {
-	ns, table, hasDot := strings.Cut(tableIdentifier, ".")
-	if !hasDot || ns == "" || table == "" || strings.ContainsRune(table, '.') {
-		return nil, fmt.Errorf("invalid table name: %s", tableIdentifier)
+	if !strings.Contains(tableIdentifier, "..") {
+		// fast path
+		ns, table, hasDot := strings.Cut(tableIdentifier, ".")
+		if !hasDot || ns == "" || table == "" || strings.ContainsRune(table, '.') {
+			return nil, fmt.Errorf("invalid table name: %s", tableIdentifier)
+		}
+		return &QualifiedTable{ns, table}, nil
+	} else {
+		splits := loneDotRe.Split(tableIdentifier, 3)
+		if len(splits) != 2 {
+			return nil, fmt.Errorf("invalid table name: %s", tableIdentifier)
+		}
+		return &QualifiedTable{
+			Namespace: strings.ReplaceAll(splits[0], "..", "."),
+			Table:     strings.ReplaceAll(splits[1], "..", "."),
+		}, nil
 	}
-
-	return &QualifiedTable{ns, table}, nil
 }
 
 // QuoteIdentifier quotes an "identifier" (e.g. a table or a column name) to be
