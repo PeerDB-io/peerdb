@@ -85,7 +85,7 @@ func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName 
 }
 
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
-	connectionConfigs *protos.FlowConnectionConfigsCore, workflowID string, idempotent bool,
+	connectionConfigs *protos.FlowConnectionConfigsCore, workflowID string, pipeName string, idempotent bool,
 ) error {
 	sourcePeerID, srcErr := h.getPeerID(ctx, connectionConfigs.SourceName)
 	if srcErr != nil {
@@ -105,9 +105,9 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	}
 
 	if _, err = h.pool.Exec(ctx,
-		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,	description)
-		VALUES ($1,$2,$3,$4,$5,$6,'gRPC')`,
-		workflowID, connectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
+		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status, description, pipe_name)
+		VALUES ($1,$2,$3,$4,$5,$6,'gRPC',$7)`,
+		workflowID, connectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP, pipeName,
 	); err != nil && !(idempotent && shared.IsSQLStateError(err, pgerrcode.UniqueViolation)) {
 		return fmt.Errorf("unable to insert into flows table for flow %s: %w",
 			connectionConfigs.FlowJobName, err)
@@ -140,9 +140,9 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 
 	flowName := req.QrepConfig.FlowJobName
 	if _, err := h.pool.Exec(ctx, `INSERT INTO flows(workflow_id,name,source_peer,destination_peer,config_proto,status,
-		description, query_string) VALUES ($1,$2,$3,$4,$5,$6,'gRPC',$7)
+		description, query_string, pipe_name) VALUES ($1,$2,$3,$4,$5,$6,'gRPC',$7,$8)
 	`, workflowID, flowName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_RUNNING,
-		req.QrepConfig.Query,
+		req.QrepConfig.Query, req.PipeName,
 	); err != nil {
 		return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
 			flowName, req.QrepConfig.WatermarkTable, err)
@@ -211,7 +211,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 	}
 
-	if resp, err := h.createCDCFlow(ctx, connectionConfigsCore, workflowID); err != nil {
+	if resp, err := h.createCDCFlow(ctx, connectionConfigsCore, workflowID, req.PipeName); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
 		telemetry.LogActivityCreateFlow(ctx, connectionConfigsCore.FlowJobName)
@@ -220,7 +220,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 }
 
 func (h *FlowRequestHandler) createCDCFlow(
-	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, workflowID string,
+	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, workflowID string, pipeName string,
 ) (*protos.CreateCDCFlowResponse, error) {
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                       workflowID,
@@ -230,7 +230,7 @@ func (h *FlowRequestHandler) createCDCFlow(
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // but creating the same id as a completed one is allowed
 	}
 
-	if err := h.createCdcJobEntry(ctx, connectionConfigs, workflowID, true); err != nil {
+	if err := h.createCdcJobEntry(ctx, connectionConfigs, workflowID, pipeName, true); err != nil {
 		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
@@ -659,8 +659,12 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	if !isCDC {
 		return fmt.Errorf("resync is only supported for CDC mirrors")
 	}
-	// getting config before dropping the flow since the flow entry is deleted unconditionally
+	// getting config and pipe_name before dropping the flow since the flow entry is deleted unconditionally
 	config, err := h.getFlowConfigFromCatalog(ctx, flowName)
+	if err != nil {
+		return err
+	}
+	pipeName, err := h.getFlowPipeName(ctx, flowName)
 	if err != nil {
 		return err
 	}
@@ -680,7 +684,7 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 
 	workflowID := getWorkflowID(config.FlowJobName)
 	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
-	if _, err := h.createCDCFlow(ctx, configCore, workflowID); err != nil {
+	if _, err := h.createCDCFlow(ctx, configCore, workflowID, pipeName); err != nil {
 		return err
 	}
 	return nil
