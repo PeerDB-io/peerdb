@@ -3160,11 +3160,12 @@ type QRepConfig struct {
 	state                      protoimpl.MessageState `protogen:"open.v1"`
 	FlowJobName                string                 `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
 	DestinationTableIdentifier string                 `protobuf:"bytes,4,opt,name=destination_table_identifier,json=destinationTableIdentifier,proto3" json:"destination_table_identifier,omitempty"`
-	Query                      string                 `protobuf:"bytes,5,opt,name=query,proto3" json:"query,omitempty"`
-	WatermarkTable             string                 `protobuf:"bytes,6,opt,name=watermark_table,json=watermarkTable,proto3" json:"watermark_table,omitempty"`
-	WatermarkColumn            string                 `protobuf:"bytes,7,opt,name=watermark_column,json=watermarkColumn,proto3" json:"watermark_column,omitempty"`
-	InitialCopyOnly            bool                   `protobuf:"varint,8,opt,name=initial_copy_only,json=initialCopyOnly,proto3" json:"initial_copy_only,omitempty"`
-	MaxParallelWorkers         uint32                 `protobuf:"varint,9,opt,name=max_parallel_workers,json=maxParallelWorkers,proto3" json:"max_parallel_workers,omitempty"`
+	// If present, the query provided by the user. If empty, a full-table query determined by the connector.
+	Query              string `protobuf:"bytes,5,opt,name=query,proto3" json:"query,omitempty"`
+	WatermarkTable     string `protobuf:"bytes,6,opt,name=watermark_table,json=watermarkTable,proto3" json:"watermark_table,omitempty"`
+	WatermarkColumn    string `protobuf:"bytes,7,opt,name=watermark_column,json=watermarkColumn,proto3" json:"watermark_column,omitempty"`
+	InitialCopyOnly    bool   `protobuf:"varint,8,opt,name=initial_copy_only,json=initialCopyOnly,proto3" json:"initial_copy_only,omitempty"`
+	MaxParallelWorkers uint32 `protobuf:"varint,9,opt,name=max_parallel_workers,json=maxParallelWorkers,proto3" json:"max_parallel_workers,omitempty"`
 	// time to wait between getting partitions to process
 	WaitBetweenBatchesSeconds uint32         `protobuf:"varint,10,opt,name=wait_between_batches_seconds,json=waitBetweenBatchesSeconds,proto3" json:"wait_between_batches_seconds,omitempty"`
 	WriteMode                 *QRepWriteMode `protobuf:"bytes,11,opt,name=write_mode,json=writeMode,proto3" json:"write_mode,omitempty"`
@@ -3198,10 +3199,8 @@ type QRepConfig struct {
 	// Connector capabilities detected at flow creation time.
 	// Used to control type mapping backwards compatibility.
 	Flags []string `protobuf:"bytes,31,rep,name=flags,proto3" json:"flags,omitempty"` // internal
-	// the query to fetch the rows without any filters applied (e.g. select [cols] from [table])
-	BaseQuery string `protobuf:"bytes,32,opt,name=base_query,json=baseQuery,proto3" json:"base_query,omitempty"` // internal
 	// if true, then a separate null partition will be created for rows with null values in the watermark column
-	AddNullPartition bool `protobuf:"varint,33,opt,name=add_null_partition,json=addNullPartition,proto3" json:"add_null_partition,omitempty"` // internal
+	AddNullPartition bool `protobuf:"varint,32,opt,name=add_null_partition,json=addNullPartition,proto3" json:"add_null_partition,omitempty"` // internal
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -3430,13 +3429,6 @@ func (x *QRepConfig) GetFlags() []string {
 		return x.Flags
 	}
 	return nil
-}
-
-func (x *QRepConfig) GetBaseQuery() string {
-	if x != nil {
-		return x.BaseQuery
-	}
-	return ""
 }
 
 func (x *QRepConfig) GetAddNullPartition() bool {
@@ -5515,7 +5507,8 @@ const file_flow_proto_rawDesc = "" +
 	"\rQRepWriteMode\x129\n" +
 	"\n" +
 	"write_type\x18\x01 \x01(\x0e2\x1a.peerdb_flow.QRepWriteTypeR\twriteType\x12,\n" +
-	"\x12upsert_key_columns\x18\x02 \x03(\tR\x10upsertKeyColumns\"\x8b\v\n" +
+	"\x12upsert_key_columns\x18\x02 \x03(\tR\x10upsertKeyColumns\"\xec\n" +
+	"\n" +
 	"\n" +
 	"QRepConfig\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12@\n" +
@@ -5549,10 +5542,8 @@ const file_flow_proto_rawDesc = "" +
 	"\aversion\x18\x1c \x01(\rR\aversion\x125\n" +
 	"\vsource_type\x18\x1e \x01(\x0e2\x14.peerdb_peers.DBTypeR\n" +
 	"sourceType\x12\x14\n" +
-	"\x05flags\x18\x1f \x03(\tR\x05flags\x12\x1d\n" +
-	"\n" +
-	"base_query\x18  \x01(\tR\tbaseQuery\x12,\n" +
-	"\x12add_null_partition\x18! \x01(\bR\x10addNullPartition\x1a6\n" +
+	"\x05flags\x18\x1f \x03(\tR\x05flags\x12,\n" +
+	"\x12add_null_partition\x18  \x01(\bR\x10addNullPartition\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04\"\x97\x01\n" +
