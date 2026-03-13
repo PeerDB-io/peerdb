@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -31,8 +32,16 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 ) (int64, int64, error) {
 	defer shared.RollbackTx(tx, qe.logger)
 
+	// Clear any existing deadline at the start to ensure clean state
+	clearConnectionDeadline(qe.conn.PgConn(), qe.logger, "sink_q start")
+
+	// Clear any deadline set during execution to ensure commit/rollback can proceed
+	// Must happen regardless of function exit path, so use defer
+	defer clearConnectionDeadline(qe.conn.PgConn(), qe.logger, "sink_q cleanup")
+
 	if qe.snapshot != "" {
-		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
+		// Use context.Background() to prevent ContextWatcher creation
+		if _, err := tx.Exec(context.Background(), "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
 			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
@@ -53,7 +62,8 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
 
-	if _, err := tx.Exec(ctx, cursorQuery, args...); err != nil {
+	// Use context.Background() to prevent ContextWatcher creation
+	if _, err := tx.Exec(context.Background(), cursorQuery, args...); err != nil {
 		qe.logger.Info("[pg_query_executor] failed to declare cursor",
 			slog.String("cursorQuery", cursorQuery), slog.Any("args", args), slog.Any("error", err))
 		return 0, 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
@@ -66,7 +76,8 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		slog.Int("channelLen", len(stream.Records)))
 
 	if !stream.IsSchemaSet() {
-		schema, schemaDebug, err := qe.cursorToSchema(ctx, tx, cursorName)
+		// Use context.Background() to prevent ContextWatcher creation
+		schema, schemaDebug, err := qe.cursorToSchema(context.Background(), tx, cursorName)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -74,10 +85,14 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		stream.SetSchemaDebug(schemaDebug)
 	}
 
+	// Clear deadline immediately before fetch loop as final safeguard
+	clearConnectionDeadline(qe.conn.PgConn(), qe.logger, "before fetch loop")
+
 	var totalNumRows int64
 	var totalNumBytes int64
 	for {
-		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.QRepFetchSize,
+		// Use context.Background() to prevent ContextWatcher creation during fetch
+		numRows, numBytes, err := qe.processFetchedRows(context.Background(), query, tx, cursorName, shared.QRepFetchSize,
 			stream.DestinationType, stream.QRecordStream)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))
@@ -98,7 +113,9 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	}
 
 	qe.logger.Info("[pg_query_executor] committing transaction")
-	if err := tx.Commit(ctx); err != nil {
+	commitCtx, commitCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer commitCancel()
+	if err := tx.Commit(commitCtx); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to commit transaction", slog.Any("error", err))
 		return totalNumRows, totalNumBytes, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
@@ -116,6 +133,18 @@ func (stream RecordStreamSink) CopyInto(ctx context.Context, _ *PostgresConnecto
 	if err != nil {
 		return 0, err
 	}
+
+	// Monitor context cancellation and close stream to unblock reads
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			stream.QRecordStream.Close(ctx.Err())
+		case <-done:
+		}
+	}()
+
 	return tx.CopyFrom(ctx, table, columnNames, model.NewQRecordCopyFromSource(stream.QRecordStream))
 }
 
