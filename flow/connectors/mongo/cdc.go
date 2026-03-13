@@ -421,13 +421,11 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 	if tableNameMapping != nil {
 		dbCollMap := make(map[string][]string)
 		for dbAndTable := range tableNameMapping {
-			parts := strings.SplitN(dbAndTable, ".", 2)
-			if len(parts) != 2 {
-				return nil, fmt.Errorf("failed to create pipeline due to invalid table name: %s", dbAndTable)
+			parsedName, err := common.ParseTableIdentifier(dbAndTable)
+			if err != nil {
+				return nil, err
 			}
-			db := parts[0]
-			table := parts[1]
-			dbCollMap[db] = append(dbCollMap[db], table)
+			dbCollMap[parsedName.Namespace] = append(dbCollMap[parsedName.Namespace], parsedName.Table)
 		}
 
 		var orCondition bson.A

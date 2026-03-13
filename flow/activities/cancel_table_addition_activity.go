@@ -389,7 +389,7 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 		var publicationTablesMapping []*protos.TableMapping
 		for _, schemaQualifiedTable := range schemaQualifiedTablesInPublication {
 			publicationTablesMapping = append(publicationTablesMapping, &protos.TableMapping{
-				SourceTableIdentifier: schemaQualifiedTable.Namespace + "." + schemaQualifiedTable.Table,
+				SourceTableIdentifier: schemaQualifiedTable.Deparse(),
 			})
 		}
 		err = conn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{
