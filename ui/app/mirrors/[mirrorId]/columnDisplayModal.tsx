@@ -5,6 +5,7 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { parseTableIdentifier } from '@/lib/utils/tableIdentifier';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
 
@@ -36,12 +37,9 @@ export default function ColumnDisplayModal({
           setLoading(true);
           setError(null);
 
-          // Parse schema and table name from sourceTableIdentifier (e.g., "public.users")
-          const [schemaName, tableName] = sourceTableIdentifier.split('.');
-
-          if (!schemaName || !tableName) {
-            throw new Error('Invalid table identifier format');
-          }
+          const { schema: schemaName, table: tableName } = parseTableIdentifier(
+            sourceTableIdentifier
+          );
 
           const response: TableColumnsResponse = await fetch(
             `/api/v1/peers/columns?peer_name=${encodeURIComponent(
