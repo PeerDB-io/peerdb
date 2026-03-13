@@ -57,6 +57,15 @@ func NumericToInt256ValueConversion(val QValueNumeric) QValueInt256 {
 	return QValueInt256{Val: val.Val.BigInt()}
 }
 
+func NumericToUInt128SchemaConversion(val QField) QField {
+	val.Type = QValueKindUInt128
+	return val
+}
+
+func NumericToUInt128ValueConversion(val QValueNumeric) QValueUInt128 {
+	return QValueUInt128{Val: val.Val.BigInt()}
+}
+
 func NumericToUInt256SchemaConversion(val QField) QField {
 	val.Type = QValueKindUInt256
 	return val

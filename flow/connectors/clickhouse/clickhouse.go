@@ -457,6 +457,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindUInt32
 		case "UInt64", "Nullable(UInt64)":
 			qkind = types.QValueKindUInt64
+		case "UInt128", "Nullable(UInt128)":
+			qkind = types.QValueKindUInt128
 		case "UInt256", "Nullable(UInt256)":
 			qkind = types.QValueKindUInt256
 		case "UUID", "Nullable(UUID)":

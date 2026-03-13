@@ -19,6 +19,7 @@ const (
 	QValueKindUInt16      QValueKind = "uint16"
 	QValueKindUInt32      QValueKind = "uint32"
 	QValueKindUInt64      QValueKind = "uint64"
+	QValueKindUInt128     QValueKind = "uint128"
 	QValueKindUInt256     QValueKind = "uint256"
 	QValueKindBoolean     QValueKind = "bool"
 	QValueKindQChar       QValueKind = "qchar"
@@ -78,6 +79,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindUInt16:      "INTEGER",
 	QValueKindUInt32:      "INTEGER",
 	QValueKindUInt64:      "INTEGER",
+	QValueKindUInt128:     "NUMBER(38,0)",
 	QValueKindFloat32:     "FLOAT",
 	QValueKindFloat64:     "FLOAT",
 	QValueKindQChar:       "CHAR",
@@ -129,6 +131,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindUInt16:      "UInt16",
 	QValueKindUInt32:      "UInt32",
 	QValueKindUInt64:      "UInt64",
+	QValueKindUInt128:     "UInt128",
 	QValueKindUInt256:     "UInt256",
 	QValueKindFloat32:     "Float32",
 	QValueKindFloat64:     "Float64",

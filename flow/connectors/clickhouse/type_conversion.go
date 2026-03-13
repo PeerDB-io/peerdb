@@ -35,6 +35,12 @@ var SupportedDestinationTypes = map[string][]types.TypeConversion{
 			types.NumericToInt256ValueConversion,
 		),
 	},
+	"UInt128": {
+		types.NewTypeConversion(
+			types.NumericToUInt128SchemaConversion,
+			types.NumericToUInt128ValueConversion,
+		),
+	},
 	"UInt256": {
 		types.NewTypeConversion(
 			types.NumericToUInt256SchemaConversion,
@@ -46,6 +52,7 @@ var SupportedDestinationTypes = map[string][]types.TypeConversion{
 var NumericDestinationTypes = map[string]struct{}{
 	"String":  {},
 	"Int256":  {},
+	"UInt128": {},
 	"UInt256": {},
 }
 

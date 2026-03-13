@@ -134,6 +134,8 @@ func CustomTypeToQKind(typeData shared.CustomDataType, version uint32) types.QVa
 		return types.QValueKindGeography
 	case "hstore":
 		return types.QValueKindHStore
+	case "uint128":
+		return types.QValueKindUInt128
 	case "vector", "halfvec", "sparsevec":
 		if version >= shared.InternalVersion_PgVectorAsFloatArray {
 			return types.QValueKindArrayFloat32

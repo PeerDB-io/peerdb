@@ -308,9 +308,12 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 			case *uint64:
 				qrow = append(qrow, types.QValueUInt64{Val: *v})
 			case **big.Int:
-				if batch.Schema.Fields[idx].Type == types.QValueKindInt256 {
+				switch batch.Schema.Fields[idx].Type {
+				case types.QValueKindInt256:
 					qrow = append(qrow, types.QValueInt256{Val: *v})
-				} else {
+				case types.QValueKindUInt128:
+					qrow = append(qrow, types.QValueUInt128{Val: *v})
+				default:
 					qrow = append(qrow, types.QValueUInt256{Val: *v})
 				}
 			case *time.Time:
