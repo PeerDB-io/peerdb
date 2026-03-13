@@ -179,8 +179,9 @@ func logActivity(ctx context.Context, action string, additionalAttrs ...any) {
 type FlowConfigForLogging struct {
 	FlowName                    string `json:"flow_name"`
 	SourcePeerName              string `json:"source_peer_name"`
-	PublicationName             string `json:"pg_publication_name"`
-	ReplicationSlotName         string `json:"pg_replication_slot_name"`
+	PublicationName             string `json:"pg_publication_name"`          // postgres
+	ReplicationSlotName         string `json:"pg_replication_slot_name"`     // postgres
+	ReplicationMechanismInUse   string `json:"replication_mechanism_in_use"` // mysql
 	IdleTimeoutSeconds          uint64 `json:"sync_interval"`
 	MaxBatchSize                uint32 `json:"max_batch_size"`
 	SnapshotNumRowsPerPartition uint32 `json:"snapshot_num_rows_per_partition"`
@@ -190,7 +191,6 @@ type FlowConfigForLogging struct {
 	SnapshotOnly                bool   `json:"snapshot_only"`
 	Resync                      bool   `json:"is_resync"`
 	NumTables                   int    `json:"num_tables"`
-	ReplicationMechanismInUse   string `json:"replication_mechanism_in_use"` // mysql
 }
 
 type tableMappingForLogging struct {
@@ -207,8 +207,8 @@ type tableMappingForLogging struct {
 }
 
 type FlowConfigLogEntry struct {
-	FlowConfig    FlowConfigForLogging
 	TableMappings []tableMappingForLogging
+	FlowConfig    FlowConfigForLogging
 }
 
 //nolint:govet // field order is intentional for readability
@@ -361,7 +361,8 @@ func GetFlowConfigLogEntries(
 func LogFlowConfigs(ctx context.Context, flowConfigs []FlowConfigLogEntry) {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
 
-	for _, entry := range flowConfigs {
+	for i := range flowConfigs {
+		entry := &flowConfigs[i]
 		logAsJSON(logger, "[flow config]", entry.FlowConfig, slog.String("flowName", entry.FlowConfig.FlowName))
 		for _, tableMapping := range entry.TableMappings {
 			logAsJSON(logger, "[table config]", tableMapping,
