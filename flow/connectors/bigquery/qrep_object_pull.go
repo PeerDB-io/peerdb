@@ -27,6 +27,7 @@ import (
 // Total number of rows is not known at this time. It will be calculated during sync with an info back from ClickHouse.
 func (c *BigQueryConnector) PullQRepObjects(
 	ctx context.Context,
+	_ shared.CatalogPool,
 	_ *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	_ protos.DBType,

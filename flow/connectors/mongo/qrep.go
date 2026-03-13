@@ -146,6 +146,7 @@ func (c *MongoConnector) GetDefaultPartitionKeyForTables(
 
 func (c *MongoConnector) PullQRepRecords(
 	ctx context.Context,
+	_catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	dstType protos.DBType,

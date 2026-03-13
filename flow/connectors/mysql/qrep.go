@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -177,6 +179,7 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 
 func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	dstType protos.DBType,
@@ -187,6 +190,23 @@ func (c *MySqlConnector) PullQRepRecords(
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
+	}
+
+	from := "*"
+	if len(config.Exclude) != 0 {
+		quotedColumns := make([]string, 0, len(tableSchema.Columns))
+		for _, col := range tableSchema.Columns {
+			if !slices.Contains(config.Exclude, col.Name) {
+				quotedColumns = append(quotedColumns, common.QuoteMySQLIdentifier(col.Name))
+			}
+		}
+		from = strings.Join(quotedColumns, ",")
+	}
+
+	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
+	if err != nil {
+		c.logger.Error("unable to parse source table", slog.Any("error", err))
+		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
 	}
 
 	c.logger.Info("[mysql] pulling records start")
@@ -239,8 +259,12 @@ func (c *MySqlConnector) PullQRepRecords(
 	defer shutDown()
 
 	if partition.FullTablePartition {
-		// this is a full table partition, so just run the query
-		if err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult); err != nil {
+		query := config.Query
+		if query == "" {
+			query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.MySQL())
+		}
+
+		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
 			return 0, 0, err
 		}
 	} else {
@@ -248,6 +272,10 @@ func (c *MySqlConnector) PullQRepRecords(
 		var rangeEnd string
 
 		queryTemplate := config.Query
+		if queryTemplate == "" {
+			queryTemplate = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+				from, parsedSrcTable.MySQL(), common.QuoteMySQLIdentifier(config.WatermarkColumn))
+		}
 		// Depending on the type of the range, convert the range into the correct type
 		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -260,10 +288,13 @@ func (c *MySqlConnector) PullQRepRecords(
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 		case *protos.PartitionRange_NullRange:
-			if config.BaseQuery == "" {
-				return 0, 0, errors.New("base query must be provided for null range partition")
+			if config.Query != "" {
+				return 0, 0, errors.New("can't construct a null range partition for custom queries")
 			}
-			queryTemplate = fmt.Sprintf("%s WHERE `%s` IS NULL", config.BaseQuery, config.WatermarkColumn)
+			queryTemplate = fmt.Sprintf(
+				"SELECT %s FROM %s WHERE %s IS NULL",
+				from, parsedSrcTable.MySQL(), common.QuoteMySQLIdentifier(config.WatermarkColumn),
+			)
 		default:
 			return 0, 0, fmt.Errorf("unknown range type: %v", x)
 		}

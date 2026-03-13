@@ -431,6 +431,7 @@ func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 	pullRecords func(
 		TPull,
 		context.Context,
+		shared.CatalogPool,
 		*otel_metrics.OtelManager,
 		*protos.QRepConfig,
 		protos.DBType,
@@ -464,7 +465,7 @@ func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 	var rowsSynced int64
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, stream)
+		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.CatalogPool, a.OtelManager, config, dstType, partition, stream)
 		stream.Close(err)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("[qrep] failed to pull records", err))

@@ -3,8 +3,6 @@ package peerflow
 import (
 	"fmt"
 	"log/slog"
-	"slices"
-	"strings"
 	"time"
 
 	"go.temporal.io/sdk/log"
@@ -14,7 +12,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/activities"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -153,32 +150,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 		).Get(ctx, &tableSchema)
 	}
 
-	parsedSrcTable, err := common.ParseTableIdentifier(srcName)
-	if err != nil {
-		s.logger.Error("unable to parse source table", slog.Any("error", err), cloneLog)
-		return fmt.Errorf("unable to parse source table: %w", err)
-	}
-	from := "*"
-	if len(mapping.Exclude) != 0 {
-		if err := initTableSchema(); err != nil {
-			return err
-		}
-		quotedColumns := make([]string, 0, len(tableSchema.Columns))
-		for _, col := range tableSchema.Columns {
-			if !slices.Contains(mapping.Exclude, col.Name) {
-				quotedColumns = append(quotedColumns, common.QuoteIdentifier(col.Name))
-			}
-		}
-		from = strings.Join(quotedColumns, ",")
-	}
-
-	// usually MySQL supports double quotes with ANSI_QUOTES, but Vitess doesn't
-	// Vitess currently only supports initial load so change here is enough
-	srcTableEscaped := parsedSrcTable.String()
-	if sourcePeerType == protos.DBType_MYSQL {
-		srcTableEscaped = parsedSrcTable.MySQL()
-	}
-
 	numWorkers := uint32(8)
 	if s.config.SnapshotMaxParallelWorkers > 0 {
 		numWorkers = s.config.SnapshotMaxParallelWorkers
@@ -196,15 +167,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	snapshotWriteMode := &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
-	}
-
-	baseQuery := fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
-	var query string
-	if mapping.PartitionKey == "" || numPartitionsOverride == 1 {
-		query = baseQuery
-	} else {
-		query = fmt.Sprintf("%s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			baseQuery, common.QuoteIdentifier(mapping.PartitionKey))
 	}
 
 	// ensure document IDs are synchronized across initial load and CDC
@@ -237,8 +199,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		SourceName:                 s.config.SourceName,
 		SourceType:                 sourcePeerType,
 		DestinationName:            s.config.DestinationName,
-		Query:                      query,
-		BaseQuery:                  baseQuery,
+		Query:                      "",
 		WatermarkColumn:            mapping.PartitionKey,
 		AddNullPartition:           watermarkColumnNullable,
 		WatermarkTable:             srcName,
