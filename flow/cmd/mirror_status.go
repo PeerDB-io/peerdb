@@ -32,7 +32,7 @@ func (h *FlowRequestHandler) ListMirrors(
 	  sp.name source_name, sp.type source_type,
 	  dp.name destination_name, dp.type source_type,
 	  f.created_at, coalesce(f.query_string, '')='' is_cdc,
-	  f.status
+	  f.status, coalesce(f.pipe_name, '')
 	from flows f
 	join peers sp on sp.id = f.source_peer
 	join peers dp on dp.id = f.destination_peer`)
@@ -50,7 +50,7 @@ func (h *FlowRequestHandler) ListMirrors(
 			&item.SourceName, &item.SourceType,
 			&item.DestinationName, &item.DestinationType,
 			&createdAt, &item.IsCdc,
-			&item.Status,
+			&item.Status, &item.PipeName,
 		); err != nil {
 			return nil, NewInternalApiError(fmt.Errorf("failed to scan mirror: %w", err))
 		}
@@ -488,6 +488,16 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	}
 
 	return &config, nil
+}
+
+func (h *FlowRequestHandler) getFlowPipeName(ctx context.Context, flowJobName string) (string, error) {
+	var pipeName pgtype.Text
+	if err := h.pool.QueryRow(ctx,
+		"SELECT pipe_name FROM flows WHERE name = $1", flowJobName,
+	).Scan(&pipeName); err != nil {
+		return "", fmt.Errorf("unable to query pipe_name from catalog for flow %s: %w", flowJobName, err)
+	}
+	return pipeName.String, nil
 }
 
 func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) (bool, error) {

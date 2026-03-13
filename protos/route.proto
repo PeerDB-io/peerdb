@@ -12,12 +12,14 @@ package peerdb_route;
 message CreateCDCFlowRequest {
   peerdb_flow.FlowConnectionConfigs connection_configs = 1;
   bool attach_to_existing = 2;
+  string pipe_name = 3;
 }
 
 message CreateCDCFlowResponse { string workflow_id = 1; }
 
 message CreateQRepFlowRequest {
   peerdb_flow.QRepConfig qrep_config = 1;
+  string pipe_name = 2;
 }
 
 message CreateQRepFlowResponse { string workflow_id = 1; }
@@ -411,6 +413,7 @@ message ListMirrorsItem {
   double created_at = 8;
   bool is_cdc = 9;
   peerdb_flow.FlowStatus status = 10;
+  string pipe_name = 11;
 }
 message ListMirrorsRequest {}
 message ListMirrorsResponse { repeated ListMirrorsItem mirrors = 1; }
