@@ -67,7 +67,6 @@ export const blankQRepSetting: QRepConfig = {
   query: '',
   watermarkTable: '',
   watermarkColumn: '',
-  baseQuery: '',
   addNullPartition: false,
   initialCopyOnly: false,
   maxParallelWorkers: 4,
