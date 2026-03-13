@@ -11,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -22,7 +23,7 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSnowflakeSuite)
 }
 
-func (s PeerFlowE2ETestSuiteSF) attachSchemaSuffix(tableName string) string {
+func (s PeerFlowE2ETestSuiteSF) attachSchemaSuffix(tableName string) *common.QualifiedTable {
 	return AttachSchema(s, tableName)
 }
 
@@ -34,7 +35,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_replica_identity_no_pkey"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_replica_identity_no_pkey")
 
 	// Create a table without a primary key and create a named unique index
@@ -51,7 +53,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -84,7 +86,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 
 func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	tableName := "test_invalid_numeric"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -104,7 +107,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -144,7 +147,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 
 func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	tableName := "test_invalid_geo_sf_avro_cdc"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -158,7 +162,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -233,7 +237,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_sf_1")
+	srcTable := s.attachSchemaSuffix("test_toast_sf_1")
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_1")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -248,7 +253,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_1"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -284,7 +289,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_sf_3")
+	srcTable := s.attachSchemaSuffix("test_toast_sf_3")
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_3")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -299,7 +305,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_3"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -341,7 +347,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_sf_4")
+	srcTable := s.attachSchemaSuffix("test_toast_sf_4")
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_4")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -355,7 +362,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_4"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -391,7 +398,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_sf_5")
+	srcTable := s.attachSchemaSuffix("test_toast_sf_5")
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_5")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -406,7 +414,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_5"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -442,7 +450,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_types_sf")
+	srcTable := s.attachSchemaSuffix("test_types_sf")
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_types_sf")
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	_, enumErr := s.Conn().Exec(s.t.Context(), createMoodEnum)
@@ -465,7 +474,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_types_sf"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -549,8 +558,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	tc := NewTemporalClient(s.t)
 
-	srcTable1Name := s.attachSchemaSuffix("test1_sf")
-	srcTable2Name := s.attachSchemaSuffix("test2_sf")
+	srcTable1 := s.attachSchemaSuffix("test1_sf")
+	srcTable1Name := srcTable1.String()
+	srcTable2 := s.attachSchemaSuffix("test2_sf")
+	srcTable2Name := srcTable2.String()
 	dstTable1Name := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test1_sf")
 	dstTable2Name := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test2_sf")
 
@@ -562,7 +573,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_multi_table"),
-		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
+		TableNameMapping: map[string]string{srcTable1.Deparse(): dstTable1Name, srcTable2.Deparse(): dstTable2Name},
 		Destination:      s.Peer().Name,
 	}
 
@@ -601,7 +612,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
+	srcTable := s.attachSchemaSuffix("test_simple_cpkey")
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_cpkey")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -617,7 +629,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -655,7 +667,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
+	srcTable := s.attachSchemaSuffix("test_cpkey_toast1")
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_cpkey_toast1")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -672,7 +685,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast1_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -717,7 +730,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_cpkey_toast2"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -734,7 +748,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -773,7 +787,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_exclude_sf"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -793,7 +808,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: dstTableName,
 				Exclude:                    []string{"c2"},
 			},
@@ -843,7 +858,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 
 	tableName := "test_softdel_src"
 	dstName := "test_softdel"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, dstName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -861,7 +877,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
@@ -907,8 +923,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	tc := NewTemporalClient(s.t)
 
-	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
-	srcTableName := cmpTableName + "_src"
+	cmpTable := s.attachSchemaSuffix("test_softdel_iud")
+	cmpTableName := cmpTable.String()
+	srcTable := s.attachSchemaSuffix("test_softdel_iud_src")
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_iud")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -926,7 +944,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
@@ -979,7 +997,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 
 	tableName := "test_softdel_ud_src"
 	dstName := "test_softdel_ud"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, dstName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -997,7 +1016,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
@@ -1054,7 +1073,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_softdel_iad"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -1072,7 +1092,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
@@ -1137,7 +1157,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_mixed_case"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTableName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -1176,7 +1196,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_exclude_schema_changes_sf"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -1195,7 +1216,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: dstTableName,
 				Exclude:                    []string{"c2"},
 			},

@@ -10,6 +10,10 @@ type QualifiedTable struct {
 	Table     string // table or collection
 }
 
+func (t *QualifiedTable) Deparse() string {
+	return fmt.Sprintf("%s.%s", strings.ReplaceAll(t.Namespace, ".", ".."), strings.ReplaceAll(t.Table, ".", ".."))
+}
+
 func (t *QualifiedTable) String() string {
 	return fmt.Sprintf("%s.%s", QuoteIdentifier(t.Namespace), QuoteIdentifier(t.Table))
 }
@@ -19,13 +23,32 @@ func (t *QualifiedTable) MySQL() string {
 }
 
 // ParseTableIdentifier parses a table name into namespace and table name.
+// Dots within namespace or table are escaped as ".." by Deparse.
+// A lone single dot (not part of "..") separates namespace from table.
 func ParseTableIdentifier(tableIdentifier string) (*QualifiedTable, error) {
-	ns, table, hasDot := strings.Cut(tableIdentifier, ".")
-	if !hasDot || ns == "" || table == "" || strings.ContainsRune(table, '.') {
+	// Walk the string looking for the separator: a dot not adjacent to another dot.
+	// Escaped dots ("..") are skipped in pairs.
+	sep := -1
+	for i := 0; i < len(tableIdentifier); i++ {
+		if tableIdentifier[i] != '.' {
+			continue
+		}
+		if i+1 < len(tableIdentifier) && tableIdentifier[i+1] == '.' {
+			i++ // skip escaped dot pair
+			continue
+		}
+		if sep != -1 {
+			return nil, fmt.Errorf("invalid table name: %s", tableIdentifier)
+		}
+		sep = i
+	}
+	if sep <= 0 || sep >= len(tableIdentifier)-1 {
 		return nil, fmt.Errorf("invalid table name: %s", tableIdentifier)
 	}
-
-	return &QualifiedTable{ns, table}, nil
+	return &QualifiedTable{
+		Namespace: strings.ReplaceAll(tableIdentifier[:sep], "..", "."),
+		Table:     strings.ReplaceAll(tableIdentifier[sep+1:], "..", "."),
+	}, nil
 }
 
 // QuoteIdentifier quotes an "identifier" (e.g. a table or a column name) to be

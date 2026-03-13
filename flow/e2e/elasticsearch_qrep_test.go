@@ -17,7 +17,9 @@ func Test_Elasticsearch(t *testing.T) {
 
 func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	jobName := AddSuffix(s, "test_es_simple_append")
-	srcTableName := AttachSchema(s, "test_es_simple_append")
+	srcTableQualified := AttachSchema(s, "test_es_simple_append")
+	srcTableName := srcTableQualified.String()
+	srcTableIdent := srcTableQualified.Deparse()
 
 	_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -44,8 +46,8 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 
 	qrepConfig := CreateQRepWorkflowConfig(s.t,
 		jobName,
-		srcTableName,
-		srcTableName,
+		srcTableIdent,
+		srcTableIdent,
 		query,
 		s.Peer().Name,
 		"",
@@ -58,13 +60,13 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 
 	EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
-		return s.countDocumentsInIndex(srcTableName) == int64(rowCount)
+		return s.countDocumentsInIndex(srcTableIdent) == int64(rowCount)
 	})
 	_, err = s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	UPDATE %s SET c1=c1+2,updated_at=now() WHERE id%%2=0;`, srcTableName))
 	require.NoError(s.t, err, "failed to update rows on source")
 	EnvWaitFor(s.t, env, 20*time.Second, "waiting for ES to catch up", func() bool {
-		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount/2)
+		return s.countDocumentsInIndex(srcTableIdent) == int64(3*rowCount/2)
 	})
 
 	require.NoError(s.t, env.Error(s.t.Context()))
@@ -72,7 +74,9 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 
 func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	jobName := AddSuffix(s, "test_es_simple_upsert")
-	srcTableName := AttachSchema(s, "test_es_simple_upsert")
+	srcTableQualified := AttachSchema(s, "test_es_simple_upsert")
+	srcTableName := srcTableQualified.String()
+	srcTableIdent := srcTableQualified.Deparse()
 
 	_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -99,8 +103,8 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 
 	qrepConfig := CreateQRepWorkflowConfig(s.t,
 		jobName,
-		srcTableName,
-		srcTableName,
+		srcTableIdent,
+		srcTableIdent,
 		query,
 		s.Peer().Name,
 		"",
@@ -117,7 +121,7 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 
 	EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
-		return s.countDocumentsInIndex(srcTableName) == int64(rowCount)
+		return s.countDocumentsInIndex(srcTableIdent) == int64(rowCount)
 	})
 
 	require.NoError(s.t, env.Error(s.t.Context()))

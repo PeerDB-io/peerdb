@@ -27,6 +27,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -71,8 +72,8 @@ func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
 	}))
 }
 
-func (s ClickHouseSuite) attachSchemaSuffix(tableName string) string {
-	return fmt.Sprintf("e2e_test_%s.%s", s.suffix, tableName)
+func (s ClickHouseSuite) attachSchemaSuffix(tableName string) *common.QualifiedTable {
+	return AttachSchema(s, tableName)
 }
 
 func (s ClickHouseSuite) attachSuffix(input string) string {
@@ -82,8 +83,8 @@ func (s ClickHouseSuite) attachSuffix(input string) string {
 func (s ClickHouseSuite) Test_Addition_Removal() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_table_add_remove")
-	addedSrcTableName := s.attachSchemaSuffix("test_table_add_remove_added")
+	srcTable := s.attachSchemaSuffix("test_table_add_remove")
+	addedSrcTable := s.attachSchemaSuffix("test_table_add_remove_added")
 	dstTableName := "test_table_add_remove_target"
 	addedDstTableName := "test_table_add_remove_target_added"
 
@@ -92,18 +93,18 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 			id SERIAL PRIMARY KEY,
 			"key" TEXT NOT NULL
 		);
-	`, srcTableName)))
+	`, SourceSQL(s, srcTable))))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			"key" TEXT NOT NULL
 		);
-	`, addedSrcTableName)))
+	`, SourceSQL(s, addedSrcTable))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhousetableremoval"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -113,7 +114,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, srcTableName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, SourceSQL(s, srcTable))))
 	EnvWaitForEqualTablesWithNames(env, s, "first insert", "test_table_add_remove", dstTableName, "id,\"key\"")
 	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
@@ -142,7 +143,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	runID := EnvGetRunID(s.t, env)
 	SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		AdditionalTables: []*protos.TableMapping{{
-			SourceTableIdentifier:      addedSrcTableName,
+			SourceTableIdentifier:      addedSrcTable.Deparse(),
 			DestinationTableIdentifier: addedDstTableName,
 			ShardingKey:                "id",
 		}},
@@ -155,7 +156,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		return runID != EnvGetRunID(s.t, env)
 	})
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, addedSrcTableName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, SourceSQL(s, addedSrcTable))))
 	EnvWaitForEqualTablesWithNames(env, s, "first insert to added table", "test_table_add_remove_added", addedDstTableName, "id,\"key\"")
 	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	EnvWaitFor(s.t, env, 3*time.Minute, "pausing again for removing table", func() bool {
@@ -183,7 +184,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 
 	SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		RemovedTables: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcTableName,
+			SourceTableIdentifier:      srcTable.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 		}},
 	})
@@ -194,8 +195,8 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	afterRemoveRunID := EnvGetRunID(s.t, env)
 	require.NotEqual(s.t, runID, afterRemoveRunID)
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, srcTableName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, addedSrcTableName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, SourceSQL(s, srcTable))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, SourceSQL(s, addedSrcTable))))
 
 	EnvWaitForEqualTablesWithNames(env, s, "second insert to added table", "test_table_add_remove_added", addedDstTableName, "id,\"key\"")
 
@@ -219,13 +220,13 @@ func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 			n NUMERIC,
 			t TIMESTAMP
 		);
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('init')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('init')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("ch_nullable_mirror"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -238,7 +239,7 @@ func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,ky,val,n,t")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('cdc')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('cdc')`, SourceSQL(s, srcFullName))))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,ky,val,n,t")
 
@@ -259,13 +260,13 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 			n NUMERIC,
 			t TIMESTAMP
 		);
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('init')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('init')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("ch_nullable_column"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -285,7 +286,7 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,ky,val,n,t")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('cdc')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('cdc')`, SourceSQL(s, srcFullName))))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,ky,val,n,t")
 
@@ -303,13 +304,13 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 			id INT PRIMARY KEY,
 			"key" TEXT NOT NULL
 		);
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_pkey_update_disabled"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -322,7 +323,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=2, "key"='update' WHERE id=1`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=2, "key"='update' WHERE id=1`, SourceSQL(s, srcFullName))))
 
 	EnvWaitFor(s.t, env, time.Minute, "waiting for duplicate row", func() bool {
 		rows, err := s.GetRows(dstTableName, "id")
@@ -344,13 +345,13 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
 			id INT PRIMARY KEY,
 			"key" TEXT NOT NULL
 		);
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_pkey_update_enabled"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -363,7 +364,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=2, "key"='update' WHERE id=1`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=2, "key"='update' WHERE id=1`, SourceSQL(s, srcFullName))))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
 
@@ -381,14 +382,14 @@ func (s ClickHouseSuite) Test_Chunking_Initial_Load_Parts_Per_Partition() {
 			id INT PRIMARY KEY,
 			"key" TEXT NOT NULL
 		);
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, srcFullName)))
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_pkey_update_chunking_enabled"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -405,7 +406,7 @@ func (s ClickHouseSuite) Test_Chunking_Initial_Load_Parts_Per_Partition() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=id+10, "key"='update'`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=id+10, "key"='update'`, SourceSQL(s, srcFullName))))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
 
@@ -424,12 +425,12 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 		c1 INT,
 		c2 INT,
 		t TEXT);
-	ALTER TABLE %[1]s REPLICA IDENTITY FULL`, srcFullName))
+	ALTER TABLE %[1]s REPLICA IDENTITY FULL`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_replident_full_toast"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -443,12 +444,12 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 	contentStr := string(content)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (c1,c2,t) VALUES ($1,$2,$3)`, srcFullName), 1, 2, contentStr)
+		`INSERT INTO %s (c1,c2,t) VALUES ($1,$2,$3)`, SourceSQL(s, srcFullName)), 1, 2, contentStr)
 	require.NoError(s.t, err)
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial insert", srcTableName, dstTableName, "id,c1,c2,t")
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
-		`UPDATE %s SET c1=$1 WHERE id=$2`, srcFullName), 3, 1)
+		`UPDATE %s SET c1=$1 WHERE id=$2`, SourceSQL(s, srcFullName)), 3, 1)
 	require.NoError(s.t, err)
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on update", srcTableName, dstTableName, "id,c1,c2,t")
 
@@ -462,7 +463,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	}
 
 	srcTableName := tableName
-	srcFullName := s.attachSchemaSuffix(fmt.Sprintf("\"%s\"", tableName))
+	srcFullName := s.attachSchemaSuffix(tableName)
 	dstTableName := tableName
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -472,17 +473,18 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 			"includedColumn?" TEXT,
 			"excludedColumn?" TEXT
 		);
-	`, srcFullName))
+	`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s (key, \"includedColumn?\", \"excludedColumn?\") VALUES ('init','include','exclude')", srcFullName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (key, "includedColumn?", "excludedColumn?") VALUES ('init','include','exclude')`,
+		SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ToLower(qvalue.ConvertToAvroCompatibleName(tableName))),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			Exclude:                    []string{"excludedColumn?"},
 			ShardingKey:                "id",
@@ -498,7 +500,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
 	_, err = s.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s (key, \"includedColumn?\", \"excludedColumn?\") VALUES ('cdc','still','ex')", srcFullName))
+		fmt.Sprintf("INSERT INTO %s (key, \"includedColumn?\", \"excludedColumn?\") VALUES ('cdc','still','ex')", SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
 	env.Cancel(s.t.Context())
@@ -553,6 +555,10 @@ func (s ClickHouseSuite) Test_WeirdTable_Dash() {
 	s.WeirdTable("table-group%c%i%t%i%z%e%n")
 }
 
+func (s ClickHouseSuite) Test_WeirdTable_Dot() {
+	s.WeirdTable("my.table")
+}
+
 // large NUMERICs (precision >76) are mapped to String on CH, test
 func (s ClickHouseSuite) Test_Large_Numeric() {
 	srcFullName := s.attachSchemaSuffix("lnumeric")
@@ -566,16 +572,16 @@ func (s ClickHouseSuite) Test_Large_Numeric() {
 			c3 NUMERIC(76,0)[],
 			c4 NUMERIC(78,0)[]
 		);
-	`, srcFullName))
+	`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(c1,c2,c3,c4) VALUES($1,$2,$3,$4)", srcFullName),
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(c1,c2,c3,c4) VALUES($1,$2,$3,$4)", SourceSQL(s, srcFullName)),
 		strings.Repeat("7", 76), strings.Repeat("9", 78), "{"+strings.Repeat("6", 76)+"}", "{"+strings.Repeat("8", 78)+"}")
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_large_numerics"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -587,7 +593,7 @@ func (s ClickHouseSuite) Test_Large_Numeric() {
 
 	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2,c3,c4", 1)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(c1,c2,c3,c4) VALUES($1,$2,$3,$4)", srcFullName),
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(c1,c2,c3,c4) VALUES($1,$2,$3,$4)", SourceSQL(s, srcFullName)),
 		strings.Repeat("7", 76), strings.Repeat("9", 78), "{"+strings.Repeat("6", 76)+"}", "{"+strings.Repeat("8", 78)+"}")
 	require.NoError(s.t, err)
 
@@ -633,18 +639,20 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 		c3 NUMERIC,
 		s256 NUMERIC,
 		u256 NUMERIC
-	);`, srcFullName))
+	);`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,9,$1)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,9,$1)`, SourceSQL(s, srcFullName)),
+		strings.Repeat("9", 77), strings.Repeat("9", 78))
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,s256) VALUES($1,-9)`, srcFullName), strings.Repeat("9", 77))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(c1,s256) VALUES($1,-9)`, SourceSQL(s, srcFullName)), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_dest_type_conv"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -684,9 +692,11 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2,c3,s256,u256", 2)
 
 	_, err = s.Conn().Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,9,$1)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,9,$1)`, SourceSQL(s, srcFullName)),
+		strings.Repeat("9", 77), strings.Repeat("9", 78))
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,s256) VALUES($1,-9)`, srcFullName), strings.Repeat("9", 77))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(c1,s256) VALUES($1,-9)`, SourceSQL(s, srcFullName)), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
 
 	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2,c3,s256,u256", 4)
@@ -735,15 +745,15 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 			id INT PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
 			c numeric
 		);
-	`, srcFullName))
+	`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(c) VALUES($1)", srcFullName), nines)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(c) VALUES($1)", SourceSQL(s, srcFullName)), nines)
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(fmt.Sprintf("clickhouse_test_unbounded_numerics_ff_%v", ffValue)),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -755,7 +765,7 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 
 	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c", 1)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(c) VALUES($1)", srcFullName), nines)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(c) VALUES($1)", SourceSQL(s, srcFullName)), nines)
 	require.NoError(s.t, err)
 	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c", 2)
 
@@ -835,7 +845,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	srcFullName := s.attachSchemaSuffix(dstTableName)
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "CREATE TABLE IF NOT EXISTS %s(\n", srcFullName)
+	fmt.Fprintf(&sb, "CREATE TABLE IF NOT EXISTS %s(\n", SourceSQL(s, srcFullName))
 	sb.WriteString("id INT PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY")
 	for i, tc := range tests {
 		fmt.Fprintf(&sb, ",\ncol%d %s", i, tc.SrcType)
@@ -849,7 +859,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	require.NoError(s.t, err)
 
 	sb.Reset()
-	fmt.Fprintf(&sb, "INSERT INTO %s(", srcFullName)
+	fmt.Fprintf(&sb, "INSERT INTO %s(", SourceSQL(s, srcFullName))
 	for i := range tests {
 		if i > 0 {
 			fmt.Fprint(&sb, ", ")
@@ -876,7 +886,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	flowJobName := s.attachSuffix(fmt.Sprintf("clickhouse_test_num_trunc_ff_%v", unbNumAsStringFf))
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowJobName,
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1022,15 +1032,16 @@ func (s ClickHouseSuite) testBinaryFormat(format string, expected string) {
 			id INT PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
 			val bytea
 		);
-	`, srcFullName))
+	`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(val) VALUES($1)", srcFullName), []byte(binaryFormatTestcase))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(val) VALUES($1)", SourceSQL(s, srcFullName)), []byte(binaryFormatTestcase))
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("ch_binary_format_" + format),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1042,7 +1053,8 @@ func (s ClickHouseSuite) testBinaryFormat(format string, expected string) {
 
 	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,val", 1)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(val) VALUES($1)", srcFullName), []byte(binaryFormatTestcase))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(val) VALUES($1)", SourceSQL(s, srcFullName)), []byte(binaryFormatTestcase))
 	require.NoError(s.t, err)
 	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,val", 2)
 
@@ -1124,12 +1136,12 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'%[2]s'::json, null::json, '%[2]s'::jsonb, null::jsonb,
 		ARRAY['%[2]s'::json, null]::json[], ARRAY[]::json[], null::json[],
 		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`,
-		srcFullName, jsonPayload))
+		SourceSQL(s, srcFullName), jsonPayload))
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_types"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1194,7 +1206,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[],
 		'%[2]s'::json, null::json, '%[2]s'::jsonb, null::jsonb,
 		ARRAY['%[2]s'::json, null]::json[], ARRAY[]::json[], null::json[],
-		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`, srcFullName, jsonPayload))
+		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`, SourceSQL(s, srcFullName), jsonPayload))
 	require.NoError(s.t, err)
 	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 	EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName,
@@ -1259,7 +1271,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[],
 		'%[2]s'::json, null::json, '%[2]s'::jsonb, null::jsonb,
 		ARRAY['%[2]s'::json, null]::json[], ARRAY[]::json[], null::json[],
-		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`, srcFullName, jsonPayload))
+		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`, SourceSQL(s, srcFullName), jsonPayload))
 
 	require.NoError(s.t, err)
 	EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)
@@ -1323,13 +1335,13 @@ func (s ClickHouseSuite) Test_Time64() {
 			t_nullable TIME,
 			t_nullable_2 TIME
 		)
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('14:21:00', '08:30:00.123456', NULL)`, srcFullName)))
+		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('14:21:00', '08:30:00.123456', NULL)`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1346,12 +1358,12 @@ func (s ClickHouseSuite) Test_Time64() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,t,t_nullable,t_nullable_2")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('00:00:00', '23:59:59.999999', NULL)`, srcFullName)))
+		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('00:00:00', '23:59:59.999999', NULL)`, SourceSQL(s, srcFullName))))
 
 	if isMySQL {
 		// test mysql-specific range outside 24 hours
 		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-			`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('-123:45:67.899999', '123:45:67.899999', NULL)`, srcFullName)))
+			`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('-123:45:67.899999', '123:45:67.899999', NULL)`, SourceSQL(s, srcFullName))))
 	}
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,t,t_nullable,t_nullable_2")
@@ -1407,15 +1419,15 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 			n_null NUMERIC NULL,
 			n_notnull NUMERIC NOT NULL
 		);
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,t_null,t_notnull,d_null,d_notnull,n_null,n_notnull)
 		VALUES (1,'infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date,'infinity'::numeric,'infinity'::numeric)`,
-		srcFullName)))
+		SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("ch_infinite_time"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1430,7 +1442,7 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,t_null,t_notnull,d_null,d_notnull,n_null,n_notnull)
 		VALUES (2,'infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date,'infinity'::numeric,'infinity'::numeric)`,
-		srcFullName)))
+		SourceSQL(s, srcFullName))))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
 
@@ -1489,16 +1501,16 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 			jb_notnull JSONB NOT NULL,
 			jb_sqlnull JSONB NULL
 		);
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,j_sqlnull,jb_null,jb_notnull,jb_sqlnull)
 		VALUES (1,'null'::json,'null'::json,NULL,'null'::jsonb,'null'::jsonb,NULL)`,
-			srcFullName)))
+			SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("ch_json_null"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1514,7 +1526,7 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,j_sqlnull,jb_null,jb_notnull,jb_sqlnull)
 		VALUES (2,'null'::json,'null'::json,NULL,'null'::jsonb,'null'::jsonb,NULL)`,
-			srcFullName)))
+			SourceSQL(s, srcFullName))))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
 
@@ -1651,13 +1663,15 @@ func (s ClickHouseSuite) Test_JSON_CH() {
 	dstTableName := "test_json_dst"
 
 	cols := "id,json"
-	createStmt := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON);`, srcFullName)
-	insertStmt := func(v string) string { return fmt.Sprintf(`INSERT INTO %s (json) VALUES (%s)`, srcFullName, v) }
+	createStmt := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON);`, SourceSQL(s, srcFullName))
+	insertStmt := func(v string) string {
+		return fmt.Sprintf(`INSERT INTO %s (json) VALUES (%s)`, SourceSQL(s, srcFullName), v)
+	}
 	if _, isPostgres := s.source.(*PostgresSource); isPostgres {
 		cols = "id,json,jsonb"
-		createStmt = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON, jsonb JSONB);`, srcFullName)
+		createStmt = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON, jsonb JSONB);`, SourceSQL(s, srcFullName))
 		insertStmt = func(v string) string {
-			return fmt.Sprintf(`INSERT INTO %s (json, jsonb) VALUES (%s, %s)`, srcFullName, v, v)
+			return fmt.Sprintf(`INSERT INTO %s (json, jsonb) VALUES (%s, %s)`, SourceSQL(s, srcFullName), v, v)
 		}
 	}
 
@@ -1669,7 +1683,7 @@ func (s ClickHouseSuite) Test_JSON_CH() {
 	}
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_json"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -1704,9 +1718,9 @@ func (s ClickHouseSuite) Test_PgVector() {
 	dstTableName := "test_pgvector"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 vector, hv halfvec, sv sparsevec)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 vector, hv halfvec, sv sparsevec)`, SourceSQL(s, srcFullName))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, srcFullName)))
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:   AddSuffix(s, srcTableName),
@@ -1722,7 +1736,7 @@ func (s ClickHouseSuite) Test_PgVector() {
 	EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName, "id,v1,hv,sv")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, srcFullName)))
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName, "id,v1,hv,sv")
 
 	env.Cancel(s.t.Context())
@@ -1745,20 +1759,21 @@ func (s ClickHouseSuite) Test_AvroNullableLax() {
 	parentName := s.attachSchemaSuffix("test_avro_nullable_lax_parent")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (id INTEGER NOT NULL, to_drop TEXT, name TEXT)`, grandparentName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN to_drop`, grandparentName)))
+		CREATE TABLE IF NOT EXISTS %s (id INTEGER NOT NULL, to_drop TEXT, name TEXT)`, SourceSQL(s, grandparentName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN to_drop`, SourceSQL(s, grandparentName))))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s (to_drop2 TEXT, age INTEGER NOT NULL) INHERITS (%s)`,
+		SourceSQL(s, parentName), SourceSQL(s, grandparentName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN to_drop2`, SourceSQL(s, parentName))))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (to_drop2 TEXT, age INTEGER NOT NULL) INHERITS (%s)`, parentName, grandparentName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN to_drop2`, parentName)))
-
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (to_drop3 TEXT, email TEXT) INHERITS (%s)`, srcFullName, parentName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN to_drop3`, srcFullName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD PRIMARY KEY (id)`, srcFullName)))
+		CREATE TABLE IF NOT EXISTS %s (to_drop3 TEXT, email TEXT) INHERITS (%s)`, SourceSQL(s, srcFullName), SourceSQL(s, parentName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN to_drop3`, SourceSQL(s, srcFullName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD PRIMARY KEY (id)`, SourceSQL(s, srcFullName))))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s (id, name, age, email) VALUES (1, NULL, 25, NULL)`, srcFullName)))
+		fmt.Sprintf(`INSERT INTO %s (id, name, age, email) VALUES (1, NULL, 25, NULL)`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:   AddSuffix(s, srcTableName),
@@ -1793,13 +1808,13 @@ func (s ClickHouseSuite) Test_PgVector_Version0() {
 	dstTableName := "test_pgvector"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 vector, hv halfvec, sv sparsevec)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 vector, hv halfvec, sv sparsevec)`, SourceSQL(s, srcFullName))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 text, hv text, sv text)`, srcTextFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 text, hv text, sv text)`, srcTextFullName.String())))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, srcFullName)))
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, SourceSQL(s, srcFullName))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, srcTextFullName)))
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, srcTextFullName.String())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:   AddSuffix(s, srcTableName),
@@ -1817,9 +1832,9 @@ func (s ClickHouseSuite) Test_PgVector_Version0() {
 	EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTextTableName, dstTableName, "id,v1,hv,sv")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, srcFullName)))
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, SourceSQL(s, srcFullName))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, srcTextFullName)))
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, srcTextFullName.String())))
 	EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTextTableName, dstTableName, "id,v1,hv,sv")
 
 	env.Cancel(s.t.Context())
@@ -1848,13 +1863,13 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 			c2 INT,
 			t TEXT
 		);
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 
 	// insert 5 rows into the source table
 	for i := range 5 {
 		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 			`INSERT INTO %[1]s(c1,c2,t) VALUES (%[2]d,%[2]d,'test_value_%[2]d')`,
-			srcFullName, i,
+			SourceSQL(s, srcFullName), i,
 		)))
 	}
 
@@ -1862,7 +1877,7 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 		FlowJobName:     s.attachSuffix(tableName),
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			Exclude:                    []string{"c2"},
 			ShardingKey:                "id",
@@ -1883,14 +1898,14 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 	for i := range 5 {
 		EnvNoError(s.t, env, s.source.Exec(s.t.Context(), fmt.Sprintf(
 			`INSERT INTO %[1]s(c1,c2,t) VALUES (%[2]d,%[2]d,'test_value_%[2]d')`,
-			srcFullName, i,
+			SourceSQL(s, srcFullName), i,
 		)))
 	}
 
 	EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1,t")
 	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=1`, srcFullName)))
-	EnvNoError(s.t, env, s.source.Exec(s.t.Context(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, srcFullName)))
+		fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=1`, SourceSQL(s, srcFullName))))
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,c1,t")
 
 	env.Cancel(s.t.Context())
@@ -1913,7 +1928,7 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 	dstTableName := tableName
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT);`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT);`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:   AddSuffix(s, tableName),
@@ -1926,8 +1941,8 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 	env := ExecutePeerflow(s.t, tc, config)
 	SetupCDCFlowStatusQuery(s.t, env, config)
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 INT`, srcFullName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,c2) VALUES (1,null)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 INT`, SourceSQL(s, srcFullName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,c2) VALUES (1,null)`, SourceSQL(s, srcFullName))))
 
 	EnvWaitForEqualTables(env, s, "new column", tableName, "id,c1,c2")
 
@@ -1946,12 +1961,13 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Full() {
 	dstTableName := tableName
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, SourceSQL(s, srcFullName))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`ALTER TABLE %[1]s REPLICA IDENTITY FULL`, srcFullName)))
+		fmt.Sprintf(`ALTER TABLE %[1]s REPLICA IDENTITY FULL`, SourceSQL(s, srcFullName))))
 	// makes sure queries don't mixup tables
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT, "Ac2" INT NOT NULL, "Ac3" INT)`, srcFullName+"fake")))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT, "Ac2" INT NOT NULL, "Ac3" INT)`,
+			s.attachSchemaSuffix(tableName+"fake").String())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:   AddSuffix(s, tableName),
@@ -1966,8 +1982,9 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Full() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN "Ac2" INT, ADD COLUMN "Ac3" INT NOT NULL,
-		 ADD COLUMN c4 INT NOT NULL, DROP CONSTRAINT %s_pkey, ADD PRIMARY KEY (c4);`, srcFullName, tableName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,"Ac2","Ac3",c4) VALUES (1,null,2,3)`, srcFullName)))
+		 ADD COLUMN c4 INT NOT NULL, DROP CONSTRAINT %s_pkey, ADD PRIMARY KEY (c4);`, SourceSQL(s, srcFullName), tableName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (c1,"Ac2","Ac3",c4) VALUES (1,null,2,3)`, SourceSQL(s, srcFullName))))
 
 	EnvWaitForEqualTables(env, s, "new column", tableName, `id,c1,"Ac2","Ac3",c4`)
 
@@ -1995,11 +2012,11 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Index() {
 	dstTableName := tableName
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, "Ac1" INT NOT NULL, c2 INT NOT NULL);`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, "Ac1" INT NOT NULL, c2 INT NOT NULL);`, SourceSQL(s, srcFullName))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE UNIQUE INDEX idx_uniqlo_%s ON %s("Ac1",c2);`, tableName, srcFullName)))
+		fmt.Sprintf(`CREATE UNIQUE INDEX idx_uniqlo_%s ON %s("Ac1",c2);`, tableName, SourceSQL(s, srcFullName))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`ALTER TABLE %s REPLICA IDENTITY USING INDEX idx_uniqlo_%s`, srcFullName, tableName)))
+		fmt.Sprintf(`ALTER TABLE %s REPLICA IDENTITY USING INDEX idx_uniqlo_%s`, SourceSQL(s, srcFullName), tableName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:   AddSuffix(s, tableName),
@@ -2012,11 +2029,13 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Index() {
 	env := ExecutePeerflow(s.t, tc, config)
 	SetupCDCFlowStatusQuery(s.t, env, config)
 
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN "Ac3" INT NOT NULL,`+
+			` ADD COLUMN c4 INT NOT NULL, ADD COLUMN "Ac5" TEXT,`+
+			` DROP CONSTRAINT %s_pkey, ADD PRIMARY KEY (c4);`,
+		SourceSQL(s, srcFullName), tableName)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN "Ac3" INT NOT NULL,
-		 ADD COLUMN c4 INT NOT NULL, ADD COLUMN "Ac5" TEXT, DROP CONSTRAINT %s_pkey, ADD PRIMARY KEY (c4);`, srcFullName, tableName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s ("Ac1",c2,"Ac3",c4,"Ac5") VALUES (1,2,3,4,null)`, srcFullName)))
+		fmt.Sprintf(`INSERT INTO %s ("Ac1",c2,"Ac3",c4,"Ac5") VALUES (1,2,3,4,null)`, SourceSQL(s, srcFullName))))
 
 	EnvWaitForEqualTables(env, s, "new column", tableName, `id,"Ac1",c2,"Ac3",c4,"Ac5"`)
 
@@ -2057,23 +2076,23 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 			"人間失格" CHAR(10),
 			PRIMARY KEY (id, "id number")
 		);
-	`, srcFullName))
+	`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone", "quo'te", "Анна Каренина", "人間失格")
 	VALUES ('init_initial_load', 'secret', 'neptune', 'true', 509, 'abcd', 3.14, '人間失格');
-	`, srcFullName))
+	`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
-	err = RevokePermissionForTableColumns(s.t.Context(), s.Conn(), srcFullName,
+	err = RevokePermissionForTableColumns(s.t.Context(), s.Conn(), srcFullName.Deparse(),
 		[]string{"id", "id number", "key", "spacey column", "#sync_me!", "2birds1stone", "quo'te", "Анна Каренина", "人間失格"})
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_test_unprivileged_columns"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			Exclude:                    []string{"se'cret"},
 			ShardingKey:                "id",
@@ -2092,7 +2111,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone","quo'te", "Анна Каренина", "人間失格")
 	VALUES ('cdc1', 'secret', 'pluto', 'false', 123324, 'lwkfj', 2.718, '人間失格');
-	`, srcFullName))
+	`, SourceSQL(s, srcFullName)))
 
 	require.NoError(s.t, err)
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName,
@@ -2115,13 +2134,13 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 	dstTableName := "test_no_pkey_dst"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT, "key" TEXT NOT NULL)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT, "key" TEXT NOT NULL)`, SourceSQL(s, srcFullName))))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_no_pkey"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2157,24 +2176,24 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 			id INT PRIMARY KEY,
 			"key" TEXT NOT NULL
 		);
-	`, srcFullName1)))
+	`, SourceSQL(s, srcFullName1))))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %s (
 		id INT PRIMARY KEY,
 		"key" TEXT NOT NULL
 	);
-	`, srcFullName2)))
+	`, SourceSQL(s, srcFullName2))))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, srcFullName1)))
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, SourceSQL(s, srcFullName1))))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, srcFullName2)))
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, SourceSQL(s, srcFullName2))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_normalize_metadata_with_retry"),
-		TableNameMapping: map[string]string{srcFullName1: dstTableName1, srcFullName2: dstTableName2},
+		TableNameMapping: map[string]string{srcFullName1.Deparse(): dstTableName1, srcFullName2.Deparse(): dstTableName2},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2196,7 +2215,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	}
 	renameErr := ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s%s`, dstTableName2, fakeDestination2, onCluster))
 	require.NoError(s.t, renameErr)
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update1'`, srcFullName2)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update1'`, SourceSQL(s, srcFullName2))))
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for first sync to complete", func() bool {
 		rows, err := pgSource.Query(s.t.Context(),
@@ -2236,8 +2255,8 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	// Rename the table back to simulate a successful push to ClickHouse
 	renameErr = ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s%s`, fakeDestination2, dstTableName2, onCluster))
 	require.NoError(s.t, renameErr)
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, srcFullName2)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, srcFullName1)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, SourceSQL(s, srcFullName2))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, SourceSQL(s, srcFullName1))))
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for second sync to complete", func() bool {
 		rows, err := pgSource.Query(s.t.Context(),
@@ -2331,12 +2350,12 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		'((10,20),(30,40),(50,60))',            -- PATH
 		'((10,20),(30,40),(50,60),(10,20))',    -- POLYGON
 		'<(10,20),30>'                          -- CIRCLE
-	);`, srcFullName))
+	);`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_geometric_types"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2361,7 +2380,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		'((100,200),(300,400),(500,600))',      -- PATH
 		'((100,200),(300,400),(500,600),(100,200))', -- POLYGON
 		'<(100,200),300>'                       -- CIRCLE
-	);`, srcFullName))
+	);`, SourceSQL(s, srcFullName)))
 	require.NoError(s.t, err)
 
 	// Wait for CDC to replicate the new row
@@ -2457,13 +2476,13 @@ func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 	dstTableName := "test_skip_snapshot"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, SourceSQL(s, srcFullName))))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_skip_snapshot"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2476,7 +2495,7 @@ func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
 
 	env.Cancel(s.t.Context())
@@ -2489,13 +2508,13 @@ func (s ClickHouseSuite) Test_SchemaAsColumn() {
 	dstTableName := "test_schema_as_column"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, SourceSQL(s, srcFullName))))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_schema_as_column"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2508,7 +2527,7 @@ func (s ClickHouseSuite) Test_SchemaAsColumn() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
 
 	rows, err := s.GetRows(dstTableName, "_peerdb_source_schema")
@@ -2528,7 +2547,7 @@ func (s ClickHouseSuite) Test_Extra_CH_Columns() {
 	dstTableName := "test_extra_ch_cols"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, SourceSQL(s, srcFullName))))
 
 	require.NoError(s.t, s.CreateRMTTable(dstTableName, []TestClickHouseColumn{
 		{Name: "id", Type: "Int32"},
@@ -2540,11 +2559,11 @@ func (s ClickHouseSuite) Test_Extra_CH_Columns() {
 	}, "id"),
 	)
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_extra_ch_cols"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2556,7 +2575,7 @@ func (s ClickHouseSuite) Test_Extra_CH_Columns() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
 
 	env.Cancel(s.t.Context())
@@ -2570,12 +2589,12 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	dstTableName := "test_nullengine"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL, val TEXT)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL, val TEXT)`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_nullengine"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			Engine:                     protos.TableEngine_CH_ENGINE_NULL,
 			ShardingKey:                "id",
@@ -2597,13 +2616,13 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	require.NoError(s.t, ch.Close())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s values (1,'cdc','val')`, srcFullName)))
+		fmt.Sprintf(`insert into %s values (1,'cdc','val')`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "null insert", srcTableName, "nulltarget", "id,\"key\"")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN added INT`, srcFullName)))
+		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN added INT`, SourceSQL(s, srcFullName))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s values (2,'no','add',0)`, srcFullName)))
+		fmt.Sprintf(`insert into %s values (2,'no','add',0)`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "null insert after column added", srcTableName, "nulltarget", "id,\"key\"")
 
 	var count uint64
@@ -2621,7 +2640,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s DROP COLUMN val", srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s DROP COLUMN val", SourceSQL(s, srcFullName))))
 
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
 	require.NoError(s.t, err)
@@ -2634,7 +2653,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, "nulltarget", "id,\"key\"")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s values (3,'cdcresync',1)`, srcFullName)))
+		fmt.Sprintf(`insert into %s values (3,'cdcresync',1)`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on insert after resync", srcTableName, "nulltarget", "id,\"key\"")
 
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
@@ -2664,12 +2683,12 @@ func (s ClickHouseSuite) Test_CoalescingEngine() {
 	dstTableName := "test_coalescing"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT)`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_nullengine"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			Engine:                     protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE,
 			ShardingKey:                "id",
@@ -2684,9 +2703,9 @@ func (s ClickHouseSuite) Test_CoalescingEngine() {
 
 	// test toast
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s (id,num,val) VALUES (0,0,random_string(9000))`, srcFullName)))
+		fmt.Sprintf(`INSERT INTO %s (id,num,val) VALUES (0,0,random_string(9000))`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "insert", srcTableName, dstTableName, "id,num,val")
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET num = 1`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET num = 1`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "update", srcTableName, dstTableName, "id,num,val")
 
 	env.Cancel(s.t.Context())
@@ -2702,26 +2721,26 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id INT PRIMARY KEY,
 		myname TEXT NOT NULL,
-		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, srcFullName)))
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, SourceSQL(s, srcFullName))))
 
 	for i := 1; i <= 100; i++ {
 		if _, ok := s.source.(*PostgresSource); ok {
 			require.NoError(s.t, s.source.Exec(s.t.Context(),
 				fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
 			VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL '%d seconds')`,
-					srcFullName, i, i, i)))
+					SourceSQL(s, srcFullName), i, i, i)))
 		} else {
 			require.NoError(s.t, s.source.Exec(s.t.Context(),
 				fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
 			VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`,
-					srcFullName, i, i, i)))
+					SourceSQL(s, srcFullName), i, i, i)))
 		}
 	}
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_key_integer"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "id",
 			ShardingKey:                "id",
@@ -2760,26 +2779,26 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id INT PRIMARY KEY,
 		myname TEXT NOT NULL,
-		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, srcFullName)))
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, SourceSQL(s, srcFullName))))
 
 	for i := 1; i <= 100; i++ {
 		if _, ok := s.source.(*PostgresSource); ok {
 			require.NoError(s.t, s.source.Exec(s.t.Context(),
 				fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
 			VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL '%d seconds')`,
-					srcFullName, i, i, i)))
+					SourceSQL(s, srcFullName), i, i, i)))
 		} else {
 			require.NoError(s.t, s.source.Exec(s.t.Context(),
 				fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
 			VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`,
-					srcFullName, i, i, i)))
+					SourceSQL(s, srcFullName), i, i, i)))
 		}
 	}
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_key_timestamp"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "updated_at",
 			ShardingKey:                "id",
@@ -2819,12 +2838,12 @@ func (s ClickHouseSuite) Test_Partition_Key_Empty() {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id INT PRIMARY KEY,
 		myname TEXT NOT NULL,
-		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, srcFullName)))
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_key_empty"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "id",
 			ShardingKey:                "id",
@@ -2864,17 +2883,17 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id INT PRIMARY KEY,
 		myname TEXT NOT NULL,
-		updated_at TIMESTAMP)`, srcFullName)))
+		updated_at TIMESTAMP)`, SourceSQL(s, srcFullName))))
 
 	for i := 1; i <= 100; i++ {
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf(`INSERT INTO %s (id,myname) VALUES (%d,'init_%d')`, srcFullName, i, i)))
+			fmt.Sprintf(`INSERT INTO %s (id,myname) VALUES (%d,'init_%d')`, SourceSQL(s, srcFullName), i, i)))
 	}
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_key_null"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "updated_at",
 			ShardingKey:                "id",
@@ -2915,12 +2934,12 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 	dstTableName := "test_partition_by"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT NOT NULL)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT NOT NULL)`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_by"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			Columns: []*protos.ColumnSetting{
 				{SourceName: "id", NullableEnabled: true},
@@ -2966,12 +2985,12 @@ func (s ClickHouseSuite) Test_PartitionByExpr() {
 	dstTableName := "test_partition_by_expr"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT NOT NULL)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT NOT NULL)`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_by"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
+			SourceTableIdentifier:      srcFullName.Deparse(),
 			DestinationTableIdentifier: dstTableName,
 			PartitionByExpr:            "num%2,val",
 			Columns: []*protos.ColumnSetting{
@@ -3028,28 +3047,28 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 			email TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)
-	`, srcFullName)))
+	`, SourceSQL(s, srcFullName))))
 	numRows := 1000
 	deletedRows := 10
 	for i := 1; i <= numRows; i++ {
 		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 			INSERT INTO %s (name, age, email) VALUES ('user_%d', %d, 'user_%d@example.com')
-		`, srcFullName, i, 20+(i%50), i)))
+		`, SourceSQL(s, srcFullName), i, 20+(i%50), i)))
 	}
 	for i := 1; i <= numRows; i++ {
 		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 			UPDATE %s SET age = %d WHERE id = %d
-		`, srcFullName, 30+(i%50), i)))
+		`, SourceSQL(s, srcFullName), 30+(i%50), i)))
 	}
 	for i := 1; i <= deletedRows; i++ {
 		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id = %d
-		`, srcFullName, i)))
+		`, SourceSQL(s, srcFullName), i)))
 	}
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_partition_by_ctid"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -3064,7 +3083,7 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 			INSERT INTO %s (name, age, email) VALUES ('user_%d', %d, 'user_%d@example.com')
-		`, srcFullName, numRows+1, 25, numRows+1)))
+		`, SourceSQL(s, srcFullName), numRows+1, 25, numRows+1)))
 	EnvWaitForCount(env, s, "wait on cdc", dstTableName, "id", numRows-deletedRows+1)
 
 	rows, err := s.Conn().Query(s.t.Context(),
@@ -3134,13 +3153,13 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 			c INT NOT NULL,
 			PRIMARY KEY (%s)
 		)
-	`, srcFullName, orderedPk))
+	`, SourceSQL(s, srcFullName), orderedPk))
 	require.NoError(s.t, err)
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (0,1,2,3)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (0,1,2,3)`, SourceSQL(s, srcFullName))))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("ch_composite_pkey_order"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{srcFullName.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -3151,7 +3170,7 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, orderedPk)
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (4,5,6,7)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (4,5,6,7)`, SourceSQL(s, srcFullName))))
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, orderedPk)
 
 	var sortingKey string
