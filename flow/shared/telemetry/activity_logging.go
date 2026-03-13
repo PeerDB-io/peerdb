@@ -176,7 +176,7 @@ func logActivity(ctx context.Context, action string, additionalAttrs ...any) {
 	slog.InfoContext(ctx, "[flow activity] "+action, attrs...)
 }
 
-type flowConfigForLogging struct {
+type FlowConfigForLogging struct {
 	FlowName                    string `json:"flow_name"`
 	SourcePeerName              string `json:"source_peer_name"`
 	PublicationName             string `json:"pg_publication_name"`
@@ -190,6 +190,7 @@ type flowConfigForLogging struct {
 	SnapshotOnly                bool   `json:"snapshot_only"`
 	Resync                      bool   `json:"is_resync"`
 	NumTables                   int    `json:"num_tables"`
+	ReplicationMechanismInUse   string `json:"replication_mechanism_in_use"` // mysql
 }
 
 type tableMappingForLogging struct {
@@ -203,6 +204,11 @@ type tableMappingForLogging struct {
 	TotalInserts        int64    `json:"total_inserts"`
 	TotalUpdates        int64    `json:"total_updates"`
 	TotalDeletes        int64    `json:"total_deletes"`
+}
+
+type FlowConfigLogEntry struct {
+	FlowConfig    FlowConfigForLogging
+	TableMappings []tableMappingForLogging
 }
 
 //nolint:govet // field order is intentional for readability
@@ -223,10 +229,10 @@ type sourcePeerInfoForLogging struct {
 	ReadPreference       string `json:"read_preference"`       // mongo
 }
 
-func LogFlowConfigs(
+func GetFlowConfigLogEntries(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
-) ([]flowConfigForLogging, error) {
+) ([]FlowConfigLogEntry, error) {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
 
 	batch := pgx.Batch{}
@@ -305,9 +311,9 @@ func LogFlowConfigs(
 		}
 	}
 
-	flowConfigs := make([]flowConfigForLogging, 0, len(configs))
+	flowConfigs := make([]FlowConfigLogEntry, 0, len(configs))
 	for _, cfg := range configs {
-		fc := flowConfigForLogging{
+		fc := FlowConfigForLogging{
 			FlowName:                    cfg.FlowJobName,
 			SourcePeerName:              cfg.SourceName,
 			MaxBatchSize:                cfg.MaxBatchSize,
@@ -322,18 +328,15 @@ func LogFlowConfigs(
 			Resync:                      cfg.Resync,
 			NumTables:                   len(cfg.TableMappings),
 		}
-		flowConfigs = append(flowConfigs, fc)
-
-		logAsJSON(logger, "[flow config]", fc, slog.String("flowName", cfg.FlowJobName))
-
 		flowReplicaIdentity := replicaIdentityByFlow[cfg.FlowJobName]
 		flowCounts := countsByFlow[cfg.FlowJobName]
+		tableMappings := make([]tableMappingForLogging, 0, len(cfg.TableMappings))
 		for _, tm := range cfg.TableMappings {
 			counts := flowCounts[tm.DestinationTableIdentifier]
 			hasCustomSortKey := slices.ContainsFunc(tm.Columns, func(col *protos.ColumnSetting) bool {
 				return col.Ordering > 0
 			})
-			logAsJSON(logger, "[table config]", tableMappingForLogging{
+			tableMappings = append(tableMappings, tableMappingForLogging{
 				TableName:           tm.SourceTableIdentifier,
 				DestTableName:       tm.DestinationTableIdentifier,
 				PartitionKey:        tm.PartitionKey,
@@ -344,11 +347,28 @@ func LogFlowConfigs(
 				TotalInserts:        counts.inserts,
 				TotalUpdates:        counts.updates,
 				TotalDeletes:        counts.deletes,
-			}, slog.String("flowName", cfg.FlowJobName), slog.String("tableName", tm.SourceTableIdentifier))
+			})
 		}
+		flowConfigs = append(flowConfigs, FlowConfigLogEntry{
+			FlowConfig:    fc,
+			TableMappings: tableMappings,
+		})
 	}
 
 	return flowConfigs, nil
+}
+
+func LogFlowConfigs(ctx context.Context, flowConfigs []FlowConfigLogEntry) {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
+
+	for _, entry := range flowConfigs {
+		logAsJSON(logger, "[flow config]", entry.FlowConfig, slog.String("flowName", entry.FlowConfig.FlowName))
+		for _, tableMapping := range entry.TableMappings {
+			logAsJSON(logger, "[table config]", tableMapping,
+				slog.String("flowName", entry.FlowConfig.FlowName),
+				slog.String("tableName", tableMapping.TableName))
+		}
+	}
 }
 
 func LogPeerInfo(ctx context.Context, peer *protos.Peer, version string, variant string) {
