@@ -85,7 +85,8 @@ func Test_Kafka(t *testing.T) {
 }
 
 func (s KafkaSuite) TestSimple() {
-	srcTableName := AttachSchema(s, "kasimple")
+	srcTableQualified := AttachSchema(s, "kasimple")
+	srcTableName := srcTableQualified.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -102,7 +103,7 @@ func (s KafkaSuite) TestSimple() {
 	flowName := AddSuffix(s, "kasimple")
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: flowName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): flowName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -142,7 +143,8 @@ func (s KafkaSuite) TestSimple() {
 }
 
 func (s KafkaSuite) TestMessage() {
-	srcTableName := AttachSchema(s, "kamessage")
+	srcTableQualified := AttachSchema(s, "kamessage")
+	srcTableName := srcTableQualified.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 			CREATE TABLE IF NOT EXISTS %s (
@@ -160,7 +162,7 @@ func (s KafkaSuite) TestMessage() {
 	flowName := AddSuffix(s, "kamessage")
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: flowName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): flowName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -202,7 +204,8 @@ func (s KafkaSuite) TestMessage() {
 }
 
 func (s KafkaSuite) TestDefault() {
-	srcTableName := AttachSchema(s, "kadefault")
+	srcTableQualified := AttachSchema(s, "kadefault")
+	srcTableName := srcTableQualified.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -215,7 +218,7 @@ func (s KafkaSuite) TestDefault() {
 	flowName := AddSuffix(s, "kadefault")
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: flowName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): flowName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -256,7 +259,8 @@ func (s KafkaSuite) TestDefault() {
 }
 
 func (s KafkaSuite) TestInitialLoad() {
-	srcTableName := AttachSchema(s, "kainitial")
+	srcTableQualified := AttachSchema(s, "kainitial")
+	srcTableName := srcTableQualified.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -269,7 +273,7 @@ func (s KafkaSuite) TestInitialLoad() {
 	flowName := AddSuffix(s, "kainitial")
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: flowName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): flowName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -311,7 +315,8 @@ func (s KafkaSuite) TestInitialLoad() {
 }
 
 func (s KafkaSuite) TestOriginMetadata() {
-	srcTableName := AttachSchema(s, "kaorigin")
+	srcTableQualified := AttachSchema(s, "kaorigin")
+	srcTableName := srcTableQualified.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -330,7 +335,7 @@ func (s KafkaSuite) TestOriginMetadata() {
 	flowName := AddSuffix(s, "kaorigin")
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: flowName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): flowName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)

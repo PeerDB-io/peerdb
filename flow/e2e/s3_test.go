@@ -8,10 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
-func (s PeerFlowE2ETestSuiteS3) attachSchemaSuffix(tableName string) string {
-	return fmt.Sprintf("e2e_test_%s.%s", s.suffix, tableName)
+func (s PeerFlowE2ETestSuiteS3) attachSchemaSuffix(tableName string) *common.QualifiedTable {
+	return AttachSchema(s, tableName)
 }
 
 func (s PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
@@ -21,7 +22,8 @@ func (s PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
 func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_simple_flow_s3")
+	srcTableQualified := s.attachSchemaSuffix("test_simple_flow_s3")
+	srcTableName := srcTableQualified.String()
 	dstTableName := "peerdb_test_s3.test_simple_flow_s3"
 	flowJobName := s.attachSuffix("test_simple_flow_s3")
 	_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -34,7 +36,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
 	require.NoError(s.t, err)
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowJobName,
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -80,7 +82,8 @@ func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
 func (s PeerFlowE2ETestSuiteS3) Test_OriginMetadata() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("origin_metadata")
+	srcTableQualified := s.attachSchemaSuffix("origin_metadata")
+	srcTableName := srcTableQualified.String()
 	dstTableName := "peerdb_test_s3.origin_metadata"
 	flowJobName := s.attachSuffix("origin_metadata")
 
@@ -93,7 +96,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_OriginMetadata() {
 	require.NoError(s.t, err)
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowJobName,
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
