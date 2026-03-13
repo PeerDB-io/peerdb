@@ -8,12 +8,13 @@ import (
 	gomysql "github.com/go-mysql-org/go-mysql/mysql"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
 
 func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
 	rs, err := c.Execute(ctx, `
-		SELECT concat(table_schema, '.', table_name)
+		SELECT table_schema, table_name
 		FROM information_schema.tables
 		WHERE table_schema NOT IN ('information_schema', 'performance_schema', 'sys')
 		  AND table_type = 'BASE TABLE'`)
@@ -23,11 +24,18 @@ func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesRes
 
 	tables := make([]string, 0, rs.RowNumber())
 	for idx := range rs.RowNumber() {
-		val, err := rs.GetString(idx, 0)
+		schema, err := rs.GetString(idx, 0)
 		if err != nil {
 			return nil, err
 		}
-		tables = append(tables, val)
+		table, err := rs.GetString(idx, 1)
+		if err != nil {
+			return nil, err
+		}
+		tables = append(tables, (&common.QualifiedTable{
+			Namespace: schema,
+			Table:     table,
+		}).Deparse())
 	}
 	return &protos.AllTablesResponse{Tables: tables}, nil
 }

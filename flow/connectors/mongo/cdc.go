@@ -353,7 +353,10 @@ func (c *MongoConnector) PullRecords(
 		clusterTimeNanos := clusterTime.UnixNano()
 		otelManager.Metrics.LatestConsumedLogEventGauge.Record(ctx, clusterTime.Unix())
 
-		sourceTableName := fmt.Sprintf("%s.%s", changeEvent.Ns.Db, changeEvent.Ns.Coll)
+		sourceTableName := (&common.QualifiedTable{
+			Namespace: changeEvent.Ns.Db,
+			Table:     changeEvent.Ns.Coll,
+		}).Deparse()
 		destinationTableName := req.TableNameMapping[sourceTableName].Name
 		if destinationTableName == "" {
 			// should never happen since pipeline should filter out irrelevant tables

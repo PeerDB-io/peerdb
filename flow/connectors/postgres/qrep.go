@@ -133,8 +133,8 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 	}
 	var schema, name string
 	if _, err := pgx.ForEachRow(rows, []any{&schema, &name}, func() error {
-		if _, ok := output.TableDefaultPartitionKeyMapping[fmt.Sprintf("%s.%s", schema, name)]; ok {
-			table := fmt.Sprintf("%s.%s", schema, name)
+		table := (&common.QualifiedTable{Namespace: schema, Table: name}).Deparse()
+		if _, ok := output.TableDefaultPartitionKeyMapping[table]; ok {
 			delete(output.TableDefaultPartitionKeyMapping, table)
 			c.logger.Warn("table is a compressed hypertable, falling back to full table partition",
 				slog.String("table", table))
