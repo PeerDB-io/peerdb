@@ -34,7 +34,7 @@ func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 			},
 		})
 	require.NoError(t, err)
-	require.NoError(t, mysqlConnector.Ping(t.Context()))
+	require.NoError(t, mysqlConnector.ConnectionActive(t.Context()))
 }
 
 func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
@@ -65,5 +65,5 @@ func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
 			},
 		})
 	require.NoError(t, err)
-	require.NoError(t, mysqlConnector.Ping(t.Context()))
+	require.NoError(t, mysqlConnector.ConnectionActive(t.Context()))
 }
