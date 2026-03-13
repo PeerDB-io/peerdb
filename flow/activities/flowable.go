@@ -935,22 +935,47 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		return nil
 	}))()
 	defer common.Interval(ctx, 1*time.Hour, wrapWithLog("LogFlowConfigs", func() error {
-		flowConfigsForLogging, err := telemetry.LogFlowConfigs(ctx, a.CatalogPool)
+		flowConfigsForLogging, err := telemetry.GetFlowConfigLogEntries(ctx, a.CatalogPool)
 		if err != nil {
 			return err
 		}
-		sourcePeerNames := make(map[string]struct{}, len(flowConfigsForLogging))
-		for _, fc := range flowConfigsForLogging {
-			sourcePeerNames[fc.SourcePeerName] = struct{}{}
+		flowEntriesByPeer := make(map[string][]*telemetry.FlowConfigLogEntry, len(flowConfigsForLogging))
+		for i := range flowConfigsForLogging {
+			entry := &flowConfigsForLogging[i]
+			flowEntriesByPeer[entry.FlowConfig.SourcePeerName] = append(flowEntriesByPeer[entry.FlowConfig.SourcePeerName], entry)
 		}
-		peers, err := connectors.LoadPeers(ctx, a.CatalogPool, slices.Collect(maps.Keys(sourcePeerNames)))
+		peers, err := connectors.LoadPeers(ctx, a.CatalogPool, slices.Collect(maps.Keys(flowEntriesByPeer)))
 		if err != nil {
 			return fmt.Errorf("failed to load source peers: %w", err)
 		}
 		for _, peer := range peers {
-			version, variant := a.getRuntimePeerInfo(ctx, peer)
+			peerFlowEntries := flowEntriesByPeer[peer.Name]
+
+			flowNames := make([]string, 0, len(peerFlowEntries))
+			for _, entry := range peerFlowEntries {
+				flowNames = append(flowNames, entry.FlowConfig.FlowName)
+			}
+
+			conn, err := connectors.GetConnector(ctx, nil, peer)
+			if err != nil {
+				logger.Error("failed to create connector for source peer info", slog.String("peer", peer.Name), slog.Any("error", err))
+				telemetry.LogPeerInfo(ctx, peer, "N/A", "N/A")
+				continue
+			}
+
+			version, variant := a.getRuntimePeerInfo(ctx, peer, conn)
 			telemetry.LogPeerInfo(ctx, peer, version, variant)
+			replicationMechanismInUseByFlow := a.getReplicationMechanismInUseByFlow(ctx, peer, conn, flowNames)
+			if err := conn.Close(); err != nil {
+				logger.Warn("failed to close connector for source peer info",
+					slog.String("peer", peer.Name),
+					slog.Any("error", err))
+			}
+			for _, entry := range peerFlowEntries {
+				entry.FlowConfig.ReplicationMechanismInUse = replicationMechanismInUseByFlow[entry.FlowConfig.FlowName]
+			}
 		}
+		telemetry.LogFlowConfigs(ctx, flowConfigsForLogging)
 		return nil
 	}))()
 	defer common.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
@@ -961,17 +986,14 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) getRuntimePeerInfo(ctx context.Context, peer *protos.Peer) (string, string) {
+func (a *FlowableActivity) getRuntimePeerInfo(
+	ctx context.Context,
+	peer *protos.Peer,
+	conn connectors.Connector,
+) (string, string) {
 	logger := internal.LoggerFromCtx(ctx)
 	version := "N/A"
 	variant := "N/A"
-
-	conn, err := connectors.GetConnector(ctx, nil, peer)
-	if err != nil {
-		logger.Error("failed to create connector for source peer info", slog.String("peer", peer.Name), slog.Any("error", err))
-		return version, variant
-	}
-	defer conn.Close()
 
 	if vc, ok := conn.(connectors.GetVersionConnector); ok {
 		if v, err := vc.GetVersion(ctx); err != nil {
@@ -990,6 +1012,35 @@ func (a *FlowableActivity) getRuntimePeerInfo(ctx context.Context, peer *protos.
 		}
 	}
 	return version, variant
+}
+
+func (a *FlowableActivity) getReplicationMechanismInUseByFlow(
+	ctx context.Context,
+	peer *protos.Peer,
+	conn connectors.Connector,
+	flowNames []string,
+) map[string]string {
+	logger := internal.LoggerFromCtx(ctx)
+	replicationMechanismInUseByFlow := make(map[string]string, len(flowNames))
+
+	rmc, ok := conn.(connectors.ReplicationMechanismInUseConnector)
+	if !ok {
+		return replicationMechanismInUseByFlow
+	}
+
+	for _, flowName := range flowNames {
+		mechanismInUse, err := rmc.GetReplicationMechanismInUse(ctx, flowName)
+		if err != nil {
+			logger.Error("failed to get replication mechanism in use",
+				slog.String("peer", peer.Name),
+				slog.String("flowName", flowName),
+				slog.Any("error", err))
+			continue
+		}
+		replicationMechanismInUseByFlow[flowName] = mechanismInUse
+	}
+
+	return replicationMechanismInUseByFlow
 }
 
 type flowInformation struct {

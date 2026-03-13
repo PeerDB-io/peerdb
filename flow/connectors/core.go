@@ -346,6 +346,12 @@ type DatabaseVariantConnector interface {
 	GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error)
 }
 
+type ReplicationMechanismInUseConnector interface {
+	Connector
+
+	GetReplicationMechanismInUse(ctx context.Context, flowJobName string) (string, error)
+}
+
 type TableSizeEstimatorConnector interface {
 	Connector
 
@@ -741,4 +747,6 @@ var (
 	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
 	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}
 	_ TableSizeEstimatorConnector = &connmongo.MongoConnector{}
+
+	_ ReplicationMechanismInUseConnector = &connmysql.MySqlConnector{}
 )
