@@ -362,7 +362,7 @@ func corePullQRepRecords(
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
-	from := "*"
+	selectedColumns := "*"
 	if len(config.Exclude) != 0 {
 		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
 		if err != nil {
@@ -374,7 +374,7 @@ func corePullQRepRecords(
 				quotedColumns = append(quotedColumns, common.QuoteIdentifier(col.Name))
 			}
 		}
-		from = strings.Join(quotedColumns, ",")
+		selectedColumns = strings.Join(quotedColumns, ",")
 	}
 
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
@@ -393,7 +393,7 @@ func corePullQRepRecords(
 
 		query := config.Query
 		if query == "" {
-			query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())
+			query = fmt.Sprintf("SELECT %s FROM %s", selectedColumns, parsedSrcTable.String())
 		}
 		return executor.ExecuteQueryIntoSink(ctx, sink, query)
 	}
@@ -405,7 +405,7 @@ func corePullQRepRecords(
 	queryTemplate := config.Query
 	if queryTemplate == "" {
 		queryTemplate = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn))
+			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn))
 	}
 	templateParams := map[string]string{"start": "$1", "end": "$2"}
 
@@ -434,7 +434,7 @@ func corePullQRepRecords(
 		}
 		queryTemplate = fmt.Sprintf(
 			"SELECT %s FROM %s WHERE %s IS NULL",
-			from, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn),
+			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn),
 		)
 		templateParams = map[string]string{}
 	default:

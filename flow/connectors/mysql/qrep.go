@@ -192,7 +192,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	from := "*"
+	selectedColumns := "*"
 	if len(config.Exclude) != 0 {
 		quotedColumns := make([]string, 0, len(tableSchema.Columns))
 		for _, col := range tableSchema.Columns {
@@ -200,7 +200,7 @@ func (c *MySqlConnector) PullQRepRecords(
 				quotedColumns = append(quotedColumns, common.QuoteMySQLIdentifier(col.Name))
 			}
 		}
-		from = strings.Join(quotedColumns, ",")
+		selectedColumns = strings.Join(quotedColumns, ",")
 	}
 
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
@@ -261,7 +261,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	if partition.FullTablePartition {
 		query := config.Query
 		if query == "" {
-			query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.MySQL())
+			query = fmt.Sprintf("SELECT %s FROM %s", selectedColumns, parsedSrcTable.MySQL())
 		}
 
 		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
@@ -274,7 +274,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		queryTemplate := config.Query
 		if queryTemplate == "" {
 			queryTemplate = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-				from, parsedSrcTable.MySQL(), common.QuoteMySQLIdentifier(config.WatermarkColumn))
+				selectedColumns, parsedSrcTable.MySQL(), common.QuoteMySQLIdentifier(config.WatermarkColumn))
 		}
 		// Depending on the type of the range, convert the range into the correct type
 		switch x := partition.Range.Range.(type) {
@@ -293,7 +293,7 @@ func (c *MySqlConnector) PullQRepRecords(
 			}
 			queryTemplate = fmt.Sprintf(
 				"SELECT %s FROM %s WHERE %s IS NULL",
-				from, parsedSrcTable.MySQL(), common.QuoteMySQLIdentifier(config.WatermarkColumn),
+				selectedColumns, parsedSrcTable.MySQL(), common.QuoteMySQLIdentifier(config.WatermarkColumn),
 			)
 		default:
 			return 0, 0, fmt.Errorf("unknown range type: %v", x)
