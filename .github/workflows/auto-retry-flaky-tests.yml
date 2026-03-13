@@ -12,6 +12,7 @@ permissions:
   contents: read
   actions: write
   id-token: write
+  pull-requests: write
 
 jobs:
   detect-flaky:
@@ -29,6 +30,8 @@ jobs:
         uses: anthropics/claude-code-action@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          additional_permissions: |
+            actions: read
           prompt: |
             The CI workflow failed: ${{ github.event.workflow_run.html_url }}
 
