@@ -1,0 +1,45 @@
+name: Rerun Flow Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: 'Number of reruns'
+        required: true
+        default: '40'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  rerun:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440
+    steps:
+      - name: Rerun Flow build and test
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          REPO="${GITHUB_REPOSITORY}"
+          COUNT=${{ inputs.count }}
+
+          for i in $(seq 1 "$COUNT"); do
+            echo "::group::Iteration $i/$COUNT"
+
+            RUN_ID=$(gh run list --workflow="Flow build and test" --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId -q '.[0].databaseId')
+            echo "Rerunning run $RUN_ID..."
+            gh run rerun "$RUN_ID" --repo "$REPO"
+
+            echo "Waiting for completion..."
+            gh run watch "$RUN_ID" --repo "$REPO" --exit-status || true
+
+            CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion -q '.conclusion')
+            echo "Iteration $i: $CONCLUSION"
+            echo "::endgroup::"
+          done
+
+          echo "=== Results ==="
+          gh run list --workflow="Flow build and test" --repo "$REPO" --branch "$BRANCH" --limit "$COUNT" \
+            --json conclusion -q 'group_by(.conclusion) | map("\(.[0].conclusion): \(length)") | .[]'
