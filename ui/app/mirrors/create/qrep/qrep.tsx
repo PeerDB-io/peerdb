@@ -9,6 +9,7 @@ import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
+import { parseTableIdentifier } from '@/lib/utils/tableIdentifier';
 import {
   Dispatch,
   SetStateAction,
@@ -121,8 +122,7 @@ export default function QRepConfigForm({
   };
 
   const loadColumnOptions = (tableIdentifier: string) => {
-    const schema = tableIdentifier.split('.')[0];
-    const table = tableIdentifier.split('.')[1];
+    const { schema, table } = parseTableIdentifier(tableIdentifier);
     startTransition(async () => {
       const cols = await fetchColumns(mirrorConfig.sourceName, schema, table);
       const filteredCols = cols?.filter((col) => {
