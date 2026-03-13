@@ -141,7 +141,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		jobName,
-		s.attachSchemaSuffix(tblName),
+		s.attachSchemaSuffix(tblName).Deparse(),
 		dstSchemaQualified,
 		query,
 		s.Peer().Name,
@@ -221,7 +221,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		jobName,
-		s.attachSchemaSuffix(tblName),
+		s.attachSchemaSuffix(tblName).Deparse(),
 		dstSchemaQualified,
 		query,
 		s.Peer().Name,
