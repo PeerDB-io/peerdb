@@ -189,7 +189,7 @@ func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string, isB
 		converted := common.QuoteMySQLIdentifier(col.Name)
 		if !isBinlogMetadataSupported && col.Type == string(types.QValueKindEnum) {
 			// if binlog metadata is not supported, we need to cast enum columns to integers to align it with cdc stream
-			converted = fmt.Sprintf("%s + 0 as %s", converted, converted)
+			converted = fmt.Sprintf("CAST(%s AS UNSIGNED) AS %s", converted, converted)
 			selectAsterisk = false
 		}
 		columns = append(columns, converted)

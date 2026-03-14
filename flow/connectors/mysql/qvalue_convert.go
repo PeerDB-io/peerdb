@@ -229,6 +229,8 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 	case mysql.FieldValueTypeUnsigned:
 		v := fv.AsUint64()
 		switch qkind {
+		case types.QValueKindEnum:
+			return types.QValueEnum{Val: strconv.FormatUint(v, 10)}, nil
 		case types.QValueKindBoolean:
 			return types.QValueBoolean{Val: v != 0}, nil
 		case types.QValueKindInt8:

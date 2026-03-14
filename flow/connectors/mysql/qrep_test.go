@@ -44,7 +44,7 @@ func TestBuildSelectedColumns(t *testing.T) {
 			},
 			exclude:                   []string{},
 			isBinlogMetadataSupported: false,
-			expectedSelectedColumns:   "`id`, `status` + 0 as `status`",
+			expectedSelectedColumns:   "`id`, CAST(`status` AS UNSIGNED) AS `status`",
 		},
 		{
 			name: "one enum column, one excluded non enum column, binlog metadata supported",
