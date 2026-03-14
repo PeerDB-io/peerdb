@@ -49,6 +49,7 @@ export const blankCDCSetting: CDCConfig = {
   env: {},
   envString: '',
   version: 0,
+  flags: [],
 };
 
 export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {
@@ -66,6 +67,7 @@ export const blankQRepSetting: QRepConfig = {
   query: '',
   watermarkTable: '',
   watermarkColumn: '',
+  addNullPartition: false,
   initialCopyOnly: false,
   maxParallelWorkers: 4,
   waitBetweenBatchesSeconds: 30,
@@ -86,4 +88,5 @@ export const blankQRepSetting: QRepConfig = {
   exclude: [],
   columns: [],
   sourceType: DBType.DBTYPE_UNKNOWN,
+  flags: [],
 };

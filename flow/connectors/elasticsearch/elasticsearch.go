@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -94,7 +93,7 @@ func (esc *ElasticsearchConnector) CreateRawTable(ctx context.Context,
 
 // we handle schema changes by not handling them since no mapping is being enforced right now
 func (esc *ElasticsearchConnector) ReplayTableSchemaDeltas(ctx context.Context, env map[string]string,
-	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil
 }
@@ -281,7 +280,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 	if cacheCloser() {
 		esc.logger.Error("[elasticsearch] failed to close bulk indexer(s)")
-		return nil, errors.New("[elasticsearch] failed to close bulk indexer(s)")
+		return nil, fmt.Errorf("[elasticsearch] failed to close bulk indexer(s)")
 	}
 	if len(bulkIndexErrors) > 0 {
 		for _, err := range bulkIndexErrors {

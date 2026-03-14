@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1300,6 +1301,93 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_Time64() {
+	_, isPostgres := s.source.(*PostgresSource)
+	_, isMySQL := s.source.(*MySqlSource)
+	if !isPostgres && !isMySQL {
+		s.t.Skip("only applies to postgres and mysql")
+	}
+
+	flags, err := s.connector.GetFlags(s.t.Context())
+	require.NoError(s.t, err)
+	supportsTime64 := slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled)
+
+	srcTableName := "test_time"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := srcTableName + "_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			t TIME NOT NULL,
+			t_nullable TIME,
+			t_nullable_2 TIME
+		)
+	`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('14:21:00', '08:30:00.123456', NULL)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	flowConnConfig.TableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "t_nullable", NullableEnabled: false},
+		{SourceName: "t_nullable_2", NullableEnabled: true},
+	}
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,t,t_nullable,t_nullable_2")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('00:00:00', '23:59:59.999999', NULL)`, srcFullName)))
+
+	if isMySQL {
+		// test mysql-specific range outside 24 hours
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('-123:45:67.899999', '123:45:67.899999', NULL)`, srcFullName)))
+	}
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,t,t_nullable,t_nullable_2")
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+	var dstTableSuffix string
+	if s.cluster {
+		dstTableSuffix = "_shard"
+	}
+	assertColumnType := func(columnName string, expectedColumnType string) {
+		var columnType string
+		// older version of ClickHouse do not support Time64
+		if !supportsTime64 {
+			expectedColumnType = strings.Replace(expectedColumnType, "Time64", "DateTime64", 1)
+		}
+		query := fmt.Sprintf(
+			"select type from system.columns where database=%s and table=%s and name=%s",
+			clickhouse.QuoteLiteral(s.connector.Config.Database),
+			clickhouse.QuoteLiteral(dstTableName+dstTableSuffix),
+			clickhouse.QuoteLiteral(columnName),
+		)
+		row := ch.QueryRow(s.t.Context(), query)
+		require.NoError(s.t, row.Err())
+		require.NoError(s.t, row.Scan(&columnType))
+		require.Equal(s.t, expectedColumnType, columnType, "unexpected type for column %s", columnName)
+	}
+	assertColumnType("t", "Time64(6)")
+	assertColumnType("t_nullable", "Time64(6)")
+	assertColumnType("t_nullable_2", "Nullable(Time64(6))")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
@@ -2014,9 +2102,8 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 }
 
 func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
-	// TODO: our code will create a normalized table with `ORDER BY tuple()`
-	// which works in 25.11 but will fail in 25.12 unless `SETTINGS allow_suspicious_primary_key = TRUE`.
-	// Re-enable this test for ClickHouse 25.12+ when code is fixed.
+	// No primary key means empty ordering key,  which works in 25.11 but will fail in 25.12 unless
+	// `SETTINGS allow_suspicious_primary_key = TRUE`. So we skip this test here.
 	chVersion, err := s.connector.GetVersion(s.t.Context())
 	require.NoError(s.t, err)
 	if chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 12}, chproto.ParseVersion(chVersion)) {
@@ -2767,7 +2854,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Empty() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// edge case: min/max will be null. initial load should skip these for now, & not panic
+// edge case: min/max will be null, but null partition should still replicate all null rows
 func (s ClickHouseSuite) Test_Partition_Key_Null() {
 	srcTableName := "test_partition_key_null"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -2791,6 +2878,11 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "updated_at",
 			ShardingKey:                "id",
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "id", NullableEnabled: true},
+				{SourceName: "myname", NullableEnabled: true},
+				{SourceName: "updated_at", NullableEnabled: true},
+			},
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -2803,13 +2895,15 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
+
 	countRow := s.Conn().QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
 	var partitionCount int
 	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
-	require.Zero(s.t, partitionCount, "expected no partitions to be created")
+	require.Equal(s.t, 1, partitionCount, "expected exactly 1 null partition to be created")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

@@ -13,7 +13,7 @@ import (
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	if !cfg.InitialSnapshotOnly || !cfg.DoInitialSnapshot {
-		return errors.New("BigQuery source connector only supports initial snapshot flows. CDC is not supported")
+		return fmt.Errorf("BigQuery source connector only supports initial snapshot flows. CDC is not supported")
 	}
 
 	for _, tableMapping := range cfg.TableMappings {
@@ -30,7 +30,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	if cfg.SnapshotStagingPath == "" {
-		return errors.New("snapshot bucket is required for BigQuery source connector")
+		return fmt.Errorf("snapshot bucket is required for BigQuery source connector")
 	}
 
 	stagingPath, err := parseGCSPath(cfg.SnapshotStagingPath)

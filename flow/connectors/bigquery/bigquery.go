@@ -83,7 +83,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %w", err)
 	}
 
-	saJSON, err := json.Marshal(serviceAccount)
+	saJSON, err := json.Marshal(serviceAccount) //nolint:gosec // G117: credential struct marshaled for inline use
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal service account: %v", err)
 	}
@@ -239,6 +239,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	_ []string,
 ) error {
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {

@@ -3,7 +3,6 @@ package connpostgres
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -18,12 +17,13 @@ import (
 )
 
 type PartitionParams struct {
-	tx              pgx.Tx
-	lastRangeEnd    any
-	logger          log.Logger
-	watermarkTable  string
-	watermarkColumn string
-	numPartitions   int64
+	tx               pgx.Tx
+	lastRangeEnd     any
+	logger           log.Logger
+	watermarkTable   string
+	watermarkColumn  string
+	numPartitions    int64
+	addNullPartition bool
 }
 
 type PartitioningFunc func(context.Context, PartitionParams) ([]*protos.QRepPartition, error)
@@ -68,6 +68,9 @@ func NTileBucketPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
+	if pp.addNullPartition {
+		partitionHelper.AddNullPartition()
+	}
 	return partitionHelper.GetPartitions(), nil
 }
 
@@ -77,7 +80,7 @@ func NTileBucketPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 // value range, or deleted rows.
 func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
 	if pp.numPartitions <= 1 {
-		return nil, errors.New("expect numPartitions to be greater than 1")
+		return nil, fmt.Errorf("expect numPartitions to be greater than 1")
 	}
 
 	const queryTemplate = "SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s"
@@ -99,6 +102,13 @@ func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 	if err := partitionHelper.AddPartitionsWithRange(start, end, pp.numPartitions); err != nil {
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
 	}
+
+	// add null values partition to the end, if nulls aren't present it will be an empty partition
+	// that gets skipped during replication
+	if pp.addNullPartition {
+		partitionHelper.AddNullPartition()
+	}
+
 	return partitionHelper.GetPartitions(), nil
 }
 
@@ -107,7 +117,7 @@ func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 // may be skewed due to table bloat, deleted tuples, or uneven data distribution across blocks.
 func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
 	if pp.numPartitions <= 1 {
-		return nil, errors.New("expect numPartitions to be greater than 1")
+		return nil, fmt.Errorf("expect numPartitions to be greater than 1")
 	}
 
 	const partitionsQuery = "SELECT (pg_relation_size(to_regclass($1)) / current_setting('block_size')::int)::bigint"
@@ -181,29 +191,56 @@ func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*prot
 
 // ComputeNumPartitions computes the number of partitions given desired number of rows
 // per partition, with automatic adjustment to respect the maximum partition limit.
-// TODO: use estimated row count instead to speed up query execution on large tables
+// TODO: use estimated row count for partitioned/inherited tables as well
 func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPartition int64) (int64, error) {
-	const queryTemplate = "SELECT COUNT(*) FROM %s %s"
+	const preciseCountTemplate = "SELECT COUNT(*) FROM %s %s"
+	// Use reltuples/relpages density multiplied by the current on-disk page count
+	// for a more accurate estimate than just reltuples (this is what the planner uses,
+	// see https://www.citusdata.com/blog/2016/10/12/count-performance/#dup_counts_estimated_full).
+	// For inherited/partitioned tables pg_relation_size, reltuples, and relpages
+	// only reflect the parent table, so we return 0 and fall back to precise count query.
+	const estimatedCountTemplate = `SELECT CASE
+		WHEN c.relhassubclass THEN 0
+		WHEN c.reltuples >= 0 AND c.relpages > 0 THEN
+			(c.reltuples / c.relpages * (pg_relation_size(c.oid) / current_setting('block_size')::integer))::bigint
+		ELSE c.reltuples::bigint
+		END
+		FROM pg_class c WHERE c.oid = to_regclass($1)`
+
+	var totalRows pgtype.Int8
 	var whereClause string
 	var queryArgs []any
-	if pp.lastRangeEnd != nil {
+
+	if pp.lastRangeEnd == nil {
+		pp.logger.Info("fetch estimated row count", slog.String("query", estimatedCountTemplate))
+		if err := pp.tx.QueryRow(ctx, estimatedCountTemplate, pp.watermarkTable).Scan(&totalRows); err != nil {
+			return 0, fmt.Errorf("failed to query for estimated row count: %w", err)
+		}
+	} else {
 		whereClause = fmt.Sprintf("WHERE %s > $1", pp.watermarkColumn)
 		queryArgs = []any{pp.lastRangeEnd}
 	}
-	var totalRows pgtype.Int8
-	countQuery := fmt.Sprintf(queryTemplate, pp.watermarkTable, whereClause)
-	pp.logger.Info("fetch row count", slog.String("query", countQuery))
 
-	if err := pp.tx.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows); err != nil {
-		return 0, fmt.Errorf("failed to query for total rows: %w", err)
+	// reltuples is -1 if the table has never been analyzed
+	// reltuples is 0 if:
+	//   - table is new and stats is stale; or
+	//   - table is inherited/partitioned (see query above); or
+	//   - polling-based flows (estimated row count is skipped)
+	// In all cases, fall back to precise count query
+	if totalRows.Int64 <= 0 {
+		countQuery := fmt.Sprintf(preciseCountTemplate, pp.watermarkTable, whereClause)
+		pp.logger.Info("fetch row count", slog.String("query", countQuery))
+		if err := pp.tx.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows); err != nil {
+			return 0, fmt.Errorf("failed to query for precise row count: %w", err)
+		}
 	}
-	if totalRows.Int64 == 0 {
+	if totalRows.Int64 <= 0 {
 		pp.logger.Warn("no records to replicate, returning")
 		return 0, nil
 	}
 
 	adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
-	pp.logger.Info("[postgres] partition adjustment details",
+	pp.logger.Info("[postgres] partition details",
 		slog.Int64("totalRows", totalRows.Int64),
 		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
 		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),

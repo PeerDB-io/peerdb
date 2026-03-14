@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/exp/constraints"
@@ -98,7 +97,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name:             "PEERDB_WAL_HEARTBEAT_QUERY",
-		DefaultValue:     "SELECT pg_logical_emit_message(false,'peerdb_heartbeat','')",
+		DefaultValue:     "SELECT pg_logical_emit_message(true,'peerdb_heartbeat','')",
 		ValueType:        protos.DynconfValueType_STRING,
 		Description:      "SQL to run during each WAL heartbeat",
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
@@ -193,11 +192,20 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:         "PEERDB_S3_BYTES_PER_AVRO_FILE",
-		Description:  "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
-		DefaultValue: "1000000000", // 1GB, not GiB so to not align with 64MiB to avoid always having tiny part at end
-		ValueType:    protos.DynconfValueType_INT,
-		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		Name:             "PEERDB_S3_BYTES_PER_AVRO_FILE",
+		Description:      "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
+		DefaultValue:     "1000000000",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_S3_CHUNK_ON_UNCOMPRESSED",
+		Description:      "Track uncompressed Avro size during initial load, following the in-memory size on the destination.",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_QUEUE_FORCE_TOPIC_CREATION",
@@ -725,7 +733,7 @@ func PeerDBMaintenanceModeEnabled(ctx context.Context, env map[string]string) (b
 }
 
 func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool shared.CatalogPool, enabled bool) error {
-	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", ptr.String(strconv.FormatBool(enabled)))
+	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", new(strconv.FormatBool(enabled)))
 }
 
 func PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx context.Context, env map[string]string) (int64, error) {
@@ -770,6 +778,10 @@ func PeerDBPostgresWalSenderTimeout(ctx context.Context, env map[string]string) 
 
 func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED")
+}
+
+func PeerDBS3ChunkOnUncompressed(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_S3_CHUNK_ON_UNCOMPRESSED")
 }
 
 func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {

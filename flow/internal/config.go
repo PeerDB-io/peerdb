@@ -189,3 +189,37 @@ func PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx context.Context) bool {
 	}
 	return enabled
 }
+
+// PEERDB_SWITCHBOARD_ENABLED enables the Switchboard server
+func PeerDBSwitchboardEnabled() bool {
+	return GetEnvBool("PEERDB_SWITCHBOARD_ENABLED", false)
+}
+
+// PEERDB_SWITCHBOARD_QUERY_TIMEOUT_SECONDS is the query timeout in seconds
+func PeerDBSwitchboardQueryTimeoutSeconds() int {
+	return getEnvConvert("PEERDB_SWITCHBOARD_QUERY_TIMEOUT_SECONDS", 30, strconv.Atoi)
+}
+
+// PEERDB_SWITCHBOARD_WRITE_TIMEOUT_SECONDS is the write deadline timeout in seconds
+func PeerDBSwitchboardWriteTimeoutSeconds() int {
+	return getEnvConvert("PEERDB_SWITCHBOARD_WRITE_TIMEOUT_SECONDS", 30, strconv.Atoi)
+}
+
+// PEERDB_SWITCHBOARD_MAX_ROWS is the maximum number of rows per query
+func PeerDBSwitchboardMaxRows() int64 {
+	return getEnvConvert("PEERDB_SWITCHBOARD_MAX_ROWS", int64(10000), func(s string) (int64, error) {
+		return strconv.ParseInt(s, 10, 64)
+	})
+}
+
+// PEERDB_SWITCHBOARD_MAX_BYTES is the maximum bytes per query
+func PeerDBSwitchboardMaxBytes() int64 {
+	return getEnvConvert("PEERDB_SWITCHBOARD_MAX_BYTES", int64(100*1024*1024), func(s string) (int64, error) {
+		return strconv.ParseInt(s, 10, 64)
+	})
+}
+
+// PeerDBSwitchboardPassword returns the password for Switchboard SCRAM-SHA-256 authentication
+func PeerDBSwitchboardPassword() string {
+	return GetEnvString("PEERDB_SWITCHBOARD_PASSWORD", "peerdb")
+}

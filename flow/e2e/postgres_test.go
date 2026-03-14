@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -35,11 +34,11 @@ func (s PeerFlowE2ETestSuitePG) checkPeerdbColumns(dstSchemaQualified string, ro
 	}
 
 	if !isDeleted.Bool {
-		return errors.New("isDeleted is not true")
+		return fmt.Errorf("isDeleted is not true")
 	}
 
 	if !syncedAt.Valid {
-		return errors.New("syncedAt is not valid")
+		return fmt.Errorf("syncedAt is not valid")
 	}
 
 	return nil

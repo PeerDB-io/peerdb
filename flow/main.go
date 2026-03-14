@@ -155,6 +155,13 @@ func main() {
 		Usage: "Port grpc-gateway listens on",
 	}
 
+	switchboardPortFlag := &cli.Uint16Flag{
+		Name:    "switchboard-port",
+		Sources: cli.EnvVars("PEERDB_SWITCHBOARD_PORT"),
+		Value:   5732,
+		Usage:   "Port Switchboard listens on (when enabled)",
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Before: func(ctx context.Context, clicmd *cli.Command) (context.Context, error) {
@@ -241,6 +248,7 @@ func main() {
 				Flags: []cli.Flag{
 					apiPortFlag,
 					apiGatewayPortFlag,
+					switchboardPortFlag,
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
 					otelMetricsFlag,
@@ -250,6 +258,7 @@ func main() {
 					return cmd.APIMain(ctx, &cmd.APIServerParams{
 						Port:              clicmd.Uint16(apiPortFlag.Name),
 						GatewayPort:       clicmd.Uint16(apiGatewayPortFlag.Name),
+						SwitchboardPort:   clicmd.Uint16(switchboardPortFlag.Name),
 						TemporalHostPort:  clicmd.String(temporalHostPortFlag.Name),
 						TemporalNamespace: clicmd.String(temporalNamespaceFlag.Name),
 						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),

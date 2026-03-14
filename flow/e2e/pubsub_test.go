@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -55,7 +54,7 @@ func (s PubSubSuite) Suffix() string {
 func ServiceAccount() (*utils.GcpServiceAccount, error) {
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {
-		return nil, errors.New("TEST_BQ_CREDS env var not set")
+		return nil, fmt.Errorf("TEST_BQ_CREDS env var not set")
 	}
 
 	content, err := e2eshared.ReadFileToBytes(jsonPath)

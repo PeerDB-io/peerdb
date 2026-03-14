@@ -27,6 +27,7 @@ import (
 // Total number of rows is not known at this time. It will be calculated during sync with an info back from ClickHouse.
 func (c *BigQueryConnector) PullQRepObjects(
 	ctx context.Context,
+	_ shared.CatalogPool,
 	_ *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	_ protos.DBType,
@@ -42,12 +43,12 @@ func (c *BigQueryConnector) PullQRepObjects(
 	stream.SetSchema(schema)
 
 	if partition == nil || partition.Range == nil {
-		return 0, 0, errors.New("partition and partition range must be provided")
+		return 0, 0, fmt.Errorf("partition and partition range must be provided")
 	}
 
 	objectRange := partition.Range.GetObjectIdRange()
 	if objectRange == nil {
-		return 0, 0, errors.New("invalid partition range")
+		return 0, 0, fmt.Errorf("invalid partition range")
 	}
 
 	stagingPath, err := parseGCSPath(config.StagingPath)
@@ -65,13 +66,16 @@ func (c *BigQueryConnector) PullQRepObjects(
 
 	var totalBytes int64
 
-	processObject := func(attrs *storage.ObjectAttrs) {
-		stream.Objects <- &model.Object{
+	processObject := func(attrs *storage.ObjectAttrs) error {
+		if err := stream.Send(ctx, &model.Object{
 			URL:  fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, url.PathEscape(attrs.Name)),
 			Size: attrs.Size,
+		}); err != nil {
+			return fmt.Errorf("failed to send object to stream: %w", err)
 		}
 
 		totalBytes += attrs.Size
+		return nil
 	}
 
 	startOffset := objectRange.Start
@@ -86,7 +90,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 			return 0, 0, fmt.Errorf("failed to get object attrs for bucket %s with prefix %s and object %s: %w",
 				bucketName, prefix, startOffset, err)
 		}
-		processObject(attrs)
+		if err := processObject(attrs); err != nil {
+			return 0, totalBytes, err
+		}
 		c.logger.Info("finished pulling single downloadable object",
 			slog.String("bucket", bucketName),
 			slog.String("prefix", prefix),
@@ -120,7 +126,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 			continue
 		}
 
-		processObject(attrs)
+		if err := processObject(attrs); err != nil {
+			return 0, totalBytes, err
+		}
 	}
 
 	c.logger.Info("finished pulling downloadable objects",
@@ -381,6 +389,11 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 		case bigquery.GeographyFieldType:
 			// Cast Geography to STRING since Parquet + ClickHouse doesn't support Geography type nicely
 			columnSelect = fmt.Sprintf("ST_AsText(%s) AS %s", quotedName, quotedName)
+		case bigquery.DateTimeFieldType:
+			// Cast DATETIME to TIMESTAMP for Parquet export since BigQuery DATETIME
+			// is timezone-unaware and its Parquet representation may not be compatible
+			// with ClickHouse. Casting to TIMESTAMP (UTC) preserves the value.
+			columnSelect = fmt.Sprintf("CAST(%s AS TIMESTAMP) AS %s", quotedName, quotedName)
 		}
 		columnSelects = append(columnSelects, columnSelect)
 	}

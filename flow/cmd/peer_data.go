@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -220,7 +221,16 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	}
 	defer pgClose(ctx)
 
-	slotInfo, err := pgConn.GetSlotInfo(ctx, "")
+	var customSlotNames []string
+	if req.PeerdbManagedOnly {
+		customSlotNames, err = h.getCustomSlotNamesForPeer(ctx, req.PeerName)
+		if err != nil {
+			slog.WarnContext(ctx, "Failed to resolve custom slot names, proceeding without filter", slog.Any("error", err))
+			req.PeerdbManagedOnly = false
+		}
+	}
+
+	slotInfo, err := pgConn.GetSlotInfo(ctx, "", req.PeerdbManagedOnly, customSlotNames)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to get slot info", slog.Any("error", err))
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get slot info: %w", err))
@@ -229,6 +239,35 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	return &protos.PeerSlotResponse{
 		SlotData: slotInfo,
 	}, nil
+}
+
+func (h *FlowRequestHandler) getCustomSlotNamesForPeer(ctx context.Context, peerName string) ([]string, error) {
+	rows, err := h.pool.Query(ctx, `
+		SELECT config_proto FROM flows
+		WHERE source_peer = (SELECT id FROM peers WHERE name = $1)
+			AND query_string IS NULL AND config_proto IS NOT NULL
+	`, peerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query flows for peer %s: %w", peerName, err)
+	}
+	defer rows.Close()
+
+	var customSlotNames []string
+	for rows.Next() {
+		var configBytes []byte
+		if err := rows.Scan(&configBytes); err != nil {
+			return nil, fmt.Errorf("failed to scan flow config: %w", err)
+		}
+		var config protos.FlowConnectionConfigsCore
+		if err := proto.Unmarshal(configBytes, &config); err != nil {
+			slog.WarnContext(ctx, "Failed to unmarshal flow config", slog.Any("error", err))
+			continue
+		}
+		if config.ReplicationSlotName != "" && !strings.HasPrefix(config.ReplicationSlotName, connpostgres.DefaultSlotPrefix) {
+			customSlotNames = append(customSlotNames, config.ReplicationSlotName)
+		}
+	}
+	return customSlotNames, rows.Err()
 }
 
 func (h *FlowRequestHandler) GetSlotLagHistory(

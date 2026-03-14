@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -34,7 +35,7 @@ func (c *PostgresConnector) CheckSourceTables(
 	noCDC bool,
 ) error {
 	if c.conn == nil {
-		return errors.New("check tables: conn is nil")
+		return fmt.Errorf("check tables: conn is nil")
 	}
 
 	// Check that we can select from all tables
@@ -104,7 +105,7 @@ func (c *PostgresConnector) CheckSourceTables(
 			}
 
 			if len(missing) != 0 {
-				return errors.New("some tables missing from publication: " + strings.Join(missing, ", "))
+				return fmt.Errorf("some tables missing from publication: %s", strings.Join(missing, ", "))
 			}
 		}
 	}
@@ -114,7 +115,7 @@ func (c *PostgresConnector) CheckSourceTables(
 
 func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, username string) error {
 	if c.conn == nil {
-		return errors.New("check replication permissions: conn is nil")
+		return fmt.Errorf("check replication permissions: conn is nil")
 	}
 
 	// check wal_level
@@ -124,7 +125,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	}
 
 	if walLevel != "logical" {
-		return errors.New("wal_level is not logical")
+		return fmt.Errorf("wal_level is not logical")
 	}
 
 	var replicationRes bool
@@ -144,7 +145,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		err := c.conn.QueryRow(ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication'").Scan(&setting)
 		if !errors.Is(err, pgx.ErrNoRows) {
 			if err != nil || setting != "on" {
-				return errors.New("rds.logical_replication setting must be enabled")
+				return fmt.Errorf("rds.logical_replication setting must be enabled")
 			}
 		}
 	}
@@ -158,7 +159,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	}
 
 	if insufficientMaxWalSenders {
-		return errors.New("max_wal_senders must be at least 2")
+		return fmt.Errorf("max_wal_senders must be at least 2")
 	}
 
 	serverVersion, err := shared.GetMajorVersion(ctx, c.conn)
@@ -170,7 +171,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		return fmt.Errorf("failed to check if Postgres is in recovery: %w", err)
 	} else if recoveryRes {
 		if serverVersion < shared.POSTGRES_16 {
-			return errors.New("cannot create replication slots on a standby server with version <16")
+			return fmt.Errorf("cannot create replication slots on a standby server with version <16")
 		}
 
 		var hsFeedback bool
@@ -180,7 +181,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 			return fmt.Errorf("failed to check hot_standby_feedback: %w", err)
 		}
 		if !hsFeedback {
-			return errors.New("hot_standby_feedback setting must be enabled on standby servers")
+			return fmt.Errorf("hot_standby_feedback setting must be enabled on standby servers")
 		}
 	}
 
@@ -255,4 +256,101 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) ValidateMirrorDestination(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) error {
+	// Validate that all source columns exist in destination tables
+	for _, tableMapping := range cfg.TableMappings {
+		srcTableIdentifier := tableMapping.SourceTableIdentifier
+		dstTableIdentifier := tableMapping.DestinationTableIdentifier
+
+		if dstTableIdentifier == "" {
+			return errors.New("destination table identifier is empty")
+		}
+
+		// Get the source table schema
+		srcSchema, ok := tableNameSchemaMapping[srcTableIdentifier]
+		if !ok {
+			return fmt.Errorf("source table %s not found in schema mapping", srcTableIdentifier)
+		}
+
+		// Parse destination table identifier
+		dstTable, err := common.ParseTableIdentifier(dstTableIdentifier)
+		if err != nil {
+			return fmt.Errorf("invalid destination table identifier %s: %w", dstTableIdentifier, err)
+		}
+
+		// Get destination table columns
+		dstColumns, err := c.getDestinationTableColumns(ctx, dstTable)
+		if err != nil {
+			// If table doesn't exist, that's fine - we'll create it
+			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "does not exist") {
+				continue
+			}
+			return fmt.Errorf("failed to get columns for destination table %s: %w", dstTableIdentifier, err)
+		}
+
+		// Build a set of destination column names for quick lookup
+		dstColumnSet := make(map[string]struct{}, len(dstColumns))
+		for _, col := range dstColumns {
+			dstColumnSet[col] = struct{}{}
+		}
+
+		// Check if all source columns exist in destination
+		for _, srcField := range srcSchema.Columns {
+			colName := srcField.Name
+
+			// Skip excluded columns
+			if slices.Contains(tableMapping.Exclude, colName) {
+				continue
+			}
+
+			// Check if column is renamed in the mapping
+			for _, col := range tableMapping.Columns {
+				if col.SourceName == colName && col.DestinationName != "" {
+					colName = col.DestinationName
+					break
+				}
+			}
+
+			// Check if the column exists in destination
+			if _, exists := dstColumnSet[colName]; !exists {
+				return fmt.Errorf("source column %s (as %s) not found in destination table %s",
+					srcField.Name, colName, dstTableIdentifier)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) getDestinationTableColumns(ctx context.Context, table *common.QualifiedTable) ([]string, error) {
+	rows, err := c.conn.Query(ctx, `
+		SELECT attname
+		FROM pg_attribute
+		JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
+		JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
+		WHERE pg_namespace.nspname = $1
+			AND pg_class.relname = $2
+			AND pg_attribute.attnum > 0
+			AND NOT pg_attribute.attisdropped
+	`, table.Namespace, table.Table)
+	if err != nil {
+		return nil, err
+	}
+
+	columns, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, err
+	}
+
+	if len(columns) == 0 {
+		return nil, pgx.ErrNoRows
+	}
+
+	return columns, nil
 }

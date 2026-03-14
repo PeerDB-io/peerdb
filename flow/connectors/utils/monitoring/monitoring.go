@@ -2,7 +2,6 @@ package monitoring
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -89,7 +88,9 @@ func UpdateNumRowsAndEndLSNForCDCBatch(
 	batchEndCheckpoint model.CdcCheckpoint,
 ) error {
 	if _, err := pool.Exec(ctx,
-		"UPDATE peerdb_stats.cdc_batches SET rows_in_batch=$1,batch_end_lsn=$2,batch_end_lsn_text=$3 WHERE flow_name=$4 AND batch_id=$5",
+		`UPDATE peerdb_stats.cdc_batches
+		SET rows_in_batch=$1, batch_end_lsn=$2, batch_end_lsn_text=$3, sync_time=NOW()
+		WHERE flow_name=$4 AND batch_id=$5`,
 		numRows, uint64(batchEndCheckpoint.ID), batchEndCheckpoint.Text, flowJobName, batchID,
 	); err != nil {
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
@@ -112,6 +113,33 @@ func UpdateEndTimeForCDCBatch(
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
 	}
 	return nil
+}
+
+func GetPendingNormalizeLagByFlow(
+	ctx context.Context,
+	pool shared.CatalogPool,
+) (map[string]int64, error) {
+	// using catalog time to avoid clock skew with ScheduledTasks
+	rows, err := pool.Query(ctx,
+		`SELECT flow_name, (EXTRACT(EPOCH FROM (NOW() - MIN(sync_time))) * 1000000)::bigint
+		FROM peerdb_stats.cdc_batches
+		WHERE end_time IS NULL AND sync_time IS NOT NULL
+		GROUP BY flow_name`)
+	if err != nil {
+		return nil, fmt.Errorf("error while querying normalize lag: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var flowName string
+		var lagMicroseconds int64
+		if err := rows.Scan(&flowName, &lagMicroseconds); err != nil {
+			return nil, fmt.Errorf("error while scanning normalize lag row: %w", err)
+		}
+		result[flowName] = lagMicroseconds
+	}
+	return result, rows.Err()
 }
 
 func AddCDCBatchTablesForFlow(
@@ -310,7 +338,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	if partition == nil {
 		internal.LoggerFromCtx(ctx).Info("cannot add nil partition to qrep run",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
-		return errors.New("cannot add nil partition to qrep run")
+		return fmt.Errorf("cannot add nil partition to qrep run")
 	}
 	if partition.Range == nil && partition.FullTablePartition && !supportsStatsForFullTablePartition(partition) {
 		internal.LoggerFromCtx(ctx).Info("partition "+partition.PartitionId+
@@ -319,18 +347,15 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		return nil
 	}
 
-	var rangeStart, rangeEnd string
+	var rangeStart, rangeEnd *string
 	if partition.Range != nil {
 		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
-			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
-			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
+			rangeStart, rangeEnd = new(strconv.FormatInt(x.IntRange.Start, 10)), new(strconv.FormatInt(x.IntRange.End, 10))
 		case *protos.PartitionRange_UintRange:
-			rangeStart = strconv.FormatUint(x.UintRange.Start, 10)
-			rangeEnd = strconv.FormatUint(x.UintRange.End, 10)
+			rangeStart, rangeEnd = new(strconv.FormatUint(x.UintRange.Start, 10)), new(strconv.FormatUint(x.UintRange.End, 10))
 		case *protos.PartitionRange_TimestampRange:
-			rangeStart = x.TimestampRange.Start.AsTime().String()
-			rangeEnd = x.TimestampRange.End.AsTime().String()
+			rangeStart, rangeEnd = new(x.TimestampRange.Start.AsTime().String()), new(x.TimestampRange.End.AsTime().String())
 		case *protos.PartitionRange_TidRange:
 			rangeStartValue, err := pgtype.TID{
 				BlockNumber:  x.TidRange.Start.BlockNumber,
@@ -340,7 +365,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			if err != nil {
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
-			rangeStart = rangeStartValue.(string)
+			rangeStart = new(rangeStartValue.(string))
 
 			rangeEndValue, err := pgtype.TID{
 				BlockNumber:  x.TidRange.End.BlockNumber,
@@ -350,10 +375,11 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			if err != nil {
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
-			rangeEnd = rangeEndValue.(string)
+			rangeEnd = new(rangeEndValue.(string))
 		case *protos.PartitionRange_ObjectIdRange:
-			rangeStart = x.ObjectIdRange.Start
-			rangeEnd = x.ObjectIdRange.End
+			rangeStart, rangeEnd = &x.ObjectIdRange.Start, &x.ObjectIdRange.End
+		case *protos.PartitionRange_NullRange:
+			// leave rangeStart and rangeEnd as nil
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}

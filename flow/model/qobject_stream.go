@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"net/http"
+	"sync"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -35,6 +36,7 @@ type QObjectStream struct {
 	schemaLatch         *concurrency.Latch[types.QRecordSchema]
 	headerProviderLatch *concurrency.Latch[HeaderProvider]
 	err                 error
+	closeOnce           sync.Once
 }
 
 func NewQObjectStream(buffer int) *QObjectStream {
@@ -75,9 +77,26 @@ func (s *QObjectStream) Err() error {
 	return s.err
 }
 
+// Sends the object into the channel, erroring out on context cancellation instead of waiting for the reader indefinitely
+func (s *QObjectStream) Send(ctx context.Context, object *Object) error {
+	if s.err != nil {
+		return s.err
+	}
+	select {
+	case s.Objects <- object:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *QObjectStream) HandleQRepSyncError(err error) {
+	// no-op for QObjectStream
+}
+
 func (s *QObjectStream) Close(err error) {
-	if s.err == nil {
+	s.closeOnce.Do(func() {
 		s.err = err
 		close(s.Objects)
-	}
+	})
 }

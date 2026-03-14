@@ -78,6 +78,10 @@ var trips1kExpectedQValueColumns = map[string]types.QValueKind{
 
 var stagingTestBucket = "gs://peerdb_bigquery_source_test_do_not_remove"
 
+func bigQueryTestStagingPath(s Suite, path string) string {
+	return fmt.Sprintf("%s/%s", stagingTestBucket, AddSuffix(s, path))
+}
+
 func TestBigQueryClickhouseSuite(t *testing.T) {
 	e2eshared.RunSuite(t, SetupBigQueryClickhouseSuite)
 }
@@ -171,7 +175,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Not_Supported() {
 				Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
 			},
 		},
-		SnapshotStagingPath: stagingTestBucket + "/test",
+		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
 	}
 
 	t.Run("CDC Not Supported", func(t *testing.T) {
@@ -293,7 +297,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Invalid_Table_Mappings() {
 				DestinationTableIdentifier: "nonexistent_dst",
 			},
 		},
-		SnapshotStagingPath: stagingTestBucket + "/test",
+		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
 	}
 
 	err := bqConn.ValidateMirrorSource(ctx, flowConfig)
@@ -317,7 +321,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_ValidateMirrorSource_Succe
 				DestinationTableIdentifier: "trips_1k_dst",
 			},
 		},
-		SnapshotStagingPath: stagingTestBucket + "/test",
+		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
 	}
 
 	err := bqConn.ValidateMirrorSource(ctx, flowConfig)
@@ -403,6 +407,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Get_Table_Schema() {
 
 func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 	t := s.T()
+	ctx := t.Context()
 
 	source := s.Source().(*bigQuerySource)
 	srcTable := "trips_1k"
@@ -410,7 +415,7 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 
 	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
 
-	count, err := source.helper.countRowsWithDataset(t.Context(), source.config.DatasetId, srcTable, "")
+	count, err := source.helper.countRowsWithDataset(ctx, source.config.DatasetId, srcTable, "")
 	require.NoError(t, err, "should be able to count rows in source table")
 	require.Positive(t, count, "source table should have data")
 	t.Logf("Source table %s has %d rows", srcTable, count)
@@ -428,7 +433,7 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket
+	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -442,7 +447,35 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 		"trip_id,vendor_id,passenger_count,trip_distance,fare_amount",
 	)
 
-	env.Cancel(t.Context())
+	EnvWaitForFinished(t, env, 3*time.Minute)
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+
+	statusResp, err := apiClient.MirrorStatus(ctx, &protos.MirrorStatusRequest{
+		FlowJobName:     flowConnConfig.FlowJobName,
+		IncludeFlowInfo: true,
+	})
+	require.NoError(t, err)
+
+	cdcStatus := statusResp.GetCdcStatus()
+	require.NotNil(t, cdcStatus)
+	require.NotNil(t, cdcStatus.SnapshotStatus)
+	require.NotEmpty(t, cdcStatus.SnapshotStatus.Clones)
+
+	var totalRowsSynced int64
+	for _, clone := range cdcStatus.SnapshotStatus.Clones {
+		totalRowsSynced += clone.NumRowsSynced
+	}
+	require.Equal(t, int64(count), totalRowsSynced,
+		"total NumRowsSynced across clones should equal source row count")
+
+	totalRowsResp, err := apiClient.TotalRowsSyncedByMirror(ctx, &protos.TotalRowsSyncedByMirrorRequest{
+		FlowJobName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(count), totalRowsResp.TotalCountInitialLoad,
+		"TotalCountInitialLoad should equal source row count")
 }
 
 func (s BigQueryClickhouseSuite) Test_Trips_Flow_Small_Partitions() {
@@ -472,7 +505,7 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow_Small_Partitions() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket
+	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 	flowConnConfig.SnapshotNumRowsPerPartition = 10 // 1000 rows / 10 = 100 partitions
 	flowConnConfig.SnapshotMaxParallelWorkers = 10
 
@@ -498,7 +531,7 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
 
 	source := s.Source().(*bigQuerySource)
-	srcTable := "test_types_" + strings.ToLower(shared.RandomString(8))
+	srcTable := AddSuffix(s, "test_types")
 	dstTable := srcTable + "_dst"
 
 	t.Logf("Creating test table %s with all supported types", srcTable)
@@ -522,6 +555,7 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 		{Name: "array_bool", Type: bigquery.BooleanFieldType, Repeated: true},
 		{Name: "array_ts", Type: bigquery.TimestampFieldType, Repeated: true},
 		{Name: "array_date", Type: bigquery.DateFieldType, Repeated: true},
+		{Name: "datetime_col", Type: bigquery.DateTimeFieldType, Required: false},
 		{Name: "record_col", Type: bigquery.RecordFieldType, Required: false, Schema: bigquery.Schema{
 			{Name: "nested_str", Type: bigquery.StringFieldType},
 			{Name: "nested_int", Type: bigquery.IntegerFieldType},
@@ -576,6 +610,7 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 		GeographyCol  bigquery.NullGeography `bigquery:"geography_col"`
 		ArrayStr      []string               `bigquery:"array_str"`
 		ArrayInt      []int64                `bigquery:"array_int"`
+		DatetimeCol   bigquery.NullDateTime  `bigquery:"datetime_col"`
 		TimeCol       bigquery.NullTime      `bigquery:"time_col"`
 		DateCol       bigquery.NullDate      `bigquery:"date_col"`
 		IntCol        bigquery.NullInt64     `bigquery:"int_col"`
@@ -587,13 +622,19 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	testData := []TestRow{
 		{
-			ID:            1,
-			StrCol:        bigquery.NullString{StringVal: "test string", Valid: true},
-			BytesCol:      []byte("test bytes"),
-			IntCol:        bigquery.NullInt64{Int64: 42, Valid: true},
-			FloatCol:      bigquery.NullFloat64{Float64: 3.14159, Valid: true},
-			BoolCol:       bigquery.NullBool{Bool: true, Valid: true},
-			TsCol:         bigquery.NullTimestamp{Timestamp: now, Valid: true},
+			ID:       1,
+			StrCol:   bigquery.NullString{StringVal: "test string", Valid: true},
+			BytesCol: []byte("test bytes"),
+			IntCol:   bigquery.NullInt64{Int64: 42, Valid: true},
+			FloatCol: bigquery.NullFloat64{Float64: 3.14159, Valid: true},
+			BoolCol:  bigquery.NullBool{Bool: true, Valid: true},
+			TsCol:    bigquery.NullTimestamp{Timestamp: now, Valid: true},
+			DatetimeCol: bigquery.NullDateTime{
+				DateTime: civil.DateTime{
+					Date: civil.Date{Year: 2024, Month: 1, Day: 15},
+					Time: civil.Time{Hour: 14, Minute: 30, Second: 0},
+				}, Valid: true,
+			},
 			DateCol:       bigquery.NullDate{Date: civil.DateOf(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)), Valid: true},
 			TimeCol:       bigquery.NullTime{Time: civil.TimeOf(time.Date(0, 1, 1, 14, 30, 0, 0, time.UTC)), Valid: true},
 			NumericCol:    big.NewRat(12345, 100),                                                      // 123.45
@@ -620,12 +661,18 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 			},
 		},
 		{
-			ID:           2,
-			StrCol:       bigquery.NullString{StringVal: "another string", Valid: true},
-			IntCol:       bigquery.NullInt64{Int64: -999, Valid: true},
-			FloatCol:     bigquery.NullFloat64{Float64: -2.71828, Valid: true},
-			BoolCol:      bigquery.NullBool{Bool: false, Valid: true},
-			TsCol:        bigquery.NullTimestamp{Timestamp: now.Add(-48 * time.Hour), Valid: true},
+			ID:       2,
+			StrCol:   bigquery.NullString{StringVal: "another string", Valid: true},
+			IntCol:   bigquery.NullInt64{Int64: -999, Valid: true},
+			FloatCol: bigquery.NullFloat64{Float64: -2.71828, Valid: true},
+			BoolCol:  bigquery.NullBool{Bool: false, Valid: true},
+			TsCol:    bigquery.NullTimestamp{Timestamp: now.Add(-48 * time.Hour), Valid: true},
+			DatetimeCol: bigquery.NullDateTime{
+				DateTime: civil.DateTime{
+					Date: civil.Date{Year: 2023, Month: 12, Day: 31},
+					Time: civil.Time{Hour: 23, Minute: 59, Second: 59},
+				}, Valid: true,
+			},
 			DateCol:      bigquery.NullDate{Date: civil.DateOf(time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)), Valid: true},
 			TimeCol:      bigquery.NullTime{Time: civil.TimeOf(time.Date(0, 1, 1, 9, 15, 30, 0, time.UTC)), Valid: true},
 			ArrayStr:     []string{"single"},
@@ -642,6 +689,12 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 			FloatCol: bigquery.NullFloat64{Float64: 0.0, Valid: true},
 			BoolCol:  bigquery.NullBool{Bool: false, Valid: true},
 			TsCol:    bigquery.NullTimestamp{Timestamp: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			DatetimeCol: bigquery.NullDateTime{
+				DateTime: civil.DateTime{
+					Date: civil.Date{Year: 2000, Month: 1, Day: 1},
+					Time: civil.Time{Hour: 0, Minute: 0, Second: 0},
+				}, Valid: true,
+			},
 			DateCol:  bigquery.NullDate{Date: civil.DateOf(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)), Valid: true},
 			TimeCol:  bigquery.NullTime{Time: civil.TimeOf(time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)), Valid: true},
 			ArrayStr: []string{},
@@ -676,7 +729,7 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket + "/test_types"
+	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -698,6 +751,18 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 		t.Log("Basic type verification passed")
 	}
 
+	datetimeRows, err := s.GetRows(dstTable, "id,datetime_col")
+	require.NoError(t, err, "should fetch datetime column")
+	require.Len(t, datetimeRows.Records, len(testData), "should have all rows for datetime check")
+	if len(datetimeRows.Records) > 0 {
+		firstRow := datetimeRows.Records[0]
+		expectedDatetime := time.Date(2024, 1, 15, 14, 30, 0, 0, time.UTC)
+		actualDatetime, ok := firstRow[1].Value().(time.Time)
+		require.True(t, ok, "datetime column should be time.Time")
+		require.True(t, expectedDatetime.Equal(actualDatetime), "datetime column should match, got %v", actualDatetime)
+		t.Log("Datetime type verification passed")
+	}
+
 	arrayRows, err := s.GetRows(dstTable, "id,array_str,array_int,array_bool")
 	require.NoError(t, err, "should fetch array columns")
 	if len(arrayRows.Records) > 0 {
@@ -716,7 +781,7 @@ func (s BigQueryClickhouseSuite) Test_JSON_Support() {
 	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
 
 	source := s.Source().(*bigQuerySource)
-	srcTable := "test_json_" + strings.ToLower(shared.RandomString(8))
+	srcTable := AddSuffix(s, "test_json")
 	dstTable := srcTable + "_dst"
 
 	t.Logf("Creating test table %s with JSON column", srcTable)
@@ -811,7 +876,7 @@ func (s BigQueryClickhouseSuite) Test_JSON_Support() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket + "/test_json"
+	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -846,7 +911,7 @@ func (s BigQueryClickhouseSuite) Test_GCS_Cleanup_After_Initial_Load() {
 	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
 
 	source := s.Source().(*bigQuerySource)
-	srcTable := "test_gcs_cleanup_" + strings.ToLower(shared.RandomString(8))
+	srcTable := AddSuffix(s, "test_gcs_cleanup")
 	dstTable := srcTable + "_dst"
 
 	t.Logf("Creating test table %s", srcTable)
@@ -899,7 +964,7 @@ func (s BigQueryClickhouseSuite) Test_GCS_Cleanup_After_Initial_Load() {
 	require.Equal(t, len(testData), count, "should have inserted all test rows")
 	t.Logf("Inserted %d rows into source table", count)
 
-	gcsStagingPath := fmt.Sprintf("%s/test_cleanup/%s", stagingTestBucket, srcTable)
+	gcsStagingPath := bigQueryTestStagingPath(s, "test_cleanup/"+srcTable)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: AddSuffix(s, srcTable),

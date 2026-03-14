@@ -81,6 +81,14 @@ type GetSchemaConnector interface {
 	GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error)
 }
 
+type GetFlagsConnector interface {
+	Connector
+
+	// GetFlags detects peer capabilities (e.g., supported types) at flow creation time.
+	// Flags are stored on the flow config and used for type mapping backwards compatibility.
+	GetFlags(ctx context.Context) ([]string, error)
+}
+
 type CDCPullConnectorCore interface {
 	GetTableSchemaConnector
 
@@ -185,7 +193,8 @@ type CDCSyncConnectorCore interface {
 	// This could involve adding multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
 	ReplayTableSchemaDeltas(ctx context.Context, env map[string]string, flowJobName string,
-		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta) error
+		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, flags []string,
+	) error
 }
 
 type CDCSyncConnector interface {
@@ -234,7 +243,8 @@ type QRepPullConnector interface {
 
 	// PullQRepRecords returns the records for a given partition.
 	PullQRepRecords(
-		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, protos.DBType, *protos.QRepPartition, *model.QRecordStream,
+		context.Context, shared.CatalogPool, *otel_metrics.OtelManager, *protos.QRepConfig, protos.DBType, *protos.QRepPartition,
+		*model.QRecordStream,
 	) (int64, int64, error)
 }
 
@@ -262,6 +272,7 @@ type QRepPullObjectsConnector interface {
 
 	PullQRepObjects(
 		context.Context,
+		shared.CatalogPool,
 		*otel_metrics.OtelManager,
 		*protos.QRepConfig,
 		protos.DBType,
@@ -711,6 +722,9 @@ var (
 	_ MirrorSourceValidationConnector = &connbigquery.BigQueryConnector{}
 
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
+	_ MirrorDestinationValidationConnector = &connpostgres.PostgresConnector{}
+
+	_ GetFlagsConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
@@ -724,6 +738,7 @@ var (
 
 	_ DatabaseVariantConnector = &connpostgres.PostgresConnector{}
 	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}
+	_ DatabaseVariantConnector = &connmongo.MongoConnector{}
 
 	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
 	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}

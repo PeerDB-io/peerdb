@@ -91,6 +91,10 @@ message FlowConnectionConfigs {
 
   map<string, string> env = 24;
   uint32 version = 25;
+
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 27;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -137,6 +141,10 @@ message FlowConnectionConfigsCore {
 
   map<string, string> env = 24;
   uint32 version = 25;
+
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 27;
 }
 
 message RenameTableOption {
@@ -264,6 +272,8 @@ message SetupNormalizedTableBatchInput {
   string flow_name = 6;
   string peer_name = 7;
   bool is_resync = 8;
+  uint32 version = 9;
+  repeated string flags = 10;
 }
 
 message SetupNormalizedTableOutput {
@@ -301,6 +311,9 @@ message UIntPartitionRange {
   uint64 end = 2;
 }
 
+message NullPartitionRange {
+}
+
 message ObjectIdPartitionRange {
   string start = 1;
   string end = 2;
@@ -314,6 +327,7 @@ message PartitionRange {
     TIDPartitionRange tid_range = 3;
     UIntPartitionRange uint_range = 4;
     ObjectIdPartitionRange object_id_range = 5;
+    NullPartitionRange null_range = 6;
   }
 }
 
@@ -350,6 +364,7 @@ message QRepConfig {
 
   string destination_table_identifier = 4;
 
+  // If present, the query provided by the user. If empty, a full-table query determined by the connector.
   string query = 5;
 
   string watermark_table = 6;
@@ -364,8 +379,7 @@ message QRepConfig {
 
   QRepWriteMode write_mode = 11;
 
-  // This is only used when sync_mode is AVRO
-  // this is the location where the avro files will be written
+  // The location where the avro files will be written
   // if this starts with gs:// then it will be written to GCS
   // if this starts with s3:// then it will be written to S3, only supported in Snowflake
   // if nothing is specified then it will be written to local disk
@@ -395,13 +409,19 @@ message QRepConfig {
 
   map<string, string> env = 24;
 
-  string parent_mirror_name = 25;
+  string parent_mirror_name = 25; // internal
   repeated string exclude = 26;
 
   repeated ColumnSetting columns = 27;
-  uint32 version = 28;
+  uint32 version = 28; // internal
 
   peerdb_peers.DBType source_type = 30;
+
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 31; // internal
+  // if true, then a separate null partition will be created for rows with null values in the watermark column
+  bool add_null_partition = 32; // internal
 }
 
 message QRepPartition {

@@ -2,7 +2,6 @@ package utils
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -154,6 +153,13 @@ func NewPartitionHelper(logger log.Logger) *PartitionHelper {
 		logger:     logger,
 		partitions: make([]*protos.QRepPartition, 0),
 	}
+}
+
+func (p *PartitionHelper) AddNullPartition() {
+	p.partitions = append(p.partitions, &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_NullRange{NullRange: &protos.NullPartitionRange{}}},
+	})
 }
 
 // Function to compare the end of a partition with the start of another
@@ -358,7 +364,7 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 
 func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition) error {
 	if partition == nil {
-		return errors.New("partition is nil")
+		return fmt.Errorf("partition is nil")
 	}
 	p.partitions = append(p.partitions, partition)
 

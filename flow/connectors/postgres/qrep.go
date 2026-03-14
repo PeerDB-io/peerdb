@@ -1,20 +1,19 @@
 package connpostgres
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -201,12 +200,13 @@ func (c *PostgresConnector) getPartitions(
 	}
 
 	partitionParams := PartitionParams{
-		tx:              tx,
-		watermarkTable:  watermarkTable,
-		watermarkColumn: watermarkColumn,
-		numPartitions:   numPartitions,
-		lastRangeEnd:    lastRangeEnd,
-		logger:          c.logger,
+		tx:               tx,
+		watermarkTable:   watermarkTable,
+		watermarkColumn:  watermarkColumn,
+		numPartitions:    numPartitions,
+		lastRangeEnd:     lastRangeEnd,
+		logger:           c.logger,
+		addNullPartition: config.AddNullPartition,
 	}
 
 	if config.NumPartitionsOverride <= 0 {
@@ -327,13 +327,14 @@ func (c *PostgresConnector) GetMaxValue(
 
 func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
+	return corePullQRepRecords(c, ctx, catalogPool, config, partition, &RecordStreamSink{
 		QRecordStream:   stream,
 		DestinationType: dstType,
 	})
@@ -341,23 +342,46 @@ func (c *PostgresConnector) PullQRepRecords(
 
 func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, stream)
+	return corePullQRepRecords(c, ctx, catalogPool, config, partition, stream)
 }
 
 func corePullQRepRecords(
 	c *PostgresConnector,
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
+
+	selectedColumns := "*"
+	if len(config.Exclude) != 0 {
+		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to load table schema: %w", err)
+		}
+		quotedColumns := make([]string, 0, len(tableSchema.Columns))
+		for _, col := range tableSchema.Columns {
+			if !slices.Contains(config.Exclude, col.Name) {
+				quotedColumns = append(quotedColumns, common.QuoteIdentifier(col.Name))
+			}
+		}
+		selectedColumns = strings.Join(quotedColumns, ",")
+	}
+
+	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
+	if err != nil {
+		c.logger.Error("unable to parse source table", slog.Any("error", err))
+		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
+	}
 
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
@@ -366,12 +390,24 @@ func corePullQRepRecords(
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 		}
-		return executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
+
+		query := config.Query
+		if query == "" {
+			query = fmt.Sprintf("SELECT %s FROM %s", selectedColumns, parsedSrcTable.String())
+		}
+		return executor.ExecuteQueryIntoSink(ctx, sink, query)
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
 	var rangeStart any
 	var rangeEnd any
+	var queryArgs []any
+	queryTemplate := config.Query
+	if queryTemplate == "" {
+		queryTemplate = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn))
+	}
+	templateParams := map[string]string{"start": "$1", "end": "$2"}
 
 	// Depending on the type of the range, convert the range into the correct type
 	switch x := partition.Range.Range.(type) {
@@ -392,13 +428,26 @@ func corePullQRepRecords(
 			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
 			Valid:        true,
 		}
+	case *protos.PartitionRange_NullRange:
+		if config.Query != "" {
+			return 0, 0, errors.New("can't construct a null range partition for custom queries")
+		}
+		queryTemplate = fmt.Sprintf(
+			"SELECT %s FROM %s WHERE %s IS NULL",
+			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn),
+		)
+		templateParams = map[string]string{}
 	default:
 		return 0, 0, fmt.Errorf("unknown range type: %v", x)
 	}
 
+	if rangeStart != nil && rangeEnd != nil {
+		queryArgs = []any{rangeStart, rangeEnd}
+	}
+
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(c.logger, config.Query, config.FlowJobName)
+	query, err := utils.ExecuteTemplate(queryTemplate, templateParams)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -409,7 +458,7 @@ func corePullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
 
-	numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
+	numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, queryArgs...)
 	if err != nil {
 		return numRecords, numBytes, err
 	}
@@ -711,25 +760,6 @@ func pullXminRecordStream(
 
 	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords))
 	return numRecords, numBytes, currentSnapshotXmin, nil
-}
-
-func BuildQuery(logger log.Logger, query string, flowJobName string) (string, error) {
-	tmpl, err := template.New("query").Parse(query)
-	if err != nil {
-		return "", err
-	}
-
-	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, map[string]string{
-		"start": "$1",
-		"end":   "$2",
-	}); err != nil {
-		return "", err
-	}
-	res := buf.String()
-
-	logger.Info("[pg] templated query", slog.String("query", res))
-	return res, nil
 }
 
 // IsQRepPartitionSynced checks whether a specific partition is synced

@@ -68,7 +68,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		rdsAuth:          rdsAuth,
 	}
 	c.contexts.Store(&contexts)
-	go func() {
+	go func() { //nolint:gosec // G118: long-lived goroutine, not request-scoped
 		ctx := context.Background()
 		for {
 			var ok bool
@@ -278,6 +278,15 @@ func (c *MySqlConnector) withRetries(ctx context.Context) iter.Seq2[*client.Conn
 	}
 }
 
+func (c *MySqlConnector) ExecuteNoRetry(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
+	defer c.watchCtx(ctx)()
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return conn.Execute(cmd, args...)
+}
+
 func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
 	var connectionErr error
 	for conn, err := range c.withRetries(ctx) {
@@ -408,7 +417,7 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 		return nil, fmt.Errorf("failed to check gtid mode: %w", err)
 	}
 	if !gtidOn {
-		return nil, errors.New("gtid mode is not enabled")
+		return nil, fmt.Errorf("gtid mode is not enabled")
 	}
 
 	var query string
@@ -442,7 +451,7 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 		c.logger.Info("[mysql] version", slog.String("version", version))
 		return version, nil
 	}
-	return "", errors.New("failed to connect")
+	return "", fmt.Errorf("failed to connect")
 }
 
 func (c *MySqlConnector) StatActivity(

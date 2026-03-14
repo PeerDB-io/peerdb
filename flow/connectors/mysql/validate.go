@@ -36,7 +36,7 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 	if namePos, err := c.GetMasterPos(ctx); err != nil {
 		return fmt.Errorf("failed to check replication status: %w", err)
 	} else if namePos.Name == "" || namePos.Pos <= 0 {
-		return errors.New("invalid replication status: missing log file or position")
+		return fmt.Errorf("invalid replication status: missing log file or position")
 	}
 
 	return nil
@@ -74,7 +74,7 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 			return fmt.Errorf("unsupported MySQL flavor: %s", c.config.Flavor.String())
 		}
 	}
-	return errors.New("failed to connect to MySQL server")
+	return fmt.Errorf("failed to connect to MySQL server")
 }
 
 func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
@@ -107,7 +107,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		if isVitess, err := mysql_validation.IsVitess(conn); err != nil {
 			return err
 		} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
-			return errors.New("vitess is currently not supported for MySQL mirrors in CDC")
+			return fmt.Errorf("vitess is currently not supported for MySQL mirrors in CDC")
 		}
 	}
 
@@ -135,7 +135,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
-		return errors.New("flavor is set to unknown")
+		return fmt.Errorf("flavor is set to unknown")
 	}
 
 	for conn, err := range c.withRetries(ctx) {
@@ -144,7 +144,7 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		}
 		return c.validateFlavor(conn)
 	}
-	return errors.New("failed to connect to MySQL server")
+	return fmt.Errorf("failed to connect to MySQL server")
 }
 
 func (c *MySqlConnector) validateFlavor(conn *client.Conn) error {
@@ -154,14 +154,14 @@ func (c *MySqlConnector) validateFlavor(conn *client.Conn) error {
 		// seems to be MySQL
 		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 			if c.config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
-				return errors.New("server appears to be MySQL but MariaDB source has been selected")
+				return fmt.Errorf("server appears to be MySQL but MariaDB source has been selected")
 			}
 		} else {
 			return fmt.Errorf("failed to check GTID mode: %w", err)
 		}
 	} else if len(rs.Values) > 0 {
 		if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
-			return errors.New("server appears to be MariaDB but MySQL source has been selected")
+			return fmt.Errorf("server appears to be MariaDB but MySQL source has been selected")
 		}
 	}
 

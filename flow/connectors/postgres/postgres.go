@@ -21,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -110,7 +109,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
-	return &PostgresConnector{
+	connector := &PostgresConnector{
 		logger:                 logger,
 		Config:                 pgConfig,
 		ssh:                    tunnel,
@@ -126,7 +125,28 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
-	}, nil
+	}
+
+	tunnel.StartKeepalive(context.Background(), func() {
+		connector.logger.Info("SSH keepalive failed, closing connections")
+		bgCtx := context.Background()
+		timeout, cancel := context.WithTimeout(bgCtx, 5*time.Second)
+		defer cancel()
+		if err := connector.conn.Close(timeout); err != nil {
+			connector.logger.Error("Failed to close Postgres connection on SSH keepalive failure",
+				slog.Any("error", err))
+		}
+		if connector.replConn != nil {
+			timeout2, cancel2 := context.WithTimeout(bgCtx, 5*time.Second)
+			defer cancel2()
+			if err := connector.replConn.Close(timeout2); err != nil {
+				connector.logger.Error("Failed to close Postgres replication connection on SSH keepalive failure",
+					slog.Any("error", err))
+			}
+		}
+	})
+
+	return connector, nil
 }
 
 func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
@@ -230,7 +250,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, lastOffset,
 		)
 		c.logger.Info(msg)
-		return temporal.NewNonRetryableApplicationError(msg, "desync", nil)
+		return exceptions.NewReplStateDesyncError(msg)
 	}
 
 	if c.replState == nil {
@@ -273,7 +293,7 @@ func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion
 		pubOpt := "publication_names " + utils.QuoteLiteral(publicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
-		return pglogrepl.StartReplicationOptions{}, errors.New("publication name is not set")
+		return pglogrepl.StartReplicationOptions{}, fmt.Errorf("publication name is not set")
 	}
 
 	if pgVersion >= shared.POSTGRES_14 {
@@ -318,7 +338,7 @@ func (c *PostgresConnector) Conn() *pgx.Conn {
 // ConnectionActive returns nil if the connection is active.
 func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 	if c.conn == nil {
-		return errors.New("connection is nil")
+		return fmt.Errorf("connection is nil")
 	}
 	_, pingErr := c.conn.Exec(ctx, "SELECT 1")
 	return pingErr
@@ -413,8 +433,7 @@ func pullCore[Items model.Items](
 		}
 	}()
 
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + req.FlowJobName
+	slotName := GetDefaultSlotName(req.FlowJobName)
 	if req.OverrideReplicationSlotName != "" {
 		slotName = req.OverrideReplicationSlotName
 	}
@@ -432,16 +451,12 @@ func pullCore[Items model.Items](
 
 	if !exists.PublicationExists {
 		c.logger.Warn("publication does not exist", slog.String("name", publicationName))
-		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("publication %s does not exist, restarting workflow", publicationName),
-			exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(), nil)
+		return exceptions.NewPublicationMissingError(publicationName)
 	}
 
 	if !exists.SlotExists {
 		c.logger.Warn("slot does not exist", slog.String("name", slotName))
-		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName),
-			exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(), nil)
+		return exceptions.NewSlotMissingError(slotName)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
@@ -452,11 +467,6 @@ func pullCore[Items model.Items](
 		return err
 	}
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion); err != nil {
-		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
-		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
-			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {
-			return temporal.NewNonRetryableApplicationError("reset connection to reconcile Aurora failover", "disconnect", err)
-		}
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
@@ -655,7 +665,7 @@ func syncRecordsCore[Items model.Items](
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -1282,6 +1292,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	_ []string,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil
@@ -1461,8 +1472,7 @@ func (c *PostgresConnector) SetupReplication(
 		return model.SetupReplicationResult{}, fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
 	}
 
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + req.FlowJobName
+	slotName := GetDefaultSlotName(req.FlowJobName)
 	if req.ExistingReplicationSlotName != "" {
 		slotName = req.ExistingReplicationSlotName
 	}
@@ -1497,8 +1507,7 @@ func (c *PostgresConnector) SetupReplication(
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + jobName
+	slotName := GetDefaultSlotName(jobName)
 	if _, err := c.conn.Exec(
 		ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name=$1`, slotName,
 	); err != nil {
@@ -1572,7 +1581,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	slotInfos, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database)
+	slotInfos, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database, false, nil)
 	if err != nil {
 		logger.Warn("warning: failed to get slot info", slog.Any("error", err))
 		return err
@@ -2027,7 +2036,7 @@ func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, tabl
 		return 0, err
 	}
 	if !tableSizeBytes.Valid {
-		return 0, errors.New("table size is not valid")
+		return 0, fmt.Errorf("table size is not valid")
 	}
 	return tableSizeBytes.Int64, nil
 }

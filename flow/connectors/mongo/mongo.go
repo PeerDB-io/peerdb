@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -148,6 +149,22 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 	return buildInfo.Version, nil
 }
 
+func (c *MongoConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
+	// AtlasDomain matches private link connections as well
+	// https://www.mongodb.com/docs/atlas/security-private-endpoint/?cloud-provider=aws#private-endpoint-aware-connection-strings
+	if strings.Contains(c.config.Uri, peerdb_mongo.AtlasDomain) {
+		return protos.DatabaseVariant_MONGODB_ATLAS, nil
+	}
+	ss, err := peerdb_mongo.GetServerStatus(ctx, c.client)
+	if err != nil {
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+	if strings.Contains(ss.Host, peerdb_mongo.DocumentDBDomain) {
+		return protos.DatabaseVariant_AWS_DOCUMENTDB, nil
+	}
+	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
+}
+
 func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, error) {
 	serverStatus, err := peerdb_mongo.GetServerStatus(ctx, c.client)
 	if err != nil {
@@ -183,7 +200,7 @@ func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context,
 	}
 
 	if lastOffset.Text == "" {
-		return 0, errors.New("last offset is empty string, cannot calculate commit lag")
+		return 0, fmt.Errorf("last offset is empty string, cannot calculate commit lag")
 	}
 
 	resumeToken, err := base64.StdEncoding.DecodeString(lastOffset.Text)
@@ -197,10 +214,7 @@ func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context,
 
 	latestWALTime := replSetStatus.OpTimes.LastCommittedOpTime.Ts
 
-	lagSeconds := int64(latestWALTime.T) - int64(clusterTime.T)
-	if lagSeconds < 0 {
-		lagSeconds = 0
-	}
+	lagSeconds := max(int64(latestWALTime.T)-int64(clusterTime.T), 0)
 
 	lagMicroseconds := lagSeconds * 1_000_000
 
