@@ -3,7 +3,6 @@ package connpostgres
 import (
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 	"testing"
 	"time"
@@ -331,7 +330,6 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 		require.Nil(t, p.Range)
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
-			require.NotNil(t, ctr.Range)
 			require.NotEmpty(t, ctr.Table)
 			childTableCounts[ctr.Table]++
 		}
@@ -421,7 +419,6 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		require.Nil(t, p.Range)
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
-			require.NotNil(t, ctr.Range)
 			require.NotEmpty(t, ctr.Table)
 			childTableCounts[ctr.Table]++
 		}
@@ -542,7 +539,6 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 	for _, p := range partitions {
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
-			require.NotNil(t, ctr.Range)
 			require.NotEmpty(t, ctr.Table)
 			childTablesCovered[ctr.Table] = true
 		}
@@ -569,24 +565,22 @@ func TestCtidPartitionsForPartitionedTableOffsetNumberBounds(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, partitions, 8)
 
-	tidRange := func(table string, startBlock, endBlock uint32) *protos.ChildTableRange {
+	childRange := func(table string, startBlock, endBlock uint32) *protos.ChildTableRange {
 		return &protos.ChildTableRange{
 			Table: table,
-			Range: &protos.TIDPartitionRange{
-				Start: &protos.TID{BlockNumber: startBlock, OffsetNumber: 0},
-				End:   &protos.TID{BlockNumber: endBlock, OffsetNumber: math.MaxUint16},
-			},
+			Start: startBlock,
+			End:   endBlock,
 		}
 	}
 	expected := [][]*protos.ChildTableRange{
-		{tidRange("public.t1", 0, 19)},
-		{tidRange("public.t1", 20, 39)},
-		{tidRange("public.t1", 40, 59)},
-		{tidRange("public.t1", 60, 79)},
-		{tidRange("public.t1", 80, 99)},
-		{tidRange("public.t2", 0, 19)},
-		{tidRange("public.t2", 20, 39)},
-		{tidRange("public.t2", 40, 44), tidRange("public.t3", 0, 9)},
+		{childRange("public.t1", 0, 19)},
+		{childRange("public.t1", 20, 39)},
+		{childRange("public.t1", 40, 59)},
+		{childRange("public.t1", 60, 79)},
+		{childRange("public.t1", 80, 99)},
+		{childRange("public.t2", 0, 19)},
+		{childRange("public.t2", 20, 39)},
+		{childRange("public.t2", 40, 44), childRange("public.t3", 0, 9)},
 	}
 
 	for i, p := range partitions {
@@ -595,10 +589,8 @@ func TestCtidPartitionsForPartitionedTableOffsetNumberBounds(t *testing.T) {
 			exp := expected[i][j]
 			msg := fmt.Sprintf("partition %d range %d", i, j)
 			assert.Equal(t, exp.Table, ctr.Table, msg)
-			assert.Equal(t, exp.Range.Start.BlockNumber, ctr.Range.Start.BlockNumber)
-			assert.Equal(t, exp.Range.Start.OffsetNumber, ctr.Range.Start.OffsetNumber)
-			assert.Equal(t, exp.Range.End.BlockNumber, ctr.Range.End.BlockNumber)
-			assert.Equal(t, exp.Range.End.OffsetNumber, ctr.Range.End.OffsetNumber)
+			assert.Equal(t, exp.Start, ctr.Start, msg)
+			assert.Equal(t, exp.End, ctr.End, msg)
 		}
 	}
 }

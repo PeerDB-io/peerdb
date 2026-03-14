@@ -82,8 +82,8 @@ func NTileBucketPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 // but actual row distribution may be skewed due to non-uniform data distribution, gaps in the
 // value range, or deleted rows.
 func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
-	if pp.numPartitions <= 1 {
-		return nil, fmt.Errorf("expect numPartitions to be greater than 1")
+	if pp.numPartitions <= 0 {
+		return nil, fmt.Errorf("expect numPartitions to be greater than 0")
 	}
 
 	const queryTemplate = "SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s"
@@ -120,8 +120,8 @@ func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 // may be skewed due to table bloat, deleted tuples, or uneven data distribution across blocks.
 // TODO: add support for inherited tables
 func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
-	if pp.numPartitions <= 1 {
-		return nil, fmt.Errorf("expect numPartitions to be greater than 1")
+	if pp.numPartitions <= 0 {
+		return nil, fmt.Errorf("expect numPartitions to be greater than 0")
 	}
 
 	isPartitioned, err := isPartitionedTable(ctx, pp.tx, pp.watermarkTable)
@@ -260,10 +260,8 @@ func ctidPartitionsForPartitionedTable(
 
 			ranges = append(ranges, &protos.ChildTableRange{
 				Table: tableName,
-				Range: &protos.TIDPartitionRange{
-					Start: &protos.TID{BlockNumber: blockStart, OffsetNumber: 0},
-					End:   &protos.TID{BlockNumber: blockEnd - 1, OffsetNumber: math.MaxUint16},
-				},
+				Start: blockStart,
+				End:   blockEnd - 1,
 			})
 
 			remaining -= consume
