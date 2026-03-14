@@ -543,3 +543,120 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 	require.NoError(s.t, err)
 	require.False(s.t, exists)
 }
+
+func (s PeerFlowE2ETestSuitePG) Test_PG_CTID_Empty_Table() {
+	srcTable := "ctid_empty_src"
+	dstTable := "ctid_empty_dst"
+	schema := "e2e_test_" + s.suffix
+	srcFullName := schema + "." + srcTable
+	dstFullName := schema + "." + dstTable
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (id INT, value TEXT)
+	`, dstFullName))
+	require.NoError(s.t, err)
+
+	qrepConfig := CreateQRepWorkflowConfig(
+		s.t,
+		AddSuffix(s, "ctid_empty_qrep"),
+		srcFullName,
+		dstFullName,
+		"",
+		GeneratePostgresPeer(s.t).Name,
+		"",
+		false,
+		"",
+		"",
+	)
+	qrepConfig.WatermarkColumn = "ctid"
+	qrepConfig.NumRowsPerPartition = 250
+	qrepConfig.Env = map[string]string{
+		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error(s.t.Context()))
+
+	require.NoError(s.t, s.compareCounts(dstFullName, 0))
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_PG_CTID_Multiple_Partitions_With_Partitioned_Table() {
+	srcTable := "ctid_part_src"
+	dstTable := "ctid_part_dst"
+	schema := "e2e_test_" + s.suffix
+	srcFullName := schema + "." + srcTable
+	dstFullName := schema + "." + dstTable
+
+	numChildren := 5
+	rowsPerChild := 200
+	totalRows := numChildren * rowsPerChild
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL,
+			partition_key INT NOT NULL,
+			value TEXT,
+			PRIMARY KEY (partition_key, id)
+		) PARTITION BY RANGE (partition_key)
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	for i := range numChildren {
+		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s_p%d PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
+			srcFullName, i, srcFullName, i*20, (i+1)*20))
+		require.NoError(s.t, err)
+	}
+
+	for i := range numChildren {
+		for j := range rowsPerChild {
+			pk := i*20 + (j % 20)
+			_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (partition_key, value) VALUES (%d, 'row_%d_%d')`,
+				srcFullName, pk, i, j))
+			require.NoError(s.t, err)
+		}
+	}
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT,
+			partition_key INT NOT NULL,
+			value TEXT
+		)
+	`, dstFullName))
+	require.NoError(s.t, err)
+
+	qrepConfig := CreateQRepWorkflowConfig(
+		s.t,
+		AddSuffix(s, "ctid_part_qrep"),
+		srcFullName,
+		dstFullName,
+		"",
+		GeneratePostgresPeer(s.t).Name,
+		"",
+		false,
+		"",
+		"",
+	)
+	qrepConfig.WatermarkColumn = "ctid"
+	qrepConfig.NumRowsPerPartition = 250 // this generates 4 partitions
+	qrepConfig.Env = map[string]string{
+		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error(s.t.Context()))
+
+	require.NoError(s.t, s.compareCounts(dstFullName, int64(totalRows)))
+	require.NoError(s.t, s.comparePGTables(srcFullName, dstFullName, "id, partition_key, value"))
+}

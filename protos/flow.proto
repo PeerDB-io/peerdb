@@ -427,7 +427,8 @@ message QRepConfig {
 
 message ChildTableRange {
   string table = 1;
-  TIDPartitionRange range = 2;
+  uint32 start = 2;
+  uint32 end = 3;
 }
 
 message QRepPartition {
@@ -435,7 +436,7 @@ message QRepPartition {
   PartitionRange range = 3;
   bool full_table_partition = 4;
   // For partitioned tables with CTID partitioning: each entry specifies a
-  // child table and TID range to query instead of the parent watermark table.
+  // child table and block range to query instead of the parent watermark table.
   // When populated, the top-level `range` field is unused.
   repeated ChildTableRange child_table_ranges = 5;
 }
