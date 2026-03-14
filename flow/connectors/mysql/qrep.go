@@ -177,6 +177,32 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	}, nil
 }
 
+func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string, isBinlogMetadataSupported bool) string {
+	columns := []string{}
+	selectAsterisk := true
+	for _, col := range cols {
+		if slices.Contains(exclude, col.Name) {
+			selectAsterisk = false
+			continue
+		}
+
+		converted := common.QuoteMySQLIdentifier(col.Name)
+		if !isBinlogMetadataSupported && col.Type == string(types.QValueKindEnum) {
+			// if binlog metadata is not supported, we need to cast enum columns to integers to align it with cdc stream
+			converted = fmt.Sprintf("%s + 0", converted)
+			selectAsterisk = false
+		}
+		columns = append(columns, converted)
+	}
+
+	selectedColumns := "*"
+	if !selectAsterisk {
+		selectedColumns = strings.Join(columns, ", ")
+	}
+
+	return selectedColumns
+}
+
 func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
@@ -192,17 +218,12 @@ func (c *MySqlConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	selectedColumns := "*"
-	if len(config.Exclude) != 0 {
-		quotedColumns := make([]string, 0, len(tableSchema.Columns))
-		for _, col := range tableSchema.Columns {
-			if !slices.Contains(config.Exclude, col.Name) {
-				quotedColumns = append(quotedColumns, common.QuoteMySQLIdentifier(col.Name))
-			}
-		}
-		selectedColumns = strings.Join(quotedColumns, ",")
+	isBinlogMetadataSupported, err := c.IsBinlogMetadataSupported(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to determine if binlog metadata is supported: %w", err)
 	}
 
+	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude, isBinlogMetadataSupported)
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		c.logger.Error("unable to parse source table", slog.Any("error", err))
