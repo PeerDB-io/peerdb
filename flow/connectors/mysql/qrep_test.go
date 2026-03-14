@@ -10,10 +10,10 @@ import (
 func TestBuildSelectedColumns(t *testing.T) {
 	testCases := []struct {
 		name                      string
+		expectedSelectedColumns   string
 		cols                      []*protos.FieldDescription
 		exclude                   []string
 		isBinlogMetadataSupported bool
-		expectedSelectedColumns   string
 	}{
 		{
 			name: "no excluded columns, binlog metadata supported",
@@ -44,7 +44,7 @@ func TestBuildSelectedColumns(t *testing.T) {
 			},
 			exclude:                   []string{},
 			isBinlogMetadataSupported: false,
-			expectedSelectedColumns:   "`id`, `status` + 0",
+			expectedSelectedColumns:   "`id`, `status` + 0 as `status`",
 		},
 		{
 			name: "one enum column, one excluded non enum column, binlog metadata supported",
