@@ -2650,6 +2650,63 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_Schema_Change_After_Resync_Cluster() {
+	if !s.cluster {
+		s.t.Skip("only applies to cluster mode")
+	}
+
+	srcTableName := "test_sc_resync_cluster"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := srcTableName
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			ky TEXT NOT NULL
+		)`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('init')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTableName),
+		TableMappings: TableMappings(s, srcTableName, dstTableName),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial", srcTableName, dstTableName, "id,ky")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	flowConnConfig.Resync = true
+	env = ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "resync", srcTableName, dstTableName, "id,ky")
+
+	// Trigger ReplayTableSchemaDeltas which must resolve the actual shard table name from the Distributed table
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN new_col INT`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (ky, new_col) VALUES ('after_resync', 42)`, srcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "schema change after resync", srcTableName, dstTableName, "id,ky,new_col")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_CoalescingEngine() {
 	// temporarily skip this test to unblock CI until underlying issue with CoalescingMergeTree engine is resolved:
 	// DB::Exception: Too large size (18446464455627382046) passed to allocator. It indicates an error.

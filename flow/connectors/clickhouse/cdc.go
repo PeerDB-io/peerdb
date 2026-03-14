@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -160,6 +161,62 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 	return res, nil
 }
 
+// getDistributedShardTable queries the Distributed table engine definition from system.tables
+// and extracts the shard (local) table name. After a resync, shard tables have a timestamp suffix
+// (e.g., table_shard1710425678) and the Distributed table is the source of truth for the actual name.
+func (c *ClickHouseConnector) getDistributedShardTable(ctx context.Context, tableName string) (string, error) {
+	var engineFull string
+	if err := c.queryRow(ctx, fmt.Sprintf(
+		"SELECT engine_full FROM system.tables WHERE database = %s AND name = %s AND engine = 'Distributed'",
+		peerdb_clickhouse.QuoteLiteral(c.Config.Database),
+		peerdb_clickhouse.QuoteLiteral(tableName),
+	)).Scan(&engineFull); err != nil {
+		return "", fmt.Errorf("failed to get engine_full for Distributed table %s: %w", tableName, err)
+	}
+
+	// engine_full format: Distributed('cluster', 'database', 'shard_table'[, sharding_key[, 'policy']])
+	// Extract the third single-quoted parameter (the shard table name).
+	quoted := extractSingleQuotedStrings(engineFull)
+	if len(quoted) < 3 {
+		return "", fmt.Errorf("unexpected engine_full format for Distributed table %s: %s", tableName, engineFull)
+	}
+	return quoted[2], nil
+}
+
+// extractSingleQuotedStrings returns all single-quoted string values from s in order.
+func extractSingleQuotedStrings(s string) []string {
+	var result []string
+	for {
+		start := strings.IndexByte(s, '\'')
+		if start == -1 {
+			break
+		}
+		// Scan for the closing quote, skipping backslash-escaped characters.
+		var val strings.Builder
+		i := start + 1
+		found := false
+		for i < len(s) {
+			if s[i] == '\\' && i+1 < len(s) {
+				val.WriteByte(s[i+1])
+				i += 2
+			} else if s[i] == '\'' {
+				found = true
+				i++
+				break
+			} else {
+				val.WriteByte(s[i])
+				i++
+			}
+		}
+		if !found {
+			break
+		}
+		result = append(result, val.String())
+		s = s[i:]
+	}
+	return result
+}
+
 func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	env map[string]string,
@@ -187,6 +244,18 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			}
 		}
 
+		// Resolve the actual shard table name from the Distributed table definition.
+		// After resync, the shard table has a timestamp suffix (e.g., table_shard1710425678)
+		// and hardcoding "_shard" would target the wrong table.
+		var shardTableName string
+		if c.Config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
+			var err error
+			shardTableName, err = c.getDistributedShardTable(ctx, schemaDelta.DstTableName)
+			if err != nil {
+				return fmt.Errorf("failed to resolve shard table for %s: %w", schemaDelta.DstTableName, err)
+			}
+		}
+
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			clickHouseColType, err := qvalue.ToDWHColumnType(
@@ -197,10 +266,10 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			}
 
 			// Distributed table isn't created for null tables, no need to alter shard tables that don't exist
-			if c.Config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
+			if shardTableName != "" {
 				if err := c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
-						peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName+"_shard"), onCluster,
+						peerdb_clickhouse.QuoteIdentifier(shardTableName), onCluster,
 						peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
 				); err != nil {
 					return fmt.Errorf("failed to add column %s for table shards %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
