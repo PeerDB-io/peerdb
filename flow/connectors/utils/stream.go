@@ -146,6 +146,113 @@ func recordToQRecordOrError(
 	return entries[:], nil
 }
 
+// RecordsToWALSinkStream converts records to a stream suitable for the WAL sink table (v2).
+// Includes _peerdb_txid and _peerdb_lsn columns from the record's BaseRecord.
+func RecordsToWALSinkStream(
+	req *model.RecordsToStreamRequest[model.RecordItems], numericTruncator model.StreamNumericTruncator,
+) (*model.QRecordStream, error) {
+	recordStream := model.NewQRecordStream(1024)
+	recordStream.SetSchema(types.QRecordSchema{
+		Fields: []types.QField{
+			{Name: "_peerdb_uid", Type: types.QValueKindString, Nullable: false},
+			{Name: "_peerdb_timestamp", Type: types.QValueKindInt64, Nullable: false},
+			{Name: "_peerdb_destination_table_name", Type: types.QValueKindString, Nullable: false},
+			{Name: "_peerdb_data", Type: types.QValueKindString, Nullable: false},
+			{Name: "_peerdb_record_type", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "_peerdb_match_data", Type: types.QValueKindString, Nullable: true},
+			{Name: "_peerdb_batch_id", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "_peerdb_unchanged_toast_columns", Type: types.QValueKindString, Nullable: true},
+			{Name: "_peerdb_txid", Type: types.QValueKindInt64, Nullable: false},
+			{Name: "_peerdb_lsn", Type: types.QValueKindInt64, Nullable: false},
+		},
+	})
+
+	go func() {
+		for record := range req.GetRecords() {
+			record.PopulateCountMap(req.TableMapping)
+			qRecord, err := recordToWALSinkQRecordOrError(
+				req.BatchID, record, req.TargetDWH, req.UnboundedNumericAsString, numericTruncator,
+			)
+			if err != nil {
+				recordStream.Close(err)
+				return
+			} else if qRecord != nil {
+				recordStream.Records <- qRecord
+			}
+		}
+
+		close(recordStream.Records)
+	}()
+	return recordStream, nil
+}
+
+func recordToWALSinkQRecordOrError(
+	batchID int64, record model.Record[model.RecordItems], targetDWH protos.DBType, unboundedNumericAsString bool,
+	numericTruncator model.StreamNumericTruncator,
+) ([]types.QValue, error) {
+	var entries [10]types.QValue
+	switch typedRecord := record.(type) {
+	case *model.InsertRecord[model.RecordItems]:
+		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
+		preprocessedItems := truncateNumerics(
+			typedRecord.Items, targetDWH, unboundedNumericAsString, tableNumericTruncator,
+		)
+		itemsJSON, err := model.ItemsToJSON(preprocessedItems)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
+		}
+
+		entries[3] = types.QValueString{Val: itemsJSON}
+		entries[4] = types.QValueInt64{Val: 0}
+		entries[5] = types.QValueString{Val: ""}
+		entries[7] = types.QValueString{Val: ""}
+	case *model.UpdateRecord[model.RecordItems]:
+		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
+		preprocessedItems := truncateNumerics(
+			typedRecord.NewItems, targetDWH, unboundedNumericAsString, tableNumericTruncator,
+		)
+		newItemsJSON, err := model.ItemsToJSON(preprocessedItems)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
+		}
+		oldItemsJSON, err := model.ItemsToJSON(typedRecord.OldItems)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
+		}
+
+		entries[3] = types.QValueString{Val: newItemsJSON}
+		entries[4] = types.QValueInt64{Val: 1}
+		entries[5] = types.QValueString{Val: oldItemsJSON}
+		entries[7] = types.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
+
+	case *model.DeleteRecord[model.RecordItems]:
+		itemsJSON, err := model.ItemsToJSON(typedRecord.Items)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
+		}
+
+		entries[3] = types.QValueString{Val: itemsJSON}
+		entries[4] = types.QValueInt64{Val: 2}
+		entries[5] = types.QValueString{Val: itemsJSON}
+		entries[7] = types.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
+
+	case *model.MessageRecord[model.RecordItems]:
+		return nil, nil
+
+	default:
+		return nil, fmt.Errorf("unknown record type: %T", typedRecord)
+	}
+
+	entries[0] = types.QValueUUID{Val: uuid.New()}
+	entries[1] = types.QValueInt64{Val: time.Now().UnixNano()}
+	entries[2] = types.QValueString{Val: record.GetDestinationTableName()}
+	entries[6] = types.QValueInt64{Val: batchID}
+	entries[8] = types.QValueInt64{Val: int64(record.GetTransactionID())}
+	entries[9] = types.QValueInt64{Val: record.GetCheckpointID()}
+
+	return entries[:], nil
+}
+
 func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {
 	tableNameRowsMapping := make(map[string]*model.RecordTypeCounts, len(tableMaps))
 	for _, mapping := range tableMaps {

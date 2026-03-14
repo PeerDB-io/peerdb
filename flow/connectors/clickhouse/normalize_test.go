@@ -260,6 +260,8 @@ func TestBuildQuery_Basic(t *testing.T) {
 		"",
 		shared.InternalVersion_Latest,
 		nil,
+		false,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -315,6 +317,8 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		"",
 		shared.InternalVersion_Latest,
 		nil,
+		false,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -366,6 +370,8 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		true,
 		"",
 		shared.InternalVersion_Latest,
+		nil,
+		false,
 		nil,
 	)
 

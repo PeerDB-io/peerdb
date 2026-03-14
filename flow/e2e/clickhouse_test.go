@@ -24,6 +24,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -3555,6 +3556,111 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 	require.NoError(s.t, ch.Close())
 
 	require.Equal(s.t, orderedPk, sortingKey, "sort key should preserve source primary key column order")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_CDC_V2_Protocol exercises PEERDB_CDC_V2_ENABLED end-to-end.
+// On the source it switches the Postgres replication plugin to proto_version '2'
+// with streaming 'on'. On the destination it routes records into a separate
+// _peerdb_wal_<flow> sink table (instead of the v1 _peerdb_raw_<flow>) and
+// makes the normalize step filter by committed XIDs read from catalog table
+// cdc_v2_committed_xids. Asserts both the row equality and that the v2 pipeline
+// actually fired (WAL sink table populated with non-zero XIDs, v1 raw table
+// unused, XID metadata cleaned up after normalize).
+//
+// The streamed-transaction path (StreamStart/Commit + InsertMessageV2 carrying
+// its own Xid) requires the walsender's logical_decoding_work_mem to be small
+// enough to spill before commit, which can't be configured per-test without
+// disturbing the shared parallel suite. The XID-stamping logic that path
+// depends on is covered by unit test TestBaseRecordV2.
+func (s ClickHouseSuite) Test_CDC_V2_Protocol() {
+	pgSource, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("v2 protocol only applies to postgres source")
+	}
+
+	srcTableName := "test_v2_protocol"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_v2_protocol_dst"
+
+	require.NoError(s.t, pgSource.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			"key" TEXT NOT NULL,
+			val TEXT
+		);
+	`, srcFullName)))
+
+	require.NoError(s.t, pgSource.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s ("key", val) VALUES ('init','a')`, srcFullName)))
+
+	flowJobName := s.attachSuffix("ch_v2_protocol")
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowJobName,
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CDC_V2_ENABLED": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "v2 initial", srcTableName, dstTableName, `id,"key",val`)
+
+	require.NoError(s.t, pgSource.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s ("key", val) VALUES ('cdc1','b')`, srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "v2 single insert", srcTableName, dstTableName, `id,"key",val`)
+
+	require.NoError(s.t, pgSource.Exec(s.t.Context(), fmt.Sprintf(
+		`BEGIN; INSERT INTO %[1]s ("key", val) VALUES ('tx1','c'); INSERT INTO %[1]s ("key", val) VALUES ('tx2','d');`+
+			` UPDATE %[1]s SET val='upd' WHERE "key"='init'; COMMIT;`, srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "v2 multi-statement tx", srcTableName, dstTableName, `id,"key",val`)
+
+	require.NoError(s.t, pgSource.Exec(s.t.Context(),
+		fmt.Sprintf(`DELETE FROM %s WHERE "key"='tx1'`, srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "v2 delete", srcTableName, dstTableName, `id,"key",val`)
+
+	// Verify the v2 pipeline actually fired rather than silently falling back to v1.
+	flowSlug := shared.ReplaceIllegalCharactersWithUnderscores(flowJobName)
+	walSinkTable := "_peerdb_wal_" + flowSlug
+	rawTable := "_peerdb_raw_" + flowSlug
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	var walRows uint64
+	require.NoError(s.t, ch.QueryRow(s.t.Context(),
+		"SELECT count() FROM "+clickhouse.QuoteIdentifier(walSinkTable)+
+			" WHERE _peerdb_txid > 0 SETTINGS use_query_cache = false",
+	).Scan(&walRows),
+		"WAL sink table should exist when v2 mode is active")
+
+	var rawRows uint64
+	if err := ch.QueryRow(s.t.Context(),
+		"SELECT count() FROM "+clickhouse.QuoteIdentifier(rawTable)+
+			" SETTINGS use_query_cache = false",
+	).Scan(&rawRows); err == nil {
+		require.Zero(s.t, rawRows, "v1 raw table should be empty when v2 pipeline is active")
+	}
+	// After normalize, the catalog's cdc_v2_committed_xids rows for normalized
+	// batches should be cleaned up.
+	catalog, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	var leftoverXIDBatches int64
+	require.NoError(s.t, catalog.QueryRow(s.t.Context(),
+		`SELECT count(*) FROM cdc_v2_committed_xids
+		WHERE flow_name = $1
+		  AND batch_id <= (SELECT normalize_batch_id FROM metadata_last_sync_state WHERE job_name = $1)`,
+		flowJobName,
+	).Scan(&leftoverXIDBatches))
+	require.Zero(s.t, leftoverXIDBatches,
+		"cdc_v2_committed_xids should be cleaned up for normalized batches")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

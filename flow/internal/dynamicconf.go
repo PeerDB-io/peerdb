@@ -420,6 +420,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_CDC_V2_ENABLED",
+		Description:      "Enable CDC v2 protocol with for ClickHouse destinations",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_POSTGRES_ENABLE_FAILOVER_SLOTS",
 		Description:      "Create slots with failover enabled when possible",
 		DefaultValue:     "false",
@@ -803,6 +811,10 @@ func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Conte
 
 func PeerDBForceInternalVersion(ctx context.Context, env map[string]string) (uint32, error) {
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_FORCE_INTERNAL_VERSION")
+}
+
+func PeerDBCDCV2Enabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CDC_V2_ENABLED")
 }
 
 func PeerDBPostgresEnableFailoverSlots(ctx context.Context, env map[string]string) (bool, error) {
