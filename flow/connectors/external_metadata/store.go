@@ -286,6 +286,62 @@ func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *proto
 	return exists, nil
 }
 
+// SetCommittedXIDsForBatch stores the set of committed transaction IDs for a CDC v2 batch.
+func (p *PostgresMetadata) SetCommittedXIDsForBatch(ctx context.Context, flowName string, batchID int64, xids []int64) error {
+	if _, err := p.pool.Exec(ctx,
+		`INSERT INTO cdc_v2_committed_xids (flow_name, batch_id, committed_xids)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (flow_name, batch_id)
+		DO UPDATE SET committed_xids = excluded.committed_xids`,
+		flowName, batchID, xids,
+	); err != nil {
+		p.logger.Error("failed to set committed xids for batch",
+			slog.String("flowName", flowName), slog.Int64("batchID", batchID), slog.Any("error", err))
+		return fmt.Errorf("failed to set committed xids for batch: %w", err)
+	}
+	return nil
+}
+
+// GetCommittedXIDsForBatches returns all committed XIDs for the given batch range.
+func (p *PostgresMetadata) GetCommittedXIDsForBatches(
+	ctx context.Context, flowName string, startBatchID int64, endBatchID int64,
+) ([]int64, error) {
+	rows, err := p.pool.Query(ctx,
+		`SELECT committed_xids FROM cdc_v2_committed_xids
+		WHERE flow_name = $1 AND batch_id > $2 AND batch_id <= $3`,
+		flowName, startBatchID, endBatchID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query committed xids: %w", err)
+	}
+	defer rows.Close()
+
+	var allXIDs []int64
+	for rows.Next() {
+		var batchXIDs []int64
+		if err := rows.Scan(&batchXIDs); err != nil {
+			return nil, fmt.Errorf("failed to scan committed xids: %w", err)
+		}
+		allXIDs = append(allXIDs, batchXIDs...)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating committed xids rows: %w", err)
+	}
+
+	return allXIDs, nil
+}
+
+// CleanupCommittedXIDs removes committed XID records up to the given batch ID.
+func (p *PostgresMetadata) CleanupCommittedXIDs(ctx context.Context, flowName string, upToBatchID int64) error {
+	if _, err := p.pool.Exec(ctx,
+		`DELETE FROM cdc_v2_committed_xids WHERE flow_name = $1 AND batch_id <= $2`,
+		flowName, upToBatchID,
+	); err != nil {
+		return fmt.Errorf("failed to cleanup committed xids: %w", err)
+	}
+	return nil
+}
+
 func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -310,6 +366,10 @@ func SyncFlowCleanupInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
 	}
 
 	if _, err := tx.Exec(ctx, `DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM cdc_v2_committed_xids WHERE flow_name = $1`, jobName); err != nil {
 		return err
 	}
 
