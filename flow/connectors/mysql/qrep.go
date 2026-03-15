@@ -219,12 +219,12 @@ func (c *MySqlConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	isBinlogMetadataSupported, err := c.IsBinlogMetadataSupported(ctx)
+	isBinlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to determine if binlog metadata is supported: %w", err)
 	}
 
-	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude, isBinlogMetadataSupported, config.Version)
+	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude, isBinlogRowMetadataSupported, config.Version)
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		c.logger.Error("unable to parse source table", slog.Any("error", err))

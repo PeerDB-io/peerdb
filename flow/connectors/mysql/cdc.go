@@ -319,7 +319,7 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
-	binlogRowMetadataSupported, err := c.IsBinlogMetadataSupported(ctx)
+	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}

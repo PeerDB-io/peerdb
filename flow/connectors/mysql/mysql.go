@@ -551,7 +551,7 @@ func (c *MySqlConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableId
 	return rs.GetInt(0, 0)
 }
 
-func (c *MySqlConnector) IsBinlogMetadataSupported(ctx context.Context) (bool, error) {
+func (c *MySqlConnector) IsBinlogRowMetadataSupported(ctx context.Context) (bool, error) {
 	versionToCmp := mysql_validation.MySQLMinVersionForBinlogRowMetadata
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		versionToCmp = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
