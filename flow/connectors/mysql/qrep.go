@@ -177,7 +177,7 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	}, nil
 }
 
-func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string, isBinlogMetadataSupported bool) string {
+func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string, isBinlogMetadataSupported bool, mirrorVersion uint32) string {
 	columns := []string{}
 	selectAsterisk := true
 	for _, col := range cols {
@@ -187,7 +187,8 @@ func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string, isB
 		}
 
 		converted := common.QuoteMySQLIdentifier(col.Name)
-		if !isBinlogMetadataSupported && col.Type == string(types.QValueKindEnum) {
+		if !isBinlogMetadataSupported && col.Type == string(types.QValueKindEnum) &&
+			mirrorVersion >= shared.InternalVersion_MySQLConvertEnumsToInts {
 			// if binlog metadata is not supported, we need to cast enum columns to integers to align it with cdc stream
 			converted = fmt.Sprintf("CAST(%s AS UNSIGNED) AS %s", converted, converted)
 			selectAsterisk = false
@@ -223,7 +224,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to determine if binlog metadata is supported: %w", err)
 	}
 
-	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude, isBinlogMetadataSupported)
+	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude, isBinlogMetadataSupported, config.Version)
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		c.logger.Error("unable to parse source table", slog.Any("error", err))
