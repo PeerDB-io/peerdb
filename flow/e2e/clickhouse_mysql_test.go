@@ -274,6 +274,59 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_my_enum_consistency"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_my_enum_consistency_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			status ENUM('active', 'inactive', 'pending') NOT NULL
+		)
+	`, srcFullName)))
+
+	// Insert row before snapshot
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Wait for snapshot row to appear in destination
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,status", 1)
+
+	// Insert row via CDC — on old MySQL this comes as integer from binlog
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+
+	// Wait for CDC row
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status", 2)
+
+	// Verify both rows have the same status value (consistency between snapshot and CDC)
+	rows, err := s.GetRows(dstTableName, "status")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	require.Equal(s.t, rows.Records[0][0].Value(), rows.Records[1][0].Value(),
+		"snapshot and CDC enum values should be consistent")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Vector() {
 	mysource, ok := s.source.(*MySqlSource)
 	if !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
