@@ -190,6 +190,8 @@ type flowConfigForLogging struct {
 	SnapshotOnly                bool   `json:"snapshot_only"`
 	Resync                      bool   `json:"is_resync"`
 	NumTables                   int    `json:"num_tables"`
+	PipeId                      string `json:"pipe_id"`
+	PipeName                    string `json:"pipe_name"`
 }
 
 type tableMappingForLogging struct {
@@ -229,8 +231,13 @@ func LogFlowConfigs(
 ) ([]flowConfigForLogging, error) {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
 
+	type flowConfigWithTags struct {
+		config *protos.FlowConnectionConfigsCore
+		tags   map[string]string
+	}
+
 	batch := pgx.Batch{}
-	batch.Queue(`SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE config_proto IS NOT NULL`)
+	batch.Queue(`SELECT DISTINCT ON (name) name, config_proto, tags FROM flows WHERE config_proto IS NOT NULL`)
 	batch.Queue(`SELECT flow_name, destination_table_name, inserts_count, updates_count, deletes_count
 		FROM peerdb_stats.cdc_table_aggregate_counts`)
 	batch.Queue(`SELECT flow_name, table_name, table_schema FROM table_schema_mapping`)
@@ -242,17 +249,18 @@ func LogFlowConfigs(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query flow configs: %w", err)
 	}
-	configs, err := pgx.CollectRows(configRows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigsCore, error) {
+	configs, err := pgx.CollectRows(configRows, func(row pgx.CollectableRow) (flowConfigWithTags, error) {
 		var name string
 		var configProto []byte
-		if err := row.Scan(&name, &configProto); err != nil {
-			return nil, err
+		var tags map[string]string
+		if err := row.Scan(&name, &configProto, &tags); err != nil {
+			return flowConfigWithTags{}, err
 		}
 		cfg := &protos.FlowConnectionConfigsCore{}
 		if err := proto.Unmarshal(configProto, cfg); err != nil {
-			return nil, err
+			return flowConfigWithTags{}, err
 		}
-		return cfg, nil
+		return flowConfigWithTags{config: cfg, tags: tags}, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect flow configs: %w", err)
@@ -306,7 +314,8 @@ func LogFlowConfigs(
 	}
 
 	flowConfigs := make([]flowConfigForLogging, 0, len(configs))
-	for _, cfg := range configs {
+	for _, entry := range configs {
+		cfg := entry.config
 		fc := flowConfigForLogging{
 			FlowName:                    cfg.FlowJobName,
 			SourcePeerName:              cfg.SourceName,
@@ -321,6 +330,8 @@ func LogFlowConfigs(
 			SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 			Resync:                      cfg.Resync,
 			NumTables:                   len(cfg.TableMappings),
+			PipeId:                      entry.tags["pipe_id"],
+			PipeName:                    entry.tags["pipe_name"],
 		}
 		flowConfigs = append(flowConfigs, fc)
 
