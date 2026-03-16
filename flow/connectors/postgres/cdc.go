@@ -524,8 +524,10 @@ func PullCdcRecords[Items model.Items](
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
 
-		p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,
-			max(latestServerWALEnd.Load()-lastXLogDataServerWALEnd.Load(), 0))
+		if lastXLogDataServerWALEnd.Load() > 0 {
+			p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,
+				max(latestServerWALEnd.Load()-lastXLogDataServerWALEnd.Load(), 0))
+		}
 
 		logger.Info("pulling records",
 			slog.Int64("records", totalRecords),
