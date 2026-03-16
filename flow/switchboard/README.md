@@ -42,7 +42,7 @@ MongoDB results are returned as Extended JSON. BSON types use Extended JSON synt
 
 Type `help` for a list of allowed wire commands with doc links.
 
-To preview help output without a running server: `go test ./mongosh/command/ -run TestPrintAllHelp -v`
+To preview help output without a running server: `go test ./mongodb/ -run TestPrintAllHelp -v`
 
 ## Architecture
 

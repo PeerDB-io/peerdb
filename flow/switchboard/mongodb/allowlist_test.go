@@ -1,4 +1,4 @@
-package command
+package mongodb
 
 import (
 	"testing"
@@ -51,7 +51,7 @@ func TestValidateCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateCommand(tt.cmd)
+			err := validateCommand(tt.cmd)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -64,40 +64,40 @@ func TestValidateCommand(t *testing.T) {
 func TestIsCommandAllowed(t *testing.T) {
 	allowed := []string{"find", "aggregate", "ping", "hello", "FIND", "Aggregate"}
 	for _, cmd := range allowed {
-		if !IsCommandAllowed(cmd) {
+		if !isCommandAllowed(cmd) {
 			t.Errorf("expected %q to be allowed", cmd)
 		}
 	}
 
 	denied := []string{"insert", "update", "delete", "drop", "shutdown"}
 	for _, cmd := range denied {
-		if IsCommandAllowed(cmd) {
+		if isCommandAllowed(cmd) {
 			t.Errorf("expected %q to be denied", cmd)
 		}
 	}
 }
 
 func TestLookupCommand(t *testing.T) {
-	cmd, ok := LookupCommand("find")
+	cmd, ok := lookupCommand("find")
 	require.True(t, ok)
 	require.True(t, cmd.ReturnsCursor)
 	require.False(t, cmd.AdminDB)
 
-	cmd, ok = LookupCommand("listDatabases")
+	cmd, ok = lookupCommand("listDatabases")
 	require.True(t, ok)
 	require.False(t, cmd.ReturnsCursor)
 	require.True(t, cmd.AdminDB)
 
-	cmd, ok = LookupCommand("aggregate")
+	cmd, ok = lookupCommand("aggregate")
 	require.True(t, ok)
 	require.True(t, cmd.ReturnsCursor)
 
-	cmd, ok = LookupCommand("ping")
+	cmd, ok = lookupCommand("ping")
 	require.True(t, ok)
 	require.False(t, cmd.ReturnsCursor)
 	require.False(t, cmd.AdminDB)
 
-	_, ok = LookupCommand("insert")
+	_, ok = lookupCommand("insert")
 	require.False(t, ok)
 }
 
@@ -112,7 +112,7 @@ func TestAllowedCommandsStructure(t *testing.T) {
 		"ping": {}, "buildinfo": {}, "hostinfo": {},
 	}
 
-	for _, cmds := range AllowedCommands {
+	for _, cmds := range allowedCommands {
 		for _, cmd := range cmds {
 			if count, ok := hasRequired[cmd.Name]; ok && len(cmd.Required) != count {
 				t.Errorf("%s: expected %d required args, got %d", cmd.Name, count, len(cmd.Required))

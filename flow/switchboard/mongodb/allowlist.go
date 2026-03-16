@@ -1,4 +1,4 @@
-package command
+package mongodb
 
 import (
 	"errors"
@@ -8,8 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// AllowedCommand defines an allowed MongoDB wire protocol command.
-type AllowedCommand struct {
+type allowedCommand struct {
 	Name            string
 	Required        []string
 	Optional        []string
@@ -18,7 +17,7 @@ type AllowedCommand struct {
 	AdminDB         bool // whether the command must run against the admin database
 }
 
-var AllowedCommands = map[string][]AllowedCommand{
+var allowedCommands = map[string][]allowedCommand{
 	"Query": {
 		{
 			Name: "find",
@@ -159,14 +158,14 @@ var AllowedCommands = map[string][]AllowedCommand{
 }
 
 var (
-	commandLookup          map[string]AllowedCommand
+	commandLookup          map[string]allowedCommand
 	commandSupportsComment map[string]struct{}
 )
 
 func init() {
-	commandLookup = make(map[string]AllowedCommand)
+	commandLookup = make(map[string]allowedCommand)
 	commandSupportsComment = make(map[string]struct{})
-	for _, cmds := range AllowedCommands {
+	for _, cmds := range allowedCommands {
 		for _, cmd := range cmds {
 			name := strings.ToLower(cmd.Name)
 			commandLookup[name] = cmd
@@ -177,14 +176,12 @@ func init() {
 	}
 }
 
-// IsCommandAllowed returns whether a command is in the allow list.
-func IsCommandAllowed(cmd string) bool {
+func isCommandAllowed(cmd string) bool {
 	_, ok := commandLookup[strings.ToLower(cmd)]
 	return ok
 }
 
-// LookupCommand returns the AllowedCommand for a given command name.
-func LookupCommand(cmd string) (AllowedCommand, bool) {
+func lookupCommand(cmd string) (allowedCommand, bool) {
 	c, ok := commandLookup[strings.ToLower(cmd)]
 	return c, ok
 }
@@ -195,12 +192,11 @@ func CommandSupportsComment(cmd string) bool {
 	return ok
 }
 
-// ValidateCommand validates a built command against the allow list.
-func ValidateCommand(cmd bson.D) error {
+func validateCommand(cmd bson.D) error {
 	if len(cmd) == 0 {
 		return errors.New("empty command")
 	}
-	if !IsCommandAllowed(cmd[0].Key) {
+	if !isCommandAllowed(cmd[0].Key) {
 		return fmt.Errorf("command %s is not allowed", cmd[0].Key)
 	}
 	return nil

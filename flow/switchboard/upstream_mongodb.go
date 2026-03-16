@@ -13,8 +13,7 @@ import (
 
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/switchboard/mongosh"
-	"github.com/PeerDB-io/peerdb/flow/switchboard/mongosh/command"
+	"github.com/PeerDB-io/peerdb/flow/switchboard/mongodb"
 )
 
 // wrapMongoError converts a MongoDB error to an UpstreamError
@@ -58,7 +57,7 @@ func NewMongoUpstream(ctx context.Context, config *protos.MongoConfig, database 
 
 // Exec executes a query and returns results for streaming
 func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator, error) {
-	spec, err := mongosh.Compile(query)
+	spec, err := mongodb.Compile(query)
 	if err != nil {
 		return nil, wrapMongoError(err)
 	}
@@ -71,7 +70,7 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 	// Add comment for cancel support only on commands that support it
 	cmd := spec.Command
 	if len(cmd) > 0 &&
-		command.CommandSupportsComment(cmd[0].Key) &&
+		mongodb.CommandSupportsComment(cmd[0].Key) &&
 		!slices.ContainsFunc(cmd, func(e bson.E) bool {
 			return e.Key == "comment"
 		}) {
@@ -86,7 +85,7 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 	db := u.conn.Client().Database(database)
 
 	switch spec.ResultKind {
-	case mongosh.ResultCursor:
+	case mongodb.ResultCursor:
 		cursor, err := db.RunCommandCursor(ctx, cmd)
 		if err != nil {
 			return nil, wrapMongoError(err)
@@ -186,7 +185,7 @@ func (u *MongoUpstream) CheckQuery(query string) error {
 	if SqlSelectPgCatalogRe.MatchString(query) {
 		return errors.New("PostgreSQL catalog queries not supported; use 'show collections' or 'show databases'")
 	}
-	_, err := mongosh.Compile(query)
+	_, err := mongodb.Compile(query)
 	return err
 }
 
