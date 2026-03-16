@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
@@ -27,13 +28,15 @@ type WorkerSetupOptions struct {
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
 	EnableOtelMetrics                  bool
+	EnableOtelTraces                   bool
 	UseMaintenanceTaskQueue            bool
 }
 
 type WorkerSetupResponse struct {
-	Client      client.Client
-	Worker      worker.Worker
-	OtelManager *otel_metrics.OtelManager
+	Client         client.Client
+	Worker         worker.Worker
+	OtelManager    *otel_metrics.OtelManager
+	TracerProvider *sdktrace.TracerProvider
 }
 
 func (w *WorkerSetupResponse) Close(ctx context.Context) {
@@ -41,6 +44,11 @@ func (w *WorkerSetupResponse) Close(ctx context.Context) {
 	w.Client.Close()
 	if err := w.OtelManager.Close(ctx); err != nil {
 		slog.ErrorContext(ctx, "Failed to shutdown metrics provider", slog.Any("error", err))
+	}
+	if w.TracerProvider != nil {
+		if err := w.TracerProvider.Shutdown(ctx); err != nil {
+			slog.ErrorContext(ctx, "Failed to shutdown tracer provider", slog.Any("error", err))
+		}
 	}
 }
 
@@ -68,6 +76,20 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
 		Meter: metricsProvider.Meter("temporal-sdk-go"),
 	})
+
+	tracerProvider, err := otel_metrics.SetupTracerProvider(ctx, otel_metrics.FlowWorkerServiceName, opts.EnableOtelTraces)
+	if err != nil {
+		return nil, fmt.Errorf("unable to setup tracer provider: %w", err)
+	}
+	if opts.EnableOtelTraces {
+		tracingInterceptor, err := temporalotel.NewTracingInterceptor(temporalotel.TracerOptions{
+			Tracer: tracerProvider.Tracer("temporal-sdk-go"),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to create tracing interceptor: %w", err)
+		}
+		clientOptions.Interceptors = append(clientOptions.Interceptors, tracingInterceptor)
+	}
 
 	c, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
@@ -123,8 +145,9 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	})
 
 	return &WorkerSetupResponse{
-		Client:      c,
-		Worker:      w,
-		OtelManager: otelManager,
+		Client:         c,
+		Worker:         w,
+		OtelManager:    otelManager,
+		TracerProvider: tracerProvider,
 	}, nil
 }
