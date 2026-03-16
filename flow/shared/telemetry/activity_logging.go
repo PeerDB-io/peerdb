@@ -178,11 +178,14 @@ func logActivity(ctx context.Context, action string, additionalAttrs ...any) {
 
 type FlowConfigForLogging struct {
 	FlowName                    string `json:"flow_name"`
+	PipeId                      string `json:"pipe_id"`
+	PipeName                    string `json:"pipe_name"`
 	SourcePeerName              string `json:"source_peer_name"`
 	PublicationName             string `json:"pg_publication_name"`          // postgres
 	ReplicationSlotName         string `json:"pg_replication_slot_name"`     // postgres
 	ReplicationMechanismInUse   string `json:"replication_mechanism_in_use"` // mysql
 	IdleTimeoutSeconds          uint64 `json:"sync_interval"`
+	NumTables                   int    `json:"num_tables"`
 	MaxBatchSize                uint32 `json:"max_batch_size"`
 	SnapshotNumRowsPerPartition uint32 `json:"snapshot_num_rows_per_partition"`
 	SnapshotMaxParallelWorkers  uint32 `json:"snapshot_max_parallel_workers"`
@@ -190,9 +193,6 @@ type FlowConfigForLogging struct {
 	CdcOnly                     bool   `json:"cdc_only"`
 	SnapshotOnly                bool   `json:"snapshot_only"`
 	Resync                      bool   `json:"is_resync"`
-	NumTables                   int    `json:"num_tables"`
-	PipeId                      string `json:"pipe_id"`
-	PipeName                    string `json:"pipe_name"`
 }
 
 type tableMappingForLogging struct {
