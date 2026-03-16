@@ -56,9 +56,11 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 		return nil, fmt.Errorf("unable to setup tracer provider: %w", err)
 	}
 	if opts.EnableOtelTraces {
-		tracingInterceptor, tracingErr := temporalotel.NewTracingInterceptor(temporalotel.TracerOptions{})
-		if tracingErr != nil {
-			return nil, fmt.Errorf("unable to create tracing interceptor: %w", tracingErr)
+		tracingInterceptor, err := temporalotel.NewTracingInterceptor(temporalotel.TracerOptions{
+			Tracer: tracerProvider.Tracer("temporal-sdk-go"),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to create tracing interceptor: %w", err)
 		}
 		clientOptions.Interceptors = append(clientOptions.Interceptors, tracingInterceptor)
 	}
