@@ -32,10 +32,16 @@ const (
 	actionDelete = "delete"
 )
 
+type tableUpsertCol struct {
+	table string
+	col   string
+}
+
 type ElasticsearchConnector struct {
 	*metadataStore.PostgresMetadata
-	client *elasticsearch.Client
-	logger log.Logger
+	client                   *elasticsearch.Client
+	logger                   log.Logger
+	hushWarnUpsertColMissing map[tableUpsertCol]struct{}
 }
 
 func NewElasticsearchConnector(ctx context.Context,
@@ -65,9 +71,10 @@ func NewElasticsearchConnector(ctx context.Context,
 	}
 
 	return &ElasticsearchConnector{
-		PostgresMetadata: pgMetadata,
-		client:           esClient,
-		logger:           internal.LoggerFromCtx(ctx),
+		PostgresMetadata:         pgMetadata,
+		client:                   esClient,
+		logger:                   internal.LoggerFromCtx(ctx),
+		hushWarnUpsertColMissing: make(map[tableUpsertCol]struct{}),
 	}, nil
 }
 

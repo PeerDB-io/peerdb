@@ -65,6 +65,15 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			idx := slices.Index(schemaColNames, upsertCol)
 			if idx != -1 {
 				upsertKeyColIndices = append(upsertKeyColIndices, idx)
+			} else {
+				hushKey := tableUpsertCol{table: config.DestinationTableIdentifier, col: upsertCol}
+				if _, warned := esc.hushWarnUpsertColMissing[hushKey]; !warned {
+					esc.logger.Warn("[elasticsearch] upsert key column not found in schema, may cause duplicates",
+						slog.String("destinationTable", config.DestinationTableIdentifier),
+						slog.String("upsertKeyColumn", upsertCol),
+						slog.Any("schemaColumns", schemaColNames))
+					esc.hushWarnUpsertColMissing[hushKey] = struct{}{}
+				}
 			}
 		}
 	}
