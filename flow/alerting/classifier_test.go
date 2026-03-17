@@ -916,6 +916,17 @@ func TestConnectionToSourceErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestConnectionToSourceTLSNotSupportedShouldBeConnectivity(t *testing.T) {
+	err := exceptions.NewConnectionToSourceError(
+		fmt.Errorf("readInitialHandshake: %w", fmt.Errorf("the MySQL Server does not support TLS required by the client")))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "MYSQL_TLS_VERSION_NOT_SUPPORTED",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
 	pgErr := &pgconn.PgError{
 		Severity: "ERROR",
