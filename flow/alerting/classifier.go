@@ -735,6 +735,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if connToSourceErr, ok := errors.AsType[*exceptions.ConnectionToSourceError](err); ok {
+		// Original error is not wrapped into any type
+		// https://github.com/go-mysql-org/go-mysql/blob/2271d4c5af8df282db7191355a28a3417b8d1bb3/client/conn.go#L200
+		// https://github.com/go-mysql-org/go-mysql/blob/2271d4c5af8df282db7191355a28a3417b8d1bb3/client/auth.go#L91
+		if strings.Contains(connToSourceErr.Error(), "the MySQL Server does not support TLS required by the client") {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceMySQL,
+				Code:   "MYSQL_TLS_VERSION_NOT_SUPPORTED",
+			}
+		}
+	}
+
 	var mongoCmdErr mongo.CommandError
 	if errors.As(err, &mongoCmdErr) {
 		mongoErrorInfo := ErrorInfo{
@@ -1081,6 +1093,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable: mongoInvalidIdValueError.Table,
 			},
+		}
+	}
+
+	if _, ok := errors.AsType[*exceptions.ConnectionToSourceError](err); ok {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceOther,
+			Code:   "CONNECTION_TO_SOURCE_ERROR",
 		}
 	}
 
