@@ -142,7 +142,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
+		return nil, fmt.Errorf("connection to source down: %w", err)
 	}
 
 	batchSize := options.BatchSize
