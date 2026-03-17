@@ -130,7 +130,14 @@ func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
 		attributes = append(attributes,
 			attribute.Stringer(FlowStatusKey, flowMetadata.Status),
 			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync))
+		if pipeId := flowMetadata.Tags["pipe_id"]; pipeId != "" {
+			attributes = append(attributes, attribute.String(PipeIdKey, pipeId))
+		}
+		if pipeName := flowMetadata.Tags["pipe_name"]; pipeName != "" {
+			attributes = append(attributes, attribute.String(PipeNameKey, pipeName))
+		}
 	}
+
 	additionalMetadata := internal.GetAdditionalMetadata(ctx)
 	attributes = append(attributes, attribute.Stringer(FlowOperationKey, additionalMetadata.Operation))
 
