@@ -321,6 +321,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if _, ok := errors.AsType[*exceptions.ConnectionToSourceError](err); ok {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceOther,
+			Code:   "CONNECTION_TO_SOURCE_ERROR",
+		}
+	}
+
 	if errors.Is(err, shared.ErrTableDoesNotExist) {
 		return ErrorNotifySourceTableMissing, ErrorInfo{
 			Source: ErrorSourcePostgres,
