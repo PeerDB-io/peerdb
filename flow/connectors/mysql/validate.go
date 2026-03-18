@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -31,6 +32,7 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 			if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID {
 				return fmt.Errorf("failed to check replication status: %w", err)
 			}
+			c.logger.Warn("[mysql] AUTO replication: GTID not available, will use file/position mode", slog.Any("error", err))
 		}
 	}
 	if namePos, err := c.GetMasterPos(ctx); err != nil {

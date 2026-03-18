@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"syscall"
 	"time"
 
@@ -61,10 +62,12 @@ func Exec(ctx context.Context, logger log.Logger,
 		}
 	}
 	if ex, ok := err.(*clickhouse.Exception); ok {
+		isMV := strings.Contains(ex.Message, "while pushing to view")
 		if chproto.Error(ex.Code) == chproto.ErrIncorrectData {
-			// error message often includes json blobs, avoid logging these
 			ex.Message = "REDACTED"
-			return ex
+		}
+		if isMV {
+			return NewViewError(ex)
 		}
 	}
 	return err
