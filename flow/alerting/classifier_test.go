@@ -906,6 +906,16 @@ func TestSlotMissingError(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMongoClientDisconnectedShouldBeInternal(t *testing.T) {
+	err := fmt.Errorf("operation failed: %w", mongo.ErrClientDisconnected)
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorInternal, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "CLIENT_DISCONNECTED",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
 	pgErr := &pgconn.PgError{
 		Severity: "ERROR",
