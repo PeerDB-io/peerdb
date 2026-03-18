@@ -3120,6 +3120,143 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_CTID_Partitioned_Table() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_ctid_partitioned_table"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_ctid_partitioned_table_dst"
+
+	// Create partitioned table with 20 child partitions
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL,
+			partition_key INT NOT NULL,
+			name TEXT,
+			PRIMARY KEY (partition_key, id)
+		) PARTITION BY RANGE (partition_key)
+	`, srcFullName)))
+
+	for i := range 20 {
+		lo := i * 5
+		hi := (i + 1) * 5
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s_p%d PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
+			srcFullName, i, srcFullName, lo, hi)))
+	}
+
+	// Insert 100 rows per child partition (2000 total)
+	totalRows := 0
+	for i := range 20 {
+		for j := range 100 {
+			pk := i*5 + (j % 5)
+			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (partition_key, name) VALUES (%d, 'row_%d_%d')`,
+				srcFullName, pk, i, j)))
+			totalRows++
+		}
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ctid_partitioned_table"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumPartitionsOverride = 10
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForCount(env, s, "wait on initial snapshot of partitioned table", dstTableName, "id", totalRows)
+
+	// Verify CDC still works after initial snapshot
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (partition_key, name) VALUES (0, 'cdc_row')`, srcFullName)))
+	EnvWaitForCount(env, s, "wait on cdc after partitioned snapshot", dstTableName, "id", totalRows+1)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_CTID_Multi_Level_Partitioned_Table() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_ctid_multi_level"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_ctid_multi_level_dst"
+
+	// Root partitioned by region, sub-partitioned by category (2 regions x 3 categories = 6 leaf tables)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL,
+			region INT NOT NULL,
+			category INT NOT NULL,
+			value TEXT,
+			PRIMARY KEY (region, category, id)
+		) PARTITION BY RANGE (region)
+	`, srcFullName)))
+
+	for r := range 2 {
+		mid := fmt.Sprintf("%s_r%d", srcFullName, r)
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d) PARTITION BY RANGE (category)`,
+			mid, srcFullName, r*50, (r+1)*50)))
+		for c := range 3 {
+			leaf := fmt.Sprintf("%s_r%d_c%d", srcFullName, r, c)
+			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
+				leaf, mid, c*34, (c+1)*34)))
+		}
+	}
+
+	totalRows := 0
+	for r := range 2 {
+		for c := range 3 {
+			for j := range 50 {
+				require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+					`INSERT INTO %s (region, category, value) VALUES (%d, %d, 'v_%d_%d_%d')`,
+					srcFullName, r*50, c*34+(j%34), r, c, j)))
+				totalRows++
+			}
+		}
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ctid_multi_level"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumPartitionsOverride = 6
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForCount(env, s, "wait on multi-level partitioned snapshot", dstTableName, "id", totalRows)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (region, category, value) VALUES (0, 0, 'cdc_after_multi_level')`, srcFullName)))
+	EnvWaitForCount(env, s, "wait on cdc after multi-level snapshot", dstTableName, "id", totalRows+1)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_Composite_PKey() {
 	srcTableName := "test_composite_pkey_ordering"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
