@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"syscall"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 // https://github.com/ClickHouse/clickhouse-kafka-connect/blob/2e0c17e2f900d29c00482b9d0a1f55cb678244e5/src/main/java/com/clickhouse/kafka/connect/util/Utils.java#L78-L93
@@ -61,10 +64,13 @@ func Exec(ctx context.Context, logger log.Logger,
 		}
 	}
 	if ex, ok := err.(*clickhouse.Exception); ok {
+		isMvErr := strings.Contains(ex.Message, "while pushing to view")
 		if chproto.Error(ex.Code) == chproto.ErrIncorrectData {
 			// error message often includes json blobs, avoid logging these
 			ex.Message = "REDACTED"
-			return ex
+		}
+		if isMvErr {
+			return exceptions.NewClickHouseMVError(ex)
 		}
 	}
 	return err

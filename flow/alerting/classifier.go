@@ -867,10 +867,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// "Too large string for FixedString column: (at row 10195)"
 			// The only one created by us is FixedString(1) for PG QChar so assuming the user did it for a string and it didn't work
 			chproto.ErrTooLargeStringSize:
-			if isClickHouseMvError(chException) {
+			var mvErr *exceptions.ClickHouseMVError
+			if errors.As(err, &mvErr) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 			return ErrorNotifyDestinationModified, chErrorInfo
+		case chproto.ErrIncorrectData:
+			var mvErr *exceptions.ClickHouseMVError
+			if errors.As(err, &mvErr) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
 		case chproto.ErrUnknownDatabase,
@@ -928,7 +934,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrUnknownElementOfEnum,
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
-			var qrepSyncError *exceptions.QRepSyncError
+			var qrepSyncError *exceptions.ClickHouseQRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
@@ -967,11 +973,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				AdditionalAttributes: additionalAttributes,
 			}
 		}
-		var normalizationErr *exceptions.NormalizationError
-		if isClickHouseMvError(chException) {
+		// a catch-all for MV or view errors
+		var mvErr *exceptions.ClickHouseMVError
+		if errors.As(err, &mvErr) {
 			return ErrorNotifyMVOrView, chErrorInfo
-		} else if errors.As(err, &normalizationErr) {
-			// notify if normalization hits error on destination
+		}
+		// a catch-all for normalization errors, which typically indicate a bad MV or view
+		var normalizationErr *exceptions.NormalizationError
+		if errors.As(err, &normalizationErr) {
 			logger := internal.LoggerFromCtx(ctx)
 			logger.Warn("Assuming a normalization error is bad MV or view", slog.Any("error", err))
 			return ErrorNotifyMVOrView, chErrorInfo
@@ -1088,8 +1097,4 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		Source: ErrorSourceOther,
 		Code:   "UNKNOWN",
 	}
-}
-
-func isClickHouseMvError(exception *clickhouse.Exception) bool {
-	return strings.Contains(exception.Message, "while pushing to view")
 }
