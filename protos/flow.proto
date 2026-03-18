@@ -364,6 +364,7 @@ message QRepConfig {
 
   string destination_table_identifier = 4;
 
+  // If present, the query provided by the user. If empty, a full-table query determined by the connector.
   string query = 5;
 
   string watermark_table = 6;
@@ -419,10 +420,8 @@ message QRepConfig {
   // Connector capabilities detected at flow creation time.
   // Used to control type mapping backwards compatibility.
   repeated string flags = 31; // internal
-  // the query to fetch the rows without any filters applied (e.g. select [cols] from [table])
-  string base_query = 32; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
-  bool add_null_partition = 33; // internal
+  bool add_null_partition = 32; // internal
 }
 
 message QRepPartition {

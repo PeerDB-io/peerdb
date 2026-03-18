@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"slices"
-	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -243,22 +241,18 @@ func (c *MySqlConnector) startStreaming(
 	ctx context.Context,
 	pos string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	if rest, isFile := strings.CutPrefix(pos, "!f:"); isFile {
-		comma := strings.LastIndexByte(rest, ',')
-		if comma == -1 {
-			return nil, nil, nil, mysql.Position{}, fmt.Errorf("no comma in file/pos offset %s", pos)
-		}
-		offset, err := strconv.ParseUint(rest[comma+1:], 16, 32)
-		if err != nil {
-			return nil, nil, nil, mysql.Position{}, fmt.Errorf("invalid offset in file/pos offset %s: %w", pos, err)
-		}
-		return c.startCdcStreamingFilePos(ctx, mysql.Position{Name: rest[:comma], Pos: uint32(offset)})
-	} else {
-		gset, err := mysql.ParseGTIDSet(c.Flavor(), pos)
-		if err != nil {
-			return nil, nil, nil, mysql.Position{}, err
-		}
-		return c.startCdcStreamingGtid(ctx, gset)
+	parsedOffset, err := parseReplicationOffsetText(c.Flavor(), pos)
+	if err != nil {
+		return nil, nil, nil, mysql.Position{}, err
+	}
+
+	switch parsedOffset.mechanism {
+	case protos.MySqlReplicationMechanism_MYSQL_FILEPOS.String():
+		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos)
+	case protos.MySqlReplicationMechanism_MYSQL_GTID.String():
+		return c.startCdcStreamingGtid(ctx, parsedOffset.gset)
+	default:
+		return nil, nil, nil, mysql.Position{}, fmt.Errorf("empty mysql replication offset")
 	}
 }
 

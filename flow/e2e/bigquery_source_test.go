@@ -78,6 +78,10 @@ var trips1kExpectedQValueColumns = map[string]types.QValueKind{
 
 var stagingTestBucket = "gs://peerdb_bigquery_source_test_do_not_remove"
 
+func bigQueryTestStagingPath(s Suite, path string) string {
+	return fmt.Sprintf("%s/%s", stagingTestBucket, AddSuffix(s, path))
+}
+
 func TestBigQueryClickhouseSuite(t *testing.T) {
 	e2eshared.RunSuite(t, SetupBigQueryClickhouseSuite)
 }
@@ -171,7 +175,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Not_Supported() {
 				Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
 			},
 		},
-		SnapshotStagingPath: stagingTestBucket + "/test",
+		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
 	}
 
 	t.Run("CDC Not Supported", func(t *testing.T) {
@@ -293,7 +297,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Invalid_Table_Mappings() {
 				DestinationTableIdentifier: "nonexistent_dst",
 			},
 		},
-		SnapshotStagingPath: stagingTestBucket + "/test",
+		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
 	}
 
 	err := bqConn.ValidateMirrorSource(ctx, flowConfig)
@@ -317,7 +321,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_ValidateMirrorSource_Succe
 				DestinationTableIdentifier: "trips_1k_dst",
 			},
 		},
-		SnapshotStagingPath: stagingTestBucket + "/test",
+		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
 	}
 
 	err := bqConn.ValidateMirrorSource(ctx, flowConfig)
@@ -429,7 +433,7 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket
+	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -501,7 +505,7 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow_Small_Partitions() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket
+	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 	flowConnConfig.SnapshotNumRowsPerPartition = 10 // 1000 rows / 10 = 100 partitions
 	flowConnConfig.SnapshotMaxParallelWorkers = 10
 
@@ -527,7 +531,7 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
 
 	source := s.Source().(*bigQuerySource)
-	srcTable := "test_types_" + strings.ToLower(shared.RandomString(8))
+	srcTable := AddSuffix(s, "test_types")
 	dstTable := srcTable + "_dst"
 
 	t.Logf("Creating test table %s with all supported types", srcTable)
@@ -725,7 +729,7 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket + "/test_types"
+	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -777,7 +781,7 @@ func (s BigQueryClickhouseSuite) Test_JSON_Support() {
 	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
 
 	source := s.Source().(*bigQuerySource)
-	srcTable := "test_json_" + strings.ToLower(shared.RandomString(8))
+	srcTable := AddSuffix(s, "test_json")
 	dstTable := srcTable + "_dst"
 
 	t.Logf("Creating test table %s with JSON column", srcTable)
@@ -872,7 +876,7 @@ func (s BigQueryClickhouseSuite) Test_JSON_Support() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = stagingTestBucket + "/test_json"
+	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -907,7 +911,7 @@ func (s BigQueryClickhouseSuite) Test_GCS_Cleanup_After_Initial_Load() {
 	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
 
 	source := s.Source().(*bigQuerySource)
-	srcTable := "test_gcs_cleanup_" + strings.ToLower(shared.RandomString(8))
+	srcTable := AddSuffix(s, "test_gcs_cleanup")
 	dstTable := srcTable + "_dst"
 
 	t.Logf("Creating test table %s", srcTable)
@@ -960,7 +964,7 @@ func (s BigQueryClickhouseSuite) Test_GCS_Cleanup_After_Initial_Load() {
 	require.Equal(t, len(testData), count, "should have inserted all test rows")
 	t.Logf("Inserted %d rows into source table", count)
 
-	gcsStagingPath := fmt.Sprintf("%s/test_cleanup/%s", stagingTestBucket, srcTable)
+	gcsStagingPath := bigQueryTestStagingPath(s, "test_cleanup/"+srcTable)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: AddSuffix(s, srcTable),
