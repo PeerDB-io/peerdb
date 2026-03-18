@@ -47,7 +47,6 @@ graph TB
         pg_src["PostgreSQL<br/><i>WAL / logical replication</i>"]
         mysql_src["MySQL<br/><i>binlog</i>"]
         mongo_src["MongoDB<br/><i>change streams</i>"]
-        ch_src["ClickHouse<br/><i>native CDC</i>"]
     end
 
     subgraph DESTINATIONS["DESTINATION CONNECTORS"]
@@ -428,6 +427,8 @@ Normalization transforms raw staged records into the final destination table for
 ### 7.1 Workflow: `QRepFlowWorkflow`
 
 **Location**: `/flow/workflows/qrep_flow.go`
+
+`QRepFlowWorkflow` is most commonly triggered as a child workflow from `SnapshotFlowWorkflow`, which creates **one `QRepFlowWorkflow` per table** being snapshotted. It can also be triggered as a standalone workflow when a user creates a query replication mirror (available in PeerDB OSS).
 
 ```mermaid
 flowchart TD

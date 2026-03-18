@@ -124,6 +124,8 @@ for _, col := range backfilledCols {
 
 **Design tradeoff**: On pre-PG15, TOAST columns are NOT properly updated during normalize fallback (UPSERT+DELETE). The workaround is to use `REPLICA IDENTITY FULL` or upgrade to PG15+ for MERGE support.
 
+**Important caveat**: TOAST column handling is a best-effort solution. Values are backfilled by looking them up from an in-memory cache (that spills to disk) generated _per batch_. If an insert and its corresponding update are not in the same batch, the update's TOAST value will not be successfully backfilled.
+
 ### 1.5 Schema Evolution via RelationMessages
 
 When a DDL change occurs (e.g., `ALTER TABLE ADD COLUMN`), PostgreSQL sends a `RelationMessage` with the new schema.
@@ -521,7 +523,7 @@ PostgreSQL CTID (physical row ID) is used for efficient parallel reads:
 - Guaranteed unique within a snapshot
 - Better distribution than sequential PKs (avoids hotspots)
 
-**Partition calculation**: `SELECT min(ctid), max(ctid) FROM table_name`, then divide into ranges.
+**Partition calculation**: The partition count is calculated based on estimated row count, then an NTILE query groups rows into buckets. The projected min and max CTIDs from this query are used as partition ranges for each bucket. A separate `MinMaxRangePartitioning` strategy exists but is only triggered when users select custom partitioning keys. There are plans to migrate to `CTIDBlockPartitioning` as the default strategy since NTILE can be slow/expensive on large tables.
 
 **Note** (`postgres/qrep.go:126`):
 > NOTE: it appears that the hypercore 'TAM' may give us access to ctid scans, but that's to be removed in Timescale 2.22
@@ -797,7 +799,7 @@ flowchart TD
         Q_TIME["QValueTimestamp"]
     end
 
-    subgraph DECISION{"TypeSystem enum on flow config"}
+    subgraph DECISION["TypeSystem enum on flow config"]
         PG_FLAG["PG: native types<br/><i>Postgres→Postgres only</i>"]
         Q_FLAG["Q: universal types<br/><i>cross-database replication</i>"]
     end
@@ -857,7 +859,7 @@ PG Source → QValue (intermediate) → type mapping → Destination types
 
 1. **Pre-PG15 normalization**: TOAST columns not properly preserved with UPSERT+DELETE fallback. Mitigation: use REPLICA IDENTITY FULL.
 
-2. **MongoDB QRep boundary duplicates**: `$bucketAuto` causes boundary records to be inserted twice. Acceptable for upsert destinations, problematic for append-only.
+2. **At-least-once delivery**: The pipeline guarantees at-least-once delivery, not exactly-once, so duplicates can occur in various scenarios (not limited to MongoDB). ClickHouse's ReplacingMergeTree (RMT) automatically deduplicates on merge, but if a user chooses MergeTree (MT), destination data may contain duplicates. MongoDB's `$bucketAuto` additionally causes boundary records to be inserted twice.
 
 3. **MySQL schema evolution without binlog_row_metadata=FULL**: Column position-shifting DDLs (ADD COLUMN FIRST/AFTER) may cause incorrect column mapping.
 
@@ -866,6 +868,8 @@ PG Source → QValue (intermediate) → type mapping → Destination types
 5. **SSH tunnel DNS resolution** (`ssh_wrapped_conn.go:31-32`): "DNS lookup seems to happen before connection is established which can be an issue if given host can only be resolved on the SSH host."
 
 6. **SSH handshake protection** (`ssh_wrapped_conn.go:56-58`): Body length limited during initial handshake to prevent crash from misbehaved TCP endpoints that send random bytes.
+
+7. **TOAST column backfill is best-effort**: TOAST values are backfilled from an in-memory cache (spilling to disk) generated per batch. If an insert and its corresponding update land in different batches, the update's TOAST value will not be successfully backfilled.
 
 ### 9.3 Idempotency Requirements
 
