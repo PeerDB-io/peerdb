@@ -833,6 +833,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// ErrClientDisconnected is only produced when the topology is explicitly closed via
+	// Client.Disconnect(); classify as internal to flag client lifecycle bugs in our code.
+	if errors.Is(err, mongo.ErrClientDisconnected) {
+		return ErrorInternal, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "CLIENT_DISCONNECTED",
+		}
+	}
+
 	// MongoDB can leak error without properly encapsulate it into a pre-defined error type.
 	// Use string matching as a catch-all for poolClearedErrors. These errors occur when a
 	// connection pool is cleared due to another operation failure; they are always retryable
