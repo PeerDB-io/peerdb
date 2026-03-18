@@ -334,15 +334,14 @@ func (a *FlowableActivity) SyncFlow(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
+	defer srcClose(ctx)
 
 	if err := srcConn.SetupReplConn(ctx, config.Env); err != nil {
-		srcClose(ctx)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
 	if err != nil {
-		srcClose(ctx)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
@@ -354,7 +353,6 @@ func (a *FlowableActivity) SyncFlow(
 	normResponses := concurrency.NewLastChan()
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
-		srcClose(ctx)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 	idleTimeout := cdcIdleTimeout(int(options.IdleTimeoutSeconds))
@@ -375,7 +373,6 @@ func (a *FlowableActivity) SyncFlow(
 		return nil
 	})
 	group.Go(func() error {
-		defer srcClose(groupCtx)
 		if err := a.maintainReplConn(groupCtx, config.FlowJobName, srcConn, syncDone); err != nil {
 			return a.Alerter.LogFlowError(groupCtx, config.FlowJobName, err)
 		}
