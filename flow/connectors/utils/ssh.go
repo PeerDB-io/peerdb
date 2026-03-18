@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.temporal.io/sdk/log"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -20,6 +21,7 @@ const SSHKeepaliveInterval = 15 * time.Second
 
 type SSHTunnel struct {
 	*ssh.Client
+	logger        log.Logger
 	keepaliveChan atomic.Pointer[chan struct{}]
 	badTunnel     bool
 }
@@ -90,7 +92,7 @@ func NewSSHTunnel(
 			return nil, exceptions.NewSSHTunnelSetupError(err)
 		}
 
-		return &SSHTunnel{Client: client, badTunnel: false}, nil
+		return &SSHTunnel{Client: client, logger: logger, badTunnel: false}, nil
 	}
 
 	return nil, nil
@@ -112,7 +114,7 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 ) {
 	ticker := time.NewTicker(SSHKeepaliveInterval)
 	defer ticker.Stop()
-	logger := internal.LoggerFromCtx(ctx)
+	logger := tunnel.logger
 	// in case request hangs, we want to detect that and not send another request
 	requestSent := atomic.Bool{}
 	var keepaliveErr error
