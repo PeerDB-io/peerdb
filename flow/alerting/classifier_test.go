@@ -25,6 +25,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -239,7 +240,7 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 		while pushing to view db_name.hello_mv`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", exceptions.NewClickHouseMVError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", peerdb_clickhouse.NewViewError(err))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -584,7 +585,7 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", exceptions.NewClickHouseMVError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -607,13 +608,13 @@ func TestNonClassifiedNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestErrIncorrectDataWithClickHouseMVErrorShouldBeMV(t *testing.T) {
+func TestErrIncorrectDataWithMVErrorShouldBeNotifyMV(t *testing.T) {
 	err := &clickhouse.Exception{
 		Code:    int32(chproto.ErrIncorrectData),
 		Message: "REDACTED",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", exceptions.NewClickHouseMVError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,

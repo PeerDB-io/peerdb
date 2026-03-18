@@ -25,6 +25,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -867,14 +868,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// "Too large string for FixedString column: (at row 10195)"
 			// The only one created by us is FixedString(1) for PG QChar so assuming the user did it for a string and it didn't work
 			chproto.ErrTooLargeStringSize:
-			var mvErr *exceptions.ClickHouseMVError
-			if errors.As(err, &mvErr) {
+			var viewErr *peerdb_clickhouse.ViewError
+			if errors.As(err, &viewErr) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrIncorrectData:
-			var mvErr *exceptions.ClickHouseMVError
-			if errors.As(err, &mvErr) {
+			var viewErr *peerdb_clickhouse.ViewError
+			if errors.As(err, &viewErr) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 		case chproto.ErrMemoryLimitExceeded:
@@ -974,8 +975,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		}
 		// a catch-all for MV or view errors
-		var mvErr *exceptions.ClickHouseMVError
-		if errors.As(err, &mvErr) {
+		var viewErr *peerdb_clickhouse.ViewError
+		if errors.As(err, &viewErr) {
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		// a catch-all for normalization errors, which typically indicate a bad MV or view
