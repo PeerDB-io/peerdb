@@ -25,6 +25,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -98,7 +99,7 @@ func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
 				JSONExtractArrayRaw(JSONExtractRaw(s, 'more_data')) AS md SETTINGS final = 1`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w",
-		exceptions.NewQRepSyncError(err, "error_table_name_abc", "db_name_xyz")))
+		exceptions.NewClickHouseQRepSyncError(err, "error_table_name_abc", "db_name_xyz")))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -219,7 +220,8 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 				Code:    492,
 				Message: msg,
 			}
-			errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
+			errorClass, errInfo := GetErrorClass(t.Context(),
+				exceptions.NewClickHouseQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
 			assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{
 				Source: ErrorSourceClickHouse,
@@ -237,7 +239,8 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 		is not supported: while converting source column created_at to destination column created_at:
 		while pushing to view db_name.hello_mv`,
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", err)))
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", peerdb_clickhouse.NewViewError(err))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -582,7 +585,7 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -602,6 +605,20 @@ func TestNonClassifiedNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   "207",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestErrIncorrectDataWithMVErrorShouldBeNotifyMV(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrIncorrectData),
+		Message: "REDACTED",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrIncorrectData)),
 	}, errInfo, "Unexpected error info")
 }
 
@@ -820,8 +837,7 @@ func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
 		//nolint:lll
 		Message: "Too many parts (3025 with average size of 65.51 MiB) in table 'ss_replica.posts_resync (db2b0f62-f577-4116-8b5d-e0f760a42bee)'. Merges are processing significantly slower than inserts",
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewQRepSyncError(fmt.Errorf("QRepSync Error: %w", err), "", ""))
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewClickHouseQRepSyncError(err, "", ""))
 	assert.Equal(t, ErrorNotifyTooManyPartsError, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -838,8 +854,7 @@ func TestClickHouseTooManyPartsWithoutTableName(t *testing.T) {
 		//nolint:lll
 		Message: "Too many partitions for single INSERT block (more than 9999). The limit is controlled by 'max_partitions_per_insert_block' setting.",
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewQRepSyncError(fmt.Errorf("QRepSync Error: %w", err), "", ""))
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewClickHouseQRepSyncError(err, "", ""))
 	assert.Equal(t, ErrorNotifyTooManyPartsError, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
