@@ -11,7 +11,6 @@ import (
 	"time"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	tp "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -29,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -97,7 +97,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 	env WorkflowRun,
 	flowConnConfig *protos.FlowConnectionConfigs,
 	reason string,
-	expectedSyncBatchId int64,      //nolint:unparam
+	expectedSyncBatchId int64, //nolint:unparam
 	expectedNormalizeBatchId int64, //nolint:unparam
 ) {
 	EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
