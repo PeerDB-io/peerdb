@@ -28,6 +28,8 @@ const (
 	TemporalActivityTypeKey    = "temporalActivityType"
 	TemporalWorkflowTypeKey    = "temporalWorkflowType"
 	IsFlowActiveKey            = "isFlowActive"
+	PipeIdKey                  = "pipeId"
+	PipeNameKey                = "pipeName"
 	DestinationTableNameKey    = "destinationTableName"
 	WaitEventTypeKey           = "waitEventType"
 	WaitEventKey               = "waitEvent"

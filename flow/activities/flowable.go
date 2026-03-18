@@ -1994,6 +1994,11 @@ func (a *FlowableActivity) GetFlowMetadata(
 		}
 	}
 
+	tags, err := alerting.GetTags(ctx, a.CatalogPool, input.FlowName)
+	if err != nil {
+		logger.Warn("failed to get tags for flow", slog.Any("error", err))
+	}
+
 	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
 		slog.Int("peerTypes", len(peers)))
@@ -2003,6 +2008,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 		Destination: destinationPeer,
 		Status:      input.Status,
 		IsResync:    input.IsResync,
+		Tags:        tags,
 	}, nil
 }
 
