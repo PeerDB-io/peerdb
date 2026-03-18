@@ -38,6 +38,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+//nolint:govet // fieldalignment: fields grouped by purpose for readability
 type PostgresCDCSource struct {
 	*PostgresConnector
 	srcTableIDNameMapping  map[uint32]string
@@ -51,6 +52,8 @@ type PostgresCDCSource struct {
 
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
+	idToRelKindMap            map[uint32]byte
+	publishViaPartitionRoot   bool
 
 	// for storing schema delta audit logs to catalog
 	catalogPool                              shared.CatalogPool
@@ -82,11 +85,20 @@ type PostgresCDCConfig struct {
 
 // Create a new PostgresCDCSource
 func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
-	childToParentRelIDMap, err := getChildToParentRelIDMap(ctx,
+	childToParentRelIDMap, idToRelKindMap, err := getChildToParentRelIDMap(ctx,
 		c.conn, slices.Collect(maps.Keys(cdcConfig.SrcTableIDNameMapping)),
 		cdcConfig.HandleInheritanceForNonPartitionedTables)
 	if err != nil {
 		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
+	}
+
+	var publishViaPartitionRoot bool
+	if err := c.conn.QueryRow(ctx,
+		"SELECT COALESCE(pubviaroot, false) FROM pg_publication WHERE pubname=$1",
+		cdcConfig.Publication,
+	).Scan(&publishViaPartitionRoot); err != nil {
+		return nil, fmt.Errorf("error checking publish_via_partition_root for publication %s: %w",
+			cdcConfig.Publication, err)
 	}
 
 	var schemaNameForRelID map[uint32]string
@@ -107,6 +119,8 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		publication:                              cdcConfig.Publication,
 		commitLock:                               nil,
 		childToParentRelIDMapping:                childToParentRelIDMap,
+		idToRelKindMap:                           idToRelKindMap,
+		publishViaPartitionRoot:                  publishViaPartitionRoot,
 		catalogPool:                              cdcConfig.CatalogPool,
 		otelManager:                              cdcConfig.OtelManager,
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
@@ -136,14 +150,14 @@ func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, ta
 
 func getChildToParentRelIDMap(ctx context.Context,
 	conn *pgx.Conn, parentTableOIDs []uint32, handleInheritanceForNonPartitionedTables bool,
-) (map[uint32]uint32, error) {
+) (map[uint32]uint32, map[uint32]byte, error) {
 	relkinds := "'p'"
 	if handleInheritanceForNonPartitionedTables {
 		relkinds = "'p', 'r'"
 	}
 
 	query := fmt.Sprintf(`
-		SELECT parent.oid AS parentrelid, child.oid AS childrelid
+		SELECT parent.oid AS parentrelid, child.oid AS childrelid, parent.relkind
 		FROM pg_inherits
 		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
 		JOIN pg_class child ON pg_inherits.inhrelid = child.oid
@@ -152,19 +166,22 @@ func getChildToParentRelIDMap(ctx context.Context,
 
 	rows, err := conn.Query(ctx, query, parentTableOIDs)
 	if err != nil {
-		return nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
+		return nil, nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
 	}
 
 	childToParentRelIDMap := make(map[uint32]uint32)
+	idToRelKindMap := make(map[uint32]byte)
 	var parentRelID, childRelID pgtype.Uint32
-	if _, err := pgx.ForEachRow(rows, []any{&parentRelID, &childRelID}, func() error {
+	var relkind byte
+	if _, err := pgx.ForEachRow(rows, []any{&parentRelID, &childRelID, &relkind}, func() error {
 		childToParentRelIDMap[childRelID.Uint32] = parentRelID.Uint32
+		idToRelKindMap[parentRelID.Uint32] = relkind
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("error iterating over child to parent relid map: %w", err)
+		return nil, nil, fmt.Errorf("error iterating over child to parent relid map: %w", err)
 	}
 
-	return childToParentRelIDMap, nil
+	return childToParentRelIDMap, idToRelKindMap, nil
 }
 
 // replProcessor implements ingesting PostgreSQL logical replication tuples into items.
@@ -496,6 +513,7 @@ func PullCdcRecords[Items model.Items](
 	}
 
 	pullStart := time.Now()
+	var latestServerWALEnd, lastXLogDataServerWALEnd atomic.Int64
 	defer func() {
 		if totalRecords == 0 {
 			records.SignalAsEmpty()
@@ -522,6 +540,12 @@ func PullCdcRecords[Items model.Items](
 	shutdown := common.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+
+		if lastXLogDataServerWALEnd.Load() > 0 {
+			p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,
+				max(latestServerWALEnd.Load()-lastXLogDataServerWALEnd.Load(), 0))
+		}
+
 		logger.Info("pulling records",
 			slog.Int64("records", totalRecords),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
@@ -683,6 +707,9 @@ func PullCdcRecords[Items model.Items](
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 				}
 
+				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
+					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
+				}
 				if pkm.ServerWALEnd > clientXLogPos {
 					clientXLogPos = pkm.ServerWALEnd
 				}
@@ -696,6 +723,9 @@ func PullCdcRecords[Items model.Items](
 				xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
 				if err != nil {
 					return fmt.Errorf("ParseXLogData failed: %w", err)
+				}
+				if int64(xld.ServerWALEnd) > lastXLogDataServerWALEnd.Load() {
+					lastXLogDataServerWALEnd.Store(int64(xld.ServerWALEnd))
 				}
 
 				logger.Debug("XLogData",
@@ -904,13 +934,23 @@ func processMessage[Items model.Items](
 		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
+		originalRelID := msg.RelationID
+		var parentRelKind byte
 		// treat all relation messages as corresponding to parent if partitioned.
-		msg.RelationID, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
+		msg.RelationID, parentRelKind, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
 		if err != nil {
 			return nil, err
 		}
 
 		if _, exists := p.srcTableIDNameMapping[msg.RelationID]; !exists {
+			return nil, nil
+		}
+
+		// With publish_via_partition_root = true, PG emits a parent RelationMessage
+		// followed by a child RelationMessage for each partition. The parent's
+		// column list matches the tuple data wire format, so skip the child's
+		// to avoid overwriting with a potentially reordered column definition.
+		if originalRelID != msg.RelationID && parentRelKind == 'p' && p.publishViaPartitionRoot {
 			return nil, nil
 		}
 
@@ -1286,7 +1326,7 @@ func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 // filtered by relkind; parent needs to be a partitioned table by default
 func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 	relID uint32,
-) (uint32, error) {
+) (uint32, byte, error) {
 	relID = p.getParentRelIDIfPartitioned(relID)
 	relkinds := "'p'"
 	if p.handleInheritanceForNonPartitionedTables {
@@ -1303,9 +1343,9 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 			relID,
 		).Scan(&parentRelID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return relID, nil
+				return relID, 0, nil
 			}
-			return 0, fmt.Errorf("failed to query pg_inherits: %w", err)
+			return 0, 0, fmt.Errorf("failed to query pg_inherits: %w", err)
 		}
 		p.childToParentRelIDMapping[relID] = parentRelID
 		p.hushWarnUnknownTableDetected[relID] = struct{}{}
@@ -1313,8 +1353,8 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 			slog.Uint64("childRelID", uint64(relID)),
 			slog.Uint64("parentRelID", uint64(parentRelID)),
 			slog.String("parentTableName", p.srcTableIDNameMapping[parentRelID]))
-		return parentRelID, nil
+		return parentRelID, p.idToRelKindMap[parentRelID], nil
 	}
 
-	return relID, nil
+	return relID, p.idToRelKindMap[relID], nil
 }

@@ -487,7 +487,8 @@ export const kaSchema = z.object({
     })
     .min(1, { message: 'Max record batch bytes must be greater than 0' })
     .max(2147483647, {
-      message: 'Max record batch bytes must be less than or equal to 2147483647',
+      message:
+        'Max record batch bytes must be less than or equal to 2147483647',
     })
     .optional(),
 });

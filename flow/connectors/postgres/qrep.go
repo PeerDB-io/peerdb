@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -326,13 +327,14 @@ func (c *PostgresConnector) GetMaxValue(
 
 func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
+	return corePullQRepRecords(c, ctx, catalogPool, config, partition, &RecordStreamSink{
 		QRecordStream:   stream,
 		DestinationType: dstType,
 	})
@@ -340,23 +342,46 @@ func (c *PostgresConnector) PullQRepRecords(
 
 func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, stream)
+	return corePullQRepRecords(c, ctx, catalogPool, config, partition, stream)
 }
 
 func corePullQRepRecords(
 	c *PostgresConnector,
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
+
+	selectedColumns := "*"
+	if len(config.Exclude) != 0 {
+		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to load table schema: %w", err)
+		}
+		quotedColumns := make([]string, 0, len(tableSchema.Columns))
+		for _, col := range tableSchema.Columns {
+			if !slices.Contains(config.Exclude, col.Name) {
+				quotedColumns = append(quotedColumns, common.QuoteIdentifier(col.Name))
+			}
+		}
+		selectedColumns = strings.Join(quotedColumns, ",")
+	}
+
+	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
+	if err != nil {
+		c.logger.Error("unable to parse source table", slog.Any("error", err))
+		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
+	}
 
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
@@ -365,7 +390,12 @@ func corePullQRepRecords(
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 		}
-		return executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
+
+		query := config.Query
+		if query == "" {
+			query = fmt.Sprintf("SELECT %s FROM %s", selectedColumns, parsedSrcTable.String())
+		}
+		return executor.ExecuteQueryIntoSink(ctx, sink, query)
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
@@ -373,6 +403,10 @@ func corePullQRepRecords(
 	var rangeEnd any
 	var queryArgs []any
 	queryTemplate := config.Query
+	if queryTemplate == "" {
+		queryTemplate = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn))
+	}
 	templateParams := map[string]string{"start": "$1", "end": "$2"}
 
 	// Depending on the type of the range, convert the range into the correct type
@@ -395,10 +429,13 @@ func corePullQRepRecords(
 			Valid:        true,
 		}
 	case *protos.PartitionRange_NullRange:
-		if config.BaseQuery == "" {
-			return 0, 0, errors.New("base_query must be provided for null range partitions")
+		if config.Query != "" {
+			return 0, 0, errors.New("can't construct a null range partition for custom queries")
 		}
-		queryTemplate = fmt.Sprintf("%s WHERE %s IS NULL", config.BaseQuery, common.QuoteIdentifier(config.WatermarkColumn))
+		queryTemplate = fmt.Sprintf(
+			"SELECT %s FROM %s WHERE %s IS NULL",
+			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn),
+		)
 		templateParams = map[string]string{}
 	default:
 		return 0, 0, fmt.Errorf("unknown range type: %v", x)
