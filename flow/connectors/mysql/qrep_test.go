@@ -4,104 +4,78 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func TestBuildSelectedColumns(t *testing.T) {
 	testCases := []struct {
-		name                      string
-		expectedSelectedColumns   string
-		cols                      []*protos.FieldDescription
-		exclude                   []string
-		isBinlogMetadataSupported bool
-		mirrorVersion             uint32
+		name                    string
+		expectedSelectedColumns string
+		cols                    []*protos.FieldDescription
+		exclude                 []string
 	}{
 		{
-			name: "no excluded columns, binlog metadata supported",
+			name: "no excluded columns, string enums",
 			cols: []*protos.FieldDescription{
 				{Name: "id", Type: string(types.QValueKindInt32)},
 				{Name: "name", Type: string(types.QValueKindString)},
 				{Name: "status", Type: string(types.QValueKindEnum)},
 			},
-			exclude:                   []string{},
-			isBinlogMetadataSupported: true,
-			mirrorVersion:             shared.InternalVersion_MySQLConvertEnumsToInts,
-			expectedSelectedColumns:   "*",
+			exclude:                 []string{},
+			expectedSelectedColumns: "*",
 		},
 		{
-			name: "one excluded column, binlog metadata supported",
+			name: "one excluded column",
 			cols: []*protos.FieldDescription{
 				{Name: "id", Type: string(types.QValueKindInt32)},
 				{Name: "name", Type: string(types.QValueKindString)},
 			},
-			exclude:                   []string{"name"},
-			isBinlogMetadataSupported: true,
-			mirrorVersion:             shared.InternalVersion_MySQLConvertEnumsToInts,
-			expectedSelectedColumns:   "`id`",
+			exclude:                 []string{"name"},
+			expectedSelectedColumns: "`id`",
 		},
 		{
-			name: "one enum column, binlog metadata not supported, new version",
+			name: "uint16enum column is cast to unsigned",
+			cols: []*protos.FieldDescription{
+				{Name: "id", Type: string(types.QValueKindInt32)},
+				{Name: "status", Type: string(types.QValueKindUint16Enum)},
+			},
+			exclude:                 []string{},
+			expectedSelectedColumns: "`id`, CAST(`status` AS UNSIGNED) AS `status`",
+		},
+		{
+			name: "string enum column is not cast",
 			cols: []*protos.FieldDescription{
 				{Name: "id", Type: string(types.QValueKindInt32)},
 				{Name: "status", Type: string(types.QValueKindEnum)},
 			},
-			exclude:                   []string{},
-			isBinlogMetadataSupported: false,
-			mirrorVersion:             shared.InternalVersion_MySQLConvertEnumsToInts,
-			expectedSelectedColumns:   "`id`, CAST(`status` AS UNSIGNED) AS `status`",
+			exclude:                 []string{},
+			expectedSelectedColumns: "*",
 		},
 		{
-			name: "one enum column, binlog metadata not supported, old version",
+			name: "uint16enum with exclude",
 			cols: []*protos.FieldDescription{
 				{Name: "id", Type: string(types.QValueKindInt32)},
-				{Name: "status", Type: string(types.QValueKindEnum)},
+				{Name: "status", Type: string(types.QValueKindUint16Enum)},
+				{Name: "created_at", Type: string(types.QValueKindTimestamp)},
 			},
-			exclude:                   []string{},
-			isBinlogMetadataSupported: false,
-			mirrorVersion:             shared.InternalVersion_MySQLConvertEnumsToInts - 1,
-			expectedSelectedColumns:   "*",
+			exclude:                 []string{"created_at"},
+			expectedSelectedColumns: "`id`, CAST(`status` AS UNSIGNED) AS `status`",
 		},
 		{
-			name: "one enum column, binlog metadata not supported, version zero",
-			cols: []*protos.FieldDescription{
-				{Name: "id", Type: string(types.QValueKindInt32)},
-				{Name: "status", Type: string(types.QValueKindEnum)},
-			},
-			exclude:                   []string{},
-			isBinlogMetadataSupported: false,
-			mirrorVersion:             0,
-			expectedSelectedColumns:   "*",
-		},
-		{
-			name: "one enum column, one excluded non enum column, binlog metadata supported",
+			name: "string enum with exclude",
 			cols: []*protos.FieldDescription{
 				{Name: "id", Type: string(types.QValueKindInt32)},
 				{Name: "status", Type: string(types.QValueKindEnum)},
 				{Name: "created_at", Type: string(types.QValueKindTimestamp)},
 			},
-			exclude:                   []string{"created_at"},
-			isBinlogMetadataSupported: true,
-			mirrorVersion:             shared.InternalVersion_MySQLConvertEnumsToInts,
-			expectedSelectedColumns:   "`id`, `status`",
-		},
-		{
-			name: "enum with exclude, binlog metadata not supported, old version",
-			cols: []*protos.FieldDescription{
-				{Name: "id", Type: string(types.QValueKindInt32)},
-				{Name: "status", Type: string(types.QValueKindEnum)},
-				{Name: "created_at", Type: string(types.QValueKindTimestamp)},
-			},
-			exclude:                   []string{"created_at"},
-			isBinlogMetadataSupported: false,
-			mirrorVersion:             shared.InternalVersion_MySQLConvertEnumsToInts - 1,
-			expectedSelectedColumns:   "`id`, `status`",
+			exclude:                 []string{"created_at"},
+			expectedSelectedColumns: "`id`, `status`",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			selectedColumns := buildSelectedColumns(tc.cols, tc.exclude, tc.isBinlogMetadataSupported, tc.mirrorVersion)
+			selectedColumns := buildSelectedColumns(tc.cols, tc.exclude)
 			if selectedColumns != tc.expectedSelectedColumns {
 				t.Errorf("expected selected columns to be %s, but got %s", tc.expectedSelectedColumns, selectedColumns)
 			}
