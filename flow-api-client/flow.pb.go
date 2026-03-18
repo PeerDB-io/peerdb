@@ -5046,6 +5046,7 @@ type FlowContextMetadata struct {
 	Destination   *PeerContextMetadata   `protobuf:"bytes,3,opt,name=destination,proto3" json:"destination,omitempty"`
 	Status        FlowStatus             `protobuf:"varint,4,opt,name=status,proto3,enum=peerdb_flow.FlowStatus" json:"status,omitempty"`
 	IsResync      bool                   `protobuf:"varint,5,opt,name=is_resync,json=isResync,proto3" json:"is_resync,omitempty"`
+	Tags          map[string]string      `protobuf:"bytes,6,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5113,6 +5114,13 @@ func (x *FlowContextMetadata) GetIsResync() bool {
 		return x.IsResync
 	}
 	return false
+}
+
+func (x *FlowContextMetadata) GetTags() map[string]string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
 }
 
 type AdditionalContextMetadata struct {
@@ -5736,13 +5744,17 @@ const file_flow_proto_rawDesc = "" +
 	"\x10destination_name\x18\x03 \x01(\tR\x0fdestinationName\x12/\n" +
 	"\x06status\x18\x04 \x01(\x0e2\x17.peerdb_flow.FlowStatusR\x06status\x12\x1b\n" +
 	"\tis_resync\x18\x05 \x01(\bR\bisResync\x120\n" +
-	"\x14fetch_source_variant\x18\x06 \x01(\bR\x12fetchSourceVariant\"\xfe\x01\n" +
+	"\x14fetch_source_variant\x18\x06 \x01(\bR\x12fetchSourceVariant\"\xf7\x02\n" +
 	"\x13FlowContextMetadata\x12\x1b\n" +
 	"\tflow_name\x18\x01 \x01(\tR\bflowName\x128\n" +
 	"\x06source\x18\x02 \x01(\v2 .peerdb_flow.PeerContextMetadataR\x06source\x12B\n" +
 	"\vdestination\x18\x03 \x01(\v2 .peerdb_flow.PeerContextMetadataR\vdestination\x12/\n" +
 	"\x06status\x18\x04 \x01(\x0e2\x17.peerdb_flow.FlowStatusR\x06status\x12\x1b\n" +
-	"\tis_resync\x18\x05 \x01(\bR\bisResync\"U\n" +
+	"\tis_resync\x18\x05 \x01(\bR\bisResync\x12>\n" +
+	"\x04tags\x18\x06 \x03(\v2*.peerdb_flow.FlowContextMetadata.TagsEntryR\x04tags\x1a7\n" +
+	"\tTagsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"U\n" +
 	"\x19AdditionalContextMetadata\x128\n" +
 	"\toperation\x18\x01 \x01(\x0e2\x1a.peerdb_flow.FlowOperationR\toperation\"h\n" +
 	"$GetDefaultPartitionKeyForTablesInput\x12@\n" +
@@ -5831,7 +5843,7 @@ func file_flow_proto_rawDescGZIP() []byte {
 }
 
 var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 85)
+var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 86)
 var file_flow_proto_goTypes = []any{
 	(TableEngine)(0),                              // 0: peerdb_flow.TableEngine
 	(QRepWriteType)(0),                            // 1: peerdb_flow.QRepWriteType
@@ -5925,11 +5937,12 @@ var file_flow_proto_goTypes = []any{
 	nil,                                   // 89: peerdb_flow.QRepConfig.EnvEntry
 	nil,                                   // 90: peerdb_flow.CDCFlowConfigUpdate.UpdatedEnvEntry
 	nil,                                   // 91: peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
-	nil,                                   // 92: peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntry
-	(*timestamppb.Timestamp)(nil),         // 93: google.protobuf.Timestamp
-	(DBType)(0),                           // 94: peerdb_peers.DBType
-	(DatabaseVariant)(0),                  // 95: peerdb_peers.DatabaseVariant
-	(*descriptorpb.EnumValueOptions)(nil), // 96: google.protobuf.EnumValueOptions
+	nil,                                   // 92: peerdb_flow.FlowContextMetadata.TagsEntry
+	nil,                                   // 93: peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntry
+	(*timestamppb.Timestamp)(nil),         // 94: google.protobuf.Timestamp
+	(DBType)(0),                           // 95: peerdb_peers.DBType
+	(DatabaseVariant)(0),                  // 96: peerdb_peers.DatabaseVariant
+	(*descriptorpb.EnumValueOptions)(nil), // 97: google.protobuf.EnumValueOptions
 }
 var file_flow_proto_depIdxs = []int32{
 	10, // 0: peerdb_flow.TableMapping.columns:type_name -> peerdb_flow.ColumnSetting
@@ -5957,8 +5970,8 @@ var file_flow_proto_depIdxs = []int32{
 	87, // 22: peerdb_flow.SetupNormalizedTableBatchInput.env:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.EnvEntry
 	11, // 23: peerdb_flow.SetupNormalizedTableBatchInput.table_mappings:type_name -> peerdb_flow.TableMapping
 	88, // 24: peerdb_flow.SetupNormalizedTableBatchOutput.table_exists_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
-	93, // 25: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
-	93, // 26: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
+	94, // 25: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
+	94, // 26: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
 	37, // 27: peerdb_flow.TIDPartitionRange.start:type_name -> peerdb_flow.TID
 	37, // 28: peerdb_flow.TIDPartitionRange.end:type_name -> peerdb_flow.TID
 	35, // 29: peerdb_flow.PartitionRange.int_range:type_name -> peerdb_flow.IntPartitionRange
@@ -5972,7 +5985,7 @@ var file_flow_proto_depIdxs = []int32{
 	2,  // 37: peerdb_flow.QRepConfig.system:type_name -> peerdb_flow.TypeSystem
 	89, // 38: peerdb_flow.QRepConfig.env:type_name -> peerdb_flow.QRepConfig.EnvEntry
 	10, // 39: peerdb_flow.QRepConfig.columns:type_name -> peerdb_flow.ColumnSetting
-	94, // 40: peerdb_flow.QRepConfig.source_type:type_name -> peerdb_peers.DBType
+	95, // 40: peerdb_flow.QRepConfig.source_type:type_name -> peerdb_peers.DBType
 	42, // 41: peerdb_flow.QRepPartition.range:type_name -> peerdb_flow.PartitionRange
 	45, // 42: peerdb_flow.QRepPartition.child_table_ranges:type_name -> peerdb_flow.ChildTableRange
 	46, // 43: peerdb_flow.QRepPartitionBatch.partitions:type_name -> peerdb_flow.QRepPartition
@@ -5990,27 +6003,28 @@ var file_flow_proto_depIdxs = []int32{
 	91, // 55: peerdb_flow.SetupFlowOutput.src_table_id_name_mapping:type_name -> peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
 	11, // 56: peerdb_flow.AddTablesToPublicationInput.additional_tables:type_name -> peerdb_flow.TableMapping
 	11, // 57: peerdb_flow.RemoveTablesFromPublicationInput.tables_to_remove:type_name -> peerdb_flow.TableMapping
-	93, // 58: peerdb_flow.MaintenanceMirror.mirror_created_at:type_name -> google.protobuf.Timestamp
-	93, // 59: peerdb_flow.MaintenanceMirror.mirror_updated_at:type_name -> google.protobuf.Timestamp
+	94, // 58: peerdb_flow.MaintenanceMirror.mirror_created_at:type_name -> google.protobuf.Timestamp
+	94, // 59: peerdb_flow.MaintenanceMirror.mirror_updated_at:type_name -> google.protobuf.Timestamp
 	68, // 60: peerdb_flow.MaintenanceMirrors.mirrors:type_name -> peerdb_flow.MaintenanceMirror
-	94, // 61: peerdb_flow.PeerContextMetadata.type:type_name -> peerdb_peers.DBType
-	95, // 62: peerdb_flow.PeerContextMetadata.variant:type_name -> peerdb_peers.DatabaseVariant
+	95, // 61: peerdb_flow.PeerContextMetadata.type:type_name -> peerdb_peers.DBType
+	96, // 62: peerdb_flow.PeerContextMetadata.variant:type_name -> peerdb_peers.DatabaseVariant
 	3,  // 63: peerdb_flow.FlowContextMetadataInput.status:type_name -> peerdb_flow.FlowStatus
 	70, // 64: peerdb_flow.FlowContextMetadata.source:type_name -> peerdb_flow.PeerContextMetadata
 	70, // 65: peerdb_flow.FlowContextMetadata.destination:type_name -> peerdb_flow.PeerContextMetadata
 	3,  // 66: peerdb_flow.FlowContextMetadata.status:type_name -> peerdb_flow.FlowStatus
-	7,  // 67: peerdb_flow.AdditionalContextMetadata.operation:type_name -> peerdb_flow.FlowOperation
-	11, // 68: peerdb_flow.GetDefaultPartitionKeyForTablesInput.table_mappings:type_name -> peerdb_flow.TableMapping
-	92, // 69: peerdb_flow.GetDefaultPartitionKeyForTablesOutput.table_default_partition_key_mapping:type_name -> peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntry
-	14, // 70: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigsCore
-	94, // 71: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput.source_peer_type:type_name -> peerdb_peers.DBType
-	23, // 72: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.PostgresTableIdentifier
-	96, // 73: peerdb_flow.peerdb_maintenance_wait:extendee -> google.protobuf.EnumValueOptions
-	74, // [74:74] is the sub-list for method output_type
-	74, // [74:74] is the sub-list for method input_type
-	74, // [74:74] is the sub-list for extension type_name
-	73, // [73:74] is the sub-list for extension extendee
-	0,  // [0:73] is the sub-list for field type_name
+	92, // 67: peerdb_flow.FlowContextMetadata.tags:type_name -> peerdb_flow.FlowContextMetadata.TagsEntry
+	7,  // 68: peerdb_flow.AdditionalContextMetadata.operation:type_name -> peerdb_flow.FlowOperation
+	11, // 69: peerdb_flow.GetDefaultPartitionKeyForTablesInput.table_mappings:type_name -> peerdb_flow.TableMapping
+	93, // 70: peerdb_flow.GetDefaultPartitionKeyForTablesOutput.table_default_partition_key_mapping:type_name -> peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntry
+	14, // 71: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigsCore
+	95, // 72: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput.source_peer_type:type_name -> peerdb_peers.DBType
+	23, // 73: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.PostgresTableIdentifier
+	97, // 74: peerdb_flow.peerdb_maintenance_wait:extendee -> google.protobuf.EnumValueOptions
+	75, // [75:75] is the sub-list for method output_type
+	75, // [75:75] is the sub-list for method input_type
+	75, // [75:75] is the sub-list for extension type_name
+	74, // [74:75] is the sub-list for extension extendee
+	0,  // [0:74] is the sub-list for field type_name
 }
 
 func init() { file_flow_proto_init() }
@@ -6037,7 +6051,7 @@ func file_flow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_flow_proto_rawDesc), len(file_flow_proto_rawDesc)),
 			NumEnums:      8,
-			NumMessages:   85,
+			NumMessages:   86,
 			NumExtensions: 1,
 			NumServices:   0,
 		},
