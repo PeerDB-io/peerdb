@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -319,7 +320,7 @@ func GetFlowConfigLogEntries(
 		}
 	}
 
-	flowConfigs := make([]FlowConfigForLogging, 0, len(configs))
+	flowConfigs := make([]FlowConfigLogEntry, 0, len(configs))
 	for _, entry := range configs {
 		cfg := entry.config
 		fc := FlowConfigForLogging{
@@ -336,8 +337,8 @@ func GetFlowConfigLogEntries(
 			SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 			Resync:                      cfg.Resync,
 			NumTables:                   len(cfg.TableMappings),
-			PipeId:                      entry.tags["pipe_id"],
-			PipeName:                    entry.tags["pipe_name"],
+			PipeId:                      entry.tags[common.PipeIdTag],
+			PipeName:                    entry.tags[common.PipeNameTag],
 		}
 		flowReplicaIdentity := replicaIdentityByFlow[cfg.FlowJobName]
 		flowCounts := countsByFlow[cfg.FlowJobName]

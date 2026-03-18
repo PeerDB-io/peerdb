@@ -11,6 +11,7 @@ import (
 	"time"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	tp "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -96,7 +97,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 	env WorkflowRun,
 	flowConnConfig *protos.FlowConnectionConfigs,
 	reason string,
-	expectedSyncBatchId int64, //nolint:unparam
+	expectedSyncBatchId int64,      //nolint:unparam
 	expectedNormalizeBatchId int64, //nolint:unparam
 ) {
 	EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
@@ -984,7 +985,7 @@ func (s APITestSuite) TestResyncCompleted() {
 	_, err = s.CreateOrReplaceFlowTags(s.t.Context(), &protos.CreateOrReplaceFlowTagsRequest{
 		FlowName: flowConnConfig.FlowJobName,
 		Tags: []*protos.FlowTag{
-			{Key: "pipe_name", Value: "test"},
+			{Key: common.PipeNameTag, Value: "test"},
 		},
 	})
 	require.NoError(s.t, err)
@@ -1041,7 +1042,7 @@ func (s APITestSuite) TestResyncCompleted() {
 	for _, tag := range tagsResp.Tags {
 		tagMap[tag.Key] = tag.Value
 	}
-	require.Equal(s.t, "test", tagMap["pipe_name"])
+	require.Equal(s.t, "test", tagMap[common.PipeNameTag])
 }
 
 func (s APITestSuite) TestResyncFailed() {
