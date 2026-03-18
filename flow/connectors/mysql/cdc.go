@@ -225,17 +225,18 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
-		ServerID:   rand.Uint32(),
-		Flavor:     c.Flavor(),
-		Host:       config.Host,
-		Port:       uint16(config.Port),
-		User:       config.User,
-		Password:   config.Password,
-		Logger:     internal.SlogLoggerFromCtx(ctx),
-		Dialer:     c.Dialer(),
-		UseDecimal: true,
-		ParseTime:  true,
-		TLSConfig:  tlsConfig,
+		ServerID:         rand.Uint32(),
+		Flavor:           c.Flavor(),
+		Host:             config.Host,
+		Port:             uint16(config.Port),
+		User:             config.User,
+		Password:         config.Password,
+		Logger:           internal.SlogLoggerFromCtx(ctx),
+		Dialer:           c.Dialer(),
+		DisableRetrySync: true,
+		UseDecimal:       true,
+		ParseTime:        true,
+		TLSConfig:        tlsConfig,
 	}), nil
 }
 
