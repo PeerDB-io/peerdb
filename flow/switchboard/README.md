@@ -1,6 +1,6 @@
 # Switchboard
 
-A PostgreSQL wire protocol proxy that lets standard PostgreSQL clients (psql, pgcli, any driver) query upstream PostgreSQL and MySQL databases. SQL queries are passed through verbatim to the upstream — no SQL translation occurs.
+A PostgreSQL wire protocol proxy that lets standard PostgreSQL clients (psql, pgcli, any driver) query upstream PostgreSQL, MySQL, and MongoDB databases. SQL queries are passed through verbatim to PostgreSQL and MySQL upstreams — no SQL translation occurs. MongoDB accepts Extended JSON wire commands directly.
 
 Built for operator debugging and diagnostics against production databases. The security model is designed to prevent accidental mistakes (fat-fingered DROPs, unintended writes), not to stop a motivated attacker — the trust boundary is infrastructure-level access control.
 
@@ -24,6 +24,25 @@ EXPLAIN SELECT * FROM orders;
 SHOW TABLES;
 SELECT @@GLOBAL.gtid_executed;
 ```
+
+**MongoDB** — write Extended JSON wire commands:
+
+```json
+{"listCollections": 1}
+{"listDatabases": 1}
+{"find": "users", "filter": {"active": true}}
+{"find": "users", "filter": {"age": {"$gt": 21}}, "sort": {"name": 1}, "limit": 10}
+{"aggregate": "orders", "pipeline": [{"$match": {"status": "A"}}, {"$group": {"_id": "$item", "total": {"$sum": "$amount"}}}], "cursor": {}}
+{"find": "users", "filter": {"_id": {"$oid": "507f1f77bcf86cd799439011"}}, "limit": 1, "singleBatch": true}
+{"ping": 1}
+{"explain": {"find": "users", "filter": {}}, "verbosity": "executionStats"}
+```
+
+MongoDB results are returned as Extended JSON. BSON types use Extended JSON syntax (e.g. `{"$oid": "..."}`, `{"$date": "..."}`, `{"$numberLong": "..."}`).
+
+Type `help` for a list of allowed wire commands with doc links.
+
+To preview help output without a running server: `go test ./mongodb/ -run TestPrintAllHelp -v`
 
 ## Architecture
 
@@ -53,10 +72,10 @@ psql / pgcli / any pgwire client
 ┌──────────────────────▼──────────────────────────────┐
 │  Upstream interface (upstream.go)                   │
 │                                                     │
-│  ┌─────────────┐ ┌────────────┐                     │
-│  │  PostgreSQL │ │   MySQL    │                     │
-│  │  (pgx)      │ │ (go-mysql) │                     │
-│  └─────────────┘ └────────────┘                     │
+│  ┌─────────────┐ ┌────────────┐ ┌────────────────┐  │
+│  │  PostgreSQL │ │   MySQL    │ │    MongoDB     │  │
+│  │  (pgx)      │ │ (go-mysql) │ │ (mongo-driver) │  │
+│  └─────────────┘ └────────────┘ └────────────────┘  │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -89,6 +108,7 @@ Client sends a `CancelRequest` with (pid, secret). Server looks up the session a
 
 - **PostgreSQL**: native `CancelRequest` on the pgconn.
 - **MySQL**: opens an ephemeral connection, runs `KILL QUERY <connection_id>`.
+- **MongoDB**: queries `currentOp` for operations matching a per-session comment tag, kills via `killOp`.
 
 ### Guardrails (guardrails.go)
 
@@ -152,6 +172,17 @@ type ResultIterator interface {
 - Maps MySQL column types to PostgreSQL OIDs for display alignment (numeric types → right-aligned in psql).
 - `TxStatus` always returns `'I'` (idle).
 - Cancel via `KILL QUERY` over ephemeral connection.
+
+**MongoDB** (`upstream_mongodb.go`, `mongosh/`)
+- Input is Extended JSON wire commands (e.g. `{"find": "coll", "filter": {}}`). `mongosh.Compile()` parses the JSON, validates the command against an allowlist, and determines whether the result is a cursor or scalar. `help` is matched by regex and returns a formatted command reference.
+- `CheckQuery`: compilation itself is the validation — the command allowlist (`mongosh/command/allowlist.go`) rejects anything not explicitly listed. Default-deny.
+- Three result paths, all presented as PostgreSQL result sets:
+  - **Cursor results** (find, aggregate, listCollections, listIndexes) — streamed one document per row via `MongoCursorIterator`. Each row is a single `result` column (OID 114, json) containing canonical Extended JSON (`bson.MarshalExtJSON` with relaxed mode off). Command tag: `SELECT <n>`.
+  - **Scalar results** (count, distinct, ping, etc.) — one row, one `result` column, same Extended JSON encoding, via `MongoScalarIterator`. Command tag: `OK`.
+  - **Formatted results** (help) — `FormattedIterator` returns columnar TEXT output. Command tag: `SELECT <n>`.
+- Cancel embeds a per-session comment tag (`peerdb-<8hex>`) in commands, then uses `currentOp` / `killOp` to stop matching operations.
+- `TxStatus` always returns `'I'`.
+- The `mongosh/` subpackage contains: `compile.go` (Extended JSON parsing, shell command handling, orchestration) and `command/allowlist.go` (wire command allowlist with metadata for cursor/scalar result kind and admin DB routing). The test suite (`mongosh/compile_test.go`) validates compilation, allowlist enforcement, and shell commands.
 
 ## Requirements for a new upstream
 
