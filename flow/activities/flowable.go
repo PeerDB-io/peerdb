@@ -956,21 +956,8 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 				flowNames = append(flowNames, entry.FlowConfig.FlowName)
 			}
 
-			conn, err := connectors.GetConnector(ctx, nil, peer)
-			if err != nil {
-				logger.Error("failed to create connector for source peer info", slog.String("peer", peer.Name), slog.Any("error", err))
-				telemetry.LogPeerInfo(ctx, peer, "N/A", "N/A")
-				continue
-			}
-
-			version, variant := a.getRuntimePeerInfo(ctx, peer, conn)
+			version, variant, replicationMechanismInUseByFlow := a.getRuntimeInfo(ctx, peer, flowNames)
 			telemetry.LogPeerInfo(ctx, peer, version, variant)
-			replicationMechanismInUseByFlow := a.getReplicationMechanismInUseByFlow(ctx, peer, conn, flowNames)
-			if err := conn.Close(); err != nil {
-				logger.Warn("failed to close connector for source peer info",
-					slog.String("peer", peer.Name),
-					slog.Any("error", err))
-			}
 			for _, entry := range peerFlowEntries {
 				entry.FlowConfig.ReplicationMechanismInUse = replicationMechanismInUseByFlow[entry.FlowConfig.FlowName]
 			}
@@ -986,14 +973,22 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) getRuntimePeerInfo(
+func (a *FlowableActivity) getRuntimeInfo(
 	ctx context.Context,
 	peer *protos.Peer,
-	conn connectors.Connector,
-) (string, string) {
+	flowNames []string,
+) (string, string, map[string]string) {
 	logger := internal.LoggerFromCtx(ctx)
 	version := "N/A"
 	variant := "N/A"
+	replicationMechanismInUseByFlow := make(map[string]string, len(flowNames))
+
+	conn, err := connectors.GetConnector(ctx, nil, peer)
+	if err != nil {
+		logger.Error("failed to create connector for source peer info", slog.String("peer", peer.Name), slog.Any("error", err))
+		return version, variant, replicationMechanismInUseByFlow
+	}
+	defer conn.Close()
 
 	if vc, ok := conn.(connectors.GetVersionConnector); ok {
 		if v, err := vc.GetVersion(ctx); err != nil {
@@ -1011,36 +1006,21 @@ func (a *FlowableActivity) getRuntimePeerInfo(
 			variant = v.String()
 		}
 	}
-	return version, variant
-}
-
-func (a *FlowableActivity) getReplicationMechanismInUseByFlow(
-	ctx context.Context,
-	peer *protos.Peer,
-	conn connectors.Connector,
-	flowNames []string,
-) map[string]string {
-	logger := internal.LoggerFromCtx(ctx)
-	replicationMechanismInUseByFlow := make(map[string]string, len(flowNames))
-
-	rmc, ok := conn.(connectors.ReplicationMechanismInUseConnector)
-	if !ok {
-		return replicationMechanismInUseByFlow
-	}
-
-	for _, flowName := range flowNames {
-		mechanismInUse, err := rmc.GetReplicationMechanismInUse(ctx, flowName)
-		if err != nil {
-			logger.Error("failed to get replication mechanism in use",
-				slog.String("peer", peer.Name),
-				slog.String("flowName", flowName),
-				slog.Any("error", err))
-			continue
+	if rmc, ok := conn.(connectors.ReplicationMechanismInUseConnector); ok {
+		for _, flowName := range flowNames {
+			mechanismInUse, err := rmc.GetReplicationMechanismInUse(ctx, flowName)
+			if err != nil {
+				logger.Error("failed to get replication mechanism in use",
+					slog.String("peer", peer.Name),
+					slog.String("flowName", flowName),
+					slog.Any("error", err))
+				continue
+			}
+			replicationMechanismInUseByFlow[flowName] = mechanismInUse
 		}
-		replicationMechanismInUseByFlow[flowName] = mechanismInUse
 	}
 
-	return replicationMechanismInUseByFlow
+	return version, variant, replicationMechanismInUseByFlow
 }
 
 type flowInformation struct {
