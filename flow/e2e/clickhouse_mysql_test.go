@@ -389,7 +389,8 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 			(ST_GeomFromText('MULTIPOINT((1 2), (3 4))')),
 			(ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))')),
 			(ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))')),
-			(ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))'))`, srcFullName))
+			(ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')),
+			(ST_GeomFromText('POINT(5 6)', 3857))`, srcFullName))
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -405,25 +406,27 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// Wait for initial snapshot to complete
-	EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 7)
+	EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 8)
 
 	// Insert additional rows to test CDC
 	err = s.Source().Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %s (geometry_col) VALUES
 		(ST_GeomFromText('POINT(10 20)')),
 		(ST_GeomFromText('LINESTRING(10 20, 30 40)')),
-		(ST_GeomFromText('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))'));`, srcFullName))
+		(ST_GeomFromText('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))')),
+		(ST_GeomFromText('POINT(30 40)', 3857))`, srcFullName))
 	require.NoError(s.t, err)
 
 	// Wait for CDC to replicate the new rows
-	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 10)
+	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 12)
 
 	// Verify that the data was correctly replicated
 	rows, err := s.GetRows(dstTableName, "id, geometry_col")
 	require.NoError(s.t, err)
-	require.Len(s.t, rows.Records, 10, "expected 10 rows")
+	require.Len(s.t, rows.Records, 12, "expected 12 rows")
 
-	// Expected WKT format values for each geometric type
+	// Expected WKT format values for each geometric type.
+	// SRID is intentionally dropped because ClickHouse doesn't support EWKT (SRID=N;WKT).
 	expectedValues := []string{
 		"POINT (1 2)",
 		"LINESTRING (1 2, 3 4)",
@@ -432,9 +435,11 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		"MULTILINESTRING ((1 2, 3 4), (5 6, 7 8))",
 		"MULTIPOLYGON (((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
 		"GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (1 2, 3 4))",
+		"POINT (5 6)",
 		"POINT (10 20)",
 		"LINESTRING (10 20, 30 40)",
 		"POLYGON ((10 10, 30 10, 30 30, 10 30, 10 10))",
+		"POINT (30 40)",
 	}
 
 	for i, row := range rows.Records {
@@ -489,8 +494,15 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 			ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))'),
 			ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
 			ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
+		), (
+			ST_GeomFromText('POINT(5 6)', 3857),
+			ST_GeomFromText('LINESTRING(5 6, 7 8)', 3857),
+			ST_GeomFromText('POLYGON((5 5, 7 5, 7 7, 5 7, 5 5))', 3857),
+			ST_GeomFromText('MULTIPOINT((5 6), (7 8))', 3857),
+			ST_GeomFromText('MULTILINESTRING((5 6, 7 8), (9 10, 11 12))', 3857),
+			ST_GeomFromText('MULTIPOLYGON(((5 5, 7 5, 7 7, 5 7, 5 5)), ((8 8, 10 8, 10 10, 8 10, 8 8)))', 3857),
+			ST_GeomFromText('GEOMETRYCOLLECTION(POINT(5 6), LINESTRING(5 6, 7 8))', 3857)
 		)`, srcFullName))
-
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -507,10 +519,10 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// Wait for initial snapshot to complete
-	EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
+	EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 2)
 
 	// Insert additional rows to test CDC
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %s (
 		point_col,
 		linestring_col,
@@ -527,18 +539,27 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		ST_MLineFromText('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))'),
 		ST_MPolyFromText('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))'),
 		ST_GeomCollFromText('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))')
-	);`, srcFullName)))
+	), (
+		ST_GeomFromText('POINT(40 50)', 3857),
+		ST_GeomFromText('LINESTRING(40 50, 60 70)', 3857),
+		ST_GeomFromText('POLYGON((10 20, 30 20, 30 40, 10 40, 10 20))', 3857),
+		ST_GeomFromText('MULTIPOINT((40 50), (60 70))', 3857),
+		ST_GeomFromText('MULTILINESTRING((40 50, 60 70), (10 20, 30 40))', 3857),
+		ST_GeomFromText('MULTIPOLYGON(((10 20, 30 20, 30 40, 10 40, 10 20)), ((50 60, 70 60, 70 80, 50 80, 50 60)))', 3857),
+		ST_GeomFromText('GEOMETRYCOLLECTION(POINT(40 50), LINESTRING(40 50, 60 70))', 3857)
+	)`, srcFullName)))
 
 	// Wait for CDC to replicate the new rows
-	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
+	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 4)
 
 	// Verify that the data was correctly replicated
 	rows, err := s.GetRows(dstTableName, `id, point_col, linestring_col, polygon_col, multipoint_col,
 		multilinestring_col, multipolygon_col, geometrycollection_col`)
 	require.NoError(s.t, err)
-	require.Len(s.t, rows.Records, 2, "expected 2 rows")
+	require.Len(s.t, rows.Records, 4, "expected 4 rows")
 
-	// Expected WKT format values for each geometric type
+	// Expected WKT format values for each geometric type.
+	// SRID is intentionally dropped because ClickHouse doesn't support EWKT (SRID=N;WKT).
 	expectedValues := [][]string{
 		{
 			"POINT (1 2)",
@@ -550,6 +571,15 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 			"GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (1 2, 3 4))",
 		},
 		{
+			"POINT (5 6)",
+			"LINESTRING (5 6, 7 8)",
+			"POLYGON ((5 5, 7 5, 7 7, 5 7, 5 5))",
+			"MULTIPOINT ((5 6), (7 8))",
+			"MULTILINESTRING ((5 6, 7 8), (9 10, 11 12))",
+			"MULTIPOLYGON (((5 5, 7 5, 7 7, 5 7, 5 5)), ((8 8, 10 8, 10 10, 8 10, 8 8)))",
+			"GEOMETRYCOLLECTION (POINT (5 6), LINESTRING (5 6, 7 8))",
+		},
+		{
 			"POINT (10 20)",
 			"LINESTRING (10 20, 30 40)",
 			"POLYGON ((10 10, 30 10, 30 30, 10 30, 10 10))",
@@ -557,6 +587,15 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 			"MULTILINESTRING ((10 20, 30 40), (50 60, 70 80))",
 			"MULTIPOLYGON (((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))",
 			"GEOMETRYCOLLECTION (POINT (10 20), LINESTRING (10 20, 30 40))",
+		},
+		{
+			"POINT (40 50)",
+			"LINESTRING (40 50, 60 70)",
+			"POLYGON ((10 20, 30 20, 30 40, 10 40, 10 20))",
+			"MULTIPOINT ((40 50), (60 70))",
+			"MULTILINESTRING ((40 50, 60 70), (10 20, 30 40))",
+			"MULTIPOLYGON (((10 20, 30 20, 30 40, 10 40, 10 20)), ((50 60, 70 60, 70 80, 50 80, 50 60)))",
+			"GEOMETRYCOLLECTION (POINT (40 50), LINESTRING (40 50, 60 70))",
 		},
 	}
 

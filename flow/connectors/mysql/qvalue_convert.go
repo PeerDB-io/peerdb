@@ -129,17 +129,13 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 	return types.QRecordSchema{Fields: schema}, nil
 }
 
-// MySQL's internal geometry format is 4-byte SRID (little-endian) followed by standard WKB
+// MySQL's internal geometry format is 4-byte SRID (little-endian) followed by standard WKB.
+// SRID is stripped because destinations like ClickHouse don't support EWKT (SRID=N;WKT).
 func processGeometryData(data []byte) types.QValueGeometry {
 	if len(data) > 4 {
-		srid := binary.LittleEndian.Uint32(data[:4])
 		g, err := geom.NewGeomFromWKB(data[4:])
 		if err == nil {
-			wkt := g.ToWKT()
-			if srid != 0 {
-				wkt = fmt.Sprintf("SRID=%d;%s", srid, wkt)
-			}
-			return types.QValueGeometry{Val: wkt}
+			return types.QValueGeometry{Val: g.ToWKT()}
 		}
 	}
 	return types.QValueGeometry{Val: string(data)}
