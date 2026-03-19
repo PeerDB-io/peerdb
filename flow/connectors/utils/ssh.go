@@ -128,7 +128,7 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 		case <-ticker.C:
 			if requestSent.Load() {
 				// Previous keepalive request didn't return yet, something's wrong
-				logger.Error("Previous keepalive request still pending, marking tunnel as bad")
+				logger.ErrorContext(ctx, "Previous keepalive request still pending, marking tunnel as bad")
 				if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
 					close(*keepaliveChan)
 				}
@@ -156,7 +156,7 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 			// channel closed from outside
 			return
 		case <-errChan:
-			logger.Error("Keepalive request failed, marking tunnel as bad", slog.Any("error", keepaliveErr))
+			logger.ErrorContext(ctx, "Keepalive request failed, marking tunnel as bad", slog.Any("error", keepaliveErr))
 			if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
 				close(*keepaliveChan)
 			}
