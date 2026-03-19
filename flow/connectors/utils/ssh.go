@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.temporal.io/sdk/log"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -21,7 +20,7 @@ const SSHKeepaliveInterval = 15 * time.Second
 
 type SSHTunnel struct {
 	*ssh.Client
-	logger        log.Logger
+	logger        *slog.Logger
 	keepaliveChan atomic.Pointer[chan struct{}]
 	badTunnel     bool
 }
@@ -92,7 +91,10 @@ func NewSSHTunnel(
 			return nil, exceptions.NewSSHTunnelSetupError(err)
 		}
 
-		return &SSHTunnel{Client: client, logger: logger, badTunnel: false}, nil
+		return &SSHTunnel{
+			Client: client,
+			logger: internal.SlogLoggerFromCtx(ctx),
+		}, nil
 	}
 
 	return nil, nil
