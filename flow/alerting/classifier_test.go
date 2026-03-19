@@ -563,7 +563,6 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 }
 
 func TestClickHouseViewShouldBeDestinationModified(t *testing.T) {
-	// Simulate an unknown table error
 	err := &clickhouse.Exception{
 		Code:    48,
 		Message: "Alter of type 'ADD_COLUMN' is not supported by storage View",
