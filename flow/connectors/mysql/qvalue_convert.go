@@ -129,28 +129,16 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 	return types.QRecordSchema{Fields: schema}, nil
 }
 
-// Helper function to convert MySQL geometry binary data to WKT format
-func geometryValueFromBytes(wkbData []byte) (string, error) {
-	// Try to parse it as WKB with the MySQL header
-	g, err := geom.NewGeomFromWKB(wkbData)
-	if err != nil {
-		return "", err
-	}
-
-	// Convert to WKT format
-	wkt := g.ToWKT()
-	if srid := g.SRID(); srid != 0 {
-		wkt = fmt.Sprintf("SRID=%d;%s", srid, wkt)
-	}
-	return wkt, nil
-}
-
-// Helper function to process geometry data and return a QValueGeometry
+// MySQL's internal geometry format is 4-byte SRID (little-endian) followed by standard WKB
 func processGeometryData(data []byte) types.QValueGeometry {
-	// For geometry data, we need to convert from MySQL's binary format to WKT
 	if len(data) > 4 {
-		wkt, err := geometryValueFromBytes(data)
+		srid := binary.LittleEndian.Uint32(data[:4])
+		g, err := geom.NewGeomFromWKB(data[4:])
 		if err == nil {
+			wkt := g.ToWKT()
+			if srid != 0 {
+				wkt = fmt.Sprintf("SRID=%d;%s", srid, wkt)
+			}
 			return types.QValueGeometry{Val: wkt}
 		}
 	}

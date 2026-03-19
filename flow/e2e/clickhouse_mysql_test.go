@@ -373,21 +373,23 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	dstTableName := "test_mysql_geometric_types"
 
 	// Create a table with a geometry column that can store any geometric type
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	CREATE TABLE IF NOT EXISTS %[1]s(
-		id serial PRIMARY KEY,
-		geometry_col GEOMETRY
-	);
+	err := s.Source().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s(
+			id serial PRIMARY KEY,
+			geometry_col GEOMETRY
+		)`, srcFullName))
+	require.NoError(s.t, err)
 
-	-- Insert test data with various geometric types
-	INSERT INTO %[1]s (geometry_col) VALUES
-		(ST_GeomFromText('POINT(1 2)')),
-		(ST_GeomFromText('LINESTRING(1 2, 3 4)')),
-		(ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))')),
-		(ST_GeomFromText('MULTIPOINT((1 2), (3 4))')),
-		(ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))')),
-		(ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))')),
-		(ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))'));`, srcFullName))
+	// Insert test data with various geometric types
+	err = s.Source().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (geometry_col) VALUES
+			(ST_GeomFromText('POINT(1 2)')),
+			(ST_GeomFromText('LINESTRING(1 2, 3 4)')),
+			(ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))')),
+			(ST_GeomFromText('MULTIPOINT((1 2), (3 4))')),
+			(ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))')),
+			(ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))')),
+			(ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))'))`, srcFullName))
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -406,8 +408,8 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 7)
 
 	// Insert additional rows to test CDC
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %[1]s (geometry_col) VALUES
+	err = s.Source().Exec(s.t.Context(), fmt.Sprintf(`
+	INSERT INTO %s (geometry_col) VALUES
 		(ST_GeomFromText('POINT(10 20)')),
 		(ST_GeomFromText('LINESTRING(10 20, 30 40)')),
 		(ST_GeomFromText('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))'));`, srcFullName))
@@ -423,16 +425,16 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 
 	// Expected WKT format values for each geometric type
 	expectedValues := []string{
-		"POINT(1 2)",
-		"LINESTRING(1 2, 3 4)",
-		"POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))",
-		"MULTIPOINT((1 2), (3 4))",
-		"MULTILINESTRING((1 2, 3 4), (5 6, 7 8))",
-		"MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
-		"GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))",
-		"POINT(10 20)",
-		"LINESTRING(10 20, 30 40)",
-		"POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))",
+		"POINT (1 2)",
+		"LINESTRING (1 2, 3 4)",
+		"POLYGON ((1 1, 3 1, 3 3, 1 3, 1 1))",
+		"MULTIPOINT ((1 2), (3 4))",
+		"MULTILINESTRING ((1 2, 3 4), (5 6, 7 8))",
+		"MULTIPOLYGON (((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
+		"GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (1 2, 3 4))",
+		"POINT (10 20)",
+		"LINESTRING (10 20, 30 40)",
+		"POLYGON ((10 10, 30 10, 30 30, 10 30, 10 10))",
 	}
 
 	for i, row := range rows.Records {
@@ -456,8 +458,8 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	dstTableName := "test_mysql_s_geometric_types"
 
 	// Create a table with a geometry column that can store any geometric type
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	CREATE TABLE IF NOT EXISTS %[1]s(
+	err := s.Source().Exec(s.t.Context(), fmt.Sprintf(`
+	CREATE TABLE IF NOT EXISTS %s(
 		id serial PRIMARY KEY,
 		point_col POINT,
 		linestring_col LINESTRING,
@@ -466,26 +468,28 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		multilinestring_col MULTILINESTRING,
 		multipolygon_col MULTIPOLYGON,
 		geometrycollection_col GEOMETRYCOLLECTION
-	);
+	)`, srcFullName))
+	require.NoError(s.t, err)
 
-	-- Insert test data with various geometric types
-	INSERT INTO %[1]s (
-		point_col,
-		linestring_col,
-		polygon_col,
-		multipoint_col,
-		multilinestring_col,
-		multipolygon_col,
-		geometrycollection_col
-	) VALUES (
-		ST_GeomFromText('POINT(1 2)'),
-		ST_GeomFromText('LINESTRING(1 2, 3 4)'),
-		ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))'),
-		ST_GeomFromText('MULTIPOINT((1 2), (3 4))'),
-		ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))'),
-		ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
-		ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
- 	);`, srcFullName))
+	// Insert test data with various geometric types
+	err = s.Source().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (
+			point_col,
+			linestring_col,
+			polygon_col,
+			multipoint_col,
+			multilinestring_col,
+			multipolygon_col,
+			geometrycollection_col
+		) VALUES (
+			ST_GeomFromText('POINT(1 2)'),
+			ST_GeomFromText('LINESTRING(1 2, 3 4)'),
+			ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))'),
+			ST_GeomFromText('MULTIPOINT((1 2), (3 4))'),
+			ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))'),
+			ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
+			ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
+		)`, srcFullName))
 
 	require.NoError(s.t, err)
 
@@ -507,7 +511,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 
 	// Insert additional rows to test CDC
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %[1]s (
+	INSERT INTO %s (
 		point_col,
 		linestring_col,
 		polygon_col,
@@ -537,22 +541,22 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	// Expected WKT format values for each geometric type
 	expectedValues := [][]string{
 		{
-			"POINT(1 2)",
-			"LINESTRING(1 2, 3 4)",
-			"POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))",
-			"MULTIPOINT((1 2), (3 4))",
-			"MULTILINESTRING((1 2, 3 4), (5 6, 7 8))",
-			"MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
-			"GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))",
+			"POINT (1 2)",
+			"LINESTRING (1 2, 3 4)",
+			"POLYGON ((1 1, 3 1, 3 3, 1 3, 1 1))",
+			"MULTIPOINT ((1 2), (3 4))",
+			"MULTILINESTRING ((1 2, 3 4), (5 6, 7 8))",
+			"MULTIPOLYGON (((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
+			"GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (1 2, 3 4))",
 		},
 		{
-			"POINT(10 20)",
-			"LINESTRING(10 20, 30 40)",
-			"POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))",
-			"MULTIPOINT((10 20), (30 40))",
-			"MULTILINESTRING((10 20, 30 40), (50 60, 70 80))",
-			"MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))",
-			"GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))",
+			"POINT (10 20)",
+			"LINESTRING (10 20, 30 40)",
+			"POLYGON ((10 10, 30 10, 30 30, 10 30, 10 10))",
+			"MULTIPOINT ((10 20), (30 40))",
+			"MULTILINESTRING ((10 20, 30 40), (50 60, 70 80))",
+			"MULTIPOLYGON (((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))",
+			"GEOMETRYCOLLECTION (POINT (10 20), LINESTRING (10 20, 30 40))",
 		},
 	}
 
