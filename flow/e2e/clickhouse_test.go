@@ -3263,7 +3263,7 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 	dstTableName := "test_composite_pkey_ordering"
 
 	orderedPk := "b, a, c"
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	err := s.Source().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 		    id int,
 			a INT NOT NULL,
@@ -3273,7 +3273,7 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 		)
 	`, srcFullName, orderedPk))
 	require.NoError(s.t, err)
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (0,1,2,3)`, srcFullName)))
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (0,1,2,3)`, srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("ch_composite_pkey_order"),
@@ -3288,7 +3288,7 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, orderedPk)
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (4,5,6,7)`, srcFullName)))
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,a,b,c) VALUES (4,5,6,7)`, srcFullName)))
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, orderedPk)
 
 	var sortingKey string
