@@ -41,7 +41,6 @@ func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger
 	}
 	return nil
 }
-
 func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
 	tables []string, initialSnapshotEnabled bool, checkForCloudSMT bool, allowNonEmpty bool,
 ) error {
@@ -70,6 +69,9 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 				}
 				if !allowNonEmpty && totalRows != 0 && initialSnapshotEnabled {
 					return fmt.Errorf("table %s exists and is not empty", tableName)
+				}
+				if engine == "View" || engine == "MaterializedView" {
+					return fmt.Errorf("destination table can not be a view")
 				}
 				if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
 					logger.Warn("[clickhouse] table engine not explicitly supported",
