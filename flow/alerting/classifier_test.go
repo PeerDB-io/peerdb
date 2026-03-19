@@ -562,6 +562,20 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 	}
 }
 
+func TestClickHouseViewShouldBeDestinationModified(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    48,
+		Message: "Alter of type 'ADD_COLUMN' is not supported by storage View",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to push records: %w", err))
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "48",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestClickHouseUnknownTableShouldBeDestinationModified(t *testing.T) {
 	// Simulate an unknown table error
 	err := &clickhouse.Exception{
