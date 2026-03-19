@@ -897,6 +897,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
 			return ErrorInternalClickHouse, chErrorInfo
+		case chproto.ErrNotImplemented:
+			if strings.HasSuffix(chException.Message, "is not supported by storage View") {
+				return ErrorNotifyDestinationModified, chErrorInfo
+			}
 		case chproto.ErrUnfinished:
 			if strings.Contains(chException.Message, "Failed to load all data parts") {
 				return ErrorNotifyClickHouseError, chErrorInfo
