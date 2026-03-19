@@ -386,7 +386,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 			(ST_GeomFromText('POINT(1 2)')),
 			(ST_GeomFromText('LINESTRING(1 2, 3 4)')),
 			(ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))')),
-			(ST_GeomFromText('MULTIPOINT((1 2), (3 4))')),
+			(ST_GeomFromText('MULTIPOINT(1 2, 3 4)')),
 			(ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))')),
 			(ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))')),
 			(ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')),
@@ -490,7 +490,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 			ST_GeomFromText('POINT(1 2)'),
 			ST_GeomFromText('LINESTRING(1 2, 3 4)'),
 			ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))'),
-			ST_GeomFromText('MULTIPOINT((1 2), (3 4))'),
+			ST_GeomFromText('MULTIPOINT(1 2, 3 4)'),
 			ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))'),
 			ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
 			ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
@@ -498,7 +498,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 			ST_GeomFromText('POINT(5 6)', 3857),
 			ST_GeomFromText('LINESTRING(5 6, 7 8)', 3857),
 			ST_GeomFromText('POLYGON((5 5, 7 5, 7 7, 5 7, 5 5))', 3857),
-			ST_GeomFromText('MULTIPOINT((5 6), (7 8))', 3857),
+			ST_GeomFromText('MULTIPOINT(5 6, 7 8)', 3857),
 			ST_GeomFromText('MULTILINESTRING((5 6, 7 8), (9 10, 11 12))', 3857),
 			ST_GeomFromText('MULTIPOLYGON(((5 5, 7 5, 7 7, 5 7, 5 5)), ((8 8, 10 8, 10 10, 8 10, 8 8)))', 3857),
 			ST_GeomFromText('GEOMETRYCOLLECTION(POINT(5 6), LINESTRING(5 6, 7 8))', 3857)
@@ -535,7 +535,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		ST_PointFromText('POINT(10 20)'),
 		ST_LineFromText('LINESTRING(10 20, 30 40)'),
 		ST_PolygonFromText('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))'),
-		ST_MPointFromText('MULTIPOINT((10 20), (30 40))'),
+		ST_MPointFromText('MULTIPOINT(10 20, 30 40)'),
 		ST_MLineFromText('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))'),
 		ST_MPolyFromText('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))'),
 		ST_GeomCollFromText('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))')
@@ -543,7 +543,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		ST_GeomFromText('POINT(40 50)', 3857),
 		ST_GeomFromText('LINESTRING(40 50, 60 70)', 3857),
 		ST_GeomFromText('POLYGON((10 20, 30 20, 30 40, 10 40, 10 20))', 3857),
-		ST_GeomFromText('MULTIPOINT((40 50), (60 70))', 3857),
+		ST_GeomFromText('MULTIPOINT(40 50, 60 70)', 3857),
 		ST_GeomFromText('MULTILINESTRING((40 50, 60 70), (10 20, 30 40))', 3857),
 		ST_GeomFromText('MULTIPOLYGON(((10 20, 30 20, 30 40, 10 40, 10 20)), ((50 60, 70 60, 70 80, 50 80, 50 60)))', 3857),
 		ST_GeomFromText('GEOMETRYCOLLECTION(POINT(40 50), LINESTRING(40 50, 60 70))', 3857)
