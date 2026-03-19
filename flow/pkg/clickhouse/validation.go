@@ -41,6 +41,7 @@ func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger
 	}
 	return nil
 }
+
 func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
 	tables []string, initialSnapshotEnabled bool, checkForCloudSMT bool, allowNonEmpty bool,
 ) error {
