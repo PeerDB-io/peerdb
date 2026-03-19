@@ -1,4 +1,4 @@
-# RFC-001: PeerDB Architecture Design Document
+# PeerDB Architecture Design Document
 
 **Status**: Living Document
 **Authors**: Platform Architecture Team
@@ -148,7 +148,6 @@ Dashboard for creating/monitoring peers and mirrors. Communicates with the Flow 
 
 ### 3.5 Temporal Server
 
-**Version**: 1.29 (auto-setup image)
 **Port**: 7233
 
 Temporal provides durable workflow execution with automatic retries, checkpointing, and fault tolerance. PeerDB uses it for:
@@ -175,10 +174,10 @@ S3-compatible object storage used for staging AVRO files during snapshot operati
 
 | Connector | CDC Mechanism | QRep | Initial Snapshot | Key Features |
 |-----------|--------------|------|-----------------|--------------|
-| **PostgreSQL** | WAL logical replication (pglogrepl) | Cursor-based with tx snapshots | Parallel CTID partitions | TOAST handling, schema evolution, custom types, RDS/IAM auth, SSH tunnels |
+| **PostgreSQL** | WAL logical replication (pglogrepl) | Cursor-based with tx snapshots | Parallel CTID partitions | TOAST handling, schema evolution, custom types, RDS/IAM auth, SSH tunnels, Postgres→Postgres native CDC |
 | **MySQL** | Binary log replication (go-mysql) | Cursor-based | Parallel partitions | GTID and file-position modes, MariaDB support, binlog retention monitoring |
 | **MongoDB** | Change Streams API | Aggregation pipelines | Collection scan | Resume tokens, `fullDocument: updateLookup`, read preferences, Atlas support |
-| **ClickHouse** | Native CDC | Cursor-based | Yes | S3 staging, replicated tables |
+| **BigQuery** | — | Object-based pull | — | GCP service account auth, Parquet export |
 
 ### 4.2 Destination Connectors
 
@@ -187,7 +186,7 @@ S3-compatible object storage used for staging AVRO files during snapshot operati
 | **PostgreSQL** | Raw table insert | MERGE (PG15+) or UPSERT fallback | Direct insert | Soft delete, schema evolution, synced_at column |
 | **Snowflake** | Raw table + AVRO staging | SQL MERGE | AVRO file load | Merge-based upsert, AVRO consolidation, warehouse staging |
 | **BigQuery** | AVRO bulk load | INSERT with dedup | GCS object load | Clustering, partitioning, GCP service account auth |
-| **ClickHouse** | Raw table insert | ReplacingMergeTree / MergeTree | AVRO via S3/table functions | Partition keys, sharding keys, engine selection, S3 IAM |
+| **ClickHouse** | Raw table insert | ReplacingMergeTree / MergeTree | AVRO via S3/table functions | Partition keys, sharding keys, engine selection, S3 IAM, AVRO staging |
 | **S3** | — | — | AVRO file write | Deflate/snappy/zstd codecs |
 | **Kafka** | Topic publish | — | Partition-based | SASL auth, custom partitioner |
 | **Elasticsearch** | Index documents | — | Bulk index | Index creation, mapping management, upsert key support |
@@ -300,7 +299,7 @@ classDiagram
     CDCNormalizeConnector <|.. ClickHouseConnector : implements
 ```
 
-Compile-time type assertions at the end of `core.go` (lines 636-746) verify that each connector correctly implements its declared interfaces.
+Compile-time type assertions at the end of `core.go` verify that each connector correctly implements its declared interfaces.
 
 ---
 
@@ -336,17 +335,16 @@ flowchart TD
     SNAPSHOT --> CDC_LOOP
 
     subgraph CDC_LOOP["3. CDC Loop (continuous)"]
-        C1[PullRecords<br/><i>poll WAL / binlog / change stream</i>]
-        C2[SyncRecords<br/><i>push to destination raw table</i>]
-        C3[NormalizeRecords<br/><i>merge into final tables</i>]
-        C4[UpdateReplStateLastOffset<br/><i>advance checkpoint</i>]
-        C5{Handle Signals}
-        C1 --> C2 --> C3 --> C4 --> C5
-        C5 -->|continue| C1
-        C5 -->|pause| PAUSED([Paused])
-        C5 -->|terminate| TERM([Terminated])
-        C5 -->|resync| RESYNC([Resync])
+        direction TB
+        C1[SyncFlow Activity<br/><i>Long-running: Pull → Sync → Normalize</i>]
+        C_SIG[Signal Handling<br/><i>Parallel via Temporal selector:<br/>pause, terminate, resync, config updates</i>]
+        C1 ---|"runs in parallel"| C_SIG
+        C_SIG -->|pause| PAUSED([Paused])
+        C_SIG -->|terminate| TERM([Terminated])
+        C_SIG -->|resync| RESYNC([Resync])
     end
+
+    Note1["Checkpoint advancing happens independently<br/>from Normalize — source continues reading<br/>into S3 staging for ~24h if destination has issues"]
 ```
 
 ### 5.2 Flow States
@@ -373,15 +371,45 @@ stateDiagram-v2
 
 ```go
 type CDCStream[T Items] struct {
-    records          chan Record[T]
-    lastCheckpointID int64
-    SchemaDeltas     []*protos.TableSchemaDelta
+    emptySignal        chan struct{}
+    records            chan Record[T]
+    lastCheckpointText string                       // MySQL GTID / MongoDB ResumeToken
+    SchemaDeltas       []*protos.TableSchemaDelta
+    lastCheckpointID   int64
+    lastCheckpointSet  bool
+    needsNormalize     bool
+    empty              bool
+    emptySet           bool
 }
 
 // T is either RecordItems (generic) or PgItems (Postgres-native pgx types)
-type InsertRecord[T Items] struct { Items T }
-type UpdateRecord[T Items] struct { OldItems, NewItems T }
-type DeleteRecord[T Items] struct { Items T }
+// Records are multiplexed across destination tables (one source stream to many destinations)
+type InsertRecord[T Items] struct {
+    Items                T
+    SourceTableName      string
+    DestinationTableName string
+    CommitID             int64
+    BaseRecord
+}
+type UpdateRecord[T Items] struct {
+    OldItems              T
+    NewItems              T
+    UnchangedToastColumns map[string]struct{}
+    SourceTableName       string
+    DestinationTableName  string
+    BaseRecord
+}
+type DeleteRecord[T Items] struct {
+    Items                 T
+    UnchangedToastColumns map[string]struct{}
+    SourceTableName       string
+    DestinationTableName  string
+    BaseRecord
+}
+type RelationRecord[T Items] struct {
+    TableSchemaDelta *protos.TableSchemaDelta
+    BaseRecord
+}
 ```
 
 ### 5.4 Raw Staging Table Schema
@@ -391,10 +419,13 @@ All CDC destinations receive records into a raw staging table with this structur
 | Column | Type | Description |
 |--------|------|-------------|
 | `_peerdb_uid` | UUID | Unique record identifier |
-| `_peerdb_timestamp` | Timestamp | Source event time |
-| `_peerdb_data_json` | JSONB | All column values |
-| `_peerdb_row_kind` | Text | `I` (insert), `U` (update), `D` (delete) |
-| `_peerdb_batch_id` | Integer | Batch sequence number |
+| `_peerdb_timestamp` | BIGINT | Source event time (UnixNano) |
+| `_peerdb_destination_table_name` | TEXT | Target table for this record |
+| `_peerdb_data` | JSONB | All column values as JSON |
+| `_peerdb_record_type` | INTEGER | 0 (insert), 1 (update), 2 (delete) |
+| `_peerdb_match_data` | JSONB | Old row data (for updates/deletes) |
+| `_peerdb_batch_id` | INTEGER | Batch sequence number |
+| `_peerdb_unchanged_toast_columns` | TEXT | Comma-separated list of unchanged TOAST columns |
 
 ---
 
@@ -404,7 +435,7 @@ Normalization transforms raw staged records into the final destination table for
 
 ### 6.1 Steps
 
-1. **Extract JSON**: Unpack individual columns from `_peerdb_data_json`
+1. **Extract JSON**: Unpack individual columns from `_peerdb_data`
 2. **Apply soft deletes**: If configured, mark `D` records via `soft_delete_col_name = true` instead of deleting
 3. **Add sync timestamp**: Populate `synced_at_col_name` with current time
 4. **Handle upserts**: Use MERGE (PG15+, Snowflake), INSERT with dedup (BigQuery), or ReplacingMergeTree (ClickHouse)
@@ -435,17 +466,26 @@ flowchart TD
     START([QRepFlowWorkflow]) --> META[SetupMetadataTables]
     META --> PARTITIONS[GetQRepPartitions<br/><i>divide by watermark column ranges</i>]
 
-    PARTITIONS --> LOOP{For each partition}
+    PARTITIONS --> PARALLEL[QRepPartitionWorkflow<br/><i>Parallel partition processing</i>]
 
-    LOOP --> PULL[PullQRepRecords<br/><i>SELECT ... WHERE watermark<br/>BETWEEN start AND end</i>]
-    PULL --> SYNC[SyncQRepRecords<br/><i>write to destination</i>]
-    SYNC --> CHECK{More partitions?}
-    CHECK -->|yes| LOOP
-    CHECK -->|no| VERIFY[VerifyCompletion]
+    subgraph PARALLEL_WORK["Parallel Partition Execution"]
+        PULL1[PullQRepRecords<br/><i>partition 1</i>]
+        PULL2[PullQRepRecords<br/><i>partition 2</i>]
+        PULLN[PullQRepRecords<br/><i>partition N</i>]
+        SYNC1[SyncQRepRecords<br/><i>partition 1</i>]
+        SYNC2[SyncQRepRecords<br/><i>partition 2</i>]
+        SYNCN[SyncQRepRecords<br/><i>partition N</i>]
+        PULL1 --> SYNC1
+        PULL2 --> SYNC2
+        PULLN --> SYNCN
+    end
+
+    PARALLEL --> PARALLEL_WORK
+    PARALLEL_WORK --> VERIFY[VerifyCompletion]
     VERIFY --> DONE([Complete])
 ```
 
-### 7.2 Partition Strategies
+### 7.2 Partition Column Types
 
 | Range Type | Use Case |
 |------------|----------|
@@ -456,7 +496,15 @@ flowchart TD
 | ObjectIdPartitionRange | MongoDB ObjectIDs |
 | NullPartitionRange | Rows with NULL watermark |
 
-### 7.3 Write Modes
+### 7.3 Partitioning Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| CTID Range | Default for PostgreSQL snapshots — uses NTILE to group rows into buckets by CTID |
+| MinMaxRange | Computes min/max of a custom partitioning key and divides into ranges |
+| CTIDBlock | Planned future default — block-based CTID ranges, avoids expensive NTILE query |
+
+### 7.4 Write Modes
 
 - **APPEND**: Insert all rows (default)
 - **UPSERT**: Merge using `upsert_key_columns`
@@ -488,8 +536,8 @@ Uses QRep-based initial load with cursor partitioning instead of transaction sna
 
 PeerDB supports two type systems controlled by the `TypeSystem` enum on flow config:
 
-- **PG**: PostgreSQL-native types — arrays, JSONB, UUID, geometric types, custom types. Used when Postgres is both source and destination.
-- **Q**: Universal/generic type system — maps all source types to a common intermediate representation. Used for cross-database replication.
+- **Q**: Universal/generic type system — maps all source types to a common intermediate representation. Used for cross-database replication (many sources to many destinations).
+- **PG**: PostgreSQL-native types — arrays, JSONB, UUID, geometric types, custom types. Used specifically when Postgres is both source and destination.
 
 ### 9.2 Type Conversion Pipeline
 
@@ -508,7 +556,7 @@ flowchart LR
 
 | Type | Handling |
 |------|----------|
-| TOAST columns | Tracked via `unchanged_toast_columns`; efficiently streamed |
+| TOAST columns | Tracked via `unchanged_toast_columns`; best-effort backfill from per-batch cache |
 | JSON/JSONB | Parsed based on destination capability |
 | Custom PG types | Resolved via `pg_catalog` type OID mapping |
 | Unbounded numeric | `unbounded_numeric_as_string` flag for precision |
@@ -569,7 +617,7 @@ message FlowConnectionConfigsCore {
 message TableMapping {
     string source_table_identifier = 1;
     string destination_table_identifier = 2;
-    string partition_key = 3;        // ClickHouse
+    string partition_key = 3;        // Parallel snapshotting
     repeated string exclude = 4;      // Column exclusions
     repeated ColumnSetting columns = 5;
     TableEngine engine = 6;           // ClickHouse engine
@@ -580,10 +628,7 @@ message TableMapping {
 
 ### 11.3 Dynamic Settings
 
-Runtime-tunable via `PostDynamicSetting` API:
-- Batch sizes, idle timeouts
-- Parallel worker counts
-- Feature flags
+Runtime-tunable via `PostDynamicSetting` API. These are system-wide settings that affect worker behavior, feature toggles, and operational parameters.
 
 ---
 

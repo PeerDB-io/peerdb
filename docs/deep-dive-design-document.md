@@ -2,10 +2,10 @@
 
 **Status**: Living Document
 **Audience**: Engineers wanting code-level understanding of specific subsystems
-**Companion to**: [RFC-001: PeerDB Architecture](./001-peerdb-architecture-rfc.md)
+**Companion to**: [PeerDB Architecture](./peerdb-architecture.md)
 **Last Updated**: 2026-03-16
 
-> This document goes beyond the architecture RFC to provide implementation-level detail, design tradeoffs, known limitations (TODOs), and code pointers for each major subsystem.
+> This document goes beyond the architecture document to provide implementation-level detail, design tradeoffs, known limitations (TODOs), and code pointers for each major subsystem.
 
 ---
 
@@ -19,7 +19,7 @@
 6. [CDC Workflow Orchestration](#6-cdc-workflow-orchestration)
 7. [Activity Layer — Pull/Sync/Normalize Pipeline](#7-activity-layer--pullsyncnormalize-pipeline)
 8. [Type System & Conversion Pipeline](#8-type-system--conversion-pipeline)
-9. [Known Limitations, TODOs & Technical Debt](#9-known-limitations-todos--technical-debt)
+9. [Known Limitations & Technical Debt](#9-known-limitations--technical-debt)
 10. [Error Handling & Resilience Patterns](#10-error-handling--resilience-patterns)
 
 ---
@@ -98,7 +98,7 @@ The core loop in `PullCdcRecords` uses `pglogrepl` to receive WAL messages:
 
 3. **Batch Control**: Returns when `totalRecords >= maxBatchSize` OR idle timeout reached. If a transaction is open (`commitLock != nil`), waits for the `CommitMessage` before returning to ensure atomic batch boundaries.
 
-**Metrics reporting** happens every 1 minute (`cdc.go:523-538`), logging record count, bytes, and channel length.
+**Metrics reporting** happens every 1 minute, logging record count, bytes, and channel length.
 
 ### 1.4 TOAST Column Handling
 
@@ -120,7 +120,7 @@ for _, col := range backfilledCols {
 }
 ```
 
-**For DeleteRecords**, a sentinel value is added to prevent normalization from selecting missing columns (`cdc.go:810-819`).
+**For DeleteRecords**, a sentinel value is added to prevent normalization from selecting missing columns.
 
 **Design tradeoff**: On pre-PG15, TOAST columns are NOT properly updated during normalize fallback (UPSERT+DELETE). The workaround is to use `REPLICA IDENTITY FULL` or upgrade to PG15+ for MERGE support.
 
@@ -137,7 +137,7 @@ When a DDL change occurs (e.g., `ALTER TABLE ADD COLUMN`), PostgreSQL sends a `R
 4. Fetch type info via `GetSchemaNameOfColumnTypeByOID()`
 5. Emit `RelationRecord` with `TableSchemaDelta` to the stream
 
-**Known issue** (`cdc.go:734`):
+**Known issue**:
 > TODO: replident is cached here, should not cache since it can change
 
 Replica identity can change at runtime (e.g., `ALTER TABLE ... REPLICA IDENTITY FULL`), but the current code caches it on first read.
@@ -159,17 +159,17 @@ childToParentRelIDMapping map[uint32]uint32  // child relid → parent relid
 **Update triggers**:
 - During idle periods when `totalRecords == 0` and `clientXLogPos > lastConsumedOffset`
 - On every `CommitMessage` (in-memory `latestCheckpointID`)
-- On context cancellation (ensures no progress lost)
+- Persisted to the catalog (or destination peer for Postgres→Postgres) at batch boundaries
 
 ### 1.8 Known Edge Cases
 
-- **PG 15-15.1 bug** (`cdc.go:284-290`): Replication column lists can send tuples with wrong column count. PeerDB validates tuple length against expected columns. See: [PostgreSQL mailing list thread](https://www.postgresql.org/message-id/CADGJaX9kiRZ-OH0EpWF5Fkyh1ZZYofoNRCrhapBfdk02tj5EKg@mail.gmail.com)
+- **PG 15-15.1 bug** (`cdc.go`): Replication column lists can send tuples with wrong column count. PeerDB validates tuple length against expected columns. See: [PostgreSQL mailing list thread](https://www.postgresql.org/message-id/CADGJaX9kiRZ-OH0EpWF5Fkyh1ZZYofoNRCrhapBfdk02tj5EKg@mail.gmail.com)
 
-- **TIMETZ workaround** (`cdc.go:392`): "ugly TIMETZ workaround for CDC decoding" — special handling needed for time with timezone type in logical decoding.
+- **TIMETZ workaround** (`cdc.go`): "ugly TIMETZ workaround for CDC decoding" — special handling needed for time with timezone type in logical decoding.
 
-- **Invalid year values** (`cdc.go:366-376`): Time types with years outside Go's `time.Time` range can be inserted into Postgres but not represented in Go. These are nulled with warning logs.
+- **Invalid year values** (`cdc.go`): Time types with years outside Go's `time.Time` range can be inserted into Postgres but not represented in Go. These are nulled with warning logs.
 
-- **JSON null vs SQL null** (`cdc.go:337`): "avoid confusing SQL null & JSON null by using pre-marshaled value" — explicit distinction to prevent data corruption.
+- **JSON null vs SQL null** (`cdc.go`): "avoid confusing SQL null & JSON null by using pre-marshaled value" — explicit distinction to prevent data corruption.
 
 ---
 
@@ -195,6 +195,7 @@ sequenceDiagram
     end
 
     loop Event Processing
+        MY-->>Syncer: Binlog events
         Syncer->>CDC: GetEvent(ctx)
 
         alt WRITE_ROWS_EVENT
@@ -229,7 +230,7 @@ if config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_AUTO {
 | **Offset format** | GTID set string (e.g., `"uuid:1-100"`) | `!f:binlog_file,hex_position` |
 | **Resume** | `StartSyncGTID(gset)` | `StartSync(file, pos)` |
 | **Advantages** | Server-agnostic, survives binlog rotation | Simple, universally supported |
-| **Limitations** | Requires GTID enabled on server | Tied to specific binlog file |
+| **Limitations** | Requires GTID enabled on server | Tied to specific binlog file sequence |
 | **MariaDB** | Uses MariaDB GTID flavor | Supported |
 
 ### 2.3 Row Event Processing
@@ -250,7 +251,7 @@ for idx := 0; idx < len(ev.Rows); idx += 2 {
 
 Detected via `QueryEvent` containing `ALTER TABLE` statements. Column mapping relies on `TABLE_MAP_EVENT.ColumnName`.
 
-**Known fragility** (`cdc.go:507`):
+**Known fragility** (`cdc.go`):
 > TODO this is fragile
 
 `sourceTableName` is constructed by concatenating `Schema.Table`, which can fail with edge-case naming.
@@ -322,13 +323,13 @@ The change stream pipeline is built to filter and reduce event size:
    {$match: {$or: [{$and: [{ns.db: "db"}, {ns.coll: {$in: [...]}}]}]}}
    ```
 
-2. **Project stage** (performance optimization — `cdc.go:449-452`):
+2. **Project stage** (performance optimization — `cdc.go`):
    > Mongo recommends using '$project' first to reduce change event size, and only use '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the documents themselves have a 16MB limit, project required fields for now for code simplicity.
 
 ### 3.3 Adaptive Timeout Strategy
 
 ```go
-// Before first record: wait up to 1 hour (cdc.go:191-192)
+// Before first record: wait up to 1 hour 
 initialWait := time.Hour
 
 // After first record: switch to configured idleTimeout
@@ -341,12 +342,12 @@ afterFirstRecord := config.IdleTimeout
 
 **Normal resume**: `SetResumeAfter(base64DecodedToken)`
 
-**Fallback when resume token expired or refers to filtered-out table** (`cdc.go:466-469`):
+**Fallback when resume token expired or refers to filtered-out table** (`cdc.go`):
 > This can happen if the resumeToken we are attempting to ResumeAfter refers to a table that has been filtered out of the change stream pipeline (for example, if a user pauses and edits a mirror). If this happens, we decode the resumeToken and extract its operation time, and start a new changeStream with StartAtOperationTime instead of ResumeAfter.
 
 ### 3.5 fullDocument Absence Scenarios
 
-When using `UpdateLookup`, the `fullDocument` field may be missing (`cdc.go:246-250`):
+When using `UpdateLookup`, the `fullDocument` field may be missing (`cdc.go`):
 
 1. Insert operations (document IS the fullDocument)
 2. Document deleted or collection dropped between the update event and the lookup
@@ -354,7 +355,7 @@ When using `UpdateLookup`, the `fullDocument` field may be missing (`cdc.go:246-
 
 ### 3.6 QRep Partition Boundary Duplication
 
-**Known limitation** (`mongo/qrep.go:278-279`):
+**Known limitation** (`mongo/qrep.go`):
 > with $bucketAuto, buckets except the last bucket treat their max value as exclusive. we can't tell what bucket is the 'last' bucket without additional tracking, so we accept boundary records being inserted twice
 
 This means QRep with MongoDB may produce duplicate records at partition boundaries. Destinations with upsert/merge handle this correctly, but append-only destinations may see duplicates.
@@ -369,7 +370,7 @@ This means QRep with MongoDB may produce duplicate records at partition boundari
 
 ```mermaid
 flowchart TD
-    RAW["_PEERDB_RAW table<br/><i>_peerdb_uid, _peerdb_timestamp,<br/>_peerdb_data_json, _peerdb_row_kind,<br/>_peerdb_batch_id</i>"]
+    RAW["_PEERDB_RAW table<br/><i>_peerdb_uid, _peerdb_timestamp,<br/>_peerdb_destination_table_name,<br/>_peerdb_data, _peerdb_record_type,<br/>_peerdb_match_data, _peerdb_batch_id,<br/>_peerdb_unchanged_toast_columns</i>"]
 
     EXTRACT["Extract columns from JSON<br/><i>(_peerdb_data->>'col')::type</i>"]
 
@@ -428,7 +429,7 @@ DELETE FROM dst_table USING _PEERDB_RAW_...
 WHERE dst.pk = raw.pk AND record_type = 2
 ```
 
-**Warnings logged** (`normalize_stmt_generator.go:81-85`):
+**Warnings logged** (`normalize_stmt_generator.go`):
 - "Postgres version is not high enough to support MERGE, falling back to UPSERT+DELETE"
 - "TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres"
 - "soft delete enabled with fallback statements! this combination is unsupported"
@@ -443,9 +444,9 @@ WHERE dst.pk = raw.pk AND record_type = 2
 
 ### 4.5 Soft Delete Edge Cases
 
-**Insert after soft-delete** (`normalize_stmt_generator.go:249`): A special MERGE clause handles the case where a deleted row is re-inserted — it sets `_peerdb_is_deleted=FALSE`.
+**Insert after soft-delete** (`normalize_stmt_generator.go`): A special MERGE clause handles the case where a deleted row is re-inserted — it sets `_peerdb_is_deleted=FALSE`.
 
-**Delete-update ordering** (`normalize_stmt_generator.go:261-263`):
+**Delete-update ordering** (`normalize_stmt_generator.go`):
 > generates update statements for the case where updates and deletes happen in the same branch. the backfill has happened from the pull side already, so treat the DeleteRecord as an update
 
 ### 4.6 Destination-Specific Strategies
@@ -525,7 +526,7 @@ PostgreSQL CTID (physical row ID) is used for efficient parallel reads:
 
 **Partition calculation**: The partition count is calculated based on estimated row count, then an NTILE query groups rows into buckets. The projected min and max CTIDs from this query are used as partition ranges for each bucket. A separate `MinMaxRangePartitioning` strategy exists but is only triggered when users select custom partitioning keys. There are plans to migrate to `CTIDBlockPartitioning` as the default strategy since NTILE can be slow/expensive on large tables.
 
-**Note** (`postgres/qrep.go:126`):
+**Note** (`postgres/qrep.go`):
 > NOTE: it appears that the hypercore 'TAM' may give us access to ctid scans, but that's to be removed in Timescale 2.22
 
 ### 5.4 Slot Keep-Alive
@@ -539,11 +540,11 @@ type SlotSnapshotState struct {
 }
 ```
 
-No explicit heartbeat needed — the replication slot is managed by Postgres. The workflow session maintains the connection for the entire snapshot duration. If the workflow dies, Postgres cleans up the slot after timeout.
+No explicit heartbeat needed — the replication slot is managed by Postgres. The workflow session maintains the connection for the entire snapshot duration. If the workflow dies, the replication slot remains on Postgres until explicitly dropped or timed out.
 
 ### 5.5 Elasticsearch Special Case
 
-For Elasticsearch destinations (`snapshot_flow.go:172-182`):
+For Elasticsearch destinations:
 > ensure document IDs are synchronized across initial load and CDC for the same document
 
 Uses UPSERT write mode with primary keys to ensure document IDs match between snapshot and CDC.
@@ -552,7 +553,7 @@ Uses UPSERT write mode with primary keys to ensure document IDs match between sn
 
 ## 6. CDC Workflow Orchestration
 
-**Key file**: `flow/workflows/cdc_flow.go` (~922 lines)
+**Key file**: `flow/workflows/cdc_flow.go`
 
 ### 6.1 Complete State Machine
 
@@ -582,11 +583,15 @@ stateDiagram-v2
     SnapshotFlow --> CDCLoop
 
     state CDCLoop {
-        [*] --> Pull
-        Pull --> Sync
-        Sync --> Normalize
-        Normalize --> CheckSignals
-        CheckSignals --> Pull : continue
+        [*] --> SyncFlowActivity
+        state SyncFlowActivity {
+            [*] --> Pull
+            Pull --> Sync
+            Sync --> Normalize
+            Normalize --> Pull : next batch
+        }
+        SyncFlowActivity --> [*] : completed or cancelled
+        note right of SyncFlowActivity : Signals handled in parallel\nvia Temporal selector
     }
 
     CDCLoop --> Paused : PauseSignal
@@ -641,7 +646,7 @@ Three signal channels:
 | `CDCDynamicPropertiesSignal` | Batch size, idle timeout, table mappings | Updates `FlowConfigUpdate` |
 | `FlowSignal` (legacy) | State transitions | Routes to handler |
 
-**Pause loop**: Blocks at `selector.Select(ctx)` waiting for signal. Only processes `FlowConfigUpdate` while paused (enables dynamic re-config without resuming). Resumes via `ContinueAsNewError`.
+**Pause loop**: Blocks at `selector.Select(ctx)` waiting for signal. Processes `FlowConfigUpdate` while paused (config updates are applied on resume via `ContinueAsNewError`).
 
 ### 6.3 Table Addition Mid-Flow
 
@@ -665,13 +670,13 @@ Resync recreates destination tables while preserving the mirror:
 
 ### 6.5 Config Sync to Catalog
 
-Before each sync iteration (`cdc_flow.go:42-76`), the CDC flow config is updated with latest dynamic settings and synced to the catalog for consistency. This ensures that if the workflow restarts, it picks up the latest configuration.
+Before each sync iteration (`cdc_flow.go`), the CDC flow config is updated with latest dynamic settings and synced to the catalog for consistency. This ensures that if the workflow restarts, it picks up the latest configuration.
 
 ---
 
 ## 7. Activity Layer — Pull/Sync/Normalize Pipeline
 
-**Key files**: `flow/activities/flowable.go` (76KB), `flow/activities/flowable_core.go` (27KB)
+**Key files**: `flow/activities/flowable.go`, `flow/activities/flowable_core.go`
 
 ### 7.1 Pipeline Architecture
 
@@ -763,14 +768,14 @@ for {
 
 ### 7.5 Schema Delta Application
 
-Uses a read-modify-write pattern (`flowable_core.go:63-117`):
+Uses a read-modify-write pattern (`flowable_core.go`):
 
 1. Read current schema from catalog
 2. Deep copy to avoid mutation
 3. Deduplicate column additions (prevent applying same delta twice)
 4. Write back with transactional guarantee
 
-**TODO** (`internal/postgres.go:155`):
+**TODO** (`internal/postgres.go`):
 > TODO: use ReadModifyWriteTableSchemasToCatalog to guarantee transactionality
 
 ---
@@ -781,15 +786,12 @@ Uses a read-modify-write pattern (`flowable_core.go:63-117`):
 
 ```mermaid
 flowchart TD
-    subgraph PG_SYSTEM["PG Type System"]
-        PG_ARRAY["PG Arrays"]
-        PG_JSONB["JSONB"]
-        PG_UUID["UUID"]
-        PG_GEO["Geometric"]
-        PG_CUSTOM["Custom Types"]
+    subgraph DECISION["TypeSystem enum on flow config"]
+        Q_FLAG["Q: universal types<br/>cross-database replication"]
+        PG_FLAG["PG: native types<br/>Postgres to Postgres only"]
     end
 
-    subgraph Q_SYSTEM["Q Type System (Universal)"]
+    subgraph Q_SYSTEM["Q Type System - Universal"]
         Q_STRING["QValueString"]
         Q_INT["QValueInt64"]
         Q_FLOAT["QValueFloat64"]
@@ -799,13 +801,16 @@ flowchart TD
         Q_TIME["QValueTimestamp"]
     end
 
-    subgraph DECISION["TypeSystem enum on flow config"]
-        PG_FLAG["PG: native types<br/><i>Postgres→Postgres only</i>"]
-        Q_FLAG["Q: universal types<br/><i>cross-database replication</i>"]
+    subgraph PG_SYSTEM["PG Type System"]
+        PG_ARRAY["PG Arrays"]
+        PG_JSONB["JSONB"]
+        PG_UUID["UUID"]
+        PG_GEO["Geometric"]
+        PG_CUSTOM["Custom Types"]
     end
 
-    PG_FLAG --> PG_SYSTEM
     Q_FLAG --> Q_SYSTEM
+    PG_FLAG --> PG_SYSTEM
 ```
 
 ### 8.2 PgItems Optimization
@@ -824,56 +829,34 @@ PG Source → QValue (intermediate) → type mapping → Destination types
 
 ### 8.3 Workarounds in Type Conversion
 
-- **Undefined pgtype workaround** (`postgres/qvalue_convert.go:29`, `type_conversion.go:101`): "workaround for some types not being defined by pgtype" — custom registration for types not in the pgx type system.
+- **Undefined pgtype workaround** (`postgres/qvalue_convert.go`, `type_conversion.go`): "workaround for some types not being defined by pgtype" — custom registration for types not in the pgx type system.
 
-- **BigQuery JSON columns** (`bigquery/qrep_object_pull.go:363-365`): "Parquet export does not support JSON columns, so we need to cast them. BigQuery SDK does not support query_statement overrides for export jobs."
+- **BigQuery JSON columns** (`bigquery/qrep_object_pull.go`): "Parquet export does not support JSON columns, so we need to cast them. BigQuery SDK does not support query_statement overrides for export jobs."
 
-- **BigQuery DATETIME→TIMESTAMP** (`bigquery/qrep_object_pull.go:393-395`): "Cast DATETIME to TIMESTAMP for Parquet export since BigQuery DATETIME is timezone-unaware and its Parquet representation may not be compatible with ClickHouse."
+- **BigQuery DATETIME→TIMESTAMP** (`bigquery/qrep_object_pull.go`): "Cast DATETIME to TIMESTAMP for Parquet export since BigQuery DATETIME is timezone-unaware and its Parquet representation may not be compatible with ClickHouse."
 
 ---
 
-## 9. Known Limitations, TODOs & Technical Debt
+## 9. Known Limitations & Technical Debt
 
-### 9.1 Active TODOs in Codebase
-
-| Location | TODO | Impact |
-|----------|------|--------|
-| `postgres/cdc.go:734` | replident is cached, should not cache since it can change | Replica identity changes not detected at runtime |
-| `postgres/qrep_partition.go:194` | Use estimated row count for partitioned/inherited tables | Suboptimal partition sizing for partitioned tables |
-| `postgres/client.go:578` | Upstream pglogrepl to support CreateReplicationSlot failover | Manual failover handling |
-| `internal/postgres.go:155` | Use ReadModifyWriteTableSchemasToCatalog for transactionality | Potential race condition on schema updates |
-| `s3/qrep.go:49` | Support avro-incompatible column names | S3 fails with special characters in column names |
-| `snowflake/qrep_avro_sync.go:137` | Support avroNameMap for avro-incompatible column names | Snowflake fails with special characters |
-| `clickhouse/normalize_query.go:118` | Basic validation to avoid injection | Potential SQL injection in ClickHouse normalize |
-| `model/qvalue/equals.go:101` | Make JSON equality more strict | Loose JSON comparison may miss differences |
-| `mysql/cdc.go:507` | sourceTableName concatenation is fragile | Edge-case table naming can fail |
-| `mysql/validation.go:42` | Revisit when we have more data | Validation thresholds need tuning |
-| `mongo/validation.go:61,107` | Run validation on shard | Sharded cluster validation incomplete |
-| `activities/flowable.go:1510` | Implement for other QRepPullConnector sources | Feature gap in QRep partitioning |
-| `cmd/codegen/flow_config_converter.go:35,36,52,149` | Multiple TODOs re: TableMappings removal | Legacy code cleanup needed |
-| `shared/atomic.go:5` | Remove after golang/go#63999 | Waiting on Go stdlib fix |
-| `e2e/s3_qrep_test.go:56` | Fix CI for AWS S3 | S3 tests broken in CI |
-| `e2e/bigquery_test.go:615` | Not checking schema exactly | Weak test assertion |
-
-### 9.2 Known Design Limitations
+### 9.1 Known Design Limitations
 
 1. **Pre-PG15 normalization**: TOAST columns not properly preserved with UPSERT+DELETE fallback. Mitigation: use REPLICA IDENTITY FULL.
+   > **Note**: Even on PG15+, TOAST column backfill is best-effort. Values are backfilled from an in-memory cache (spilling to disk) generated per batch. If an insert and its corresponding update land in different batches, the update's TOAST value will not be successfully backfilled.
 
 2. **At-least-once delivery**: The pipeline guarantees at-least-once delivery, not exactly-once, so duplicates can occur in various scenarios (not limited to MongoDB). ClickHouse's ReplacingMergeTree (RMT) automatically deduplicates on merge, but if a user chooses MergeTree (MT), destination data may contain duplicates. MongoDB's `$bucketAuto` additionally causes boundary records to be inserted twice.
 
-3. **MySQL schema evolution without binlog_row_metadata=FULL**: Column position-shifting DDLs (ADD COLUMN FIRST/AFTER) may cause incorrect column mapping.
+3. **MySQL schema evolution without binlog_row_metadata=FULL**: Column position-shifting DDLs (ADD COLUMN FIRST/AFTER) are rejected, but may still cause incorrect column mapping without full row metadata.
 
 4. **Soft delete + pre-PG15**: Explicitly unsupported combination, logged as warning.
 
-5. **SSH tunnel DNS resolution** (`ssh_wrapped_conn.go:31-32`): "DNS lookup seems to happen before connection is established which can be an issue if given host can only be resolved on the SSH host."
+5. **SSH tunnel DNS resolution** (`ssh_wrapped_conn.go`): "DNS lookup seems to happen before connection is established which can be an issue if given host can only be resolved on the SSH host."
 
-6. **SSH handshake protection** (`ssh_wrapped_conn.go:56-58`): Body length limited during initial handshake to prevent crash from misbehaved TCP endpoints that send random bytes.
+6. **SSH handshake protection** (`ssh_wrapped_conn.go`): Body length limited during initial handshake to prevent crash from misbehaved TCP endpoints that send random bytes.
 
-7. **TOAST column backfill is best-effort**: TOAST values are backfilled from an in-memory cache (spilling to disk) generated per batch. If an insert and its corresponding update land in different batches, the update's TOAST value will not be successfully backfilled.
+### 9.2 Idempotency Requirements
 
-### 9.3 Idempotency Requirements
-
-Several connector methods are documented as requiring idempotency (`core.go:129,141,204,212`):
+Several connector methods are documented as requiring idempotency (`core.go`):
 > should be idempotent, and should be able to be called multiple times with the same request
 
 This is critical because Temporal may replay activities after failures. All state-mutating operations must handle duplicate execution gracefully.
@@ -884,6 +867,8 @@ This is critical because Temporal may replay activities after failures. All stat
 
 ### 10.1 Error Classification
 
+Errors are classified into types primarily for alerting purposes:
+
 ```mermaid
 flowchart TD
     ERROR["Error Occurs"] --> CLASSIFY{Classification}
@@ -892,10 +877,6 @@ flowchart TD
 
     CLASSIFY -->|Irrecoverable| FAIL["Fail immediately<br/><i>Non-retryable Temporal error</i>"]
 
-    CLASSIFY -->|Schema Error| SCHEMA["Log + propagate delta<br/><i>New columns detected</i>"]
-
-    CLASSIFY -->|Connection| RECONNECT["Reconnect + retry<br/><i>SSH tunnel drop,<br/>RDS token expiry</i>"]
-
     FAIL --> TYPES["Irrecoverable Types:<br/>• InvalidSnapshot<br/>• CouldNotImportSnapshot<br/>• ExistingSlot<br/>• MissingTables"]
 ```
 
@@ -903,12 +884,12 @@ flowchart TD
 
 **Replication Errors** (`shared/exceptions/primary_key_and_replica_identity.go`):
 
-| Error | Meaning | Resolution |
-|-------|---------|------------|
-| `PrimaryKeyModifiedError` | Cannot locate PK column value during CDC | Check replica identity config |
-| `ReplicaIdentityIndexError` | Table has no replica identity index | Add PK or set REPLICA IDENTITY |
-| `ReplicaIdentityNothingError` | Table has REPLICA IDENTITY NOTHING | Change to DEFAULT or FULL |
-| `MissingPrimaryKeyError` | Table lacks PK and not REPLICA IDENTITY FULL | Add PK or set REPLICA IDENTITY FULL |
+| Error | Meaning |
+|-------|---------|
+| `PrimaryKeyModifiedError` | Cannot locate PK column value during CDC |
+| `ReplicaIdentityIndexError` | Table has no replica identity index |
+| `ReplicaIdentityNothingError` | Table has REPLICA IDENTITY NOTHING |
+| `MissingPrimaryKeyError` | Table lacks PK and not REPLICA IDENTITY FULL |
 
 **Application Error Types** (`shared/exceptions/application.go`):
 
@@ -919,29 +900,16 @@ flowchart TD
 | `ApplicationErrorTypeIrrecoverableExistingSlot` | Non-retryable |
 | `ApplicationErrorTypIrrecoverableMissingTables` | Non-retryable |
 
-### 10.3 Temporal Retry Policies
+### 10.3 Transactional DDL
 
-**CDC Activities**: Managed by Temporal's built-in retry with workflow-level error handling.
-
-**QRep Activities** (`qrep_flow.go:74-86`):
-
-| Setting | Value |
-|---------|-------|
-| Initial interval | 1 minute |
-| Backoff coefficient | 2.0 |
-| Maximum interval | 20 minutes |
-| Maximum attempts | Infinite (retries forever) |
-
-### 10.4 Transactional DDL
-
-PostgreSQL supports transactional DDL, which PeerDB leverages for normalization setup (`postgres.go:1232`):
+PostgreSQL supports transactional DDL, which PeerDB leverages for normalization setup (`postgres.go`):
 > Postgres is cool and supports transactional DDL. So we use a transaction.
 
 This means table creation + schema setup is atomic — if any step fails, nothing is committed.
 
-### 10.5 Connection Resilience
+### 10.4 Connection Resilience
 
-- **CheckConnection activity** (`flowable.go:76-95`): Verifies peer connection is active with graceful error handling
+- **CheckConnection activity** (`flowable.go`): Verifies peer connection is active with graceful error handling
 - **SSH keep-alive**: Periodic heartbeat to prevent tunnel timeout
 - **RDS IAM token refresh**: Automatic token renewal before expiry
 - **Replication connection**: Separate from query connection, with mutex (`replLock`) for thread safety
@@ -950,23 +918,23 @@ This means table creation + schema setup is atomic — if any step fails, nothin
 
 ## Appendix A: Key File Reference
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `flow/connectors/core.go` | ~750 | All connector interfaces + type assertions |
-| `flow/connectors/postgres/cdc.go` | ~850 | PostgreSQL WAL replication |
-| `flow/connectors/postgres/normalize_stmt_generator.go` | ~300 | MERGE/UPSERT SQL generation |
-| `flow/connectors/postgres/postgres.go` | ~1300 | Core Postgres connector |
-| `flow/connectors/mysql/cdc.go` | ~700 | MySQL binlog replication |
-| `flow/connectors/mongo/cdc.go` | ~500 | MongoDB change streams |
-| `flow/workflows/cdc_flow.go` | ~920 | CDC workflow orchestration |
-| `flow/workflows/qrep_flow.go` | ~400 | QRep workflow |
-| `flow/workflows/snapshot_flow.go` | ~300 | Snapshot orchestration |
-| `flow/activities/flowable.go` | ~1600 | Main activity handler |
-| `flow/activities/flowable_core.go` | ~600 | Core pull/sync/normalize logic |
-| `flow/model/` | ~2000 | Record types, streams, QValue |
-| `protos/flow.proto` | ~400 | CDC/QRep protobuf definitions |
-| `protos/peers.proto` | ~300 | Peer config definitions |
-| `protos/route.proto` | ~200 | gRPC service definition |
+| File | Purpose |
+|------|---------|
+| `flow/connectors/core.go` | All connector interfaces + type assertions |
+| `flow/connectors/postgres/cdc.go` | PostgreSQL WAL replication |
+| `flow/connectors/postgres/normalize_stmt_generator.go` | MERGE/UPSERT SQL generation |
+| `flow/connectors/postgres/postgres.go` | Core Postgres connector |
+| `flow/connectors/mysql/cdc.go` | MySQL binlog replication |
+| `flow/connectors/mongo/cdc.go` | MongoDB change streams |
+| `flow/workflows/cdc_flow.go` | CDC workflow orchestration |
+| `flow/workflows/qrep_flow.go` | QRep workflow |
+| `flow/workflows/snapshot_flow.go` | Snapshot orchestration |
+| `flow/activities/flowable.go` | Main activity handler |
+| `flow/activities/flowable_core.go` | Core pull/sync/normalize logic |
+| `flow/model/` | Record types, streams, QValue |
+| `protos/flow.proto` | CDC/QRep protobuf definitions |
+| `protos/peers.proto` | Peer config definitions |
+| `protos/route.proto` | gRPC service definition |
 
 ## Appendix B: Performance Tuning Reference
 
@@ -976,8 +944,3 @@ This means table creation + schema setup is atomic — if any step fails, nothin
 | `idle_timeout_seconds` | 60 | Flow config | Wait before empty batch |
 | `snapshot_num_rows_per_partition` | 250,000 | Flow config | Rows per snapshot partition |
 | `snapshot_max_parallel_workers` | 8 | Flow config | Parallel snapshot threads |
-| Channel buffer size | Configurable | Dynamic setting | CDC stream backpressure |
-| Normalize buffer | Configurable | Dynamic setting | Batches before backpressure |
-| Temp buffers (PG) | Configurable | QRep query | "Cost of large value is only ~64 bytes per increment" |
-| Metrics interval | 1 minute | Hardcoded | CDC metrics reporting frequency |
-| Batch logging | Every 50,000 records | Hardcoded | Progress reporting |
