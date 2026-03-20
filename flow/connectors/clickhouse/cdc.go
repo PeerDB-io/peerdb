@@ -247,6 +247,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		// Resolve the actual shard table name from the Distributed table definition.
 		// After resync, the shard table has a timestamp suffix (e.g., table_shard1710425678)
 		// and hardcoding "_shard" would target the wrong table.
+		// Distributed table isn't created for null tables
 		var shardTableName string
 		if c.Config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
 			var err error
