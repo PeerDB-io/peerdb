@@ -125,6 +125,10 @@ func (c *MySqlConnector) Flavor() string {
 	}
 }
 
+func (c *MySqlConnector) Conn() *client.Conn {
+	return c.conn.Load()
+}
+
 func (c *MySqlConnector) Close() error {
 	c.logger.Info("Closing MySQL connector")
 	var errs []error
