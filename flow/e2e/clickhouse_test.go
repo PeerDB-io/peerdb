@@ -3290,17 +3290,12 @@ func (s ClickHouseSuite) Test_CTID_Multi_Level_Partitioned_Table() {
 }
 
 func (s ClickHouseSuite) Test_Composite_PKey() {
-	if _, ok := s.source.(*MySqlSource); ok {
-		s.t.Skip("pending PK ordering fix")
-	}
-
 	srcTableName := "test_composite_pkey_ordering"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_composite_pkey_ordering"
 
 	orderedPk := "b, a, c"
 	err := s.Source().Exec(s.t.Context(), fmt.Sprintf(`
-		-- this comment should trigger a merge conflict for the fix PR
 		CREATE TABLE IF NOT EXISTS %s (
 		    id int,
 			a INT NOT NULL,
