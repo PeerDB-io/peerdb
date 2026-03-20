@@ -54,7 +54,7 @@ func (s *MongoSource) AdminClient() *mongo.Client {
 	return s.adminClient
 }
 
-func (s *MongoSource) Exec(ctx context.Context, sql string) error {
+func (s *MongoSource) Exec(ctx context.Context, sql string, args ...any) error {
 	return errors.ErrUnsupported
 }
 
