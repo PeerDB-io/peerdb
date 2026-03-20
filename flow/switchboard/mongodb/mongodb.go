@@ -25,6 +25,7 @@ type ExecSpec struct {
 	ResultKind  ResultKind // whether result is Cursor or Scalar
 	HelpColumns []string   // column names for help output
 	HelpRows    [][]string // row data for help output
+	SwitchDB    string     // if non-empty, switch to this database
 	AdminDB     bool       // if true, run against admin database
 }
 
@@ -74,6 +75,7 @@ func (e *compileError) withHint(hint string) *compileError {
 }
 
 var helpRe = regexp.MustCompile(`^help\s*;?\s*$`)
+var useRe = regexp.MustCompile(`^use\s+(\w[\w.-]*)\s*;?\s*$`)
 
 // Compile parses and validates a MongoDB wire command from Extended JSON input.
 func Compile(input string) (ExecSpec, error) {
@@ -86,6 +88,10 @@ func Compile(input string) (ExecSpec, error) {
 	if helpRe.MatchString(input) {
 		cols, rows := globalHelp()
 		return ExecSpec{HelpColumns: cols, HelpRows: rows}, nil
+	}
+
+	if m := useRe.FindStringSubmatch(input); m != nil {
+		return ExecSpec{SwitchDB: m[1]}, nil
 	}
 
 	input = strings.TrimRight(input, "; \t\n\r")
@@ -124,6 +130,9 @@ func globalHelp() ([]string, [][]string) {
 	rows := [][]string{
 		{"Input Format:", ""},
 		{`  Extended JSON wire commands`, `e.g. {"find": "coll", "filter": {}}`},
+		{"", ""},
+		{"Shell Commands:", ""},
+		{"  use <dbname>", "switch the current database"},
 		{"", ""},
 		{"Allowed Wire Commands:", ""},
 	}
