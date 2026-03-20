@@ -1820,8 +1820,9 @@ func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req
 			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s",
 				common.QuoteIdentifier(GetDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
-			// don't error out if table is already removed from our publication
-			if err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject) {
+			// don't error out if table is already removed from our publication (UndefinedObject)
+			// or if the table no longer exists in the source database (UndefinedTable)
+			if err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.UndefinedTable) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("removed table from publication",
