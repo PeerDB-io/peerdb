@@ -38,7 +38,7 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 		tags[tag.Key] = tag.Value
 	}
 
-	if _, err := h.pool.Exec(ctx, "UPDATE flows SET tags=$1, updated_at=now() WHERE name=$2", tags, flowName); err != nil {
+	if err := alerting.UpdateTags(ctx, h.pool, flowName, tags); err != nil {
 		slog.ErrorContext(ctx, "error updating flow tags", slog.Any("error", err))
 		return nil, NewInternalApiError(err)
 	}

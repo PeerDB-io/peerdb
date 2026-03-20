@@ -28,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -980,6 +981,15 @@ func (s APITestSuite) TestResyncCompleted() {
 	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
+	// tags are explicitly updated via a separate call, so here we update tags before resync to validate they are persisted after resync
+	_, err = s.CreateOrReplaceFlowTags(s.t.Context(), &protos.CreateOrReplaceFlowTagsRequest{
+		FlowName: flowConnConfig.FlowJobName,
+		Tags: []*protos.FlowTag{
+			{Key: common.PipeNameTag, Value: "test"},
+		},
+	})
+	require.NoError(s.t, err)
+
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -1021,6 +1031,18 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NoError(s.t, err)
 	configBeforeResync.Resync = true
 	require.EqualExportedValues(s.t, configBeforeResync, configAfterResync)
+
+	// check that tags persist across resync
+	tagsResp, err := s.GetFlowTags(s.t.Context(), &protos.GetFlowTagsRequest{
+		FlowName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, tagsResp.Tags, 1)
+	tagMap := make(map[string]string, len(tagsResp.Tags))
+	for _, tag := range tagsResp.Tags {
+		tagMap[tag.Key] = tag.Value
+	}
+	require.Equal(s.t, "test", tagMap[common.PipeNameTag])
 }
 
 func (s APITestSuite) TestResyncFailed() {

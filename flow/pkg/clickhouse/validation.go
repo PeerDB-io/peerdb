@@ -71,6 +71,9 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 				if !allowNonEmpty && totalRows != 0 && initialSnapshotEnabled {
 					return fmt.Errorf("table %s exists and is not empty", tableName)
 				}
+				if engine == "View" || engine == "MaterializedView" {
+					return fmt.Errorf("destination table can not be a view")
+				}
 				if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
 					logger.Warn("[clickhouse] table engine not explicitly supported",
 						slog.String("table", tableName), slog.String("engine", engine))

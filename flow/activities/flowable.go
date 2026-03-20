@@ -334,15 +334,14 @@ func (a *FlowableActivity) SyncFlow(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
+	defer srcClose(ctx)
 
 	if err := srcConn.SetupReplConn(ctx, config.Env); err != nil {
-		srcClose(ctx)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
 	if err != nil {
-		srcClose(ctx)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
@@ -354,7 +353,6 @@ func (a *FlowableActivity) SyncFlow(
 	normResponses := concurrency.NewLastChan()
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
-		srcClose(ctx)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 	idleTimeout := cdcIdleTimeout(int(options.IdleTimeoutSeconds))
@@ -375,7 +373,6 @@ func (a *FlowableActivity) SyncFlow(
 		return nil
 	})
 	group.Go(func() error {
-		defer srcClose(groupCtx)
 		if err := a.maintainReplConn(groupCtx, config.FlowJobName, srcConn, syncDone); err != nil {
 			return a.Alerter.LogFlowError(groupCtx, config.FlowJobName, err)
 		}
@@ -935,22 +932,34 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		return nil
 	}))()
 	defer common.Interval(ctx, 1*time.Hour, wrapWithLog("LogFlowConfigs", func() error {
-		flowConfigsForLogging, err := telemetry.LogFlowConfigs(ctx, a.CatalogPool)
+		flowConfigsForLogging, err := telemetry.GetFlowConfigLogEntries(ctx, a.CatalogPool)
 		if err != nil {
 			return err
 		}
-		sourcePeerNames := make(map[string]struct{}, len(flowConfigsForLogging))
-		for _, fc := range flowConfigsForLogging {
-			sourcePeerNames[fc.SourcePeerName] = struct{}{}
+		flowEntriesByPeer := make(map[string][]*telemetry.FlowConfigLogEntry, len(flowConfigsForLogging))
+		for i := range flowConfigsForLogging {
+			entry := &flowConfigsForLogging[i]
+			flowEntriesByPeer[entry.FlowConfig.SourcePeerName] = append(flowEntriesByPeer[entry.FlowConfig.SourcePeerName], entry)
 		}
-		peers, err := connectors.LoadPeers(ctx, a.CatalogPool, slices.Collect(maps.Keys(sourcePeerNames)))
+		peers, err := connectors.LoadPeers(ctx, a.CatalogPool, slices.Collect(maps.Keys(flowEntriesByPeer)))
 		if err != nil {
 			return fmt.Errorf("failed to load source peers: %w", err)
 		}
 		for _, peer := range peers {
-			version, variant := a.getRuntimePeerInfo(ctx, peer)
+			peerFlowEntries := flowEntriesByPeer[peer.Name]
+
+			flowNames := make([]string, 0, len(peerFlowEntries))
+			for _, entry := range peerFlowEntries {
+				flowNames = append(flowNames, entry.FlowConfig.FlowName)
+			}
+
+			version, variant, replicationMechanismInUseByFlow := a.getRuntimeInfo(ctx, peer, flowNames)
 			telemetry.LogPeerInfo(ctx, peer, version, variant)
+			for _, entry := range peerFlowEntries {
+				entry.FlowConfig.ReplicationMechanismInUse = replicationMechanismInUseByFlow[entry.FlowConfig.FlowName]
+			}
 		}
+		telemetry.LogFlowConfigs(ctx, flowConfigsForLogging)
 		return nil
 	}))()
 	defer common.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
@@ -961,15 +970,20 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) getRuntimePeerInfo(ctx context.Context, peer *protos.Peer) (string, string) {
+func (a *FlowableActivity) getRuntimeInfo(
+	ctx context.Context,
+	peer *protos.Peer,
+	flowNames []string,
+) (string, string, map[string]string) {
 	logger := internal.LoggerFromCtx(ctx)
 	version := "N/A"
 	variant := "N/A"
+	replicationMechanismInUseByFlow := make(map[string]string, len(flowNames))
 
 	conn, err := connectors.GetConnector(ctx, nil, peer)
 	if err != nil {
 		logger.Error("failed to create connector for source peer info", slog.String("peer", peer.Name), slog.Any("error", err))
-		return version, variant
+		return version, variant, replicationMechanismInUseByFlow
 	}
 	defer conn.Close()
 
@@ -989,7 +1003,21 @@ func (a *FlowableActivity) getRuntimePeerInfo(ctx context.Context, peer *protos.
 			variant = v.String()
 		}
 	}
-	return version, variant
+	if rmc, ok := conn.(connectors.ReplicationMechanismInUseConnector); ok {
+		for _, flowName := range flowNames {
+			mechanismInUse, err := rmc.GetReplicationMechanismInUse(ctx, flowName)
+			if err != nil {
+				logger.Error("failed to get replication mechanism in use",
+					slog.String("peer", peer.Name),
+					slog.String("flowName", flowName),
+					slog.Any("error", err))
+				continue
+			}
+			replicationMechanismInUseByFlow[flowName] = mechanismInUse
+		}
+	}
+
+	return version, variant, replicationMechanismInUseByFlow
 }
 
 type flowInformation struct {
@@ -1966,6 +1994,11 @@ func (a *FlowableActivity) GetFlowMetadata(
 		}
 	}
 
+	tags, err := alerting.GetTags(ctx, a.CatalogPool, input.FlowName)
+	if err != nil {
+		logger.Warn("failed to get tags for flow", slog.Any("error", err))
+	}
+
 	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
 		slog.Int("peerTypes", len(peers)))
@@ -1975,6 +2008,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 		Destination: destinationPeer,
 		Status:      input.Status,
 		IsResync:    input.IsResync,
+		Tags:        tags,
 	}, nil
 }
 

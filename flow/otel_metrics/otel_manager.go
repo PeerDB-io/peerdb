@@ -79,6 +79,7 @@ const (
 	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 	CodeNotificationCounterName          = "code_notification"
+	ServerWalEndLagGaugeName             = "wal_end_lag"
 )
 
 type Metrics struct {
@@ -133,6 +134,7 @@ type Metrics struct {
 	LatestConsumedLogEventGauge      metric.Int64Gauge
 	LogRetentionGauge                metric.Float64Gauge
 	UnchangedToastValuesCounter      metric.Int64Counter
+	ServerWalEndLagGauge             metric.Int64Gauge
 }
 
 type SlotMetricGauges struct {
@@ -582,19 +584,26 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 
+	if om.Metrics.ServerWalEndLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ServerWalEndLagGaugeName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Difference in bytes between the server's WAL end and the WAL end of the last "+
+			"received XLogData; used in conjunction with slot lag to determine large transactions"),
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // newOtelResource returns a resource describing this application.
-func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*resource.Resource, error) {
-	allAttrs := append([]attribute.KeyValue{
-		attribute.Key("service.name").String(otelServiceName),
-		attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
-		attribute.Key("service.version").String(internal.PeerDBVersionShaShort()),
-	}, attrs...)
+func newOtelResource(otelServiceName string) (*resource.Resource, error) {
 	return resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes("", allAttrs...),
+		resource.NewWithAttributes("",
+			attribute.Key("service.name").String(otelServiceName),
+			attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
+			attribute.Key("service.version").String(internal.PeerDBVersionShaShort()),
+		),
 	)
 }
 
