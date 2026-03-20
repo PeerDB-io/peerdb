@@ -152,7 +152,7 @@ func (s *PostgresSource) Teardown(t *testing.T, ctx context.Context, suffix stri
 	}
 }
 
-func TearDownPostgres(ctx context.Context, s Suite) {
+func TearDownPostgres(ctx context.Context, s PgSuite) {
 	t := s.T()
 	t.Helper()
 
@@ -191,8 +191,8 @@ func GeneratePostgresPeer(t *testing.T) *protos.Peer {
 	return peer
 }
 
-func (s *PostgresSource) Exec(ctx context.Context, sql string) error {
-	_, err := s.PostgresConnector.Conn().Exec(ctx, sql)
+func (s *PostgresSource) Exec(ctx context.Context, sql string, args ...any) error {
+	_, err := s.PostgresConnector.Conn().Exec(ctx, sql, args...)
 	return err
 }
 
