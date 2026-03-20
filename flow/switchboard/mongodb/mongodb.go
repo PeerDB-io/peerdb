@@ -74,8 +74,10 @@ func (e *compileError) withHint(hint string) *compileError {
 	return e
 }
 
-var helpRe = regexp.MustCompile(`^help\s*;?\s*$`)
-var useRe = regexp.MustCompile(`^use\s+(\w[\w.-]*)\s*;?\s*$`)
+var (
+	helpRe = regexp.MustCompile(`^help\s*;?\s*$`)
+	useRe  = regexp.MustCompile(`^use\s+(\w[\w.-]*)\s*;?\s*$`)
+)
 
 // Compile parses and validates a MongoDB wire command from Extended JSON input.
 func Compile(input string) (ExecSpec, error) {
