@@ -129,32 +129,17 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 	return types.QRecordSchema{Fields: schema}, nil
 }
 
-// Helper function to convert MySQL geometry binary data to WKT format
-func geometryValueFromBytes(wkbData []byte) (string, error) {
-	// Try to parse it as WKB with the MySQL header
-	g, err := geom.NewGeomFromWKB(wkbData)
+// MySQL's internal geometry format is 4-byte SRID (little-endian) followed by standard WKB.
+// SRID is stripped because destinations like ClickHouse don't support EWKT (SRID=N;WKT).
+func processGeometryData(data []byte) (types.QValueGeometry, error) {
+	if len(data) <= 4 {
+		return types.QValueGeometry{}, fmt.Errorf("geometry data too short: %d bytes", len(data))
+	}
+	g, err := geom.NewGeomFromWKB(data[4:])
 	if err != nil {
-		return "", err
+		return types.QValueGeometry{}, fmt.Errorf("failed to parse geometry WKB: %w", err)
 	}
-
-	// Convert to WKT format
-	wkt := g.ToWKT()
-	if srid := g.SRID(); srid != 0 {
-		wkt = fmt.Sprintf("SRID=%d;%s", srid, wkt)
-	}
-	return wkt, nil
-}
-
-// Helper function to process geometry data and return a QValueGeometry
-func processGeometryData(data []byte) types.QValueGeometry {
-	// For geometry data, we need to convert from MySQL's binary format to WKT
-	if len(data) > 4 {
-		wkt, err := geometryValueFromBytes(data)
-		if err == nil {
-			return types.QValueGeometry{Val: wkt}
-		}
-	}
-	return types.QValueGeometry{Val: string(data)}
+	return types.QValueGeometry{Val: g.ToWKT()}, nil
 }
 
 // https://dev.mysql.com/doc/refman/8.4/en/time.html
@@ -303,7 +288,7 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 		case types.QValueKindJSON:
 			return types.QValueJSON{Val: string(v)}, nil
 		case types.QValueKindGeometry:
-			return processGeometryData(v), nil
+			return processGeometryData(v)
 		case types.QValueKindNumeric:
 			val, err := decimal.NewFromString(unsafeString)
 			if err != nil {
@@ -456,7 +441,7 @@ func QValueFromMysqlRowEvent(
 			return types.QValueJSON{Val: string(val)}, nil
 		case types.QValueKindGeometry:
 			// Handle geometry data as binary (WKB format)
-			return processGeometryData(val), nil
+			return processGeometryData(val)
 		case types.QValueKindArrayFloat32:
 			floats := make([]float32, 0, len(val)/4)
 			for i := 0; i < len(val); i += 4 {
