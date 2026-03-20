@@ -10,11 +10,11 @@ type QualifiedTable struct {
 	Table     string // table or collection
 }
 
-func (t *QualifiedTable) String() string {
+func (t QualifiedTable) String() string {
 	return fmt.Sprintf("%s.%s", QuoteIdentifier(t.Namespace), QuoteIdentifier(t.Table))
 }
 
-func (t *QualifiedTable) MySQL() string {
+func (t QualifiedTable) MySQL() string {
 	return fmt.Sprintf("%s.%s", QuoteMySQLIdentifier(t.Namespace), QuoteMySQLIdentifier(t.Table))
 }
 
