@@ -265,7 +265,6 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
 
-			// Distributed table isn't created for null tables, no need to alter shard tables that don't exist
 			if shardTableName != "" {
 				if err := c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
