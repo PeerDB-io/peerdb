@@ -39,3 +39,6 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 
+      - name: Print Claude execution output
+        if: always()
+        run: cat /home/runner/work/_temp/claude-execution-output.json || echo "No execution output found"
