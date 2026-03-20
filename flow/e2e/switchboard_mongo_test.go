@@ -182,6 +182,51 @@ func (s SwitchboardMongoSuite) Test_Help() {
 }
 
 // ========================================
+// Database Switching
+// ========================================
+
+func (s SwitchboardMongoSuite) Test_UseDatabase() {
+	otherDb := s.testDatabase() + "_other"
+	otherCollection := s.source.AdminClient().Database(otherDb).Collection("other_collection")
+	s.t.Cleanup(func() {
+		_ = s.source.AdminClient().Database(otherDb).Drop(s.t.Context())
+	})
+
+	_, err := otherCollection.InsertOne(s.t.Context(), bson.D{
+		{Key: "_id", Value: 1},
+		{Key: "name", Value: "from_other_db"},
+	})
+	require.NoError(s.t, err)
+
+	dsn := switchboardDSN(s.peer.Name, nil)
+	cfg, err := pgx.ParseConfig(dsn)
+	require.NoError(s.t, err)
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	conn, err := pgx.ConnectConfig(s.t.Context(), cfg)
+	require.NoError(s.t, err)
+	defer conn.Close(s.t.Context())
+
+	var result string
+	err = conn.QueryRow(s.t.Context(), "use "+otherDb).Scan(&result)
+	require.NoError(s.t, err)
+	require.Contains(s.t, result, "switched to db")
+
+	err = conn.QueryRow(s.t.Context(), `{"find": "other_collection", "filter": {}}`).Scan(&result)
+	require.NoError(s.t, err)
+	require.Contains(s.t, result, "from_other_db")
+
+	err = conn.QueryRow(s.t.Context(), "use "+s.testDatabase()).Scan(&result)
+	require.NoError(s.t, err)
+
+	err = conn.QueryRow(s.t.Context(),
+		fmt.Sprintf(`{"find": "%s", "filter": {}}`, s.testCollection()),
+	).Scan(&result)
+	require.NoError(s.t, err)
+	require.Contains(s.t, result, "alice")
+}
+
+// ========================================
 // Denied Operations
 // ========================================
 
