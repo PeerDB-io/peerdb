@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -109,16 +110,27 @@ func (s ClickHouseSuite) Test_MySQL_Tinyint1_OldVersion() {
 
 	EnvWaitForCount(env, s, "waiting on initial", dstTableName, "id", 2)
 
-	// old version maps tinyint(1) as bool, so non-zero values become true (1)
+	isMySQL8 := os.Getenv("CI_MYSQL_VERSION") == "mysql-gtid"
 	rows, err := s.GetRows(dstTableName, "id,b,t1,t1u")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2)
+	// old version maps tinyint(1) as bool, so non-zero values become true
 	require.Equal(s.t, true, rows.Records[0][1].Value())
 	require.Equal(s.t, true, rows.Records[0][2].Value())
-	require.Equal(s.t, true, rows.Records[0][3].Value())
+	// MySQL 8.0+ strips (1) from `tinyint(1) unsigned` in column_type,
+	// so unsigned was already mapped as UInt8 not Bool before the Tinyint1AsInt change
+	if !isMySQL8 {
+		require.Equal(s.t, true, rows.Records[0][3].Value())
+	} else {
+		require.Equal(s.t, uint8(200), rows.Records[0][3].Value())
+	}
 	require.Equal(s.t, false, rows.Records[1][1].Value())
 	require.Equal(s.t, false, rows.Records[1][2].Value())
-	require.Equal(s.t, false, rows.Records[1][3].Value())
+	if !isMySQL8 {
+		require.Equal(s.t, false, rows.Records[1][3].Value())
+	} else {
+		require.Equal(s.t, uint8(0), rows.Records[1][3].Value())
+	}
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`insert into %s (b,t1,t1u) values (true,3,250),(false,0,0)`, srcFullName)))
@@ -130,10 +142,18 @@ func (s ClickHouseSuite) Test_MySQL_Tinyint1_OldVersion() {
 	require.Len(s.t, rows.Records, 4)
 	require.Equal(s.t, true, rows.Records[2][1].Value())
 	require.Equal(s.t, true, rows.Records[2][2].Value())
-	require.Equal(s.t, true, rows.Records[2][3].Value())
+	if !isMySQL8 {
+		require.Equal(s.t, true, rows.Records[2][3].Value())
+	} else {
+		require.Equal(s.t, uint8(250), rows.Records[2][3].Value())
+	}
 	require.Equal(s.t, false, rows.Records[3][1].Value())
 	require.Equal(s.t, false, rows.Records[3][2].Value())
-	require.Equal(s.t, false, rows.Records[3][3].Value())
+	if !isMySQL8 {
+		require.Equal(s.t, false, rows.Records[3][3].Value())
+	} else {
+		require.Equal(s.t, uint8(0), rows.Records[3][3].Value())
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
