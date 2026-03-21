@@ -11,14 +11,15 @@ import (
 func TestCompile(t *testing.T) {
 	//nolint:govet // fieldalignment: test code, readability preferred
 	tests := []struct {
-		name        string
-		input       string
-		wantKind    ResultKind
-		wantAdminDB bool
-		wantHelp    bool
-		wantErr     bool
-		wantErrKind errorKind
-		wantErrMsg  string
+		name         string
+		input        string
+		wantKind     ResultKind
+		wantAdminDB  bool
+		wantHelp     bool
+		wantSwitchDB string
+		wantErr      bool
+		wantErrKind  errorKind
+		wantErrMsg   string
 	}{
 		// Result paths
 		{name: "cursor", input: `{"find": "coll", "filter": {}}`, wantKind: ResultCursor},
@@ -26,6 +27,9 @@ func TestCompile(t *testing.T) {
 		{name: "adminDB", input: `{"listDatabases": 1}`, wantKind: resultScalar, wantAdminDB: true},
 		{name: "trailingSemicolon", input: `{"ping": 1};`, wantKind: resultScalar},
 		{name: "help", input: "help", wantHelp: true},
+		{name: "useDB", input: "use mydb", wantSwitchDB: "mydb"},
+		{name: "useDB/semicolon", input: "use mydb;", wantSwitchDB: "mydb"},
+		{name: "useDB/spaces", input: "  use  mydb  ", wantSwitchDB: "mydb"},
 
 		// Errors
 		{name: "error/empty", input: "", wantErr: true, wantErrKind: errParse},
@@ -58,6 +62,11 @@ func TestCompile(t *testing.T) {
 				return
 			}
 
+			if tt.wantSwitchDB != "" {
+				require.Equal(t, tt.wantSwitchDB, got.SwitchDB)
+				return
+			}
+
 			require.NotEmpty(t, got.Command)
 			require.Equal(t, tt.wantKind, got.ResultKind)
 			require.Equal(t, tt.wantAdminDB, got.AdminDB)
@@ -80,7 +89,7 @@ func TestGlobalHelp(t *testing.T) {
 	}
 	help := flattenRows(rows)
 	wants := []string{
-		"Allowed Wire Commands:", "Input Format:",
+		"Allowed Wire Commands:", "Input Format:", "Shell Commands:", "use <dbname>",
 		"ping", "find", "/reference/command/", "listCollections", "listDatabases",
 	}
 	for _, want := range wants {
