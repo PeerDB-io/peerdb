@@ -186,7 +186,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
+	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env, config.Version,
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)

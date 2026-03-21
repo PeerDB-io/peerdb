@@ -3,6 +3,8 @@ package e2e
 import (
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -36,12 +38,15 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 		i24 mediumint zerofill, u24 mediumint unsigned,
 		i32 int, u32 int unsigned zerofill,
 		i64 bigint, u64 bigint unsigned,
-		d decimal(7, 6), b boolean
+		d decimal(7, 6), b boolean,
+		t1 tinyint(1), t1u tinyint(1) unsigned
 	)`, srcFullName)))
 
+	cols := "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b,t1,t1u"
+
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`insert into %s
-		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b)
-		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,true)
+		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b,t1,t1u)
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,true,-7,200)
 	`, srcFullName, int64(math.MinInt64), uint64(math.MaxUint64))))
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -56,14 +61,99 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, cols)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`insert into %s
-		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b)
-		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,false)
+		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b,t1,t1u)
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,false,-128,255)
 	`, srcFullName, int64(math.MinInt64), uint64(math.MaxUint64))))
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, cols)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Tinyint1_OldVersion() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_tinyint1_old"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_tinyint1_old"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`CREATE TABLE %s (
+		id serial primary key,
+		b boolean, t1 tinyint(1), t1u tinyint(1) unsigned
+	)`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (b,t1,t1u) values (true,-7,200),(false,0,0)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      srcFullName,
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(
+			uint64(shared.InternalVersion_MySQLTinyint1AsInt-1), 10),
+	}
+	flowConnConfig.Version = shared.InternalVersion_MySQLTinyint1AsInt - 1
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on initial", dstTableName, "id", 2)
+
+	isMySQL8 := os.Getenv("CI_MYSQL_VERSION") == "mysql-gtid"
+	rows, err := s.GetRows(dstTableName, "id,b,t1,t1u")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	// old version maps tinyint(1) as bool, so non-zero values become true
+	require.Equal(s.t, true, rows.Records[0][1].Value())
+	require.Equal(s.t, true, rows.Records[0][2].Value())
+	// MySQL 8.0+ strips (1) from `tinyint(1) unsigned` in column_type,
+	// so unsigned was already mapped as UInt8 not Bool before the Tinyint1AsInt change
+	if !isMySQL8 {
+		require.Equal(s.t, true, rows.Records[0][3].Value())
+	} else {
+		require.Equal(s.t, uint8(200), rows.Records[0][3].Value())
+	}
+	require.Equal(s.t, false, rows.Records[1][1].Value())
+	require.Equal(s.t, false, rows.Records[1][2].Value())
+	if !isMySQL8 {
+		require.Equal(s.t, false, rows.Records[1][3].Value())
+	} else {
+		require.Equal(s.t, uint8(0), rows.Records[1][3].Value())
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (b,t1,t1u) values (true,3,250),(false,0,0)`, srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id", 4)
+
+	rows, err = s.GetRows(dstTableName, "id,b,t1,t1u")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 4)
+	require.Equal(s.t, true, rows.Records[2][1].Value())
+	require.Equal(s.t, true, rows.Records[2][2].Value())
+	if !isMySQL8 {
+		require.Equal(s.t, true, rows.Records[2][3].Value())
+	} else {
+		require.Equal(s.t, uint8(250), rows.Records[2][3].Value())
+	}
+	require.Equal(s.t, false, rows.Records[3][1].Value())
+	require.Equal(s.t, false, rows.Records[3][2].Value())
+	if !isMySQL8 {
+		require.Equal(s.t, false, rows.Records[3][3].Value())
+	} else {
+		require.Equal(s.t, uint8(0), rows.Records[3][3].Value())
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
