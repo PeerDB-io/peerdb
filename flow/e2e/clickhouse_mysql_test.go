@@ -36,12 +36,15 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 		i24 mediumint zerofill, u24 mediumint unsigned,
 		i32 int, u32 int unsigned zerofill,
 		i64 bigint, u64 bigint unsigned,
-		d decimal(7, 6), b boolean
+		d decimal(7, 6), b boolean,
+		t1 tinyint(1), t1u tinyint(1) unsigned
 	)`, srcFullName)))
 
+	cols := "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b,t1,t1u"
+
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`insert into %s
-		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b)
-		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,true)
+		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b,t1,t1u)
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,true,-7,200)
 	`, srcFullName, int64(math.MinInt64), uint64(math.MaxUint64))))
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -56,14 +59,14 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, cols)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`insert into %s
-		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b)
-		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,false)
+		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b,t1,t1u)
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,false,-128,255)
 	`, srcFullName, int64(math.MinInt64), uint64(math.MaxUint64))))
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, cols)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
