@@ -2949,7 +2949,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id INT PRIMARY KEY,
 		myname TEXT NOT NULL,
-		updated_at TIMESTAMP)`, srcFullName)))
+		updated_at TIMESTAMP NULL)`, srcFullName)))
 
 	for i := 1; i <= 100; i++ {
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
