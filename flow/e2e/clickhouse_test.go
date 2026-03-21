@@ -3346,6 +3346,195 @@ func (s ClickHouseSuite) Test_CTID_Multi_Level_Partitioned_Table() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_CTID_Inherited_Table() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_ctid_inherited"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_ctid_inherited_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (id SERIAL PRIMARY KEY, name TEXT)`, srcFullName)))
+
+	numChildren := 3
+	for i := range numChildren {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s_child%d () INHERITS (%s)`, srcFullName, i, srcFullName)))
+	}
+
+	rowsPerTable := 50
+	totalRows := 0
+	for j := range rowsPerTable {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s (name) VALUES ('parent_%d')`, srcFullName, j)))
+		totalRows += 1
+	}
+	for i := range numChildren {
+		for j := range rowsPerTable {
+			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`INSERT INTO %s_child%d (name) VALUES ('child_%d_%d')`, srcFullName, i, i, j)))
+			totalRows += 1
+		}
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ctid_inherited"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumPartitionsOverride = 8
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForCount(env, s, "wait on initial snapshot of inherited table", dstTableName, "id", totalRows)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (name) VALUES ('cdc_row')`, srcFullName)))
+	EnvWaitForCount(env, s, "wait on cdc after inherited snapshot", dstTableName, "id", totalRows+1)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_CTID_Multi_Level_Inherited_Table() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_ctid_multi_inh"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_ctid_multi_inh_dst"
+
+	// Grandparent -> 2 parents -> 2 leaves each (7 tables total)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, srcFullName)))
+
+	allTables := []string{srcFullName}
+	for m := range 2 {
+		mid := fmt.Sprintf("%s_mid%d", srcFullName, m)
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s () INHERITS (%s)`, mid, srcFullName)))
+		allTables = append(allTables, mid)
+		for l := range 2 {
+			leaf := fmt.Sprintf("%s_mid%d_leaf%d", srcFullName, m, l)
+			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`CREATE TABLE %s () INHERITS (%s)`, leaf, mid)))
+			allTables = append(allTables, leaf)
+		}
+	}
+
+	rowsPerTable := 20
+	totalRows := 0
+	for _, tbl := range allTables {
+		for j := range rowsPerTable {
+			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (value) VALUES ('v_%d')`, tbl, j)))
+			totalRows++
+		}
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ctid_multi_inh"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumPartitionsOverride = 10
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForCount(env, s, "wait on multi-level inherited snapshot", dstTableName, "id", totalRows)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (value) VALUES ('cdc_after_multi_inh')`, srcFullName)))
+	EnvWaitForCount(env, s, "wait on cdc after multi-level inherited snapshot", dstTableName, "id", totalRows+1)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_CTID_Inherited_Table_Extra_Columns() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_ctid_inh_extra_cols"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_ctid_inh_extra_cols_dst"
+
+	// Parent has (id, name)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (id SERIAL PRIMARY KEY, name TEXT)`, srcFullName)))
+
+	// child0 has (id, name age)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s_child0 (age INT) INHERITS (%s)`, srcFullName, srcFullName)))
+
+	// child1 (id, name, email, country_code)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s_child1 (email TEXT, country_code TEXT) INHERITS (%s)`, srcFullName, srcFullName)))
+
+	rowsPerTable := 5
+	totalRows := 0
+	for j := range rowsPerTable {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s (name) VALUES ('parent_%d')`, srcFullName, j)))
+		totalRows++
+	}
+	for j := range rowsPerTable {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s_child0 (name, age) VALUES ('child0_%d', %d)`,
+			srcFullName, j, 20+j)))
+		totalRows++
+	}
+	for j := range rowsPerTable {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s_child1 (name, email, country_code) VALUES ('child1_%d', 'c1_%d@test.com', 'US')`,
+			srcFullName, j, j)))
+		totalRows++
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ctid_inh_extra_cols"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumPartitionsOverride = 6
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForCount(env, s, "wait on inherited snapshot with extra columns", dstTableName, "id", totalRows)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s_child0 (name, age) VALUES ('cdc_extra_col', 99)`, srcFullName)))
+	EnvWaitForCount(env, s, "wait on cdc after inherited extra cols snapshot", dstTableName, "id", totalRows+1)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_Composite_PKey() {
 	srcTableName := "test_composite_pkey_ordering"
 	srcFullName := s.attachSchemaSuffix(srcTableName)

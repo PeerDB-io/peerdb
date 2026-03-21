@@ -238,8 +238,6 @@ func (c *PostgresConnector) getPartitions(
 	default:
 		partitionFunc = NTileBucketPartitioningFunc
 	}
-
-	c.logger.Info("using partition function", slog.String("partitionFunc", fmt.Sprintf("%T", partitionFunc)))
 	return partitionFunc(ctx, partitionParams)
 }
 
@@ -368,7 +366,7 @@ func corePullQRepRecords(
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
 	selectedColumns := "*"
-	if len(config.Exclude) != 0 {
+	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
 		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to load table schema: %w", err)
@@ -507,7 +505,8 @@ func pullChildTableRanges(
 			return 0, 0, fmt.Errorf("failed to parse child table %s: %w", child.Table, err)
 		}
 
-		query := fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN $1 AND $2",
+		// ONLY excludes rows from child tables, ensuring we don't double-count inherited rows.
+		query := fmt.Sprintf("SELECT %s FROM ONLY %s WHERE %s BETWEEN $1 AND $2",
 			selectedColumns, parsedChild.String(), quotedWatermarkColumn)
 
 		rangeStart := pgtype.TID{

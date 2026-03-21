@@ -549,7 +549,7 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 	}
 }
 
-func TestCtidPartitionsForPartitionedTableOffsetNumberBounds(t *testing.T) {
+func TestCtidPartitionsForChildTablesOffsetNumberBounds(t *testing.T) {
 	t.Parallel()
 	pp := PartitionParams{
 		numPartitions: 8,
@@ -560,8 +560,8 @@ func TestCtidPartitionsForPartitionedTableOffsetNumberBounds(t *testing.T) {
 		"public.t2": 45,
 		"public.t3": 10,
 	}
-	// blocksPerPartition = DivCeil(160, 8) = 20
-	partitions, err := ctidPartitionsForPartitionedTable(pp, leafBlocks, 100+45+10)
+	// blocksPerPartition = DivCeil(155, 8) = 20
+	partitions, err := ctidPartitionsForChildTables(pp, leafBlocks)
 	require.NoError(t, err)
 	require.Len(t, partitions, 8)
 
@@ -593,6 +593,162 @@ func TestCtidPartitionsForPartitionedTableOffsetNumberBounds(t *testing.T) {
 			assert.Equal(t, exp.End, ctr.End, msg)
 		}
 	}
+}
+
+func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, connStr := setupTestSchema(t)
+
+	parentTable := schemaName + ".parent_inh"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTable))
+	require.NoError(t, err)
+
+	numChildren := 3
+	rowsPerTable := 20
+	childTables := make([]string, numChildren)
+	for i := range numChildren {
+		childTables[i] = fmt.Sprintf("%s.child_inh_%d", schemaName, i)
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, childTables[i], parentTable))
+		require.NoError(t, err)
+	}
+
+	for j := range rowsPerTable {
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`INSERT INTO %s (value) VALUES ($1)`, parentTable), fmt.Sprintf("parent_%d", j))
+		require.NoError(t, err)
+	}
+	for i, child := range childTables {
+		for j := range rowsPerTable {
+			_, err = conn.Exec(t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (value) VALUES ($1)`, child), fmt.Sprintf("child_%d_%d", i, j))
+			require.NoError(t, err)
+		}
+	}
+
+	c := &PostgresConnector{
+		connStr: connStr,
+		Config:  &protos.PostgresConfig{},
+		conn:    conn,
+		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testInherited"))),
+	}
+	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+		FlowJobName:           "test_ctid_inherited",
+		NumRowsPerPartition:   10,
+		NumPartitionsOverride: 8,
+		WatermarkTable:        parentTable,
+		WatermarkColumn:       "ctid",
+		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
+	}, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, partitions)
+
+	childTablesCovered := make(map[string]bool)
+	for _, p := range partitions {
+		require.NotEmpty(t, p.ChildTableRanges)
+		for _, ctr := range p.ChildTableRanges {
+			childTablesCovered[ctr.Table] = true
+		}
+	}
+	require.Len(t, childTablesCovered, 1+numChildren)
+	require.True(t, childTablesCovered[parentTable])
+	for _, child := range childTables {
+		require.True(t, childTablesCovered[child])
+	}
+}
+
+func TestCTIDPartitioningOnMultiLevelInheritedTable(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, connStr := setupTestSchema(t)
+
+	grandparent := schemaName + ".grandparent"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, grandparent))
+	require.NoError(t, err)
+
+	parent1 := schemaName + ".parent_1"
+	parent2 := schemaName + ".parent_2"
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, parent1, grandparent))
+	require.NoError(t, err)
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, parent2, grandparent))
+	require.NoError(t, err)
+
+	leaf1 := schemaName + ".leaf_1"
+	leaf2 := schemaName + ".leaf_2"
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, leaf1, parent1))
+	require.NoError(t, err)
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, leaf2, parent2))
+	require.NoError(t, err)
+
+	rowsPerTable := 15
+	allTables := []string{grandparent, parent1, parent2, leaf1, leaf2}
+	for _, tbl := range allTables {
+		for j := range rowsPerTable {
+			_, err = conn.Exec(t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (value) VALUES ($1)`, tbl), fmt.Sprintf("v_%d", j))
+			require.NoError(t, err)
+		}
+	}
+
+	c := &PostgresConnector{
+		connStr: connStr,
+		Config:  &protos.PostgresConfig{},
+		conn:    conn,
+		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testMultiLevelInherited"))),
+	}
+	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+		FlowJobName:           "test_ctid_multi_inherited",
+		NumRowsPerPartition:   10,
+		NumPartitionsOverride: 10,
+		WatermarkTable:        grandparent,
+		WatermarkColumn:       "ctid",
+		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
+	}, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, partitions)
+
+	tablesCovered := make(map[string]bool)
+	for _, p := range partitions {
+		require.NotEmpty(t, p.ChildTableRanges)
+		for _, ctr := range p.ChildTableRanges {
+			tablesCovered[ctr.Table] = true
+		}
+	}
+	require.Len(t, tablesCovered, len(allTables))
+	for _, tbl := range allTables {
+		require.True(t, tablesCovered[tbl])
+	}
+}
+
+func TestCTIDPartitioningOnEmptyInheritedTable(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, connStr := setupTestSchema(t)
+
+	parentTable := schemaName + ".empty_inh"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY,value TEXT)`, parentTable))
+	require.NoError(t, err)
+
+	for i := range 3 {
+		child := fmt.Sprintf("%s.empty_inh_child_%d", schemaName, i)
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s () INHERITS (%s)`, child, parentTable))
+		require.NoError(t, err)
+	}
+
+	c := &PostgresConnector{
+		connStr: connStr,
+		Config:  &protos.PostgresConfig{},
+		conn:    conn,
+		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testAllEmptyInherited"))),
+	}
+	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+		FlowJobName:           "test_ctid_all_empty_inherited",
+		NumRowsPerPartition:   10,
+		NumPartitionsOverride: 4,
+		WatermarkTable:        parentTable,
+		WatermarkColumn:       "ctid",
+		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
+	}, nil)
+	require.NoError(t, err)
+	require.Empty(t, partitions)
 }
 
 // returns the number of rows inserted
