@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func QkindFromMysqlColumnType(ct string, version uint32) (types.QValueKind, error) {
+func QkindFromMysqlColumnType(ct string) (types.QValueKind, error) {
 	// https://mariadb.com/docs/server/reference/data-types/date-and-time-data-types/timestamp#tab-current-1
 	ct, _ = strings.CutSuffix(ct, " /* mariadb-5.3 */")
 	ct, _ = strings.CutSuffix(ct, " zerofill")
@@ -36,10 +35,9 @@ func QkindFromMysqlColumnType(ct string, version uint32) (types.QValueKind, erro
 	case "double":
 		return types.QValueKindFloat64, nil
 	case "tinyint":
-		if strings.HasPrefix(param, "1)") && version < shared.InternalVersion_MySQLTinyint1AsInt {
+		if strings.HasPrefix(param, "1)") {
 			return types.QValueKindBoolean, nil
-		}
-		if isUnsigned {
+		} else if isUnsigned {
 			return types.QValueKindUInt8, nil
 		} else {
 			return types.QValueKindInt8, nil

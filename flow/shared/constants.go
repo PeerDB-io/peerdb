@@ -42,8 +42,6 @@ const (
 	InternalVersion_JsonEscapeDotsInKeys
 	// MongoDB: `_id` column values stored as-is without redundant quotes
 	InternalVersion_MongoDBIdWithoutRedundantQuotes
-	// MySQL: map tinyint(1) as Int8/UInt8 instead of Boolean
-	InternalVersion_MySQLTinyint1AsInt
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
