@@ -29,6 +29,7 @@ jobs:
         id: detect
         uses: anthropics/claude-code-action@main
         with:
+          allowed_bots: 'renovate'
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           additional_permissions: |
             actions: read
