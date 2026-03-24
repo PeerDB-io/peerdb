@@ -208,17 +208,13 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	defer cursor.Close(ctx)
 
+	converter := NewDirectBsonConverter()
 	for cursor.Next(ctx) {
-		var doc bson.D
-		if err := bson.Unmarshal(cursor.Current, &doc); err != nil {
-			c.logger.Error("failed to unmarshal record",
+		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter)
+		if err != nil {
+			c.logger.Error("failed to convert record",
 				slog.String("error", err.Error()),
 				slog.Any("recordSize", len(cursor.Current)))
-			return 0, 0, fmt.Errorf("failed to unmarshal record: %w", err)
-		}
-
-		record, err := QValuesFromDocument(doc, config.Version)
-		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
 		}
 
@@ -298,32 +294,4 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 	default:
 		return nil, fmt.Errorf("unsupported partition range type")
 	}
-}
-
-func QValuesFromDocument(doc bson.D, version uint32) ([]types.QValue, error) {
-	var qValues []types.QValue
-
-	var qvalueId types.QValueString
-	var err error
-	for _, v := range doc {
-		if v.Key == DefaultDocumentKeyColumnName {
-			qvalueId, err = qValueStringFromKey(v.Value, version)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
-			}
-			break
-		}
-	}
-	if qvalueId.Val == "" {
-		return nil, fmt.Errorf("key %s not found", DefaultDocumentKeyColumnName)
-	}
-	qValues = append(qValues, qvalueId)
-
-	qvalueDoc, err := qValueJSONFromDocument(doc)
-	if err != nil {
-		return nil, err
-	}
-	qValues = append(qValues, qvalueDoc)
-
-	return qValues, nil
 }

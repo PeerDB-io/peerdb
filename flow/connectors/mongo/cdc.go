@@ -31,8 +31,8 @@ type Namespace struct {
 type ChangeEvent struct {
 	Ns            Namespace      `bson:"ns"`
 	OperationType string         `bson:"operationType"`
-	DocumentKey   bson.D         `bson:"documentKey,omitempty"`
-	FullDocument  bson.D         `bson:"fullDocument,omitempty"`
+	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
+	FullDocument  bson.Raw       `bson:"fullDocument,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
@@ -215,21 +215,12 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	addRecordItems := func(documentKey bson.D, fullDocument bson.D, items *model.RecordItems, tableName string) error {
+	converter := NewDirectBsonConverter()
+	addRecordItems := func(documentKey bson.Raw, fullDocument bson.Raw, items *model.RecordItems, tableName string) error {
 		if documentKey != nil {
-			var idValue any
-			for _, elem := range documentKey {
-				if elem.Key == DefaultDocumentKeyColumnName {
-					idValue = elem.Value
-					break
-				}
-			}
-			if idValue == nil {
-				return exceptions.NewInvalidIdValueError(tableName)
-			}
-			qValue, err := qValueStringFromKey(idValue, req.InternalVersion)
+			qValue, err := converter.QValueStringFromKey(documentKey, req.InternalVersion)
 			if err != nil {
-				return fmt.Errorf("failed to convert _id to string: %w", err)
+				return exceptions.NewInvalidIdValueError(tableName)
 			}
 			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
 		} else {
@@ -237,7 +228,7 @@ func (c *MongoConnector) PullRecords(
 		}
 
 		if fullDocument != nil {
-			qValue, err := qValueJSONFromDocument(fullDocument)
+			qValue, err := converter.QValueJSONFromDocument(fullDocument)
 			if err != nil {
 				return fmt.Errorf("failed to convert full document to JSON: %w", err)
 			}
