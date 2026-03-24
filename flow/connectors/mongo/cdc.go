@@ -31,8 +31,8 @@ type Namespace struct {
 type ChangeEvent struct {
 	Ns            Namespace      `bson:"ns"`
 	OperationType string         `bson:"operationType"`
-	DocumentKey   bson.D         `bson:"documentKey,omitempty"`
-	FullDocument  bson.D         `bson:"fullDocument,omitempty"`
+	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
+	FullDocument  bson.Raw       `bson:"fullDocument,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
@@ -215,31 +215,29 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	addRecordItems := func(documentKey bson.D, fullDocument bson.D, items *model.RecordItems, tableName string) error {
+	converter, err := NewBsonConverter(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to create converter: %w", err)
+	}
+	addRecordItems := func(documentKey bson.Raw, fullDocument bson.Raw, items *model.RecordItems, tableName string) error {
 		if documentKey != nil {
-			var idValue any
-			for _, elem := range documentKey {
-				if elem.Key == DefaultDocumentKeyColumnName {
-					idValue = elem.Value
-					break
-				}
-			}
-			if idValue == nil {
+			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
+			if rv.IsZero() {
 				return exceptions.NewInvalidIdValueError(tableName)
 			}
-			qValue, err := qValueStringFromKey(idValue, req.InternalVersion)
+			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
 			if err != nil {
-				return fmt.Errorf("failed to convert _id to string: %w", err)
+				return fmt.Errorf("failed to convert key: %w", err)
 			}
 			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
 		} else {
-			return fmt.Errorf("document key _id not found")
+			return fmt.Errorf("document key is nil")
 		}
 
 		if fullDocument != nil {
-			qValue, err := qValueJSONFromDocument(fullDocument)
+			qValue, err := converter.QValueJSONFromDocument(fullDocument)
 			if err != nil {
-				return fmt.Errorf("failed to convert full document to JSON: %w", err)
+				return fmt.Errorf("failed to convert document: %w", err)
 			}
 			items.AddColumn(fullDocumentColumnName, qValue)
 		} else {

@@ -70,13 +70,13 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 		Records: nil,
 	}
 
+	converter, err := connmongo.NewBsonConverter(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	for cursor.Next(ctx) {
-		var doc bson.D
-		err := bson.Unmarshal(cursor.Current, &doc)
-		if err != nil {
-			return nil, err
-		}
-		record, err := connmongo.QValuesFromDocument(doc, shared.InternalVersion_Latest)
+		record, err := connmongo.QValuesFromBsonRaw(cursor.Current, shared.InternalVersion_Latest, converter, table)
 		if err != nil {
 			return nil, err
 		}
