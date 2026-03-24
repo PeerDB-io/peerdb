@@ -20,6 +20,8 @@ type mergeStmtGenerator struct {
 	rawDatasetTable datasetTable
 	// batch id currently to be merged
 	mergeBatchId int64
+	// whether to use make_valid in ST_GEOGFROMTEXT
+	geoMakeValid bool
 }
 
 // generateFlattenedCTE generates a flattened CTE.
@@ -51,8 +53,13 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
 				bqTypeString, column.Name, shortCol)
 		case types.QValueKindGeography, types.QValueKindGeometry, types.QValueKindPoint:
-			castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
-				column.Name, bqTypeString, shortCol)
+			if m.geoMakeValid {
+				castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s'), make_valid => TRUE) AS %s) AS `%s`",
+					column.Name, bqTypeString, shortCol)
+			} else {
+				castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
+					column.Name, bqTypeString, shortCol)
+			}
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_VALUE(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)
