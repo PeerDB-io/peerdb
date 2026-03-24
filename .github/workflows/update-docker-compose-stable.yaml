@@ -1,4 +1,4 @@
-name: Update Deployment tags
+name: Update Deployment tags (Docker Compose and Helm Charts)
 
 on:
   schedule:
