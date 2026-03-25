@@ -1,0 +1,25 @@
+name: peerdb-ancillary-services
+
+services:
+  mongodb:
+    container_name: mongodb
+    image: ${MONGODB_IMAGE}
+    entrypoint: ["bash", "-c", "openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && exec mongod --replSet rs0 --oplogMinRetentionHours 24 --bind_ip_all --keyFile /data/mongo.key"]
+    restart: unless-stopped
+    ports:
+      - 27017:27017
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+#volumes:
+#  pgdata:
+#  minio-data:
+
+networks:
+  default:
+    name: peerdb_network
