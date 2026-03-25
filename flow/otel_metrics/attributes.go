@@ -18,6 +18,7 @@ const (
 	sourcePeerHostname         = "sourcePeerHostname"
 	SourcePeerVariant          = "sourcePeerVariant"
 	DestinationPeerType        = "destinationPeerType"
+	destinationPeerHostname    = "destinationPeerHostname"
 	SourcePeerName             = "sourcePeerName"
 	DestinationPeerName        = "destinationPeerName"
 	FlowStatusKey              = "flowStatus"

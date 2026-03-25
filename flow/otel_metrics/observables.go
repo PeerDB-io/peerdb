@@ -127,6 +127,7 @@ func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
 			attributes = append(attributes,
 				attribute.Stringer(DestinationPeerType, flowMetadata.Destination.Type),
 				attribute.String(DestinationPeerName, flowMetadata.Destination.Name))
+			attribute.String(destinationPeerHostname, flowMetadata.Destination.Hostname)
 		}
 		attributes = append(attributes,
 			attribute.Stringer(FlowStatusKey, flowMetadata.Status),

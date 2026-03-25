@@ -1027,16 +1027,17 @@ type flowInformation struct {
 }
 
 type metricsFlowMetadata struct {
-	updatedAt           time.Time
-	config              *protos.FlowConnectionConfigsCore
-	sourcePeerConfig    *protos.Peer
-	name                string
-	workflowID          string
-	sourcePeerName      string
-	destinationPeerName string
-	status              protos.FlowStatus
-	sourcePeerType      protos.DBType
-	destinationPeerType protos.DBType
+	updatedAt             time.Time
+	config                *protos.FlowConnectionConfigsCore
+	sourcePeerConfig      *protos.Peer
+	destinationPeerConfig *protos.Peer
+	name                  string
+	workflowID            string
+	sourcePeerName        string
+	destinationPeerName   string
+	status                protos.FlowStatus
+	sourcePeerType        protos.DBType
+	destinationPeerType   protos.DBType
 }
 
 func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadata {
@@ -1047,8 +1048,9 @@ func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadat
 			Hostname: getPeerHostName(m.sourcePeerType, m.sourcePeerConfig),
 		},
 		Destination: &protos.PeerContextMetadata{
-			Name: m.destinationPeerName,
-			Type: m.destinationPeerType,
+			Name:     m.destinationPeerName,
+			Type:     m.destinationPeerType,
+			Hostname: getPeerHostName(m.destinationPeerType, m.destinationPeerConfig),
 		},
 		FlowName: m.config.FlowJobName,
 		Status:   m.status,
@@ -1236,7 +1238,9 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 				COALESCE(dp.name, '') AS destination_peer_name,
 				COALESCE(dp.type, 0) AS destination_peer_type,
 				COALESCE(sp.options, '') AS source_peer_config_proto,
-				sp.enc_key_id AS source_enc_key_id
+				COALESCE(dp.options, '') AS destination_peer_config_proto,
+				sp.enc_key_id AS source_enc_key_id,
+				dp.enc_key_id AS destination_enc_key_id
 			FROM
 				flows f
 			LEFT JOIN peers sp ON f.source_peer = sp.id
@@ -1254,6 +1258,8 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 		var configProto []byte
 		var sourcePeerConfig []byte
 		var sourceEncKeyID string
+		var destinationPeerConfig []byte
+		var destinationEncKeyID string
 		if err := rows.Scan(
 			&f.name,
 			&f.status,
@@ -1265,7 +1271,9 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 			&f.destinationPeerName,
 			&f.destinationPeerType,
 			&sourcePeerConfig,
+			&destinationPeerConfig,
 			&sourceEncKeyID,
+			&destinationEncKeyID,
 		); err != nil {
 			return metricsFlowMetadata{}, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -1283,6 +1291,11 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 			return metricsFlowMetadata{}, err
 		}
 		f.sourcePeerConfig = config
+		config, err = connectors.BuildPeerConfig(ctx, destinationEncKeyID, destinationPeerConfig, f.destinationPeerName, f.destinationPeerType)
+		if err != nil {
+			return metricsFlowMetadata{}, err
+		}
+		f.destinationPeerConfig = config
 		return f, nil
 	})
 	if err != nil {
