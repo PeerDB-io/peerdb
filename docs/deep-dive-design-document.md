@@ -583,16 +583,13 @@ stateDiagram-v2
     SnapshotFlow --> CDCLoop
 
     state CDCLoop {
-        [*] --> SyncFlowActivity
-        state SyncFlowActivity {
-            [*] --> Pull
-            Pull --> Sync
-            Sync --> Normalize
-            Normalize --> Pull : next batch
-        }
-        SyncFlowActivity --> [*] : completed or cancelled
-        note right of SyncFlowActivity : Signals handled in parallel\nvia Temporal selector
+        [*] --> Pull
+        Pull --> Sync
+        Sync --> Normalize
+        Normalize --> Pull : next batch
+        Normalize --> [*] : completed or cancelled
     }
+    note right of CDCLoop : Signals (pause, terminate, resync,\nconfig updates) handled in parallel\nvia Temporal selector
 
     CDCLoop --> Paused : PauseSignal
     Paused --> CDCLoop : ResumeSignal
@@ -844,7 +841,7 @@ PG Source → QValue (intermediate) → type mapping → Destination types
 1. **Pre-PG15 normalization**: TOAST columns not properly preserved with UPSERT+DELETE fallback. Mitigation: use REPLICA IDENTITY FULL.
    > **Note**: Even on PG15+, TOAST column backfill is best-effort. Values are backfilled from an in-memory cache (spilling to disk) generated per batch. If an insert and its corresponding update land in different batches, the update's TOAST value will not be successfully backfilled.
 
-2. **At-least-once delivery**: The pipeline guarantees at-least-once delivery, not exactly-once, so duplicates can occur in various scenarios (not limited to MongoDB). ClickHouse's ReplacingMergeTree (RMT) automatically deduplicates on merge, but if a user chooses MergeTree (MT), destination data may contain duplicates. MongoDB's `$bucketAuto` additionally causes boundary records to be inserted twice.
+2. **At-least-once delivery**: The pipeline guarantees at-least-once delivery, not exactly-once, so duplicates can occur in various scenarios. ClickHouse's ReplacingMergeTree (RMT) automatically deduplicates on merge, but if a user chooses MergeTree (MT), destination data may contain duplicates. MongoDB's `$bucketAuto` additionally causes boundary records to be inserted twice.
 
 3. **MySQL schema evolution without binlog_row_metadata=FULL**: Column position-shifting DDLs (ADD COLUMN FIRST/AFTER) are rejected, but may still cause incorrect column mapping without full row metadata.
 

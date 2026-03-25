@@ -336,8 +336,8 @@ flowchart TD
 
     subgraph CDC_LOOP["3. CDC Loop (continuous)"]
         direction TB
-        C1[SyncFlow Activity<br/><i>Long-running: Pull → Sync → Normalize</i>]
-        C_SIG[Signal Handling<br/><i>Parallel via Temporal selector:<br/>pause, terminate, resync, config updates</i>]
+        C1["SyncFlow Activity<br/><i>Pull → Sync → Normalize</i>"]
+        C_SIG["Signal Handling<br/><i>pause, terminate,<br/>resync, config updates</i>"]
         C1 ---|"runs in parallel"| C_SIG
         C_SIG -->|pause| PAUSED([Paused])
         C_SIG -->|terminate| TERM([Terminated])
@@ -431,7 +431,7 @@ All CDC destinations receive records into a raw staging table with this structur
 
 ## 6. Data Flow: Normalization
 
-Normalization transforms raw staged records into the final destination table format.
+Normalization transforms raw staged records into the final destination table format, multiplexing them across destination tables (one raw table to many destination tables).
 
 ### 6.1 Steps
 
