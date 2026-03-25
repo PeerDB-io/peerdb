@@ -44,12 +44,18 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: main
-      - name: create-PR
+      - name: Update PeerDb Version in docker-compose.yml
+        id: update-peerdb-version
         shell: bash
         run: |
           set -eou pipefail
           latest_tag="${{ needs.get-latest-release.outputs.latest_tag }}"
           sed -i -E 's|(image: ghcr\.io/peerdb\-io/.*?:stable-)(.*$)|\1'"${latest_tag}"'|g' docker-compose.yml
+          git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
+      - name: Create PR
+        if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
+        shell: bash
+        run: |
           git config --global user.name "${GITHUB_ACTOR}"
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git checkout -b "${PR_BRANCH}"
