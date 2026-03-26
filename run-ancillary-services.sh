@@ -18,6 +18,7 @@ fi
 # With the versions, we can resolve the docker images to be used by the ancillary services
 
 export MONGODB_IMAGE="mongo:${MONGODB_VERSION}"
+export CLICKHOUSE_IMAGE="clickhouse/clickhouse-server:${CLICKHOUSE_VERSION}"
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=.env
@@ -41,6 +42,7 @@ DOCKER="docker"
 #    DOCKER="podman"
 #fi
 
-$DOCKER compose -f ancillary-docker-compose.yml up -d --pull always --wait mongodb
+$DOCKER compose -f ancillary-docker-compose.yml up -d --pull always --wait mongodb clickhouse
 
 "$SCRIPT_DIR/local_provision_scripts/mongodb.sh"
+"$SCRIPT_DIR/local_provision_scripts/clickhouse.sh"
