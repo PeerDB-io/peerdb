@@ -16,25 +16,33 @@ import (
 )
 
 func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
-	passwordEscaped := url.QueryEscape(pgConfig.Password)
+	u := &url.URL{
+		Scheme: "postgres",
+		Host:   shared.JoinHostPort(pgConfig.Host, pgConfig.Port),
+		Path:   "/" + pgConfig.Database,
+	}
+
+	if pgConfig.Password != "" {
+		u.User = url.UserPassword(pgConfig.User, pgConfig.Password)
+	} else {
+		u.User = url.User(pgConfig.User)
+	}
+
 	applicationName := "peerdb"
 	if flowName != "" {
 		applicationName = "peerdb_" + flowName
 	}
 
-	// for a url like postgres://user:password@host:port/dbname
-	connString := fmt.Sprintf(
-		"postgres://%s:%s@%s/%s?application_name=%s&client_encoding=UTF8",
-		pgConfig.User,
-		passwordEscaped,
-		shared.JoinHostPort(pgConfig.Host, pgConfig.Port),
-		pgConfig.Database,
-		applicationName,
-	)
+	q := u.Query()
+	q.Set("application_name", applicationName)
+	q.Set("client_encoding", "UTF8")
 	if pgConfig.RequireTls {
-		connString += "&sslmode=require"
+		q.Set("sslmode", "require")
 	}
-	return connString
+
+	u.RawQuery = q.Encode()
+
+	return u.String()
 }
 
 func UpdateCDCConfigInCatalog(ctx context.Context, pool shared.CatalogPool,
