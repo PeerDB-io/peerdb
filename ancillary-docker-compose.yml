@@ -7,7 +7,7 @@ services:
     entrypoint: ["bash", "-c", "openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && exec mongod --replSet rs0 --oplogMinRetentionHours 24 --bind_ip_all --keyFile /data/mongo.key"]
     restart: unless-stopped
     ports:
-      - 27017:27017
+      - "${MONGO_PORT}:27017"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -21,11 +21,11 @@ services:
     image: ${CLICKHOUSE_IMAGE}
     restart: unless-stopped
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "${CLICKHOUSE_HTTP_PORT}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT}:9000"
     volumes:
-      - ./ch_data:/var/lib/clickhouse/
-      - ./ch_logs:/var/log/clickhouse-server/
+      - ./volumes/ch_data:/var/lib/clickhouse/
+      - ./volumes/ch_logs:/var/log/clickhouse-server/
       - ./volumes/ch_users.d:/etc/clickhouse-server/users.d/
     ulimits:
       nofile:
@@ -35,6 +35,25 @@ services:
       - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  postgres:
+    container_name: postgres
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${PG_PORT}:5432"
+    environment:
+      PGUSER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DATABASE}
+      POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "pg_isready"]
       interval: 2s
       timeout: 10s
       retries: 5
