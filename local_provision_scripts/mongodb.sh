@@ -6,16 +6,22 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/../.env"
 
 DOCKER="docker"
+CONTAINER="mongodb"
 
 echo "initialize replica set"
-$DOCKER exec mongodb mongosh --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]})' || true
+$DOCKER exec "$CONTAINER" mongosh --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]})' || true
+
+echo "waiting for replica set primary election"
+until $DOCKER exec "$CONTAINER" mongosh --quiet --eval 'rs.status().myState' 2>/dev/null | grep -q 1; do
+  sleep 1
+done
 
 echo "create admin user"
-$DOCKER exec mongodb mongosh --eval "
+$DOCKER exec "$CONTAINER" mongosh --eval "
   db = db.getSiblingDB('admin');
-  db.createUser({user: '$CI_MONGO_ADMIN_USERNAME', pwd: '$CI_MONGO_ADMIN_PASSWORD', roles: ['root']})" || true
+  db.createUser({user: '$MONGO_ADMIN_USERNAME', pwd: '$MONGO_ADMIN_PASSWORD', roles: ['root']})" || true
 
 echo "create non-admin user for reading data from changestream"
-$DOCKER exec mongodb mongosh -u "$CI_MONGO_ADMIN_USERNAME" -p "$CI_MONGO_ADMIN_PASSWORD" --eval "
+$DOCKER exec "$CONTAINER" mongosh -u "$MONGO_ADMIN_USERNAME" -p "$MONGO_ADMIN_PASSWORD" --eval "
   db = db.getSiblingDB('admin');
-  db.createUser({user: '$CI_MONGO_USERNAME', pwd: '$CI_MONGO_PASSWORD', roles: ['readAnyDatabase', 'clusterMonitor']})" || true
+  db.createUser({user: '$MONGO_USERNAME', pwd: '$MONGO_PASSWORD', roles: ['readAnyDatabase', 'clusterMonitor']})" || true
