@@ -8,20 +8,32 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 DOCKER="docker"
 CONTAINER="mongodb"
 
+# Helper: run mongosh, trying unauthenticated first then with admin credentials.
+# On first run, localhost exception allows unauthenticated access.
+# On subsequent runs, auth is required since users already exist.
+mongosh_eval() {
+  $DOCKER exec "$CONTAINER" mongosh --quiet --eval "$1" 2>/dev/null \
+    || $DOCKER exec "$CONTAINER" mongosh --quiet -u "$MONGO_ADMIN_USERNAME" -p "$MONGO_ADMIN_PASSWORD" --eval "$1"
+}
+
 echo "initialize replica set"
-$DOCKER exec "$CONTAINER" mongosh --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]})' || true
+mongosh_eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]})' || true
 
 echo "waiting for replica set primary election"
-until $DOCKER exec "$CONTAINER" mongosh --quiet --eval 'rs.status().myState' 2>/dev/null | grep -q 1; do
+until mongosh_eval 'rs.status().myState' | grep -q 1; do
   sleep 1
 done
 
 echo "create admin user"
-$DOCKER exec "$CONTAINER" mongosh --eval "
-  db = db.getSiblingDB('admin');
-  db.createUser({user: '$MONGO_ADMIN_USERNAME', pwd: '$MONGO_ADMIN_PASSWORD', roles: ['root']})" || true
+if ! mongosh_eval "db.getSiblingDB('admin').getUser('$MONGO_ADMIN_USERNAME')" | grep -q "$MONGO_ADMIN_USERNAME"; then
+  $DOCKER exec "$CONTAINER" mongosh --eval "
+    db = db.getSiblingDB('admin');
+    db.createUser({user: '$MONGO_ADMIN_USERNAME', pwd: '$MONGO_ADMIN_PASSWORD', roles: ['root']})"
+fi
 
 echo "create non-admin user for reading data from changestream"
-$DOCKER exec "$CONTAINER" mongosh -u "$MONGO_ADMIN_USERNAME" -p "$MONGO_ADMIN_PASSWORD" --eval "
-  db = db.getSiblingDB('admin');
-  db.createUser({user: '$MONGO_USERNAME', pwd: '$MONGO_PASSWORD', roles: ['readAnyDatabase', 'clusterMonitor']})" || true
+if ! $DOCKER exec "$CONTAINER" mongosh -u "$MONGO_ADMIN_USERNAME" -p "$MONGO_ADMIN_PASSWORD" --quiet --eval "db.getSiblingDB('admin').getUser('$MONGO_USERNAME')" | grep -q "$MONGO_USERNAME"; then
+  $DOCKER exec "$CONTAINER" mongosh -u "$MONGO_ADMIN_USERNAME" -p "$MONGO_ADMIN_PASSWORD" --eval "
+    db = db.getSiblingDB('admin');
+    db.createUser({user: '$MONGO_USERNAME', pwd: '$MONGO_PASSWORD', roles: ['readAnyDatabase', 'clusterMonitor']})"
+fi
