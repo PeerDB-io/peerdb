@@ -230,14 +230,19 @@ func (c *PostgresConnector) getPartitions(
 	}
 
 	var partitionFunc PartitioningFunc
+	var partitionFuncName string
 	switch {
 	case isCTIDWatermarkCol && (hasCTIDOverride || hasPartitionOverride):
 		partitionFunc = CTIDBlockPartitioningFunc
+		partitionFuncName = "CTIDBlockPartitioningFunc"
 	case hasPartitionOverride:
 		partitionFunc = MinMaxRangePartitioningFunc
+		partitionFuncName = "MinMaxRangePartitioningFunc"
 	default:
 		partitionFunc = NTileBucketPartitioningFunc
+		partitionFuncName = "NTileBucketPartitioningFunc"
 	}
+	c.logger.Info("using partition function", slog.String("partitionFunc", partitionFuncName))
 	return partitionFunc(ctx, partitionParams)
 }
 
