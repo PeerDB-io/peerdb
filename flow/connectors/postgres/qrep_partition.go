@@ -311,6 +311,8 @@ type tableClassification struct {
 func classifyTable(ctx context.Context, tx pgx.Tx, table string) (tableClassification, error) {
 	var classification tableClassification
 	err := tx.QueryRow(ctx,
+		// We fetch the qualified name from pg_class instead of using the input directly because
+		// the input table name is quoted; and we want the unquoted canonical form for uniformity
 		`SELECT format('%s.%s', n.nspname, c.relname), c.relkind::text, c.relhassubclass
 		 FROM pg_class c
 		 JOIN pg_namespace n ON c.relnamespace = n.oid
