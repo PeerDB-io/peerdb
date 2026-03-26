@@ -193,8 +193,13 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 		return nil, 0, err
 	}
 
-	// track uncompressed bytes for MongoDB due to high JSON compression ratio
-	trackUncompressed := config.SourceType == protos.DBType_MONGO
+	trackUncompressed, err := internal.PeerDBS3ChunkOnUncompressed(ctx, config.Env)
+	if err != nil {
+		return nil, 0, err
+	}
+	if config.SourceType == protos.DBType_MONGO {
+		trackUncompressed = true
+	}
 
 	s.logger.Info("writing avro chunks to S3 start",
 		slog.String("partitionId", partition.PartitionId),
@@ -352,7 +357,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 					slog.Uint64("numParts", numParts),
 					slog.Int("chunkIdx", chunkIdx),
 					slog.Any("error", err))
-				return exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.Config.Database)
+				return exceptions.NewClickHouseQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.Config.Database)
 			}
 
 			s.logger.Info("inserted part",

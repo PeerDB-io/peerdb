@@ -75,7 +75,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.29@sha256:9be7b8d98f60d00f4f2ff74731c071a17848d8182bbc8429e314a24c94ea105b
+    image: temporalio/auto-setup:1.29@sha256:bdd857aa9574fbc1544028ee37795e29fdce5017c767dabf86957a10732afc15
     ports:
       - 7233:7233
     volumes:
@@ -112,7 +112,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3030
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.47.2@sha256:2081da2b305d9c311a5d13dc6b98173c5aff2072a74000a7b79ef47a97210c0e
+    image: temporalio/ui:2.48.0@sha256:5bc8712de27029b64a9cad156221b082a43ae27bfb108fc1743076eaabf1437f
     ports:
       - 8085:8080
 

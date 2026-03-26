@@ -46,12 +46,12 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:a6340e8d52455996b6fbe34df219305cb934eddceab2da2ce8e1ef32bbe04703
+        image: redpandadata/redpanda@sha256:75d20ebc35b42d1b611a952f6f5abf85360940470a1469328ec4f9005f30f664
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.3.1@sha256:2cc6bb7210e693c9ee96a2d37833dbd8d3edaacfc0e468d9daa04cb7a125e9a0
+        image: elasticsearch:9.3.2@sha256:56282e41f1d9c8dc437e4c99d132cf9f154def73b6ea8a25ac969a28c2f529c6
         ports:
           - 9200:9200
         env:
@@ -59,7 +59,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.147.0@sha256:e7c92c715f28ff142f3bcaccd4fc5603cf4c71276ef09954a38eb4038500a5a5
+        image: otel/opentelemetry-collector-contrib:0.148.0@sha256:8164eab2e6bca9c9b0837a8d2f118a6618489008a839db7f9d6510e66be3923c
         ports:
           - 4317:4317
       toxiproxy:
@@ -76,7 +76,7 @@ jobs:
           - 49002:49002
           - 49003:49003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:fdd9783e0fa4c52592c8405765c5de04dcf657db1b4d6ab073c14c4b998ca1fa
+        image: linuxserver/openssh-server:latest@sha256:68b605929e83b2efe000da09269688f6d82a44579e8a18e2d9e8c8d272917cf7
         ports:
           - 2222:2222
         env:
@@ -97,7 +97,7 @@ jobs:
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
         with:
-          go-version: '1.26.0'
+          go-version: '1.26.1'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
@@ -192,7 +192,7 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         id: cache-minio
         with:
           path: ./minio
@@ -203,7 +203,7 @@ jobs:
         run: |
           curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
-      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         id: cache-minio-client
         with:
           path: ./mc
@@ -258,7 +258,7 @@ jobs:
             echo "ch_version=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)" >> $GITHUB_OUTPUT
           fi
 
-      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         id: cache-clickhouse
         with:
           path: ./clickhouse
@@ -444,7 +444,7 @@ jobs:
           ./peer-flow worker > ../logs/peer-flow-worker.log 2>&1 &
           ./peer-flow snapshot-worker > ../logs/peer-flow-snapshot-worker.log 2>&1 &
           ./peer-flow api --port 8112 --gateway-port 8113 > ../logs/peer-flow-api.log 2>&1 &
-          gotestsum --format standard-quiet --no-color --junitfile ../test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
@@ -480,6 +480,7 @@ jobs:
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
+          PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
@@ -515,7 +516,7 @@ jobs:
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
 
-      - name: Upload peer-flow logs
+      - name: Upload peer-flow logs and test results
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
@@ -525,12 +526,12 @@ jobs:
 
       - name: Upload test results to Codecov
         if: success() || failure()
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
+        uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5
         with:
           report_type: test_results
-          files: test-results.xml
+          files: logs/test-results.xml
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
+        uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

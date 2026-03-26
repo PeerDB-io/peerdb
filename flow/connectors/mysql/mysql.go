@@ -68,7 +68,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		rdsAuth:          rdsAuth,
 	}
 	c.contexts.Store(&contexts)
-	go func() {
+	go func() { //nolint:gosec // G118: long-lived goroutine, not request-scoped
 		ctx := context.Background()
 		for {
 			var ok bool
@@ -123,6 +123,10 @@ func (c *MySqlConnector) Flavor() string {
 	default:
 		return "unknown"
 	}
+}
+
+func (c *MySqlConnector) Conn() *client.Conn {
+	return c.conn.Load()
 }
 
 func (c *MySqlConnector) Close() error {

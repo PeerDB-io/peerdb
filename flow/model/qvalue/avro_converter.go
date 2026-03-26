@@ -367,7 +367,7 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration, so sizeOpt) (any, i
 		s := time.Time{}.Add(t).Format("15:04:05.999999")
 		return s, stringSize(s, so)
 	}
-	return t, constSize(8, so)
+	return t, varIntSize(int64(t/time.Microsecond), so)
 }
 
 func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, avroVal int64, so sizeOpt) (any, int64) {

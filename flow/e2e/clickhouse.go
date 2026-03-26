@@ -14,13 +14,11 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/chcol"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
-	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -39,12 +37,8 @@ func (s ClickHouseSuite) T() *testing.T {
 	return s.t
 }
 
-func (s ClickHouseSuite) Connector() *connpostgres.PostgresConnector {
-	c, ok := s.source.Connector().(*connpostgres.PostgresConnector)
-	if !ok {
-		s.t.Skipf("skipping test because it relies on PostgresConnector, while source is %T", s.source)
-	}
-	return c
+func (s ClickHouseSuite) Connector() connectors.Connector {
+	return s.source.Connector()
 }
 
 func (s ClickHouseSuite) Source() SuiteSource {
@@ -53,10 +47,6 @@ func (s ClickHouseSuite) Source() SuiteSource {
 
 func (s ClickHouseSuite) DestinationConnector() connectors.Connector {
 	return s.connector
-}
-
-func (s ClickHouseSuite) Conn() *pgx.Conn {
-	return s.Connector().Conn()
 }
 
 func (s ClickHouseSuite) Suffix() string {

@@ -260,7 +260,7 @@ func (c *MongoConnector) PullRecords(
 		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
-			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout) //nolint:gosec // G118: cancelTimeout called in defer
 		}
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mongo] PullRecords streaming",

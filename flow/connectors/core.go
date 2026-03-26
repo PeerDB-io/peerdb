@@ -243,7 +243,8 @@ type QRepPullConnector interface {
 
 	// PullQRepRecords returns the records for a given partition.
 	PullQRepRecords(
-		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, protos.DBType, *protos.QRepPartition, *model.QRecordStream,
+		context.Context, shared.CatalogPool, *otel_metrics.OtelManager, *protos.QRepConfig, protos.DBType, *protos.QRepPartition,
+		*model.QRecordStream,
 	) (int64, int64, error)
 }
 
@@ -271,6 +272,7 @@ type QRepPullObjectsConnector interface {
 
 	PullQRepObjects(
 		context.Context,
+		shared.CatalogPool,
 		*otel_metrics.OtelManager,
 		*protos.QRepConfig,
 		protos.DBType,
@@ -344,6 +346,12 @@ type DatabaseVariantConnector interface {
 	Connector
 
 	GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error)
+}
+
+type ReplicationMechanismInUseConnector interface {
+	Connector
+
+	GetReplicationMechanismInUse(ctx context.Context, flowJobName string) (string, error)
 }
 
 type TableSizeEstimatorConnector interface {
@@ -741,4 +749,6 @@ var (
 	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
 	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}
 	_ TableSizeEstimatorConnector = &connmongo.MongoConnector{}
+
+	_ ReplicationMechanismInUseConnector = &connmysql.MySqlConnector{}
 )

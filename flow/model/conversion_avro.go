@@ -8,14 +8,11 @@ import (
 	"sync/atomic"
 
 	"github.com/hamba/avro/v2"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -126,11 +123,22 @@ func GetAvroSchemaDefinition(
 	avroNameMap map[string]string,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]*avro.Field, 0, len(qRecordSchema.Fields))
+	namedSchemaSeen := make(map[string]avro.NamedSchema)
 
 	for _, qField := range qRecordSchema.Fields {
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
+		}
+
+		// Avro named types (fixed, enum, record) must only be defined once per schema;
+		// subsequent references use RefSchema to emit just the type name.
+		if named, ok := avroType.(avro.NamedSchema); ok {
+			if _, seen := namedSchemaSeen[named.FullName()]; seen {
+				avroType = avro.NewRefSchema(named)
+			} else {
+				namedSchemaSeen[named.FullName()] = named
+			}
 		}
 
 		if qField.Nullable {
@@ -229,8 +237,4 @@ func (t *NullMismatchTracker) LogIfMismatch(ctx context.Context, logger log.Logg
 		slog.Any("pg_attribute_rows", t.schemaDebug.PgAttributeRows),
 		slog.Any("tables_with_inheritance", t.schemaDebug.Tables),
 	)
-
-	otel_metrics.CodeNotificationCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-		attribute.String("message", "Null values in columns that would be non-nullable under strict mode"),
-	)))
 }

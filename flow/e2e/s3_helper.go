@@ -30,7 +30,7 @@ type S3PeerCredentials struct {
 	AccessKeyID     string `json:"accessKeyId"`
 	SecretAccessKey string `json:"secretAccessKey"`
 	AwsRoleArn      string `json:"awsRoleArn"`
-	SessionToken    string `json:"sessionToken"` //nolint:gosec // G117: sometimes provided from file
+	SessionToken    string `json:"sessionToken"`
 	Region          string `json:"region"`
 	Endpoint        string `json:"endpoint"`
 }

@@ -23,7 +23,8 @@ func CheckNotSystemDatabase(database string) error {
 }
 
 var acceptableTableEngines = []string{
-	"ReplacingMergeTree", "MergeTree", "ReplicatedReplacingMergeTree", "ReplicatedMergeTree", "CoalescingMergeTree", "Null",
+	EngineReplacingMergeTree, EngineMergeTree, EngineReplicatedReplacingMergeTree, EngineReplicatedMergeTree,
+	EngineCoalescingMergeTree, EngineNull,
 }
 
 func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger log.Logger,
@@ -70,6 +71,9 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 				}
 				if !allowNonEmpty && totalRows != 0 && initialSnapshotEnabled {
 					return fmt.Errorf("table %s exists and is not empty", tableName)
+				}
+				if engine == "View" || engine == "MaterializedView" {
+					return fmt.Errorf("destination table can not be a view")
 				}
 				if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
 					logger.Warn("[clickhouse] table engine not explicitly supported",
@@ -143,9 +147,16 @@ func storeColumnInfoForTable(ctx context.Context, logger log.Logger, conn clickh
 	return nil
 }
 
-func CheckEmptyOrderingKeySupported(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
+func ValidateOrderingKeys(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
 	chVersion *chproto.Version, sourceTable string,
+	hasPrimaryKeys bool, sortingKeys []string, engine string,
 ) error {
+	if hasPrimaryKeys || len(sortingKeys) > 0 {
+		return nil
+	}
+	if engine == EngineNull || engine == EngineMergeTree {
+		return nil
+	}
 	if chVersion == nil || !chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 12, Patch: 0}, *chVersion) {
 		return nil
 	}

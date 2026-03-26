@@ -10,12 +10,12 @@ type QualifiedTable struct {
 	Table     string // table or collection
 }
 
-func (t *QualifiedTable) String() string {
+func (t QualifiedTable) String() string {
 	return fmt.Sprintf("%s.%s", QuoteIdentifier(t.Namespace), QuoteIdentifier(t.Table))
 }
 
-func (t *QualifiedTable) MySQL() string {
-	return fmt.Sprintf("`%s`.`%s`", t.Namespace, t.Table)
+func (t QualifiedTable) MySQL() string {
+	return fmt.Sprintf("%s.%s", QuoteMySQLIdentifier(t.Namespace), QuoteMySQLIdentifier(t.Table))
 }
 
 // ParseTableIdentifier parses a table name into namespace and table name.
@@ -45,4 +45,12 @@ func QuoteIdentifier(name string) string {
 		name = name[:end]
 	}
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+func QuoteMySQLIdentifier(name string) string {
+	end := strings.IndexRune(name, 0)
+	if end > -1 {
+		name = name[:end]
+	}
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }

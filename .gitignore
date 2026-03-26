@@ -3,6 +3,7 @@
 tmp/
 .envrc
 .idea/
+.DS_Store
 
 private/
 nexus/server/tests/assets/*.json

@@ -28,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -980,6 +981,15 @@ func (s APITestSuite) TestResyncCompleted() {
 	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
+	// tags are explicitly updated via a separate call, so here we update tags before resync to validate they are persisted after resync
+	_, err = s.CreateOrReplaceFlowTags(s.t.Context(), &protos.CreateOrReplaceFlowTagsRequest{
+		FlowName: flowConnConfig.FlowJobName,
+		Tags: []*protos.FlowTag{
+			{Key: common.PipeNameTag, Value: "test"},
+		},
+	})
+	require.NoError(s.t, err)
+
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -1021,6 +1031,18 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NoError(s.t, err)
 	configBeforeResync.Resync = true
 	require.EqualExportedValues(s.t, configBeforeResync, configAfterResync)
+
+	// check that tags persist across resync
+	tagsResp, err := s.GetFlowTags(s.t.Context(), &protos.GetFlowTagsRequest{
+		FlowName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, tagsResp.Tags, 1)
+	tagMap := make(map[string]string, len(tagsResp.Tags))
+	for _, tag := range tagsResp.Tags {
+		tagMap[tag.Key] = tag.Value
+	}
+	require.Equal(s.t, "test", tagMap[common.PipeNameTag])
 }
 
 func (s APITestSuite) TestResyncFailed() {
@@ -2361,4 +2383,44 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	// Clean up
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
+}
+
+func (s APITestSuite) TestSnapshotNullPartitionKey() {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+	default:
+		s.t.Skip("only testing with PostgreSQL and MySQL")
+	}
+
+	tableName := "null_partition"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text, updated_at timestamp)", AttachSchema(s, tableName))))
+	// insert rows with both non-null and null partition key values
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val, updated_at) VALUES (1,'a','2024-01-01'), (2,'b',NULL), (3,'c','2024-01-02'), (4,'d',NULL)",
+			AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "snapshot_null_pk_" + s.suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      AttachSchema(s, tableName),
+			DestinationTableIdentifier: tableName,
+			PartitionKey:               "updated_at",
+		}},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	EnvWaitForCount(env, s.ch, "all 4 rows including nulls should be snapshotted", tableName, "*", 4)
 }

@@ -26,7 +26,7 @@ func (s *SlackAlertSender) getOpenConnectionsAlertThreshold() uint32 {
 }
 
 type slackAlertConfig struct {
-	AuthToken                     string   `json:"auth_token"` //nolint:gosec // G117: credential field by design, encrypted outside
+	AuthToken                     string   `json:"auth_token"`
 	ChannelIDs                    []string `json:"channel_ids"`
 	Members                       []string `json:"members"`
 	SlotLagMBAlertThreshold       uint32   `json:"slot_lag_mb_alert_threshold"`

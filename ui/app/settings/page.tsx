@@ -141,7 +141,7 @@ function DynamicSettingItem({
             >
               <TextField
                 style={{ fontSize: 14 }}
-                value={editMode ? (newValue ?? '') : setting.value}
+                value={editMode ? (newValue ?? '') : (setting.value ?? '')}
                 placeholder='N/A'
                 onChange={(e) => setNewValue(e.target.value)}
                 variant='simple'

@@ -25,6 +25,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -583,6 +584,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
+			// Transient reorderbuffer spill file restoration failure (e.g. "Resource temporarily unavailable")
+			if PostgresSpillFileMissingRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// Shared invalidation message corruption - usually transient, reconnect helps
 			// https://github.com/postgres/postgres/blob/e82e9aaa6a2942505c2c328426778787e4976ea6/src/backend/utils/cache/inval.c#L901
 			if strings.Contains(pgErr.Message, "unrecognized SI message ID:") {
@@ -827,6 +833,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// ErrClientDisconnected is only produced when the topology is explicitly closed via
+	// Client.Disconnect(); classify as internal to flag client lifecycle bugs in our code.
+	if errors.Is(err, mongo.ErrClientDisconnected) {
+		return ErrorInternal, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "CLIENT_DISCONNECTED",
+		}
+	}
+
 	// MongoDB can leak error without properly encapsulate it into a pre-defined error type.
 	// Use string matching as a catch-all for poolClearedErrors. These errors occur when a
 	// connection pool is cleared due to another operation failure; they are always retryable
@@ -862,10 +877,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// "Too large string for FixedString column: (at row 10195)"
 			// The only one created by us is FixedString(1) for PG QChar so assuming the user did it for a string and it didn't work
 			chproto.ErrTooLargeStringSize:
-			if isClickHouseMvError(chException) {
+			var viewErr *peerdb_clickhouse.ViewError
+			if errors.As(err, &viewErr) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 			return ErrorNotifyDestinationModified, chErrorInfo
+		case chproto.ErrIncorrectData:
+			var viewErr *peerdb_clickhouse.ViewError
+			if errors.As(err, &viewErr) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
 		case chproto.ErrUnknownDatabase,
@@ -876,6 +897,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
 			return ErrorInternalClickHouse, chErrorInfo
+		case chproto.ErrNotImplemented:
+			if strings.HasSuffix(chException.Message, "is not supported by storage View") {
+				return ErrorNotifyDestinationModified, chErrorInfo
+			}
 		case chproto.ErrUnfinished:
 			if strings.Contains(chException.Message, "Failed to load all data parts") {
 				return ErrorNotifyClickHouseError, chErrorInfo
@@ -923,7 +948,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrUnknownElementOfEnum,
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
-			var qrepSyncError *exceptions.QRepSyncError
+			var qrepSyncError *exceptions.ClickHouseQRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
@@ -962,11 +987,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				AdditionalAttributes: additionalAttributes,
 			}
 		}
-		var normalizationErr *exceptions.NormalizationError
-		if isClickHouseMvError(chException) {
+		// a catch-all for MV or view errors
+		var viewErr *peerdb_clickhouse.ViewError
+		if errors.As(err, &viewErr) {
 			return ErrorNotifyMVOrView, chErrorInfo
-		} else if errors.As(err, &normalizationErr) {
-			// notify if normalization hits error on destination
+		}
+		// a catch-all for normalization errors, which typically indicate a bad MV or view
+		var normalizationErr *exceptions.NormalizationError
+		if errors.As(err, &normalizationErr) {
 			logger := internal.LoggerFromCtx(ctx)
 			logger.Warn("Assuming a normalization error is bad MV or view", slog.Any("error", err))
 			return ErrorNotifyMVOrView, chErrorInfo
@@ -1083,8 +1111,4 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		Source: ErrorSourceOther,
 		Code:   "UNKNOWN",
 	}
-}
-
-func isClickHouseMvError(exception *clickhouse.Exception) bool {
-	return strings.Contains(exception.Message, "while pushing to view")
 }

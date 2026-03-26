@@ -1,0 +1,43 @@
+name: Migration Versions
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-migrations:
+    name: Check migration version numbers
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Check migration version numbers
+        run: |
+          cd nexus/catalog/migrations
+          # extract numeric version from filenames like V51__description.sql -> 51
+          versions=$(ls *.sql | sed 's/__.*//' | sed 's/^V//' | sort -n)
+
+          failed=0
+
+          dupes=$(echo "$versions" | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate migration versions: $(echo $dupes | sed 's/^/V/;s/ / V/g')"
+            failed=1
+          fi
+
+          min=$(echo "$versions" | head -1)
+          max=$(echo "$versions" | tail -1)
+          # comm -23: suppress lines in second input (-2) and common lines (-3),
+          # leaving only lines in the expected sequence missing from actual versions
+          gaps=$(comm -23 <(seq "$min" "$max") <(echo "$versions"))
+          if [ -n "$gaps" ]; then
+            echo "::error::Missing migration versions: $(echo $gaps | sed 's/^/V/;s/ / V/g')"
+            failed=1
+          fi
+
+          exit $failed

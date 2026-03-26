@@ -51,7 +51,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	)
 
 	// Handle shutdown signal
-	go func() {
+	go func() { //nolint:gosec // G118: ctx is cancelled here, Background is intentional
 		<-ctx.Done()
 		s.logger.InfoContext(context.Background(), "Shutdown signal received, closing listener")
 		close(s.shutdownCh)
