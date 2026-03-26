@@ -304,7 +304,7 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 // and producing JSON for the full document using the provided converter.
 func QValuesFromBsonRaw(raw bson.Raw, version uint32, converter BsonToQValueConverter, tableName string) ([]types.QValue, error) {
 	rv := raw.Lookup(DefaultDocumentKeyColumnName)
-	if rv.IsZero() {
+	if rv.IsZero() || rv.Type == bson.TypeNull {
 		return nil, exceptions.NewInvalidIdValueError(tableName)
 	}
 	idQValue, err := converter.QValueStringFromId(rv, version)

@@ -12,13 +12,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func TestMarshalDocument(t *testing.T) {
 	oid, _ := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
-	dec, _ := bson.ParseDecimal128("123.4567890987654321")
-	decNaN, _ := bson.ParseDecimal128("NaN")
-	decInf, _ := bson.ParseDecimal128("Infinity")
 
 	tests := []struct {
 		desc     string
@@ -357,18 +355,68 @@ func TestMarshalDocument(t *testing.T) {
 		// Decimal128
 		{
 			desc:     "bson.Decimal128",
-			input:    bson.D{{Key: "decimal", Value: dec}},
-			expected: `{"decimal":"123.4567890987654321"}`,
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "123.4567890987654321")}},
+			expected: `{"d":"123.4567890987654321"}`,
+		},
+		{
+			desc:     "bson.Decimal128 negative",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "-123.4567890987654321")}},
+			expected: `{"d":"-123.4567890987654321"}`,
+		},
+		{
+			desc:     "bson.Decimal128 zero",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "0")}},
+			expected: `{"d":"0"}`,
+		},
+		{
+			desc:     "bson.Decimal128 negative zero",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "-0")}},
+			expected: `{"d":"-0"}`,
+		},
+		{
+			desc:     "bson.Decimal128 integer valued",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "100")}},
+			expected: `{"d":"100"}`,
+		},
+		{
+			desc:     "bson.Decimal128 negative integer valued",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "-100")}},
+			expected: `{"d":"-100"}`,
+		},
+		{
+			desc:     "bson.Decimal128 very small",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "1E-6176")}},
+			expected: `{"d":"1E-6176"}`,
+		},
+		{
+			desc:     "bson.Decimal128 negative very small",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "-1E-6176")}},
+			expected: `{"d":"-1E-6176"}`,
+		},
+		{
+			desc:     "bson.Decimal128 max",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "9.999999999999999999999999999999999E+6144")}},
+			expected: `{"d":"9.999999999999999999999999999999999E+6144"}`,
+		},
+		{
+			desc:     "bson.Decimal128 negative max",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "-9.999999999999999999999999999999999E+6144")}},
+			expected: `{"d":"-9.999999999999999999999999999999999E+6144"}`,
 		},
 		{
 			desc:     "bson.Decimal128 NaN",
-			input:    bson.D{{Key: "decimal", Value: decNaN}},
-			expected: `{"decimal":"NaN"}`,
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "NaN")}},
+			expected: `{"d":"NaN"}`,
 		},
 		{
 			desc:     "bson.Decimal128 Infinity",
-			input:    bson.D{{Key: "decimal", Value: decInf}},
-			expected: `{"decimal":"Infinity"}`,
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "Infinity")}},
+			expected: `{"d":"Infinity"}`,
+		},
+		{
+			desc:     "bson.Decimal128 -Infinity",
+			input:    bson.D{{Key: "d", Value: mustParseDec128(t, "-Infinity")}},
+			expected: `{"d":"-Infinity"}`,
 		},
 
 		// Undefined
@@ -376,6 +424,43 @@ func TestMarshalDocument(t *testing.T) {
 			desc:     "bson.Undefined",
 			input:    bson.D{{Key: "undefined", Value: bson.Undefined{}}},
 			expected: `{"undefined":{}}`,
+		},
+
+		// MinKey / MaxKey
+		{
+			desc:     "bson.MinKey",
+			input:    bson.D{{Key: "min", Value: bson.MinKey{}}},
+			expected: `{"min":{}}`,
+		},
+		{
+			desc:     "bson.MaxKey",
+			input:    bson.D{{Key: "max", Value: bson.MaxKey{}}},
+			expected: `{"max":{}}`,
+		},
+
+		// DBPointer (deprecated)
+		{
+			desc:     "bson.DBPointer",
+			input:    bson.D{{Key: "dbptr", Value: bson.DBPointer{DB: "test_db", Pointer: oid}}},
+			expected: `{"dbptr":{"DB":"test_db","Pointer":"507f1f77bcf86cd799439011"}}`,
+		},
+
+		// CodeWithScope (deprecated)
+		{
+			desc: "bson.CodeWithScope",
+			input: bson.D{{Key: "cws", Value: bson.CodeWithScope{
+				Code:  "function(x) { return x + y; }",
+				Scope: bson.D{{Key: "y", Value: int32(10)}},
+			}}},
+			expected: `{"cws":{"Code":"function(x) { return x + y; }","Scope":{"y":10}}}`,
+		},
+		{
+			desc: "bson.CodeWithScope empty scope",
+			input: bson.D{{Key: "cws", Value: bson.CodeWithScope{
+				Code:  "function() { return 1 + 2; }",
+				Scope: bson.D{},
+			}}},
+			expected: `{"cws":{"Code":"function() { return 1 + 2; }","Scope":{}}}`,
 		},
 
 		// Multiple fields
@@ -531,7 +616,7 @@ func TestMarshalDocument(t *testing.T) {
 					{Key: "city", Value: "Springfield"},
 					{Key: "zip", Value: int32(12345)},
 				}},
-				{Key: "score", Value: dec},
+				{Key: "score", Value: mustParseDec128(t, "123.4567890987654321")},
 				{Key: "notes", Value: nil},
 			},
 			expected: `{"_id":"507f1f77bcf86cd799439011","name":"John Doe","email":"john@example.com","age":30,` +
@@ -541,22 +626,31 @@ func TestMarshalDocument(t *testing.T) {
 		},
 	}
 
-	converter, err := NewBsonConverter(context.Background(), nil)
+	directConverter, err := NewBsonConverter(context.Background(), map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "true"})
+	require.NoError(t, err)
+	legacyConverter, err := NewBsonConverter(context.Background(), map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "false"})
 	require.NoError(t, err)
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
 			inputRaw, err := bson.Marshal(test.input)
 			require.NoError(t, err)
 
-			directResult, err := converter.QValueJSONFromDocument(inputRaw)
+			directResult, err := directConverter.QValueJSONFromDocument(inputRaw)
 			require.NoError(t, err)
 			require.Equal(t, test.expected, directResult.Val)
 
-			legacyResult, err := converter.QValueJSONFromDocument(inputRaw)
+			legacyResult, err := legacyConverter.QValueJSONFromDocument(inputRaw)
 			require.NoError(t, err)
 			require.Equal(t, directResult, legacyResult)
 		})
 	}
+}
+
+func mustParseDec128(t *testing.T, s string) bson.Decimal128 {
+	t.Helper()
+	d, err := bson.ParseDecimal128(s)
+	require.NoError(t, err)
+	return d
 }
 
 func TestMarshalId(t *testing.T) {
@@ -652,4 +746,23 @@ func TestMarshalFloatLengths(t *testing.T) {
 				result.Val)
 		})
 	}
+}
+
+func TestQValuesFromBsonRawInvalidIds(t *testing.T) {
+	converter, err := NewBsonConverter(t.Context(), map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "true"})
+	require.NoError(t, err)
+
+	t.Run("null _id is rejected", func(t *testing.T) {
+		raw, err := bson.Marshal(bson.D{{Key: "_id", Value: nil}})
+		require.NoError(t, err)
+		_, err = QValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, "test_table")
+		require.ErrorAs(t, err, new(*exceptions.MongoInvalidIdValueError))
+	})
+
+	t.Run("missing _id is rejected", func(t *testing.T) {
+		raw, err := bson.Marshal(bson.D{{Key: "not_id", Value: "value"}})
+		require.NoError(t, err)
+		_, err = QValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, "test_table")
+		require.ErrorAs(t, err, new(*exceptions.MongoInvalidIdValueError))
+	})
 }

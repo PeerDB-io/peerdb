@@ -38,7 +38,10 @@ func NewBsonConverter(ctx context.Context, env map[string]string) (BsonToQValueC
 	}
 
 	return &DirectBsonConverter{
-		stream: jsoniter.NewStream(jsoniter.ConfigDefault, nil, 512),
+		// technically we write JSON directly via raw stream methods and do not use jsoniter's
+		// config-driven serialization specified here, but this config is applied consistent with our
+		// custom serialization (and used by LegacyBsonConverter) so specifying it here for consistency
+		stream: jsoniter.NewStream(jsoniter.ConfigCompatibleWithStandardLibrary, nil, 512),
 	}, nil
 }
 
@@ -244,7 +247,7 @@ func rawValueToJSON(v bsoncore.Value, stream *jsoniter.Stream) error {
 
 	case bsoncore.TypeDecimal128:
 		h, l := v.Decimal128()
-		stream.WriteStringWithHTMLEscaped(bson.NewDecimal128(h, l).String())
+		stream.WriteString(bson.NewDecimal128(h, l).String())
 
 	case bsoncore.TypeMinKey, bsoncore.TypeMaxKey:
 		stream.WriteEmptyObject()

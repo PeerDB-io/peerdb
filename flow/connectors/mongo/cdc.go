@@ -222,7 +222,7 @@ func (c *MongoConnector) PullRecords(
 	addRecordItems := func(documentKey bson.Raw, fullDocument bson.Raw, items *model.RecordItems, tableName string) error {
 		if documentKey != nil {
 			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
-			if rv.IsZero() {
+			if rv.IsZero() || rv.Type == bson.TypeNull {
 				return exceptions.NewInvalidIdValueError(tableName)
 			}
 			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
