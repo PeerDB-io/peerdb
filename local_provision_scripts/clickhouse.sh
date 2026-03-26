@@ -5,4 +5,6 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
 . "$SCRIPT_DIR/../.env"
 
-echo "ClickHouse is ready at ${CI_CLICKHOUSE_HOST}:9000"
+# Placeholder script for future provisioning steps.
+
+echo "ClickHouse is ready at ${CLICKHOUSE_HOST}:${CLICKHOUSE_NATIVE_PORT}"
