@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -82,6 +83,11 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 		}
 		recordBatch.Records = append(recordBatch.Records, record)
 	}
+
+	// sort by _id string value to match ClickHouse's `ORDER BY 1`
+	sort.Slice(recordBatch.Records, func(i, j int) bool {
+		return recordBatch.Records[i][0].Value().(string) < recordBatch.Records[j][0].Value().(string)
+	})
 
 	return recordBatch, nil
 }
