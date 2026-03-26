@@ -766,9 +766,10 @@ func (a *FlowableActivity) normalizeLoop(
 							time.Sleep(retryInterval)
 							retryInterval = min(retryInterval*2, 5*time.Minute)
 							// record the last normalized batch ID even if retry fails to populate metrics consistently
-							a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, lastNormalizedBatchID, metric.WithAttributeSet(attribute.NewSet(
-								attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-							)))
+							a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(
+								ctx, lastNormalizedBatchID, metric.WithAttributeSet(attribute.NewSet(
+									attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+								)))
 							reqBatchID = normalizeRequests.Load()
 							continue retryLoop
 						}
