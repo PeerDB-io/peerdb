@@ -54,8 +54,8 @@ func wrapPgError(err error) error {
 // PostgresUpstream implements Upstream for PostgreSQL databases
 type PostgresUpstream struct {
 	conn     *connpostgres.PostgresConnector
+	secret   []byte
 	pid      uint32
-	secret   uint32
 	readOnly bool
 }
 
@@ -130,7 +130,7 @@ func (u *PostgresUpstream) ServerParameters(ctx context.Context) map[string]stri
 }
 
 // BackendKeyData returns the backend PID and secret key
-func (u *PostgresUpstream) BackendKeyData() (uint32, uint32) {
+func (u *PostgresUpstream) BackendKeyData() (uint32, []byte) {
 	return u.pid, u.secret
 }
 

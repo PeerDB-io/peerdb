@@ -29,11 +29,11 @@ type Session struct {
 	logger       *slog.Logger
 	guardrails   *Guardrails
 	peerName     string
+	secret       []byte
 	queryTimeout time.Duration
 	idleTimeout  time.Duration
 	writeTimeout time.Duration
 	pid          uint32
-	secret       uint32
 	id           uint32
 }
 
@@ -133,8 +133,8 @@ func NewSession(clientConn net.Conn, catalogPool shared.CatalogPool, logger *slo
 func (s *Session) Handle(ctx context.Context, server *Server) error {
 	defer func() {
 		// Unregister from cancel index
-		if s.pid != 0 && s.secret != 0 {
-			key := [2]uint32{s.pid, s.secret}
+		if s.pid != 0 && s.secret != nil {
+			key := SessionKey{Secret: string(s.secret), Pid: s.pid}
 			server.sessions.Delete(key)
 		}
 
@@ -154,11 +154,10 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 	newConn, backend, startup, err := acceptStartup(s.clientConn)
 	if err != nil {
 		// Check if it's a cancel request - return as-is to be handled by server
-		var cancelErr *CancelRequestError
-		if errors.As(err, &cancelErr) {
+		if cancelErr, ok := errors.AsType[*CancelRequestError](err); ok {
 			s.logger.InfoContext(ctx, "Cancel request during startup",
 				slog.Uint64("pid", uint64(cancelErr.ProcessID)),
-				slog.Uint64("secret", uint64(cancelErr.SecretKey)))
+				slog.Any("secret", cancelErr.SecretKey))
 			return err
 		}
 		s.logger.ErrorContext(ctx, "Startup failed", slog.Any("error", err))
@@ -210,8 +209,8 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 	s.pid, s.secret = s.upstream.BackendKeyData()
 
 	// Register session for cancel handling with compound key
-	key := [2]uint32{s.pid, s.secret}
-	server.sessions.Store(key, s)
+	key := SessionKey{Secret: string(s.secret), Pid: s.pid}
+	server.sessions.Store(s.pid, key)
 
 	s.logger.InfoContext(ctx, "Connected to upstream",
 		slog.Uint64("upstream_pid", uint64(s.pid)),

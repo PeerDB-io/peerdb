@@ -13,6 +13,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+type SessionKey struct {
+	Secret string
+	Pid    uint32
+}
+
 // Server is the main Switchboard server
 type Server struct {
 	listener    net.Listener
@@ -122,15 +127,15 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 }
 
 // handleCancelRequest processes a cancel request
-func (s *Server) handleCancelRequest(pid, secret uint32) {
+func (s *Server) handleCancelRequest(pid uint32, secret []byte) {
 	ctx := context.Background()
 
-	key := [2]uint32{pid, secret}
+	key := SessionKey{Secret: string(secret), Pid: pid}
 	if val, ok := s.sessions.Load(key); ok {
 		session := val.(*Session)
 		s.logger.InfoContext(ctx, "Processing cancel request",
 			slog.Uint64("pid", uint64(pid)),
-			slog.Uint64("secret", uint64(secret)),
+			slog.Any("secret", secret),
 		)
 
 		// Send cancel to upstream using the interface's Cancel method
@@ -145,7 +150,7 @@ func (s *Server) handleCancelRequest(pid, secret uint32) {
 	} else {
 		s.logger.WarnContext(ctx, "Cancel request for unknown session",
 			slog.Uint64("pid", uint64(pid)),
-			slog.Uint64("secret", uint64(secret)),
+			slog.Any("secret", secret),
 		)
 	}
 }

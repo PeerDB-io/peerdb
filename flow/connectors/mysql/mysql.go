@@ -168,7 +168,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 	if conn == nil {
 		argF := []client.Option{func(conn *client.Conn) error {
 			if c.config.Compression > 0 {
-				conn.SetCapability(mysql.CLIENT_COMPRESS)
+				_ = conn.SetCapability(mysql.CLIENT_COMPRESS)
 			}
 			if !c.config.DisableTls {
 				config, err := common.CreateTlsConfig(

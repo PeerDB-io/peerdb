@@ -19,6 +19,7 @@ import (
 	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"github.com/snowflakedb/gosnowflake"
 	"github.com/youmark/pkcs8"
+	"cloud.google.com/go/auth/credentials"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
@@ -90,10 +91,17 @@ func CleanupBQ(ctx context.Context) {
 		panic(err)
 	}
 
+	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
+		CredentialsJSON: config_json,
+	})
+	if err != nil {
+		panic(err)
+	}
+
 	client, err := bigquery.NewClient(
 		ctx,
 		config["project_id"],
-		option.WithCredentialsJSON(config_json),
+		option.WithAuthCredentials(creds),
 	)
 	if err != nil {
 		panic(err)
@@ -123,7 +131,7 @@ func CleanupBQ(ctx context.Context) {
 	}
 
 	// now pubsub too, lack metadata to avoid deleting currently running tests
-	psclient, err := pubsub.NewClient(ctx, config["project_id"], option.WithCredentialsJSON(config_json))
+	psclient, err := pubsub.NewClient(ctx, config["project_id"], option.WithAuthCredentials(creds))
 	if err != nil {
 		panic(err)
 	}

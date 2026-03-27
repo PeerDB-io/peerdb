@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"cloud.google.com/go/auth/credentials"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/pubsub/v2"
 	"cloud.google.com/go/storage"
@@ -53,18 +54,29 @@ func (sa *GcpServiceAccount) Validate() error {
 	return nil
 }
 
-// CreateBigQueryClient creates a new BigQuery client from a GcpServiceAccount.
-func (sa *GcpServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquery.Client, error) {
+func (sa *GcpServiceAccount) authOption() (option.ClientOption, error) {
 	saJSON, err := json.Marshal(sa) //nolint:gosec // G117: credential struct marshaled for inline use
 	if err != nil {
-		return nil, fmt.Errorf("failed to get json: %v", err)
+		return nil, fmt.Errorf("failed to marshal service account json: %v", err)
 	}
 
-	client, err := bigquery.NewClient(
-		ctx,
-		sa.ProjectID,
-		option.WithCredentialsJSON(saJSON),
-	)
+	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
+		CredentialsJSON: saJSON,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect credentials: %v", err)
+	}
+
+	return option.WithAuthCredentials(creds), nil
+}
+
+func (sa *GcpServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquery.Client, error) {
+	authOpt, err := sa.authOption()
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := bigquery.NewClient(ctx, sa.ProjectID, authOpt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
@@ -72,17 +84,13 @@ func (sa *GcpServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquer
 	return client, nil
 }
 
-// CreateStorageClient creates a new Storage client from a GcpServiceAccount.
 func (sa *GcpServiceAccount) CreateStorageClient(ctx context.Context) (*storage.Client, error) {
-	saJSON, err := json.Marshal(sa) //nolint:gosec // G117: credential struct marshaled for inline use
+	authOpt, err := sa.authOption()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get json: %v", err)
+		return nil, err
 	}
 
-	client, err := storage.NewClient(
-		ctx,
-		option.WithCredentialsJSON(saJSON),
-	)
+	client, err := storage.NewClient(ctx, authOpt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Storage client: %v", err)
 	}
@@ -90,20 +98,15 @@ func (sa *GcpServiceAccount) CreateStorageClient(ctx context.Context) (*storage.
 	return client, nil
 }
 
-// CreatePubSubClient creates a new PubSub client from a GcpServiceAccount.
 func (sa *GcpServiceAccount) CreatePubSubClient(ctx context.Context) (*pubsub.Client, error) {
-	saJSON, err := json.Marshal(sa) //nolint:gosec // G117: credential struct marshaled for inline use
+	authOpt, err := sa.authOption()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get json: %v", err)
+		return nil, err
 	}
 
-	client, err := pubsub.NewClient(
-		ctx,
-		sa.ProjectID,
-		option.WithCredentialsJSON(saJSON),
-	)
+	client, err := pubsub.NewClient(ctx, sa.ProjectID, authOpt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
+		return nil, fmt.Errorf("failed to create PubSub client: %v", err)
 	}
 
 	return client, nil

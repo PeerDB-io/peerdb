@@ -140,7 +140,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}
 
 	// Create the uploader using the AWS SDK v2 manager
-	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
+	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) { //nolint:staticcheck // don't trust it
 		if partSize > 0 {
 			u.PartSize = partSize
 			if partSize > 256*1024*1024 {
@@ -149,7 +149,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		}
 	})
 
-	if _, err := uploader.Upload(ctx, &s3.PutObjectInput{
+	if _, err := uploader.Upload(ctx, &s3.PutObjectInput{ //nolint:staticcheck // don't trust it
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 		Body:   r,

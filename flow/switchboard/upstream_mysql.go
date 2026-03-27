@@ -2,9 +2,9 @@ package switchboard
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -23,8 +23,7 @@ func wrapMySQLError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var mysqlErr *mysql.MyError
-	if errors.As(err, &mysqlErr) {
+	if mysqlErr, ok := errors.AsType[*mysql.MyError](err); ok {
 		return &UpstreamError{Resp: &pgproto3.ErrorResponse{
 			Severity: "ERROR",
 			Code:     "HY000",
@@ -43,9 +42,9 @@ func wrapMySQLError(err error) error {
 type MySQLUpstream struct {
 	conn         *connmysql.MySqlConnector
 	config       *protos.MySqlConfig
+	secret       []byte
 	connectionID uint32
 	pid          uint32
-	secret       uint32
 }
 
 // mysqlDeniedFunctions are functions that are denied even in SELECT statements
@@ -77,10 +76,7 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 	}
 
 	// Set session parameters for read-only mode and timeouts
-	timeoutSec := int(queryTimeout.Seconds())
-	if timeoutSec < 1 {
-		timeoutSec = 1
-	}
+	timeoutSec := max(int(queryTimeout.Seconds()), 1)
 
 	_, err = conn.ExecuteNoRetry(ctx, "SET SESSION TRANSACTION READ ONLY")
 	if err != nil {
@@ -101,7 +97,11 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 
 	// Use MySQL connection ID as pid, generate random secret
 	pid := uint32(connectionID)
-	secret := rand.Uint32() //nolint:gosec // not security-critical, used for cancel routing
+	secret := make([]byte, 4)
+	if _, err := rand.Read(secret); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to generate secret: %w", err)
+	}
 
 	return &MySQLUpstream{
 		conn:         conn,
@@ -140,7 +140,7 @@ func (u *MySQLUpstream) ServerParameters(ctx context.Context) map[string]string 
 }
 
 // BackendKeyData returns the synthetic PID and secret for cancel support
-func (u *MySQLUpstream) BackendKeyData() (uint32, uint32) {
+func (u *MySQLUpstream) BackendKeyData() (uint32, []byte) {
 	return u.pid, u.secret
 }
 
