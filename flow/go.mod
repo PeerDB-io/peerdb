@@ -15,7 +15,7 @@ require (
 	github.com/PeerDB-io/glua64 v1.0.1
 	github.com/PeerDB-io/gluabit32 v1.0.2
 	github.com/PeerDB-io/gluajson v1.0.2
-	github.com/PeerDB-io/gluamsgpack v1.0.4
+	github.com/PeerDB-io/gluamsgpack v1.0.5
 	github.com/PeerDB-io/gluautf8 v1.0.0
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
@@ -69,13 +69,14 @@ require (
 	go.opentelemetry.io/otel/metric v1.40.0
 	go.opentelemetry.io/otel/sdk v1.40.0
 	go.opentelemetry.io/otel/sdk/metric v1.40.0
-	go.opentelemetry.io/otel/trace v1.40.0
+	go.opentelemetry.io/otel/trace v1.40.0 // indirect
 	go.temporal.io/api v1.62.0
 	go.temporal.io/sdk v1.39.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.6.0
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.48.0
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96
+	golang.org/x/mod v0.33.0
 	golang.org/x/sync v0.19.0
 	google.golang.org/api v0.257.0 // PINNED(DBI-443): v0.258.0 deprecates WithCredentialsJSON, migrate to WithAuthCredentialsJSON
 	google.golang.org/genproto/googleapis/api v0.0.0-20260203192932-546029d2fa20
@@ -278,7 +279,6 @@ require (
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
