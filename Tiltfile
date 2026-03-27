@@ -62,6 +62,12 @@ local_resource(
     resource_deps=['postgres']
 )
 
+
+
+if not os.path.exists('ancillary-images.env'):
+    print("ancillary-images.env not found. Running generate-ancillary-images.sh to create it with default versions")
+    local('./generate-ancillary-images.sh')
+
 docker_compose('./ancillary-docker-compose.yml', env_file='ancillary-images.env')
 
 dc_resource('mongodb', labels=['Ancillary', 'DataStore'], links=[
