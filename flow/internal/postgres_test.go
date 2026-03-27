@@ -3,11 +3,11 @@ package internal
 import (
 	"testing"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func TestGetPGConnectionString(t *testing.T) {
@@ -28,12 +28,12 @@ func TestGetPGConnectionString(t *testing.T) {
 		},
 		{
 			name: "password with special chars",
-			config: &protos.PostgresConfig{
+			config: &protos.PostgresConfig{ //nolint:gosec // test credentials
 				Host:       "localhost",
 				Port:       5432,
 				Database:   "testdb",
 				User:       "testuser",
-				Password:   "p@ss:w/?ord#test", //nolint:gosec // test credentials
+				Password:   "p@ss:w/?ord#test",
 				RequireTls: false,
 			},
 		},
