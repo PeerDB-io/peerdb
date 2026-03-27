@@ -4,13 +4,14 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetPGConnectionString(t *testing.T) {
-	tests := []struct {
+	tests := []struct { //nolint:govet // test code
 		name   string
 		config *protos.PostgresConfig
 	}{
@@ -32,7 +33,7 @@ func TestGetPGConnectionString(t *testing.T) {
 				Port:       5432,
 				Database:   "testdb",
 				User:       "testuser",
-				Password:   "p@ss:w/?ord#test",
+				Password:   "p@ss:w/?ord#test", //nolint:gosec // test credentials
 				RequireTls: false,
 			},
 		},
@@ -81,7 +82,7 @@ func TestGetPGConnectionString(t *testing.T) {
 				assert.Contains(t, connStr, "sslmode=require", "Connection string should contain sslmode=require")
 				assert.Empty(t, cfg.Config.Fallbacks)
 			} else {
-				assert.NotContains(t, connStr, "sslmode=require", "Connection string should contain sslmode=require")
+				assert.NotContains(t, connStr, "sslmode=require", "Connection string shouldn't contain sslmode=require")
 				assert.NotEmpty(t, cfg.Config.Fallbacks)
 			}
 		})
