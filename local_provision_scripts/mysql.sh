@@ -7,4 +7,4 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # Placeholder script for future provisioning steps.
 
-echo "MySQL is ready at ${MYSQL_HOST}:${MYSQL_PORT}"
+echo "MySQL is ready at ${CI_MYSQL_HOST}:${CI_MYSQL_PORT}"
