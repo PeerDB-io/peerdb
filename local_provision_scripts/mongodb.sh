@@ -17,7 +17,7 @@ mongosh_eval() {
 }
 
 echo "initialize replica set"
-mongosh_eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]})' || true
+mongosh_eval "rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"${CI_MONGO_HOST}:${CI_MONGO_PORT}\"}]})" || true
 
 echo "waiting for replica set primary election"
 until mongosh_eval 'rs.status().myState' | grep -q 1; do
