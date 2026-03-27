@@ -91,6 +91,52 @@ You can use Postgres’ ecosystem to manage your ETL —
 
 We have expanded our connector ecosystem to support multiple source connectors beyond Postgres, including MySQL and MongoDB. You can check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors)
 
+## Local End to End testing
+
+It is possible to run the same tests that validate changes in this PR locally, this offers the possibility of fast iteration cycles in development.
+
+e.g:
+
+```bash
+cd flow
+go clean -cache
+env -f ../.env go test -v -run TestGenericCH_MySQL ./e2e/
+```
+
+Or local debugging sessions.
+
+These tests require both PeerDB services, source and destination stores to be running. We provide a local environment with all the necessary services and dependencies to run these tests.
+
+This is done through [Tilt](https://tilt.dev/) orchestrated Docker compose.
+
+To get the environment up you first need to specify the shared environment variables for both the test and the test environment in your local `.env` file. You can use the provided `.env.example` as a template: `cp .env.example .env `.
+
+:memo: In the template, services URLs are set to `172.18.0.1`, which is the default gateway for Docker containers. This allows both test processes and services running inside Docker to access services running on the host machine. If your setup differs, update these URLs accordingly.
+
+Then you can just run:
+
+```bash
+./tilt.sh
+```
+
+And follow the status of the services and access logs through the Tilt UI at http://localhost:10350/.
+
+Since `.env` is the environment configuration source of truth, it can be used directly to inject the required variables to the test execution processes. e.g:
+
+```bash
+go clean -cache; env -f ../.env go test -v -run TestGenericCH_MySQL ./e2e/ # Some MySQL generic tests
+```
+
+### Environment services versions
+
+Data stores versions are extracted from `.github/workflows/flow.yml`, select the last row of the test matrix except for MySQL version which defaults to `9.5`.
+You can specify different versions in the local `.env` file to override them as follows:
+
+```bash
+MYSQL_VERSION=8.0
+MONGODB_VERSION=4.4
+CLICKHOUSE_VERSION=21.8
+```
 
 ## Support
 
