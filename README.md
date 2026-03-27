@@ -130,6 +130,7 @@ go clean -cache; env -f ../.env go test -v -run TestGenericCH_MySQL ./e2e/ # Som
 ### Environment services versions
 
 Data stores versions are extracted from `.github/workflows/flow.yml`, select the last row of the test matrix except for MySQL version which defaults to `9.5`.
+This automatic extraction relies on the `yq` CLI; install the Go-based [`mikefarah/yq`](https://github.com/mikefarah/yq) version 4 or later so that local environment generation works correctly.
 You can specify different versions in the local `.env` file to override them as follows:
 
 ```bash
