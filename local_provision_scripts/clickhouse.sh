@@ -7,4 +7,4 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # Placeholder script for future provisioning steps.
 
-echo "ClickHouse is ready at ${CLICKHOUSE_HOST}:${CLICKHOUSE_NATIVE_PORT}"
+echo "ClickHouse is ready at ${CI_CLICKHOUSE_HOST}:${CI_CLICKHOUSE_NATIVE_PORT}"

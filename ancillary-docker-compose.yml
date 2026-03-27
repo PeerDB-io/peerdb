@@ -21,8 +21,8 @@ services:
     image: ${CLICKHOUSE_IMAGE}
     restart: unless-stopped
     ports:
-      - "${CLICKHOUSE_HTTP_PORT}:8123"
-      - "${CLICKHOUSE_NATIVE_PORT}:9000"
+      - "${CI_CLICKHOUSE_HTTP_PORT}:8123"
+      - "${CI_CLICKHOUSE_NATIVE_PORT}:9000"
     volumes:
       - ./volumes/ch_data:/var/lib/clickhouse/
       - ./volumes/ch_logs:/var/log/clickhouse-server/
@@ -44,9 +44,9 @@ services:
     image: ${MYSQL_IMAGE}
     restart: unless-stopped
     ports:
-      - "${MYSQL_PORT}:3306"
+      - "${CI_MYSQL_PORT}:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${CI_MYSQL_ROOT_PASSWORD}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
