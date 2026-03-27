@@ -93,9 +93,9 @@ We have expanded our connector ecosystem to support multiple source connectors b
 
 ## Local End to End testing
 
-It is possible to run the same tests that validate changes in this PR locally, this offers the possibility of fast iteration cycles in development.
+You can run locally the same end-to-end tests that our CI uses to validate changes, enabling fast iteration cycles during development.
 
-e.g:
+For example:
 
 ```bash
 cd flow
