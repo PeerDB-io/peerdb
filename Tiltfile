@@ -67,6 +67,9 @@ local_resource(
 if not os.path.exists('ancillary-images.env'):
     print("ancillary-images.env not found. Running generate-ancillary-images.sh to create it with default versions")
     local('./generate-ancillary-images.sh')
+else:
+    print("ancillary-images.env found. Skipping generation of ancillary images and using existing versions.")
+    print("Remember to delete if you want to regenerate with default versions")
 
 docker_compose('./ancillary-docker-compose.yml', env_file='ancillary-images.env')
 
