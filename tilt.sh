@@ -9,8 +9,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-./generate-ancillary-images.sh
-
 if [ -n "${TILT_PORT:-}" ]; then
     tilt up --port="$TILT_PORT"
 else
