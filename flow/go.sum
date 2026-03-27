@@ -89,8 +89,8 @@ github.com/PeerDB-io/gluabit32 v1.0.2 h1:AGI1Z7dwDVotakpuOOuyTX4/QGi5HUYsipL/Vfo
 github.com/PeerDB-io/gluabit32 v1.0.2/go.mod h1:tsHStN1XG5uGVWEA8d/RameB7el3PE3sVkvk8e3+FJg=
 github.com/PeerDB-io/gluajson v1.0.2 h1:Kv5Qabj2Md6gxRZsX5QVUOQDf5WMOQEF8lIkKXguajM=
 github.com/PeerDB-io/gluajson v1.0.2/go.mod h1:arRzpblxlLiWfBAluxP9Xibf6J8UkUIfoY4FPHTsz4Q=
-github.com/PeerDB-io/gluamsgpack v1.0.4 h1:JrZtdNAAkE6RtllVuhEuWWa26lQZ/K5BJWiI3q9EhL0=
-github.com/PeerDB-io/gluamsgpack v1.0.4/go.mod h1:1ufs5NK2DczzQS78Nhy0AkCA0dOVyt/KVEk39lbWzyU=
+github.com/PeerDB-io/gluamsgpack v1.0.5 h1:YYWsAxjLBa6LkRAIYk+Z7O1tejIboi5fUrVpRDsRPsA=
+github.com/PeerDB-io/gluamsgpack v1.0.5/go.mod h1:1ufs5NK2DczzQS78Nhy0AkCA0dOVyt/KVEk39lbWzyU=
 github.com/PeerDB-io/gluautf8 v1.0.0 h1:Ubhy6FVnrED5jrosdUOxzAkf3YdcgebYJzX2YBdGedE=
 github.com/PeerDB-io/gluautf8 v1.0.0/go.mod h1:+4RQlCVFCMikYFmiKUA9ADZftgGAZseMmdErxfE1EZQ=
 github.com/PeerDB-io/tikv-client-go/v2 v2.0.7 h1:5MV9vIGW/LyGZpY0E1exh2cPD/8blZeumoxIuJejLOk=
