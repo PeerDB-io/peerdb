@@ -20,7 +20,7 @@ flow/generated
 nexus/pt/src/gen
 
 # generated ancillary images file
-ancillary-images.env
+ancillary.env
 
 # Ephemeral volumes for docker compose
 volumes/ch_*

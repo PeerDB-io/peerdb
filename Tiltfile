@@ -29,12 +29,6 @@ dc_resource('minio', labels=['PeerDB'])
 # Ancillary services
 
 local_resource(
-    'ancillary-images',
-    cmd='./generate-ancillary-images.sh',
-    labels=['Ancillary'],
-)
-
-local_resource(
     'provision-mongodb',
     cmd='./local_provision_scripts/mongodb.sh',
     labels=['Ancillary', 'Provisioning'],
@@ -62,16 +56,11 @@ local_resource(
     resource_deps=['postgres']
 )
 
+# This is not defined as a resource as we need the file to be present
+# when `docker_compose` loads the configuration (next line).
+local('./generate-test-environment.sh')
 
-
-if not os.path.exists('ancillary-images.env'):
-    print("ancillary-images.env not found. Running generate-ancillary-images.sh to create it with default versions")
-    local('./generate-ancillary-images.sh')
-else:
-    print("ancillary-images.env found. Skipping generation of ancillary images and using existing versions.")
-    print("Remember to delete if you want to regenerate with default versions")
-
-docker_compose('./ancillary-docker-compose.yml', env_file='ancillary-images.env')
+docker_compose('./ancillary-docker-compose.yml', env_file='ancillary.env')
 
 dc_resource('mongodb', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:27017', 'MongoDB'),
