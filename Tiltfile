@@ -83,6 +83,13 @@ local_resource(
 )
 
 local_resource(
+    'provision-mysql',
+    cmd='./local_provision_scripts/mysql.sh',
+    labels=['Ancillary', 'Provisioning'],
+    resource_deps=['mysql']
+)
+
+local_resource(
     'provision-postgres',
     cmd='./local_provision_scripts/postgres.sh',
     labels=['Ancillary', 'Provisioning'],
@@ -98,6 +105,10 @@ dc_resource('mongodb', labels=['Ancillary', 'DataStore'], links=[
 dc_resource('clickhouse', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:8123', 'ClickHouse HTTP'),
     link('http://localhost:9000', 'ClickHouse TCP'),
+])
+
+dc_resource('mysql', labels=['Ancillary', 'DataStore'], links=[
+    link('http://localhost:3306', 'MySQL'),
 ])
 
 dc_resource('postgres', labels=['Ancillary', 'DataStore'], links=[

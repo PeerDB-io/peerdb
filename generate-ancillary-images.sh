@@ -6,13 +6,18 @@ if [ -f "$IMAGES_FILE" ]; then
     exit 0;
 fi
 
-export POSTGRES_VERSION=18;
+#export POSTGRES_VERSION=18;
+#VERSIONS=$(cat .github/workflows/flow.yml | yq '.jobs.flow_test.strategy.matrix."db-version"[] | select((.pg | tostring) == strenv(POSTGRES_VERSION))')
+VERSIONS=$(cat .github/workflows/flow.yml | yq '.jobs.flow_test.strategy.matrix."db-version"[-1]') # Select last version row in the matrix.
 
-VERSIONS_JSON=$(cat .github/workflows/flow.yml | yq '.jobs.flow_test.strategy.matrix."db-version"[] | select((.pg | tostring) == strenv(POSTGRES_VERSION))')
+#MYSQL_VERSION=$(echo "$VERSIONS" | yq -r '.mysql')
 
-MYSQL_VERSION=$(echo "$VERSIONS_JSON" | yq -r '.mysql')
-MONGODB_VERSION=$(echo "$VERSIONS_JSON" | yq -r '.mongo')
-CLICKHOUSE_VERSION=$(echo "$VERSIONS_JSON" | yq -r '.ch')       
+# Hardcode MYSQL version to the most popular one since we might replace the flow version
+MYSQL_VERSION="9.5"
+
+POSTGRES_VERSION=$(echo "$VERSIONS" | yq -r '.pg')
+MONGODB_VERSION=$(echo "$VERSIONS" | yq -r '.mongo')
+CLICKHOUSE_VERSION=$(echo "$VERSIONS" | yq -r '.ch')
 
 if [ -z "$POSTGRES_VERSION" ] || [ -z "$MYSQL_VERSION" ] || [ -z "$MONGODB_VERSION" ] || [ -z "$CLICKHOUSE_VERSION" ]; then
     echo "Failed to extract database versions from .github/workflows/flow.yml"
@@ -27,3 +32,4 @@ echo "" >> "$IMAGES_FILE"
 echo MONGODB_IMAGE="mongo:${MONGODB_VERSION}" >> "$IMAGES_FILE"
 echo CLICKHOUSE_IMAGE="clickhouse/clickhouse-server:${CLICKHOUSE_VERSION}" >> "$IMAGES_FILE"
 echo POSTGRES_IMAGE="imresamu/postgis:${POSTGRES_VERSION}-3.5-alpine" >> "$IMAGES_FILE"
+echo MYSQL_IMAGE="mysql:${MYSQL_VERSION}" >> "$IMAGES_FILE"

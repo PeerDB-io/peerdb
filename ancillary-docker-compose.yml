@@ -39,6 +39,22 @@ services:
       timeout: 10s
       retries: 5
 
+  mysql:
+    container_name: mysql
+    image: ${MYSQL_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_PORT}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
   postgres:
     container_name: postgres
     image: ${POSTGRES_IMAGE}
