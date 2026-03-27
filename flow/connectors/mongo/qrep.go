@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -208,17 +209,16 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	defer cursor.Close(ctx)
 
+	converter, err := NewBsonConverter(ctx, config.Env)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to create bson converter: %w", err)
+	}
 	for cursor.Next(ctx) {
-		var doc bson.D
-		if err := bson.Unmarshal(cursor.Current, &doc); err != nil {
-			c.logger.Error("failed to unmarshal record",
+		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable)
+		if err != nil {
+			c.logger.Error("failed to convert record",
 				slog.String("error", err.Error()),
 				slog.Any("recordSize", len(cursor.Current)))
-			return 0, 0, fmt.Errorf("failed to unmarshal record: %w", err)
-		}
-
-		record, err := QValuesFromDocument(doc, config.Version)
-		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
 		}
 
@@ -300,30 +300,22 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 	}
 }
 
-func QValuesFromDocument(doc bson.D, version uint32) ([]types.QValue, error) {
-	var qValues []types.QValue
-
-	var qvalueId types.QValueString
-	var err error
-	for _, v := range doc {
-		if v.Key == DefaultDocumentKeyColumnName {
-			qvalueId, err = qValueStringFromKey(v.Value, version)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
-			}
-			break
-		}
+// QValuesFromBsonRaw converts a raw BSON document to QValues, extracting the _id
+// and producing JSON for the full document using the provided converter.
+func QValuesFromBsonRaw(raw bson.Raw, version uint32, converter BsonToQValueConverter, tableName string) ([]types.QValue, error) {
+	rv := raw.Lookup(DefaultDocumentKeyColumnName)
+	if rv.IsZero() || rv.Type == bson.TypeNull {
+		return nil, exceptions.NewInvalidIdValueError(tableName)
 	}
-	if qvalueId.Val == "" {
-		return nil, fmt.Errorf("key %s not found", DefaultDocumentKeyColumnName)
-	}
-	qValues = append(qValues, qvalueId)
-
-	qvalueDoc, err := qValueJSONFromDocument(doc)
+	idQValue, err := converter.QValueStringFromId(rv, version)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 	}
-	qValues = append(qValues, qvalueDoc)
 
-	return qValues, nil
+	docQValue, err := converter.QValueJSONFromDocument(raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert document %s: %w", DefaultFullDocumentColumnName, err)
+	}
+
+	return []types.QValue{idQValue, docQValue}, nil
 }

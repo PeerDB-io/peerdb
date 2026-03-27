@@ -13,5 +13,5 @@ func NewInvalidIdValueError(table string) *MongoInvalidIdValueError {
 }
 
 func (e *MongoInvalidIdValueError) Error() string {
-	return fmt.Sprintf("identified _id with null value in table %s; _id cannot be null", e.Table)
+	return fmt.Sprintf("_id field is missing or null in table %s; _id must be present and non-null", e.Table)
 }

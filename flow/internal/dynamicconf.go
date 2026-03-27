@@ -435,6 +435,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name: "PEERDB_MONGODB_DIRECT_BSON_CONVERTER",
+		Description: "Use direct BSON-to-JSON converter for MongoDB (faster, no intermediate deserialization). " +
+			"Set to false to fall back to legacy converter.",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -786,4 +795,8 @@ func PeerDBS3ChunkOnUncompressed(ctx context.Context, env map[string]string) (bo
 
 func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
+}
+
+func PeerDBMongoDBDirectBsonConverter(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_DIRECT_BSON_CONVERTER")
 }
