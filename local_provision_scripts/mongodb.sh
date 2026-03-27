@@ -13,7 +13,7 @@ CONTAINER="mongodb"
 # On subsequent runs, auth is required since users already exist.
 mongosh_eval() {
   $DOCKER exec "$CONTAINER" mongosh --quiet --eval "$1" 2>/dev/null \
-    || $DOCKER exec "$CONTAINER" mongosh --quiet -u "$MONGO_ADMIN_USERNAME" -p "$MONGO_ADMIN_PASSWORD" --eval "$1"
+    || $DOCKER exec "$CONTAINER" mongosh --quiet -u "$CI_MONGO_ADMIN_USERNAME" -p "$CI_MONGO_ADMIN_PASSWORD" --eval "$1"
 }
 
 echo "initialize replica set"
@@ -25,15 +25,15 @@ until mongosh_eval 'rs.status().myState' | grep -q 1; do
 done
 
 echo "create admin user"
-if ! mongosh_eval "db.getSiblingDB('admin').getUser('$MONGO_ADMIN_USERNAME')" | grep -q "$MONGO_ADMIN_USERNAME"; then
+if ! mongosh_eval "db.getSiblingDB('admin').getUser('$CI_MONGO_ADMIN_USERNAME')" | grep -q "$CI_MONGO_ADMIN_USERNAME"; then
   $DOCKER exec "$CONTAINER" mongosh --eval "
     db = db.getSiblingDB('admin');
-    db.createUser({user: '$MONGO_ADMIN_USERNAME', pwd: '$MONGO_ADMIN_PASSWORD', roles: ['root']})"
+    db.createUser({user: '$CI_MONGO_ADMIN_USERNAME', pwd: '$CI_MONGO_ADMIN_PASSWORD', roles: ['root']})"
 fi
 
 echo "create non-admin user for reading data from changestream"
-if ! $DOCKER exec "$CONTAINER" mongosh -u "$MONGO_ADMIN_USERNAME" -p "$MONGO_ADMIN_PASSWORD" --quiet --eval "db.getSiblingDB('admin').getUser('$MONGO_USERNAME')" | grep -q "$MONGO_USERNAME"; then
-  $DOCKER exec "$CONTAINER" mongosh -u "$MONGO_ADMIN_USERNAME" -p "$MONGO_ADMIN_PASSWORD" --eval "
+if ! $DOCKER exec "$CONTAINER" mongosh -u "$CI_MONGO_ADMIN_USERNAME" -p "$CI_MONGO_ADMIN_PASSWORD" --quiet --eval "db.getSiblingDB('admin').getUser('$CI_MONGO_USERNAME')" | grep -q "$CI_MONGO_USERNAME"; then
+  $DOCKER exec "$CONTAINER" mongosh -u "$CI_MONGO_ADMIN_USERNAME" -p "$CI_MONGO_ADMIN_PASSWORD" --eval "
     db = db.getSiblingDB('admin');
-    db.createUser({user: '$MONGO_USERNAME', pwd: '$MONGO_PASSWORD', roles: ['readAnyDatabase', 'clusterMonitor']})"
+    db.createUser({user: '$CI_MONGO_USERNAME', pwd: '$CI_MONGO_PASSWORD', roles: ['readAnyDatabase', 'clusterMonitor']})"
 fi
