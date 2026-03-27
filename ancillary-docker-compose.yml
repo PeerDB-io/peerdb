@@ -7,7 +7,7 @@ services:
     entrypoint: ["bash", "-c", "openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && exec mongod --replSet rs0 --oplogMinRetentionHours 24 --bind_ip_all --keyFile /data/mongo.key"]
     restart: unless-stopped
     ports:
-      - "${MONGO_PORT}:27017"
+      - "${CI_MONGO_PORT}:27017"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
