@@ -111,12 +111,12 @@ local('./generate-test-environment.sh')
 docker_compose('./ancillary-docker-compose.yml', env_file='ancillary.env')
 
 dc_resource('mongodb', labels=['Ancillary', 'DataStore'], links=[
-    link('http://localhost:27017', 'MongoDB'),
+    link('http://localhost:11017', 'MongoDB'),
 ])
 
 dc_resource('clickhouse', labels=['Ancillary', 'DataStore'], links=[
-    link('http://localhost:8123', 'ClickHouse HTTP'),
-    link('http://localhost:9000', 'ClickHouse TCP'),
+    link('http://localhost:11123', 'ClickHouse HTTP'),
+    link('http://localhost:11000', 'ClickHouse TCP'),
 ])
 
 dc_resource('mysql-gtid', labels=['Ancillary', 'DataStore'], links=[
