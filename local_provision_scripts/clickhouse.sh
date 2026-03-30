@@ -5,7 +5,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
 . "$SCRIPT_DIR/../.env"
 
-CONTAINER="ch-local"
+CONTAINER="peerdb-clickhouse"
 
 echo "Setting empty password for default user"
 docker exec "$CONTAINER" bash -c 'cat > /etc/clickhouse-server/users.d/default-user.xml <<EOF

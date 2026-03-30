@@ -6,7 +6,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/../.env"
 
 DOCKER="docker"
-CONTAINER="mongodb"
+CONTAINER="peerdb-mongodb"
 
 # Helper: run mongosh, trying unauthenticated first then with admin credentials.
 # On first run, localhost exception allows unauthenticated access.

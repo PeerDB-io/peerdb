@@ -2,7 +2,7 @@ name: peerdb-ancillary-services
 
 services:
   mongodb:
-    container_name: mongodb
+    container_name: peerdb-mongodb
     image: ${MONGODB_IMAGE}
     entrypoint: ["bash", "-c", "openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && exec mongod --replSet rs0 --oplogMinRetentionHours 24 --bind_ip_all --keyFile /data/mongo.key"]
     restart: unless-stopped
@@ -17,7 +17,7 @@ services:
       retries: 5
 
   clickhouse:
-    container_name: ch-local
+    container_name: peerdb-clickhouse
     image: ${CLICKHOUSE_IMAGE}
     restart: unless-stopped
     ports:
@@ -40,7 +40,7 @@ services:
       retries: 5
 
   mysql:
-    container_name: mysql
+    container_name: peerdb-mysql
     image: ${MYSQL_IMAGE}
     restart: unless-stopped
     ports:
@@ -56,7 +56,7 @@ services:
       retries: 5
 
   postgres:
-    container_name: postgres
+    container_name: peerdb-postgres
     image: ${POSTGRES_IMAGE}
     restart: unless-stopped
     ports:

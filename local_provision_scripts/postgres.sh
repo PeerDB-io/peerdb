@@ -6,7 +6,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/../.env"
 
 DOCKER="docker"
-CONTAINER="postgres"
+CONTAINER="peerdb-postgres"
 
 echo "install pgvector extension"
 if ! $DOCKER exec "$CONTAINER" test -d /tmp/pgvector; then
