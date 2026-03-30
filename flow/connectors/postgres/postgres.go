@@ -709,29 +709,31 @@ func (c *PostgresConnector) NormalizeRecords(
 		}, nil
 	}
 
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return model.NormalizeResponse{}, err
+	}
+
+	normalizeStmtGen := normalizeStmtGenerator{
+		Logger:             c.logger,
+		rawTableName:       rawTableIdentifier,
+		tableSchemaMapping: req.TableNameSchemaMapping,
+		peerdbCols: &protos.PeerDBColumns{
+			SoftDeleteColName: req.SoftDeleteColName,
+			SyncedAtColName:   req.SyncedAtColName,
+		},
+		supportsMerge:  pgversion >= shared.POSTGRES_15,
+		metadataSchema: c.metadataSchema,
+	}
+
+	totalRowsAffected := 0
 	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
 		unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName, batchID)
 		if err != nil {
 			return model.NormalizeResponse{}, err
 		}
+		normalizeStmtGen.unchangedToastColumnsMap = unchangedToastColumnsMap
 
-		pgversion, err := c.MajorVersion(ctx)
-		if err != nil {
-			return model.NormalizeResponse{}, err
-		}
-		totalRowsAffected := 0
-		normalizeStmtGen := normalizeStmtGenerator{
-			Logger:                   c.logger,
-			rawTableName:             rawTableIdentifier,
-			tableSchemaMapping:       req.TableNameSchemaMapping,
-			unchangedToastColumnsMap: unchangedToastColumnsMap,
-			peerdbCols: &protos.PeerDBColumns{
-				SoftDeleteColName: req.SoftDeleteColName,
-				SyncedAtColName:   req.SyncedAtColName,
-			},
-			supportsMerge:  pgversion >= shared.POSTGRES_15,
-			metadataSchema: c.metadataSchema,
-		}
 		destinationTableNames, err := c.getDistinctTableNamesInBatch(
 			ctx, req.FlowJobName, batchID, req.TableNameSchemaMapping)
 		if err != nil {
@@ -747,8 +749,8 @@ func (c *PostgresConnector) NormalizeRecords(
 			slog.Int64("syncBatchID", req.SyncBatchID),
 			slog.Int("rowsAffected", rowsAffected),
 		)
-		c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 	}
+	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 
 	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
