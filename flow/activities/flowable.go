@@ -1065,12 +1065,11 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 		logger.Error("Failed to get flows for metrics", slog.Any("error", err))
 		return err
 	}
-
 	flowsMap := make(map[string]*metricsFlowMetadata, len(flows))
 	flowNames := make([]string, 0, len(flows))
-	for idx, flow := range flows {
-		flowsMap[flow.name] = &flows[idx]
-		flowNames = append(flowNames, flow.name)
+	for idx := range flows {
+		flowsMap[flows[idx].name] = &flows[idx]
+		flowNames = append(flowNames, flows[idx].name)
 	}
 	rows, err := a.CatalogPool.Query(ctx, `
 		SELECT
@@ -1154,11 +1153,12 @@ func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
 	logger.Info("Emitting metrics for flows", slog.Int("flows", len(infos)))
 	activeFlows := make([]metricsFlowMetadata, 0, len(infos))
 	currentTime := time.Now()
-	for _, info := range infos {
+	for idx := range infos {
+		info := &infos[idx]
 		ctx := context.WithValue(ctx, internal.FlowMetadataKey, info.toFlowContextMetadata())
 		_, isActive := activeFlowStatuses[info.status]
 		if isActive {
-			activeFlows = append(activeFlows, info)
+			activeFlows = append(activeFlows, *info)
 		}
 		a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
 		a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
@@ -1207,8 +1207,8 @@ func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
 		activeFlowCpuLimit := totalCpuLimit / float64(activeFlowCount)
 		activeFlowMemoryLimit := totalMemoryLimit / float64(activeFlowCount)
 		if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
-			for _, info := range activeFlows {
-				ctx := context.WithValue(ctx, internal.FlowMetadataKey, info.toFlowContextMetadata())
+			for idx := range activeFlows {
+				ctx := context.WithValue(ctx, internal.FlowMetadataKey, activeFlows[idx].toFlowContextMetadata())
 				if activeFlowMemoryLimit > 0 {
 					a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
 				}
