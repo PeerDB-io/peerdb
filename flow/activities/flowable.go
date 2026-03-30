@@ -1027,16 +1027,17 @@ type flowInformation struct {
 }
 
 type metricsFlowMetadata struct {
-	updatedAt           time.Time
-	config              *protos.FlowConnectionConfigsCore
-	sourcePeerConfig    *protos.Peer
-	name                string
-	workflowID          string
-	sourcePeerName      string
-	destinationPeerName string
-	status              protos.FlowStatus
-	sourcePeerType      protos.DBType
-	destinationPeerType protos.DBType
+	updatedAt             time.Time
+	config                *protos.FlowConnectionConfigsCore
+	sourcePeerConfig      *protos.Peer
+	destinationPeerConfig *protos.Peer
+	name                  string
+	workflowID            string
+	sourcePeerName        string
+	destinationPeerName   string
+	status                protos.FlowStatus
+	sourcePeerType        protos.DBType
+	destinationPeerType   protos.DBType
 }
 
 func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadata {
@@ -1047,8 +1048,9 @@ func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadat
 			Hostname: getPeerHostName(m.sourcePeerType, m.sourcePeerConfig),
 		},
 		Destination: &protos.PeerContextMetadata{
-			Name: m.destinationPeerName,
-			Type: m.destinationPeerType,
+			Name:     m.destinationPeerName,
+			Type:     m.destinationPeerType,
+			Hostname: getPeerHostName(m.destinationPeerType, m.destinationPeerConfig),
 		},
 		FlowName: m.config.FlowJobName,
 		Status:   m.status,
@@ -1063,12 +1065,11 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 		logger.Error("Failed to get flows for metrics", slog.Any("error", err))
 		return err
 	}
-
 	flowsMap := make(map[string]*metricsFlowMetadata, len(flows))
 	flowNames := make([]string, 0, len(flows))
-	for idx, flow := range flows {
-		flowsMap[flow.name] = &flows[idx]
-		flowNames = append(flowNames, flow.name)
+	for idx := range flows {
+		flowsMap[flows[idx].name] = &flows[idx]
+		flowNames = append(flowNames, flows[idx].name)
 	}
 	rows, err := a.CatalogPool.Query(ctx, `
 		SELECT
@@ -1152,11 +1153,12 @@ func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
 	logger.Info("Emitting metrics for flows", slog.Int("flows", len(infos)))
 	activeFlows := make([]metricsFlowMetadata, 0, len(infos))
 	currentTime := time.Now()
-	for _, info := range infos {
+	for idx := range infos {
+		info := &infos[idx]
 		ctx := context.WithValue(ctx, internal.FlowMetadataKey, info.toFlowContextMetadata())
 		_, isActive := activeFlowStatuses[info.status]
 		if isActive {
-			activeFlows = append(activeFlows, info)
+			activeFlows = append(activeFlows, *info)
 		}
 		a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
 		a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
@@ -1205,8 +1207,8 @@ func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
 		activeFlowCpuLimit := totalCpuLimit / float64(activeFlowCount)
 		activeFlowMemoryLimit := totalMemoryLimit / float64(activeFlowCount)
 		if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
-			for _, info := range activeFlows {
-				ctx := context.WithValue(ctx, internal.FlowMetadataKey, info.toFlowContextMetadata())
+			for idx := range activeFlows {
+				ctx := context.WithValue(ctx, internal.FlowMetadataKey, activeFlows[idx].toFlowContextMetadata())
 				if activeFlowMemoryLimit > 0 {
 					a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
 				}
@@ -1236,7 +1238,9 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 				COALESCE(dp.name, '') AS destination_peer_name,
 				COALESCE(dp.type, 0) AS destination_peer_type,
 				COALESCE(sp.options, '') AS source_peer_config_proto,
-				sp.enc_key_id AS source_enc_key_id
+				COALESCE(dp.options, '') AS destination_peer_config_proto,
+				sp.enc_key_id AS source_enc_key_id,
+				dp.enc_key_id AS destination_enc_key_id
 			FROM
 				flows f
 			LEFT JOIN peers sp ON f.source_peer = sp.id
@@ -1254,6 +1258,8 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 		var configProto []byte
 		var sourcePeerConfig []byte
 		var sourceEncKeyID string
+		var destinationPeerConfig []byte
+		var destinationEncKeyID string
 		if err := rows.Scan(
 			&f.name,
 			&f.status,
@@ -1265,7 +1271,9 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 			&f.destinationPeerName,
 			&f.destinationPeerType,
 			&sourcePeerConfig,
+			&destinationPeerConfig,
 			&sourceEncKeyID,
+			&destinationEncKeyID,
 		); err != nil {
 			return metricsFlowMetadata{}, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -1283,6 +1291,11 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 			return metricsFlowMetadata{}, err
 		}
 		f.sourcePeerConfig = config
+		config, err = connectors.BuildPeerConfig(ctx, destinationEncKeyID, destinationPeerConfig, f.destinationPeerName, f.destinationPeerType)
+		if err != nil {
+			return metricsFlowMetadata{}, err
+		}
+		f.destinationPeerConfig = config
 		return f, nil
 	})
 	if err != nil {
