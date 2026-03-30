@@ -1,4 +1,6 @@
 #!/bin/bash
+DEFAULT_TILT_PORT=10352
+
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -12,5 +14,5 @@ trap cleanup EXIT
 if [ -n "${TILT_PORT:-}" ]; then
     tilt up --port="$TILT_PORT"
 else
-    tilt up
+    tilt up --port="$DEFAULT_TILT_PORT"
 fi
