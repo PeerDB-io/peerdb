@@ -111,7 +111,11 @@ This is done through [Tilt](https://tilt.dev/) orchestrated Docker compose.
 
 To get the environment up you first need to specify the shared environment variables for both the test and the test environment in your local `.env` file. You can use the provided `.env.example` as a template: `cp .env.example .env `.
 
-:memo: In the template, services URLs are set to `172.18.0.1`, which is the default gateway for Docker containers. This allows both test processes and services running inside Docker to access services running on the host machine. If your setup differs, update these URLs accordingly.
+:memo: In the template, services URLs are set to `host.docker.internal`, which is the name for the default Docker gateway in Docker Desktop set-ups such as macOS and Windows. Using the default gateway address allows both test processes and services running inside Docker to access services on the host machine. In native Docker (Linux) this name is not resolved by default, you might replace it with the default gateway IP (e.g., `172.18.0.1`) or add a custom entry to your `/etc/hosts` file to resolve `host.docker.internal` to the appropriate IP address. e.g:
+
+```bash
+echo "172.18.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+```
 
 Then you can just run:
 
