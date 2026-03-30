@@ -48,7 +48,7 @@ jobs:
           set -eou pipefail
           latest_tag="${{ needs.get-latest-release.outputs.latest_tag }}"
           sed -i -E 's|(image: ghcr\.io/peerdb\-io/.*?:stable-)(.*$)|\1'"${latest_tag}"'|g' docker-compose.yml
-          git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
+          git diff --exit-code || echo "changes=true" >> "$GITHUB_OUTPUT"
       - name: Create PR
         if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
         shell: bash
@@ -94,7 +94,7 @@ jobs:
           yq -e -i '.appVersion = strenv(PEERDB_VERSION)' peerdb/Chart.yaml
           yq -e -i '.appVersion = strenv(PEERDB_VERSION)' peerdb-catalog/Chart.yaml
           yq -e -i '.peerdb.version = strenv(STABLE_PEERDB_VERSION)' peerdb/values.yaml
-          git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
+          git diff --exit-code || echo "changes=true" >> "$GITHUB_OUTPUT"
       - name: Get next version
         if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
         uses: reecetech/version-increment@2024.10.1
@@ -120,8 +120,7 @@ jobs:
           git config --global user.email "peerdb-oss-devops-bot@clickhouse.com"
           git add -u .
           git checkout -b "${{ env.PR_BRANCH }}"
-          git fetch || true
-          git commit -m "feat: upgrade PeerDB release version to ${{ github.event.inputs.version }}"
+          git commit -m "feat: upgrade PeerDB release version to ${{ env.PEERDB_VERSION }}"
           git push -u origin "${{ env.PR_BRANCH }}" --force-with-lease
           PR_ID=$(gh pr list --label "${PR_LABEL}" --head "${PR_BRANCH}" --json number | jq -r '.[0].number // ""')
           if [ "$PR_ID" == "" ]; then
