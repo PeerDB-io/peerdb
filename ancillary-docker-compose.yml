@@ -39,18 +39,52 @@ services:
       timeout: 10s
       retries: 5
 
-  mysql:
-    container_name: peerdb-mysql
-    image: ${MYSQL_IMAGE}
+  mysql-gtid:
+    container_name: peerdb-mysql-gtid
+    image: mysql:9.5
     restart: unless-stopped
     ports:
-      - "${CI_MYSQL_PORT}:3306"
+      - "${CI_MYSQL_GTID_PORT}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${CI_MYSQL_ROOT_PASSWORD}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  mysql-pos:
+    container_name: peerdb-mysql-pos
+    image: mysql:5.7
+    command: ["--log_bin=mysql-bin", "--server-id=1", "--bind-address=::"]
+    restart: unless-stopped
+    ports:
+      - "${CI_MYSQL_POS_PORT}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${CI_MYSQL_ROOT_PASSWORD}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  mariadb:
+    container_name: peerdb-mariadb
+    image: mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e
+    command: ["--log-bin=maria"]
+    restart: unless-stopped
+    ports:
+      - "${CI_MARIADB_PORT}:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: ${CI_MYSQL_ROOT_PASSWORD}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
       interval: 2s
       timeout: 10s
       retries: 5

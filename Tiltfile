@@ -77,10 +77,24 @@ local_resource(
 )
 
 local_resource(
-    'provision-mysql',
-    cmd='./local_provision_scripts/mysql.sh',
+    'provision-mysql-gtid',
+    cmd='./local_provision_scripts/mysql.sh peerdb-mysql-gtid 3306',
     labels=['Ancillary', 'Provisioning'],
-    resource_deps=['mysql']
+    resource_deps=['mysql-gtid']
+)
+
+local_resource(
+    'provision-mysql-pos',
+    cmd='./local_provision_scripts/mysql.sh peerdb-mysql-pos 3307',
+    labels=['Ancillary', 'Provisioning'],
+    resource_deps=['mysql-pos']
+)
+
+local_resource(
+    'provision-mariadb',
+    cmd='./local_provision_scripts/mysql.sh peerdb-mariadb 3308',
+    labels=['Ancillary', 'Provisioning'],
+    resource_deps=['mariadb']
 )
 
 local_resource(
@@ -105,8 +119,16 @@ dc_resource('clickhouse', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:9000', 'ClickHouse TCP'),
 ])
 
-dc_resource('mysql', labels=['Ancillary', 'DataStore'], links=[
-    link('http://localhost:3306', 'MySQL'),
+dc_resource('mysql-gtid', labels=['Ancillary', 'DataStore'], links=[
+    link('http://localhost:3306', 'MySQL GTID'),
+])
+
+dc_resource('mysql-pos', labels=['Ancillary', 'DataStore'], links=[
+    link('http://localhost:3307', 'MySQL File-Pos'),
+])
+
+dc_resource('mariadb', labels=['Ancillary', 'DataStore'], links=[
+    link('http://localhost:3308', 'MariaDB'),
 ])
 
 dc_resource('postgres', labels=['Ancillary', 'DataStore'], links=[
