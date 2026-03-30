@@ -50,10 +50,10 @@ const (
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 
 	getDistinctDestinationTableNamesSQL = `SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE
-	_peerdb_batch_id>$1 AND _peerdb_batch_id<=$2`
+	_peerdb_batch_id=$1`
 	getTableNameToUnchangedToastColsSQL = `SELECT _peerdb_destination_table_name,
 	ARRAY_AGG(DISTINCT _peerdb_unchanged_toast_columns) FROM %s.%s WHERE
-	_peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_record_type!=2 GROUP BY _peerdb_destination_table_name`
+	_peerdb_batch_id=$1 AND _peerdb_record_type!=2 GROUP BY _peerdb_destination_table_name`
 	mergeStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
@@ -747,14 +747,13 @@ func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName 
 func (c *PostgresConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
-	syncBatchID int64,
-	normalizeBatchID int64,
+	currentBatchID int64,
 	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.conn.Query(ctx, fmt.Sprintf(getDistinctDestinationTableNamesSQL, c.metadataSchema,
-		rawTableIdentifier), normalizeBatchID, syncBatchID)
+		rawTableIdentifier), currentBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
 	}
@@ -775,13 +774,12 @@ func (c *PostgresConnector) getDistinctTableNamesInBatch(
 func (c *PostgresConnector) getTableNametoUnchangedCols(
 	ctx context.Context,
 	flowJobName string,
-	syncBatchID int64,
-	normalizeBatchID int64,
+	currentBatchID int64,
 ) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.conn.Query(ctx, fmt.Sprintf(getTableNameToUnchangedToastColsSQL, c.metadataSchema,
-		rawTableIdentifier), normalizeBatchID, syncBatchID)
+		rawTableIdentifier), currentBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
 	}

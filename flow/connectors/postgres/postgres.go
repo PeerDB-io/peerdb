@@ -709,27 +709,15 @@ func (c *PostgresConnector) NormalizeRecords(
 		}, nil
 	}
 
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(
-		ctx, req.FlowJobName, req.SyncBatchID, normBatchID, req.TableNameSchemaMapping)
-	if err != nil {
-		return model.NormalizeResponse{}, err
-	}
-	unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName,
-		req.SyncBatchID, normBatchID)
-	if err != nil {
-		return model.NormalizeResponse{}, err
-	}
-
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return model.NormalizeResponse{}, err
 	}
-	totalRowsAffected := 0
+
 	normalizeStmtGen := normalizeStmtGenerator{
-		Logger:                   c.logger,
-		rawTableName:             rawTableIdentifier,
-		tableSchemaMapping:       req.TableNameSchemaMapping,
-		unchangedToastColumnsMap: unchangedToastColumnsMap,
+		Logger:             c.logger,
+		rawTableName:       rawTableIdentifier,
+		tableSchemaMapping: req.TableNameSchemaMapping,
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDeleteColName: req.SoftDeleteColName,
 			SyncedAtColName:   req.SyncedAtColName,
@@ -738,7 +726,19 @@ func (c *PostgresConnector) NormalizeRecords(
 		metadataSchema: c.metadataSchema,
 	}
 
+	totalRowsAffected := 0
 	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
+		unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName, batchID)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
+		normalizeStmtGen.unchangedToastColumnsMap = unchangedToastColumnsMap
+
+		destinationTableNames, err := c.getDistinctTableNamesInBatch(
+			ctx, req.FlowJobName, batchID, req.TableNameSchemaMapping)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
 		rowsAffected, err := c.normalizeBatch(ctx, batchID, req, destinationTableNames, &normalizeStmtGen)
 		if err != nil {
 			return model.NormalizeResponse{}, err
