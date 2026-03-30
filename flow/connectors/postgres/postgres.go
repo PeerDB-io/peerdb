@@ -709,36 +709,34 @@ func (c *PostgresConnector) NormalizeRecords(
 		}, nil
 	}
 
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(
-		ctx, req.FlowJobName, req.SyncBatchID, normBatchID, req.TableNameSchemaMapping)
-	if err != nil {
-		return model.NormalizeResponse{}, err
-	}
-	unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName,
-		req.SyncBatchID, normBatchID)
-	if err != nil {
-		return model.NormalizeResponse{}, err
-	}
-
-	pgversion, err := c.MajorVersion(ctx)
-	if err != nil {
-		return model.NormalizeResponse{}, err
-	}
-	totalRowsAffected := 0
-	normalizeStmtGen := normalizeStmtGenerator{
-		Logger:                   c.logger,
-		rawTableName:             rawTableIdentifier,
-		tableSchemaMapping:       req.TableNameSchemaMapping,
-		unchangedToastColumnsMap: unchangedToastColumnsMap,
-		peerdbCols: &protos.PeerDBColumns{
-			SoftDeleteColName: req.SoftDeleteColName,
-			SyncedAtColName:   req.SyncedAtColName,
-		},
-		supportsMerge:  pgversion >= shared.POSTGRES_15,
-		metadataSchema: c.metadataSchema,
-	}
-
 	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
+		unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName, batchID)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
+
+		pgversion, err := c.MajorVersion(ctx)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
+		totalRowsAffected := 0
+		normalizeStmtGen := normalizeStmtGenerator{
+			Logger:                   c.logger,
+			rawTableName:             rawTableIdentifier,
+			tableSchemaMapping:       req.TableNameSchemaMapping,
+			unchangedToastColumnsMap: unchangedToastColumnsMap,
+			peerdbCols: &protos.PeerDBColumns{
+				SoftDeleteColName: req.SoftDeleteColName,
+				SyncedAtColName:   req.SyncedAtColName,
+			},
+			supportsMerge:  pgversion >= shared.POSTGRES_15,
+			metadataSchema: c.metadataSchema,
+		}
+		destinationTableNames, err := c.getDistinctTableNamesInBatch(
+			ctx, req.FlowJobName, batchID, req.TableNameSchemaMapping)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
 		rowsAffected, err := c.normalizeBatch(ctx, batchID, req, destinationTableNames, &normalizeStmtGen)
 		if err != nil {
 			return model.NormalizeResponse{}, err
@@ -749,8 +747,8 @@ func (c *PostgresConnector) NormalizeRecords(
 			slog.Int64("syncBatchID", req.SyncBatchID),
 			slog.Int("rowsAffected", rowsAffected),
 		)
+		c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 	}
-	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 
 	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
