@@ -131,6 +131,18 @@ Since `.env` is the environment configuration source of truth, it can be used di
 go clean -cache; env -f ../.env go test -v -run TestGenericCH_MySQL ./e2e/ # Some MySQL generic tests
 ```
 
+### Running tests from Tilt
+
+The Tilt setup includes pre-configured test launcher resources under the `e2e` label. These resources do not start automatically; instead, you can trigger them on demand from the Tilt UI at http://localhost:10350/.
+
+Available test launchers:
+
+- **e2e_postgres** -- Postgres to ClickHouse generic tests (`TestGenericCH_PG`)
+- **e2e_mysql** -- MySQL to ClickHouse generic tests (`TestGenericCH_MySQL`)
+- **e2e_mongodb** -- MongoDB to ClickHouse test suite (`TestMongoClickhouseSuite`)
+
+Each launcher automatically depends on the required services and provisioning steps, so Tilt will ensure all prerequisites are running before executing the tests. To trigger a test, click the resource in the Tilt UI and press the trigger (play) button.
+
 ### Environment services versions
 
 Data stores versions are extracted from `.github/workflows/flow.yml`, select the last row of the test matrix except for MySQL version which defaults to `9.5`.

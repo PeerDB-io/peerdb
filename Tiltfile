@@ -134,3 +134,23 @@ dc_resource('mariadb', labels=['Ancillary', 'DataStore'], links=[
 dc_resource('postgres', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:5432', 'PostgreSQL'),
 ])
+
+# Tests launchers
+
+def e2e_test(name, test_run, extra_deps=[]):
+    local_resource(
+        'e2e_' + name,
+        cmd='cd flow && go clean -cache && env -f ../.env go test -v -run %s ./e2e/' % test_run,
+        labels=['e2e', 'Test'],
+        auto_init=False,
+        resource_deps=['flow-api', 'flow-worker', 'catalog'] + extra_deps,
+    )
+
+# Postgres to ClickHouse generic tests
+e2e_test('postgres', 'TestGenericCH_PG', ['provision-postgres'])
+
+# MySQL to ClickHouse generic tests
+e2e_test('mysql', 'TestGenericCH_MySQL', ['provision-mysql-gtid', 'provision-mysql-pos', 'provision-mariadb'])
+
+# MongoDB to ClickHouse test suite
+e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
