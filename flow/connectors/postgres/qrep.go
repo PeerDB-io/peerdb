@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -50,7 +51,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
-				PartitionId:        utils.FullTablePartitionID,
+				PartitionId:        uuid.NewString(),
 				FullTablePartition: true,
 				Range:              nil,
 			},
