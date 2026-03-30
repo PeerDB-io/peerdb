@@ -1328,7 +1328,7 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 	cols = "id,val"
 
 	// Create peer for the proxy connection
-	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	proxyConfig := internal.GetAncillaryPostgresConfigFromEnv()
 	proxyConfig.Port = uint32(9904)
 	proxyPeer := &protos.Peer{
 		Name: "proxy_postgres_" + suffix,
