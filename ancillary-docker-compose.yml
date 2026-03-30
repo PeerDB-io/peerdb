@@ -108,6 +108,16 @@ services:
       timeout: 10s
       retries: 5
 
+  dozzle:
+    container_name: dozzle-compose-monitor
+    image: amir20/dozzle:latest
+    restart: unless-stopped
+    ports:
+      - "8118:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+
 networks:
   default:
     name: peerdb_network

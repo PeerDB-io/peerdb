@@ -123,7 +123,7 @@ Then you can just run:
 ./tilt.sh
 ```
 
-And follow the status of the services and access logs through the Tilt UI at http://localhost:10350/.
+And follow the status of the services and access logs through the Tilt UI at http://localhost:10350/. [Dozzle](https://dozzle.dev/) is also included at http://localhost:8118/, providing real-time container resource utilization metrics (CPU, memory) and log streaming for all running Docker containers.
 
 Since `.env` is the environment configuration source of truth, it can be used directly to inject the required variables to the test execution processes. e.g:
 

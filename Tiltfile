@@ -135,6 +135,10 @@ dc_resource('postgres', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:5432', 'PostgreSQL'),
 ])
 
+dc_resource('dozzle', labels=['Ancillary', 'Monitoring'], links=[
+    link('http://localhost:8118', 'Dozzle Container Monitor'),
+])
+
 # Tests launchers
 
 def e2e_test(name, test_run, extra_deps=[]):
