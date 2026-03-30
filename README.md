@@ -123,7 +123,9 @@ Then you can just run:
 ./tilt.sh
 ```
 
-And follow the status of the services and access logs through the Tilt UI at http://localhost:10350/. [Dozzle](https://dozzle.dev/) is also included at http://localhost:8118/, providing real-time container resource utilization metrics (CPU, memory) and log streaming for all running Docker containers.
+And follow the status of the services and access logs through the Tilt UI at http://localhost:10352/. [Dozzle](https://dozzle.dev/) is also included at http://localhost:8118/, providing real-time container resource utilization metrics (CPU, memory) and log streaming for all running Docker containers.
+
+<img width="1593" height="693" alt="image" src="https://github.com/user-attachments/assets/6c294dda-ca8f-45cc-b75c-11594118a641" />
 
 Since `.env` is the environment configuration source of truth, it can be used directly to inject the required variables to the test execution processes. e.g:
 
@@ -133,7 +135,9 @@ go clean -cache; env -f ../.env go test -v -run TestGenericCH_MySQL ./e2e/ # Som
 
 ### Running tests from Tilt
 
-The Tilt setup includes pre-configured test launcher resources under the `e2e` label. These resources do not start automatically; instead, you can trigger them on demand from the Tilt UI at http://localhost:10350/.
+The Tilt setup includes pre-configured test launcher resources under the `e2e` label. These resources do not start automatically; instead, you can trigger them on demand from the Tilt UI at http://localhost:10352/.
+
+<img width="964" height="265" alt="image" src="https://github.com/user-attachments/assets/04ecad65-5d60-44c3-96ad-d285b2706545" />
 
 Available test launchers:
 
