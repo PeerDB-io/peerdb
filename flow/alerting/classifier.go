@@ -221,6 +221,9 @@ var (
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
 	}
+	ErrorNotifyWalSegmentRemoved = ErrorClass{
+		Class: "NOTIFY_WAL_SEGMENT_REMOVED", action: NotifyUser,
+	}
 	ErrorNotifyClickHouseSupportIsDisabledError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_SUPPORT_IS_DISABLED_ERROR", action: NotifyUser,
 	}
@@ -527,9 +530,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.UndefinedFile:
 			// Handle WAL segment removed errors
-			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
+			// It either shows up once then disappears
+			// (quirk in some PG installs where replication can try read a segment that hasn't been created yet)
+			// or shows up and persists
+			// NotifyUser with repeat threshold accommodates both
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
-				return ErrorRetryRecoverable, pgErrorInfo
+				return ErrorNotifyWalSegmentRemoved, pgErrorInfo
 			}
 			// Handles missing spill-to-disk file during logical decoding (transient error)
 			if PostgresSpillFileMissingRe.MatchString(pgErr.Message) {
@@ -557,9 +563,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// Handle WAL segment removed errors
-			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
+			// It either shows up once then disappears
+			// (quirk in some PG installs where replication can try read a segment that hasn't been created yet)
+			// or shows up and persists
+			// NotifyUser with repeat threshold accommodates both
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
-				return ErrorRetryRecoverable, pgErrorInfo
+				return ErrorNotifyWalSegmentRemoved, pgErrorInfo
 			}
 
 			// Handle Neon quota exceeded errors
