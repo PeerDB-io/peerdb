@@ -144,7 +144,7 @@ func RunSSHResetPeerTest(t *testing.T, cfg SSHKeepaliveTestConfig) {
 
 		// Check for common connection reset error patterns
 		hasExpectedError := false
-		expectedErrors := []string{"connection reset", "broken pipe", "EOF", "connection closed", "use of closed network connection"}
+		expectedErrors := []string{"connection reset", "broken pipe", "EOF", "conn closed", "connection closed", "use of closed network connection"}
 		for _, expected := range expectedErrors {
 			if strings.Contains(errorMsg, expected) {
 				hasExpectedError = true
