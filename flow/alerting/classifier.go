@@ -164,6 +164,9 @@ var (
 	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
 		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
 	}
+	ErrorNotifySnapshotExportDisabled = ErrorClass{
+		Class: "NOTIFY_SNAPSHOT_EXPORT_DISABLED", action: NotifyUser,
+	}
 	ErrorNotifyTerminate = ErrorClass{
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
@@ -663,6 +666,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.FeatureNotSupported:
 			if strings.Contains(pgErr.Message, "logical decoding cannot be used while in recovery") {
 				return ErrorNotifyLogicalDecodingStandbyNotSupported, pgErrorInfo
+			}
+
+		case pgerrcode.SyntaxError:
+			if strings.Contains(pgErr.Message, "ysql_enable_pg_export_snapshot") {
+				return ErrorNotifySnapshotExportDisabled, pgErrorInfo
 			}
 
 		case pgerrcode.DeadlockDetected,
