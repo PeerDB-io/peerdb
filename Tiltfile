@@ -108,7 +108,8 @@ local_resource(
 # when `docker_compose` loads the configuration (next line).
 local('./generate-test-environment.sh')
 
-docker_compose('./ancillary-docker-compose.yml', env_file='ancillary.env')
+tiltfile_dir = config.main_path.replace('/Tiltfile', '')
+docker_compose('./ancillary-docker-compose.yml', env_file=tiltfile_dir + '/ancillary.env')
 
 dc_resource('mongodb', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:11017', 'MongoDB'),
