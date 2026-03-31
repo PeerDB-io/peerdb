@@ -945,6 +945,21 @@ func TestMongoClientDisconnectedShouldBeInternal(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestYugabyteDBSnapshotExportDisabledShouldBeSnapshotExportDisabled(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.SyntaxError,
+		Message:  "cannot export or import snapshot when ysql_enable_pg_export_snapshot is disabled.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to set transaction snapshot: %w", err))
+	assert.Equal(t, ErrorNotifySnapshotExportDisabled, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.SyntaxError,
+	}, errInfo)
+}
+
 func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
 	pgErr := &pgconn.PgError{
 		Severity: "ERROR",
