@@ -111,30 +111,38 @@ local('./generate-test-environment.sh')
 tiltfile_dir = config.main_path.replace('/Tiltfile', '')
 docker_compose('./ancillary-docker-compose.yml', env_file=tiltfile_dir + '/ancillary.env')
 
-dc_resource('mongodb', labels=['Ancillary', 'DataStore'], links=[
-    link('http://localhost:11017', 'MongoDB'),
-])
-
+# ClickHouse is the only datastore that is automatically started as the common destination for all pipes.
 dc_resource('clickhouse', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:11123', 'ClickHouse HTTP'),
     link('http://localhost:11000', 'ClickHouse TCP'),
 ])
 
+# Source data storages for tests, they are not automatically started to save resources.
+# Their provisioning step resources are autostarted but blocked on the manual activation
+# of their corresponding datastore.
+# This way, users can choose which ones to start and when, depending on the tests they want to run.
+
+dc_resource('mongodb', labels=['Ancillary', 'DataStore'], links=[
+    link('http://localhost:11017', 'MongoDB'),
+], auto_init=False)
+
 dc_resource('mysql-gtid', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:3306', 'MySQL GTID'),
-])
+], auto_init=False)
 
 dc_resource('mysql-pos', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:3307', 'MySQL File-Pos'),
-])
+], auto_init=False)
 
 dc_resource('mariadb', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:3308', 'MariaDB'),
-])
+], auto_init=False)
 
 dc_resource('postgres', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:5432', 'PostgreSQL'),
-])
+], auto_init=False)
+
+# Monitoring and utility tools
 
 dc_resource('dozzle', labels=['Ancillary', 'Monitoring'], links=[
     link('http://localhost:8118', 'Dozzle Container Monitor'),
