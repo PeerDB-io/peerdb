@@ -16,6 +16,7 @@ import (
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 	"go.temporal.io/sdk/log"
 
+	pgutils "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -30,36 +31,11 @@ const (
 	POSTGRES_17 PGVersion = 170000
 )
 
-type CustomDataType struct {
-	Name  string
-	Type  byte
-	Delim byte // non-zero character for arrays
-}
+// CustomDataType is an alias for the canonical type in flow/pkg/postgres.
+type CustomDataType = pgutils.CustomDataType
 
 func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomDataType, error) {
-	rows, err := conn.Query(ctx, `
-		SELECT t.oid, t.typname, coalesce(at.typtype, t.typtype), coalesce(at.typdelim, 0::"char")
-		FROM pg_catalog.pg_type t
-		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
-		LEFT JOIN pg_catalog.pg_class c ON c.oid = t.typrelid
-		LEFT JOIN pg_catalog.pg_type at ON at.typarray = t.oid
-		WHERE t.typrelid = 0 OR c.relkind = 'c'
-		AND n.nspname NOT IN ('pg_catalog', 'information_schema');
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get customTypeMapping: %w", err)
-	}
-
-	customTypeMap := map[uint32]CustomDataType{}
-	var typeID pgtype.Uint32
-	var cdt CustomDataType
-	if _, err := pgx.ForEachRow(rows, []any{&typeID, &cdt.Name, &cdt.Type, &cdt.Delim}, func() error {
-		customTypeMap[typeID.Uint32] = cdt
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("failed to scan into custom type mapping: %w", err)
-	}
-	return customTypeMap, nil
+	return pgutils.GetCustomDataTypes(ctx, conn)
 }
 
 func RegisterExtensions(ctx context.Context, conn *pgx.Conn, version uint32) error {

@@ -17,36 +17,14 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	pg_validation "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping map[uint32]shared.CustomDataType) (string, error) {
-	if ty, ok := c.typeMap.TypeForOID(recvOID); ok {
-		return ty.Name, nil
-	}
-	// workaround for some types not being defined by pgtype
-	switch recvOID {
-	case pgtype.TimetzOID:
-		return "timetz", nil
-	case pgtype.XMLOID:
-		return "xml", nil
-	case shared.MoneyOID:
-		return "money", nil
-	case shared.TxidSnapshotOID:
-		return "txid_snapshot", nil
-	case shared.TsvectorOID:
-		return "tsvector", nil
-	case shared.TsqueryOID:
-		return "tsquery", nil
-	default:
-		typeData, ok := customTypeMapping[recvOID]
-		if !ok {
-			return "", fmt.Errorf("error getting type name for %d", recvOID)
-		}
-		return typeData.Name, nil
-	}
+	return pg_validation.OIDToName(c.typeMap, recvOID, customTypeMapping)
 }
 
 func (c *PostgresConnector) postgresOIDToQValueKind(
