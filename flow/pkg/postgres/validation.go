@@ -180,12 +180,16 @@ func CheckColumnTypeCompatibility(
 			)
 		}
 	case "numeric":
-		// Both sides constrained and different → reject.
+		// Either side unbounded (typmod == -1) → always compatible.
+		// Both constrained: destination must be at least as wide (superset).
 		if srcTypeMod != -1 && dstTypeMod != -1 && srcTypeMod != dstTypeMod {
 			srcPrec, srcScale := ParseNumericTypmod(srcTypeMod)
 			dstPrec, dstScale := ParseNumericTypmod(dstTypeMod)
+			if dstPrec >= srcPrec && dstScale >= srcScale {
+				return nil
+			}
 			return fmt.Errorf(
-				"source column %s numeric(%d,%d) does not match destination column %s numeric(%d,%d) in table %s",
+				"source column %s numeric(%d,%d) is wider than destination column %s numeric(%d,%d) in table %s",
 				srcColName, srcPrec, srcScale, dstColName, dstPrec, dstScale, dstTableIdentifier,
 			)
 		}
