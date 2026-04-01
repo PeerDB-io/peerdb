@@ -31,12 +31,19 @@ x-flow-worker-env: &flow-worker-env
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
 
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "5"
+
 services:
   catalog:
     container_name: catalog
     image: postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
     command: -c config_file=/etc/postgresql.conf
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - 9901:5432
     environment:
@@ -60,6 +67,7 @@ services:
   temporal:
     container_name: temporal
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       catalog:
         condition: service_healthy
@@ -81,6 +89,7 @@ services:
   temporal-admin-tools:
     container_name: temporal-admin-tools
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - temporal
     environment:
@@ -102,6 +111,7 @@ services:
   temporal-ui:
     container_name: temporal-ui
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - temporal
     environment:
@@ -116,6 +126,7 @@ services:
     container_name: flow_api
     image: ghcr.io/peerdb-io/flow-api:stable-v0.36.16
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - 8112:8112
       - 8113:8113
@@ -132,6 +143,7 @@ services:
     container_name: flow-snapshot-worker
     image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.36.16
     restart: unless-stopped
+    logging: *default-logging
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     depends_on:
@@ -142,6 +154,7 @@ services:
     container_name: flow-worker
     image: ghcr.io/peerdb-io/flow-worker:stable-v0.36.16
     restart: unless-stopped
+    logging: *default-logging
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     extra_hosts:
@@ -155,6 +168,7 @@ services:
     stop_signal: SIGINT
     image: ghcr.io/peerdb-io/peerdb-server:stable-v0.36.16
     restart: unless-stopped
+    logging: *default-logging
     environment:
       <<: *catalog-config
       PEERDB_PASSWORD:
@@ -171,6 +185,7 @@ services:
     container_name: peerdb-ui
     image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.36.16
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - 3000:3000
     environment:
@@ -187,6 +202,7 @@ services:
   minio:
     image: minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - minio-data:/data
     ports:
