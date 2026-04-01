@@ -234,7 +234,7 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("document key is nil")
 		}
 
-		if fullDocument != nil {
+		if len(fullDocument) > 0 {
 			qValue, err := converter.QValueJSONFromDocument(fullDocument)
 			if err != nil {
 				return fmt.Errorf("failed to convert document: %w", err)
