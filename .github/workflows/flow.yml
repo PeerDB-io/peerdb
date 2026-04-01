@@ -3,8 +3,8 @@ name: Flow build and test
 on:
   pull_request:
     branches: [main]
-    # Ignore changes files that don't require build or validations
-    # If more complex build avoidance is required or other vents than pull_request, push and pull_request_target;
+    # Ignore changes to files that don't require builds or validations.
+    # If more complex build avoidance is required, or for other events than pull_request, push, and pull_request_target,
     # replace this with a gate step in the job.
     paths-ignore:
         - '.claude/**'
