@@ -220,7 +220,7 @@ func (c *MongoConnector) PullRecords(
 		return fmt.Errorf("failed to create converter: %w", err)
 	}
 	addRecordItems := func(documentKey bson.Raw, fullDocument bson.Raw, items *model.RecordItems, tableName string) error {
-		if documentKey != nil {
+		if len(documentKey) > 0 {
 			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
 			if rv.IsZero() || rv.Type == bson.TypeNull {
 				return exceptions.NewInvalidIdValueError(tableName)
@@ -234,7 +234,7 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("document key is nil")
 		}
 
-		if fullDocument != nil {
+		if len(fullDocument) > 0 {
 			qValue, err := converter.QValueJSONFromDocument(fullDocument)
 			if err != nil {
 				return fmt.Errorf("failed to convert document: %w", err)
