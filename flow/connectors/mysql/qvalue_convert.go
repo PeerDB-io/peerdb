@@ -137,7 +137,13 @@ func processGeometryData(data []byte) (types.QValueGeometry, error) {
 	}
 	g, err := geom.NewGeomFromWKB(data[4:])
 	if err != nil {
-		return types.QValueGeometry{}, fmt.Errorf("failed to parse geometry WKB: %w", err)
+		printBytes, suffix := data, ""
+		if len(printBytes) > 1000 {
+			printBytes = printBytes[:1000]
+			suffix = "..."
+		}
+		return types.QValueGeometry{},
+			fmt.Errorf("failed to parse geometry WKB (bytes len=%d hex=%x%s): %w", len(data), printBytes, suffix, err)
 	}
 	return types.QValueGeometry{Val: g.ToWKT()}, nil
 }
