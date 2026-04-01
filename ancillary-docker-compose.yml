@@ -6,6 +6,10 @@ services:
     image: ${MONGODB_IMAGE}
     entrypoint: ["bash", "-c", "openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && exec mongod --replSet rs0 --oplogMinRetentionHours 24 --bind_ip_all --keyFile /data/mongo.key"]
     restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${CI_MONGO_ADMIN_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${CI_MONGO_ADMIN_PASSWORD}
+
     ports:
       - "${CI_MONGO_PORT}:27017"
     extra_hosts:
