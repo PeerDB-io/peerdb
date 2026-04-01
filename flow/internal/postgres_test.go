@@ -11,7 +11,7 @@ import (
 )
 
 func TestGetPGConnectionString(t *testing.T) {
-	tests := []struct { //nolint:govet // test code
+	tests := []struct {
 		name         string
 		config       *protos.PostgresConfig
 		expectedHost string
