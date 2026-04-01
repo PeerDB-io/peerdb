@@ -14,7 +14,8 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/shopspring/decimal"
-	geom "github.com/twpayne/go-geos"
+	"github.com/twpayne/go-geom/encoding/wkb"
+	"github.com/twpayne/go-geom/encoding/wkt"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -135,17 +136,23 @@ func processGeometryData(data []byte) (types.QValueGeometry, error) {
 	if len(data) <= 4 {
 		return types.QValueGeometry{}, fmt.Errorf("geometry data too short: %d bytes", len(data))
 	}
-	g, err := geom.NewGeomFromWKB(data[4:])
-	if err != nil {
+	geomErr := func(msg string, err error) (types.QValueGeometry, error) {
 		printBytes, suffix := data, ""
 		if len(printBytes) > 1000 {
 			printBytes = printBytes[:1000]
 			suffix = "..."
 		}
-		return types.QValueGeometry{},
-			fmt.Errorf("failed to parse geometry WKB (bytes len=%d hex=%x%s): %w", len(data), printBytes, suffix, err)
+		return types.QValueGeometry{}, fmt.Errorf("%s (bytes len=%d hex=%x%s): %w", msg, len(data), printBytes, suffix, err)
 	}
-	return types.QValueGeometry{Val: g.ToWKT()}, nil
+	g, err := wkb.Unmarshal(data[4:])
+	if err != nil {
+		return geomErr("failed to parse geometry WKB", err)
+	}
+	wktStr, err := wkt.Marshal(g)
+	if err != nil {
+		return geomErr("failed to convert geometry to WKT", err)
+	}
+	return types.QValueGeometry{Val: wktStr}, nil
 }
 
 // https://dev.mysql.com/doc/refman/8.4/en/time.html
