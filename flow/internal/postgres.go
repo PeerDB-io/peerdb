@@ -16,9 +16,13 @@ import (
 )
 
 func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
+	// strip path and query params that may be present in the host
+	host, _, _ := strings.Cut(pgConfig.Host, "/")
+	host, _, _ = strings.Cut(host, "?")
+
 	u := &url.URL{
 		Scheme: "postgres",
-		Host:   shared.JoinHostPort(pgConfig.Host, pgConfig.Port),
+		Host:   shared.JoinHostPort(host, pgConfig.Port),
 		Path:   "/" + pgConfig.Database,
 	}
 

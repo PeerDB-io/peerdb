@@ -12,8 +12,9 @@ import (
 
 func TestGetPGConnectionString(t *testing.T) {
 	tests := []struct { //nolint:govet // test code
-		name   string
-		config *protos.PostgresConfig
+		name         string
+		config       *protos.PostgresConfig
+		expectedHost string
 	}{
 		{
 			name: "password with space",
@@ -59,6 +60,30 @@ func TestGetPGConnectionString(t *testing.T) {
 				RequireTls: false,
 			},
 		},
+		{
+			name: "host with path and query params",
+			config: &protos.PostgresConfig{
+				Host:       "some-host.azure.neon.tech/results?sslmode=require&channel_binding=require",
+				Port:       5432,
+				Database:   "testdb",
+				User:       "testuser",
+				Password:   "password",
+				RequireTls: false,
+			},
+			expectedHost: "some-host.azure.neon.tech",
+		},
+		{
+			name: "host with query params only",
+			config: &protos.PostgresConfig{
+				Host:       "some-host.azure.neon.tech?sslmode=require&channel_binding=require",
+				Port:       5432,
+				Database:   "testdb",
+				User:       "testuser",
+				Password:   "password",
+				RequireTls: false,
+			},
+			expectedHost: "some-host.azure.neon.tech",
+		},
 	}
 
 	for _, tt := range tests {
@@ -68,7 +93,11 @@ func TestGetPGConnectionString(t *testing.T) {
 			require.NoError(t, err, "ParseConfig error: %v", err)
 			assert.Equal(t, tt.config.Password, cfg.Password, "Password mismatch")
 			assert.Equal(t, tt.config.Database, cfg.Database, "Database mismatch")
-			assert.Equal(t, tt.config.Host, cfg.Host, "Host mismatch")
+			expectedHost := tt.config.Host
+			if tt.expectedHost != "" {
+				expectedHost = tt.expectedHost
+			}
+			assert.Equal(t, expectedHost, cfg.Host, "Host mismatch")
 			assert.Equal(t, uint16(tt.config.Port), cfg.Port, "Port mismatch")
 			assert.Equal(t, "peerdb_test", cfg.Config.RuntimeParams["application_name"], "Application name mismatch")
 			assert.Equal(t, "UTF8", cfg.Config.RuntimeParams["client_encoding"], "Client encoding mismatch")
