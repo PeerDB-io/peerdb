@@ -370,11 +370,9 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}
-	} else {
-		if !partition.FullTablePartition {
-			internal.LoggerFromCtx(ctx).Warn("[monitoring]: partition "+partition.PartitionId+" has nil range",
-				slog.String(string(shared.FlowNameKey), parentMirrorName))
-		}
+	} else if !partition.FullTablePartition {
+		internal.LoggerFromCtx(ctx).Warn("[monitoring]: partition "+partition.PartitionId+" has nil range",
+			slog.String(string(shared.FlowNameKey), parentMirrorName))
 	}
 
 	var childTableBlockRangesJSON []byte

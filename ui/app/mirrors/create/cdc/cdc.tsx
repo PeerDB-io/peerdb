@@ -1,5 +1,5 @@
 'use client';
-import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
+import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { TableMapping } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
@@ -100,18 +100,18 @@ export default function CDCConfigForm({
       .filter((setting) => setting !== undefined);
   }, [adjustedSettings, destinationType, setter]);
 
-  const isPostgresSource = () =>
-    sourceType.toString() === DBType[DBType.POSTGRES];
-  const isPostgresDestination = () =>
-    destinationType.toString() === DBType[DBType.POSTGRES];
+  const isPostgresSource = useCallback(() =>
+    sourceType.toString() === DBType[DBType.POSTGRES], [sourceType]);
+  const isPostgresDestination = useCallback(() =>
+    destinationType.toString() === DBType[DBType.POSTGRES], [destinationType]);
   const isBigQuerySource = () =>
     sourceType.toString() === DBType[DBType.BIGQUERY];
   const isBigQueryDestination = () =>
     destinationType.toString() === DBType[DBType.BIGQUERY];
   const isSnowflakeDestination = () =>
     destinationType.toString() === DBType[DBType.SNOWFLAKE];
-  const isClickhouseDestination = () =>
-    destinationType.toString() === DBType[DBType.CLICKHOUSE];
+  const isClickhouseDestination = useCallback(() =>
+    destinationType.toString() === DBType[DBType.CLICKHOUSE], [destinationType]);
 
   const supportsStagingPath = () =>
     isBigQuerySource() || isBigQueryDestination() || isSnowflakeDestination();
@@ -228,7 +228,7 @@ export default function CDCConfigForm({
 
       try {
         const promises = [];
-        if (sourceType.toString() === DBType[DBType.POSTGRES]) {
+        if (isPostgresSource()) {
           promises.push(
             fetchPublications(mirrorConfig.sourceName ?? '').then((pubs) =>
               setPublications(pubs)
@@ -266,10 +266,10 @@ export default function CDCConfigForm({
     // Fetch data asynchronously
     fetchData();
   }, [
-    sourceType,
+    isPostgresSource,
+    isPostgresDestination,
+    isClickhouseDestination,
     mirrorConfig.sourceName,
-    mirrorConfig.initialSnapshotOnly,
-    destinationType,
     setter,
   ]);
 
