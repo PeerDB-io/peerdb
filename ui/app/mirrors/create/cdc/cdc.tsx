@@ -1,5 +1,12 @@
 'use client';
-import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Dispatch,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import { TableMapping } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
@@ -100,18 +107,24 @@ export default function CDCConfigForm({
       .filter((setting) => setting !== undefined);
   }, [adjustedSettings, destinationType, setter]);
 
-  const isPostgresSource = useCallback(() =>
-    sourceType.toString() === DBType[DBType.POSTGRES], [sourceType]);
-  const isPostgresDestination = useCallback(() =>
-    destinationType.toString() === DBType[DBType.POSTGRES], [destinationType]);
+  const isPostgresSource = useCallback(
+    () => sourceType.toString() === DBType[DBType.POSTGRES],
+    [sourceType]
+  );
+  const isPostgresDestination = useCallback(
+    () => destinationType.toString() === DBType[DBType.POSTGRES],
+    [destinationType]
+  );
   const isBigQuerySource = () =>
     sourceType.toString() === DBType[DBType.BIGQUERY];
   const isBigQueryDestination = () =>
     destinationType.toString() === DBType[DBType.BIGQUERY];
   const isSnowflakeDestination = () =>
     destinationType.toString() === DBType[DBType.SNOWFLAKE];
-  const isClickhouseDestination = useCallback(() =>
-    destinationType.toString() === DBType[DBType.CLICKHOUSE], [destinationType]);
+  const isClickhouseDestination = useCallback(
+    () => destinationType.toString() === DBType[DBType.CLICKHOUSE],
+    [destinationType]
+  );
 
   const supportsStagingPath = () =>
     isBigQuerySource() || isBigQueryDestination() || isSnowflakeDestination();
