@@ -181,7 +181,9 @@ export default function CDCConfigForm({
 
   const shouldHideDisableAllPeerDBColumns = (label: string) => {
     return (
-      label.includes('disable all peerdb columns') && !isClickhouseDestination()
+      label.includes('disable all peerdb columns') &&
+      isPostgresDestination() &&
+      isPostgresSource()
     );
   };
 
@@ -242,7 +244,7 @@ export default function CDCConfigForm({
     };
 
     // Set soft delete configuration synchronously
-    if (IsClickHousePeer(destinationType)) {
+    if (isClickhouseDestination()) {
       setter((curr) => ({
         ...curr,
         softDeleteColName: '',
@@ -251,6 +253,13 @@ export default function CDCConfigForm({
       setter((curr) => ({
         ...curr,
         softDeleteColName: curr.softDeleteColName || SOFT_DELETE_COLUMN_NAME,
+      }));
+    }
+
+    if (isPostgresDestination() && isPostgresSource()) {
+      setter((curr) => ({
+        ...curr,
+        disablePeerDBColumns: true,
       }));
     }
 
