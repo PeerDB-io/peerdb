@@ -239,7 +239,7 @@ impl NexusBackend {
                     flow_handler
                         .flow_state_change(
                             flow_job_name,
-                            pt::peerdb_flow::FlowStatus::StatusTerminated,
+                            pt::peerdb_flow::FlowStatus::StatusTerminating,
                             None,
                         )
                         .await
