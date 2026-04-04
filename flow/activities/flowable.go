@@ -65,6 +65,36 @@ func cdcIdleTimeout(value int) time.Duration {
 	return time.Duration(value) * time.Second
 }
 
+func getInitialNormalizeBatchID(
+	ctx context.Context,
+	logger log.Logger,
+	catalogPool shared.CatalogPool,
+	env map[string]string,
+	destinationName string,
+	flowName string,
+) (int64, error) {
+	dstPeer, err := connectors.LoadPeer(ctx, catalogPool, destinationName)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load destination peer for normalize state: %w", err)
+	}
+
+	// Postgres keeps normalize progress in destination-local metadata.
+	if dstPeer.Type == protos.DBType_POSTGRES {
+		dstPgConn, dstClose, err := connectors.GetPostgresConnectorByName(ctx, env, catalogPool, destinationName)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get postgres destination connector for normalize state: %w", err)
+		}
+		defer dstClose(ctx)
+		return dstPgConn.GetLastNormalizeBatchID(ctx, flowName)
+	}
+
+	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, catalogPool)
+	// Unsupported-normalize sinks do not persist normalize_batch_id, so after restart this may
+	// be behind until the first no-op normalize advances the in-memory watermark again.
+	// Proper fix for this would ideally need a way to query connector capabilities without creating one which comes with a ping
+	return pgMetadata.GetLastNormalizeBatchID(ctx, flowName)
+}
+
 func (a *FlowableActivity) Alert(
 	ctx context.Context,
 	alert *protos.AlertInput,
@@ -351,6 +381,17 @@ func (a *FlowableActivity) SyncFlow(
 	syncDone := make(chan struct{})
 	normRequests := concurrency.NewLastChan()
 	normResponses := concurrency.NewLastChan()
+
+	lastNormBatchID, err := getInitialNormalizeBatchID(
+		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, config.FlowJobName,
+	)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+	if lastNormBatchID > 0 {
+		normalizingBatchID.Store(lastNormBatchID)
+		normResponses.Update(lastNormBatchID)
+	}
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
