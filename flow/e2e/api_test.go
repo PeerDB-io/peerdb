@@ -2090,6 +2090,64 @@ func (s APITestSuite) TestQRep() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s APITestSuite) TestDropQRep() {
+	if _, ok := s.source.(*MongoSource); ok {
+		s.t.Skip("QRepFlowWorkFlow is not implemented for MongoDB")
+	}
+
+	peerType, err := s.GetPeerType(s.t.Context(), &protos.PeerInfoRequest{
+		PeerName: s.source.GeneratePeer(s.t).Name,
+	})
+	require.NoError(s.t, err)
+	tableName := AddSuffix(s, "dropqrep")
+	schemaQualified := AttachSchema(s, tableName)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", schemaQualified)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
+
+	flowName := fmt.Sprintf("dropqrepflow_%s_%s", peerType.PeerType, s.suffix)
+	qrepConfig := CreateQRepWorkflowConfig(
+		s.t,
+		flowName,
+		schemaQualified,
+		tableName,
+		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
+		s.ch.Peer().Name,
+		"",
+		true,
+		"",
+		"",
+	)
+	qrepConfig.SourceName = s.source.GeneratePeer(s.t).Name
+	qrepConfig.WatermarkColumn = "id"
+	qrepConfig.InitialCopyOnly = false
+	qrepConfig.WaitBetweenBatchesSeconds = 5
+	qrepConfig.NumRowsPerPartition = 1
+	_, err = s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
+		QrepConfig: qrepConfig,
+	})
+	require.NoError(s.t, err)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	EnvWaitForEqualTables(env, s.ch, "qrep initial load", tableName, "id,val")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        qrepConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for qrep flow dropped", func() bool {
+		var workflowID string
+		return s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", qrepConfig.FlowJobName,
+		).Scan(&workflowID) == pgx.ErrNoRows
+	})
+}
+
 func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	var cols string
 	switch s.source.(type) {
