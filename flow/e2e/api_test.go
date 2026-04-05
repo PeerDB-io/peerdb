@@ -576,8 +576,7 @@ func (s APITestSuite) TestPostgresDestinationValidation_WithExcludedColumns() {
 }
 
 func (s APITestSuite) postgresDestinationValidationNonEmptyTable(doInitialSnapshot bool) {
-	_, ok := s.source.(*PostgresSource)
-	if !ok {
+	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only for PostgreSQL source")
 	}
 

@@ -119,8 +119,12 @@ func ResolveDestinationColumnName(srcColName string, mappings []ColumnMapping) s
 // CheckTableEmpty returns an error if the given table already contains rows.
 func CheckTableEmpty(ctx context.Context, conn *pgx.Conn, tableIdentifier string) error {
 	var hasRows bool
+	qualifiedTableIdentifier, err := common.ParseTableIdentifier(tableIdentifier)
+	if err != nil {
+		return fmt.Errorf("invalid table identifier for empty table check %s: %w", tableIdentifier, err)
+	}
 	if err := conn.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM "+tableIdentifier+")",
+		"SELECT EXISTS(SELECT 1 FROM "+qualifiedTableIdentifier.String()+")",
 	).Scan(&hasRows); err != nil {
 		return fmt.Errorf("failed to check if destination table %s has rows: %w", tableIdentifier, err)
 	}
