@@ -111,16 +111,15 @@ local('./generate-test-environment.sh')
 tiltfile_dir = config.main_path.replace('/Tiltfile', '')
 docker_compose('./ancillary-docker-compose.yml', env_file=tiltfile_dir + '/ancillary.env')
 
-# ClickHouse is the only datastore that is automatically started as the common destination for all pipes.
-dc_resource('clickhouse', labels=['Ancillary', 'DataStore'], links=[
-    link('http://localhost:11123', 'ClickHouse HTTP'),
-    link('http://localhost:11000', 'ClickHouse TCP'),
-])
-
-# Source data storages for tests, they are not automatically started to save resources.
+# Data storages for tests, they are not automatically started to save resources.
 # Their provisioning step resources are autostarted but blocked on the manual activation
 # of their corresponding datastore.
 # This way, users can choose which ones to start and when, depending on the tests they want to run.
+
+dc_resource('clickhouse', labels=['Ancillary', 'DataStore'], links=[
+    link('http://localhost:11123', 'ClickHouse HTTP'),
+    link('http://localhost:11000', 'ClickHouse TCP'),
+], auto_init=False)
 
 dc_resource('mongodb', labels=['Ancillary', 'DataStore'], links=[
     link('http://localhost:11017', 'MongoDB'),
