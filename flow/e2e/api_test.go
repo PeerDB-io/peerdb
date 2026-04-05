@@ -253,7 +253,7 @@ func (s APITestSuite) TestGetVersion() {
 }
 
 func (s APITestSuite) TestPostgresValidation_WrongPassword() {
-	config := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	config := internal.GetAncillaryPostgresConfigFromEnv()
 	config.Password = "wrong"
 	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: &protos.Peer{
@@ -269,7 +269,7 @@ func (s APITestSuite) TestPostgresValidation_WrongPassword() {
 }
 
 func (s APITestSuite) TestPostgresValidation_Pass() {
-	config := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	config := internal.GetAncillaryPostgresConfigFromEnv()
 	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: &protos.Peer{
 			Name:   "testfail",
@@ -1452,7 +1452,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	}
 
 	suffix := "drop_unavailable_" + s.suffix
-	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	proxyConfig := internal.GetAncillaryPostgresConfigFromEnv()
 	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9903)
 	require.NoError(s.t, err)
 	defer func() {
@@ -2306,7 +2306,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 		fmt.Sprintf("CREATE TABLE e2e_test_%s.%s(id int primary key, val text)", suffix, tableName)))
 
 	// Create peer for the proxy connection
-	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	proxyConfig := internal.GetAncillaryPostgresConfigFromEnv()
 	proxyConfig.Port = uint32(9902)
 	proxyPeer := &protos.Peer{
 		Name: "proxy_postgres_" + suffix,
