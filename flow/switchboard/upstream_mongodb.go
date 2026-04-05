@@ -119,7 +119,7 @@ func (u *MongoUpstream) TxStatus() byte {
 // ServerParameters returns fake PostgreSQL parameters for client compatibility
 func (u *MongoUpstream) ServerParameters(ctx context.Context) map[string]string {
 	return map[string]string{
-		"server_version":              "16.0-mongodb-proxy",
+		"server_version":              "16.0-mongodb-proxy; >> Type \"show help;\" for help on MongoDB switchboard <<",
 		"server_encoding":             "UTF8",
 		"client_encoding":             "UTF8",
 		"DateStyle":                   "ISO, MDY",
