@@ -233,7 +233,11 @@ export default function EditMirror({ params }: EditMirrorProps) {
                   snapshotNumRowsPerPartition: e.target.valueAsNumber,
                 })
               }
-              value={Number.isNaN(config.snapshotNumRowsPerPartition) ? '' : config.snapshotNumRowsPerPartition}
+              value={
+                Number.isNaN(config.snapshotNumRowsPerPartition)
+                  ? ''
+                  : config.snapshotNumRowsPerPartition
+              }
             />
           </div>
         }
@@ -253,7 +257,11 @@ export default function EditMirror({ params }: EditMirrorProps) {
                   snapshotMaxParallelWorkers: e.target.valueAsNumber,
                 })
               }
-              value={Number.isNaN(config.snapshotMaxParallelWorkers) ? '' : config.snapshotMaxParallelWorkers}
+              value={
+                Number.isNaN(config.snapshotMaxParallelWorkers)
+                  ? ''
+                  : config.snapshotMaxParallelWorkers
+              }
             />
           </div>
         }
@@ -273,7 +281,11 @@ export default function EditMirror({ params }: EditMirrorProps) {
                   snapshotNumTablesInParallel: e.target.valueAsNumber,
                 })
               }
-              value={Number.isNaN(config.snapshotNumTablesInParallel) ? '' : config.snapshotNumTablesInParallel}
+              value={
+                Number.isNaN(config.snapshotNumTablesInParallel)
+                  ? ''
+                  : config.snapshotNumTablesInParallel
+              }
             />
           </div>
         }
