@@ -10,12 +10,14 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${CI_MONGO_ADMIN_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${CI_MONGO_ADMIN_PASSWORD}
 
+    volumes:
+      - mongo_data:/data/db
     ports:
       - "${CI_MONGO_PORT}:27017"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.runCommand({ ping: 1 })"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 })"]
       interval: 2s
       timeout: 10s
       retries: 5
@@ -28,9 +30,7 @@ services:
       - "${CI_CLICKHOUSE_HTTP_PORT}:8123"
       - "${CI_CLICKHOUSE_NATIVE_PORT}:9000"
     volumes:
-      - ./volumes/ch_data:/var/lib/clickhouse/
-      - ./volumes/ch_logs:/var/log/clickhouse-server/
-      - ./volumes/ch_users.d:/etc/clickhouse-server/users.d/
+      - clickhouse_data:/var/lib/clickhouse/
     ulimits:
       nofile:
         soft: 262144
@@ -47,6 +47,8 @@ services:
     container_name: peerdb-mysql-gtid
     image: mysql:9.5
     restart: unless-stopped
+    volumes:
+      - mysql_gtid_data:/var/lib/mysql
     ports:
       - "${CI_MYSQL_GTID_PORT}:3306"
     environment:
@@ -64,6 +66,8 @@ services:
     image: biarms/mysql:5.7
     command: ["--log_bin=mysql-bin", "--server-id=1", "--bind-address=::"]
     restart: unless-stopped
+    volumes:
+      - mysql_pos_data:/var/lib/mysql
     ports:
       - "${CI_MYSQL_POS_PORT}:3306"
     environment:
@@ -81,6 +85,8 @@ services:
     image: mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e
     command: ["--log-bin=maria"]
     restart: unless-stopped
+    volumes:
+      - mariadb_data:/var/lib/mysql
     ports:
       - "${CI_MARIADB_PORT}:3306"
     environment:
@@ -97,6 +103,8 @@ services:
     container_name: peerdb-postgres
     image: ${POSTGRES_IMAGE}
     restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     ports:
       - "${PG_PORT}:5432"
     environment:
@@ -121,6 +129,13 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
+volumes:
+  postgres_data:
+  clickhouse_data:
+  mongo_data:
+  mysql_gtid_data:
+  mysql_pos_data:
+  mariadb_data:
 
 networks:
   default:

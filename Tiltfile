@@ -149,6 +149,23 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
     link('http://localhost:8118', 'Dozzle Container Monitor'),
 ])
 
+# Cleanup
+
+load('ext://uibutton', 'cmd_button', 'location')
+cmd_button(
+    'cleanup-ancillary-volumes',
+    argv=['sh', '-c', ' '.join([
+        "for v in $(yq '.volumes | keys[]' ancillary-docker-compose.yml);",
+        'do if docker volume rm peerdb_$v;',
+        'then echo "Removed $v";',
+        'else echo "Failed to remove $v (may be in use or not exist)";',
+        'fi; done',
+    ])],
+    text='Wipe ancillary volumes',
+    icon_name='delete',
+    location=location.NAV,
+)
+
 # Tests launchers
 
 def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
