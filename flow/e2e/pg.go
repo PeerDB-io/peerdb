@@ -110,7 +110,7 @@ func SetupPostgres(t *testing.T, suffix string) (*PostgresSource, error) {
 	t.Helper()
 
 	connector, err := connpostgres.NewPostgresConnector(t.Context(),
-		nil, internal.GetCatalogPostgresConfigFromEnv(t.Context()))
+		nil, internal.GetAncillaryPostgresConfigFromEnv())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
@@ -184,7 +184,7 @@ func GeneratePostgresPeer(t *testing.T) *protos.Peer {
 		Name: "catalog",
 		Type: protos.DBType_POSTGRES,
 		Config: &protos.Peer_PostgresConfig{
-			PostgresConfig: internal.GetCatalogPostgresConfigFromEnv(t.Context()),
+			PostgresConfig: internal.GetAncillaryPostgresConfigFromEnv(),
 		},
 	}
 	CreatePeer(t, peer)
@@ -303,7 +303,7 @@ func SetupPostgresWithToxiproxy(t *testing.T, suffix string, port uint32) (*Post
 	}
 
 	// Create config pointing to proxy
-	config := internal.GetCatalogPostgresConfigFromEnv(t.Context())
+	config := internal.GetAncillaryPostgresConfigFromEnv()
 	config.Host = "localhost"
 	config.Port = port
 	// Don't set RequireTls - let it use the default from env
@@ -333,7 +333,7 @@ func GetPostgresToxicProxy(t *testing.T, suffix string, port uint32) (*tp.Proxy,
 	t.Helper()
 
 	// Get upstream from environment configuration
-	config := internal.GetCatalogPostgresConfigFromEnv(context.Background())
+	config := internal.GetAncillaryPostgresConfigFromEnv()
 
 	// Allow override of upstream host for Toxiproxy
 	// In CI, Toxiproxy runs as a service container and needs to use service names
