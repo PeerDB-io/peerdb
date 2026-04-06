@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +61,15 @@ func clickhouseHost() string {
 	return "localhost"
 }
 
+func clickhousePort() uint32 {
+	if port := os.Getenv("CI_CLICKHOUSE_NATIVE_PORT"); port != "" {
+		if p, err := strconv.ParseUint(port, 10, 32); err == nil {
+			return uint32(p)
+		}
+	}
+	return 9000
+}
+
 func (s ClickHouseSuite) Peer() *protos.Peer {
 	dbname := "e2e_test_" + s.suffix
 	if s.cluster {
@@ -92,7 +102,7 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 		Config: &protos.Peer_ClickhouseConfig{
 			ClickhouseConfig: &protos.ClickhouseConfig{
 				Host:       clickhouseHost(),
-				Port:       9000,
+				Port:       clickhousePort(),
 				Database:   dbname,
 				DisableTls: true,
 				S3:         s.s3Helper.S3Config,

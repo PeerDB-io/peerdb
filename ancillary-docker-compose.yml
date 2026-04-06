@@ -1,0 +1,127 @@
+name: peerdb-ancillary-services
+
+services:
+  mongodb:
+    container_name: peerdb-mongodb
+    image: ${MONGODB_IMAGE}
+    entrypoint: ["bash", "-c", "openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && exec mongod --replSet rs0 --oplogMinRetentionHours 24 --bind_ip_all --keyFile /data/mongo.key"]
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${CI_MONGO_ADMIN_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${CI_MONGO_ADMIN_PASSWORD}
+
+    ports:
+      - "${CI_MONGO_PORT}:27017"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  clickhouse:
+    container_name: peerdb-clickhouse
+    image: ${CLICKHOUSE_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${CI_CLICKHOUSE_HTTP_PORT}:8123"
+      - "${CI_CLICKHOUSE_NATIVE_PORT}:9000"
+    volumes:
+      - ./volumes/ch_data:/var/lib/clickhouse/
+      - ./volumes/ch_logs:/var/log/clickhouse-server/
+      - ./volumes/ch_users.d:/etc/clickhouse-server/users.d/
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  mysql-gtid:
+    container_name: peerdb-mysql-gtid
+    image: mysql:9.5
+    restart: unless-stopped
+    ports:
+      - "${CI_MYSQL_GTID_PORT}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${CI_MYSQL_ROOT_PASSWORD}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  mysql-pos:
+    container_name: peerdb-mysql-pos
+    image: mysql:5.7
+    command: ["--log_bin=mysql-bin", "--server-id=1", "--bind-address=::"]
+    restart: unless-stopped
+    ports:
+      - "${CI_MYSQL_POS_PORT}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${CI_MYSQL_ROOT_PASSWORD}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  mariadb:
+    container_name: peerdb-mariadb
+    image: mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e
+    command: ["--log-bin=maria"]
+    restart: unless-stopped
+    ports:
+      - "${CI_MARIADB_PORT}:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: ${CI_MYSQL_ROOT_PASSWORD}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  postgres:
+    container_name: peerdb-postgres
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${PG_PORT}:5432"
+    environment:
+      PGUSER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DATABASE}
+      POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "pg_isready"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  dozzle:
+    container_name: dozzle-compose-monitor
+    image: amir20/dozzle:latest
+    restart: unless-stopped
+    ports:
+      - "8118:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+
+networks:
+  default:
+    name: peerdb_network

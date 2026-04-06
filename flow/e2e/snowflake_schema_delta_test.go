@@ -319,5 +319,6 @@ func (s SnowflakeSchemaDeltaTestSuite) Teardown(ctx context.Context) {
 }
 
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
+	t.Skip("snowflake payment expired")
 	e2eshared.RunSuite(t, setupSchemaDeltaSuite)
 }
