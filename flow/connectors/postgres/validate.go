@@ -304,6 +304,13 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 			return fmt.Errorf("failed to get columns for destination table %s: %w", dstTableIdentifier, err)
 		}
 
+		if cfg.DoInitialSnapshot {
+			// Check if destination table already has rows
+			if err := pg_validation.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
+				return err
+			}
+		}
+
 		// Check if all source columns exist in destination with matching types
 		for _, srcField := range srcSchema.Columns {
 			colName := srcField.Name

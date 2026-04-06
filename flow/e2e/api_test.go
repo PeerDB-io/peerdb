@@ -575,6 +575,66 @@ func (s APITestSuite) TestPostgresDestinationValidation_WithExcludedColumns() {
 	require.NotNil(s.t, response)
 }
 
+func (s APITestSuite) postgresDestinationValidationNonEmptyTable(doInitialSnapshot bool) {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	suffix := "nosnap"
+	if doInitialSnapshot {
+		suffix = "snap"
+	}
+
+	srcTableName := AttachSchema(s, "validation_src_nonempty_"+suffix)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", srcTableName)))
+
+	dstTableName := AttachSchema(s, "validation_dst_nonempty_"+suffix)
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableName))
+	require.NoError(s.t, err)
+
+	// Insert a row into the destination table so it's non-empty
+	_, err = s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, col1) VALUES (1, 'existing')", dstTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_nonempty_" + suffix + "_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: doInitialSnapshot,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	if doInitialSnapshot {
+		require.Error(s.t, err, "expected validation to fail when destination table has existing rows")
+		require.Nil(s.t, response)
+
+		st, ok := status.FromError(err)
+		require.True(s.t, ok, "expected gRPC status error")
+		require.Equal(s.t, codes.FailedPrecondition, st.Code())
+		require.Contains(s.t, st.Message(), "already has existing rows")
+	} else {
+		require.NoError(s.t, err, "validation should pass when DoInitialSnapshot is false even with non-empty destination")
+		require.NotNil(s.t, response)
+	}
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_NonEmptyTableBlocksSnapshot() {
+	s.postgresDestinationValidationNonEmptyTable(true)
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_NonEmptyTableAllowedWithoutSnapshot() {
+	s.postgresDestinationValidationNonEmptyTable(false)
+}
+
 func (s APITestSuite) TestPostgresDestinationValidation_MissingSchema() {
 	_, ok := s.source.(*PostgresSource)
 	if !ok {
