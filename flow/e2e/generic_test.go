@@ -24,6 +24,7 @@ func TestGenericPG(t *testing.T) {
 }
 
 func TestGenericSF(t *testing.T) {
+	t.Skip("snowflake payment expired")
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupSnowflakeSuite))
 }
 
