@@ -1,3 +1,5 @@
+allow_k8s_contexts(k8s_context()) # to unblock local() in local set-ups with a Kubernetes context configured, like Docker Desktop
+
 docker_compose('./docker-compose-dev.yml')
 
 docker_build('flow-api', '.',
