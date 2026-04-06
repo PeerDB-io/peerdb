@@ -97,7 +97,7 @@ jobs:
           git diff --exit-code || echo "changes=true" >> "$GITHUB_OUTPUT"
       - name: Get next version
         if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
-        uses: reecetech/version-increment@2024.10.1
+        uses: reecetech/version-increment@a29aa752dc3b8118a2dc2ed93faf0e95a73a9c7e # 2024.10.1
         id: version
         with:
           scheme: semver

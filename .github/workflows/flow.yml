@@ -54,7 +54,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:48345e234472429b87cb4737fe11938ee8009774f818c9b6d8456aa2784f9c29
+        image: redpandadata/redpanda@sha256:65a7a93449f113a2941e0e8a9cd7eb1ed3ba153547b6b2b47f11796e9f754345
         ports:
           - 9092:9092
           - 9644:9644
@@ -67,7 +67,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.148.0@sha256:8164eab2e6bca9c9b0837a8d2f118a6618489008a839db7f9d6510e66be3923c
+        image: otel/opentelemetry-collector-contrib:0.149.0@sha256:0fba96233274f6d665ac8831ad99dfe6479a9a20459f6e2719c0d20945773b46
         ports:
           - 4317:4317
       toxiproxy:
@@ -84,7 +84,7 @@ jobs:
           - 49002:49002
           - 49003:49003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:f8e221e7dce7979a0110d13451e0be8d539b86d818c0fb7c71c5271ddf32f3bf
+        image: linuxserver/openssh-server:latest@sha256:57c13941ef385d735cca18ee969eeba18e42ab95480c97af2182505aacdfe307
         ports:
           - 2222:2222
         env:
