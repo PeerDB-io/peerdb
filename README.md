@@ -181,11 +181,11 @@ All ancillary services now use Docker Compose named volumes for data persistence
 
 To clean up unused volumes, use the **"Wipe ancillary volumes"** button in the Tilt UI navigation bar:
 
-![Volume Cleanup Button](https://github.com/user-attachments/assets/6c06d4fe-dd15-4979-b10e-91d8ad50e307)
+![Volume Cleanup Success](https://github.com/user-attachments/assets/ecec7edf-298b-4d1d-960b-40cf22e0d8f5)
 
 This button removes all named volumes defined in `ancillary-docker-compose.yml` that are not currently in use. For example, if MongoDB is disabled, clicking this button will delete its data volume.
 
-![Volume Cleanup Success](https://github.com/user-attachments/assets/ecec7edf-298b-4d1d-960b-40cf22e0d8f5)
+![Volume Cleanup Button](https://github.com/user-attachments/assets/6c06d4fe-dd15-4979-b10e-91d8ad50e307)
 
 ### Environment services versions
 
