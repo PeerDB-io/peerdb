@@ -4,7 +4,6 @@ members = [
   "catalog",
   "flow-rs",
   "parser",
-  "peer-ast",
   "peer-bigquery",
   "peer-cursor",
   "peer-mysql",
@@ -12,6 +11,7 @@ members = [
   "peer-snowflake",
   "postgres-connection",
   "pt",
+  "query-router",
   "server",
   "value",
 ]
@@ -28,7 +28,8 @@ rust_decimal = { version = "1", default-features = false, features = [
   "tokio-pg",
 ] }
 ssh2 = "0.9"
-sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git", branch = "main" }
+parser = { path = "./parser" }
+sqlparser = { version = "0.61", features = ["visitor"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 pgwire = { version = "0.36", default-features = false, features = ["server-api-aws-lc-rs", "pg-type-chrono"] }
