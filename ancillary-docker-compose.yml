@@ -61,7 +61,7 @@ services:
 
   mysql-pos:
     container_name: peerdb-mysql-pos
-    image: mysql:5.7
+    image: biarms/mysql:5.7
     command: ["--log_bin=mysql-bin", "--server-id=1", "--bind-address=::"]
     restart: unless-stopped
     ports:
@@ -71,7 +71,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${CI_MYSQL_ROOT_PASSWORD}"]
       interval: 2s
       timeout: 10s
       retries: 5
@@ -88,7 +88,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-uroot", "-p${CI_MYSQL_ROOT_PASSWORD}"]
       interval: 2s
       timeout: 10s
       retries: 5
