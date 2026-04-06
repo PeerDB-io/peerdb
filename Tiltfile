@@ -156,7 +156,7 @@ def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
         cmd='cd flow && go clean -cache && env -f ../.env %s go test -v -run %s ./e2e/' % (overrides_str, test_run),
         labels=['Test'],
         auto_init=False,
-        resource_deps=['flow-api', 'flow-worker', 'catalog'] + extra_deps,
+        resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
     )
 
 # Postgres to ClickHouse generic tests
