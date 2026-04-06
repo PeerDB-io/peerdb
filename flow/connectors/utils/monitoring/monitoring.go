@@ -16,7 +16,6 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -326,13 +325,6 @@ func AppendSlotSizeInfo(
 	return nil
 }
 
-func supportsStatsForFullTablePartition(partition *protos.QRepPartition) bool {
-	if partition == nil {
-		return false
-	}
-	return partition.PartitionId == utils.FullTablePartitionID
-}
-
 func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	runUUID string, partition *protos.QRepPartition, parentMirrorName string,
 ) error {
@@ -340,12 +332,6 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		internal.LoggerFromCtx(ctx).Info("cannot add nil partition to qrep run",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
 		return fmt.Errorf("cannot add nil partition to qrep run")
-	}
-	if partition.Range == nil && partition.FullTablePartition && !supportsStatsForFullTablePartition(partition) {
-		internal.LoggerFromCtx(ctx).Info("partition "+partition.PartitionId+
-			" is a full table partition. Metrics logging is skipped.",
-			slog.String(string(shared.FlowNameKey), parentMirrorName))
-		return nil
 	}
 
 	var rangeStart, rangeEnd *string
@@ -384,7 +370,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}
-	} else {
+	} else if !partition.FullTablePartition {
 		internal.LoggerFromCtx(ctx).Warn("[monitoring]: partition "+partition.PartitionId+" has nil range",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
 	}
