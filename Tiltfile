@@ -78,21 +78,21 @@ local_resource(
 
 local_resource(
     'provision-mysql-gtid',
-    cmd='./local_provision_scripts/mysql.sh peerdb-mysql-gtid 3306',
+    cmd='./local_provision_scripts/mysql.sh peerdb-mysql-gtid',
     labels=['Provisioning'],
     resource_deps=['mysql-gtid']
 )
 
 local_resource(
     'provision-mysql-pos',
-    cmd='./local_provision_scripts/mysql.sh peerdb-mysql-pos 3307',
+    cmd='./local_provision_scripts/mysql.sh peerdb-mysql-pos',
     labels=['Provisioning'],
     resource_deps=['mysql-pos']
 )
 
 local_resource(
     'provision-mariadb',
-    cmd='./local_provision_scripts/mysql.sh peerdb-mariadb 3308',
+    cmd='./local_provision_scripts/mysql.sh peerdb-mariadb',
     labels=['Provisioning'],
     resource_deps=['mariadb']
 )
@@ -149,10 +149,11 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
 
 # Tests launchers
 
-def e2e_test(name, test_run, extra_deps=[]):
+def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
+    overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     local_resource(
         'e2e_' + name,
-        cmd='cd flow && go clean -cache && env -f ../.env go test -v -run %s ./e2e/' % test_run,
+        cmd='cd flow && go clean -cache && env -f ../.env %s go test -v -run %s ./e2e/' % (overrides_str, test_run),
         labels=['Test'],
         auto_init=False,
         resource_deps=['flow-api', 'flow-worker', 'catalog'] + extra_deps,
@@ -161,8 +162,14 @@ def e2e_test(name, test_run, extra_deps=[]):
 # Postgres to ClickHouse generic tests
 e2e_test('postgres', 'TestGenericCH_PG', ['provision-postgres'])
 
-# MySQL to ClickHouse generic tests
-e2e_test('mysql', 'TestGenericCH_MySQL', ['provision-mysql-gtid', 'provision-mysql-pos', 'provision-mariadb'])
+# MySQL GTID to ClickHouse generic tests
+e2e_test('mysql-gtid', 'TestGenericCH_MySQL', ['provision-mysql-gtid'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_GTID_PORT'})
+
+# MySQL Pos to ClickHouse generic tests
+e2e_test('mysql-pos', 'TestGenericCH_MySQL', ['provision-mysql-pos'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_POS_PORT'})
+
+# MariaDB to ClickHouse generic tests
+e2e_test('mariadb', 'TestGenericCH_MySQL', ['provision-mariadb'], vars_overrides={'CI_MYSQL_PORT': '$CI_MARIADB_PORT'})
 
 # MongoDB to ClickHouse test suite
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
