@@ -15,6 +15,7 @@ import (
 )
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
+	t.Skip("snowflake payment expired")
 	if val, ok := os.LookupEnv("CI_PG_VERSION"); ok && val != "18" {
 		t.Skip("Only running in PG18 to reduce flakiness from high concurrency")
 	}
