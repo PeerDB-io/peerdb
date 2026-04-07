@@ -142,10 +142,50 @@ The Tilt setup includes pre-configured test launcher resources under the `e2e` l
 Available test launchers:
 
 - **e2e_postgres** -- Postgres to ClickHouse generic tests (`TestGenericCH_PG`)
-- **e2e_mysql** -- MySQL to ClickHouse generic tests (`TestGenericCH_MySQL`)
+- **e2e_mysql-gtid** -- MySQL GTID to ClickHouse generic tests (`TestGenericCH_MySQL`)
+- **e2e_mysql-pos** -- MySQL File-Pos to ClickHouse generic tests (`TestGenericCH_MySQL`)
+- **e2e_mariadb** -- MariaDB to ClickHouse generic tests (`TestGenericCH_MySQL`)
 - **e2e_mongodb** -- MongoDB to ClickHouse test suite (`TestMongoClickhouseSuite`)
 
 Each launcher automatically depends on the required services and provisioning steps, so Tilt will ensure all prerequisites are running before executing the tests. To trigger a test, click the resource in the Tilt UI and press the trigger (play) button.
+
+### Manual DataStore Initialization
+
+DataStore resources (ClickHouse, MongoDB, MySQL variants, PostgreSQL) use **manual initialization** (`auto_init=False`) to conserve resources. This allows you to selectively start only the databases needed for your testing scenario.
+
+![DataStore Resources](https://github.com/user-attachments/assets/970568c6-f783-4250-8899-45ec4e5aac9e)
+
+To start a datastore:
+1. Navigate to the Tilt UI at http://localhost:10352/
+2. Locate the desired DataStore resource
+3. Click the resource and press the play/trigger button
+
+The provisioning step for each datastore will automatically execute once the datastore is running.
+
+### Testing Multiple MySQL Flavors
+
+The Tilt environment now supports running tests against different MySQL replication modes and MariaDB simultaneously without requiring file edits. Each MySQL variant has its own dedicated port and test launcher:
+
+- **mysql-gtid** (port 3306): MySQL 9.5 with GTID replication
+- **mysql-pos** (port 3307): MySQL 5.7 with file-position replication (ARM-compatible using `biarms/mysql` image)
+- **mariadb** (port 3308): MariaDB with binary log replication
+
+This allows comprehensive testing across different MySQL configurations in a single development session.
+
+### Named Volumes and Cleanup
+
+All ancillary services now use Docker Compose named volumes for data persistence. This enables:
+- Data analysis after environment teardown
+- Faster restarts by preserving database state
+- Easy cleanup via the Tilt UI
+
+To clean up unused volumes, use the **"Wipe ancillary volumes"** button in the Tilt UI navigation bar:
+
+![Volume Cleanup Success](https://github.com/user-attachments/assets/ecec7edf-298b-4d1d-960b-40cf22e0d8f5)
+
+This button removes all named volumes defined in `ancillary-docker-compose.yml` that are not currently in use. For example, if MongoDB is disabled, clicking this button will delete its data volume.
+
+![Volume Cleanup Button](https://github.com/user-attachments/assets/6c06d4fe-dd15-4979-b10e-91d8ad50e307)
 
 ### Environment services versions
 
