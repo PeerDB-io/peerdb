@@ -653,7 +653,7 @@ func GetPeerflow(ctx context.Context, catalog *pgx.Conn, tc client.Client, flowN
 	if err := catalog.QueryRow(
 		ctx, "select workflow_id from flows where name = $1", flowName,
 	).Scan(&workflowID); err != nil {
-		return WorkflowRun{}, nil
+		return WorkflowRun{}, fmt.Errorf("failed to get workflow_id for flow %s: %w", flowName, err)
 	}
 	return WorkflowRun{WorkflowRun: tc.GetWorkflow(ctx, workflowID, ""), c: tc}, nil
 }
