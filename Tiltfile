@@ -149,6 +149,10 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
     link('http://localhost:8118', 'Dozzle Container Monitor'),
 ])
 
+# Test services: Services supporting test execution that are not data stores, like proxies, mock servers, etc.
+
+dc_resource('toxiproxy', labels=['TestInfra'], auto_init=False)
+
 # Cleanup
 
 load('ext://uibutton', 'cmd_button', 'location')
