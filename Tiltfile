@@ -182,6 +182,8 @@ def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
     )
 
+# Generic e2e tests
+
 # Postgres to ClickHouse generic tests
 e2e_test('postgres', 'TestGenericCH_PG', ['provision-postgres'])
 
@@ -196,3 +198,7 @@ e2e_test('mariadb', 'TestGenericCH_MySQL', ['provision-mariadb'], vars_overrides
 
 # MongoDB to ClickHouse test suite
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
+
+# API e2e tests
+
+e2e_test('api-postgres', 'TestApiPg', ['provision-postgres'])
