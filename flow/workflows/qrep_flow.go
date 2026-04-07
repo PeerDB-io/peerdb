@@ -20,6 +20,7 @@ import (
 
 type QRepFlowExecution struct {
 	config          *protos.QRepConfig
+	dropFlowInput   *protos.DropFlowInput
 	flowExecutionID string
 	logger          log.Logger
 	runUUID         string
@@ -329,6 +330,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 func (q *QRepFlowExecution) waitForNewRows(
 	ctx workflow.Context,
 	signalChan model.TypedReceiveChannel[model.CDCFlowSignal],
+	stateChangeChan model.TypedReceiveChannel[*protos.FlowStateChangeRequest],
 	lastPartition *protos.QRepPartition,
 ) error {
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
@@ -344,13 +346,14 @@ func (q *QRepFlowExecution) waitForNewRows(
 	signalChan.AddToSelector(waitSelector, func(val model.CDCFlowSignal, _ bool) {
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	})
+	stateChangeChan.AddToSelector(waitSelector, q.handleFlowSignalStateChange)
 	waitSelector.AddFuture(future, func(f workflow.Future) {
 		newRows = true
 		waitErr = f.Get(ctx, nil)
 	})
 	waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
-	for ctx.Err() == nil && !newRows && q.activeSignal != model.PauseSignal {
+	for ctx.Err() == nil && !newRows && q.activeSignal == model.NoopSignal {
 		waitSelector.Select(ctx)
 	}
 	if err := ctx.Err(); err != nil {
@@ -493,6 +496,18 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	return nil
 }
 
+func (q *QRepFlowExecution) handleFlowSignalStateChange(val *protos.FlowStateChangeRequest, _ bool) {
+	if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
+		q.logger.Info("terminating QRepFlow")
+		q.activeSignal = model.TerminateSignal
+		q.dropFlowInput = &protos.DropFlowInput{
+			FlowJobName:         q.config.FlowJobName,
+			DropFlowStats:       val.DropMirrorStats,
+			SkipDestinationDrop: val.SkipDestinationDrop,
+		}
+	}
+}
+
 func updateStatus(ctx workflow.Context, logger log.Logger, state *protos.QRepFlowState, status protos.FlowStatus) {
 	state.CurrentFlowStatus = status
 	// update the status in the catalog only if this is the root workflow
@@ -529,6 +544,7 @@ func QRepFlowWorkflow(
 	}
 
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
+	stateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
 	q := newQRepFlowExecution(ctx, config, originalRunID)
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
@@ -537,15 +553,21 @@ func QRepFlowWorkflow(
 		q.activeSignal = model.PauseSignal
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 
+		selector := workflow.NewNamedSelector(ctx, "QRepPauseLoop")
+		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+		signalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
+			q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+		})
+		stateChangeChan.AddToSelector(selector, q.handleFlowSignalStateChange)
 		for q.activeSignal == model.PauseSignal {
 			q.logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
-			// only place we block on receive, so signal processing is immediate
-			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
-			if ok {
-				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
-			} else if err := ctx.Err(); err != nil {
+			selector.Select(ctx)
+			if err := ctx.Err(); err != nil {
 				return state, err
 			}
+		}
+		if q.activeSignal == model.TerminateSignal {
+			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
 		}
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
@@ -577,9 +599,13 @@ func QRepFlowWorkflow(
 	}
 
 	if !config.InitialCopyOnly && lastPartition != nil {
-		if err := q.waitForNewRows(ctx, signalChan, lastPartition); err != nil {
+		if err := q.waitForNewRows(ctx, signalChan, stateChangeChan, lastPartition); err != nil {
 			return state, err
 		}
+	}
+
+	if q.activeSignal == model.TerminateSignal {
+		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
 	}
 
 	if q.activeSignal != model.PauseSignal {
@@ -617,13 +643,24 @@ func QRepFlowWorkflow(
 		}
 	}
 
-	// flush signal, after this workflow must not yield
+	// flush signals, after this workflow must not yield
 	for {
 		val, ok := signalChan.ReceiveAsync()
 		if !ok {
 			break
 		}
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+	}
+	for {
+		val, ok := stateChangeChan.ReceiveAsync()
+		if !ok {
+			break
+		}
+		q.handleFlowSignalStateChange(val, true)
+	}
+
+	if q.activeSignal == model.TerminateSignal {
+		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
 	}
 
 	q.logger.Info("Continuing as new workflow",
