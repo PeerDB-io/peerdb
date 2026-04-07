@@ -75,7 +75,7 @@ func (e *compileError) withHint(hint string) *compileError {
 }
 
 var (
-	helpRe = regexp.MustCompile(`^help\s*;?\s*$`)
+	helpRe = regexp.MustCompile(`^show\s+help\s*;?\s*$`)
 	useRe  = regexp.MustCompile(`^use\s+(\w[\w.-]*)\s*;?\s*$`)
 )
 
@@ -131,10 +131,11 @@ const docsBaseURL = "https://www.mongodb.com/docs/manual/reference"
 func globalHelp() ([]string, [][]string) {
 	rows := [][]string{
 		{"Input Format:", ""},
-		{`  Extended JSON wire commands`, `e.g. {"find": "coll", "filter": {}}`},
+		{"  Extended JSON wire commands", `e.g. {"find": "coll", "filter": {}};`},
+		{"  (psql requires a trailing `;`)", ""},
 		{"", ""},
 		{"Shell Commands:", ""},
-		{"  use <dbname>", "switch the current database"},
+		{"  use <dbname>;", "switch the current database"},
 		{"", ""},
 		{"Allowed Wire Commands:", ""},
 	}
