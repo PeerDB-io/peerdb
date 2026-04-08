@@ -2418,7 +2418,10 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 	suffix := "race_" + s.suffix
 	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9902)
 	require.NoError(s.t, err)
-	defer pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+	defer func() {
+		pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+		require.NoError(s.t, proxy.Delete())
+	}()
 
 	// Create table
 	tableName := "toxiproxy_race_test"

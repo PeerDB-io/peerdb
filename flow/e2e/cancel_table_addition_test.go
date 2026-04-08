@@ -1308,6 +1308,7 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 	defer func() {
 		require.NoError(s.t, proxy.Enable())
 		pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+		require.NoError(s.t, proxy.Delete())
 	}()
 
 	var cols string
