@@ -6,7 +6,7 @@ docker_build('flow-api', '.',
     dockerfile='stacks/flow.Dockerfile',
     target='flow-api',
     only=['flow/', 'stacks/flow.Dockerfile'],
-    build_args={'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', '')},
+    build_args={'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
 )
 
 docker_build('flow-worker', '.',
