@@ -5,7 +5,7 @@ import {
   blankSSHConfig,
   sshSetting,
 } from '@/app/peers/create/[peerType]/helpers/ssh';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
 import {
   AwsIAMAuthConfigType,
@@ -34,6 +34,7 @@ export default function PostgresForm({
   config,
   setter,
 }: PostgresProps) {
+  const selectTheme = useSelectTheme();
   const searchParams = useSearchParams();
   const [showSSH, setShowSSH] = useState(false);
   const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
@@ -91,11 +92,11 @@ export default function PostgresForm({
             (config.authType === PostgresAuthType.POSTGRES_IAM_AUTH &&
               setting.field === 'awsAuth.authType')) ? (
           <RowWithSelect
+            key={id}
             label={<Label>{setting.label}</Label>}
             action={
               <div>
                 <ReactSelect
-                  key={id}
                   defaultValue={setting.options?.find(
                     ({ value }) => value === setting.default
                   )}
@@ -104,7 +105,7 @@ export default function PostgresForm({
                     val && setting.stateHandler(val.value, setter)
                   }
                   options={setting.options}
-                  theme={SelectTheme}
+                  theme={selectTheme}
                 />
                 {setting.tips && (
                   <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
@@ -219,26 +220,34 @@ export default function PostgresForm({
                   alignItems: 'center',
                 }}
               >
-                <TextField
-                  variant='simple'
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleSSHParam(e, sshParam, setSSHConfig)
-                  }
-                  style={{
-                    border: sshParam.type === 'file' ? 'none' : 'auto',
-                    height: sshParam.type === 'textarea' ? '15rem' : 'auto',
-                  }}
-                  type={sshParam.type}
-                  defaultValue={
-                    (sshConfig as SSHConfig)[
-                      sshParam.label === 'SSH Private Key'
-                        ? 'privateKey'
-                        : sshParam.label === "Host's Public Key"
+                {sshParam.label === 'SSH Private Key' ? (
+                  <TextField
+                    variant='simple'
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      handleSSHParam(e, sshParam, setSSHConfig)
+                    }
+                    style={{ border: 'none' }}
+                    type={sshParam.type}
+                  />
+                ) : (
+                  <TextField
+                    variant='simple'
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      handleSSHParam(e, sshParam, setSSHConfig)
+                    }
+                    style={{
+                      height: sshParam.type === 'textarea' ? '15rem' : 'auto',
+                    }}
+                    type={sshParam.type}
+                    value={
+                      (sshConfig as SSHConfig)[
+                        sshParam.label === "Host's Public Key"
                           ? 'hostKey'
                           : (sshParam.label.toLowerCase() as keyof SSHConfig)
-                    ] || ''
-                  }
-                />
+                      ] ?? ''
+                    }
+                  />
+                )}
                 {sshParam.tips && <InfoPopover tips={sshParam.tips} />}
               </div>
             }

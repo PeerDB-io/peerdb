@@ -1,10 +1,11 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import InfoPopover from '@/components/InfoPopover';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
-import PeerDBCodeEditor from '@/components/PeerDBEditor';
+import PeerDBCodeEditor from '@/components/PeerDBCodeEditor';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { QRepConfig } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { ListPeersResponse, PeerListItem } from '@/grpc_generated/route';
@@ -15,13 +16,11 @@ import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
-import { Divider } from '@tremor/react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import ReactSelect, { SingleValue } from 'react-select';
-import { ToastContainer } from 'react-toastify';
 import { CDCConfig, MirrorType, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
 import {
@@ -30,7 +29,11 @@ import {
   handleValidateCDC,
 } from './handlers';
 import { cdcSettings } from './helpers/cdc';
-import { blankCDCSetting, blankQRepSetting } from './helpers/common';
+import {
+  blankCDCSetting,
+  blankQRepSetting,
+  cdcSourceDefaults,
+} from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
@@ -59,6 +62,7 @@ function getPeerLabel(peer: PeerListItem) {
 }
 
 export default function CreateMirrors() {
+  const selectTheme = useSelectTheme();
   const router = useRouter();
   const mirrorParam = useSearchParams();
   const mirrorTypeParam = mirrorParam.get('type');
@@ -70,9 +74,9 @@ export default function CreateMirrors() {
   const [validating, setValidating] = useState<boolean>(false);
   const [qrepConfig, setQrepConfig] = useState<QRepConfig>(blankQRepSetting);
   const [cdcConfig, setCdcConfig] = useState<CDCConfig>(blankCDCSetting);
-  const [sourceType, setSourceType] = useState<DBType>(DBType.UNRECOGNIZED);
+  const [sourceType, setSourceType] = useState<DBType>(DBType.DBTYPE_UNKNOWN);
   const [destinationType, setDestinationType] = useState<DBType>(
-    DBType.UNRECOGNIZED
+    DBType.DBTYPE_UNKNOWN
   );
   const [sourcePeers, setSourcePeers] = useState<PeerListItem[]>([]);
   const [destinationPeers, setDestinationPeers] = useState<PeerListItem[]>([]);
@@ -99,6 +103,14 @@ export default function CreateMirrors() {
       sourceName: peer.name,
     }));
     setSourceType(peer.type);
+
+    const typeDefaults = cdcSourceDefaults[peer.type];
+    if (typeDefaults) {
+      setCdcConfig((curr) => ({
+        ...curr,
+        ...typeDefaults,
+      }));
+    }
   }, []);
 
   const setDestinationPeer = useCallback((peer: SingleValue<PeerListItem>) => {
@@ -199,6 +211,7 @@ export default function CreateMirrors() {
                 >
                   <div style={{ width: '100%' }}>
                     <ReactSelect
+                      instanceId={`peer-select-${peerEnd}`}
                       placeholder={`Select the ${
                         peerEnd === 'src' ? 'source' : 'destination'
                       } peer`}
@@ -211,7 +224,7 @@ export default function CreateMirrors() {
                       }
                       getOptionValue={getPeerValue}
                       formatOptionLabel={getPeerLabel}
-                      theme={SelectTheme}
+                      theme={selectTheme}
                     />
                   </div>
                   <InfoPopover
@@ -225,8 +238,7 @@ export default function CreateMirrors() {
             />
           ))}
 
-          <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
-
+          <hr style={{ marginTop: '1rem', marginBottom: '1rem' }} />
           {mirrorType === MirrorType.QRep && (
             <div
               style={{
@@ -275,7 +287,7 @@ export default function CreateMirrors() {
               Configuration
             </Label>
           )}
-          {!creating && <ToastContainer />}
+          {!creating && <ThemedToastContainer />}
           {!mirrorType ? (
             <></>
           ) : mirrorType === MirrorType.CDC ? (

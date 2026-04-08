@@ -2,19 +2,20 @@ package utils
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
+
+const FullTablePartitionID = "full-table-partition-id"
 
 type PartitionRangeType string
 
@@ -28,13 +29,146 @@ type PartitionRangeForComparison struct {
 	rangeTypeToCompare PartitionRangeType
 }
 
+// Function to adjust start value
+func adjustStartValueOfPartition(prevRange *protos.PartitionRange, currentRange *protos.PartitionRange) {
+	if prevRange == nil || currentRange == nil {
+		return
+	}
+
+	switch cr := currentRange.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		if pr, ok := prevRange.Range.(*protos.PartitionRange_IntRange); ok {
+			cr.IntRange.Start = pr.IntRange.End + 1
+		}
+		return
+
+	case *protos.PartitionRange_UintRange:
+		if pr, ok := prevRange.Range.(*protos.PartitionRange_UintRange); ok {
+			cr.UintRange.Start = pr.UintRange.End + 1
+		}
+		return
+
+	case *protos.PartitionRange_TimestampRange:
+		if pr, ok := prevRange.Range.(*protos.PartitionRange_TimestampRange); ok {
+			cr.TimestampRange.Start = timestamppb.New(pr.TimestampRange.End.AsTime().Add(1 * time.Microsecond))
+		}
+		return
+
+	case *protos.PartitionRange_TidRange:
+		if pr, ok := prevRange.Range.(*protos.PartitionRange_TidRange); ok {
+			start := &protos.TID{
+				BlockNumber:  pr.TidRange.End.BlockNumber,
+				OffsetNumber: pr.TidRange.End.OffsetNumber,
+			}
+			if start.OffsetNumber < 0xFFFF {
+				start.OffsetNumber++
+			} else {
+				start.BlockNumber++
+				start.OffsetNumber = 0
+			}
+			cr.TidRange.Start = start
+		}
+		return
+
+	default:
+		return
+	}
+}
+
+func createIntPartition(start int64, end int64) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_IntRange{
+				IntRange: &protos.IntPartitionRange{
+					Start: start,
+					End:   end,
+				},
+			},
+		},
+	}
+}
+
+func createTimePartition(start time.Time, end time.Time) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_TimestampRange{
+				TimestampRange: &protos.TimestampPartitionRange{
+					Start: timestamppb.New(start),
+					End:   timestamppb.New(end),
+				},
+			},
+		},
+	}
+}
+
+func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition {
+	startTuple := &protos.TID{
+		BlockNumber:  start.BlockNumber,
+		OffsetNumber: uint32(start.OffsetNumber),
+	}
+
+	endTuple := &protos.TID{
+		BlockNumber:  end.BlockNumber,
+		OffsetNumber: uint32(end.OffsetNumber),
+	}
+
+	return &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_TidRange{
+				TidRange: &protos.TIDPartitionRange{
+					Start: startTuple,
+					End:   endTuple,
+				},
+			},
+		},
+	}
+}
+
+func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_UintRange{
+				UintRange: &protos.UIntPartitionRange{
+					Start: start,
+					End:   end,
+				},
+			},
+		},
+	}
+}
+
+type PartitionHelper struct {
+	logger     log.Logger
+	prevStart  any
+	prevEnd    any
+	partitions []*protos.QRepPartition
+}
+
+func NewPartitionHelper(logger log.Logger) *PartitionHelper {
+	return &PartitionHelper{
+		logger:     logger,
+		partitions: make([]*protos.QRepPartition, 0),
+	}
+}
+
+func (p *PartitionHelper) AddNullPartition() {
+	p.partitions = append(p.partitions, &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_NullRange{NullRange: &protos.NullPartitionRange{}}},
+	})
+}
+
 // Function to compare the end of a partition with the start of another
-func comparePartitionRanges(
+func (p *PartitionHelper) comparePartitionRanges(
 	previousPartition PartitionRangeForComparison,
 	currentPartition PartitionRangeForComparison,
 ) int {
 	if previousPartition.partitionRange == nil || currentPartition.partitionRange == nil {
-		slog.Warn("one of the partition ranges is nil, cannot compare")
+		p.logger.Warn("one of the partition ranges is nil, cannot compare")
 		return 0
 	}
 	switch pr := previousPartition.partitionRange.Range.(type) {
@@ -102,151 +236,16 @@ func comparePartitionRanges(
 	}
 }
 
-// Function to adjust start value
-func adjustStartValueOfPartition(prevRange *protos.PartitionRange, currentRange *protos.PartitionRange) {
-	if prevRange == nil || currentRange == nil {
-		return
-	}
-
-	switch cr := currentRange.Range.(type) {
-	case *protos.PartitionRange_IntRange:
-		if pr, ok := prevRange.Range.(*protos.PartitionRange_IntRange); ok {
-			cr.IntRange.Start = pr.IntRange.End + 1
-		}
-		return
-
-	case *protos.PartitionRange_UintRange:
-		if pr, ok := prevRange.Range.(*protos.PartitionRange_UintRange); ok {
-			cr.UintRange.Start = pr.UintRange.End + 1
-		}
-		return
-
-	case *protos.PartitionRange_TimestampRange:
-		if pr, ok := prevRange.Range.(*protos.PartitionRange_TimestampRange); ok {
-			cr.TimestampRange.Start = timestamppb.New(pr.TimestampRange.End.AsTime().Add(1 * time.Microsecond))
-		}
-		return
-
-	case *protos.PartitionRange_TidRange:
-		if pr, ok := prevRange.Range.(*protos.PartitionRange_TidRange); ok {
-			start := &protos.TID{
-				BlockNumber:  pr.TidRange.End.BlockNumber,
-				OffsetNumber: pr.TidRange.End.OffsetNumber,
-			}
-			if start.OffsetNumber < 0xFFFF {
-				start.OffsetNumber++
-			} else {
-				start.BlockNumber++
-				start.OffsetNumber = 0
-			}
-			cr.TidRange.Start = start
-		}
-		return
-
-	default:
-		return
-	}
-}
-
-func createIntPartition(start int64, end int64) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_IntRange{
-				IntRange: &protos.IntPartitionRange{
-					Start: start,
-					End:   end,
-				},
-			},
-		},
-	}
-}
-
-func createTimePartition(start time.Time, end time.Time) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_TimestampRange{
-				TimestampRange: &protos.TimestampPartitionRange{
-					Start: timestamppb.New(start),
-					End:   timestamppb.New(end),
-				},
-			},
-		},
-	}
-}
-
-func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition {
-	startTuple := &protos.TID{
-		BlockNumber:  start.BlockNumber,
-		OffsetNumber: uint32(start.OffsetNumber),
-	}
-
-	endTuple := &protos.TID{
-		BlockNumber:  end.BlockNumber,
-		OffsetNumber: uint32(end.OffsetNumber),
-	}
-
-	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_TidRange{
-				TidRange: &protos.TIDPartitionRange{
-					Start: startTuple,
-					End:   endTuple,
-				},
-			},
-		},
-	}
-}
-
-func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_UintRange{
-				UintRange: &protos.UIntPartitionRange{
-					Start: start,
-					End:   end,
-				},
-			},
-		},
-	}
-}
-
-func createObjectIdPartition(start bson.ObjectID, end bson.ObjectID) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_ObjectIdRange{
-				ObjectIdRange: &protos.ObjectIdPartitionRange{
-					Start: start.Hex(),
-					End:   end.Hex(),
-				},
-			},
-		},
-	}
-}
-
-type PartitionHelper struct {
-	logger     log.Logger
-	prevStart  any
-	prevEnd    any
-	partitions []*protos.QRepPartition
-}
-
-func NewPartitionHelper(logger log.Logger) *PartitionHelper {
-	return &PartitionHelper{
-		logger:     logger,
-		partitions: make([]*protos.QRepPartition, 0),
-	}
-}
-
 func (p *PartitionHelper) AddPartition(start any, end any) error {
 	p.logger.Info("adding partition", slog.Any("start", start), slog.Any("end", end))
 	currentPartition, err := p.getPartitionForStartAndEnd(start, end)
 	if err != nil {
 		return fmt.Errorf("error getting current partition from start and end: %w", err)
+	}
+	if currentPartition == nil {
+		// should only happen when partition column entirely nil, okay to ignore initial load in this case
+		p.logger.Warn("null partition, skipping", slog.Any("start", start), slog.Any("end", end))
+		return nil
 	}
 
 	prevPartition, err := p.getPartitionForStartAndEnd(p.prevStart, p.prevEnd)
@@ -257,7 +256,7 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 	// Skip partition if it's fully contained within the previous one
 	// If it's not fully contained but overlaps, adjust the start
 	if prevPartition != nil {
-		prevEndCompareStart := comparePartitionRanges(
+		prevEndCompareStart := p.comparePartitionRanges(
 			PartitionRangeForComparison{
 				partitionRange:     prevPartition.Range,
 				rangeTypeToCompare: PartitionEndRangeType,
@@ -267,7 +266,7 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 				rangeTypeToCompare: PartitionStartRangeType,
 			})
 		if prevEndCompareStart >= 0 {
-			prevEndCompareEnd := comparePartitionRanges(
+			prevEndCompareEnd := p.comparePartitionRanges(
 				PartitionRangeForComparison{
 					partitionRange:     prevPartition.Range,
 					rangeTypeToCompare: PartitionEndRangeType,
@@ -296,6 +295,43 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 	return nil
 }
 
+func (p *PartitionHelper) AddPartitionsWithRange(start any, end any, numPartitions int64) error {
+	partition, err := p.getPartitionForStartAndEnd(start, end)
+	if err != nil {
+		return err
+	} else if partition == nil {
+		p.logger.Warn("null partition range, skipping", slog.Any("start", start), slog.Any("end", end))
+		return nil
+	}
+
+	switch r := partition.Range.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		size := shared.DivCeil(r.IntRange.End-r.IntRange.Start, numPartitions)
+		for i := range numPartitions {
+			if err := p.AddPartition(r.IntRange.Start+size*i, min(r.IntRange.Start+size*(i+1), r.IntRange.End)); err != nil {
+				return err
+			}
+		}
+	case *protos.PartitionRange_UintRange:
+		size := shared.DivCeil(r.UintRange.End-r.UintRange.Start, uint64(numPartitions))
+		for i := range uint64(numPartitions) {
+			if err := p.AddPartition(r.UintRange.Start+size*i, min(r.UintRange.Start+size*(i+1), r.UintRange.End)); err != nil {
+				return err
+			}
+		}
+	case *protos.PartitionRange_TimestampRange:
+		tstart := r.TimestampRange.Start.AsTime().UnixMicro()
+		tend := r.TimestampRange.End.AsTime().UnixMicro()
+		size := shared.DivCeil(tend-tstart, numPartitions)
+		for i := range numPartitions {
+			if err := p.AddPartition(time.UnixMicro(tstart+size*i), time.UnixMicro(min(tstart+size*(i+1), tend))); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*protos.QRepPartition, error) {
 	if start == nil || end == nil {
 		return nil, nil
@@ -321,19 +357,14 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 		return createTimePartition(v, end.(time.Time)), nil
 	case pgtype.TID:
 		return createTIDPartition(v, end.(pgtype.TID)), nil
-	case bson.ObjectID:
-		p.partitions = append(p.partitions, createObjectIdPartition(v, end.(bson.ObjectID)))
-		p.prevStart = v
-		p.prevEnd = end
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
-	return nil, nil
 }
 
 func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition) error {
 	if partition == nil {
-		return errors.New("partition is nil")
+		return fmt.Errorf("partition is nil")
 	}
 	p.partitions = append(p.partitions, partition)
 

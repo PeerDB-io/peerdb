@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
 func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput) error {
@@ -47,7 +48,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !sourceOk {
 				sourceTries += 1
 				var dropSourceFuture workflow.Future
-				if sourceTries < 50 {
+				var applicationError *temporal.ApplicationError
+				if sourceTries < 50 && (!errors.As(sourceError, &applicationError) || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(sourceTries*sourceTries)*time.Second)
 					selector.AddFuture(sleep, sleepSource)
 				} else {
@@ -83,7 +85,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !destinationOk {
 				destinationTries += 1
 				var dropDestinationFuture workflow.Future
-				if destinationTries < 50 {
+				var applicationError *temporal.ApplicationError
+				if destinationTries < 50 && (!errors.As(destinationError, &applicationError) || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(destinationTries*destinationTries)*time.Second)
 					selector.AddFuture(sleep, sleepDestination)
 				} else {
@@ -121,8 +124,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 }
 
 func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
-	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
-		state := CDCFlowWorkflowState{DropFlowInput: input}
+	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (cdc_state.CDCFlowWorkflowState, error) {
+		state := cdc_state.CDCFlowWorkflowState{DropFlowInput: input}
 		if input.Resync {
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_RESYNC
 			state.ActiveSignal = model.ResyncSignal
@@ -134,23 +137,22 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	}); err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
-	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
-		if input.Resync {
-			return protos.FlowStatus_STATUS_RESYNC, nil
-		} else {
-			return protos.FlowStatus_STATUS_TERMINATING, nil
-		}
-	}); err != nil {
-		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
+
+	status := protos.FlowStatus_STATUS_TERMINATING
+	if input.Resync {
+		status = protos.FlowStatus_STATUS_RESYNC
 	}
+	logger := workflow.GetLogger(ctx)
+	cdc_state.SyncStatusToCatalogWithFlowName(ctx, logger, status, input.FlowJobName)
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
-	workflow.GetLogger(ctx).Info("performing cleanup for flow",
+	logger.Info("performing cleanup for flow",
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
 	contextMetadataInput := &protos.FlowContextMetadataInput{
-		FlowName: input.FlowJobName,
-		Status:   protos.FlowStatus_STATUS_UNKNOWN,
-		IsResync: false,
+		FlowName:           input.FlowJobName,
+		Status:             status,
+		IsResync:           false,
+		FetchSourceVariant: false,
 	}
 	if input.FlowConnectionConfigs != nil {
 		contextMetadataInput.SourceName = input.FlowConnectionConfigs.SourceName
@@ -162,6 +164,13 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	if err != nil {
 		return fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
+
+	// Must be called after GetFlowMetadataContext to build flow context, then
+	// ContextPropagator ensures attributes get propagated from flow to activity
+	_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+	}), flowable.ReportStatusMetric, status).Get(ctx, nil)
 
 	if input.FlowConnectionConfigs != nil {
 		if input.DropFlowStats {

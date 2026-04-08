@@ -3,8 +3,6 @@ package qvalue
 import (
 	"time"
 
-	"go.temporal.io/sdk/log"
-
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 )
@@ -25,15 +23,11 @@ func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBTy
 	return datatypes.GetNumericTypeForWarehousePrecisionScale(precision, scale, warehouseNumeric)
 }
 
-// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-func DisallowedTimestamp(dwh protos.DBType, t time.Time, logger log.Logger) bool {
-	if dwh == protos.DBType_BIGQUERY {
-		year := t.Year()
-		if year < 1 || year > 9999 {
-			logger.Warn("Nulling Timestamp value for BigQuery as it exceeds allowed range",
-				"timestamp", t.String())
-			return true
-		}
+func DefaultTime(dwh protos.DBType) time.Time {
+	if dwh == protos.DBType_CLICKHOUSE {
+		// ClickHouse coerces NULL to Unix epoch, which is valid for all their time types,
+		// even when Date32 & DateTime64 can represent lower times.
+		return time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
 	}
-	return false
+	return time.Time{}
 }

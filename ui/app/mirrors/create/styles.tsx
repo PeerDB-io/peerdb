@@ -1,4 +1,4 @@
-import { CSSProperties } from 'styled-components';
+import { CSSProperties } from 'react';
 const MirrorButtonStyle: CSSProperties = {
   width: '10em',
   height: '3em',

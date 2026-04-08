@@ -60,7 +60,8 @@ func (c *PostgresConnector) GetTablesInSchema(
 	rows, err := c.conn.Query(ctx, `SELECT DISTINCT ON (t.relname)
 		t.relname,
 		(con.contype = 'p' OR t.relreplident in ('i', 'f')) AS can_mirror,
-		pg_size_pretty(pg_total_relation_size(t.oid))::text AS table_size
+		pg_size_pretty(pg_total_relation_size(t.oid))::text AS table_size,
+		(t.relreplident = 'f') AS is_replica_identity_full
 	FROM pg_class t
 	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
 	LEFT JOIN pg_constraint con ON con.conrelid = t.oid
@@ -76,7 +77,8 @@ func (c *PostgresConnector) GetTablesInSchema(
 		var table pgtype.Text
 		var hasPkeyOrReplica pgtype.Bool
 		var tableSize pgtype.Text
-		if err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize); err != nil {
+		var isReplicaIdentityFull pgtype.Bool
+		if err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize, &isReplicaIdentityFull); err != nil {
 			return nil, err
 		}
 		var sizeOfTable string
@@ -86,13 +88,14 @@ func (c *PostgresConnector) GetTablesInSchema(
 		canMirror := !cdcEnabled || (hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool)
 
 		return &protos.TableResponse{
-			TableName: table.String,
-			CanMirror: canMirror,
-			TableSize: sizeOfTable,
+			TableName:             table.String,
+			CanMirror:             canMirror,
+			TableSize:             sizeOfTable,
+			IsReplicaIdentityFull: isReplicaIdentityFull.Bool,
 		}, nil
 	})
 	if err != nil {
-		slog.Info("failed to fetch publications", slog.Any("error", err))
+		slog.InfoContext(ctx, "failed to fetch publications", slog.Any("error", err))
 		return nil, err
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
@@ -103,13 +106,18 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, sche
     DISTINCT attname AS column_name,
     atttypid AS oid,
     format_type(atttypid, atttypmod) AS data_type,
-    (pg_constraint.contype = 'p') AS is_primary_key
+    (pg_constraint.contype = 'p') AS is_primary_key,
+    (idx.indkey IS NOT NULL) AS is_replica_identity
 	FROM pg_attribute
 	JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
 	JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
 	LEFT JOIN pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
 		AND pg_attribute.attnum = ANY(pg_constraint.conkey)
 		AND pg_constraint.contype = 'p'
+	LEFT JOIN pg_index idx ON pg_attribute.attrelid = idx.indrelid
+		AND ((idx.indisprimary AND pg_class.relreplident = 'd') OR idx.indisreplident)
+		AND pg_attribute.attnum = ANY(idx.indkey)
+		AND idx.indisvalid AND idx.indisready AND idx.indislive
 	WHERE pg_namespace.nspname = $1
 		AND relname = $2
 		AND pg_attribute.attnum > 0
@@ -124,14 +132,16 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, sche
 		var oid uint32
 		var datatype pgtype.Text
 		var isPkey pgtype.Bool
-		if err := rows.Scan(&columnName, &oid, &datatype, &isPkey); err != nil {
+		var isReplicaIdentity pgtype.Bool
+		if err := rows.Scan(&columnName, &oid, &datatype, &isPkey, &isReplicaIdentity); err != nil {
 			return nil, err
 		}
 		return &protos.ColumnsItem{
-			Name:  columnName.String,
-			Type:  datatype.String,
-			IsKey: isPkey.Bool,
-			Qkind: string(c.postgresOIDToQValueKind(oid, c.customTypeMapping, version)),
+			Name:              columnName.String,
+			Type:              datatype.String,
+			IsKey:             isPkey.Bool,
+			Qkind:             string(c.postgresOIDToQValueKind(oid, c.customTypeMapping, version)),
+			IsReplicaIdentity: isReplicaIdentity.Bool,
 		}, nil
 	})
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type ObservationMapValue[V comparable] struct {
@@ -64,6 +65,10 @@ func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int6
 	return &Int64SyncGauge{syncGauge: syncGauge}, nil
 }
 
+func (a *Int64SyncGauge) Enabled(context.Context) bool {
+	return a != nil
+}
+
 func (a *Int64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
 	if a == nil {
 		return
@@ -94,6 +99,10 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 	return &Float64SyncGauge{syncGauge: syncGauge}, nil
 }
 
+func (a *Float64SyncGauge) Enabled(context.Context) bool {
+	return a != nil
+}
+
 func (a *Float64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
 	if a == nil {
 		return
@@ -103,23 +112,33 @@ func (a *Float64SyncGauge) Record(ctx context.Context, value float64, options ..
 }
 
 func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
-	attributes := make([]attribute.KeyValue, 0)
+	attributes := make([]attribute.KeyValue, 0, 12)
 	flowMetadata := internal.GetFlowMetadata(ctx)
 	if flowMetadata != nil {
+		attributes = append(attributes, attribute.String(FlowNameKey, flowMetadata.FlowName))
+		if flowMetadata.Source != nil {
+			attributes = append(attributes,
+				attribute.Stringer(SourcePeerType, flowMetadata.Source.Type),
+				attribute.Stringer(SourcePeerVariant, flowMetadata.Source.Variant),
+				attribute.String(SourcePeerName, flowMetadata.Source.Name),
+				attribute.String(sourcePeerHostname, flowMetadata.Source.Hostname))
+		}
+		if flowMetadata.Destination != nil {
+			attributes = append(attributes,
+				attribute.Stringer(DestinationPeerType, flowMetadata.Destination.Type),
+				attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
+				attribute.String(destinationPeerHostname, flowMetadata.Destination.Hostname))
+		}
 		attributes = append(attributes,
-			attribute.String(FlowNameKey, flowMetadata.FlowName),
-			attribute.Stringer(SourcePeerType, flowMetadata.Source.Type),
-			attribute.Stringer(DestinationPeerType, flowMetadata.Destination.Type),
-			attribute.String(SourcePeerName, flowMetadata.Source.Name),
-			attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
 			attribute.Stringer(FlowStatusKey, flowMetadata.Status),
-			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync),
-		)
+			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync))
+		if pipeName := flowMetadata.Tags[common.PipeNameTag]; pipeName != "" {
+			attributes = append(attributes, attribute.String(PipeNameKey, pipeName))
+		}
 	}
+
 	additionalMetadata := internal.GetAdditionalMetadata(ctx)
-	attributes = append(attributes,
-		attribute.Stringer(FlowOperationKey, additionalMetadata.Operation),
-	)
+	attributes = append(attributes, attribute.Stringer(FlowOperationKey, additionalMetadata.Operation))
 
 	if activity.IsActivity(ctx) {
 		activityInfo := activity.GetInfo(ctx)

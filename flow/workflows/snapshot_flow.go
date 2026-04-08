@@ -3,8 +3,6 @@ package peerflow
 import (
 	"fmt"
 	"log/slog"
-	"slices"
-	"strings"
 	"time"
 
 	"go.temporal.io/sdk/log"
@@ -12,7 +10,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/activities"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -27,8 +24,18 @@ const (
 )
 
 type SnapshotFlowExecution struct {
-	config *protos.FlowConnectionConfigs
+	config *protos.FlowConnectionConfigsCore
 	logger log.Logger
+}
+
+func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
+	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var dbtype protos.DBType
+	err := workflow.ExecuteActivity(checkCtx, snapshot.GetPeerType, name).Get(checkCtx, &dbtype)
+	return dbtype, err
 }
 
 func (s *SnapshotFlowExecution) setupReplication(
@@ -38,7 +45,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	s.logger.Info("setting up replication on source for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 4 * 24 * time.Hour,
+		StartToCloseTimeout: 4 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 			MaximumAttempts: 20,
@@ -60,7 +67,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		Env:                         s.config.Env,
 	}
 
-	res := &protos.SetupReplicationOutput{}
+	var res *protos.SetupReplicationOutput
 	if err := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput).Get(ctx, &res); err != nil {
 		return nil, fmt.Errorf("failed to setup replication on source peer: %w", err)
 	}
@@ -76,7 +83,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	s.logger.Info("closing slot keep alive for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 10 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
@@ -96,6 +103,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 	boundSelector *shared.BoundSelector,
 	snapshotName string,
 	mapping *protos.TableMapping,
+	sourcePeerType protos.DBType,
+	destinationPeerType protos.DBType,
 ) error {
 	flowName := s.config.FlowJobName
 	cloneLog := slog.Group("clone-log",
@@ -117,6 +126,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
 		TaskQueue:           taskQueue,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 
 	var tableSchema *protos.TableSchema
@@ -140,42 +150,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 		).Get(ctx, &tableSchema)
 	}
 
-	parsedSrcTable, err := utils.ParseSchemaTable(srcName)
-	if err != nil {
-		s.logger.Error("unable to parse source table", slog.Any("error", err), cloneLog)
-		return fmt.Errorf("unable to parse source table: %w", err)
-	}
-	from := "*"
-	if len(mapping.Exclude) != 0 {
-		if err := initTableSchema(); err != nil {
-			return err
-		}
-		quotedColumns := make([]string, 0, len(tableSchema.Columns))
-		for _, col := range tableSchema.Columns {
-			if !slices.Contains(mapping.Exclude, col.Name) {
-				quotedColumns = append(quotedColumns, utils.QuoteIdentifier(col.Name))
-			}
-		}
-		from = strings.Join(quotedColumns, ",")
-	}
-
-	// usually MySQL supports double quotes with ANSI_QUOTES, but Vitess doesn't
-	// Vitess currently only supports initial load so change here is enough
-	srcTableEscaped := parsedSrcTable.String()
-	if dbtype, err := getPeerType(ctx, s.config.SourceName); err != nil {
-		return err
-	} else if dbtype == protos.DBType_MYSQL {
-		srcTableEscaped = parsedSrcTable.MySQL()
-	}
-
-	var query string
-	if mapping.PartitionKey == "" {
-		query = fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
-	} else {
-		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, srcTableEscaped, mapping.PartitionKey)
-	}
-
 	numWorkers := uint32(8)
 	if s.config.SnapshotMaxParallelWorkers > 0 {
 		numWorkers = s.config.SnapshotMaxParallelWorkers
@@ -186,15 +160,18 @@ func (s *SnapshotFlowExecution) cloneTable(
 		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
 	}
 
+	numPartitionsOverride := uint32(0)
+	if s.config.SnapshotNumPartitionsOverride > 0 {
+		numPartitionsOverride = s.config.SnapshotNumPartitionsOverride
+	}
+
 	snapshotWriteMode := &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
 	}
 
 	// ensure document IDs are synchronized across initial load and CDC
 	// for the same document
-	if dbtype, err := getPeerType(ctx, s.config.DestinationName); err != nil {
-		return err
-	} else if dbtype == protos.DBType_ELASTICSEARCH {
+	if destinationPeerType == protos.DBType_ELASTICSEARCH {
 		if err := initTableSchema(); err != nil {
 			return err
 		}
@@ -204,17 +181,33 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 	}
 
+	watermarkColumnNullable := false
+	if mapping.PartitionKey != "" {
+		if err := initTableSchema(); err != nil {
+			return err
+		}
+		for _, col := range tableSchema.Columns {
+			if col.Name == mapping.PartitionKey && col.Nullable {
+				watermarkColumnNullable = true
+				break
+			}
+		}
+	}
+
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
 		SourceName:                 s.config.SourceName,
+		SourceType:                 sourcePeerType,
 		DestinationName:            s.config.DestinationName,
-		Query:                      query,
+		Query:                      "",
 		WatermarkColumn:            mapping.PartitionKey,
+		AddNullPartition:           watermarkColumnNullable,
 		WatermarkTable:             srcName,
 		InitialCopyOnly:            true,
 		SnapshotName:               snapshotName,
 		DestinationTableIdentifier: dstName,
 		NumRowsPerPartition:        numRowsPerPartition,
+		NumPartitionsOverride:      numPartitionsOverride,
 		MaxParallelWorkers:         numWorkers,
 		StagingPath:                s.config.SnapshotStagingPath,
 		SyncedAtColName:            s.config.SyncedAtColName,
@@ -227,10 +220,10 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Exclude:                    mapping.Exclude,
 		Columns:                    mapping.Columns,
 		Version:                    s.config.Version,
+		Flags:                      s.config.Flags,
 	}
 
-	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
-	return nil
+	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
 }
 
 func (s *SnapshotFlowExecution) cloneTables(
@@ -238,7 +231,6 @@ func (s *SnapshotFlowExecution) cloneTables(
 	snapshotType snapshotType,
 	slotName string,
 	snapshotName string,
-	supportsTIDScans bool,
 	maxParallelClones int,
 ) error {
 	if snapshotType == SNAPSHOT_TYPE_SLOT {
@@ -247,12 +239,28 @@ func (s *SnapshotFlowExecution) cloneTables(
 		s.logger.Info("cloning tables in tx snapshot mode", slog.String("snapshot", snapshotName))
 	}
 
+	getParallelLoadKeyForTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 10 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
+	})
+
+	var res *protos.GetDefaultPartitionKeyForTablesOutput
+	if err := workflow.ExecuteActivity(getParallelLoadKeyForTablesCtx,
+		snapshot.GetDefaultPartitionKeyForTables, s.config).Get(ctx, &res); err != nil {
+		return fmt.Errorf("failed to get default partition keys for tables: %w", err)
+	}
+
 	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)
 
-	defaultPartitionCol := "ctid"
-	if !supportsTIDScans {
-		s.logger.Info("Postgres version too old for TID scans, might use full table partitions!")
-		defaultPartitionCol = ""
+	sourcePeerType, err := getPeerType(ctx, s.config.SourceName)
+	if err != nil {
+		return err
+	}
+	destinationPeerType, err := getPeerType(ctx, s.config.DestinationName)
+	if err != nil {
+		return err
 	}
 
 	for _, v := range s.config.TableMappings {
@@ -263,16 +271,16 @@ func (s *SnapshotFlowExecution) cloneTables(
 			slog.String("snapshotName", snapshotName),
 		)
 		if v.PartitionKey == "" {
-			v.PartitionKey = defaultPartitionCol
+			v.PartitionKey = res.TableDefaultPartitionKeyMapping[source]
 		}
-		if err := s.cloneTable(ctx, boundSelector, snapshotName, v); err != nil {
+		if err := s.cloneTable(ctx, boundSelector, snapshotName, v, sourcePeerType, destinationPeerType); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
-			continue
+			return err
 		}
 	}
 
 	if err := boundSelector.Wait(ctx); err != nil {
-		s.logger.Error("failed to clone some tables", "error", err)
+		s.logger.Error("failed to clone some tables", slog.Any("error", err))
 		return err
 	}
 
@@ -296,13 +304,18 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 			s.logger.Error("failed to close slot keep alive", slog.Any("error", err))
 		}
 	}()
+	var slotName string
+	var snapshotName string
+	if slotInfo != nil {
+		slotName = slotInfo.SlotName
+		snapshotName = slotInfo.SnapshotName
+	}
 
-	s.logger.Info(fmt.Sprintf("cloning %d tables in parallel", numTablesInParallel))
+	s.logger.Info("cloning tables in parallel", slog.Int("parallelism", numTablesInParallel))
 	if err := s.cloneTables(ctx,
 		SNAPSHOT_TYPE_SLOT,
-		slotInfo.SlotName,
-		slotInfo.SnapshotName,
-		slotInfo.SupportsTidScans,
+		slotName,
+		snapshotName,
 		numTablesInParallel,
 	); err != nil {
 		s.logger.Error("failed to clone tables", slog.Any("error", err))
@@ -314,7 +327,7 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 
 func SnapshotFlowWorkflow(
 	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 ) error {
 	se := &SnapshotFlowExecution{
 		config: config,
@@ -336,7 +349,7 @@ func SnapshotFlowWorkflow(
 	}
 	defer workflow.CompleteSession(sessionCtx)
 
-	if !config.DoInitialSnapshot {
+	if !config.DoInitialSnapshot && !config.InitialSnapshotOnly {
 		if _, err := se.setupReplication(sessionCtx); err != nil {
 			return fmt.Errorf("failed to setup replication: %w", err)
 		}
@@ -348,7 +361,7 @@ func SnapshotFlowWorkflow(
 		return nil
 	}
 
-	if config.InitialSnapshotOnly {
+	if config.InitialSnapshotOnly && config.DoInitialSnapshot {
 		sessionInfo := workflow.GetSessionInfo(sessionCtx)
 
 		exportCtx := workflow.WithActivityOptions(sessionCtx, workflow.ActivityOptions{
@@ -364,6 +377,7 @@ func SnapshotFlowWorkflow(
 			exportCtx,
 			snapshot.MaintainTx,
 			sessionInfo.SessionID,
+			config.FlowJobName,
 			config.SourceName,
 			config.Env,
 		)
@@ -397,13 +411,14 @@ func SnapshotFlowWorkflow(
 			SNAPSHOT_TYPE_TX,
 			"",
 			txnSnapshotState.SnapshotName,
-			txnSnapshotState.SupportsTIDScans,
 			numTablesInParallel,
 		); err != nil {
 			return fmt.Errorf("failed to clone tables: %w", err)
 		}
-	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
-		return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+	} else if config.DoInitialSnapshot {
+		if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
+			return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+		}
 	}
 
 	return nil

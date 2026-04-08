@@ -45,8 +45,27 @@ export default function ColumnBox({
     const partOfOrderingKey = rows
       .find((row) => row.source == tableRow.source)
       ?.columns.some(
-        (col) => col.sourceName === column.name && col.ordering <= 0
+        (col) =>
+          col.sourceName === column.name &&
+          (col.ordering > 0 || col.partitioning > 0)
       );
+    const isIncluded = !tableRow.exclude.has(column.name);
+    const includedColumnCount = columns.length - tableRow.exclude.size;
+    const isLastIncludedColumn = includedColumnCount === 1 && isIncluded;
+
+    // For replica identity columns, ensure at least one remains included
+    const replicaIdentityColumns = columns.filter(
+      (col) => col.isReplicaIdentity
+    );
+    const includedReplicaIdentityCount = replicaIdentityColumns.filter(
+      (col) => !tableRow.exclude.has(col.name)
+    ).length;
+    const isLastIncludedReplicaIdentity =
+      !tableRow.isReplicaIdentityFull &&
+      column.isReplicaIdentity &&
+      includedReplicaIdentityCount === 1 &&
+      isIncluded;
+
     return (
       <RowWithCheckbox
         key={column.name}
@@ -60,21 +79,28 @@ export default function ColumnBox({
             }}
           >
             {column.name}
-            <p
+            <Label
+              as='span'
+              colorName='lowContrast'
               style={{
                 marginLeft: '0.5rem',
-                color: 'gray',
+                fontSize: 13,
               }}
             >
               {column.type}
-            </p>
+            </Label>
           </Label>
         }
         action={
           <Checkbox
             style={{ cursor: 'pointer' }}
-            disabled={column.isKey || disabled || partOfOrderingKey}
-            checked={!tableRow.exclude.has(column.name)}
+            disabled={
+              isLastIncludedReplicaIdentity ||
+              disabled ||
+              partOfOrderingKey ||
+              isLastIncludedColumn
+            }
+            checked={isIncluded}
             onCheckedChange={(state: boolean) =>
               handleColumnExclusion(column.name, state)
             }

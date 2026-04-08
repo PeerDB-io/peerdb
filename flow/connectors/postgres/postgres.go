@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -28,7 +29,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -42,7 +45,7 @@ type ReplState struct {
 type PostgresConnector struct {
 	logger                 log.Logger
 	customTypeMapping      map[uint32]shared.CustomDataType
-	ssh                    utils.SSHTunnel
+	ssh                    *utils.SSHTunnel
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
 	replState              *ReplState
@@ -106,7 +109,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
-	return &PostgresConnector{
+	connector := &PostgresConnector{
 		logger:                 logger,
 		Config:                 pgConfig,
 		ssh:                    tunnel,
@@ -122,7 +125,28 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
-	}, nil
+	}
+
+	tunnel.StartKeepalive(context.Background(), func() {
+		connector.logger.Info("SSH keepalive failed, closing connections")
+		bgCtx := context.Background()
+		timeout, cancel := context.WithTimeout(bgCtx, 5*time.Second)
+		defer cancel()
+		if err := connector.conn.Close(timeout); err != nil {
+			connector.logger.Error("Failed to close Postgres connection on SSH keepalive failure",
+				slog.Any("error", err))
+		}
+		if connector.replConn != nil {
+			timeout2, cancel2 := context.WithTimeout(bgCtx, 5*time.Second)
+			defer cancel2()
+			if err := connector.replConn.Close(timeout2); err != nil {
+				connector.logger.Error("Failed to close Postgres replication connection on SSH keepalive failure",
+					slog.Any("error", err))
+			}
+		}
+	})
+
+	return connector, nil
 }
 
 func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
@@ -131,7 +155,7 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 	if pgConfig.RequireTls || pgConfig.RootCa != nil {
-		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, false)
+		tlsConfig, err := common.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, false)
 		if err != nil {
 			return nil, err
 		}
@@ -151,7 +175,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 	return c.customTypeMapping, nil
 }
 
-func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
+func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]string) (*pgx.Conn, error) {
 	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	replConfig, err := ParseConfig(c.connStr, c.Config)
@@ -168,16 +192,27 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
+	walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
+	}
+	if !strings.EqualFold(walSenderTimeout, "NONE") {
+		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", walSenderTimeout))
+		replConfig.Config.RuntimeParams["wal_sender_timeout"] = walSenderTimeout
+	} else {
+		c.logger.Info("not setting wal_sender_timeout")
+	}
+
 	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
 	if err != nil {
-		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
+		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
 	}
 	return conn, nil
 }
 
-func (c *PostgresConnector) SetupReplConn(ctx context.Context) error {
-	conn, err := c.CreateReplConn(ctx)
+func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]string) error {
+	conn, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return err
 	}
@@ -215,7 +250,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, lastOffset,
 		)
 		c.logger.Info(msg)
-		return temporal.NewNonRetryableApplicationError(msg, "desync", nil)
+		return exceptions.NewReplStateDesyncError(msg)
 	}
 
 	if c.replState == nil {
@@ -232,7 +267,8 @@ func (c *PostgresConnector) MaybeStartReplication(
 
 		c.replLock.Lock()
 		defer c.replLock.Unlock()
-		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), slotName, startLSN, replicationOpts); err != nil {
+		if err := pglogrepl.StartReplication(
+			ctx, c.replConn.PgConn(), common.QuoteIdentifier(slotName), startLSN, replicationOpts); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
 			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
@@ -257,7 +293,7 @@ func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion
 		pubOpt := "publication_names " + utils.QuoteLiteral(publicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
-		return pglogrepl.StartReplicationOptions{}, errors.New("publication name is not set")
+		return pglogrepl.StartReplicationOptions{}, fmt.Errorf("publication name is not set")
 	}
 
 	if pgVersion >= shared.POSTGRES_14 {
@@ -269,21 +305,30 @@ func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion
 
 // Close closes all connections.
 func (c *PostgresConnector) Close() error {
-	var connerr, replerr error
+	var errs []error
 	if c != nil {
 		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		connerr = c.conn.Close(timeout)
+		if err := c.conn.Close(timeout); err != nil {
+			c.logger.Error("failed to close Postgres connection", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to close Postgres connection: %w", err))
+		}
 
 		if c.replConn != nil {
 			timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			replerr = c.replConn.Close(timeout)
+			if err := c.replConn.Close(timeout); err != nil {
+				c.logger.Error("failed to close Postgres replication connection", slog.Any("error", err))
+				errs = append(errs, fmt.Errorf("failed to close Postgres replication connection: %w", err))
+			}
 		}
 
-		c.ssh.Close()
+		if err := c.ssh.Close(); err != nil {
+			c.logger.Error("[postgres] failed to close SSH tunnel", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("[postgres] failed to close SSH tunnel: %w", err))
+		}
 	}
-	return errors.Join(connerr, replerr)
+	return errors.Join(errs...)
 }
 
 func (c *PostgresConnector) Conn() *pgx.Conn {
@@ -293,7 +338,7 @@ func (c *PostgresConnector) Conn() *pgx.Conn {
 // ConnectionActive returns nil if the connection is active.
 func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 	if c.conn == nil {
-		return errors.New("connection is nil")
+		return fmt.Errorf("connection is nil")
 	}
 	_, pingErr := c.conn.Exec(ctx, "SELECT 1")
 	return pingErr
@@ -301,9 +346,9 @@ func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
 func (c *PostgresConnector) NeedsSetupMetadataTables(ctx context.Context) (bool, error) {
-	result, err := c.tableExists(ctx, &utils.SchemaTable{
-		Schema: c.metadataSchema,
-		Table:  mirrorJobsTableIdentifier,
+	result, err := c.tableExists(ctx, &common.QualifiedTable{
+		Namespace: c.metadataSchema,
+		Table:     mirrorJobsTableIdentifier,
 	})
 	return !result, err
 }
@@ -388,13 +433,12 @@ func pullCore[Items model.Items](
 		}
 	}()
 
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + req.FlowJobName
+	slotName := GetDefaultSlotName(req.FlowJobName)
 	if req.OverrideReplicationSlotName != "" {
 		slotName = req.OverrideReplicationSlotName
 	}
 
-	publicationName := c.getDefaultPublicationName(req.FlowJobName)
+	publicationName := GetDefaultPublicationName(req.FlowJobName)
 	if req.OverridePublicationName != "" {
 		publicationName = req.OverridePublicationName
 	}
@@ -407,14 +451,12 @@ func pullCore[Items model.Items](
 
 	if !exists.PublicationExists {
 		c.logger.Warn("publication does not exist", slog.String("name", publicationName))
-		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("publication %s does not exist, restarting workflow", slotName), "disconnect", nil)
+		return exceptions.NewPublicationMissingError(publicationName)
 	}
 
 	if !exists.SlotExists {
 		c.logger.Warn("slot does not exist", slog.String("name", slotName))
-		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName), "disconnect", nil)
+		return exceptions.NewSlotMissingError(slotName)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
@@ -425,11 +467,6 @@ func pullCore[Items model.Items](
 		return err
 	}
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion); err != nil {
-		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
-		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
-			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {
-			return temporal.NewNonRetryableApplicationError("reset connection to reconcile Aurora failover", "disconnect", err)
-		}
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
@@ -440,6 +477,10 @@ func pullCore[Items model.Items](
 	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
 	if err != nil {
 		return fmt.Errorf("failed to get get setting for sourceSchemaAsDestinationColumn: %w", err)
+	}
+	originMetaAsDestinationColumn, err := internal.PeerDBOriginMetaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
 	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
@@ -454,6 +495,7 @@ func pullCore[Items model.Items](
 		Publication:                              publicationName,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
+		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
 	})
 	if err != nil {
@@ -623,7 +665,7 @@ func syncRecordsCore[Items model.Items](
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -667,33 +709,15 @@ func (c *PostgresConnector) NormalizeRecords(
 		}, nil
 	}
 
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(
-		ctx, req.FlowJobName, req.SyncBatchID, normBatchID, req.TableNameSchemaMapping)
-	if err != nil {
-		return model.NormalizeResponse{}, err
-	}
-	unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName,
-		req.SyncBatchID, normBatchID)
-	if err != nil {
-		return model.NormalizeResponse{}, err
-	}
-
-	normalizeRecordsTx, err := c.conn.Begin(ctx)
-	if err != nil {
-		return model.NormalizeResponse{}, fmt.Errorf("error starting transaction for normalizing records: %w", err)
-	}
-	defer shared.RollbackTx(normalizeRecordsTx, c.logger)
-
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return model.NormalizeResponse{}, err
 	}
-	totalRowsAffected := 0
+
 	normalizeStmtGen := normalizeStmtGenerator{
-		Logger:                   c.logger,
-		rawTableName:             rawTableIdentifier,
-		tableSchemaMapping:       req.TableNameSchemaMapping,
-		unchangedToastColumnsMap: unchangedToastColumnsMap,
+		Logger:             c.logger,
+		rawTableName:       rawTableIdentifier,
+		tableSchemaMapping: req.TableNameSchemaMapping,
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDeleteColName: req.SoftDeleteColName,
 			SyncedAtColName:   req.SyncedAtColName,
@@ -702,38 +726,101 @@ func (c *PostgresConnector) NormalizeRecords(
 		metadataSchema: c.metadataSchema,
 	}
 
-	for _, destinationTableName := range destinationTableNames {
-		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
-		for _, normalizeStatement := range normalizeStatements {
-			ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName)
-			if err != nil {
-				c.logger.Error("error executing normalize statement",
-					slog.String("statement", normalizeStatement),
-					slog.Int64("normBatchID", normBatchID),
-					slog.Int64("syncBatchID", req.SyncBatchID),
-					slog.String("destinationTableName", destinationTableName),
-					slog.Any("error", err),
-				)
-				return model.NormalizeResponse{}, fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
-			}
-			totalRowsAffected += int(ct.RowsAffected())
+	totalRowsAffected := 0
+	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
+		unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName, batchID)
+		if err != nil {
+			return model.NormalizeResponse{}, err
 		}
+		normalizeStmtGen.unchangedToastColumnsMap = unchangedToastColumnsMap
+
+		destinationTableNames, err := c.getDistinctTableNamesInBatch(
+			ctx, req.FlowJobName, batchID, req.TableNameSchemaMapping)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
+		rowsAffected, err := c.normalizeBatch(ctx, batchID, req, destinationTableNames, &normalizeStmtGen)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
+		totalRowsAffected += rowsAffected
+		c.logger.Info("normalize: committed batch to destination",
+			slog.Int64("batchID", batchID),
+			slog.Int64("syncBatchID", req.SyncBatchID),
+			slog.Int("rowsAffected", rowsAffected),
+		)
 	}
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
-
-	// updating metadata with new normalizeBatchID
-	if err := c.updateNormalizeMetadata(ctx, req.FlowJobName, req.SyncBatchID, normalizeRecordsTx); err != nil {
-		return model.NormalizeResponse{}, err
-	}
-	// transaction commits
-	if err := normalizeRecordsTx.Commit(ctx); err != nil {
-		return model.NormalizeResponse{}, err
-	}
 
 	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
+}
+
+type batchEntry struct {
+	tableName string
+	statement string
+}
+
+func (c *PostgresConnector) normalizeBatch(
+	ctx context.Context,
+	batchID int64,
+	req *model.NormalizeRecordsRequest,
+	destinationTableNames []string,
+	normalizeStmtGen *normalizeStmtGenerator,
+) (int, error) {
+	tx, err := c.conn.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error starting transaction for normalizing records: %w", err)
+	}
+	defer shared.RollbackTx(tx, c.logger)
+
+	batch := &pgx.Batch{}
+	var entries []batchEntry
+	for _, destinationTableName := range destinationTableNames {
+		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
+		for _, stmt := range normalizeStatements {
+			batch.Queue(stmt, batchID, destinationTableName)
+			entries = append(entries, batchEntry{tableName: destinationTableName, statement: stmt})
+		}
+	}
+	batch.Queue(
+		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+		batchID, req.FlowJobName,
+	)
+
+	results := tx.SendBatch(ctx, batch)
+	defer results.Close()
+
+	totalRowsAffected := 0
+	for _, entry := range entries {
+		ct, err := results.Exec()
+		if err != nil {
+			c.logger.Error("error executing normalize statement",
+				slog.String("statement", entry.statement),
+				slog.Int64("batchID", batchID),
+				slog.String("destinationTableName", entry.tableName),
+				slog.Any("error", err),
+			)
+			return 0, fmt.Errorf("error executing normalize statement for table %s: %w", entry.tableName, err)
+		}
+		totalRowsAffected += int(ct.RowsAffected())
+	}
+
+	if _, err := results.Exec(); err != nil {
+		return 0, fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
+	}
+
+	if err := results.Close(); err != nil {
+		return 0, fmt.Errorf("failed to close batch results: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("failed to commit normalize transaction: %w", err)
+	}
+
+	return totalRowsAffected, nil
 }
 
 type SlotCheckResult struct {
@@ -786,7 +873,7 @@ func (c *PostgresConnector) StatActivity(
 		" FROM pg_stat_activity WHERE "+
 		"usename=$1 AND application_name LIKE 'peerdb%';", c.Config.User)
 	if err != nil {
-		slog.Error("Failed to get stat info", slog.Any("error", err))
+		slog.ErrorContext(ctx, "Failed to get stat info", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -801,7 +888,7 @@ func (c *PostgresConnector) StatActivity(
 		var state string
 
 		if err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration, &state); err != nil {
-			slog.Error("Failed to scan row", slog.Any("error", err))
+			slog.ErrorContext(ctx, "Failed to scan row", slog.Any("error", err))
 			return nil, err
 		}
 
@@ -857,9 +944,9 @@ func (c *PostgresConnector) GetTableSchema(
 	tableMapping []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMapping))
-
+	typeSchemaNameMapping := make(map[uint32]string, len(tableMapping))
 	for _, tm := range tableMapping {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version, typeSchemaNameMapping)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -873,7 +960,7 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) GetSelectedColumns(
 	ctx context.Context,
-	sourceTable *utils.SchemaTable,
+	sourceTable *common.QualifiedTable,
 	excludedColumns []string,
 ) ([]string, error) {
 	quotedExcludedColumns := make([]string, 0, len(excludedColumns))
@@ -895,7 +982,7 @@ func (c *PostgresConnector) GetSelectedColumns(
 		AND a.attnum > 0
 		AND NOT a.attisdropped ` + excludedColumnsSQL
 
-	rows, err := c.conn.Query(ctx, getColumnsSQL, sourceTable.Schema, sourceTable.Table)
+	rows, err := c.conn.Query(ctx, getColumnsSQL, sourceTable.Namespace, sourceTable.Table)
 	if err != nil {
 		c.logger.Error("error getting selected columns",
 			slog.Any("error", err),
@@ -916,14 +1003,103 @@ func (c *PostgresConnector) GetSelectedColumns(
 	return columns, nil
 }
 
+func (c *PostgresConnector) GetTablesFromPublication(
+	ctx context.Context,
+	publicationName string,
+	excludedTables []*common.QualifiedTable,
+) ([]*common.QualifiedTable, error) {
+	var getTablesSQL string
+	var args []any
+
+	if len(excludedTables) == 0 {
+		// No filter - get all tables from publication
+		getTablesSQL = `SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = $1 ORDER BY schemaname, tablename`
+		args = []any{publicationName}
+	} else {
+		// Get tables that are in publication but NOT in the filter list
+		schemas := make([]string, len(excludedTables))
+		tables := make([]string, len(excludedTables))
+		for i, schemaTable := range excludedTables {
+			schemas[i] = schemaTable.Namespace
+			tables[i] = schemaTable.Table
+		}
+		getTablesSQL = `
+            SELECT schemaname, tablename
+            FROM pg_publication_tables
+            WHERE pubname = $1
+            AND (schemaname, tablename) NOT IN (
+                SELECT a.val AS schemaname, b.val AS tablename
+                FROM unnest($2::text[]) WITH ORDINALITY AS a(val, idx)
+                FULL JOIN unnest($3::text[]) WITH ORDINALITY AS b(val, idx)
+                USING (idx)
+            )
+            ORDER BY schemaname, tablename`
+		args = []any{publicationName, schemas, tables}
+	}
+
+	rows, err := c.conn.Query(ctx, getTablesSQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("error getting tables from publication %s: %w", publicationName, err)
+	}
+
+	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*common.QualifiedTable, error) {
+		var schemaName, tableName string
+		if err := row.Scan(&schemaName, &tableName); err != nil {
+			return nil, fmt.Errorf("error scanning row while getting tables from publication %s: %w", publicationName, err)
+		}
+		return &common.QualifiedTable{
+			Namespace: schemaName,
+			Table:     tableName,
+		}, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error collecting rows while getting tables from publication %s: %w", publicationName, err)
+	}
+
+	return tables, nil
+}
+
+/*
+GetSchemaNameOfColumnTypeByOID returns a map of type OID to schema name for the given OIDs.
+If the type is in the "pg_catalog" schema, it returns an empty string for that OID.
+*/
+func (c *PostgresConnector) GetSchemaNameOfColumnTypeByOID(ctx context.Context, typeOIDs []uint32) (map[uint32]string, error) {
+	if len(typeOIDs) == 0 {
+		return make(map[uint32]string), nil
+	}
+
+	rows, err := c.conn.Query(ctx, `
+		SELECT t.oid, n.nspname
+		FROM pg_type t
+		JOIN pg_namespace n ON t.typnamespace = n.oid
+		WHERE t.oid = ANY($1)
+	`, typeOIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error getting schema of column types: %w", err)
+	}
+
+	result := make(map[uint32]string, len(typeOIDs))
+	var oid uint32
+	var schemaName string
+	if _, err := pgx.ForEachRow(rows, []any{&oid, &schemaName}, func() error {
+		result[oid] = schemaName
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("error scanning rows for schema of column types: %w", err)
+	}
+
+	return result, nil
+}
+
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 	version uint32,
+	typeSchemaNameMapping map[uint32]string,
 ) (*protos.TableSchema, error) {
-	schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
+	schemaTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -970,7 +1146,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		}
 
 		for i, col := range selectedColumns {
-			selectedColumns[i] = utils.QuoteIdentifier(col)
+			selectedColumns[i] = common.QuoteIdentifier(col)
 		}
 		selectedColumnsStr = strings.Join(selectedColumns, ",")
 	}
@@ -982,11 +1158,35 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
-	defer rows.Close()
 
-	fields := rows.FieldDescriptions()
+	// Make a copy of field descriptions since pgx may reuse the underlying array
+	fields := slices.Clone(rows.FieldDescriptions())
+	rows.Close() // Close rows before making another query
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error after fetching field descriptions for table %s: %w", schemaTable, err)
+	}
+
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
+	// Collect OIDs that we haven't fetched yet (deduplicate using a map)
+	unfetchedOIDsMap := make(map[uint32]struct{})
+	for _, fieldDescription := range fields {
+		if _, exists := typeSchemaNameMapping[fieldDescription.DataTypeOID]; !exists {
+			unfetchedOIDsMap[fieldDescription.DataTypeOID] = struct{}{}
+		}
+	}
+
+	unfetchedOIDs := slices.Collect(maps.Keys(unfetchedOIDsMap))
+
+	// Fetch schema names for unfetched OIDs and add to shared map
+	if len(unfetchedOIDs) > 0 {
+		newTypeSchemaNames, err := c.GetSchemaNameOfColumnTypeByOID(ctx, unfetchedOIDs)
+		if err != nil {
+			return nil, fmt.Errorf("error getting schema names for column types: %w", err)
+		}
+		maps.Copy(typeSchemaNameMapping, newTypeSchemaNames)
+	}
+
 	for _, fieldDescription := range fields {
 		var colType string
 		var err error
@@ -1004,16 +1204,14 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		columnNames = append(columnNames, fieldDescription.Name)
 		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
-			Name:         fieldDescription.Name,
-			Type:         colType,
-			TypeModifier: fieldDescription.TypeModifier,
-			Nullable:     nullable,
+			Name:           fieldDescription.Name,
+			Type:           colType,
+			TypeModifier:   fieldDescription.TypeModifier,
+			Nullable:       nullable,
+			TypeSchemaName: typeSchemaNameMapping[fieldDescription.DataTypeOID],
 		})
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over table schema: %w", err)
-	}
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
 	if replicaIdentityType == ReplicaIdentityFull && len(pKeyCols) == 0 {
 		pKeyCols = columnNames
@@ -1026,6 +1224,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		Columns:               columns,
 		NullableEnabled:       nullableEnabled,
 		System:                system,
+		TableOid:              relID,
 	}, nil
 }
 
@@ -1051,7 +1250,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
-	parsedNormalizedTable, err := utils.ParseSchemaTable(tableIdentifier)
+	parsedNormalizedTable, err := common.ParseTableIdentifier(tableIdentifier)
 	if err != nil {
 		return false, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
@@ -1067,8 +1266,8 @@ func (c *PostgresConnector) SetupNormalizedTable(
 		}
 
 		err := c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
-			utils.QuoteIdentifier(parsedNormalizedTable.Schema),
-			utils.QuoteIdentifier(parsedNormalizedTable.Table)))
+			common.QuoteIdentifier(parsedNormalizedTable.Namespace),
+			common.QuoteIdentifier(parsedNormalizedTable.Table)))
 		if err != nil {
 			return false, fmt.Errorf("error while dropping _resync table: %w", err)
 		}
@@ -1093,6 +1292,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	_ []string,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil
@@ -1113,20 +1313,36 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			columnType := addedColumn.Type
-			if schemaDelta.System == protos.TypeSystem_Q {
+			switch schemaDelta.System {
+			case protos.TypeSystem_Q:
 				columnType = qValueKindToPostgresType(columnType)
+			case protos.TypeSystem_PG:
+				// schema qualification handled after numeric typmod check
+			default:
+				return fmt.Errorf("unknown type system %d", schemaDelta.System)
 			}
 
-			dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+			if strings.EqualFold(columnType, "numeric") && addedColumn.TypeModifier != -1 {
+				precision, scale := numeric.ParseNumericTypmod(addedColumn.TypeModifier)
+				columnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
+			} else if schemaDelta.System == protos.TypeSystem_PG && addedColumn.TypeSchemaName != "" {
+				schemaQualifiedType := common.QualifiedTable{
+					Namespace: addedColumn.TypeSchemaName,
+					Table:     columnType,
+				}
+				columnType = schemaQualifiedType.String()
+			}
+
+			dstSchemaTable, err := common.ParseTableIdentifier(schemaDelta.DstTableName)
 			if err != nil {
 				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
 			}
 
 			_, err = c.execWithLoggingTx(ctx, fmt.Sprintf(
 				"ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS %s %s",
-				utils.QuoteIdentifier(dstSchemaTable.Schema),
-				utils.QuoteIdentifier(dstSchemaTable.Table),
-				utils.QuoteIdentifier(addedColumn.Name), columnType), tableSchemaModifyTx)
+				common.QuoteIdentifier(dstSchemaTable.Namespace),
+				common.QuoteIdentifier(dstSchemaTable.Table),
+				common.QuoteIdentifier(addedColumn.Name), columnType), tableSchemaModifyTx)
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
@@ -1152,7 +1368,7 @@ func (c *PostgresConnector) EnsurePullability(
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	tableIdentifierMapping := make(map[string]*protos.PostgresTableIdentifier)
 	for _, tableName := range req.SourceTableIdentifiers {
-		schemaTable, err := utils.ParseSchemaTable(tableName)
+		schemaTable, err := common.ParseTableIdentifier(tableName)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing schema and table: %w", err)
 		}
@@ -1185,26 +1401,24 @@ func (c *PostgresConnector) EnsurePullability(
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
 		// this is ok for replica identity index as we populate the primary key columns
 		if len(pKeyCols) == 0 && replicaIdentity != ReplicaIdentityFull {
-			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
+			return nil, exceptions.NewMissingPrimaryKeyError(schemaTable.String())
 		}
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
 }
 
-func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context, env map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
-	pgversion, err := c.MajorVersion(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
-	}
-
+func (c *PostgresConnector) ExportTxSnapshot(
+	ctx context.Context,
+	_ string,
+	env map[string]string,
+) (*protos.ExportTxSnapshotOutput, any, error) {
 	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, env)
 	if err != nil {
 		c.logger.Error("failed to check PEERDB_SKIP_SNAPSHOT_EXPORT, proceeding with export snapshot", slog.Any("error", err))
 	} else if skipSnapshotExport {
 		return &protos.ExportTxSnapshotOutput{
-			SnapshotName:     "",
-			SupportsTidScans: pgversion >= shared.POSTGRES_13,
+			SnapshotName: "",
 		}, nil, err
 	}
 
@@ -1235,8 +1449,7 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context, env map[string
 	needRollback = false
 
 	return &protos.ExportTxSnapshotOutput{
-		SnapshotName:     snapshotName,
-		SupportsTidScans: pgversion >= shared.POSTGRES_13,
+		SnapshotName: snapshotName,
 	}, tx, err
 }
 
@@ -1259,13 +1472,12 @@ func (c *PostgresConnector) SetupReplication(
 		return model.SetupReplicationResult{}, fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
 	}
 
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + req.FlowJobName
+	slotName := GetDefaultSlotName(req.FlowJobName)
 	if req.ExistingReplicationSlotName != "" {
 		slotName = req.ExistingReplicationSlotName
 	}
 
-	publicationName := c.getDefaultPublicationName(req.FlowJobName)
+	publicationName := GetDefaultPublicationName(req.FlowJobName)
 	if req.ExistingPublicationName != "" {
 		publicationName = req.ExistingPublicationName
 	}
@@ -1290,19 +1502,19 @@ func (c *PostgresConnector) SetupReplication(
 		}
 	}
 	// Create the replication slot and publication
-	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot, skipSnapshotExport)
+	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping,
+		req.DoInitialSnapshot, skipSnapshotExport, req.Env)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
-	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := "peerflow_slot_" + jobName
+	slotName := GetDefaultSlotName(jobName)
 	if _, err := c.conn.Exec(
 		ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name=$1`, slotName,
 	); err != nil {
 		return fmt.Errorf("error dropping replication slot: %w", err)
 	}
 
-	publicationName := c.getDefaultPublicationName(jobName)
+	publicationName := GetDefaultPublicationName(jobName)
 
 	// check if publication exists manually,
 	// as drop publication if exists requires permissions
@@ -1338,9 +1550,9 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
 
-	mirrorJobsTableExists, err := c.tableExists(ctx, &utils.SchemaTable{
-		Schema: c.metadataSchema,
-		Table:  mirrorJobsTableIdentifier,
+	mirrorJobsTableExists, err := c.tableExists(ctx, &common.QualifiedTable{
+		Namespace: c.metadataSchema,
+		Table:     mirrorJobsTableIdentifier,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to check if job metadata table exists: %w", err)
@@ -1369,84 +1581,126 @@ func (c *PostgresConnector) HandleSlotInfo(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	slotInfo, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database)
+	slotInfos, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database, false, nil)
 	if err != nil {
-		logger.Warn("warning: failed to get slot info", "error", err)
+		logger.Warn("warning: failed to get slot info", slog.Any("error", err))
 		return err
 	}
 
-	if len(slotInfo) == 0 {
+	if len(slotInfos) == 0 {
 		logger.Warn("warning: unable to get slot info", slog.String("slotName", alertKeys.SlotName))
 		return nil
 	}
+	slotInfo := slotInfos[0]
 
 	logger.Info(fmt.Sprintf("Checking %s lag for %s", alertKeys.SlotName, alertKeys.PeerName),
-		slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
-	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo[0])
+		slog.Float64("LagInMB", float64(slotInfo.LagInMb)))
+	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo)
 
 	attributeSet := metric.WithAttributeSet(attribute.NewSet(
 		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
 		attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
 	))
-	if slotMetricGauges.SlotLagGauge != nil {
-		slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo[0].LagInMb), attributeSet)
-	} else {
-		logger.Warn("warning: slotMetricGauges.SlotLagGauge is nil")
+	slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo.LagInMb), attributeSet)
+	slotMetricGauges.RestartToConfirmedMBGauge.Record(ctx, float64(slotInfo.RestartToConfirmedMb), attributeSet)
+	slotMetricGauges.ConfirmedToCurrentMBGauge.Record(ctx, float64(slotInfo.ConfirmedToCurrentMb), attributeSet)
+
+	currentLSN, err := pglogrepl.ParseLSN(slotInfo.CurrentLSN)
+	if err != nil {
+		logger.Warn("error parsing current LSN", slog.Any("error", err))
+	}
+	slotMetricGauges.CurrentWalLSNGauge.Record(ctx, int64(currentLSN), attributeSet)
+
+	if slotInfo.SentLSN != nil {
+		sentLSN, err := pglogrepl.ParseLSN(*slotInfo.SentLSN)
+		if err != nil {
+			logger.Warn("error parsing sent LSN", slog.Any("error", err))
+		}
+		slotMetricGauges.SentLSNGauge.Record(ctx, int64(sentLSN), attributeSet)
 	}
 
-	if slotMetricGauges.ConfirmedFlushLSNGauge != nil {
-		lsn, err := pglogrepl.ParseLSN(slotInfo[0].ConfirmedFlushLSN)
-		if err != nil {
-			logger.Error("error parsing confirmed flush LSN", "error", err)
-		}
-		slotMetricGauges.ConfirmedFlushLSNGauge.Record(ctx, int64(lsn), attributeSet)
-	} else {
-		logger.Warn("warning: slotMetricGauges.ConfirmedFlushLSNGauge is nil")
+	confirmedFlushLSN, err := pglogrepl.ParseLSN(slotInfo.ConfirmedFlushLSN)
+	if err != nil {
+		logger.Warn("error parsing confirmed flush LSN", slog.Any("error", err))
+	}
+	slotMetricGauges.ConfirmedFlushLSNGauge.Record(ctx, int64(confirmedFlushLSN), attributeSet)
+
+	restartLSN, err := pglogrepl.ParseLSN(slotInfo.RestartLSN)
+	if err != nil {
+		logger.Warn("error parsing restart LSN", slog.Any("error", err))
+	}
+	slotMetricGauges.RestartLSNGauge.Record(ctx, int64(restartLSN), attributeSet)
+
+	if slotInfo.SafeWalSize != nil {
+		slotMetricGauges.SafeWalSizeGauge.Record(ctx, *slotInfo.SafeWalSize, attributeSet)
 	}
 
-	if slotMetricGauges.RestartLSNGauge != nil {
-		lsn, err := pglogrepl.ParseLSN(slotInfo[0].RestartLSN)
-		if err != nil {
-			logger.Error("error parsing restart LSN", "error", err)
-		}
-		slotMetricGauges.RestartLSNGauge.Record(ctx, int64(lsn), attributeSet)
-	} else {
-		logger.Warn("warning: slotMetricGauges.RestartLSNGauge is nil")
+	var activeValue int64
+	if slotInfo.Active {
+		activeValue = 1
+	}
+	slotMetricGauges.SlotActiveGauge.Record(ctx, activeValue, attributeSet)
+
+	slotMetricGauges.WalSenderStateGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
+		attribute.String(otel_metrics.WaitEventTypeKey, slotInfo.WaitEventType),
+		attribute.String(otel_metrics.WaitEventKey, slotInfo.WaitEvent),
+		attribute.String(otel_metrics.BackendStateKey, slotInfo.BackendState),
+	)))
+
+	if slotInfo.WalStatus != "" {
+		slotMetricGauges.WalStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+			attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
+			attribute.String(otel_metrics.WalStatusKey, slotInfo.WalStatus),
+		)))
+	}
+
+	slotMetricGauges.LogicalDecodingWorkMemGauge.Record(ctx, slotInfo.LogicalDecodingWorkMemMb, attributeSet)
+
+	// PG 16+ statistics gauges
+	if slotInfo.StatsReset != nil {
+		slotMetricGauges.StatsResetGauge.Record(ctx, *slotInfo.StatsReset, attributeSet)
+	}
+	if slotInfo.SpillTxns != nil {
+		slotMetricGauges.SpillTxnsGauge.Record(ctx, *slotInfo.SpillTxns, attributeSet)
+	}
+	if slotInfo.SpillCount != nil {
+		slotMetricGauges.SpillCountGauge.Record(ctx, *slotInfo.SpillCount, attributeSet)
+	}
+	if slotInfo.SpillBytes != nil {
+		slotMetricGauges.SpillBytesGauge.Record(ctx, *slotInfo.SpillBytes, attributeSet)
 	}
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.Config.User)
 	if err != nil {
-		logger.Warn("warning: failed to get current open connections", "error", err)
+		logger.Warn("warning: failed to get current open connections", slog.Any("error", err))
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, alertKeys, res)
 
-	if slotMetricGauges.OpenConnectionsGauge != nil {
-		slotMetricGauges.OpenConnectionsGauge.Record(ctx, res.CurrentOpenConnections, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-		)))
-	} else {
-		logger.Warn("warning: slotMetricGauges.OpenConnectionsGauge is nil")
-	}
+	slotMetricGauges.OpenConnectionsGauge.Record(ctx, res.CurrentOpenConnections, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+	)))
+
 	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.Config.User)
 	if err != nil {
-		logger.Warn("warning: failed to get current open replication connections", "error", err)
+		logger.Warn("warning: failed to get current open replication connections", slog.Any("error", err))
 		return err
 	}
 
-	if slotMetricGauges.OpenReplicationConnectionsGauge != nil {
-		slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
-			metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-			)),
-		)
-	} else {
-		logger.Warn("warning: slotMetricGauges.OpenReplicationConnectionsGauge is nil")
-	}
+	slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
+		metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		)),
+	)
 
 	var intervalSinceLastNormalize *time.Duration
 	if err := alerter.CatalogPool.QueryRow(
@@ -1460,20 +1714,16 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return nil
 	}
 	if intervalSinceLastNormalize != nil {
-		if slotMetricGauges.IntervalSinceLastNormalizeGauge != nil {
-			slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
-				metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-					attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-				)),
-			)
-		} else {
-			logger.Warn("warning: slotMetricGauges.IntervalSinceLastNormalizeGauge is nil")
-		}
+		slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
+			metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+			)),
+		)
 		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
 	}
 
-	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo[0])
+	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo)
 }
 
 func getOpenConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string) (*protos.GetOpenConnectionsForUserResult, error) {
@@ -1527,24 +1777,23 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		}
 		notPresentTables := shared.ArrayMinus(additionalSrcTables, tableNames)
 		if len(notPresentTables) > 0 {
-			return exceptions.NewPostgresSetupError(fmt.Errorf("some additional tables not present in custom publication: %s",
-				strings.Join(notPresentTables, ",")))
+			return exceptions.NewTablesNotInPublicationError(notPresentTables, req.PublicationName)
 		}
 	} else {
 		for _, additionalSrcTable := range additionalSrcTables {
-			schemaTable, err := utils.ParseSchemaTable(additionalSrcTable)
+			schemaTable, err := common.ParseTableIdentifier(additionalSrcTable)
 			if err != nil {
 				return err
 			}
 			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
-				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
+				common.QuoteIdentifier(GetDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already added to our publication
 			if err != nil && !shared.IsSQLStateError(err, pgerrcode.DuplicateObject) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("added table to publication",
-				slog.String("publication", c.getDefaultPublicationName(req.FlowJobName)),
+				slog.String("publication", GetDefaultPublicationName(req.FlowJobName)),
 				slog.String("table", additionalSrcTable))
 		}
 	}
@@ -1564,19 +1813,20 @@ func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req
 
 	if req.PublicationName == "" {
 		for _, tableToRemove := range tablesToRemove {
-			schemaTable, err := utils.ParseSchemaTable(tableToRemove)
+			schemaTable, err := common.ParseTableIdentifier(tableToRemove)
 			if err != nil {
 				return err
 			}
 			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s",
-				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
+				common.QuoteIdentifier(GetDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
-			// don't error out if table is already removed from our publication
-			if err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject) {
+			// don't error out if table is already removed from our publication (UndefinedObject)
+			// or if the table no longer exists in the source database (UndefinedTable)
+			if err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.UndefinedTable) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("removed table from publication",
-				slog.String("publication", c.getDefaultPublicationName(req.FlowJobName)),
+				slog.String("publication", GetDefaultPublicationName(req.FlowJobName)),
 				slog.String("table", tableToRemove))
 		}
 	} else {
@@ -1599,13 +1849,13 @@ func (c *PostgresConnector) RenameTables(
 	defer shared.RollbackTx(renameTablesTx, c.logger)
 
 	for _, renameRequest := range req.RenameTableOptions {
-		srcTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
+		srcTable, err := common.ParseTableIdentifier(renameRequest.CurrentName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
 		}
 		src := srcTable.String()
 
-		resyncTableExists, err := c.checkIfTableExistsWithTx(ctx, srcTable.Schema, srcTable.Table, renameTablesTx)
+		resyncTableExists, err := c.checkIfTableExistsWithTx(ctx, srcTable.Namespace, srcTable.Table, renameTablesTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if _resync table exists: %w", err)
 		}
@@ -1615,14 +1865,14 @@ func (c *PostgresConnector) RenameTables(
 			continue
 		}
 
-		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
+		dstTable, err := common.ParseTableIdentifier(renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
 		}
 		dst := dstTable.String()
 
 		// if original table does not exist, skip soft delete transfer
-		originalTableExists, err := c.checkIfTableExistsWithTx(ctx, dstTable.Schema, dstTable.Table, renameTablesTx)
+		originalTableExists, err := c.checkIfTableExistsWithTx(ctx, dstTable.Namespace, dstTable.Table, renameTablesTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if source table exists: %w", err)
 		}
@@ -1632,15 +1882,15 @@ func (c *PostgresConnector) RenameTables(
 			if req.SoftDeleteColName != "" {
 				columnNames := make([]string, 0, len(tableSchema.Columns))
 				for _, col := range tableSchema.Columns {
-					columnNames = append(columnNames, utils.QuoteIdentifier(col.Name))
+					columnNames = append(columnNames, common.QuoteIdentifier(col.Name))
 				}
 
 				var pkeyColCompare strings.Builder
 				for _, col := range tableSchema.PrimaryKeyColumns {
 					pkeyColCompare.WriteString("original_table.")
-					pkeyColCompare.WriteString(utils.QuoteIdentifier(col))
+					pkeyColCompare.WriteString(common.QuoteIdentifier(col))
 					pkeyColCompare.WriteString(" = resync_table.")
-					pkeyColCompare.WriteString(utils.QuoteIdentifier(col))
+					pkeyColCompare.WriteString(common.QuoteIdentifier(col))
 					pkeyColCompare.WriteString(" AND ")
 				}
 				pkeyColCompareStr := strings.TrimSuffix(pkeyColCompare.String(), " AND ")
@@ -1651,7 +1901,7 @@ func (c *PostgresConnector) RenameTables(
 					fmt.Sprintf(
 						"INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table "+
 							"WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
-						src, fmt.Sprintf("%s,%s", allCols, utils.QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
+						src, fmt.Sprintf("%s,%s", allCols, common.QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
 						dst, src, pkeyColCompareStr), renameTablesTx)
 				if err != nil {
 					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
@@ -1671,7 +1921,7 @@ func (c *PostgresConnector) RenameTables(
 
 		// rename the src table to dst
 		if _, err := c.execWithLoggingTx(ctx,
-			fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, utils.QuoteIdentifier(dstTable.Table)),
+			fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, common.QuoteIdentifier(dstTable.Table)),
 			renameTablesTx,
 		); err != nil {
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
@@ -1697,9 +1947,9 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 	for _, tableName := range req.DestinationTableNames {
 		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			utils.QuoteIdentifier(rawTableIdentifier), utils.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
+			common.QuoteIdentifier(rawTableIdentifier), utils.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
-			c.logger.Error("failed to remove entries from raw table", "error", err)
+			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
@@ -1715,4 +1965,79 @@ func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
 	}
 	c.logger.Info("[postgres] version", slog.String("version", version))
 	return version, nil
+}
+
+func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
+	// First check for Aurora by trying to look up aurora_version()
+	var isAurora bool
+	err := c.conn.QueryRow(ctx, "SELECT to_regproc('pg_catalog.aurora_version') IS NOT NULL").Scan(&isAurora)
+	if err != nil {
+		c.logger.Error("failed to query to_regproc for determining variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+	if isAurora {
+		return protos.DatabaseVariant_AWS_AURORA, nil
+	}
+
+	// It's not Aurora - continue checking other variants
+	settingsQuery := `
+		SELECT name, setting
+		FROM pg_settings
+		WHERE name IN (
+			'rds.extensions',
+			'cloudsql.logical_decoding',
+			'azure.extensions',
+			'neon.endpoint_id',
+			'extwlist.pscale_allowed_extensions',
+			'supautils.privileged_extensions'
+		) AND setting IS NOT NULL AND setting != ''`
+
+	rows, err := c.conn.Query(ctx, settingsQuery)
+	if err != nil {
+		c.logger.Error("failed to query pg_settings for determining variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, setting string
+		if err := rows.Scan(&name, &setting); err != nil {
+			c.logger.Warn("failed to scan from pg_settings", slog.Any("error", err))
+			continue
+		}
+
+		switch name {
+		case "rds.extensions":
+			return protos.DatabaseVariant_AWS_RDS, nil
+		case "cloudsql.logical_decoding":
+			return protos.DatabaseVariant_GOOGLE_CLOUD_SQL, nil
+		case "azure.extensions":
+			return protos.DatabaseVariant_AZURE_DATABASE, nil
+		case "neon.endpoint_id":
+			return protos.DatabaseVariant_NEON, nil
+		case "extwlist.pscale_allowed_extensions":
+			return protos.DatabaseVariant_PLANETSCALE, nil
+		case "supautils.privileged_extensions":
+			return protos.DatabaseVariant_SUPABASE, nil
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		c.logger.Error("error iterating pg_settings rows", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+
+	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
+}
+
+func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableIdentifier string) (int64, error) {
+	tableSizeQuery := "SELECT pg_relation_size(to_regclass($1))"
+	var tableSizeBytes pgtype.Int8
+	if err := c.conn.QueryRow(ctx, tableSizeQuery, tableIdentifier).Scan(&tableSizeBytes); err != nil {
+		return 0, err
+	}
+	if !tableSizeBytes.Valid {
+		return 0, fmt.Errorf("table size is not valid")
+	}
+	return tableSizeBytes.Int64, nil
 }

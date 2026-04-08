@@ -3,17 +3,26 @@
 tmp/
 .envrc
 .idea/
+.DS_Store
 
 private/
 nexus/server/tests/assets/*.json
 nexus/server/tests/results/actual/
 e2e_cleanup/peer-flow-cleanup
 flow/peer-flow
+target/
 
 go.work
 go.work.sum
 
-# generated protobuf files
+# generated protobuf files and go generate
 ui/grpc_generated
 flow/generated
 nexus/pt/src/gen
+
+# generated ancillary images file
+ancillary.env
+
+# Ephemeral volumes for docker compose
+volumes/ch_*
+

@@ -19,12 +19,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
-	"github.com/aws/smithy-go/ptr"
 	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 const (
@@ -32,15 +31,6 @@ const (
 )
 
 var s3CompatibleServiceEndpointPattern = regexp.MustCompile(`^https?://[a-zA-Z0-9.-]+(:\d+)?$`)
-
-type AWSSecrets struct {
-	AccessKeyID     string
-	SecretAccessKey string
-	AwsRoleArn      string
-	Region          string
-	Endpoint        string
-	SessionToken    string
-}
 
 type PeerAWSCredentials struct {
 	Credentials    aws.Credentials
@@ -199,7 +189,7 @@ func (a *AssumeRoleBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (A
 	}
 	return AWSCredentials{
 		AWS:         retrieved,
-		EndpointUrl: ptr.String(a.GetEndpointURL()),
+		EndpointUrl: new(a.GetEndpointURL()),
 	}, nil
 }
 
@@ -295,6 +285,10 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 	}
 
 	awsConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
+		options.CredentialsCacheOptions = func(options *aws.CredentialsCacheOptions) {
+			options.ExpiryWindow = time.Hour
+			options.ExpiryWindowJitterFrac = 0
+		}
 		return nil
 	})
 	if err != nil {
@@ -405,7 +399,7 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 			rootCAs, tlsHost := credsProvider.GetTlsConfig()
 			if rootCAs != nil || tlsHost != "" {
 				// start with a clone of DefaultTransport so we keep http2, idle-conns, etc.
-				tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
+				tlsConfig, err := common.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
 				if err != nil {
 					return nil, err
 				}
@@ -460,7 +454,7 @@ func (lt *RecalculateV4Signature) RoundTrip(req *http.Request) (*http.Response, 
 func PutAndRemoveS3(ctx context.Context, client *s3.Client, bucket string, prefix string) error {
 	reader := strings.NewReader(time.Now().Format(time.RFC3339))
 	bucketName := aws.String(bucket)
-	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.New().String()
+	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.NewString()
 	key := aws.String(strings.TrimPrefix(temporaryObjectPath, "/"))
 
 	if _, putErr := client.PutObject(ctx, &s3.PutObjectInput{

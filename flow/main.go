@@ -1,13 +1,19 @@
 package main
 
+//go:generate go run ./cmd/codegen
+
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
+	"net/http"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"os/signal"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/urfave/cli/v3"
 	"go.temporal.io/sdk/worker"
@@ -21,7 +27,7 @@ func main() {
 	appCtx, appClose := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer appClose()
 
-	slog.SetDefault(slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))))
+	slog.SetDefault(slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))))
 
 	temporalHostPortFlag := &cli.StringFlag{
 		Name:    "temporal-host-port",
@@ -41,8 +47,14 @@ func main() {
 		Usage:   "Enable OpenTelemetry metrics for the application",
 		Sources: cli.EnvVars("ENABLE_OTEL_METRICS"),
 	}
+	otelTracesFlag := &cli.BoolFlag{
+		Name:    "enable-otel-traces",
+		Value:   false,
+		Usage:   "Enable OpenTelemetry traces for the application",
+		Sources: cli.EnvVars("ENABLE_OTEL_TRACES"),
+	}
 
-	pprofPortFlag := &cli.IntFlag{
+	pprofPortFlag := &cli.Uint16Flag{
 		Name:    "pprof-port",
 		Value:   6060,
 		Usage:   "Port for pprof HTTP server",
@@ -131,22 +143,67 @@ func main() {
 		Usage: "Skip maintenance if the k8s service is missing, generally used during pre-upgrade hook",
 	}
 
+	apiPortFlag := &cli.Uint16Flag{
+		Name:    "port",
+		Aliases: []string{"p"},
+		Value:   8110,
+	}
+
+	apiGatewayPortFlag := &cli.Uint16Flag{
+		Name:  "gateway-port",
+		Value: 8111,
+		Usage: "Port grpc-gateway listens on",
+	}
+
+	switchboardPortFlag := &cli.Uint16Flag{
+		Name:    "switchboard-port",
+		Sources: cli.EnvVars("PEERDB_SWITCHBOARD_PORT"),
+		Value:   5732,
+		Usage:   "Port Switchboard listens on (when enabled)",
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
+		Before: func(ctx context.Context, clicmd *cli.Command) (context.Context, error) {
+			if clicmd.Bool(profilingFlag.Name) {
+				// Enable mutex and block profiling
+				runtime.SetMutexProfileFraction(5)
+				runtime.SetBlockProfileRate(5)
+				pprofPort := clicmd.Uint16(pprofPortFlag.Name)
+				pprofAddr := fmt.Sprintf(":%d", pprofPort)
+
+				// Start HTTP server with pprof endpoints
+				go func() {
+					slog.InfoContext(ctx, "Starting pprof HTTP server", slog.String("address", pprofAddr))
+
+					server := &http.Server{
+						Addr:         pprofAddr,
+						ReadTimeout:  1 * time.Minute,
+						WriteTimeout: 11 * time.Minute,
+					}
+					if err := server.ListenAndServe(); err != nil {
+						log.Fatalf("Failed to start pprof HTTP server: %v", err)
+					}
+				}()
+			}
+			return nil, nil
+		},
+		Flags: []cli.Flag{
+			profilingFlag,
+			pprofPortFlag,
+		},
 		Commands: []*cli.Command{
 			{
 				Name: "worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
-					temporalHostPort := clicmd.String("temporal-host-port")
 					res, err := cmd.WorkerSetup(ctx, &cmd.WorkerSetupOptions{
-						TemporalHostPort:                   temporalHostPort,
-						EnableProfiling:                    clicmd.Bool("enable-profiling"),
-						EnableOtelMetrics:                  clicmd.Bool("enable-otel-metrics"),
-						TemporalNamespace:                  clicmd.String("temporal-namespace"),
-						TemporalMaxConcurrentActivities:    clicmd.Int("temporal-max-concurrent-activities"),
-						TemporalMaxConcurrentWorkflowTasks: clicmd.Int("temporal-max-concurrent-workflow-tasks"),
+						TemporalHostPort:                   clicmd.String(temporalHostPortFlag.Name),
+						TemporalNamespace:                  clicmd.String(temporalNamespaceFlag.Name),
+						TemporalMaxConcurrentActivities:    clicmd.Int(temporalMaxConcurrentActivitiesFlag.Name),
+						TemporalMaxConcurrentWorkflowTasks: clicmd.Int(temporalMaxConcurrentWorkflowTasksFlag.Name),
 						UseMaintenanceTaskQueue:            clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
-						PprofPort:                          clicmd.Int(pprofPortFlag.Name),
+						EnableOtelMetrics:                  clicmd.Bool(otelMetricsFlag.Name),
+						EnableOtelTraces:                   clicmd.Bool(otelTracesFlag.Name),
 					})
 					if err != nil {
 						return err
@@ -156,23 +213,22 @@ func main() {
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
-					profilingFlag,
-					otelMetricsFlag,
-					pprofPortFlag,
 					temporalNamespaceFlag,
 					temporalMaxConcurrentActivitiesFlag,
 					temporalMaxConcurrentWorkflowTasksFlag,
 					useMaintenanceTaskQueueFlag,
+					otelMetricsFlag,
+					otelTracesFlag,
 				},
 			},
 			{
 				Name: "snapshot-worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
-					temporalHostPort := clicmd.String("temporal-host-port")
 					res, err := cmd.SnapshotWorkerMain(ctx, &cmd.SnapshotWorkerOptions{
-						EnableOtelMetrics: clicmd.Bool("enable-otel-metrics"),
-						TemporalHostPort:  temporalHostPort,
-						TemporalNamespace: clicmd.String("temporal-namespace"),
+						TemporalHostPort:  clicmd.String(temporalHostPortFlag.Name),
+						TemporalNamespace: clicmd.String(temporalNamespaceFlag.Name),
+						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),
+						EnableOtelTraces:  clicmd.Bool(otelTracesFlag.Name),
 					})
 					if err != nil {
 						return err
@@ -181,37 +237,32 @@ func main() {
 					return res.Worker.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
-					otelMetricsFlag,
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
+					otelMetricsFlag,
+					otelTracesFlag,
 				},
 			},
 			{
 				Name: "api",
 				Flags: []cli.Flag{
-					&cli.UintFlag{
-						Name:    "port",
-						Aliases: []string{"p"},
-						Value:   8110,
-					},
-					// gateway port is the port that the grpc-gateway listens on
-					&cli.UintFlag{
-						Name:  "gateway-port",
-						Value: 8111,
-					},
+					apiPortFlag,
+					apiGatewayPortFlag,
+					switchboardPortFlag,
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
 					otelMetricsFlag,
+					otelTracesFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
-					temporalHostPort := clicmd.String("temporal-host-port")
-
 					return cmd.APIMain(ctx, &cmd.APIServerParams{
-						Port:              uint16(clicmd.Uint("port")),
-						TemporalHostPort:  temporalHostPort,
-						GatewayPort:       uint16(clicmd.Uint("gateway-port")),
-						TemporalNamespace: clicmd.String("temporal-namespace"),
+						Port:              clicmd.Uint16(apiPortFlag.Name),
+						GatewayPort:       clicmd.Uint16(apiGatewayPortFlag.Name),
+						SwitchboardPort:   clicmd.Uint16(switchboardPortFlag.Name),
+						TemporalHostPort:  clicmd.String(temporalHostPortFlag.Name),
+						TemporalNamespace: clicmd.String(temporalNamespaceFlag.Name),
 						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),
+						EnableOtelTraces:  clicmd.Bool(otelTracesFlag.Name),
 					})
 				},
 			},

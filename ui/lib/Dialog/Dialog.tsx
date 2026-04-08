@@ -1,5 +1,6 @@
 'use client';
 import * as RadixDialog from '@radix-ui/react-dialog';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { PropsWithChildren } from 'react';
 import { RenderObject } from '../types';
 import { isDefined } from '../utils/isDefined';
@@ -8,6 +9,7 @@ import { DialogContent, DialogContentProps } from './DialogContent';
 type DialogProps = RadixDialog.DialogProps & {
   triggerButton: RenderObject;
   noInteract: boolean;
+  title?: string;
 } & PropsWithChildren &
   DialogContentProps;
 
@@ -34,9 +36,11 @@ export function Dialog({
             left: '50%',
             top: '50%',
             transform: 'translate(-0%, -50%)',
-            boxShadow: '0px 2px 3px rgba(0,0,0,0.2)',
           }}
         >
+          <VisuallyHidden>
+            <RadixDialog.Title>{rootProps.title ?? 'Dialog'}</RadixDialog.Title>
+          </VisuallyHidden>
           {children}
         </DialogContent>
       </RadixDialog.Portal>

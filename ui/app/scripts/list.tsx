@@ -1,17 +1,15 @@
 'use client';
 import DropDialog from '@/components/DropDialog';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { Script } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button/Button';
 import { Label } from '@/lib/Label/Label';
 import { SearchField } from '@/lib/SearchField';
-import { TableCell } from '@/lib/Table';
-import { Table } from '@/lib/Table/Table';
-import { TableRow } from '@tremor/react';
+import { Table, TableCell, TableRow } from '@/lib/Table';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
 
 function LanguageIcon(language: string) {
   switch (language.toLowerCase()) {
@@ -103,7 +101,7 @@ export default function ScriptsTable({ scripts }: { scripts: Script[] }) {
           );
         })}
       </Table>
-      <ToastContainer />
+      <ThemedToastContainer />
     </>
   );
 }

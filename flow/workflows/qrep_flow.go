@@ -14,10 +14,13 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
 type QRepFlowExecution struct {
 	config          *protos.QRepConfig
+	dropFlowInput   *protos.DropFlowInput
 	flowExecutionID string
 	logger          log.Logger
 	runUUID         string
@@ -77,7 +80,7 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        20 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -99,7 +102,7 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        20 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -131,7 +134,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        time.Hour,
+				MaximumInterval:        20 * time.Minute,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -150,6 +153,8 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 				{
 					SourceTableIdentifier:      q.config.WatermarkTable,
 					DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+					Exclude:                    q.config.Exclude,
+					Columns:                    q.config.Columns,
 				},
 			},
 			SyncedAtColName:   q.config.SyncedAtColName,
@@ -157,6 +162,8 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			FlowName:          q.config.FlowJobName,
 			Env:               q.config.Env,
 			IsResync:          q.config.DstTableFullResync,
+			Version:           q.config.Version,
+			Flags:             q.config.Flags,
 		}
 
 		if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
@@ -204,17 +211,16 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:        time.Minute,
+			InitialInterval:        10 * time.Second,
 			BackoffCoefficient:     2.,
 			MaximumInterval:        10 * time.Minute,
 			MaximumAttempts:        0,
-			NonRetryableErrorTypes: nil,
+			NonRetryableErrorTypes: exceptions.IrrecoverableApplicationErrorTypesList,
 		},
 	})
 
 	q.logger.Info("replicating partition batch", slog.Int64("BatchID", int64(partitions.BatchId)))
-	if err := workflow.ExecuteActivity(ctx,
-		flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to replicate partition: %w", err)
 	}
 
@@ -233,11 +239,8 @@ func (q *QRepFlowExecution) startChildWorkflow(
 ) workflow.ChildWorkflowFuture {
 	wid := q.getPartitionWorkflowID(ctx)
 	partFlowCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:        wid,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
+		WorkflowID:            wid,
+		ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
 		WaitForCancellation:   true,
 	})
@@ -255,12 +258,7 @@ func (q *QRepFlowExecution) processPartitions(
 		q.logger.Info("no partitions to process")
 		return nil
 	}
-	chunkSize := shared.DivCeil(len(partitions), maxParallelWorkers)
-	batches := make([][]*protos.QRepPartition, 0, len(partitions)/chunkSize+1)
-	for i := 0; i < len(partitions); i += chunkSize {
-		end := min(i+chunkSize, len(partitions))
-		batches = append(batches, partitions[i:end])
-	}
+	batches := distributePartitions(partitions, maxParallelWorkers)
 
 	q.logger.Info("processing partitions in batches", "num batches", len(batches))
 
@@ -284,6 +282,18 @@ func (q *QRepFlowExecution) processPartitions(
 	return nil
 }
 
+func distributePartitions(partitions []*protos.QRepPartition, numBatches int) [][]*protos.QRepPartition {
+	if len(partitions) == 0 || numBatches <= 0 {
+		return nil
+	}
+	batches := make([][]*protos.QRepPartition, min(numBatches, len(partitions)))
+	for i, p := range partitions {
+		batch := &batches[i%len(batches)]
+		*batch = append(*batch, p)
+	}
+	return batches
+}
+
 // For some targets we need to consolidate all the partitions from stages before
 // we proceed to next batch.
 func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
@@ -294,7 +304,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        20 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -320,6 +330,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 func (q *QRepFlowExecution) waitForNewRows(
 	ctx workflow.Context,
 	signalChan model.TypedReceiveChannel[model.CDCFlowSignal],
+	stateChangeChan model.TypedReceiveChannel[*protos.FlowStateChangeRequest],
 	lastPartition *protos.QRepPartition,
 ) error {
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
@@ -335,13 +346,14 @@ func (q *QRepFlowExecution) waitForNewRows(
 	signalChan.AddToSelector(waitSelector, func(val model.CDCFlowSignal, _ bool) {
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	})
+	stateChangeChan.AddToSelector(waitSelector, q.handleFlowSignalStateChange)
 	waitSelector.AddFuture(future, func(f workflow.Future) {
 		newRows = true
 		waitErr = f.Get(ctx, nil)
 	})
 	waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
-	for ctx.Err() == nil && !newRows && q.activeSignal != model.PauseSignal {
+	for ctx.Err() == nil && !newRows && q.activeSignal == model.NoopSignal {
 		waitSelector.Select(ctx)
 	}
 	if err := ctx.Err(); err != nil {
@@ -359,7 +371,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        time.Hour,
+				MaximumInterval:        20 * time.Minute,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -405,7 +417,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        time.Hour,
+				MaximumInterval:        20 * time.Minute,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -429,11 +441,10 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 	}
 
 	// Support a Query for the current status of the qrep flow.
-	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+	_ = workflow.SetQueryHandler(ctx, "q-flow-status", func() (protos.FlowStatus, error) {
+		// no longer used, handler kept to avoid nondeterminism
 		return state.CurrentFlowStatus, nil
-	}); err != nil {
-		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
-	}
+	})
 
 	return nil
 }
@@ -442,12 +453,12 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
+		StartToCloseTimeout: 4 * time.Hour, // 4 hours
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        20 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -485,11 +496,23 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	return nil
 }
 
+func (q *QRepFlowExecution) handleFlowSignalStateChange(val *protos.FlowStateChangeRequest, _ bool) {
+	if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
+		q.logger.Info("terminating QRepFlow")
+		q.activeSignal = model.TerminateSignal
+		q.dropFlowInput = &protos.DropFlowInput{
+			FlowJobName:         q.config.FlowJobName,
+			DropFlowStats:       val.DropMirrorStats,
+			SkipDestinationDrop: val.SkipDestinationDrop,
+		}
+	}
+}
+
 func updateStatus(ctx workflow.Context, logger log.Logger, state *protos.QRepFlowState, status protos.FlowStatus) {
 	state.CurrentFlowStatus = status
 	// update the status in the catalog only if this is the root workflow
 	if workflow.GetInfo(ctx).ParentWorkflowExecution == nil {
-		syncStatusToCatalog(ctx, logger, status)
+		cdc_state.SyncStatusToCatalog(ctx, logger, status)
 	}
 }
 
@@ -521,6 +544,7 @@ func QRepFlowWorkflow(
 	}
 
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
+	stateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
 	q := newQRepFlowExecution(ctx, config, originalRunID)
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
@@ -529,15 +553,21 @@ func QRepFlowWorkflow(
 		q.activeSignal = model.PauseSignal
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 
+		selector := workflow.NewNamedSelector(ctx, "QRepPauseLoop")
+		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+		signalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
+			q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+		})
+		stateChangeChan.AddToSelector(selector, q.handleFlowSignalStateChange)
 		for q.activeSignal == model.PauseSignal {
 			q.logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
-			// only place we block on receive, so signal processing is immediate
-			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
-			if ok {
-				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
-			} else if err := ctx.Err(); err != nil {
+			selector.Select(ctx)
+			if err := ctx.Err(); err != nil {
 				return state, err
 			}
+		}
+		if q.activeSignal == model.TerminateSignal {
+			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
 		}
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
@@ -569,9 +599,13 @@ func QRepFlowWorkflow(
 	}
 
 	if !config.InitialCopyOnly && lastPartition != nil {
-		if err := q.waitForNewRows(ctx, signalChan, lastPartition); err != nil {
+		if err := q.waitForNewRows(ctx, signalChan, stateChangeChan, lastPartition); err != nil {
 			return state, err
 		}
+	}
+
+	if q.activeSignal == model.TerminateSignal {
+		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
 	}
 
 	if q.activeSignal != model.PauseSignal {
@@ -609,7 +643,7 @@ func QRepFlowWorkflow(
 		}
 	}
 
-	// flush signal, after this workflow must not yield
+	// flush signals, after this workflow must not yield
 	for {
 		val, ok := signalChan.ReceiveAsync()
 		if !ok {
@@ -617,10 +651,21 @@ func QRepFlowWorkflow(
 		}
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
+	for {
+		val, ok := stateChangeChan.ReceiveAsync()
+		if !ok {
+			break
+		}
+		q.handleFlowSignalStateChange(val, true)
+	}
+
+	if q.activeSignal == model.TerminateSignal {
+		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
+	}
 
 	q.logger.Info("Continuing as new workflow",
-		slog.Any("Last Partition", state.LastPartition),
-		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
+		slog.Any("lastPartition", state.LastPartition),
+		slog.Uint64("numPartitionsProcessed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)

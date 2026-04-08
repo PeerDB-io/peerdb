@@ -1,0 +1,5 @@
+package shared
+
+const (
+	POSTGRES_TABLE_OID_MIGRATION = "POSTGRES_TABLE_OID_MIGRATION"
+)

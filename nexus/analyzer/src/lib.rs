@@ -257,6 +257,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let snapshot_num_partitions_override: Option<u32> = match raw_options
+                            .remove("snapshot_num_partitions_override")
+                        {
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
                         let snapshot_num_tables_in_parallel: Option<u32> = match raw_options
                             .remove("snapshot_num_tables_in_parallel")
                         {
@@ -335,6 +342,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             do_initial_copy,
                             publication_name,
                             snapshot_num_rows_per_partition,
+                            snapshot_num_partitions_override,
                             snapshot_max_parallel_workers,
                             snapshot_num_tables_in_parallel,
                             snapshot_staging_path,
@@ -385,7 +393,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             target_peer: select.target_peer.to_string().to_lowercase(),
                             query_string: select.query_string.to_string(),
                             flow_options: processed_options,
-                            description: "".to_string(), // TODO: add description
+                            description: String::new(), // TODO: add description
                             disabled,
                         };
 
@@ -641,10 +649,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
         }
         DbType::Mongo => {
             let mongo_config = MongoConfig {
-                uri: opts
-                    .get("uri")
-                    .context("no uri specified")?
-                    .to_string(),
+                uri: opts.get("uri").context("no uri specified")?.to_string(),
                 username: opts
                     .get("username")
                     .context("no username specified")?
@@ -664,8 +669,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .unwrap_or_default(),
                 read_preference: opts
                     .get("read_preference")
-                    .map(|s| s.to_string())
-                    .unwrap_or_default(),
+                    .context("no read preference specified")?
+                    .parse::<i32>()
+                    .context("unable to parse read preference as valid int")?,
+                ssh_config: None,
             };
             Config::MongoConfig(mongo_config)
         }
@@ -852,6 +859,12 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("disable_tls")
                     .and_then(|s| s.parse::<bool>().ok())
                     .unwrap_or_default(),
+                certificate: opts.get("certificate").map(|s| s.to_string()),
+                private_key: opts.get("private_key").map(|s| s.to_string()),
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                max_record_batch_bytes: opts
+                    .get("max_record_batch_bytes")
+                    .and_then(|s| s.parse::<i32>().ok()),
             };
             Config::KafkaConfig(kafka_config)
         }
@@ -1043,52 +1056,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             }
             .into(),
             aws_auth: None,
-        }
-        DbType::Opensearch => {
-            let addresses = opts
-                .get("addresses")
-                .map(|columns| {
-                    columns
-                        .split(',')
-                        .map(|column| column.trim().to_string())
-                        .collect::<Vec<_>>()
-                })
-                .ok_or_else(|| anyhow::anyhow!("missing connection addresses for OpenSearch"))?;
-
-            // either basic auth or API key auth, not both
-            let api_key = opts.get("api_key").map(|s| s.to_string());
-            let username = opts.get("username").map(|s| s.to_string());
-            let password = opts.get("password").map(|s| s.to_string());
-            if api_key.is_some() {
-                if username.is_some() || password.is_some() {
-                    return Err(anyhow::anyhow!(
-                        "both API key auth and basic auth specified"
-                    ));
-                }
-                Config::OpensearchConfig(pt::peerdb_peers::OpenSearchConfig {
-                    addresses,
-                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::Apikey.into(),
-                    username: None,
-                    password: None,
-                    api_key,
-                })
-            } else if username.is_some() && password.is_some() {
-                Config::OpensearchConfig(pt::peerdb_peers::OpenSearchConfig {
-                    addresses,
-                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::Basic.into(),
-                    username,
-                    password,
-                    api_key: None,
-                })
-            } else {
-                Config::OpensearchConfig(pt::peerdb_peers::OpenSearchConfig {
-                    addresses,
-                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::None.into(),
-                    username: None,
-                    password: None,
-                    api_key: None,
-                })
-            }
         }),
+        DbType::DbtypeUnknown => return Ok(None),
     }))
 }

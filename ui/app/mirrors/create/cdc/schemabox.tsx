@@ -1,6 +1,7 @@
 'use client';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
+import { useSelectTheme } from '@/app/styles/select';
 import {
   TableEngine,
   tableEngineFromJSON,
@@ -24,10 +25,13 @@ import {
   useMemo,
   useState,
 } from 'react';
+import ReactSelect from 'react-select';
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
+import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
+import SelectSortingKeys from './sortingkey';
 import {
   columnBoxDividerStyle,
   engineOptionStyles,
@@ -36,11 +40,6 @@ import {
   tableBoxStyle,
   tooltipStyle,
 } from './styles';
-
-import { Divider } from '@tremor/react';
-import ReactSelect from 'react-select';
-import CustomColumnType from './customColumnType';
-import SelectSortingKeys from './sortingkey';
 interface SchemaBoxProps {
   sourcePeer: string;
   schema: string;
@@ -66,9 +65,11 @@ export default function SchemaBox({
   alreadySelectedTables,
   initialLoadOnly,
 }: SchemaBoxProps) {
+  const selectTheme = useSelectTheme();
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
+  const [fetchedSchemas, setFetchedSchemas] = useState<Set<string>>(new Set());
   const [tableQuery, setTableQuery] = useState<string>('');
   const [defaultTargetSchema, setDefaultTargetSchema] =
     useState<string>(schema);
@@ -137,6 +138,13 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
+  const updatePartitionByExpr = (source: string, partitionByExpr: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], partitionByExpr };
+    setRows(newRows);
+  };
+
   const addTableColumns = useCallback(
     (table: string) => {
       const [schemaName, tableName] = table.split('.');
@@ -188,17 +196,9 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const rowsDoNotHaveSchemaTables = (schema: string) => {
-    return !rows.some((row) => row.schema === schema);
-  };
-
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setExpandedSchemas((curr) => [...curr, schemaName]);
-
-      if (rowsDoNotHaveSchemaTables(schemaName)) {
-        fetchTablesForSchema(schemaName);
-      }
     } else {
       setExpandedSchemas((curr) =>
         curr.filter((expandedSchema) => expandedSchema != schemaName)
@@ -207,15 +207,18 @@ export default function SchemaBox({
   };
 
   const fetchTablesForSchema = useCallback(
-    (schemaName: string) => {
+    async (schemaName: string) => {
       setTablesLoading(true);
-      fetchTables(
-        sourcePeer,
-        schemaName,
-        defaultTargetSchema,
-        peerType,
-        initialLoadOnly
-      ).then((newRows) => {
+
+      try {
+        const newRows = await fetchTables(
+          sourcePeer,
+          schemaName,
+          defaultTargetSchema,
+          peerType,
+          initialLoadOnly
+        );
+
         if (alreadySelectedTables) {
           for (const row of newRows) {
             const existingRow = alreadySelectedTables.find(
@@ -228,41 +231,58 @@ export default function SchemaBox({
               row.partitionKey = existingRow.partitionKey;
               row.shardingKey = existingRow.shardingKey;
               row.policyName = existingRow.policyName;
+              row.partitionByExpr = existingRow.partitionByExpr;
               row.exclude = new Set(existingRow.exclude ?? []);
               row.destination = existingRow.destinationTableIdentifier;
               addTableColumns(row.source);
             }
           }
         }
+
         setRows((oldRows) => {
           const filteredRows = oldRows.filter(
             (oldRow) => oldRow.schema !== schemaName
           );
           return [...filteredRows, ...newRows];
         });
+
+        setFetchedSchemas((prev) => new Set(prev).add(schemaName));
+      } catch (error) {
+        // Handle error if needed
+        console.error('Error fetching tables:', error);
+      } finally {
         setTablesLoading(false);
-      });
+      }
     },
     [
-      setRows,
       sourcePeer,
       defaultTargetSchema,
       peerType,
       alreadySelectedTables,
       addTableColumns,
       initialLoadOnly,
+      setRows,
     ]
   );
 
   const engineOptions = [
     { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
     { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
+    { value: 'CH_ENGINE_COALESCING_MERGE_TREE', label: 'CoalescingMergeTree' },
     { value: 'CH_ENGINE_NULL', label: 'Null' },
   ];
 
   useEffect(() => {
-    fetchTablesForSchema(schema);
-  }, [schema, fetchTablesForSchema, initialLoadOnly]);
+    if (schemaIsExpanded(schema) && !fetchedSchemas.has(schema)) {
+      fetchTablesForSchema(schema);
+    }
+  }, [
+    schema,
+    fetchTablesForSchema,
+    schemaIsExpanded,
+    fetchedSchemas,
+    initialLoadOnly,
+  ]);
 
   return (
     <div style={schemaBoxStyle}>
@@ -317,7 +337,6 @@ export default function SchemaBox({
                       className='ml-5'
                       style={{
                         display: 'flex',
-                        //alignItems: 'center',
                         flexDirection: 'column',
                         rowGap: '1rem',
                       }}
@@ -337,7 +356,7 @@ export default function SchemaBox({
                               as='label'
                               style={{
                                 fontSize: 13,
-                                color: row.canMirror ? 'black' : 'gray',
+                                color: row.canMirror ? undefined : 'gray',
                               }}
                             >
                               {row.source}
@@ -366,6 +385,7 @@ export default function SchemaBox({
                           rowGap: '0.5rem',
                           columnGap: '3rem',
                           display: row.selected ? 'flex' : 'none',
+                          flexWrap: 'wrap',
                         }}
                         key={row.source}
                       >
@@ -411,6 +431,7 @@ export default function SchemaBox({
                               <ReactSelect
                                 isDisabled={row.editingDisabled}
                                 styles={engineOptionStyles}
+                                theme={selectTheme}
                                 options={engineOptions}
                                 value={
                                   engineOptions.find(
@@ -466,6 +487,27 @@ export default function SchemaBox({
                                 }
                               />
                             </div>
+                            <div style={{ width: '30%', fontSize: 12 }}>
+                              Partition By Expr:
+                              <TextField
+                                disabled={row.editingDisabled}
+                                style={{
+                                  marginTop: '0.5rem',
+                                  cursor: 'pointer',
+                                }}
+                                variant='simple'
+                                placeholder='Partition By expression (optional)'
+                                value={row.partitionByExpr}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>
+                                ) =>
+                                  updatePartitionByExpr(
+                                    row.source,
+                                    e.target.value
+                                  )
+                                }
+                              />
+                            </div>
                           </>
                         )}
                       </div>
@@ -474,8 +516,7 @@ export default function SchemaBox({
                     {/* COLUMN BOX */}
                     {row.selected && (
                       <div className='ml-5 mt-3' style={{ width: '100%' }}>
-                        <Divider style={columnBoxDividerStyle} />
-
+                        <hr style={columnBoxDividerStyle} />
                         <div
                           style={{
                             display: 'flex',
@@ -515,18 +556,12 @@ export default function SchemaBox({
                                   rowGap: '0.5rem',
                                 }}
                               >
-                                <Divider
-                                  style={{
-                                    ...columnBoxDividerStyle,
-                                    marginTop: '0.5rem',
-                                  }}
-                                />
+                                <hr style={columnBoxDividerStyle} />
                                 <div style={{ width: '50%' }}>
                                   <SelectSortingKeys
-                                    columns={
-                                      columns?.map((column) => column.name) ??
-                                      []
-                                    }
+                                    columns={columns
+                                      .map((column) => column.name)
+                                      .filter((name) => !row.exclude.has(name))}
                                     loading={columnsLoading}
                                     tableRow={row}
                                     setRows={setRows}

@@ -2,7 +2,7 @@ package monitoring
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -11,14 +11,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
 type CDCBatchInfo struct {
@@ -86,7 +88,9 @@ func UpdateNumRowsAndEndLSNForCDCBatch(
 	batchEndCheckpoint model.CdcCheckpoint,
 ) error {
 	if _, err := pool.Exec(ctx,
-		"UPDATE peerdb_stats.cdc_batches SET rows_in_batch=$1,batch_end_lsn=$2,batch_end_lsn_text=$3 WHERE flow_name=$4 AND batch_id=$5",
+		`UPDATE peerdb_stats.cdc_batches
+		SET rows_in_batch=$1, batch_end_lsn=$2, batch_end_lsn_text=$3, sync_time=NOW()
+		WHERE flow_name=$4 AND batch_id=$5`,
 		numRows, uint64(batchEndCheckpoint.ID), batchEndCheckpoint.Text, flowJobName, batchID,
 	); err != nil {
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
@@ -111,32 +115,74 @@ func UpdateEndTimeForCDCBatch(
 	return nil
 }
 
-func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flowJobName string,
-	batchID int64, tableNameRowsMapping map[string]*model.RecordTypeCounts,
+func GetPendingNormalizeLagByFlow(
+	ctx context.Context,
+	pool shared.CatalogPool,
+) (map[string]int64, error) {
+	// using catalog time to avoid clock skew with ScheduledTasks
+	rows, err := pool.Query(ctx,
+		`SELECT flow_name, (EXTRACT(EPOCH FROM (NOW() - MIN(sync_time))) * 1000000)::bigint
+		FROM peerdb_stats.cdc_batches
+		WHERE end_time IS NULL AND sync_time IS NOT NULL
+		GROUP BY flow_name`)
+	if err != nil {
+		return nil, fmt.Errorf("error while querying normalize lag: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var flowName string
+		var lagMicroseconds int64
+		if err := rows.Scan(&flowName, &lagMicroseconds); err != nil {
+			return nil, fmt.Errorf("error while scanning normalize lag row: %w", err)
+		}
+		result[flowName] = lagMicroseconds
+	}
+	return result, rows.Err()
+}
+
+func AddCDCBatchTablesForFlow(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	flowJobName string,
+	batchID int64,
+	tableNameRowsMapping map[string]*model.RecordTypeCounts,
+	otelManager *otel_metrics.OtelManager,
 ) error {
+	var recordAggregateMetrics bool
+	if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
+		recordAggregateMetrics = true
+	}
+
 	insertBatchTablesTx, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("error while beginning transaction for inserting statistics into cdc_batch_table: %w", err)
+		return fmt.Errorf("error while beginning transaction for inserting statistics: %w", err)
 	}
 	defer shared.RollbackTx(insertBatchTablesTx, internal.LoggerFromCtx(ctx))
+	type opWithValue struct {
+		op    string
+		count int32
+	}
 
+	var syncedTablesCount int64
+	tableNameOperations := make(map[string][3]opWithValue, len(tableNameRowsMapping))
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
 		inserts := rowCounts.InsertCount.Load()
 		updates := rowCounts.UpdateCount.Load()
 		deletes := rowCounts.DeleteCount.Load()
+		if inserts+updates+deletes > 0 {
+			syncedTablesCount++
+		}
+		if recordAggregateMetrics {
+			tableNameOperations[destinationTableName] = [3]opWithValue{
+				{op: otel_metrics.RecordOperationTypeInsert, count: inserts},
+				{op: otel_metrics.RecordOperationTypeUpdate, count: updates},
+				{op: otel_metrics.RecordOperationTypeDelete, count: deletes},
+			}
+		}
 		totalRows := inserts + updates + deletes
 
-		// Insert into cdc_batch_table
-		if _, err := insertBatchTablesTx.Exec(ctx,
-			`INSERT INTO peerdb_stats.cdc_batch_table
-			(flow_name,batch_id,destination_table_name,num_rows,
-			insert_count,update_count,delete_count)
-			 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
-			flowJobName, batchID, destinationTableName,
-			totalRows, inserts, updates, deletes,
-		); err != nil {
-			return fmt.Errorf("error while inserting statistics into cdc_batch_table: %w", err)
-		}
 		// Update the aggregated counts table
 		query := `
 			INSERT INTO peerdb_stats.cdc_table_aggregate_counts AS stats (
@@ -184,6 +230,18 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 	}
 	if err := insertBatchTablesTx.Commit(ctx); err != nil {
 		return fmt.Errorf("error while committing transaction for inserting and updating statistics: %w", err)
+	}
+
+	otelManager.Metrics.SyncedTablesPerBatchGauge.Record(ctx, syncedTablesCount, metric.WithAttributeSet(attribute.NewSet(
+		attribute.Int64(otel_metrics.BatchIdKey, batchID))))
+
+	for destinationTableName, operations := range tableNameOperations {
+		for _, opAndCount := range operations {
+			otelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, int64(opAndCount.count), metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.DestinationTableNameKey, destinationTableName),
+				attribute.String(otel_metrics.RecordOperationTypeKey, opAndCount.op),
+			)))
+		}
 	}
 	return nil
 }
@@ -267,40 +325,24 @@ func AppendSlotSizeInfo(
 	return nil
 }
 
-func isMySQLFullTablePartition(partition *protos.QRepPartition) bool {
-	if partition == nil {
-		return false
-	}
-	return partition.PartitionId == shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID
-}
-
 func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	runUUID string, partition *protos.QRepPartition, parentMirrorName string,
 ) error {
 	if partition == nil {
 		internal.LoggerFromCtx(ctx).Info("cannot add nil partition to qrep run",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
-		return errors.New("cannot add nil partition to qrep run")
-	}
-	if partition.Range == nil && partition.FullTablePartition && !isMySQLFullTablePartition(partition) {
-		internal.LoggerFromCtx(ctx).Info("partition "+partition.PartitionId+
-			" is a full table partition. Metrics logging is skipped.",
-			slog.String(string(shared.FlowNameKey), parentMirrorName))
-		return nil
+		return fmt.Errorf("cannot add nil partition to qrep run")
 	}
 
-	var rangeStart, rangeEnd string
+	var rangeStart, rangeEnd *string
 	if partition.Range != nil {
 		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
-			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
-			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
+			rangeStart, rangeEnd = new(strconv.FormatInt(x.IntRange.Start, 10)), new(strconv.FormatInt(x.IntRange.End, 10))
 		case *protos.PartitionRange_UintRange:
-			rangeStart = strconv.FormatUint(x.UintRange.Start, 10)
-			rangeEnd = strconv.FormatUint(x.UintRange.End, 10)
+			rangeStart, rangeEnd = new(strconv.FormatUint(x.UintRange.Start, 10)), new(strconv.FormatUint(x.UintRange.End, 10))
 		case *protos.PartitionRange_TimestampRange:
-			rangeStart = x.TimestampRange.Start.AsTime().String()
-			rangeEnd = x.TimestampRange.End.AsTime().String()
+			rangeStart, rangeEnd = new(x.TimestampRange.Start.AsTime().String()), new(x.TimestampRange.End.AsTime().String())
 		case *protos.PartitionRange_TidRange:
 			rangeStartValue, err := pgtype.TID{
 				BlockNumber:  x.TidRange.Start.BlockNumber,
@@ -310,7 +352,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			if err != nil {
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
-			rangeStart = rangeStartValue.(string)
+			rangeStart = new(rangeStartValue.(string))
 
 			rangeEndValue, err := pgtype.TID{
 				BlockNumber:  x.TidRange.End.BlockNumber,
@@ -320,23 +362,35 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			if err != nil {
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
-			rangeEnd = rangeEndValue.(string)
+			rangeEnd = new(rangeEndValue.(string))
 		case *protos.PartitionRange_ObjectIdRange:
-			rangeStart = x.ObjectIdRange.Start
-			rangeEnd = x.ObjectIdRange.End
+			rangeStart, rangeEnd = &x.ObjectIdRange.Start, &x.ObjectIdRange.End
+		case *protos.PartitionRange_NullRange:
+			// leave rangeStart and rangeEnd as nil
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}
-	} else {
+	} else if !partition.FullTablePartition {
 		internal.LoggerFromCtx(ctx).Warn("[monitoring]: partition "+partition.PartitionId+" has nil range",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
 	}
+
+	var childTableBlockRangesJSON []byte
+	if len(partition.ChildTableRanges) > 0 {
+		internal.LoggerFromCtx(ctx).Info("Child table ranges detected")
+		var err error
+		childTableBlockRangesJSON, err = json.Marshal(partition.ChildTableRanges)
+		if err != nil {
+			return fmt.Errorf("failed to marshal child table block ranges: %w", err)
+		}
+	}
+
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO peerdb_stats.qrep_partitions
-		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,restart_count,parent_mirror_name)
-		 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(run_uuid,partition_uuid) DO UPDATE SET
+		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,restart_count,parent_mirror_name,child_table_ranges)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(run_uuid,partition_uuid) DO UPDATE SET
 		 restart_count=qrep_partitions.restart_count+1`,
-		flowJobName, runUUID, partition.PartitionId, rangeStart, rangeEnd, 0, parentMirrorName,
+		flowJobName, runUUID, partition.PartitionId, rangeStart, rangeEnd, 0, parentMirrorName, childTableBlockRangesJSON,
 	); err != nil {
 		return fmt.Errorf("error while inserting qrep partition in qrep_partitions: %w", err)
 	}
@@ -413,10 +467,6 @@ func DeleteMirrorStats(ctx context.Context, logger log.Logger, pool shared.Catal
 
 	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.cdc_batches WHERE flow_name = $1`, flowJobName); err != nil {
 		return fmt.Errorf("error while deleting cdc_batches: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.cdc_batch_table WHERE flow_name = $1`, flowJobName); err != nil {
-		return fmt.Errorf("error while deleting cdc_batch_table: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.cdc_table_aggregate_counts WHERE flow_name = $1`, flowJobName); err != nil {

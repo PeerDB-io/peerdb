@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -39,18 +38,6 @@ func PeerFlowTaskQueueName(taskQueueID shared.TaskQueueID) string {
 	return fmt.Sprintf("%s-%s", deploymentUID, taskQueueID)
 }
 
-// env variable doesn't exist anymore, but tests appear to depend on this
-// in lieu of an actual value of IdleTimeoutSeconds
-func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
-	var x int
-	if providedValue > 0 {
-		x = providedValue
-	} else {
-		x = getEnvConvert("", 10, strconv.Atoi)
-	}
-	return time.Duration(x) * time.Second
-}
-
 // GOMEMLIMIT is a variable internal to Golang itself, we use this for internal targets, 0 means no maximum
 func PeerDBFlowWorkerMaxMemBytes() uint64 {
 	return getEnvUint[uint64]("GOMEMLIMIT", 0)
@@ -75,7 +62,7 @@ func PeerDBCatalogUser() string {
 func PeerDBCatalogPassword(ctx context.Context) string {
 	val, err := GetKmsDecryptedEnvString(ctx, "PEERDB_CATALOG_PASSWORD", "")
 	if err != nil {
-		slog.Error("failed to decrypt PEERDB_CATALOG_PASSWORD", "error", err)
+		slog.ErrorContext(ctx, "failed to decrypt PEERDB_CATALOG_PASSWORD", slog.Any("error", err))
 		panic(err)
 	}
 
@@ -120,7 +107,7 @@ func PeerDBCurrentEncKeyID() string {
 func PeerDBEncKeys(ctx context.Context) shared.PeerDBEncKeys {
 	val, err := GetKmsDecryptedEnvString(ctx, "PEERDB_ENC_KEYS", "")
 	if err != nil {
-		slog.Error("failed to decrypt PEERDB_ENC_KEYS", "error", err)
+		slog.ErrorContext(ctx, "failed to decrypt PEERDB_ENC_KEYS", slog.Any("error", err))
 		panic(err)
 	}
 
@@ -179,10 +166,10 @@ func PeerDBGetIncidentIoToken() string {
 	return GetEnvString("PEERDB_INCIDENTIO_TOKEN", "")
 }
 
-func PeerDBRAPIRequestLoggingEnabled() bool {
+func PeerDBRAPIRequestLoggingEnabled(ctx context.Context) bool {
 	requestLoggingEnabled, err := strconv.ParseBool(GetEnvString("PEERDB_API_REQUEST_LOGGING_ENABLED", "false"))
 	if err != nil {
-		slog.Error("failed to parse PEERDB_API_REQUEST_LOGGING_ENABLED to bool", "error", err)
+		slog.ErrorContext(ctx, "failed to parse PEERDB_API_REQUEST_LOGGING_ENABLED to bool", slog.Any("error", err))
 		return false
 	}
 	return requestLoggingEnabled
@@ -193,11 +180,46 @@ func PeerDBMaintenanceModeWaitAlertSeconds() int {
 	return getEnvConvert("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600, strconv.Atoi)
 }
 
-func PeerDBTelemetryErrorActionBasedAlertingEnabled() bool {
-	enabled, err := strconv.ParseBool(GetEnvString("PEERDB_TELEMETRY_ERROR_ACTION_BASED_ALERTING_ENABLED", "false"))
+// PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED is whether to send error alerts to the telemetry sender
+func PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx context.Context) bool {
+	enabled, err := strconv.ParseBool(GetEnvString("PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED", "false"))
 	if err != nil {
-		slog.Error("failed to parse PEERDB_TELEMETRY_ERROR_ACTION_BASED_ALERTING_ENABLED to bool", "error", err)
+		slog.ErrorContext(ctx, "failed to parse PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED to bool", slog.Any("error", err))
 		return false
 	}
 	return enabled
+}
+
+// PEERDB_SWITCHBOARD_ENABLED enables the Switchboard server
+func PeerDBSwitchboardEnabled() bool {
+	return GetEnvBool("PEERDB_SWITCHBOARD_ENABLED", false)
+}
+
+// PEERDB_SWITCHBOARD_QUERY_TIMEOUT_SECONDS is the query timeout in seconds
+func PeerDBSwitchboardQueryTimeoutSeconds() int {
+	return getEnvConvert("PEERDB_SWITCHBOARD_QUERY_TIMEOUT_SECONDS", 30, strconv.Atoi)
+}
+
+// PEERDB_SWITCHBOARD_WRITE_TIMEOUT_SECONDS is the write deadline timeout in seconds
+func PeerDBSwitchboardWriteTimeoutSeconds() int {
+	return getEnvConvert("PEERDB_SWITCHBOARD_WRITE_TIMEOUT_SECONDS", 30, strconv.Atoi)
+}
+
+// PEERDB_SWITCHBOARD_MAX_ROWS is the maximum number of rows per query
+func PeerDBSwitchboardMaxRows() int64 {
+	return getEnvConvert("PEERDB_SWITCHBOARD_MAX_ROWS", int64(10000), func(s string) (int64, error) {
+		return strconv.ParseInt(s, 10, 64)
+	})
+}
+
+// PEERDB_SWITCHBOARD_MAX_BYTES is the maximum bytes per query
+func PeerDBSwitchboardMaxBytes() int64 {
+	return getEnvConvert("PEERDB_SWITCHBOARD_MAX_BYTES", int64(100*1024*1024), func(s string) (int64, error) {
+		return strconv.ParseInt(s, 10, 64)
+	})
+}
+
+// PeerDBSwitchboardPassword returns the password for Switchboard SCRAM-SHA-256 authentication
+func PeerDBSwitchboardPassword() string {
+	return GetEnvString("PEERDB_SWITCHBOARD_PASSWORD", "peerdb")
 }

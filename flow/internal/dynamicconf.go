@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/exp/constraints"
@@ -27,16 +26,23 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_CDC_CHANNEL_BUFFER_SIZE",
 		Description:      "Advanced setting: changes buffer size of channel PeerDB uses while streaming rows read to destination in CDC",
-		DefaultValue:     "262144",
+		DefaultValue:     "131072",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
-		Description: "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalization, " +
-			"use with PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE",
-		DefaultValue:     "128",
+		Name:             "PEERDB_NORMALIZE_BUFFER_HOURS",
+		Description:      "Approximate hours of buffer between sync and normalize before backpressure blocks sync",
+		DefaultValue:     "24",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_GROUP_NORMALIZE",
+		Description:      "Controls whether normalize applies to one batch at a time, or all pending batches",
+		DefaultValue:     "4",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -56,6 +62,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_QUEUES,
+	},
+	{
+		Name:             "PEERDB_CDC_STORE_ENABLED",
+		Description:      "Controls whether to enable the store for recovering unchanged Postgres TOAST values within a CDC batch",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
 		Name:             "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD",
@@ -83,18 +97,10 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name:             "PEERDB_WAL_HEARTBEAT_QUERY",
-		DefaultValue:     "SELECT pg_logical_emit_message(false,'peerdb_heartbeat','')",
+		DefaultValue:     "SELECT pg_logical_emit_message(true,'peerdb_heartbeat','')",
 		ValueType:        protos.DynconfValueType_STRING,
 		Description:      "SQL to run during each WAL heartbeat",
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_ALL,
-	},
-	{
-		Name:             "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE",
-		Description:      "Enables parallel sync (moving rows to target) and normalize (updating rows in target table)",
-		DefaultValue:     "true",
-		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
@@ -121,6 +127,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_AVRO_NULLABLE_LAX",
+		Description:      "Make all columns nullable in initial load Avro schema (disables strict nullable checking)",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_SNOWFLAKE_MERGE_PARALLELISM",
 		Description:      "Parallel MERGE statements to run for CDC mirrors with Snowflake targets. -1 for no limit",
 		DefaultValue:     "8",
@@ -132,6 +146,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Name:             "PEERDB_SNOWFLAKE_AUTO_COMPRESS",
 		Description:      "AUTO_COMPRESS option when uploading to Snowflake",
 		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
+	},
+	{
+		Name:             "PEERDB_SNOWFLAKE_SKIP_COMPRESSION",
+		Description:      "Use `NULL` compression when creating Avro files to be uploaded to Snowflake directly",
+		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
@@ -153,6 +175,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_S3_UUID_PREFIX",
+		Description:      "Use random UUID as prefix instead of flow name, can help partitioning on non-AWS based s3 providers",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_S3_PART_SIZE",
 		Description: "S3 upload part size in bytes, may need to increase for large batches. " +
 			"https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
@@ -162,11 +192,20 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:         "PEERDB_S3_BYTES_PER_AVRO_FILE",
-		Description:  "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
-		DefaultValue: "10000000000", // 10GB, not GiB so to not align with 64MiB to avoid always having tiny part at end
-		ValueType:    protos.DynconfValueType_INT,
-		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		Name:             "PEERDB_S3_BYTES_PER_AVRO_FILE",
+		Description:      "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
+		DefaultValue:     "1000000000",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_S3_CHUNK_ON_UNCOMPRESSED",
+		Description:      "Track uncompressed Avro size during initial load, following the in-memory size on the destination.",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_QUEUE_FORCE_TOPIC_CREATION",
@@ -258,6 +297,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_CLIENT_NAME",
+		Description:      "Client name to pass to ClickHouse Client",
+		DefaultValue:     "peerdb",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES",
 		Description:      "Duration in minutes since last normalize to start alerting, 0 disables all alerting entirely",
 		DefaultValue:     "240",
@@ -289,14 +336,6 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
-	},
-	{
-		Name:             "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS",
-		Description:      "Chunk normalization into N queries, can help mitigate OOM issues on ClickHouse",
-		DefaultValue:     "1",
-		ValueType:        protos.DynconfValueType_UINT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
-		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION",
@@ -332,6 +371,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN",
+		Description:      "Ingest additional metadata fields",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_QUEUES,
+	},
+	{
 		Name: "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES",
 		Description: "For Postgres CDC: attempt to fetch/remap child tables for tables that aren't partitioned by Postgres." +
 			"Useful for tables that are partitioned by extensions or table inheritance",
@@ -341,9 +388,58 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_FORCE_INTERNAL_VERSION",
+		Description:      "Forces mirrors to be created with a different internal version than the latest peerdb internal version.",
+		DefaultValue:     strconv.FormatUint(uint64(shared.InternalVersion_Latest), 10),
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_UI_MAINTENANCE_TAB_ENABLED",
 		Description:      "Enable/disable the maintenance tab in the PeerDB UI",
 		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_POSTGRES_ENABLE_FAILOVER_SLOTS",
+		Description:      "Create slots with failover enabled when possible",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED",
+		Description:      "Enable/disable recording of aggregate metrics",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_POSTGRES_WAL_SENDER_TIMEOUT",
+		Description:      "wal_sender_timeout value passed for Postgres CDC. \"NONE\" means no override, leaving it up to the source DB",
+		DefaultValue:     "120s",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE",
+		Description:      "Use CTID block partitioning for initial snapshot if watermark column is ctid",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_MONGODB_DIRECT_BSON_CONVERTER",
+		Description: "Use direct BSON-to-JSON converter for MongoDB (faster, no intermediate deserialization). " +
+			"Set to false to fall back to legacy converter.",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -501,8 +597,12 @@ func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
 }
 
-func PeerDBNormalizeChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
-	return dynamicConfSigned[int](ctx, env, "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE")
+func PeerDBNormalizeBufferHours(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_BUFFER_HOURS")
+}
+
+func PeerDBGroupNormalize(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_GROUP_NORMALIZE")
 }
 
 func PeerDBQueueFlushTimeoutSeconds(ctx context.Context, env map[string]string) (time.Duration, error) {
@@ -515,6 +615,10 @@ func PeerDBQueueFlushTimeoutSeconds(ctx context.Context, env map[string]string) 
 
 func PeerDBQueueParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_QUEUE_PARALLELISM")
+}
+
+func PeerDBCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CDC_STORE_ENABLED")
 }
 
 func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context, env map[string]string) (int64, error) {
@@ -533,10 +637,6 @@ func PeerDBWALHeartbeatQuery(ctx context.Context, env map[string]string) (string
 	return dynLookup(ctx, env, "PEERDB_WAL_HEARTBEAT_QUERY")
 }
 
-func PeerDBEnableParallelSyncNormalize(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
-}
-
 func PeerDBReconnectAfterBatches(ctx context.Context, env map[string]string) (int32, error) {
 	return dynamicConfSigned[int32](ctx, env, "PEERDB_RECONNECT_AFTER_BATCHES")
 }
@@ -547,6 +647,10 @@ func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) 
 
 func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
+}
+
+func PeerDBAvroNullableLax(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_AVRO_NULLABLE_LAX")
 }
 
 func PeerDBBinaryFormat(ctx context.Context, env map[string]string) (BinaryFormat, error) {
@@ -586,8 +690,16 @@ func PeerDBEnableClickHouseJSON(ctx context.Context, env map[string]string) (boo
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_JSON")
 }
 
+func PeerDBClickHouseClientName(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_CLIENT_NAME")
+}
+
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
+}
+
+func PeerDBSnowflakeSkipCompression(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_SKIP_COMPRESSION")
 }
 
 func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bool, error) {
@@ -596,6 +708,10 @@ func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bo
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+}
+
+func PeerDBS3UuidPrefix(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_S3_UUID_PREFIX")
 }
 
 func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
@@ -626,15 +742,11 @@ func PeerDBMaintenanceModeEnabled(ctx context.Context, env map[string]string) (b
 }
 
 func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool shared.CatalogPool, enabled bool) error {
-	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", ptr.String(strconv.FormatBool(enabled)))
+	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", new(strconv.FormatBool(enabled)))
 }
 
 func PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS")
-}
-
-func PeerDBClickHouseNormalizationParts(ctx context.Context, env map[string]string) (uint64, error) {
-	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS")
 }
 
 func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[string]string) (uint64, error) {
@@ -653,6 +765,38 @@ func PeerDBSourceSchemaAsDestinationColumn(ctx context.Context, env map[string]s
 	return dynamicConfBool(ctx, env, "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN")
 }
 
+func PeerDBOriginMetaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN")
+}
+
 func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES")
+}
+
+func PeerDBForceInternalVersion(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_FORCE_INTERNAL_VERSION")
+}
+
+func PeerDBPostgresEnableFailoverSlots(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_ENABLE_FAILOVER_SLOTS")
+}
+
+func PeerDBPostgresWalSenderTimeout(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_POSTGRES_WAL_SENDER_TIMEOUT")
+}
+
+func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED")
+}
+
+func PeerDBS3ChunkOnUncompressed(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_S3_CHUNK_ON_UNCOMPRESSED")
+}
+
+func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
+}
+
+func PeerDBMongoDBDirectBsonConverter(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_DIRECT_BSON_CONVERTER")
 }

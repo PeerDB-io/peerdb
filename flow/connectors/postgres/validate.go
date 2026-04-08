@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pg_validation "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -27,13 +30,13 @@ func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
 
 func (c *PostgresConnector) CheckSourceTables(
 	ctx context.Context,
-	tableNames []*utils.SchemaTable,
+	tableNames []*common.QualifiedTable,
 	tableMappings []*protos.TableMapping,
 	pubName string,
 	noCDC bool,
 ) error {
 	if c.conn == nil {
-		return errors.New("check tables: conn is nil")
+		return fmt.Errorf("check tables: conn is nil")
 	}
 
 	// Check that we can select from all tables
@@ -41,7 +44,7 @@ func (c *PostgresConnector) CheckSourceTables(
 	for idx, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
-			utils.QuoteLiteral(parsedTable.Schema), utils.QuoteLiteral(parsedTable.Table)))
+			utils.QuoteLiteral(parsedTable.Namespace), utils.QuoteLiteral(parsedTable.Table)))
 
 		selectedColumnsStr := "*"
 		if excludedColumns := tableMappings[idx].Exclude; len(excludedColumns) != 0 {
@@ -51,7 +54,7 @@ func (c *PostgresConnector) CheckSourceTables(
 			}
 
 			for i, col := range selectedColumns {
-				selectedColumns[i] = utils.QuoteIdentifier(col)
+				selectedColumns[i] = common.QuoteIdentifier(col)
 			}
 
 			selectedColumnsStr = strings.Join(selectedColumns, ", ")
@@ -96,14 +99,14 @@ func (c *PostgresConnector) CheckSourceTables(
 				if err := row.Scan(&schema, &table); err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("%s.%s", utils.QuoteIdentifier(schema), utils.QuoteIdentifier(table)), nil
+				return fmt.Sprintf("%s.%s", common.QuoteIdentifier(schema), common.QuoteIdentifier(table)), nil
 			})
 			if err != nil {
 				return err
 			}
 
 			if len(missing) != 0 {
-				return errors.New("some tables missing from publication: " + strings.Join(missing, ", "))
+				return fmt.Errorf("some tables missing from publication: %s", strings.Join(missing, ", "))
 			}
 		}
 	}
@@ -113,7 +116,17 @@ func (c *PostgresConnector) CheckSourceTables(
 
 func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, username string) error {
 	if c.conn == nil {
-		return errors.New("check replication permissions: conn is nil")
+		return fmt.Errorf("check replication permissions: conn is nil")
+	}
+
+	// check wal_level
+	var walLevel string
+	if err := c.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
+		return err
+	}
+
+	if walLevel != "logical" {
+		return fmt.Errorf("wal_level is not logical")
 	}
 
 	var replicationRes bool
@@ -133,19 +146,9 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		err := c.conn.QueryRow(ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication'").Scan(&setting)
 		if !errors.Is(err, pgx.ErrNoRows) {
 			if err != nil || setting != "on" {
-				return errors.New("postgres user does not have replication role")
+				return fmt.Errorf("rds.logical_replication setting must be enabled")
 			}
 		}
-	}
-
-	// check wal_level
-	var walLevel string
-	if err := c.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
-		return err
-	}
-
-	if walLevel != "logical" {
-		return errors.New("wal_level is not logical")
 	}
 
 	// max_wal_senders must be at least 2
@@ -157,7 +160,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	}
 
 	if insufficientMaxWalSenders {
-		return errors.New("max_wal_senders must be at least 2")
+		return fmt.Errorf("max_wal_senders must be at least 2")
 	}
 
 	serverVersion, err := shared.GetMajorVersion(ctx, c.conn)
@@ -165,13 +168,11 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		return fmt.Errorf("failed to get server version: %w", err)
 	}
 
-	var recoveryRes bool
-	if err := c.conn.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&recoveryRes); err != nil {
+	if recoveryRes, err := c.IsInRecovery(ctx); err != nil {
 		return fmt.Errorf("failed to check if Postgres is in recovery: %w", err)
-	}
-	if recoveryRes {
+	} else if recoveryRes {
 		if serverVersion < shared.POSTGRES_16 {
-			return errors.New("cannot create replication slots on a standby server with version <16")
+			return fmt.Errorf("cannot create replication slots on a standby server with version <16")
 		}
 
 		var hsFeedback bool
@@ -181,16 +182,16 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 			return fmt.Errorf("failed to check hot_standby_feedback: %w", err)
 		}
 		if !hsFeedback {
-			return errors.New("hot_standby_feedback setting must be enabled on standby servers")
+			return fmt.Errorf("hot_standby_feedback setting must be enabled on standby servers")
 		}
 	}
 
 	return nil
 }
 
-func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) error {
+func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context, env map[string]string) error {
 	// Check if we can create a replication connection
-	conn, err := c.CreateReplConn(ctx)
+	conn, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return fmt.Errorf("failed to create replication connection: %v", err)
 	}
@@ -215,11 +216,11 @@ func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Cont
 	return nil
 }
 
-func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	noCDC := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
 	if !noCDC {
 		// Check replication connectivity
-		if err := c.CheckReplicationConnectivity(ctx); err != nil {
+		if err := c.CheckReplicationConnectivity(ctx, cfg.Env); err != nil {
 			return fmt.Errorf("unable to establish replication connectivity: %w", err)
 		}
 
@@ -229,9 +230,9 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
+	sourceTables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		parsedTable, parseErr := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
 		}
@@ -253,6 +254,99 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 
 	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
 		return fmt.Errorf("provided source tables invalidated: %w", err)
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) ValidateMirrorDestination(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) error {
+	if cfg.Resync {
+		return nil // no need to validate schema for resync, as we will create or replace the tables
+	}
+
+	// Validate that all source columns exist in destination tables
+	checkedSchemas := make(map[string]struct{})
+	for _, tableMapping := range cfg.TableMappings {
+		srcTableIdentifier := tableMapping.SourceTableIdentifier
+		dstTableIdentifier := tableMapping.DestinationTableIdentifier
+
+		if dstTableIdentifier == "" {
+			return errors.New("destination table identifier is empty")
+		}
+
+		// Get the source table schema
+		srcSchema, ok := tableNameSchemaMapping[srcTableIdentifier]
+		if !ok {
+			return fmt.Errorf("source table %s not found in schema mapping", srcTableIdentifier)
+		}
+
+		// Get destination table columns with types
+		dstColumns, err := pg_validation.GetDestinationTableSchema(ctx, c.conn, dstTableIdentifier)
+		if err != nil {
+			// If table doesn't exist, check that the schema does before continuing
+			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "does not exist") {
+				parsedDst, parseErr := common.ParseTableIdentifier(dstTableIdentifier)
+				if parseErr != nil {
+					return fmt.Errorf("invalid destination table identifier %s: %w", dstTableIdentifier, parseErr)
+				}
+				if _, alreadyChecked := checkedSchemas[parsedDst.Namespace]; !alreadyChecked {
+					if schemaErr := pg_validation.CheckSchemaExists(ctx, c.conn, parsedDst.Namespace); schemaErr != nil {
+						return schemaErr
+					}
+					checkedSchemas[parsedDst.Namespace] = struct{}{}
+				}
+				continue
+			}
+			return fmt.Errorf("failed to get columns for destination table %s: %w", dstTableIdentifier, err)
+		}
+
+		if cfg.DoInitialSnapshot {
+			// Check if destination table already has rows
+			if err := pg_validation.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
+				return err
+			}
+		}
+
+		// Check if all source columns exist in destination with matching types
+		for _, srcField := range srcSchema.Columns {
+			colName := srcField.Name
+
+			// Skip excluded columns
+			if slices.Contains(tableMapping.Exclude, colName) {
+				continue
+			}
+
+			// Resolve rename if present
+			columnMappings := make([]pg_validation.ColumnMapping, 0, len(tableMapping.Columns))
+			for _, col := range tableMapping.Columns {
+				columnMappings = append(columnMappings, pg_validation.ColumnMapping{
+					SourceName:      col.SourceName,
+					DestinationName: col.DestinationName,
+				})
+			}
+			colName = pg_validation.ResolveDestinationColumnName(colName, columnMappings)
+
+			// Check if the column exists in destination
+			if err := pg_validation.CheckColumnExists(srcField.Name, colName, dstColumns, dstTableIdentifier); err != nil {
+				return err
+			}
+
+			// Check type compatibility when using the PG type system
+			if cfg.System == protos.TypeSystem_PG {
+				dstCol := dstColumns[colName]
+				if err := pg_validation.CheckColumnTypeCompatibility(
+					srcField.Name, srcField.Type, srcField.TypeModifier,
+					colName, dstCol.TypeName, dstCol.TypeMod,
+					dstTableIdentifier,
+				); err != nil {
+					return err
+				}
+			}
+		}
 	}
 
 	return nil

@@ -52,16 +52,16 @@ func NewSetupFlowExecution(ctx workflow.Context, tableNameMapping map[string]str
 // and ensures that the metadata tables are setup.
 func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 ) error {
 	s.Info("checking connections for CDC flow")
 
-	checkCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+	checkCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute,
 	})
 
 	// first check the source peer connection
-	srcConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckConnection, &protos.SetupInput{
+	srcConnStatusFuture := workflow.ExecuteActivity(checkCtx, flowable.CheckConnection, &protos.SetupInput{
 		Env:      config.Env,
 		PeerName: config.SourceName,
 		FlowName: config.FlowJobName,
@@ -71,7 +71,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 		PeerName: config.DestinationName,
 		FlowName: config.FlowJobName,
 	}
-	destConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckMetadataTables, dstSetupInput)
+	destConnStatusFuture := workflow.ExecuteActivity(checkCtx, flowable.CheckMetadataTables, dstSetupInput)
 	if err := srcConnStatusFuture.Get(checkCtx, nil); err != nil {
 		return fmt.Errorf("failed to check source peer connection: %w", err)
 	}
@@ -105,13 +105,13 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 // ensurePullability ensures that the source peer is pullable.
 func (s *SetupFlowExecution) ensurePullability(
 	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 	checkConstraints bool,
 ) (map[uint32]string, error) {
 	s.Info("ensuring pullability for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 4 * 24 * time.Hour,
+		StartToCloseTimeout: 4 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
@@ -150,7 +150,7 @@ func (s *SetupFlowExecution) ensurePullability(
 // createRawTable creates the raw table on the destination peer.
 func (s *SetupFlowExecution) createRawTable(
 	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 ) error {
 	s.Info("creating raw table on destination")
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -178,7 +178,7 @@ func (s *SetupFlowExecution) createRawTable(
 // fetchTableSchemaAndSetupNormalizedTables fetches the table schema for the source table and
 // sets up the normalized tables on the destination peer.
 func (s *SetupFlowExecution) setupNormalizedTables(
-	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigs,
+	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigsCore,
 ) error {
 	s.Info("fetching table schema for peer flow")
 
@@ -213,6 +213,8 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		FlowName:          flowConnectionConfigs.FlowJobName,
 		Env:               flowConnectionConfigs.Env,
 		IsResync:          flowConnectionConfigs.Resync,
+		Version:           flowConnectionConfigs.Version,
+		Flags:             flowConnectionConfigs.Flags,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
@@ -227,7 +229,7 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 // executeSetupFlow executes the setup flow.
 func (s *SetupFlowExecution) executeSetupFlow(
 	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 ) (*protos.SetupFlowOutput, error) {
 	s.Info("executing setup flow")
 
@@ -260,7 +262,7 @@ func (s *SetupFlowExecution) executeSetupFlow(
 }
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
-func SetupFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) (*protos.SetupFlowOutput, error) {
+func SetupFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigsCore) (*protos.SetupFlowOutput, error) {
 	tblNameMapping := make(map[string]string, len(config.TableMappings))
 	for _, v := range config.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier

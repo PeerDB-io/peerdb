@@ -3,15 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
-	"net/http"
-	//nolint:gosec
-	_ "net/http/pprof"
 	"os"
-	"runtime"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
@@ -31,55 +27,32 @@ type WorkerSetupOptions struct {
 	TemporalNamespace                  string
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
-	EnableProfiling                    bool
 	EnableOtelMetrics                  bool
+	EnableOtelTraces                   bool
 	UseMaintenanceTaskQueue            bool
-	PprofPort                          int // Port for pprof HTTP server
 }
 
 type WorkerSetupResponse struct {
-	Client      client.Client
-	Worker      worker.Worker
-	OtelManager *otel_metrics.OtelManager
+	Client         client.Client
+	Worker         worker.Worker
+	OtelManager    *otel_metrics.OtelManager
+	TracerProvider *sdktrace.TracerProvider
 }
 
 func (w *WorkerSetupResponse) Close(ctx context.Context) {
-	slog.Info("Shutting down worker")
+	slog.InfoContext(ctx, "Shutting down worker")
 	w.Client.Close()
 	if err := w.OtelManager.Close(ctx); err != nil {
-		slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
+		slog.ErrorContext(ctx, "Failed to shutdown metrics provider", slog.Any("error", err))
 	}
-}
-
-func setupPprof(opts *WorkerSetupOptions) {
-	// Set default pprof port if not specified
-	pprofPort := opts.PprofPort
-
-	// Enable mutex and block profiling
-	runtime.SetMutexProfileFraction(5)
-	runtime.SetBlockProfileRate(5)
-
-	// Start HTTP server with pprof endpoints
-	go func() {
-		pprofAddr := fmt.Sprintf(":%d", pprofPort)
-		slog.Info("Starting pprof HTTP server on " + pprofAddr)
-		server := &http.Server{
-			Addr:         pprofAddr,
-			ReadTimeout:  1 * time.Minute,
-			WriteTimeout: 11 * time.Minute,
+	if w.TracerProvider != nil {
+		if err := w.TracerProvider.Shutdown(ctx); err != nil {
+			slog.ErrorContext(ctx, "Failed to shutdown tracer provider", slog.Any("error", err))
 		}
-
-		if err := server.ListenAndServe(); err != nil {
-			log.Fatalf("Failed to start pprof HTTP server: %v", err)
-		}
-	}()
+	}
 }
 
 func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
-	if opts.EnableProfiling {
-		setupPprof(opts)
-	}
-
 	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
@@ -88,7 +61,7 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
-		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))),
 		ContextPropagators: []workflow.ContextPropagator{
 			internal.NewContextPropagator[*protos.FlowContextMetadata](internal.FlowMetadataKey),
 		},
@@ -104,30 +77,44 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		Meter: metricsProvider.Meter("temporal-sdk-go"),
 	})
 
+	tracerProvider, err := otel_metrics.SetupTracerProvider(ctx, otel_metrics.FlowWorkerServiceName, opts.EnableOtelTraces)
+	if err != nil {
+		return nil, fmt.Errorf("unable to setup tracer provider: %w", err)
+	}
+	if opts.EnableOtelTraces {
+		tracingInterceptor, err := temporalotel.NewTracingInterceptor(temporalotel.TracerOptions{
+			Tracer: tracerProvider.Tracer("temporal-sdk-go"),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to create tracing interceptor: %w", err)
+		}
+		clientOptions.Interceptors = append(clientOptions.Interceptors, tracingInterceptor)
+	}
+
 	c, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
-	slog.Info("Created temporal client")
+	slog.InfoContext(ctx, "Created temporal client")
 	queueId := shared.PeerFlowTaskQueue
 	if opts.UseMaintenanceTaskQueue {
 		queueId = shared.MaintenanceFlowTaskQueue
 	}
 	taskQueue := internal.PeerFlowTaskQueueName(queueId)
-	slog.Info(
-		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",
-			taskQueue,
-			opts.TemporalMaxConcurrentWorkflowTasks,
-			opts.TemporalMaxConcurrentActivities,
-		),
+	slog.InfoContext(ctx,
+		"Creating temporal worker",
+		slog.String("taskQueue", taskQueue),
+		slog.Int("workflowConcurrency", opts.TemporalMaxConcurrentWorkflowTasks),
+		slog.Int("activityConcurrency", opts.TemporalMaxConcurrentActivities),
 	)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker:                    true,
 		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
 		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
 		OnFatalError: func(err error) {
-			slog.Error("Peerflow Worker failed", slog.Any("error", err))
+			slog.ErrorContext(ctx, "Peerflow Worker failed", slog.Any("error", err))
 		},
+		MaxHeartbeatThrottleInterval: 10 * time.Second,
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
@@ -150,9 +137,17 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		TemporalClient: c,
 	})
 
+	w.RegisterActivity(&activities.CancelTableAdditionActivity{
+		CatalogPool:    conn,
+		Alerter:        alerting.NewAlerter(ctx, conn, otelManager),
+		OtelManager:    otelManager,
+		TemporalClient: c,
+	})
+
 	return &WorkerSetupResponse{
-		Client:      c,
-		Worker:      w,
-		OtelManager: otelManager,
+		Client:         c,
+		Worker:         w,
+		OtelManager:    otelManager,
+		TracerProvider: tracerProvider,
 	}, nil
 }

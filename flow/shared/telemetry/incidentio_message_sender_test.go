@@ -30,7 +30,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 		{
 			name: "successful send with info alert",
 			attributes: Attributes{
-				DeploymentUID: uuid.New().String(),
+				DeploymentUID: uuid.NewString(),
 				Level:         INFO,
 				Tags:          []string{"tag1", "tag2"},
 				Type:          "incident",
@@ -44,7 +44,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 		{
 			name: "successful send with warn alert",
 			attributes: Attributes{
-				DeploymentUID: uuid.New().String(),
+				DeploymentUID: uuid.NewString(),
 				Level:         WARN,
 				Tags:          []string{"tag1", "tag2"},
 				Type:          "incident",
@@ -58,7 +58,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 		{
 			name: "successful send with error alert",
 			attributes: Attributes{
-				DeploymentUID: uuid.New().String(),
+				DeploymentUID: uuid.NewString(),
 				Level:         ERROR,
 				Tags:          []string{"tag1", "tag2"},
 				Type:          "incident",
@@ -72,7 +72,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 		{
 			name: "successful send with critical alert",
 			attributes: Attributes{
-				DeploymentUID: uuid.New().String(),
+				DeploymentUID: uuid.NewString(),
 				Level:         CRITICAL,
 				Tags:          []string{"tag1", "tag2"},
 				Type:          "incident",
@@ -86,7 +86,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 		{
 			name: "unauthenticated",
 			attributes: Attributes{
-				DeploymentUID: uuid.New().String(),
+				DeploymentUID: uuid.NewString(),
 				Level:         "firing",
 				Tags:          []string{"tag1", "tag2"},
 				Type:          "incident",
@@ -100,7 +100,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 		{
 			name: "not found",
 			attributes: Attributes{
-				DeploymentUID: uuid.New().String(),
+				DeploymentUID: uuid.NewString(),
 				Level:         "firing",
 				Tags:          []string{"tag1", "tag2"},
 				Type:          "incident",
@@ -114,7 +114,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 		{
 			name: "server error",
 			attributes: Attributes{
-				DeploymentUID: uuid.New().String(),
+				DeploymentUID: uuid.NewString(),
 				Level:         "firing",
 				Tags:          []string{"tag1", "tag2"},
 				Type:          "incident",

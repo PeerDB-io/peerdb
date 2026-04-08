@@ -2,6 +2,7 @@ package connbigquery
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,10 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/auth"
+	"cloud.google.com/go/auth/credentials"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -51,6 +55,7 @@ type BigQueryConnector struct {
 	*metadataStore.PostgresMetadata
 	logger        log.Logger
 	bqConfig      *protos.BigqueryConfig
+	credentials   *auth.Credentials
 	client        *bigquery.Client
 	storageClient *storage.Client
 	catalogPool   shared.CatalogPool
@@ -60,11 +65,6 @@ type BigQueryConnector struct {
 
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-
-	bqsa, err := NewBigQueryServiceAccount(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
-	}
 
 	datasetID := config.GetDatasetId()
 	projectID := config.GetProjectId()
@@ -78,17 +78,42 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		projectID = projectPart
 	}
 
-	client, err := bqsa.CreateBigQueryClient(ctx)
+	serviceAccount, err := NewBigQueryServiceAccount(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %w", err)
+	}
+
+	saJSON, err := json.Marshal(serviceAccount) //nolint:gosec // G117: credential struct marshaled for inline use
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal service account: %v", err)
+	}
+
+	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
+		CredentialsJSON: saJSON,
+		Scopes: []string{
+			bigquery.Scope,
+			storage.ScopeFullControl, // we should split it into two clients later
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create credentials: %v", err)
+	}
+
+	client, err := bigquery.NewClient(
+		ctx,
+		bigquery.DetectProjectID,
+		option.WithAuthCredentials(creds),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
 
 	if _, err := client.DatasetInProject(projectID, datasetID).Metadata(ctx); err != nil {
-		logger.Error("failed to get dataset metadata", "error", err)
+		logger.Error("failed to get dataset metadata", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to get dataset metadata: %v", err)
 	}
 
-	storageClient, err := bqsa.CreateStorageClient(ctx)
+	storageClient, err := storage.NewClient(ctx, option.WithAuthCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Storage client: %v", err)
 	}
@@ -99,6 +124,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	}
 
 	return &BigQueryConnector{
+		credentials:      creds,
 		bqConfig:         config,
 		client:           client,
 		datasetID:        datasetID,
@@ -110,11 +136,19 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	}, nil
 }
 
-// ValidateCheck:
-// 1. Creates a table
-// 2. Inserts one row into the table
-// 3. Deletes the table
 func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
+	if _, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx); err != nil {
+		return fmt.Errorf("failed to get dataset metadata: %v", err)
+	}
+
+	return nil
+}
+
+func (c *BigQueryConnector) ValidateMirrorDestination(
+	ctx context.Context,
+	_ *protos.FlowConnectionConfigsCore,
+	_ map[string]*protos.TableSchema,
+) error {
 	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
 
 	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
@@ -205,6 +239,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	_ []string,
 ) error {
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
@@ -943,7 +978,7 @@ func (c *BigQueryConnector) RemoveTableEntriesFromRawTable(
 		deleteCmd.DefaultProjectID = c.projectID
 		deleteCmd.DefaultDatasetID = c.datasetID
 		if _, err := deleteCmd.Read(ctx); err != nil {
-			c.logger.Error("failed to remove entries from raw table", "error", err)
+			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
@@ -963,6 +998,14 @@ func (d *datasetTable) string() string {
 		return fmt.Sprintf("%s.%s", d.dataset, d.table)
 	}
 	return fmt.Sprintf("%s.%s.%s", d.project, d.dataset, d.table)
+}
+
+func (d *datasetTable) stringQuoted() string {
+	if d.project == "" {
+		return fmt.Sprintf("%s.%s", quotedIdentifier(d.dataset), quotedIdentifier(d.table))
+	}
+
+	return fmt.Sprintf("%s.%s.%s", quotedIdentifier(d.project), quotedIdentifier(d.dataset), quotedIdentifier(d.table))
 }
 
 func (c *BigQueryConnector) convertToDatasetTable(tableName string) (datasetTable, error) {

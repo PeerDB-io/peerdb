@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1@sha256:9857836c9ee4268391bb5b09f9f157f3c91bb15821bb77969642813b0d00518d
+# syntax=docker/dockerfile:1@sha256:4a43a54dd1fedceb30ba47e76cfcf2b47304f4161c0caeac2db1c61804ea3c91
 
-FROM lukemathwalker/cargo-chef:latest-rust-alpine@sha256:e3355365cd9a3d2910cbdb4bdfdb71748953edc4f079fd7ef2305a619c9c042c AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.93.0-alpine@sha256:fb285bf1dddc093cca6a6847f9ed6071d69ee1f22eb85c354d6e9697867907d2 AS chef
 
 WORKDIR /root
 
@@ -11,26 +11,44 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 ENV OPENSSL_STATIC=1
+ARG BUILD_MODE="release"
 RUN apk add --no-cache build-base pkgconfig curl unzip openssl-dev openssl-libs-static
 WORKDIR /root/nexus
 COPY scripts /root/scripts
 RUN /root/scripts/install-protobuf.sh
 COPY --from=planner /root/nexus/recipe.json .
-# Build dependencies - this is the caching Docker layer!
-RUN cargo chef cook --release --recipe-path recipe.json
+ARG CARGO_FLAGS=""
+# Build dependencies with cache mounts for Cargo registry and target directory
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/root/nexus/target \
+    sh -eu -c ' \
+      if [ "$BUILD_MODE" = "release" ]; then RELEASE_FLAG="--release"; else RELEASE_FLAG=""; fi; \
+      cargo chef cook $RELEASE_FLAG $CARGO_FLAGS -p peerdb-server --recipe-path recipe.json \
+    '
 COPY nexus /root/nexus
 COPY protos /root/protos
 WORKDIR /root/nexus
-RUN cargo build --release --bin peerdb-server
+# Build the actual binary with cache mounts
+# TODO: switch to --artifact-dir whenever cargo supports it in stable
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/root/nexus/target \
+    sh -eu -c ' \
+      if [ "$BUILD_MODE" = "release" ]; then RELEASE_FLAG="--release"; else RELEASE_FLAG=""; fi; \
+      cargo build $RELEASE_FLAG $CARGO_FLAGS --bin peerdb-server \
+    ' && \
+    mkdir -p /root/target && \
+    cp target/${BUILD_MODE}/peerdb-server /root/target/
 
-FROM alpine:3.22@sha256:8a1f59ffb675680d47db6337b49d22281a139e9d709335b492be023728e11715
+FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
 ENV TZ=UTC
 RUN apk add --no-cache ca-certificates postgresql-client curl iputils && \
   adduser -s /bin/sh -D peerdb && \
   install -d -m 0755 -o peerdb /var/log/peerdb
 USER peerdb
 WORKDIR /home/peerdb
-COPY --from=builder --chown=peerdb /root/nexus/target/release/peerdb-server .
+COPY --from=builder --chown=peerdb /root/target/peerdb-server ./peerdb-server
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}

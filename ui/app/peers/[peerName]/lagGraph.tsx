@@ -1,16 +1,18 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
-import { TimeAggregateTypes, timeOptions } from '@/app/utils/graph';
+import { useSelectTheme } from '@/app/styles/select';
+import { timeOptions } from '@/app/utils/graph';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import {
-  GetSlotLagHistoryRequest,
   GetSlotLagHistoryResponse,
+  TimeAggregateType,
 } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
-import { LineChart } from '@tremor/react';
+import { Chart as ChartJS, ChartOptions } from 'chart.js';
 import moment from 'moment';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Line } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
 import { getSlotData } from './helpers';
 
@@ -27,11 +29,34 @@ function parseLSN(lsn: string): number {
   return Number((BigInt(parsedLsn1) << BigInt(32)) | BigInt(parsedLsn2));
 }
 
+function stringifyTimeAggregateType(timeSince: TimeAggregateType): string {
+  switch (timeSince) {
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_FIVE_MIN:
+      return '5min';
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_FIFTEEN_MIN:
+      return '15min';
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR:
+      return '1hour';
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_DAY:
+      return '1day';
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_MONTH:
+      return '1month';
+    default:
+      return '1hour';
+  }
+}
+
 export default function LagGraph({ peerName }: LagGraphProps) {
   const [slotNames, setSlotNames] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
   const [lagPoints, setLagPoints] = useState<
-    { time: string; 'Lag in GB': number }[]
+    {
+      time: string;
+      'Lag in GB': number;
+      redoLSN?: number;
+      restartLSN?: number;
+      confirmedLSN?: number;
+    }[]
   >([]);
   const [defaultSlot, setDefaultSlot] = useLocalStorage(
     `defaultSlot${peerName}`,
@@ -39,10 +64,23 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   );
   const [selectedSlot, setSelectedSlot] = useState<string>(defaultSlot);
   const [loading, setLoading] = useState(false);
-  const [timeSince, setTimeSince] = useState<TimeAggregateTypes>(
-    TimeAggregateTypes.HOUR
+  const [timeSince, setTimeSince] = useState<TimeAggregateType>(
+    TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
   const [showLsn, setShowLsn] = useState(false);
+  const theme = useTheme();
+  const isDarkMode = theme.theme === 'dark';
+  const selectTheme = useSelectTheme();
+  const chartRef = useRef<ChartJS<'line'> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
+  }, []);
 
   const fetchSlotNames = useCallback(async () => {
     const slots = await getSlotData(peerName);
@@ -55,30 +93,35 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     }
 
     setLoading(true);
-    const pointsRes = await fetch(`/api/v1/peers/slots/lag_history`, {
-      method: 'POST',
-      cache: 'no-store',
-      body: JSON.stringify({
-        peerName,
-        slotName: selectedSlot,
-        timeSince,
-      } as GetSlotLagHistoryRequest),
-    });
-    if (pointsRes.ok) {
-      const points: GetSlotLagHistoryResponse = await pointsRes.json();
-      setLagPoints(
-        points.data
-          .sort((x, y) => x.time - y.time)
-          .map((data) => ({
-            time: moment(data.time).format('MMM Do HH:mm'),
-            'Lag in GB': data.size,
-            redoLSN: parseLSN(data.redoLSN),
-            restartLSN: parseLSN(data.restartLSN),
-            confirmedLSN: parseLSN(data.confirmedLSN),
-          }))
-      );
+    try {
+      const pointsRes = await fetch(`/api/v1/peers/slots/lag_history`, {
+        method: 'POST',
+        cache: 'no-store',
+        body: JSON.stringify({
+          peerName,
+          slotName: selectedSlot,
+          timeSince: stringifyTimeAggregateType(timeSince),
+        }),
+      });
+      if (pointsRes.ok) {
+        const points: GetSlotLagHistoryResponse = await pointsRes.json();
+        setLagPoints(
+          points.data
+            .sort((x, y) => x.time - y.time)
+            .map((data) => ({
+              time: moment(data.time).format('MMM Do HH:mm'),
+              'Lag in GB': data.size,
+              redoLSN: parseLSN(data.redoLSN),
+              restartLSN: parseLSN(data.restartLSN),
+              confirmedLSN: parseLSN(data.confirmedLSN),
+            }))
+        );
+      }
+    } catch (error) {
+      console.error('Error fetching lag points:', error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [selectedSlot, timeSince, peerName]);
 
   const handleChange = (val: string) => {
@@ -86,11 +129,74 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     setSelectedSlot(val);
   };
 
+  const chartOptions: ChartOptions<'line'> = {
+    interaction: {
+      intersect: false,
+    },
+    scales: {
+      x: {
+        display: false,
+        grid: { display: false },
+      },
+      y: {
+        grid: {
+          color: isDarkMode ? '#333333' : '#e5e7eb',
+        },
+      },
+    },
+  };
+
   useEffect(() => {
-    setMounted(true);
-    fetchSlotNames();
-    fetchLagPoints();
+    const initializeComponent = async () => {
+      setMounted(true);
+
+      try {
+        await Promise.all([fetchSlotNames(), fetchLagPoints()]);
+      } catch (error) {
+        console.error('Error initializing component:', error);
+      }
+    };
+
+    initializeComponent();
   }, [fetchLagPoints, fetchSlotNames]);
+
+  // Create chart data based on showLsn toggle
+  const chartData = {
+    labels: lagPoints.map((point) => point.time),
+    datasets: showLsn
+      ? [
+          {
+            label: 'Redo LSN',
+            data: lagPoints.map((point) => point.redoLSN || 0),
+            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            borderWidth: 1,
+          },
+          {
+            label: 'Restart LSN',
+            data: lagPoints.map((point) => point.restartLSN || 0),
+            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1,
+          },
+          {
+            label: 'Confirmed LSN',
+            data: lagPoints.map((point) => point.confirmedLSN || 0),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1,
+          },
+        ]
+      : [
+          {
+            label: 'Lag in GB',
+            data: lagPoints.map((point) => point['Lag in GB']),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1,
+          },
+        ],
+  };
 
   if (!mounted) {
     return (
@@ -99,6 +205,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
       </Label>
     );
   }
+
   return (
     <div
       style={{
@@ -132,7 +239,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
               ? { value: selectedSlot, label: selectedSlot }
               : undefined
           }
-          theme={SelectTheme}
+          theme={selectTheme}
         />
         <input
           type='button'
@@ -140,12 +247,14 @@ export default function LagGraph({ peerName }: LagGraphProps) {
           onClick={() => setShowLsn((val) => !val)}
         />
         <ReactSelect
-          id={timeSince}
+          id={stringifyTimeAggregateType(timeSince)}
           placeholder='Select a timeframe'
-          options={timeOptions.filter((x) => !x.value.endsWith('min'))}
+          options={timeOptions.filter(
+            (x) => !stringifyTimeAggregateType(x.value).endsWith('min')
+          )}
           defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setTimeSince(val.value)}
-          theme={SelectTheme}
+          theme={selectTheme}
         />
       </div>
       {loading ? (
@@ -154,15 +263,15 @@ export default function LagGraph({ peerName }: LagGraphProps) {
           <ProgressCircle variant='determinate_progress_circle' />
         </center>
       ) : (
-        <LineChart
-          index='time'
-          data={lagPoints}
-          categories={
-            showLsn ? ['redoLSN', 'restartLSN', 'confirmedLSN'] : ['Lag in GB']
-          }
-          colors={showLsn ? ['orange', 'red', 'lime'] : ['rose']}
-          showXAxis={false}
-        />
+        <div style={{ height: '20rem' }}>
+          <Line
+            ref={(chart) => {
+              chartRef.current = chart ?? null;
+            }}
+            data={chartData}
+            options={chartOptions}
+          />
+        </div>
       )}
     </div>
   );

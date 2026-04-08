@@ -22,16 +22,24 @@ function getEnabledProviders(): Provider[] {
     }),
   ];
 }
-export const authOptions: AuthOptions = {
-  providers: getEnabledProviders(),
-  debug: false,
-  session: {
-    strategy: 'jwt',
-    maxAge: 24 * 7 * 60 * 60, // 1 week
-  },
-  secret: Configuration.authentication.NEXTAUTH_SECRET,
-  theme: {
-    colorScheme: 'light',
-    logo: '/images/peerdb-combinedMark.svg',
-  },
-};
+
+export function getAuthOptions(
+  colorScheme: 'light' | 'dark' = 'light'
+): AuthOptions {
+  return {
+    providers: getEnabledProviders(),
+    debug: false,
+    session: {
+      strategy: 'jwt',
+      maxAge: 24 * 7 * 60 * 60, // 1 week
+    },
+    secret: Configuration.authentication.NEXTAUTH_SECRET,
+    theme: {
+      colorScheme,
+      logo:
+        colorScheme === 'dark'
+          ? '/images/peerdb-combinedMark-dark.svg'
+          : '/images/peerdb-combinedMark.svg',
+    },
+  };
+}

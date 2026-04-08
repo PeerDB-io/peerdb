@@ -5,25 +5,29 @@ import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import ConfigJSONView from './ConfigJSONView';
 
 export function PeerInfo({ peerName }: { peerName: string }) {
   const [info, setInfo] = useState<PeerInfoResponse>();
 
-  const getPeerInfo = useCallback(async () => {
-    const peerRes: PeerInfoResponse = await fetch(
-      `/api/v1/peers/info/${peerName}`,
-      {
-        cache: 'no-store',
-      }
-    ).then((res) => res.json());
-    setInfo(peerRes);
-  }, [peerName]);
-
   useEffect(() => {
-    getPeerInfo();
-  }, [getPeerInfo]);
+    const fetchPeerInfo = async () => {
+      try {
+        const peerRes: PeerInfoResponse = await fetch(
+          `/api/v1/peers/info/${peerName}`,
+          {
+            cache: 'no-store',
+          }
+        ).then((res) => res.json());
+        setInfo(peerRes);
+      } catch (error) {
+        console.error('Error fetching peer info:', error);
+      }
+    };
+
+    fetchPeerInfo();
+  }, [peerName]);
 
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -45,8 +49,18 @@ async function getPeerType(peerName: string): Promise<string> {
 
 function EditPeerButton({ peerName }: { peerName: string }) {
   const [peerType, setPeerType] = useState<string>();
+
   useEffect(() => {
-    getPeerType(peerName).then((type) => setPeerType(type));
+    const fetchPeerType = async () => {
+      try {
+        const type = await getPeerType(peerName);
+        setPeerType(type);
+      } catch (error) {
+        console.error('Error fetching peer type:', error);
+      }
+    };
+
+    fetchPeerType();
   }, [peerName]);
 
   return (

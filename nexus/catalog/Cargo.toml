@@ -5,19 +5,23 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["aws"]
+aws = ["dep:aws-config", "dep:aws-sdk-kms"]
+
 [dependencies]
 anyhow = "1"
-aws-config = "1"
-aws-sdk-kms = "1"
+aws-config = { version = "1", optional = true }
+aws-sdk-kms = { version = "1", optional = true }
 async-trait = "0.1"
 base64 = "0.22"
-chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.11.0-rc.1", default-features = false, features = ["alloc"] }
 chrono.workspace = true
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 pgwire.workspace = true
 pt = { path = "../pt" }
-refinery = { version = "0.8", default-features = false, features = ["tokio-postgres"] }
+refinery = { version = "0.9", default-features = false, features = ["tokio-postgres"] }
 serde_json = "1.0"
 sqlparser.workspace = true
 tokio.workspace = true

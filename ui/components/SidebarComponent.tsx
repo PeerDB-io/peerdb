@@ -3,6 +3,7 @@
 import { fetcher } from '@/app/utils/swr';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import Logout from '@/components/Logout';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   GetDynamicSettingsResponse,
   InstanceInfoResponse,
@@ -138,6 +139,9 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
       bottomRow={
         sidebarState === 'open' ? (
           <>
+            <div style={centerFlexStyle}>
+              <ThemeToggle />
+            </div>
             <div style={centerFlexStyle}>
               <RowWithSelect
                 label={<Label>Timezone:</Label>}

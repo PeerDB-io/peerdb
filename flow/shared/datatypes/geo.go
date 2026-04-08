@@ -2,9 +2,7 @@ package datatypes
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"log/slog"
 
 	geom "github.com/twpayne/go-geos"
 )
@@ -14,8 +12,7 @@ func GeoValidate(hexWkb string) (string, error) {
 	// Decode the WKB hex string into binary
 	wkb, hexErr := hex.DecodeString(hexWkb)
 	if hexErr != nil {
-		slog.Warn("Ignoring invalid WKB: " + hexWkb)
-		return "", hexErr
+		return "", fmt.Errorf("ignoring invalid WKB: %s %w", wkb, hexErr)
 	}
 
 	// UnmarshalWKB performs geometry validation along with WKB parsing
@@ -26,8 +23,7 @@ func GeoValidate(hexWkb string) (string, error) {
 
 	invalidReason := geometryObject.IsValidReason()
 	if invalidReason != "Valid Geometry" {
-		slog.Warn(fmt.Sprintf("Ignoring invalid geometry shape %s: %s", hexWkb, invalidReason))
-		return "", errors.New(invalidReason)
+		return "", fmt.Errorf("ignoring invalid geometry shape %s: %s", hexWkb, invalidReason)
 	}
 
 	wkt := geometryObject.ToWKT()

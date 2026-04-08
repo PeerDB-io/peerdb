@@ -29,8 +29,10 @@ fn input_files() -> Vec<String> {
 }
 
 fn setup_peers(client: &mut Client) {
+    #[cfg(feature = "bigquery")]
     create_peers::create_bq::create(client);
     create_peers::create_pg::create(client);
+    #[cfg(feature = "snowflake")]
     create_peers::create_sf::create(client);
 }
 
@@ -184,6 +186,7 @@ fn extended_query_protocol_no_params_catalog() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();
     // create bigquery peer so that the following command returns a non-zero result
+    #[cfg(feature = "bigquery")]
     create_peers::create_bq::create(&mut client);
     // run `select * from peers` as a prepared statement.
     let stmt = client

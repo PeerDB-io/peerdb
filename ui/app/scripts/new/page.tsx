@@ -1,6 +1,7 @@
 'use client';
 import { notifyErr } from '@/app/utils/notify';
-import PeerDBCodeEditor from '@/components/PeerDBEditor';
+import PeerDBCodeEditor from '@/components/PeerDBCodeEditor';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { Script } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -10,7 +11,6 @@ import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
 import { GetScriptById, HandleAddScript, HandleEditScript } from '../handlers';
 
 export default function EditScript() {
@@ -71,10 +71,21 @@ end`,
 
   useEffect(() => {
     if (scriptId) {
-      setInEditMode(true);
-      GetScriptById(scriptId).then((existingScript) => {
-        setNewScript(existingScript!);
-      });
+      const fetchScript = async () => {
+        setInEditMode(true);
+
+        try {
+          const existingScript = await GetScriptById(scriptId);
+          if (existingScript) {
+            setNewScript(existingScript);
+          }
+        } catch (error) {
+          console.error('Error fetching script:', error);
+          notifyErr('Failed to load script');
+        }
+      };
+
+      fetchScript();
     }
   }, [scriptId]);
   return (
@@ -177,7 +188,7 @@ end`,
           'Add script'
         )}
       </Button>
-      <ToastContainer />
+      <ThemedToastContainer />
     </div>
   );
 }

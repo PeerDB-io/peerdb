@@ -98,7 +98,9 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("dstTableName", rawTableName))
 
-	if err := s.connector.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
+	if err := s.connector.ReplayTableSchemaDeltas(
+		ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil,
+	); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -339,7 +341,7 @@ func GetAvroField(bqField *bigquery.FieldSchema) (*avro.Field, error) {
 	}
 
 	if !bqField.Required {
-		avroType, err = avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), avroType})
+		avroType, err = qvalue.NullableAvroSchema(avroType)
 		if err != nil {
 			return nil, err
 		}
@@ -359,7 +361,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	flowName string,
 ) (int64, error) {
 	var avroFile utils.AvroFile
-	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY)
+	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY, nil)
 	idLog := slog.Group("write-metadata",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("batchOrPartitionID", syncID),
@@ -397,7 +399,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 			return 0, fmt.Errorf("failed to write records to local Avro file: %w", err)
 		}
 	}
-	defer avroFile.Cleanup()
+	defer avroFile.Cleanup(ctx)
 
 	if avroFile.NumRecords == 0 {
 		return 0, nil

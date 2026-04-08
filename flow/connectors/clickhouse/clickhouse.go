@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,9 +13,10 @@ import (
 	"strings"
 	"time"
 
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
 
@@ -22,8 +24,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -31,9 +33,9 @@ type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
 	database      clickhouse.Conn
 	logger        log.Logger
-	config        *protos.ClickhouseConfig
+	Config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
-	chVersion     *chproto.Version
+	chVersion     *clickhouseproto.Version
 }
 
 func NewClickHouseConnector(
@@ -49,7 +51,7 @@ func NewClickHouseConnector(
 
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
-		logger.Error("failed to create postgres metadata store", "error", err)
+		logger.Error("failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -85,7 +87,7 @@ func NewClickHouseConnector(
 			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
 		}
 		if awsBucketName == "" {
-			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
+			return nil, fmt.Errorf("PeerDB ClickHouse Bucket Name not set")
 		}
 
 		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
@@ -103,7 +105,7 @@ func NewClickHouseConnector(
 	connector := &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
-		config:           config,
+		Config:           config,
 		logger:           logger,
 		credsProvider: &utils.ClickHouseS3Credentials{
 			Provider:   credentialsProvider,
@@ -115,8 +117,8 @@ func NewClickHouseConnector(
 	if credentials.AWS.SessionToken != "" {
 		// 24.3.1 is minimum version of ClickHouse that actually supports session token
 		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		if !chproto.CheckMinVersion(
-			chproto.Version{Major: 24, Minor: 3, Patch: 1},
+		if !clickhouseproto.CheckMinVersion(
+			clickhouseproto.Version{Major: 24, Minor: 3, Patch: 1},
 			clickHouseVersion.Version,
 		) {
 			return nil, fmt.Errorf(
@@ -163,10 +165,11 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
-	if err := ValidateClickHouseHost(ctx, c.config.Host, allowedDomains); err != nil {
+	if err := ValidateClickHouseHost(ctx, c.Config.Host, allowedDomains); err != nil {
 		return err
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
+	validateDummyTableNameRenamed := validateDummyTableName + "_renamed"
 	// create a table
 	if err := c.exec(ctx,
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
@@ -174,10 +177,26 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
-			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName), slog.Any("error", err))
+		for _, table := range []string{validateDummyTableName, validateDummyTableNameRenamed} {
+			for attempt := range 3 {
+				if attempt > 0 {
+					time.Sleep(time.Duration(attempt) * 2 * time.Second)
+				}
+				err := c.exec(dropCtx, "DROP TABLE IF EXISTS "+table)
+				if err == nil {
+					break
+				}
+				var chException *clickhouse.Exception
+				if errors.As(err, &chException) && chproto.Error(chException.Code) == chproto.ErrUnfinished {
+					c.logger.Warn("validation drop table blocked by in-flight DDL, retrying",
+						slog.String("table", table), slog.Int("attempt", attempt+1))
+					continue
+				}
+				c.logger.Error("validation failed to drop table", slog.String("table", table), slog.Any("error", err))
+				break
+			}
 		}
 	}()
 
@@ -190,20 +209,19 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 
 	// rename the table
 	if err := c.exec(ctx,
-		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableName+"_renamed"),
+		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableNameRenamed),
 	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
-	validateDummyTableName += "_renamed"
 
 	// insert a row
-	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
-		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
+	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableNameRenamed)); err != nil {
+		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableNameRenamed, err)
 	}
 
 	// drop the table
-	if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
-		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
+	if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableNameRenamed); err != nil {
+		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableNameRenamed, err)
 	}
 
 	// validate s3 stage
@@ -220,7 +238,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
 		if config.Certificate != nil || config.PrivateKey != nil {
 			if config.Certificate == nil || config.PrivateKey == nil {
-				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+				return nil, fmt.Errorf("both certificate and private key must be provided if using certificate-based authentication")
 			}
 			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
 			if err != nil {
@@ -231,7 +249,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		if config.RootCa != nil {
 			caPool := x509.NewCertPool()
 			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-				return nil, errors.New("failed to parse provided root CA")
+				return nil, fmt.Errorf("failed to parse provided root CA")
 			}
 			tlsSetting.RootCAs = caPool
 		}
@@ -247,6 +265,8 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		"ignore_materialized_views_with_dropped_target_table": true,
 		// avoid "there is no metadata of table ..."
 		"alter_sync": uint64(1),
+		// to handle JSON like "{"key": []}"
+		"input_format_json_infer_incomplete_types_as_strings": uint64(1),
 	}
 	if maxInsertThreads, err := internal.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
 		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
@@ -255,6 +275,10 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	}
 	if config.Cluster != "" {
 		settings["insert_distributed_sync"] = uint64(1)
+	}
+	clientName, err := internal.PeerDBClickHouseClientName(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load ClickHouse client name: %w", err)
 	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
@@ -271,7 +295,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 				Name    string
 				Version string
 			}{
-				{Name: "peerdb"},
+				{Name: clientName},
 			},
 		},
 		Settings:    settings,
@@ -344,6 +368,11 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 		for _, dstField := range dstSchema {
 			// not doing type checks for now
 			if dstField.Name == colName {
+				if dstField.DefaultKind == "ALIAS" || dstField.DefaultKind == "MATERIALIZED" {
+					return fmt.Errorf("field %s in destination table %s is %s and doesn't support INSERTs",
+						srcField.Name, dstTableName, dstField.DefaultKind)
+				}
+
 				found = true
 				break
 			}
@@ -376,6 +405,25 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	}
 	c.logger.Info("[clickhouse] version", slog.String("version", clickhouseVersion.DisplayName))
 	return clickhouseVersion.Version.String(), nil
+}
+
+func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
+	var flags []string
+
+	var time64Setting string
+	err := c.queryRow(ctx,
+		"SELECT value FROM system.settings WHERE name = 'enable_time_time64_type'",
+	).Scan(&time64Setting)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to query enable_time_time64_type setting: %w", err)
+		}
+	} else if time64Setting == "1" {
+		c.logger.Info("[clickhouse] enable_time_time64_type is enabled")
+		flags = append(flags, shared.Flag_ClickHouseTime64Enabled)
+	}
+
+	return flags, nil
 }
 
 func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType) (*protos.TableSchema, error) {
@@ -415,6 +463,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindUUID
 		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
 			qkind = types.QValueKindTimestamp
+		case "Time64(6)", "Nullable(Time64(6))":
+			qkind = types.QValueKindTime
 		case "Date32", "Nullable(Date32)":
 			qkind = types.QValueKindDate
 		case "Float32", "Nullable(Float32)":
@@ -433,6 +483,12 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindArrayUUID
 		case "Array(DateTime64(6))":
 			qkind = types.QValueKindArrayTimestamp
+		case "Array(Int64)":
+			qkind = types.QValueKindArrayInt64
+		case "Array(Bool)":
+			qkind = types.QValueKindArrayBoolean
+		case "Array(Date)":
+			qkind = types.QValueKindArrayDate
 		case "JSON":
 			qkind = types.QValueKindJSON
 		default:
@@ -488,8 +544,8 @@ func (c *ClickHouseConnector) GetTableSchema(
 }
 
 func (c *ClickHouseConnector) onCluster() string {
-	if c.config.Cluster != "" {
-		return " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(c.config.Cluster)
+	if c.Config.Cluster != "" {
+		return " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster)
 	}
 	return ""
 }

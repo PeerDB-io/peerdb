@@ -183,9 +183,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                 )))
             }
             _ => {
-                let error = format!(
-                    "only SELECT statements are supported in mysql. got: {stmt}"
-                );
+                let error = format!("only SELECT statements are supported in mysql. got: {stmt}");
                 Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
                     "fdw_error".to_owned(),

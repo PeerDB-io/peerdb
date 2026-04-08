@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/log"
@@ -23,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -35,7 +35,6 @@ const (
 		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
 	createDummyTableSQL               = "CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_DUMMY_COL STRING)"
-	rawTableMultiValueInsertSQL       = "INSERT INTO %s.%s VALUES%s"
 	createNormalizedTableSQL          = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	createOrReplaceNormalizedTableSQL = "CREATE OR REPLACE TABLE %s(%s)"
 	toVariantColumnName               = "VAR_COLS"
@@ -61,9 +60,12 @@ const (
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID = %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
-	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE FROM INFORMATION_SCHEMA.COLUMNS
-	 WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
-
+	getTableColumnListSQL = `SHOW COLUMNS IN TABLE IDENTIFIER(?)`
+	getTableSchemaSQL     = `SELECT "column_name",
+		parse_json("data_type"):type::string AS type,
+		parse_json("data_type"):precision::string AS precision,
+		parse_json("data_type"):scale::string AS scale
+		FROM table(result_scan(?))`
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
@@ -89,7 +91,7 @@ func NewSnowflakeConnector(
 	}
 
 	additionalParams := make(map[string]*string)
-	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = ptr.String("true")
+	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = new("true")
 
 	snowflakeConfig := gosnowflake.Config{
 		Account:          snowflakeProtoConfig.AccountId,
@@ -176,7 +178,7 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	// in case we return after error, ensure transaction is rolled back
 	defer func() {
 		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
-			c.logger.Error("error while rolling back transaction for table check", "error", err)
+			c.logger.Error("error while rolling back transaction for table check", slog.Any("error", err))
 		}
 	}()
 
@@ -305,13 +307,13 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 ) (bool, error) {
-	normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
+	normalizedSchemaTable, err := common.ParseTableIdentifier(tableIdentifier)
 	if err != nil {
 		return false, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
 	tableAlreadyExists, err := c.checkIfTableExists(
 		ctx,
-		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Schema),
+		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Namespace),
 		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Table),
 	)
 	if err != nil {
@@ -338,6 +340,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	_ []string,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil
@@ -363,7 +366,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			sfColtype, err := qvalue.ToDWHColumnType(
-				ctx, qvKind, env, protos.DBType_SNOWFLAKE, nil, addedColumn, schemaDelta.NullableEnabled,
+				ctx, qvKind, env, protos.DBType_SNOWFLAKE, nil, addedColumn, schemaDelta.NullableEnabled, nil,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
@@ -448,7 +451,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -547,7 +550,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 			}
 
 			startTime := time.Now()
-			c.logger.Info("[merge] merging records...", "destTable", tableName, "batchId", batchId)
+			c.logger.Info("[snowflake] merging records...", "destTable", tableName, "batchId", batchId)
 
 			result, err := c.ExecContext(gCtx, mergeStatement, tableName)
 			if err != nil {
@@ -556,7 +559,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 			}
 
 			endTime := time.Now()
-			c.logger.Info(fmt.Sprintf("[merge] merged records into %s, took: %d seconds",
+			c.logger.Info(fmt.Sprintf("[snowflake] merged records into %s, took: %d seconds",
 				tableName, endTime.Sub(startTime)/time.Second), "batchId", batchId)
 
 			rowsAffected, err := result.RowsAffected()
@@ -652,7 +655,7 @@ func (c *SnowflakeConnector) checkIfTableExists(
 func generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
-	dstSchemaTable *utils.SchemaTable,
+	dstSchemaTable *common.QualifiedTable,
 	tableSchema *protos.TableSchema,
 ) string {
 	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
@@ -661,10 +664,10 @@ func generateCreateTableSQLForNormalizedTable(
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
 		qvKind := types.QValueKind(genericColumnType)
 		sfColType, err := qvalue.ToDWHColumnType(
-			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, nil, column, tableSchema.NullableEnabled,
+			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, nil, column, tableSchema.NullableEnabled, nil,
 		)
 		if err != nil {
-			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
+			slog.WarnContext(ctx, fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
 				slog.Any("error", err))
 			continue
 		}
@@ -726,19 +729,19 @@ func (c *SnowflakeConnector) RenameTables(
 	defer func() {
 		deferErr := renameTablesTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error rolling back transaction for renaming tables", "error", err)
+			c.logger.Error("error rolling back transaction for renaming tables", slog.Any("error", err))
 		}
 	}()
 
 	for _, renameRequest := range req.RenameTableOptions {
-		srcTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
+		srcTable, err := common.ParseTableIdentifier(renameRequest.CurrentName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
 		}
 
 		resyncTableExists, err := c.checkIfTableExists(
 			ctx,
-			SnowflakeQuotelessIdentifierNormalize(srcTable.Schema),
+			SnowflakeQuotelessIdentifierNormalize(srcTable.Namespace),
 			SnowflakeQuotelessIdentifierNormalize(srcTable.Table),
 		)
 		if err != nil {
@@ -750,7 +753,7 @@ func (c *SnowflakeConnector) RenameTables(
 			continue
 		}
 
-		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
+		dstTable, err := common.ParseTableIdentifier(renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
 		}
@@ -759,7 +762,7 @@ func (c *SnowflakeConnector) RenameTables(
 		dst := snowflakeSchemaTableNormalize(dstTable)
 
 		originalTableExists, err := c.checkIfTableExists(ctx,
-			SnowflakeQuotelessIdentifierNormalize(dstTable.Schema),
+			SnowflakeQuotelessIdentifierNormalize(dstTable.Namespace),
 			SnowflakeQuotelessIdentifierNormalize(dstTable.Table),
 		)
 		if err != nil {
@@ -833,7 +836,7 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 	defer func() {
 		deferErr := createTablesFromExistingTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Info("error rolling back transaction for creating tables", "error", err)
+			c.logger.Info("error rolling back transaction for creating tables", slog.Any("error", err))
 		}
 	}()
 
@@ -869,7 +872,7 @@ func (c *SnowflakeConnector) RemoveTableEntriesFromRawTable(
 			" AND _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d",
 			c.rawSchema, rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
-			c.logger.Error("failed to remove entries from raw table", "error", err)
+			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))

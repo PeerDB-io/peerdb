@@ -1,5 +1,6 @@
 'use client';
 
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import { DynconfApplyMode, DynconfValueType } from '@/grpc_generated/flow';
 import {
   DynamicSetting,
@@ -11,7 +12,6 @@ import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
 import { useEffect, useMemo, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
 import { notifyErr } from '../utils/notify';
 
 function ApplyModeIconWithTooltip({ applyMode }: { applyMode: number }) {
@@ -141,7 +141,7 @@ function DynamicSettingItem({
             >
               <TextField
                 style={{ fontSize: 14 }}
-                value={editMode ? (newValue ?? '') : setting.value}
+                value={editMode ? (newValue ?? '') : (setting.value ?? '')}
                 placeholder='N/A'
                 onChange={(e) => setNewValue(e.target.value)}
                 variant='simple'
@@ -197,13 +197,22 @@ export default function SettingsPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchSettings = async () => {
-    const response = await fetch('/api/v1/dynamic_settings');
-    const data = await response.json();
-    setSettings(data);
+    try {
+      const response = await fetch('/api/v1/dynamic_settings');
+      const data = await response.json();
+      setSettings(data);
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+      notifyErr('Failed to load settings');
+    }
   };
 
   useEffect(() => {
-    fetchSettings();
+    const loadSettings = async () => {
+      await fetchSettings();
+    };
+
+    loadSettings();
   }, []);
 
   const filteredSettings = useMemo(
@@ -232,9 +241,9 @@ export default function SettingsPage() {
       />
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '16px',
+          display: 'flex',
+          flexDirection: 'column',
+          rowGap: '0.5rem',
         }}
       >
         {filteredSettings.map((setting) => (
@@ -244,7 +253,7 @@ export default function SettingsPage() {
             onSettingUpdate={fetchSettings}
           />
         ))}
-        <ToastContainer />
+        <ThemedToastContainer />
       </div>
     </div>
   );

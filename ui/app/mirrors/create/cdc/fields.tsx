@@ -1,5 +1,5 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { Label } from '@/lib/Label';
@@ -22,6 +22,7 @@ export default function CDCField({
   options,
   optionsLoading,
 }: FieldProps) {
+  const selectTheme = useSelectTheme();
   return setting.type === 'switch' ? (
     <RowWithSwitch
       label={
@@ -76,7 +77,7 @@ export default function CDCField({
               options={options?.map((option) => ({ option, label: option }))}
               getOptionLabel={(option) => option.label}
               getOptionValue={(option) => option.option}
-              theme={SelectTheme}
+              theme={selectTheme}
               isLoading={optionsLoading}
               isClearable={true}
             />

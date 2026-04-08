@@ -13,18 +13,19 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type SlotSnapshotState struct {
-	connector    connectors.CDCPullConnectorCore
-	slotConn     interface{ Close(context.Context) error }
-	snapshotName string
+	connector      connectors.CDCPullConnectorCore
+	connectorClose func(ctx context.Context)
+	slotConn       interface{ Close(context.Context) error }
+	snapshotName   string
 }
 
 type TxSnapshotState struct {
-	SnapshotName     string
-	SupportsTIDScans bool
+	SnapshotName string
 }
 
 type SnapshotActivity struct {
@@ -42,12 +43,17 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 
 	if s, ok := a.SlotSnapshotStates[flowJobName]; ok {
 		if s.slotConn != nil {
-			s.slotConn.Close(ctx)
+			logger := internal.LoggerFromCtx(ctx)
+			if err := s.slotConn.Close(ctx); err != nil {
+				logger.Error("failed to close the slot connection", slog.Any("error", err))
+			} else {
+				logger.Info("closed the slot connection")
+			}
 		}
-		connectors.CloseConnector(ctx, s.connector)
+		s.connectorClose(ctx)
 		delete(a.SlotSnapshotStates, flowJobName)
 	}
-	a.Alerter.LogFlowEvent(ctx, flowJobName, "Ended Snapshot Flow Job")
+	a.Alerter.EmitFlowInfoTelemetryEvent(ctx, flowJobName, "Ended Snapshot Flow Job")
 
 	return nil
 }
@@ -59,9 +65,9 @@ func (a *SnapshotActivity) SetupReplication(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Setting up replication slot and publication")
-	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
+	a.Alerter.EmitFlowInfoTelemetryEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
-	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
+	conn, connClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
@@ -70,11 +76,11 @@ func (a *SnapshotActivity) SetupReplication(
 	slotInfo, err := conn.SetupReplication(ctx, config)
 
 	if err != nil {
-		connectors.CloseConnector(ctx, conn)
+		connClose(ctx)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("slot error: %w", err))
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("slot error", err))
 	} else if slotInfo.Conn == nil && slotInfo.SlotName == "" {
-		connectors.CloseConnector(ctx, conn)
+		connClose(ctx)
 		logger.Info("replication setup without slot")
 		return nil, nil
 	} else {
@@ -82,35 +88,34 @@ func (a *SnapshotActivity) SetupReplication(
 	}
 
 	a.SnapshotStatesMutex.Lock()
-	defer a.SnapshotStatesMutex.Unlock()
-
 	a.SlotSnapshotStates[config.FlowJobName] = SlotSnapshotState{
-		slotConn:     slotInfo.Conn,
-		snapshotName: slotInfo.SnapshotName,
-		connector:    conn,
+		slotConn:       slotInfo.Conn,
+		snapshotName:   slotInfo.SnapshotName,
+		connector:      conn,
+		connectorClose: connClose,
 	}
+	a.SnapshotStatesMutex.Unlock()
 
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Replication slot and publication setup complete")
 
 	return &protos.SetupReplicationOutput{
-		SlotName:         slotInfo.SlotName,
-		SnapshotName:     slotInfo.SnapshotName,
-		SupportsTidScans: slotInfo.SupportsTIDScans,
+		SlotName:     slotInfo.SlotName,
+		SnapshotName: slotInfo.SnapshotName,
 	}, nil
 }
 
-func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string, env map[string]string) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
+func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flowName string, peer string, env map[string]string) error {
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "maintaining transaction snapshot"
 	})
 	defer shutdown()
-	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, peer)
+	conn, connClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, peer)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, sessionID, err)
 	}
-	defer connectors.CloseConnector(ctx, conn)
+	defer connClose(ctx)
 
-	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, env)
+	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, flowName, env)
 	if err != nil {
 		return err
 	}
@@ -118,8 +123,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	a.SnapshotStatesMutex.Lock()
 	if exportSnapshotOutput != nil {
 		a.TxSnapshotStates[sessionID] = TxSnapshotState{
-			SnapshotName:     exportSnapshotOutput.SnapshotName,
-			SupportsTIDScans: exportSnapshotOutput.SupportsTidScans,
+			SnapshotName: exportSnapshotOutput.SnapshotName,
 		}
 	} else {
 		a.TxSnapshotStates[sessionID] = TxSnapshotState{}
@@ -134,7 +138,11 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 			a.SnapshotStatesMutex.Lock()
 			delete(a.TxSnapshotStates, sessionID)
 			a.SnapshotStatesMutex.Unlock()
-			return conn.FinishExport(tx)
+			if err := conn.FinishExport(tx); err != nil {
+				logger.Error("finish export error", slog.Any("error", err))
+				return err
+			}
+			return nil
 		}
 		time.Sleep(time.Minute)
 	}
@@ -168,4 +176,28 @@ func (a *SnapshotActivity) LoadTableSchema(
 	tableName string,
 ) (*protos.TableSchema, error) {
 	return internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
+}
+
+func (a *SnapshotActivity) GetPeerType(ctx context.Context, name string) (protos.DBType, error) {
+	return connectors.LoadPeerType(ctx, a.CatalogPool, name)
+}
+
+func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
+	ctx context.Context,
+	input *protos.FlowConnectionConfigsCore,
+) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
+	conn, connClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, nil, a.CatalogPool, input.SourceName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
+	}
+	defer connClose(ctx)
+
+	output, err := conn.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
+		TableMappings: input.TableMappings,
+	})
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to check if tables can parallel load: %w", err))
+	}
+
+	return output, nil
 }

@@ -257,6 +257,7 @@ export async function handleCreate(
   const req: CreatePeerRequest = {
     peer: constructPeer(name!, type, config),
     allowUpdate: true,
+    disableValidation: false,
   };
   const createdPeer: CreatePeerResponse = await fetch('/api/v1/peers/create', {
     method: 'POST',

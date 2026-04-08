@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,7 +18,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/pgvector/pgvector-go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -27,10 +31,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
-	"github.com/PeerDB-io/peerdb/flow/shared/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -53,8 +57,10 @@ type PostgresCDCSource struct {
 	otelManager                              *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
+	jsonApi                                  jsoniter.API
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
+	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
 }
 
@@ -70,6 +76,7 @@ type PostgresCDCConfig struct {
 	Publication                              string
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
+	OriginMetaAsDestinationColumn            bool
 	InternalVersion                          uint32
 }
 
@@ -87,6 +94,8 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		schemaNameForRelID = make(map[uint32]string, len(cdcConfig.TableNameSchemaMapping))
 	}
 
+	jsonApi := createExtendedJSONUnmarshaler()
+
 	return &PostgresCDCSource{
 		PostgresConnector:                        c,
 		srcTableIDNameMapping:                    cdcConfig.SrcTableIDNameMapping,
@@ -102,8 +111,10 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		otelManager:                              cdcConfig.OtelManager,
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
+		jsonApi:                                  jsonApi,
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
+		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
 	}, nil
 }
@@ -115,12 +126,12 @@ func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, ta
 		return schema, nil
 	}
 
-	schemaTable, err := utils.ParseSchemaTable(tableName)
+	schemaTable, err := common.ParseTableIdentifier(tableName)
 	if err != nil {
 		return "", err
 	}
-	p.schemaNameForRelID[relID] = schemaTable.Schema
-	return schemaTable.Schema, nil
+	p.schemaNameForRelID[relID] = schemaTable.Namespace
+	return schemaTable.Namespace, nil
 }
 
 func getChildToParentRelIDMap(ctx context.Context,
@@ -197,7 +208,7 @@ func (pgProcessor) Process(
 			col.DataType,
 		)
 	default:
-		return fmt.Errorf("unknown column data type: %s", string(tuple.DataType))
+		return fmt.Errorf("unknown column data type for column %s: %s", col.Name, string(tuple.DataType))
 	}
 	return nil
 }
@@ -230,7 +241,7 @@ func (qProcessor) Process(
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
 				slog.String("columnName", col.Name), slog.Uint64("dataType", uint64(col.DataType)))
-			return fmt.Errorf("error decoding text column data: %w", err)
+			return fmt.Errorf("error decoding text data for column %s: %w", col.Name, err)
 		}
 		items.AddColumn(col.Name, data)
 	case 'b': // binary
@@ -238,11 +249,11 @@ func (qProcessor) Process(
 			tuple.Data, col.DataType, col.TypeModifier, pgtype.BinaryFormatCode, customTypeMapping, p.internalVersion,
 		)
 		if err != nil {
-			return fmt.Errorf("error decoding binary column data: %w", err)
+			return fmt.Errorf("error decoding binary data for column %s: %w", col.Name, err)
 		}
 		items.AddColumn(col.Name, data)
 	default:
-		return fmt.Errorf("unknown column data type: %s", string(tuple.DataType))
+		return fmt.Errorf("unknown data type for column %s: %s", col.Name, string(tuple.DataType))
 	}
 	return nil
 }
@@ -259,6 +270,7 @@ func processTuple[Items model.Items](
 	nameAndExclude model.NameAndExclude,
 	customTypeMapping map[uint32]shared.CustomDataType,
 	schemaName string,
+	baseRecord model.BaseRecord,
 ) (Items, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
@@ -267,6 +279,15 @@ func processTuple[Items model.Items](
 
 	items := processor.NewItems(len(tuple.Columns))
 	var unchangedToastColumns map[string]struct{}
+
+	var none Items
+	if len(tuple.Columns) > len(rel.Columns) {
+		return none, nil, fmt.Errorf(
+			"tuple has more columns than the last RelationMessage: %d > %d. "+
+				"One known occurrence of this was due to a bug with replication column lists in PG 15-15.1. "+
+				"https://www.postgresql.org/message-id/CADGJaX9kiRZ-OH0EpWF5Fkyh1ZZYofoNRCrhapBfdk02tj5EKg@mail.gmail.com",
+			len(tuple.Columns), len(rel.Columns))
+	}
 
 	for idx, tcol := range tuple.Columns {
 		rcol := rel.Columns[idx]
@@ -279,13 +300,16 @@ func processTuple[Items model.Items](
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
 		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping); err != nil {
-			var none Items
 			return none, nil, err
 		}
 	}
 
 	if schemaName != "" {
 		processor.AddStringColumn(items, "_peerdb_source_schema", schemaName)
+	}
+
+	if p.originMetadataAsDestinationColumn {
+		items.UpdateWithBaseRecord(baseRecord)
 	}
 
 	return items, unchangedToastColumns, nil
@@ -296,7 +320,47 @@ func (p *PostgresCDCSource) decodeColumnData(
 ) (types.QValue, error) {
 	var parsedData any
 	var err error
-	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
+
+	// Special handling for JSON types to use relaxed number parsing
+	if dataType == pgtype.JSONOID || dataType == pgtype.JSONBOID {
+		var text pgtype.Text
+		if err := p.typeMap.Scan(dataType, formatCode, data, &text); err != nil {
+			p.logger.Error("[pg_cdc] failed to scan json", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to scan json: %w", err)
+		}
+		if text.Valid {
+			if err := p.jsonApi.UnmarshalFromString(text.String, &parsedData); err != nil {
+				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
+				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+			}
+			if parsedData == nil {
+				// avoid confusing SQL null & JSON null by using pre-marshaled value
+				parsedData = json.RawMessage("null")
+			}
+			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+				parsedData, customTypeMapping, p.internalVersion)
+		}
+		return types.QValueNull(types.QValueKindJSON), nil
+	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
+		textArr := pgtype.FlatArray[pgtype.Text]{}
+		if err := p.typeMap.Scan(dataType, formatCode, data, &textArr); err != nil {
+			p.logger.Error("[pg_cdc] failed to scan json array", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to scan json array: %w", err)
+		}
+
+		arr := make([]any, len(textArr))
+		for j, text := range textArr {
+			if text.Valid {
+				if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
+					p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+				}
+			} else {
+				arr[j] = nil
+			}
+		}
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN, arr, customTypeMapping, p.internalVersion)
+	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
 			// below is required to decode above types to string
@@ -323,15 +387,18 @@ func (p *PostgresCDCSource) decodeColumnData(
 			}
 			return nil, err
 		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+			parsedData, customTypeMapping, p.internalVersion)
 	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
-		return p.parseFieldFromPostgresOID(dataType, typmod, string(data), customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+			string(data), customTypeMapping, p.internalVersion)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
-		customQKind := postgres.CustomTypeToQKind(typeData, version)
+		customQKind := CustomTypeToQKind(typeData, version)
 		switch customQKind {
 		case types.QValueKindGeography, types.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
 			if err != nil {
+				p.logger.Warn("failure during GeoValidate", slog.Any("error", err))
 				return types.QValueNull(customQKind), nil
 			} else if customQKind == types.QValueKindGeography {
 				return types.QValueGeography{Val: wkt}, nil
@@ -394,15 +461,17 @@ func PullCdcRecords[Items model.Items](
 	sendStandbyAfterReplLock := func(updateType string) error {
 		replLock.Lock()
 		defer replLock.Unlock()
-		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
-		if err != nil {
+		if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
+			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())},
+		); err != nil {
 			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
 		}
 		return nil
 	}
 
 	records := req.RecordStream
+	var totalRecords int64
+	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	var clientXLogPos pglogrepl.LSN
@@ -413,46 +482,93 @@ func PullCdcRecords[Items model.Items](
 		}
 	}
 
-	var standByLastLogged time.Time
-	cdcRecordsStorage, err := utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
+	// Remove exceptions.PrimaryKeyModifiedError and its classification when cdc store is removed
+	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, req.Env)
 	if err != nil {
 		return err
 	}
+	var cdcRecordsStorage *utils.CDCStore[Items]
+	if cdcStoreEnabled {
+		cdcRecordsStorage, err = utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
+		if err != nil {
+			return err
+		}
+	}
+
+	pullStart := time.Now()
+	var latestServerWALEnd, lastXLogDataServerWALEnd atomic.Int64
 	defer func() {
-		if cdcRecordsStorage.IsEmpty() {
+		if totalRecords == 0 {
 			records.SignalAsEmpty()
 		}
-		logger.Info("[finished] PullRecords", slog.Int("records", cdcRecordsStorage.Len()))
-		if err := cdcRecordsStorage.Close(); err != nil {
-			logger.Warn("failed to clean up records storage", slog.Any("error", err))
+		logger.Info("[finished] PullRecords",
+			slog.Int64("records", totalRecords),
+			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int("channelLen", records.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+		if cdcRecordsStorage != nil {
+			if err := cdcRecordsStorage.Close(); err != nil {
+				logger.Warn("failed to clean up records storage", slog.Any("error", err))
+			}
 		}
 	}()
 
-	shutdown := shared.Interval(ctx, time.Minute, func() {
-		logger.Info("pulling records", slog.Int("records", cdcRecordsStorage.Len()))
+	logger.Info("pulling records start")
+
+	waitingForCommit := false
+	defer func() {
+		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
+		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+	}()
+	shutdown := common.Interval(ctx, time.Minute, func() {
+		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
+		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+
+		if lastXLogDataServerWALEnd.Load() > 0 {
+			p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,
+				max(latestServerWALEnd.Load()-lastXLogDataServerWALEnd.Load(), 0))
+		}
+
+		logger.Info("pulling records",
+			slog.Int64("records", totalRecords),
+			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int("channelLen", records.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
+			slog.Bool("waitingForCommit", waitingForCommit))
 	})
 	defer shutdown()
 
+	var standByLastLogged time.Time
 	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
+	pkmRequiresResponse := false
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
-		if err := cdcRecordsStorage.Set(logger, key, rec); err != nil {
-			return err
+		if cdcRecordsStorage != nil {
+			if err := cdcRecordsStorage.Set(key, rec); err != nil {
+				return err
+			}
 		}
 		if err := records.AddRecord(ctx, rec); err != nil {
 			return err
 		}
 
-		if cdcRecordsStorage.Len() == 1 {
+		totalRecords++
+
+		if totalRecords == 1 {
 			records.SignalAsNotEmpty()
 			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
+		if totalRecords%50000 == 0 {
+			logger.Info("pulling records",
+				slog.Int64("records", totalRecords),
+				slog.Int64("bytes", totalFetchedBytes.Load()),
+				slog.Int("channelLen", records.ChannelLen()),
+				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
+				slog.Bool("waitingForCommit", waitingForCommit))
+		}
 		return nil
 	}
-
-	pkmRequiresResponse := false
-	waitingForCommit := false
 
 	pkmEmptyBatchThrottleThresholdSeconds, err := internal.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
 	if err != nil {
@@ -461,7 +577,7 @@ func PullCdcRecords[Items model.Items](
 	lastEmptyBatchPkmSentTime := time.Now()
 	for {
 		if pkmRequiresResponse {
-			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
+			if totalRecords == 0 && int64(clientXLogPos) > req.ConsumedOffset.Load() {
 				err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos)
 				if err != nil {
 					return err
@@ -476,35 +592,53 @@ func PullCdcRecords[Items model.Items](
 
 			if time.Since(standByLastLogged) > 10*time.Second {
 				logger.Info("Sent Standby status message",
-					slog.Int("records", cdcRecordsStorage.Len()))
+					slog.Int64("records", totalRecords),
+					slog.Int64("bytes", totalFetchedBytes.Load()),
+					slog.Int("channelLen", records.ChannelLen()),
+					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
+					slog.Bool("waitingForCommit", waitingForCommit))
 				standByLastLogged = time.Now()
 			}
 		}
 
 		if p.commitLock == nil {
-			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
+			if totalRecords >= int64(req.MaxBatchSize) {
+				logger.Info("batch filled, returning currently accumulated records",
+					slog.Int64("records", totalRecords),
+					slog.Int64("bytes", totalFetchedBytes.Load()),
+					slog.Int("channelLen", records.ChannelLen()),
+					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 				return nil
 			}
 
 			if waitingForCommit {
 				logger.Info("commit received, returning currently accumulated records",
-					slog.Int("records", cdcRecordsStorage.Len()))
+					slog.Int64("records", totalRecords),
+					slog.Int64("bytes", totalFetchedBytes.Load()),
+					slog.Int("channelLen", records.ChannelLen()),
+					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 				return nil
 			}
 		}
 
 		// if we are past the next standby deadline (?)
 		if time.Now().After(nextStandbyMessageDeadline) {
-			if !cdcRecordsStorage.IsEmpty() {
-				logger.Info("standby deadline reached", slog.Int("records", cdcRecordsStorage.Len()))
+			if totalRecords != 0 {
+				logger.Info("standby deadline reached", slog.Int64("records", totalRecords))
 
 				if p.commitLock == nil {
 					logger.Info("no commit lock, returning currently accumulated records",
-						slog.Int("records", cdcRecordsStorage.Len()))
+						slog.Int64("records", totalRecords),
+						slog.Int64("bytes", totalFetchedBytes.Load()),
+						slog.Int("channelLen", records.ChannelLen()),
+						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					return nil
 				} else {
 					logger.Info("commit lock, waiting for commit to return records",
-						slog.Int("records", cdcRecordsStorage.Len()))
+						slog.Int64("records", totalRecords),
+						slog.Int64("bytes", totalFetchedBytes.Load()),
+						slog.Int("channelLen", records.ChannelLen()),
+						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					waitingForCommit = true
 				}
 			} else {
@@ -515,7 +649,7 @@ func PullCdcRecords[Items model.Items](
 
 		var receiveCtx context.Context
 		var cancel context.CancelFunc
-		if cdcRecordsStorage.IsEmpty() {
+		if totalRecords == 0 {
 			receiveCtx, cancel = context.WithCancel(ctx)
 		} else {
 			receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
@@ -534,7 +668,10 @@ func PullCdcRecords[Items model.Items](
 		if err != nil && p.commitLock == nil {
 			if pgconn.Timeout(err) {
 				logger.Info("Stand-by deadline reached, returning currently accumulated records",
-					slog.Int("records", cdcRecordsStorage.Len()))
+					slog.Int64("records", totalRecords),
+					slog.Int64("bytes", totalFetchedBytes.Load()),
+					slog.Int("channelLen", records.ChannelLen()),
+					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 				return nil
 			} else {
 				return fmt.Errorf("ReceiveMessage failed: %w", err)
@@ -545,7 +682,7 @@ func PullCdcRecords[Items model.Items](
 		case *pgproto3.ErrorResponse:
 			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
 		case *pgproto3.CopyData:
-			p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
+			allFetchedBytes.Add(int64(len(msg.Data)))
 			switch msg.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
@@ -553,6 +690,9 @@ func PullCdcRecords[Items model.Items](
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 				}
 
+				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
+					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
+				}
 				if pkm.ServerWALEnd > clientXLogPos {
 					clientXLogPos = pkm.ServerWALEnd
 				}
@@ -567,12 +707,15 @@ func PullCdcRecords[Items model.Items](
 				if err != nil {
 					return fmt.Errorf("ParseXLogData failed: %w", err)
 				}
+				if int64(xld.ServerWALEnd) > lastXLogDataServerWALEnd.Load() {
+					lastXLogDataServerWALEnd.Store(int64(xld.ServerWALEnd))
+				}
 
 				logger.Debug("XLogData",
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
 				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
 				if err != nil {
-					return fmt.Errorf("error processing message: %w", err)
+					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
 
 				if xld.WALStart > clientXLogPos {
@@ -580,6 +723,8 @@ func PullCdcRecords[Items model.Items](
 				}
 
 				if rec != nil {
+					fetchedBytes.Add(int64(len(msg.Data)))
+					totalFetchedBytes.Add(int64(len(msg.Data)))
 					tableName := rec.GetDestinationTableName()
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:
@@ -598,17 +743,24 @@ func PullCdcRecords[Items model.Items](
 								return err
 							}
 
-							latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
-							if err != nil {
-								return err
-							}
-							if ok {
-								// iterate through unchanged toast cols and set them in new record
-								updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
-								for _, col := range updatedCols {
-									delete(r.UnchangedToastColumns, col)
+							if cdcRecordsStorage != nil {
+								if latestRecord, found, err := cdcRecordsStorage.Get(tablePkeyVal); err != nil {
+									return err
+								} else if found {
+									// iterate through unchanged toast cols and set them in new record
+									updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
+									for _, col := range updatedCols {
+										delete(r.UnchangedToastColumns, col)
+									}
+									p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(updatedCols)),
+										metric.WithAttributeSet(attribute.NewSet(
+											attribute.Bool("backfilled", true))))
 								}
 							}
+							p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(r.UnchangedToastColumns)),
+								metric.WithAttributeSet(attribute.NewSet(
+									attribute.Bool("backfilled", false))))
+
 							if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
 								return err
 							}
@@ -642,16 +794,19 @@ func PullCdcRecords[Items model.Items](
 								return err
 							}
 
-							latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
-							if err != nil {
-								return err
-							}
-							if ok {
-								r.Items = latestRecord.GetItems()
-								if updateRecord, ok := latestRecord.(*model.UpdateRecord[Items]); ok {
-									r.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+							backfilled := false
+							if cdcRecordsStorage != nil {
+								if latestRecord, found, err := cdcRecordsStorage.Get(tablePkeyVal); err != nil {
+									return err
+								} else if found {
+									r.Items = latestRecord.GetItems()
+									if updateRecord, ok := latestRecord.(*model.UpdateRecord[Items]); ok {
+										r.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+										backfilled = true
+									}
 								}
-							} else {
+							}
+							if !backfilled {
 								// there is nothing to backfill the items in the delete record with,
 								// so don't update the row with this record
 								// add sentinel value to prevent update statements from selecting
@@ -676,9 +831,9 @@ func PullCdcRecords[Items model.Items](
 						}
 
 					case *model.MessageRecord[Items]:
-						// if cdc store empty, we can move lsn,
+						// if there were no records, we can move lsn,
 						// otherwise push to records so destination can ack once all previous messages processed
-						if cdcRecordsStorage.IsEmpty() {
+						if totalRecords == 0 {
 							if int64(clientXLogPos) > req.ConsumedOffset.Load() {
 								if err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos); err != nil {
 									return err
@@ -712,12 +867,15 @@ func (p *PostgresCDCSource) updateConsumedOffset(
 
 func (p *PostgresCDCSource) baseRecord(lsn pglogrepl.LSN) model.BaseRecord {
 	var nano int64
+	var transactionID uint64
 	if p.commitLock != nil {
 		nano = p.commitLock.CommitTime.UnixNano()
+		transactionID = uint64(p.commitLock.Xid)
 	}
 	return model.BaseRecord{
 		CheckpointID:   int64(lsn),
 		CommitTimeNano: nano,
+		TransactionID:  transactionID,
 	}
 }
 
@@ -755,6 +913,7 @@ func processMessage[Items model.Items](
 			slog.Any("CommitLSN", msg.CommitLSN),
 			slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
+		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
 		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
@@ -768,7 +927,8 @@ func processMessage[Items model.Items](
 			return nil, nil
 		}
 
-		logger.Debug("RelationMessage",
+		logger.Info("processing RelationMessage",
+			slog.Any("LSN", currentClientXlogPos),
 			slog.Uint64("RelationID", uint64(msg.RelationID)),
 			slog.String("Namespace", msg.Namespace),
 			slog.String("RelationName", msg.RelationName),
@@ -817,7 +977,7 @@ func processInsertMessage[Items model.Items](
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", relID)
+		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -825,13 +985,14 @@ func processInsertMessage[Items model.Items](
 		return nil, err
 	}
 
-	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
+	baseRecord := p.baseRecord(lsn)
+	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
-		return nil, fmt.Errorf("error converting tuple to map: %w", err)
+		return nil, fmt.Errorf("failed to process insert message for table %s: %w", tableName, err)
 	}
 
 	return &model.InsertRecord[Items]{
-		BaseRecord:           p.baseRecord(lsn),
+		BaseRecord:           baseRecord,
 		Items:                items,
 		DestinationTableName: p.tableNameMapping[tableName].Name,
 		SourceTableName:      tableName,
@@ -858,7 +1019,7 @@ func processUpdateMessage[Items model.Items](
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", relID)
+		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -866,15 +1027,16 @@ func processUpdateMessage[Items model.Items](
 		return nil, err
 	}
 
-	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, "")
+	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, "", model.BaseRecord{})
 	if err != nil {
-		return nil, fmt.Errorf("error converting old tuple to map: %w", err)
+		return nil, fmt.Errorf("failed to process update message (OldTuple) for table %s: %w", tableName, err)
 	}
 
+	baseRecord := p.baseRecord(lsn)
 	newItems, unchangedToastColumns, err := processTuple(
-		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
+		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
-		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
+		return nil, fmt.Errorf("failed to process update message (NewTuple) for table %s: %w", tableName, err)
 	}
 
 	/*
@@ -891,7 +1053,7 @@ func processUpdateMessage[Items model.Items](
 	}
 
 	return &model.UpdateRecord[Items]{
-		BaseRecord:            p.baseRecord(lsn),
+		BaseRecord:            baseRecord,
 		OldItems:              oldItems,
 		NewItems:              newItems,
 		DestinationTableName:  p.tableNameMapping[tableName].Name,
@@ -920,7 +1082,7 @@ func processDeleteMessage[Items model.Items](
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", relID)
+		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -928,13 +1090,14 @@ func processDeleteMessage[Items model.Items](
 		return nil, err
 	}
 
-	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
+	baseRecord := p.baseRecord(lsn)
+	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
-		return nil, fmt.Errorf("error converting tuple to map: %w", err)
+		return nil, fmt.Errorf("failed to process delete message for table %s: %w", tableName, err)
 	}
 
 	return &model.DeleteRecord[Items]{
-		BaseRecord:           p.baseRecord(lsn),
+		BaseRecord:           baseRecord,
 		Items:                items,
 		DestinationTableName: p.tableNameMapping[tableName].Name,
 		SourceTableName:      tableName,
@@ -960,9 +1123,6 @@ func processRelationMessage[Items model.Items](
 		return nil, err
 	}
 
-	p.logger.Info("processing RelationMessage",
-		slog.Any("LSN", lsn),
-		slog.String("RelationName", currRelName))
 	// retrieve current TableSchema for table changed, mapping uses dst table name as key, need to translate source name
 	currRelDstInfo, ok := p.tableNameMapping[currRelName]
 	if !ok {
@@ -989,9 +1149,8 @@ func processRelationMessage[Items model.Items](
 		case protos.TypeSystem_Q:
 			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping, p.internalVersion)
 			if qKind == types.QValueKindInvalid {
-				typeName, ok := customTypeMapping[column.DataType]
-				if ok {
-					qKind = postgres.CustomTypeToQKind(typeName, p.internalVersion)
+				if typeName, ok := customTypeMapping[column.DataType]; ok {
+					qKind = CustomTypeToQKind(typeName, p.internalVersion)
 				}
 			}
 			currRelMap[column.Name] = string(qKind)
@@ -1014,34 +1173,53 @@ func processRelationMessage[Items model.Items](
 		System:          prevSchema.System,
 		NullableEnabled: prevSchema.NullableEnabled,
 	}
+
+	isAddedColumnAndNotExcluded := func(columnName string) bool {
+		_, inPrevRel := prevRelMap[columnName]
+		if inPrevRel {
+			return false
+		}
+		_, isExcluded := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[columnName]
+		return !isExcluded
+	}
+
+	addedColumnTypeOIDs := make([]uint32, 0)
+	for _, column := range currRel.Columns {
+		if isAddedColumnAndNotExcluded(column.Name) {
+			addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
+		}
+	}
+
+	typeSchemaNameMapping, err := p.GetSchemaNameOfColumnTypeByOID(ctx, addedColumnTypeOIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error getting schema names for added column types: %w", err)
+	}
+
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
-		if _, ok := prevRelMap[column.Name]; !ok {
-			// only add to delta if not excluded
-			if _, ok := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[column.Name]; !ok {
-				schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.FieldDescription{
-					Name:         column.Name,
-					Type:         currRelMap[column.Name],
-					TypeModifier: column.TypeModifier,
-					Nullable:     false,
-				})
-				// pg does not send nullable info, only whether column is part of replica identity
-				// After loop we will correct this based on pg_catalog,
-				// but can skip specific scenario where replident is default or index
-				if currRel.ReplicaIdentity == uint8(ReplicaIdentityFull) ||
-					currRel.ReplicaIdentity == uint8(ReplicaIdentityNothing) || column.Flags == 0 {
-					potentiallyNullableAddedColumns = append(potentiallyNullableAddedColumns, utils.QuoteLiteral(column.Name))
-				}
-				p.logger.Info("Detected added column",
-					slog.String("columnName", column.Name),
-					slog.String("columnType", currRelMap[column.Name]),
-					slog.String("relationName", schemaDelta.SrcTableName))
-			} else {
-				p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
-					column.Name, schemaDelta.SrcTableName))
+		if isAddedColumnAndNotExcluded(column.Name) {
+			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.FieldDescription{
+				Name:           column.Name,
+				Type:           currRelMap[column.Name],
+				TypeModifier:   column.TypeModifier,
+				Nullable:       false,
+				TypeSchemaName: typeSchemaNameMapping[column.DataType],
+			})
+			// pg does not send nullable info, only whether column is part of replica identity
+			// After loop we will correct this based on pg_catalog,
+			// but can skip specific scenario where replident is default or index
+			if currRel.ReplicaIdentity == uint8(ReplicaIdentityFull) ||
+				currRel.ReplicaIdentity == uint8(ReplicaIdentityNothing) || column.Flags == 0 {
+				potentiallyNullableAddedColumns = append(potentiallyNullableAddedColumns, utils.QuoteLiteral(column.Name))
 			}
-			// present in previous and current relation messages, but data types have changed.
-			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
+			p.logger.Info("Detected added column",
+				slog.String("columnName", column.Name),
+				slog.String("columnType", currRelMap[column.Name]),
+				slog.String("relationName", schemaDelta.SrcTableName))
+		} else if _, inPrevRel := prevRelMap[column.Name]; !inPrevRel {
+			// Column is added but excluded
+			p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
+				column.Name, schemaDelta.SrcTableName))
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
 			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
 				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))

@@ -110,10 +110,10 @@ pub fn process_options(
             } => {
                 if let Some(raw_value) = raw_opts.remove(*name) {
                     if let ast::Value::SingleQuotedString(str) = raw_value {
-                        if let Some(values) = accepted_values {
-                            if !values.contains(&str.as_str()) {
-                                anyhow::bail!("{} must be one of {:?}", name, values);
-                            }
+                        if let Some(values) = accepted_values
+                            && !values.contains(&str.as_str())
+                        {
+                            anyhow::bail!("{} must be one of {:?}", name, values);
                         }
                         opts.insert(name.to_string(), Value::String(str.clone()));
                     } else {
@@ -134,10 +134,10 @@ pub fn process_options(
                 if let Some(raw_value) = raw_opts.remove(*name) {
                     if let ast::Value::Number(num_str, _) = raw_value {
                         let num = num_str.parse::<u32>()?;
-                        if let Some(min) = min_value {
-                            if num < *min {
-                                anyhow::bail!("{} must be greater than {}", name, min);
-                            }
+                        if let Some(min) = min_value
+                            && num < *min
+                        {
+                            anyhow::bail!("{} must be greater than {}", name, min);
                         }
                         opts.insert(name.to_string(), Value::Number(num.into()));
                     } else {

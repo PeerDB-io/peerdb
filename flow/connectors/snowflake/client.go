@@ -12,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -32,8 +33,8 @@ func SnowflakeQuotelessIdentifierNormalize(identifier string) string {
 	return identifier
 }
 
-func snowflakeSchemaTableNormalize(schemaTable *utils.SchemaTable) string {
-	return fmt.Sprintf(`%s.%s`, SnowflakeIdentifierNormalize(schemaTable.Schema),
+func snowflakeSchemaTableNormalize(schemaTable *common.QualifiedTable) string {
+	return fmt.Sprintf(`%s.%s`, SnowflakeIdentifierNormalize(schemaTable.Namespace),
 		SnowflakeIdentifierNormalize(schemaTable.Table))
 }
 
@@ -70,54 +71,49 @@ func (c *SnowflakeConnector) processRows(rows *sql.Rows) (*model.QRecordBatch, e
 		qfields[i] = qfield
 	}
 
+	values := make([]any, len(dbColTypes))
+	for i := range values {
+		switch qfields[i].Type {
+		case types.QValueKindTimestamp, types.QValueKindTimestampTZ, types.QValueKindTime, types.QValueKindDate:
+			var t sql.NullTime
+			values[i] = &t
+		case types.QValueKindInt32:
+			var n sql.NullInt32
+			values[i] = &n
+		case types.QValueKindInt64:
+			var n sql.NullInt64
+			values[i] = &n
+		case types.QValueKindFloat64:
+			var f sql.NullFloat64
+			values[i] = &f
+		case types.QValueKindBoolean:
+			var b sql.NullBool
+			values[i] = &b
+		case types.QValueKindString, types.QValueKindHStore:
+			var s sql.NullString
+			values[i] = &s
+		case types.QValueKindBytes:
+			values[i] = new([]byte)
+		case types.QValueKindNumeric:
+			var s sql.Null[decimal.Decimal]
+			values[i] = &s
+		default:
+			values[i] = new(any)
+		}
+	}
+
 	var records [][]types.QValue
 	totalRowsProcessed := 0
 	const logEveryNumRows = 50000
 
 	for rows.Next() {
-		columns, err := rows.Columns()
-		if err != nil {
-			return nil, err
-		}
-
-		values := make([]any, len(columns))
-		for i := range values {
-			switch qfields[i].Type {
-			case types.QValueKindTimestamp, types.QValueKindTimestampTZ, types.QValueKindTime, types.QValueKindDate:
-				var t sql.NullTime
-				values[i] = &t
-			case types.QValueKindInt32:
-				var n sql.NullInt32
-				values[i] = &n
-			case types.QValueKindInt64:
-				var n sql.NullInt64
-				values[i] = &n
-			case types.QValueKindFloat64:
-				var f sql.NullFloat64
-				values[i] = &f
-			case types.QValueKindBoolean:
-				var b sql.NullBool
-				values[i] = &b
-			case types.QValueKindString, types.QValueKindHStore:
-				var s sql.NullString
-				values[i] = &s
-			case types.QValueKindBytes:
-				values[i] = new([]byte)
-			case types.QValueKindNumeric:
-				var s sql.Null[decimal.Decimal]
-				values[i] = &s
-			default:
-				values[i] = new(any)
-			}
-		}
-
 		if err := rows.Scan(values...); err != nil {
 			return nil, err
 		}
 
 		qValues := make([]types.QValue, len(values))
 		for i, val := range values {
-			qv, err := toQValue(qfields[i].Type, val)
+			qv, err := c.toQValue(qfields[i].Type, val)
 			if err != nil {
 				c.logger.Error("failed to convert value", slog.Any("error", err))
 				return nil, err
@@ -158,7 +154,7 @@ func (c *SnowflakeConnector) ExecuteAndProcessQuery(
 	return c.processRows(rows)
 }
 
-func toQValue(kind types.QValueKind, val any) (types.QValue, error) {
+func (c *SnowflakeConnector) toQValue(kind types.QValueKind, val any) (types.QValue, error) {
 	if val == nil {
 		return types.QValueNull(kind), nil
 	}
@@ -259,7 +255,7 @@ func toQValue(kind types.QValueKind, val any) (types.QValue, error) {
 		vraw := val.(*any)
 		vstring, ok := (*vraw).(string)
 		if !ok {
-			slog.Warn("A parsed JSON value was not a string. Likely a null field value")
+			c.logger.Warn("A parsed JSON value was not a string. Likely a null field value")
 		}
 
 		return types.QValueJSON{Val: vstring}, nil

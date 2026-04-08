@@ -1,5 +1,4 @@
 'use client';
-import { Divider } from '@tremor/react';
 import {
   Dispatch,
   SetStateAction,
@@ -11,7 +10,7 @@ import {
 import ReactSelect from 'react-select';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import { DBType } from '@/grpc_generated/peers';
 import { ColumnsItem } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
@@ -36,6 +35,7 @@ export default function CustomColumnType({
   setRows,
   peerType,
 }: CustomColumnTypeProps) {
+  const selectTheme = useSelectTheme();
   const [useCustom, setUseCustom] = useState(false);
   const [selectedColumnName, setSelectedColumnName] = useState<string>('');
   const [destinationTypeMapping, setDestinationTypeMapping] = useState<
@@ -50,9 +50,6 @@ export default function CustomColumnType({
     const columnsWithDstTypes = selectedColumns.filter(
       (col) => destinationTypeMapping[col.name] !== undefined
     );
-    if (columnsWithDstTypes.length == 0) {
-      setUseCustom(false);
-    }
     return columnsWithDstTypes;
   }, [selectedColumns, destinationTypeMapping]);
 
@@ -100,7 +97,7 @@ export default function CustomColumnType({
                 tc.destinationTypes.map((type: string) => ({
                   value: type,
                   label: type,
-                })) ?? [];
+                }));
               break;
             }
           }
@@ -158,6 +155,7 @@ export default function CustomColumnType({
                     destinationName: '',
                     destinationType: value,
                     ordering: 0,
+                    partitioning: 0,
                     nullableEnabled: false,
                   },
                 ],
@@ -219,12 +217,7 @@ export default function CustomColumnType({
           rowGap: '0.5rem',
         }}
       >
-        <Divider
-          style={{
-            ...columnBoxDividerStyle,
-            marginTop: '0.5rem',
-          }}
-        />
+        <hr style={{ ...columnBoxDividerStyle, marginTop: '0.5rem' }} />
         <RowWithCheckbox
           label={
             <Label as='label' style={{ fontSize: 13 }}>
@@ -270,7 +263,7 @@ export default function CustomColumnType({
                           value: mapping.columnName,
                           label: mapping.columnName,
                         }}
-                        theme={SelectTheme}
+                        theme={selectTheme}
                         styles={engineOptionStyles}
                       />
                     </div>
@@ -284,7 +277,7 @@ export default function CustomColumnType({
                         onChange={(val) =>
                           val?.value && handleUpdateColumn(mapping, val.value)
                         }
-                        theme={SelectTheme}
+                        theme={selectTheme}
                         styles={engineOptionStyles}
                         options={destinationTypeOptions(mapping.columnName)}
                       />
@@ -322,7 +315,7 @@ export default function CustomColumnType({
                       value: col.name,
                       label: col.name,
                     }))}
-                    theme={SelectTheme}
+                    theme={selectTheme}
                     styles={engineOptionStyles}
                   />
                 </div>
@@ -339,7 +332,7 @@ export default function CustomColumnType({
                         ? destinationTypeOptions(selectedColumnName)
                         : []
                     }
-                    theme={SelectTheme}
+                    theme={selectTheme}
                     styles={engineOptionStyles}
                   />
                 </div>

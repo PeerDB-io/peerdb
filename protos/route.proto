@@ -11,26 +11,16 @@ package peerdb_route;
 
 message CreateCDCFlowRequest {
   peerdb_flow.FlowConnectionConfigs connection_configs = 1;
+  bool attach_to_existing = 2;
 }
 
 message CreateCDCFlowResponse { string workflow_id = 1; }
 
 message CreateQRepFlowRequest {
   peerdb_flow.QRepConfig qrep_config = 1;
-  bool create_catalog_entry = 2;
 }
 
 message CreateQRepFlowResponse { string workflow_id = 1; }
-
-message CreateCustomSyncRequest {
-  string flow_job_name = 1;
-  int32 number_of_syncs = 2;
-}
-
-message CreateCustomSyncResponse {
-  string flow_job_name = 1;
-  int32 number_of_syncs = 2;
-}
 
 message AlertConfig {
   int32 id = 1;
@@ -81,6 +71,7 @@ message ValidatePeerRequest { peerdb_peers.Peer peer = 1; }
 message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;
   bool allow_update = 2;
+  bool disable_validation = 3;
 }
 
 message DropPeerRequest { string peer_name = 1; }
@@ -184,6 +175,7 @@ message TableResponse {
   string table_name = 1;
   bool can_mirror = 2;
   string table_size = 3;
+  bool is_replica_identity_full = 4;
 }
 
 message AllTablesResponse { repeated string tables = 1; }
@@ -199,6 +191,7 @@ message ColumnsItem {
   string type = 2;
   bool is_key = 3;
   string qkind = 4;
+  bool is_replica_identity = 5;
 }
 
 message TableColumnsResponse {
@@ -218,7 +211,10 @@ message ColumnsTypeConversionResponse {
   repeated ColumnsTypeConversion conversions = 1;
 }
 
-message PostgresPeerActivityInfoRequest { string peer_name = 1; }
+message PostgresPeerActivityInfoRequest {
+  string peer_name = 1;
+  bool peerdb_managed_only = 2;
+}
 
 message PeerInfoRequest { string peer_name = 1; }
 
@@ -243,6 +239,7 @@ message ListPeersResponse {
 }
 
 message SlotInfo {
+  reserved 12;
   string slot_name = 1;
   string redo_lSN = 2;
   string restart_lSN = 3;
@@ -250,6 +247,19 @@ message SlotInfo {
   float lag_in_mb = 5;
   string confirmed_flush_lSN = 6;
   string wal_status = 7;
+  optional string sent_lSN = 8; // Only populated if we have a pg_monitor/pg_read_all_stats role
+  string current_lSN = 9;
+  float restart_to_confirmed_mb = 10;
+  float confirmed_to_current_mb = 11;
+  string wait_event_type = 13;
+  string wait_event = 14;
+  string backend_state = 15;
+  int64 logical_decoding_work_mem_mb = 16;
+  optional int64 stats_reset = 17;
+  optional int64 spill_txns = 18;
+  optional int64 spill_count = 19;
+  optional int64 spill_bytes = 20;
+  optional int64 safe_wal_size = 21;
 }
 
 message SlotLagPoint {
@@ -335,9 +345,25 @@ message GetCDCBatchesResponse {
   int32 page = 3;
 }
 
+enum GraphMode {
+  GRAPH_MODE_UNKNOWN = 0;
+  GRAPH_MODE_GROUP_BY = 1;
+  GRAPH_MODE_LAST_X = 2;
+}
+
+enum TimeAggregateType {
+  TIME_AGGREGATE_TYPE_UNKNOWN = 0;
+  TIME_AGGREGATE_TYPE_FIVE_MIN = 1;
+  TIME_AGGREGATE_TYPE_FIFTEEN_MIN = 2;
+  TIME_AGGREGATE_TYPE_ONE_HOUR = 3;
+  TIME_AGGREGATE_TYPE_ONE_DAY = 4;
+  TIME_AGGREGATE_TYPE_ONE_MONTH = 5;
+}
+
 message GraphRequest {
   string flow_job_name = 1;
-  string aggregate_type = 2; // TODO name?
+  TimeAggregateType aggregate_type = 2;
+  GraphMode mode = 3;
 }
 
 message GraphResponseItem {
@@ -345,7 +371,11 @@ message GraphResponseItem {
   double rows = 2;
 }
 
-message GraphResponse { repeated GraphResponseItem data = 1; }
+message GraphResponse {
+  repeated GraphResponseItem data = 1;
+  int64 total_rows = 2;
+
+}
 
 message MirrorLog {
   string flow_name = 1;
@@ -380,6 +410,7 @@ message ListMirrorsItem {
   peerdb_peers.DBType destination_type = 7;
   double created_at = 8;
   bool is_cdc = 9;
+  peerdb_flow.FlowStatus status = 10;
 }
 message ListMirrorsRequest {}
 message ListMirrorsResponse { repeated ListMirrorsItem mirrors = 1; }
@@ -484,6 +515,19 @@ message GetFlowTagsResponse {
   repeated FlowTag tags = 2;
 }
 
+message CancelTableAdditionInput {
+  string flow_job_name = 1;
+  repeated peerdb_flow.TableMapping currently_replicating_tables = 2;
+  string idempotency_key = 3;
+  bool assume_table_removal_will_not_happen = 4;
+}
+
+message CancelTableAdditionOutput {
+  string flow_job_name = 1;
+  repeated peerdb_flow.TableMapping tables_after_cancellation = 2;
+  string run_id = 3;
+}
+
 service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
@@ -520,13 +564,6 @@ service FlowService {
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {
     option (google.api.http) = {
       post : "/v1/flows/qrep/create",
-      body : "*"
-    };
-  }
-  rpc CustomSyncFlow(CreateCustomSyncRequest)
-      returns (CreateCustomSyncResponse) {
-    option (google.api.http) = {
-      post : "/v1/flows/cdc/sync",
       body : "*"
     };
   }
@@ -773,6 +810,13 @@ service FlowService {
       returns (TotalRowsSyncedByMirrorResponse) {
     option (google.api.http) = {
       get : "/v1/mirrors/total_rows_synced/{flow_job_name}"
+    };
+  }
+
+  rpc CancelTableAddition(CancelTableAdditionInput) returns (CancelTableAdditionOutput) {
+    option (google.api.http) = {
+      post : "/v1/flows/cdc/cancel_table_addition",
+      body : "*"
     };
   }
 }

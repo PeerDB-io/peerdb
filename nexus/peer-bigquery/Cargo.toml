@@ -12,7 +12,6 @@ chrono.workspace = true
 futures = { version = "0.3.28", features = ["executor"] }
 peer-ast = { path = "../peer-ast" }
 peer-cursor = { path = "../peer-cursor" }
-peer-connections = { path = "../peer-connections" }
 pgwire.workspace = true
 pt = { path = "../pt" }
 rust_decimal.workspace = true
@@ -21,6 +20,6 @@ serde_json = "1.0"
 sqlparser.workspace = true
 tracing.workspace = true
 tokio.workspace = true
-gcp-bigquery-client = "0.26"
+gcp-bigquery-client = "0.28"
 uuid = { version = "1.0", features = ["serde", "v4"] }
 value = { path = "../value" }

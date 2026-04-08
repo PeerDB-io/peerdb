@@ -15,7 +15,7 @@ func LogError(logger log.Logger, err error) error {
 
 var _ slog.Handler = SlogHandler{}
 
-var fields = []ContextKey{FlowNameKey, PartitionIDKey}
+var fields = []ContextKey{FlowNameKey, PartitionIDKey, RequestIdKey}
 
 type SlogHandler struct {
 	slog.Handler
@@ -35,4 +35,24 @@ func (h SlogHandler) Handle(ctx context.Context, record slog.Record) error {
 	}
 	record.AddAttrs(slog.String(string(DeploymentUIDKey), os.Getenv("PEERDB_DEPLOYMENT_UID")))
 	return h.Handler.Handle(ctx, record)
+}
+
+func NewSlogHandlerOptions() *slog.HandlerOptions {
+	if level, ok := os.LookupEnv("PEERDB_LOG_LEVEL"); ok {
+		var ll slog.Level
+		switch level {
+		case "DEBUG":
+			ll = slog.LevelDebug
+		case "WARN":
+			ll = slog.LevelWarn
+		case "ERROR":
+			ll = slog.LevelError
+		default:
+			ll = slog.LevelInfo
+		}
+		return &slog.HandlerOptions{
+			Level: ll,
+		}
+	}
+	return nil
 }

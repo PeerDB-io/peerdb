@@ -1,0 +1,123 @@
+name: Auto-Retry Flaky Tests
+
+# Use case: When CI fails, automatically determine if it's likely flaky and retry if so.
+# Original: https://github.com/anthropics/claude-code-action/blob/main/examples/test-failure-analysis.yml
+
+on:
+  workflow_run:
+    workflows: ["Flow build and test"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+  pull-requests: write
+
+jobs:
+  detect-flaky:
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.run_attempt <= 5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Detect flaky test failures
+        id: detect
+        uses: anthropics/claude-code-action@6cad158a175744eb2e76f7f5fd108ec63145598c # main
+        with:
+          allowed_bots: 'renovate'
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          additional_permissions: |
+            actions: read
+          prompt: |
+            The CI workflow failed: ${{ github.event.workflow_run.html_url }}
+
+            Check the logs: gh run view ${{ github.event.workflow_run.id }} --log-failed
+
+            Determine if this looks like a flaky test failure by checking for:
+            - Timeout errors
+            - Race conditions
+            - Network errors
+            - "Expected X but got Y" intermittent failures
+            - Tests that passed in previous commits
+
+            Return:
+            - is_flaky: true if likely flaky, false if real bug
+            - confidence: number 0-1 indicating confidence level
+            - summary: brief one-sentence explanation
+          claude_args: |
+            --allowedTools 'Bash(gh run view *)' --json-schema '{"type":"object","properties":{"is_flaky":{"type":"boolean","description":"Whether this appears to be a flaky test failure"},"confidence":{"type":"number","minimum":0,"maximum":1,"description":"Confidence level in the determination"},"summary":{"type":"string","description":"One-sentence explanation of the failure"}},"required":["is_flaky","confidence","summary"]}'
+
+      # Auto-retry only if flaky AND high confidence (>= 0.7)
+      - name: Retry flaky tests
+        if: |
+          fromJSON(steps.detect.outputs.structured_output).is_flaky == true &&
+          fromJSON(steps.detect.outputs.structured_output).confidence >= 0.7
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTPUT: ${{ steps.detect.outputs.structured_output }}
+        run: |
+          CONFIDENCE=$(echo "$OUTPUT" | jq -r '.confidence')
+          SUMMARY=$(echo "$OUTPUT" | jq -r '.summary')
+
+          echo "🔄 Flaky test detected (confidence: $CONFIDENCE)"
+          echo "Summary: $SUMMARY"
+          echo ""
+          echo "Triggering automatic retry..."
+
+          gh run rerun ${{ github.event.workflow_run.id }} --failed
+
+      # Low confidence flaky detection - skip retry
+      - name: Low confidence detection
+        if: |
+          fromJSON(steps.detect.outputs.structured_output).is_flaky == true &&
+          fromJSON(steps.detect.outputs.structured_output).confidence < 0.7
+        env:
+          OUTPUT: ${{ steps.detect.outputs.structured_output }}
+        run: |
+          CONFIDENCE=$(echo "$OUTPUT" | jq -r '.confidence')
+
+          echo "⚠️ Possible flaky test but confidence too low ($CONFIDENCE)"
+          echo "Not retrying automatically - manual review recommended"
+
+      # Comment on PR if this was a PR build
+      - name: Comment on PR
+        if: github.event.workflow_run.event == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTPUT: ${{ steps.detect.outputs.structured_output }}
+        run: |
+          IS_FLAKY=$(echo "$OUTPUT" | jq -r '.is_flaky')
+          CONFIDENCE=$(echo "$OUTPUT" | jq -r '.confidence')
+          SUMMARY=$(echo "$OUTPUT" | jq -r '.summary')
+
+          pr_number=$(gh pr list --head "${{ github.event.workflow_run.head_branch }}" --json number --jq '.[0].number')
+
+          if [ -n "$pr_number" ]; then
+            if [ "$IS_FLAKY" = "true" ] && [ "$(echo "$CONFIDENCE >= 0.7" | bc)" -eq 1 ]; then
+              TITLE="🔄 Flaky Test Detected"
+              ACTION="✅ Automatically retrying the workflow"
+            elif [ "$IS_FLAKY" = "true" ]; then
+              TITLE="🔄 Possible Flaky Test"
+              ACTION="⚠️ Confidence too low ($CONFIDENCE) to retry automatically - manual review recommended"
+            else
+              TITLE="❌ Test Failure"
+              ACTION="⚠️ This appears to be a real bug - manual intervention needed"
+            fi
+
+            gh pr comment "$pr_number" --body "$(cat <<EOF
+          ## $TITLE
+
+          **Analysis**: $SUMMARY
+          **Confidence**: $CONFIDENCE
+
+          $ACTION
+
+          [View workflow run](${{ github.event.workflow_run.html_url }})
+          EOF
+          )"
+          fi

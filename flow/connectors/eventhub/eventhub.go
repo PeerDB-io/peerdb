@@ -37,14 +37,14 @@ func NewEventHubConnector(
 	logger := internal.LoggerFromCtx(ctx)
 	defaultAzureCreds, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		logger.Error("failed to get default azure credentials", "error", err)
+		logger.Error("failed to get default azure credentials", slog.Any("error", err))
 		return nil, err
 	}
 
 	hubManager := NewEventHubManager(defaultAzureCreds, config)
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
-		logger.Error("failed to create postgres metadata store", "error", err)
+		logger.Error("failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -304,7 +304,7 @@ func (c *EventHubConnector) processBatch(
 			}
 
 		case <-ctx.Done():
-			return 0, fmt.Errorf("[eventhub] context cancelled %w", ctx.Err())
+			return 0, fmt.Errorf("[eventhubs] context cancelled %w", ctx.Err())
 
 		case <-ticker.C:
 			err := batchPerTopic.flushAllBatches(ctx, req.FlowJobName)
@@ -371,7 +371,7 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 }
 
 func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil
 }

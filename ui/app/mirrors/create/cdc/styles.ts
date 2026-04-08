@@ -1,11 +1,10 @@
-import { CSSProperties } from 'styled-components';
+import { CSSProperties } from 'react';
 
 export const expandableStyle = {
   fontSize: 14,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  color: 'rgba(0,0,0,0.7)',
   cursor: 'pointer',
 };
 

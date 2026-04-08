@@ -18,7 +18,7 @@ type SuiteSource interface {
 	Teardown(t *testing.T, ctx context.Context, suffix string)
 	GeneratePeer(t *testing.T) *protos.Peer
 	Connector() connectors.Connector
-	Exec(ctx context.Context, sql string) error
+	Exec(ctx context.Context, sql string, args ...any) error
 	GetRows(ctx context.Context, suffix, table, cols string) (*model.QRecordBatch, error)
 }
 
@@ -30,7 +30,7 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 	for i := 0; i < len(tables); i += 2 {
 		tm = append(tm, &protos.TableMapping{
 			SourceTableIdentifier:      AttachSchema(s, tables[i]),
-			DestinationTableIdentifier: s.DestinationTable(tables[i+1]),
+			DestinationTableIdentifier: s.DestinationTable(tables[i+1]), //nolint:gosec // G602: even length enforced above
 			ShardingKey:                "id",
 		})
 	}

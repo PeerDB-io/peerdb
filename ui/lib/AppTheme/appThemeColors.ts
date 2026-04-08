@@ -119,6 +119,30 @@ export const appThemeColors = {
       highContrast: '#1B311E',
     },
   },
+  blue: {
+    background: {
+      normal: '#F0F8FF',
+      subtle: '#E6F3FF',
+    },
+    surface: {
+      normal: '#CCE7FF',
+      hovered: '#B3DCFF',
+      selected: '#99D1FF',
+    },
+    border: {
+      subtle: '#80C6FF',
+      normal: '#4AB0F0',
+      hovered: '#2E9AE0',
+    },
+    fill: {
+      normal: '#4AB0F0',
+      hovered: '#2E9AE0',
+    },
+    text: {
+      lowContrast: '#1A75C7',
+      highContrast: '#0D4A87',
+    },
+  },
   special: {
     inverted: {
       white: '#FFFFFF',
@@ -128,5 +152,11 @@ export const appThemeColors = {
       white: '#FFFFFF',
       black: '#000000',
     },
+  },
+  select: {
+    primary: '#30A46C',
+    primary25: 'rgba(48, 164, 108, 0.3)',
+    neutral0: '#FFFFFF', // menu background
+    neutral80: '#171717', // text color
   },
 } as const;

@@ -1,7 +1,7 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { s3Setting } from '@/app/peers/create/[peerType]/helpers/s3';
-import SelectTheme from '@/app/styles/select';
+import { useSelectTheme } from '@/app/styles/select';
 import { GCS_ENDPOINT } from '@/app/utils/gcsEndpoint';
 import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
@@ -22,6 +22,7 @@ interface S3Props {
 }
 
 export default function S3Form({ setter }: S3Props) {
+  const selectTheme = useSelectTheme();
   const [storageType, setStorageType] = useState<'S3' | 'GCS'>('S3');
   const displayCondition = (label: string) => {
     return !(
@@ -85,7 +86,7 @@ export default function S3Form({ setter }: S3Props) {
                     val && setting.stateHandler(val.value, setter)
                   }
                   options={setting.options}
-                  theme={SelectTheme}
+                  theme={selectTheme}
                 />
               }
             />

@@ -32,7 +32,7 @@ func parseTemporalCertAndKeyFromEnvironment(ctx context.Context) ([]tls.Certific
 
 func setupTemporalClient(ctx context.Context, clientOptions client.Options) (client.Client, error) {
 	if certPath := internal.PeerDBTemporalClientCertPath(); certPath != "" {
-		slog.Info("Using temporal certificate/key from paths for authentication")
+		slog.InfoContext(ctx, "Using temporal certificate/key from paths for authentication")
 		keyPath := internal.PeerDBTemporalClientKeyPath()
 
 		clientOptions.ConnectionOptions = client.ConnectionOptions{
@@ -48,7 +48,7 @@ func setupTemporalClient(ctx context.Context, clientOptions client.Options) (cli
 			},
 		}
 	} else if internal.PeerDBTemporalEnableCertAuth() {
-		slog.Info("Using temporal certificate/key from environment for authentication")
+		slog.InfoContext(ctx, "Using temporal certificate/key from environment for authentication")
 
 		certs, err := parseTemporalCertAndKeyFromEnvironment(ctx)
 		if err != nil {

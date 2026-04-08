@@ -8,7 +8,6 @@ import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
-import { Divider } from '@tremor/react';
 import { Dispatch, SetStateAction, useState } from 'react';
 import { BarLoader } from 'react-spinners';
 
@@ -152,7 +151,7 @@ export default function DropDialog({
       triggerButton={
         <Button variant='drop'>
           {mode === 'ALERT' ? (
-            <Label as='label' style={{ color: 'coral' }}>
+            <Label as='label' colorSet='destructive' colorName='lowContrast'>
               Delete
             </Label>
           ) : (
@@ -165,7 +164,7 @@ export default function DropDialog({
         <Label as='label' variant='action'>
           Delete {mode.toLowerCase()}
         </Label>
-        <Divider style={{ margin: 0 }} />
+        <hr style={{ margin: 0 }} />
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
           {getDeleteText()}
         </Label>
@@ -182,16 +181,13 @@ export default function DropDialog({
         )}
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
-            <Button style={{ backgroundColor: '#6c757d', color: 'white' }}>
-              Cancel
-            </Button>
+            <Button variant='normal'>Cancel</Button>
           </DialogClose>
           <Button
             onClick={() => handleDelete()}
+            variant='destructiveSolid'
             style={{
               marginLeft: '1rem',
-              backgroundColor: '#dc3545',
-              color: 'white',
             }}
           >
             {loading ? <BarLoader /> : 'Delete'}
@@ -200,7 +196,8 @@ export default function DropDialog({
         {msg && (
           <Label
             as='label'
-            style={{ color: msg.includes('success') ? 'green' : '#dc3545' }}
+            colorSet={msg.includes('success') ? 'positive' : 'destructive'}
+            colorName='lowContrast'
           >
             {msg}
           </Label>

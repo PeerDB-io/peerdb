@@ -4,20 +4,19 @@ import (
 	"context"
 	"fmt"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
-
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 )
 
 func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
 	tableNames := make([]string, 0)
 
-	dbNames, err := c.getAllDatabaseNames(ctx)
+	dbNames, err := shared_mongo.GetDatabaseNames(ctx, c.client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get databases: %w", err)
 	}
 	for _, dbName := range dbNames {
-		collNames, err := c.client.Database(dbName).ListCollectionNames(ctx, bson.D{})
+		collNames, err := shared_mongo.GetCollectionNames(ctx, c.client, dbName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get collections: %w", err)
 		}
@@ -31,7 +30,7 @@ func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesRes
 }
 
 func (c *MongoConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error) {
-	dbNames, err := c.getAllDatabaseNames(ctx)
+	dbNames, err := shared_mongo.GetDatabaseNames(ctx, c.client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get databases: %w", err)
 	}
@@ -41,8 +40,7 @@ func (c *MongoConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasRes
 }
 
 func (c *MongoConnector) GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error) {
-	db := c.client.Database(schema)
-	collectionNames, err := db.ListCollectionNames(ctx, bson.D{})
+	collectionNames, err := shared_mongo.GetCollectionNames(ctx, c.client, schema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get collections: %w", err)
 	}
@@ -68,21 +66,4 @@ func (c *MongoConnector) GetColumns(ctx context.Context, version uint32, schema 
 	return &protos.TableColumnsResponse{
 		Columns: []*protos.ColumnsItem{},
 	}, nil
-}
-
-// Get all database names, but excluding MongoDB's default databases
-func (c *MongoConnector) getAllDatabaseNames(ctx context.Context) ([]string, error) {
-	filter := bson.M{
-		"name": bson.M{
-			"$nin": []string{"admin", "local", "config"},
-		},
-	}
-	dbs, err := c.client.ListDatabaseNames(ctx, filter)
-	if err != nil {
-		return nil, err
-	}
-	filteredDbNames := make([]string, 0, len(dbs))
-	filteredDbNames = append(filteredDbNames, dbs...)
-
-	return filteredDbNames, nil
 }

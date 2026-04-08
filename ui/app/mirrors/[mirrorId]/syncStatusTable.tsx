@@ -1,5 +1,6 @@
 'use client';
 
+import { humanizeThresholds } from '@/app/utils/momentOptions';
 import TimeLabel from '@/components/TimeComponent';
 import {
   CDCBatch,
@@ -7,6 +8,7 @@ import {
   GetCDCBatchesResponse,
 } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
+import { useSortButtonColor } from '@/lib/hooks/useSortButtonColor';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
@@ -30,7 +32,9 @@ function TimeWithDurationOrRunning({
         <TimeLabel timeVal={moment(endTime).format('YYYY-MM-DD HH:mm:ss')} />
         <Label>
           (
-          {moment.duration(moment(endTime).diff(startTime)).humanize({ ss: 1 })}
+          {moment
+            .duration(moment(endTime).diff(startTime))
+            .humanize(humanizeThresholds)}
           )
         </Label>
       </>
@@ -46,6 +50,7 @@ function TimeWithDurationOrRunning({
 
 const ROWS_PER_PAGE = 5;
 export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
+  const sortButtonColor = useSortButtonColor();
   const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [ascending, setAscending] = useState(false);
@@ -120,7 +125,7 @@ export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
                 setBeforeAfterId([-1, 0]);
               }}
               aria-label='sort up'
-              style={{ color: ascending ? 'green' : 'gray' }}
+              style={{ color: sortButtonColor(ascending) }}
             >
               <Icon name='arrow_upward' />
             </button>
@@ -131,7 +136,7 @@ export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
                 setBeforeAfterId([-1, -1]);
               }}
               aria-label='sort down'
-              style={{ color: ascending ? 'gray' : 'green' }}
+              style={{ color: sortButtonColor(!ascending) }}
             >
               <Icon name='arrow_downward' />
             </button>

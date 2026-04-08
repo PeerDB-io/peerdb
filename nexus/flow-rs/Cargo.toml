@@ -9,4 +9,3 @@ anyhow = "1.0"
 tracing.workspace = true
 tonic-health = "0.12"
 pt = { path = "../pt" }
-catalog = { path = "../catalog" }

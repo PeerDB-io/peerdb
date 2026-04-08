@@ -3,6 +3,7 @@ package connkafka
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -69,13 +70,35 @@ func NewKafkaConnector(
 ) (*KafkaConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	optionalOpts := append(
-		make([]kgo.Opt, 0, 7),
+		make([]kgo.Opt, 0, 8),
 		kgo.SeedBrokers(config.Servers...),
 		kgo.AllowAutoTopicCreation(),
 		kgo.WithLogger(kgoLogger(logger)),
 	)
+	if config.MaxRecordBatchBytes != nil {
+		optionalOpts = append(optionalOpts, kgo.ProducerBatchMaxBytes(*config.MaxRecordBatchBytes))
+	}
 	if !config.DisableTls {
-		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13}))
+		tlsSetting := &tls.Config{MinVersion: tls.VersionTLS12}
+		if config.Certificate != nil || config.PrivateKey != nil {
+			if config.Certificate == nil || config.PrivateKey == nil {
+				return nil, fmt.Errorf("both certificate and private key must be provided if using certificate-based authentication")
+			}
+			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+			}
+			tlsSetting.Certificates = []tls.Certificate{cert}
+		}
+		if config.RootCa != nil {
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
+				return nil, fmt.Errorf("failed to parse provided root CA")
+			}
+			tlsSetting.RootCAs = caPool
+		}
+
+		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(tlsSetting))
 	}
 	switch config.Partitioner {
 	case "LeastBackup":
@@ -142,7 +165,7 @@ func (c *KafkaConnector) CreateRawTable(ctx context.Context, req *protos.CreateR
 }
 
 func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil
 }

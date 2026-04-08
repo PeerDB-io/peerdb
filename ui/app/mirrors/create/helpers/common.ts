@@ -1,5 +1,6 @@
 import { CDCConfig } from '@/app/dto/MirrorsDTO';
 import { QRepConfig, TypeSystem } from '@/grpc_generated/flow';
+import { DBType } from '@/grpc_generated/peers';
 
 export enum AdvancedSettingType {
   QUEUE = 'queue',
@@ -20,6 +21,8 @@ export interface MirrorSetting {
   command?: string;
 }
 
+export const SOFT_DELETE_COLUMN_NAME = '_PEERDB_IS_DELETED';
+
 export const blankCDCSetting: CDCConfig = {
   sourceName: '',
   destinationName: '',
@@ -29,13 +32,14 @@ export const blankCDCSetting: CDCConfig = {
   doInitialSnapshot: true,
   publicationName: '',
   snapshotNumRowsPerPartition: 250000,
+  snapshotNumPartitionsOverride: 0,
   snapshotMaxParallelWorkers: 4,
   snapshotNumTablesInParallel: 1,
   snapshotStagingPath: '',
   cdcStagingPath: '',
   replicationSlotName: '',
   resync: false,
-  softDeleteColName: '_PEERDB_IS_DELETED',
+  softDeleteColName: SOFT_DELETE_COLUMN_NAME,
   syncedAtColName: '_PEERDB_SYNCED_AT',
   initialSnapshotOnly: false,
   idleTimeoutSeconds: 60,
@@ -45,6 +49,14 @@ export const blankCDCSetting: CDCConfig = {
   env: {},
   envString: '',
   version: 0,
+  flags: [],
+};
+
+export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {
+  [DBType[DBType.BIGQUERY]]: {
+    doInitialSnapshot: true,
+    initialSnapshotOnly: true,
+  },
 };
 
 export const blankQRepSetting: QRepConfig = {
@@ -55,17 +67,19 @@ export const blankQRepSetting: QRepConfig = {
   query: '',
   watermarkTable: '',
   watermarkColumn: '',
+  addNullPartition: false,
   initialCopyOnly: false,
   maxParallelWorkers: 4,
   waitBetweenBatchesSeconds: 30,
   writeMode: undefined,
   stagingPath: '',
   numRowsPerPartition: 100000,
+  numPartitionsOverride: 0,
   setupWatermarkTableOnDestination: false,
   dstTableFullResync: false,
   snapshotName: '',
   softDeleteColName: '_PEERDB_IS_DELETED',
-  syncedAtColName: '',
+  syncedAtColName: '_PEERDB_SYNCED_AT',
   script: '',
   system: TypeSystem.Q,
   env: {},
@@ -73,4 +87,6 @@ export const blankQRepSetting: QRepConfig = {
   parentMirrorName: '',
   exclude: [],
   columns: [],
+  sourceType: DBType.DBTYPE_UNKNOWN,
+  flags: [],
 };

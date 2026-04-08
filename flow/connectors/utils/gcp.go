@@ -7,7 +7,7 @@ import (
 	"reflect"
 
 	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/v2"
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/option"
 
@@ -55,7 +55,7 @@ func (sa *GcpServiceAccount) Validate() error {
 
 // CreateBigQueryClient creates a new BigQuery client from a GcpServiceAccount.
 func (sa *GcpServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquery.Client, error) {
-	saJSON, err := json.Marshal(sa)
+	saJSON, err := json.Marshal(sa) //nolint:gosec // G117: credential struct marshaled for inline use
 	if err != nil {
 		return nil, fmt.Errorf("failed to get json: %v", err)
 	}
@@ -74,7 +74,7 @@ func (sa *GcpServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquer
 
 // CreateStorageClient creates a new Storage client from a GcpServiceAccount.
 func (sa *GcpServiceAccount) CreateStorageClient(ctx context.Context) (*storage.Client, error) {
-	saJSON, err := json.Marshal(sa)
+	saJSON, err := json.Marshal(sa) //nolint:gosec // G117: credential struct marshaled for inline use
 	if err != nil {
 		return nil, fmt.Errorf("failed to get json: %v", err)
 	}
@@ -92,7 +92,7 @@ func (sa *GcpServiceAccount) CreateStorageClient(ctx context.Context) (*storage.
 
 // CreatePubSubClient creates a new PubSub client from a GcpServiceAccount.
 func (sa *GcpServiceAccount) CreatePubSubClient(ctx context.Context) (*pubsub.Client, error) {
-	saJSON, err := json.Marshal(sa)
+	saJSON, err := json.Marshal(sa) //nolint:gosec // G117: credential struct marshaled for inline use
 	if err != nil {
 		return nil, fmt.Errorf("failed to get json: %v", err)
 	}

@@ -1,7 +1,14 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/descriptor.proto";
 import "peers.proto";
+
+extend google.protobuf.EnumValueOptions {
+  // If the flow is in this state, then maintenance should wait for it to transition to another non-wait state
+  // This is to make sure we have only either terminal states or running state which we can pause
+  optional bool peerdb_maintenance_wait = 16551843;
+}
 
 package peerdb_flow;
 
@@ -20,6 +27,7 @@ message ColumnSetting {
   string destination_name = 2;
   string destination_type = 3;
   int32 ordering = 4;
+  int32 partitioning = 6;
   bool nullable_enabled = 5;
 }
 
@@ -32,6 +40,7 @@ message TableMapping {
   TableEngine engine = 6;
   string sharding_key = 7;
   string policy_name = 8;
+  string partition_by_expr = 9;
 }
 
 message SetupInput {
@@ -40,6 +49,8 @@ message SetupInput {
   string peer_name = 3;
 }
 
+// FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
+// When adding fields here, add them to FlowConnectionConfigsCore too
 message FlowConnectionConfigs {
   reserved 2,3,17;
   string flow_job_name = 1;
@@ -56,6 +67,7 @@ message FlowConnectionConfigs {
   // config for the initial load feature, along with interactions like resync and initial_snapshot_only
   bool do_initial_snapshot = 10;
   uint32 snapshot_num_rows_per_partition = 11;
+  uint32 snapshot_num_partitions_override = 26;
   string snapshot_staging_path = 12;
   // max parallel workers is per table
   uint32 snapshot_max_parallel_workers = 13;
@@ -79,6 +91,60 @@ message FlowConnectionConfigs {
 
   map<string, string> env = 24;
   uint32 version = 25;
+
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 27;
+}
+
+// FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
+// It still needs to be a proto because Temporal
+// When adding fields here, add them to FlowConnectionConfigs too
+// Equivalence with FlowConnectionConfigs is enforced during codegen
+message FlowConnectionConfigsCore {
+  reserved 2,3,17;
+  string flow_job_name = 1;
+
+  // config for the CDC flow itself
+  // currently, TableMappings, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
+  repeated TableMapping table_mappings = 4;
+  uint32 max_batch_size = 5;
+  uint64 idle_timeout_seconds = 6;
+  string cdc_staging_path = 7;
+  string publication_name = 8;
+  string replication_slot_name = 9;
+
+  // config for the initial load feature, along with interactions like resync and initial_snapshot_only
+  bool do_initial_snapshot = 10;
+  uint32 snapshot_num_rows_per_partition = 11;
+  uint32 snapshot_num_partitions_override = 26;
+  string snapshot_staging_path = 12;
+  // max parallel workers is per table
+  uint32 snapshot_max_parallel_workers = 13;
+  uint32 snapshot_num_tables_in_parallel = 14;
+  // if true, then the flow will be resynced
+  // create new tables with "_resync" suffix, perform initial load and then swap the new tables with the old ones
+  // to only be used after the old mirror is dropped
+  bool resync = 15;
+  bool initial_snapshot_only = 16;
+
+  // configurations for soft delete and synced at columns, affects both initial snapshot and CDC
+  string soft_delete_col_name = 18;
+  string synced_at_col_name = 19;
+
+  string script = 20;
+  TypeSystem system = 21;
+
+  // source and destination peer
+  string source_name = 22;
+  string destination_name = 23;
+
+  map<string, string> env = 24;
+  uint32 version = 25;
+
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 27;
 }
 
 message RenameTableOption {
@@ -154,9 +220,9 @@ message SetupReplicationInput {
 }
 
 message SetupReplicationOutput {
+  reserved 3;
   string slot_name = 1;
   string snapshot_name = 2;
-  bool supports_tid_scans = 3;
 }
 
 message CreateRawTableInput {
@@ -175,6 +241,7 @@ message TableSchema {
   TypeSystem system = 4;
   bool nullable_enabled = 5;
   repeated FieldDescription columns = 6;
+  uint32 table_oid = 7;
 }
 
 message FieldDescription {
@@ -182,6 +249,7 @@ message FieldDescription {
   string type = 2;
   int32 type_modifier = 3;
   bool nullable = 4;
+  string type_schema_name = 5;
 }
 
 message SetupTableSchemaBatchInput {
@@ -204,6 +272,8 @@ message SetupNormalizedTableBatchInput {
   string flow_name = 6;
   string peer_name = 7;
   bool is_resync = 8;
+  uint32 version = 9;
+  repeated string flags = 10;
 }
 
 message SetupNormalizedTableOutput {
@@ -228,6 +298,7 @@ message TimestampPartitionRange {
 
 message TID {
   uint32 block_number = 1;
+  // Maps to pgtype.TID.OffsetNumber (uint16). Protobuf lacks uint16
   uint32 offset_number = 2;
 }
 
@@ -239,6 +310,9 @@ message TIDPartitionRange {
 message UIntPartitionRange {
   uint64 start = 1;
   uint64 end = 2;
+}
+
+message NullPartitionRange {
 }
 
 message ObjectIdPartitionRange {
@@ -254,6 +328,7 @@ message PartitionRange {
     TIDPartitionRange tid_range = 3;
     UIntPartitionRange uint_range = 4;
     ObjectIdPartitionRange object_id_range = 5;
+    NullPartitionRange null_range = 6;
   }
 }
 
@@ -263,6 +338,7 @@ enum TableEngine {
   CH_ENGINE_NULL = 2;
   CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE = 3;
   CH_ENGINE_REPLICATED_MERGE_TREE = 4;
+  CH_ENGINE_COALESCING_MERGE_TREE = 5;
 }
 
 // protos for qrep
@@ -289,6 +365,7 @@ message QRepConfig {
 
   string destination_table_identifier = 4;
 
+  // If present, the query provided by the user. If empty, a full-table query determined by the connector.
   string query = 5;
 
   string watermark_table = 6;
@@ -303,18 +380,16 @@ message QRepConfig {
 
   QRepWriteMode write_mode = 11;
 
-  // This is only used when sync_mode is AVRO
-  // this is the location where the avro files will be written
+  // The location where the avro files will be written
   // if this starts with gs:// then it will be written to GCS
   // if this starts with s3:// then it will be written to S3, only supported in Snowflake
   // if nothing is specified then it will be written to local disk
   // if using GCS or S3 make sure your instance has the correct permissions.
   string staging_path = 12;
 
-  // This setting overrides batch_size_int and batch_duration_seconds
-  // and instead uses the number of rows per partition to determine
-  // how many rows to process per batch.
   uint32 num_rows_per_partition = 13;
+  // overrides num_rows_per_partition to skip count(*) query
+  uint32 num_partitions_override = 29;
 
   // Creates the watermark table on the destination as-is, can be used for some queries.
   bool setup_watermark_table_on_destination = 14;
@@ -335,17 +410,35 @@ message QRepConfig {
 
   map<string, string> env = 24;
 
-  string parent_mirror_name = 25;
+  string parent_mirror_name = 25; // internal
   repeated string exclude = 26;
 
   repeated ColumnSetting columns = 27;
-  uint32 version = 28;
+  uint32 version = 28; // internal
+
+  peerdb_peers.DBType source_type = 30;
+
+  // Connector capabilities detected at flow creation time.
+  // Used to control type mapping backwards compatibility.
+  repeated string flags = 31; // internal
+  // if true, then a separate null partition will be created for rows with null values in the watermark column
+  bool add_null_partition = 32; // internal
+}
+
+message ChildTableRange {
+  string table = 1;
+  uint32 start = 2;
+  uint32 end = 3;
 }
 
 message QRepPartition {
   string partition_id = 2;
   PartitionRange range = 3;
   bool full_table_partition = 4;
+  // For partitioned tables with CTID partitioning: each entry specifies a
+  // child table and block range to query instead of the parent watermark table.
+  // When populated, the top-level `range` field is unused.
+  repeated ChildTableRange child_table_ranges = 5;
 }
 
 message QRepPartitionBatch {
@@ -361,7 +454,7 @@ message DropFlowInput {
   reserved 2,3;
   string flow_job_name = 1;
   bool drop_flow_stats = 4;
-  FlowConnectionConfigs flow_connection_configs = 5;
+  FlowConnectionConfigsCore flow_connection_configs = 5;
   bool skip_destination_drop = 6;
   bool skip_source_drop = 7;
   bool resync = 8;
@@ -397,21 +490,20 @@ message GetOpenConnectionsForUserResult {
 // UI reads current workflow status and also requests status changes using same enum
 // see flow/cmd/handler.go FlowStateChange
 enum FlowStatus {
-  // should never be read by UI, bail
-  STATUS_UNKNOWN = 0;
-  // enable pause and terminate buttons
+  STATUS_UNKNOWN = 0 [(peerdb_maintenance_wait) = true];
   STATUS_RUNNING = 1;
-  // pause button becomes resume button
   STATUS_PAUSED = 2;
-  STATUS_PAUSING = 3;
+  STATUS_PAUSING = 3 [(peerdb_maintenance_wait) = true];;
   // not reachable in QRep mirrors
-  STATUS_SETUP = 4;
+  STATUS_SETUP = 4 [(peerdb_maintenance_wait) = true];
   // not reachable in QRep mirrors
-  STATUS_SNAPSHOT = 5;
+  STATUS_SNAPSHOT = 5 [(peerdb_maintenance_wait) = true];;
   STATUS_TERMINATING = 6;
   STATUS_TERMINATED = 7;
   STATUS_COMPLETED = 8;
-  STATUS_RESYNC = 9;
+  STATUS_RESYNC = 9 [(peerdb_maintenance_wait) = true];;
+  STATUS_FAILED = 10;
+  STATUS_MODIFYING = 11 [(peerdb_maintenance_wait) = true];;
 }
 
 message CDCFlowConfigUpdate {
@@ -423,8 +515,10 @@ message CDCFlowConfigUpdate {
   // updates keys in the env map, existing keys left unchanged
   map<string, string> updated_env = 6;
   uint32 snapshot_num_rows_per_partition = 7;
+  uint32 snapshot_num_partitions_override = 10;
   uint32 snapshot_max_parallel_workers = 8;
   uint32 snapshot_num_tables_in_parallel = 9;
+  bool skip_initial_snapshot_for_table_additions = 11;
 }
 
 message QRepFlowConfigUpdate {
@@ -459,8 +553,8 @@ message IsQRepPartitionSyncedInput {
 }
 
 message ExportTxSnapshotOutput {
+  reserved 2;
   string snapshot_name = 1;
-  bool supports_tid_scans = 2;
 }
 
 enum DynconfValueType {
@@ -530,6 +624,8 @@ message MaintenanceMirrors {
 message PeerContextMetadata {
   string name = 1;
   peerdb_peers.DBType type = 2;
+  peerdb_peers.DatabaseVariant variant = 3;
+  string hostname = 4;
 }
 
 message FlowContextMetadataInput {
@@ -538,6 +634,7 @@ message FlowContextMetadataInput {
   string destination_name = 3;
   FlowStatus status = 4;
   bool is_resync = 5;
+  bool fetch_source_variant = 6;
 }
 
 enum FlowOperation {
@@ -554,8 +651,23 @@ message FlowContextMetadata{
   PeerContextMetadata destination = 3;
   FlowStatus status = 4;
   bool is_resync = 5;
+  map<string, string> tags = 6;
 }
 
 message AdditionalContextMetadata{
   FlowOperation operation = 1;
+}
+
+message GetDefaultPartitionKeyForTablesInput {
+  repeated TableMapping table_mappings = 1;
+}
+
+message GetDefaultPartitionKeyForTablesOutput {
+  map<string, string> table_default_partition_key_mapping = 1;
+}
+
+message GetFlowInfoToCancelFromCatalogOutput {
+  FlowConnectionConfigsCore flow_connection_configs = 1;
+  string workflow_id = 2;
+  peerdb_peers.DBType source_peer_type = 3;
 }

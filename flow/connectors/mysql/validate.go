@@ -4,16 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	peerdb_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
 
-func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
+func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*common.QualifiedTable) error {
 	for _, parsedTable := range tableNames {
 		if _, err := c.Execute(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", parsedTable.MySQL())); err != nil {
 			return fmt.Errorf("error checking table %s: %w", parsedTable.MySQL(), err)
@@ -31,12 +32,13 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 			if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID {
 				return fmt.Errorf("failed to check replication status: %w", err)
 			}
+			c.logger.Warn("[mysql] AUTO replication: GTID not available, will use file/position mode", slog.Any("error", err))
 		}
 	}
 	if namePos, err := c.GetMasterPos(ctx); err != nil {
 		return fmt.Errorf("failed to check replication status: %w", err)
 	} else if namePos.Name == "" || namePos.Pos <= 0 {
-		return errors.New("invalid replication status: missing log file or position")
+		return fmt.Errorf("invalid replication status: missing log file or position")
 	}
 
 	return nil
@@ -50,35 +52,37 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 
 		switch c.config.Flavor {
 		case protos.MySqlFlavor_MYSQL_MARIA:
-			return peerdb_mysql.CheckMariaDBBinlogSettings(conn, c.logger)
+			// check if binlog_row_metadata is supported is done inside this function
+			return mysql_validation.CheckMariaDBBinlogSettings(conn, c.logger, requireRowMetadata)
 		case protos.MySqlFlavor_MYSQL_MYSQL:
-			cmp, err := c.CompareServerVersion(ctx, "8.0.1")
+			cmp, err := c.CompareServerVersion(ctx, mysql_validation.MySQLMinVersionForBinlogRowMetadata)
 			if err != nil {
 				return fmt.Errorf("failed to get server version: %w", err)
 			}
 			if cmp < 0 {
+				// as we're dispatching to a function that doesn't know about binlog_row_metadata,
+				// perform the check here instead of inside
 				if requireRowMetadata {
-					return errors.New(
-						"MySQL version too old for column exclusion support, " +
-							"please disable it or upgrade to >8.0.1 (binlog_row_metadata needed)",
-					)
+					return fmt.Errorf("MySQL version too old for column exclusion support, "+
+						"please disable it or upgrade to >=%s (binlog_row_metadata needed)",
+						mysql_validation.MySQLMinVersionForBinlogRowMetadata)
 				}
-				c.logger.Warn("cannot validate mysql prior to 8.0.1, falling back to MySQL 5.7 check")
-				return peerdb_mysql.CheckMySQL5BinlogSettings(conn, c.logger)
+				c.logger.Warn("Falling back to MySQL 5.7 check")
+				return mysql_validation.CheckMySQL5BinlogSettings(conn, c.logger)
 			} else {
-				return peerdb_mysql.CheckMySQL8BinlogSettings(conn, c.logger)
+				return mysql_validation.CheckMySQL8BinlogSettings(conn, c.logger)
 			}
 		default:
 			return fmt.Errorf("unsupported MySQL flavor: %s", c.config.Flavor.String())
 		}
 	}
-	return errors.New("failed to connect to MySQL server")
+	return fmt.Errorf("failed to connect to MySQL server")
 }
 
-func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
-	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
+func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
+	sourceTables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		parsedTable, parseErr := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
 		}
@@ -102,10 +106,10 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 			return err
 		}
 
-		if isVitess, err := peerdb_mysql.IsVitess(conn); err != nil {
+		if isVitess, err := mysql_validation.IsVitess(conn); err != nil {
 			return err
 		} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
-			return errors.New("vitess is currently not supported for MySQL mirrors in CDC")
+			return fmt.Errorf("vitess is currently not supported for MySQL mirrors in CDC")
 		}
 	}
 
@@ -123,7 +127,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		if err != nil {
 			return err
 		}
-		if err := peerdb_mysql.CheckRDSBinlogSettings(conn, c.logger); err != nil {
+		if err := mysql_validation.CheckRDSBinlogSettings(conn, c.logger); err != nil {
 			return fmt.Errorf("binlog configuration error: %w", err)
 		}
 	}
@@ -133,7 +137,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
-		return errors.New("flavor is set to unknown")
+		return fmt.Errorf("flavor is set to unknown")
 	}
 
 	for conn, err := range c.withRetries(ctx) {
@@ -142,7 +146,7 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		}
 		return c.validateFlavor(conn)
 	}
-	return errors.New("failed to connect to MySQL server")
+	return fmt.Errorf("failed to connect to MySQL server")
 }
 
 func (c *MySqlConnector) validateFlavor(conn *client.Conn) error {
@@ -152,14 +156,14 @@ func (c *MySqlConnector) validateFlavor(conn *client.Conn) error {
 		// seems to be MySQL
 		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 			if c.config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
-				return errors.New("server appears to be MySQL but MariaDB source has been selected")
+				return fmt.Errorf("server appears to be MySQL but MariaDB source has been selected")
 			}
 		} else {
 			return fmt.Errorf("failed to check GTID mode: %w", err)
 		}
 	} else if len(rs.Values) > 0 {
 		if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
-			return errors.New("server appears to be MariaDB but MySQL source has been selected")
+			return fmt.Errorf("server appears to be MariaDB but MySQL source has been selected")
 		}
 	}
 

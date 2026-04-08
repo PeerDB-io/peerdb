@@ -20,17 +20,21 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
 func init() {
@@ -42,9 +46,13 @@ func init() {
 type Suite interface {
 	e2eshared.Suite
 	T() *testing.T
-	Connector() *connpostgres.PostgresConnector
 	Suffix() string
 	Source() SuiteSource
+}
+
+type PgSuite interface {
+	Suite
+	Connector() *connpostgres.PostgresConnector
 }
 
 type RowSource interface {
@@ -95,6 +103,16 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 
 func RequireEqualTables(suite RowSource, table string, cols string) {
 	RequireEqualTablesWithNames(suite, table, table, cols)
+}
+
+func RequireEmptyDestinationTable(suite RowSource, dstTable string, cols string) {
+	t := suite.T()
+	t.Helper()
+
+	rows, err := suite.GetRows(dstTable, cols)
+	require.NoError(t, err)
+
+	require.Empty(t, rows.Records)
 }
 
 func RequireEqualTablesWithNames(suite RowSource, srcTable string, dstTable string, cols string) {
@@ -245,17 +263,19 @@ func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 
 func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowConnectionConfigs) {
 	t.Helper()
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	if err != nil {
+		env.Cancel(t.Context())
+		t.Fatal("could not get catalog connection", err)
+	}
 	// errors expected while PeerFlowStatusQuery is setup
 	counter := 0
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.Query(t.Context(), shared.FlowStatusQuery, config.FlowJobName)
+		status, err := internal.GetWorkflowStatus(t.Context(), pool, env.GetID())
 		if err == nil {
-			var status protos.FlowStatus
-			if err := response.Get(&status); err != nil {
-				t.Fatal(err.Error())
-			} else if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
+			if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
 			} else if counter > 30 {
 				env.Cancel(t.Context())
@@ -353,7 +373,7 @@ func CreateTableForQRep(ctx context.Context, conn *pgx.Conn, suffix string, tabl
 func generate20MBJson() ([]byte, error) {
 	xn := make(map[string]any, 215000)
 	for range 215000 {
-		xn[uuid.New().String()] = uuid.New().String()
+		xn[uuid.NewString()] = uuid.NewString()
 	}
 
 	v, err := json.Marshal(xn)
@@ -368,7 +388,7 @@ func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tab
 	var id0 string
 	rows := make([]string, 0, rowCount)
 	for i := range rowCount - 1 {
-		id := uuid.New().String()
+		id := uuid.NewString()
 		if i == 0 {
 			id0 = id
 		}
@@ -394,8 +414,8 @@ func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tab
 						pi(), 1, 1.0,
 						'10.0.0.0/32', '1.1.10.2'::cidr, 'a1:b2:c3:d4:e5:f6'
 					)`,
-			id, uuid.New().String(), uuid.New().String(),
-			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
+			id, uuid.NewString(), uuid.NewString(),
+			uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString())
 		rows = append(rows, row)
 	}
 
@@ -423,7 +443,7 @@ func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tab
 	) VALUES (
 			'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
 			0, 1, false, 12345
-	);`, suffix, tableName, uuid.New().String())); err != nil {
+	);`, suffix, tableName, uuid.NewString())); err != nil {
 		return err
 	}
 
@@ -483,12 +503,17 @@ func CreateQRepWorkflowConfig(
 	}
 }
 
-func RunQRepFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(ctx, tc, peerflow.QRepFlowWorkflow, config, nil)
-}
+func RunQRepFlowWorkflow(t *testing.T, tc client.Client, config *protos.QRepConfig) WorkflowRun {
+	t.Helper()
 
-func RunXminFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(ctx, tc, peerflow.XminFlowWorkflow, config, nil)
+	client, err := NewApiClient()
+	require.NoError(t, err)
+	res, err := client.CreateQRepFlow(t.Context(), &protos.CreateQRepFlowRequest{QrepConfig: config})
+	require.NoError(t, err)
+	return WorkflowRun{
+		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
+		c:           tc,
+	}
 }
 
 func GetOwnersSchema() *types.QRecordSchema {
@@ -610,6 +635,14 @@ func NewTemporalClient(t *testing.T) client.Client {
 	return tc
 }
 
+func NewApiClient() (protos.FlowServiceClient, error) {
+	client, err := grpc.NewClient("0.0.0.0:8112", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	return protos.NewFlowServiceClient(client), nil
+}
+
 type WorkflowRun struct {
 	client.WorkflowRun
 	c client.Client
@@ -625,8 +658,25 @@ func GetPeerflow(ctx context.Context, catalog *pgx.Conn, tc client.Client, flowN
 	return WorkflowRun{WorkflowRun: tc.GetWorkflow(ctx, workflowID, ""), c: tc}, nil
 }
 
-func ExecutePeerflow(ctx context.Context, tc client.Client, wf any, args ...any) WorkflowRun {
-	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, wf, args...)
+func ExecutePeerflow(t *testing.T, tc client.Client, config *protos.FlowConnectionConfigs) WorkflowRun {
+	t.Helper()
+
+	client, err := NewApiClient()
+	require.NoError(t, err)
+	res, err := client.CreateCDCFlow(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: config})
+	require.NoError(t, err)
+	return WorkflowRun{
+		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
+		c:           tc,
+	}
+}
+
+func ExecuteDropFlow(ctx context.Context, tc client.Client, config *protos.FlowConnectionConfigs, tableMappingsVersion int64) WorkflowRun {
+	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           config.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: proto_conversions.FlowConnectionConfigsToCore(config, tableMappingsVersion),
+	})
 }
 
 func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf any, args ...any) WorkflowRun {
@@ -676,11 +726,11 @@ func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any)
 
 func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
 	t.Helper()
-	res, err := env.c.QueryWorkflow(t.Context(), env.GetID(), "", shared.FlowStatusQuery)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
 	EnvNoError(t, env, err)
-	var flowStatus protos.FlowStatus
-	EnvNoError(t, env, res.Get(&flowStatus))
-	return flowStatus
+	status, err := internal.GetWorkflowStatus(t.Context(), pool, env.GetID())
+	EnvNoError(t, env, err)
+	return status
 }
 
 func SignalWorkflow[T any](ctx context.Context, env WorkflowRun, signal model.TypedSignal[T], value T) {
@@ -715,6 +765,73 @@ func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
 		slices.Compare(xColNames, yColNames) == 0 ||
 		slices.Compare(xColTypes, yColTypes) == 0 ||
 		slices.Compare(xTypmods, yTypmods) == 0
+}
+
+func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual *protos.TableSchema) bool {
+	t.Helper()
+
+	if expected.TableIdentifier != actual.TableIdentifier {
+		t.Logf("expected table identifier %s, got %s", expected.TableIdentifier, actual.TableIdentifier)
+		return false
+	}
+	if expected.IsReplicaIdentityFull != actual.IsReplicaIdentityFull {
+		t.Logf("expected replica identity full to be %t, got %t", expected.IsReplicaIdentityFull, actual.IsReplicaIdentityFull)
+		return false
+	}
+	if expected.NullableEnabled != actual.NullableEnabled {
+		t.Logf("expected nullable enabled to be %t, got %t", expected.NullableEnabled, actual.NullableEnabled)
+		return false
+	}
+	if expected.System != actual.System {
+		t.Logf("expected system to be %s, got %s", expected.System, actual.System)
+		return false
+	}
+	if slices.Compare(expected.PrimaryKeyColumns, actual.PrimaryKeyColumns) != 0 {
+		t.Logf("expected primary keys columns %v, got %v", expected.PrimaryKeyColumns, actual.PrimaryKeyColumns)
+		return false
+	}
+
+	sortAndExtractColumns := func(cols []*protos.FieldDescription) ([]string, []string, []int32, []bool) {
+		sorted := slices.Clone(cols)
+		slices.SortFunc(sorted, func(a, b *protos.FieldDescription) int {
+			return strings.Compare(a.Name, b.Name)
+		})
+
+		colNames := make([]string, 0, len(sorted))
+		colTypes := make([]string, 0, len(sorted))
+		colTypmods := make([]int32, 0, len(sorted))
+		colNullables := make([]bool, 0, len(sorted))
+
+		for _, col := range sorted {
+			colNames = append(colNames, col.Name)
+			colTypes = append(colTypes, col.Type)
+			colTypmods = append(colTypmods, col.TypeModifier)
+			colNullables = append(colNullables, col.Nullable)
+		}
+		return colNames, colTypes, colTypmods, colNullables
+	}
+
+	expectedColNames, expectedColTypes, expectedTypmods, expectedNullables := sortAndExtractColumns(expected.Columns)
+	actualColNames, actualColTypes, actualTypmods, actualNullables := sortAndExtractColumns(actual.Columns)
+
+	if !slices.Equal(expectedColNames, actualColNames) {
+		t.Logf("expected columns names %v, got %v", expectedColNames, actualColNames)
+		return false
+	}
+	if !slices.Equal(expectedColTypes, actualColTypes) {
+		t.Logf("expected column types %v, got %v", expectedColTypes, actualColTypes)
+		return false
+	}
+	if !slices.Equal(expectedTypmods, actualTypmods) {
+		t.Logf("expected column typmods %v, got %v", expectedTypmods, actualTypmods)
+		return false
+	}
+	if !slices.Equal(expectedNullables, actualNullables) {
+		t.Logf("expected nullables %v, got %v", expectedNullables, actualNullables)
+		return false
+	}
+
+	return true
 }
 
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {
@@ -766,9 +883,9 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 	})
 }
 
-func EnvGetWorkflowState(t *testing.T, env WorkflowRun) peerflow.CDCFlowWorkflowState {
+func EnvGetWorkflowState(t *testing.T, env WorkflowRun) cdc_state.CDCFlowWorkflowState {
 	t.Helper()
-	var state peerflow.CDCFlowWorkflowState
+	var state cdc_state.CDCFlowWorkflowState
 	val, err := env.Query(t.Context(), shared.CDCFlowStateQuery)
 	EnvNoError(t, env, err)
 	EnvNoError(t, env, val.Get(&state))

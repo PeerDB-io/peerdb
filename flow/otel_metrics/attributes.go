@@ -15,7 +15,10 @@ const (
 	WorkflowTypeKey            = "workflowType"
 	BatchIdKey                 = "batchId"
 	SourcePeerType             = "sourcePeerType"
+	sourcePeerHostname         = "sourcePeerHostname"
+	SourcePeerVariant          = "sourcePeerVariant"
 	DestinationPeerType        = "destinationPeerType"
+	destinationPeerHostname    = "destinationPeerHostname"
 	SourcePeerName             = "sourcePeerName"
 	DestinationPeerName        = "destinationPeerName"
 	FlowStatusKey              = "flowStatus"
@@ -26,6 +29,24 @@ const (
 	TemporalActivityTypeKey    = "temporalActivityType"
 	TemporalWorkflowTypeKey    = "temporalWorkflowType"
 	IsFlowActiveKey            = "isFlowActive"
+	PipeIdKey                  = "pipeId"
+	PipeNameKey                = "pipeName"
+	DestinationTableNameKey    = "destinationTableName"
+	WaitEventTypeKey           = "waitEventType"
+	WaitEventKey               = "waitEvent"
+	BackendStateKey            = "backendState"
+	WalStatusKey               = "walStatus"
+	PendingRestartKey          = "pendingRestart"
+)
+
+const (
+	RecordOperationTypeKey = "recordOperationType"
+)
+
+const (
+	RecordOperationTypeInsert = "insert"
+	RecordOperationTypeUpdate = "update"
+	RecordOperationTypeDelete = "delete"
 )
 
 const (

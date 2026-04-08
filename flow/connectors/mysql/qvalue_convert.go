@@ -3,6 +3,7 @@ package connmysql
 import (
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/bits"
 	"slices"
@@ -14,16 +15,17 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
-	unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
-	switch field.Type {
+func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16) (types.QValueKind, error) {
+	switch mytype {
 	case mysql.MYSQL_TYPE_TINY:
 		if unsigned {
 			return types.QValueKindUInt8, nil
@@ -56,9 +58,11 @@ func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 		return types.QValueKindInvalid, nil
 	case mysql.MYSQL_TYPE_DATE, mysql.MYSQL_TYPE_NEWDATE:
 		return types.QValueKindDate, nil
-	case mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_TIME, mysql.MYSQL_TYPE_DATETIME,
-		mysql.MYSQL_TYPE_TIMESTAMP2, mysql.MYSQL_TYPE_DATETIME2, mysql.MYSQL_TYPE_TIME2:
+	case mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_DATETIME,
+		mysql.MYSQL_TYPE_TIMESTAMP2, mysql.MYSQL_TYPE_DATETIME2:
 		return types.QValueKindTimestamp, nil
+	case mysql.MYSQL_TYPE_TIME, mysql.MYSQL_TYPE_TIME2:
+		return types.QValueKindTime, nil
 	case mysql.MYSQL_TYPE_YEAR:
 		return types.QValueKindInt16, nil
 	case mysql.MYSQL_TYPE_BIT:
@@ -72,7 +76,7 @@ func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 	case mysql.MYSQL_TYPE_SET:
 		return types.QValueKindString, nil
 	case mysql.MYSQL_TYPE_TINY_BLOB, mysql.MYSQL_TYPE_MEDIUM_BLOB, mysql.MYSQL_TYPE_LONG_BLOB, mysql.MYSQL_TYPE_BLOB:
-		if field.Charset == 0x3f { // binary https://dev.mysql.com/doc/dev/mysql-server/8.4.3/page_protocol_basic_character_set.html
+		if charset == 0x3f { // binary https://dev.mysql.com/doc/dev/mysql-server/8.4.3/page_protocol_basic_character_set.html
 			return types.QValueKindBytes, nil
 		} else {
 			return types.QValueKindString, nil
@@ -84,7 +88,7 @@ func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 	case mysql.MYSQL_TYPE_VECTOR:
 		return types.QValueKindArrayFloat32, nil
 	default:
-		return types.QValueKind(""), fmt.Errorf("unknown mysql type %d", field.Type)
+		return types.QValueKind(""), fmt.Errorf("unknown mysql type %d", mytype)
 	}
 }
 
@@ -107,7 +111,8 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 			}
 		} else {
 			var err error
-			qkind, err = qkindFromMysql(field)
+			unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
+			qkind, err = qkindFromMysqlType(field.Type, unsigned, field.Charset)
 			if err != nil {
 				return types.QRecordSchema{}, err
 			}
@@ -124,32 +129,17 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 	return types.QRecordSchema{Fields: schema}, nil
 }
 
-// Helper function to convert MySQL geometry binary data to WKT format
-func geometryValueFromBytes(wkbData []byte) (string, error) {
-	// Try to parse it as WKB with the MySQL header
-	g, err := geom.NewGeomFromWKB(wkbData)
+// MySQL's internal geometry format is 4-byte SRID (little-endian) followed by standard WKB.
+// SRID is stripped because destinations like ClickHouse don't support EWKT (SRID=N;WKT).
+func processGeometryData(data []byte) (types.QValueGeometry, error) {
+	if len(data) <= 4 {
+		return types.QValueGeometry{}, fmt.Errorf("geometry data too short: %d bytes", len(data))
+	}
+	g, err := geom.NewGeomFromWKB(data[4:])
 	if err != nil {
-		return "", err
+		return types.QValueGeometry{}, fmt.Errorf("failed to parse geometry WKB: %w", err)
 	}
-
-	// Convert to WKT format
-	wkt := g.ToWKT()
-	if srid := g.SRID(); srid != 0 {
-		wkt = fmt.Sprintf("SRID=%d;%s", srid, wkt)
-	}
-	return wkt, nil
-}
-
-// Helper function to process geometry data and return a QValueGeometry
-func processGeometryData(data []byte) types.QValueGeometry {
-	// For geometry data, we need to convert from MySQL's binary format to WKT
-	if len(data) > 4 {
-		wkt, err := geometryValueFromBytes(data)
-		if err == nil {
-			return types.QValueGeometry{Val: wkt}
-		}
-	}
-	return types.QValueGeometry{Val: string(data)}
+	return types.QValueGeometry{Val: g.ToWKT()}, nil
 }
 
 // https://dev.mysql.com/doc/refman/8.4/en/time.html
@@ -298,7 +288,7 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 		case types.QValueKindJSON:
 			return types.QValueJSON{Val: string(v)}, nil
 		case types.QValueKindGeometry:
-			return processGeometryData(v), nil
+			return processGeometryData(v)
 		case types.QValueKindNumeric:
 			val, err := decimal.NewFromString(unsafeString)
 			if err != nil {
@@ -306,13 +296,6 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 			}
 			return types.QValueNumeric{Val: val}, nil
 		case types.QValueKindTimestamp:
-			if mytype == mysql.MYSQL_TYPE_TIME || mytype == mysql.MYSQL_TYPE_TIME2 {
-				tm, err := processTime(unsafeString)
-				if err != nil {
-					return nil, err
-				}
-				return types.QValueTimestamp{Val: time.Unix(0, 0).UTC().Add(tm)}, nil
-			}
 			if strings.HasPrefix(unsafeString, "0000-00-00") {
 				return types.QValueTimestamp{Val: time.Unix(0, 0)}, nil
 			}
@@ -322,9 +305,6 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 			}
 			return types.QValueTimestamp{Val: val}, nil
 		case types.QValueKindTime:
-			// deprecated: most databases expect time to be time part of datetime
-			// mysql it's a +/- 800 hour range to represent duration
-			// keep codepath for backwards compat when mysql time was mapped to QValueKindTime
 			tm, err := processTime(unsafeString)
 			if err != nil {
 				return nil, err
@@ -354,35 +334,47 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 }
 
 func QValueFromMysqlRowEvent(
-	mytype byte, enums []string, sets []string,
-	qkind types.QValueKind, val any,
+	ev *replication.TableMapEvent, idx int,
+	enums []string, sets []string,
+	qkind types.QValueKind, val any, logger log.Logger, coercionReported *bool,
 ) (types.QValue, error) {
+	mytype := ev.ColumnType[idx]
+
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
 	case nil:
 		return types.QValueNull(qkind), nil
 	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
-		if qkind == types.QValueKindBoolean {
+		switch qkind {
+		case types.QValueKindBoolean:
 			return types.QValueBoolean{Val: val != 0}, nil
-		} else if qkind == types.QValueKindUInt8 {
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
+		case types.QValueKindUInt8:
 			return types.QValueUInt8{Val: uint8(val)}, nil
-		} else {
+		default:
 			return types.QValueInt8{Val: val}, nil
 		}
 	case int16:
-		if qkind == types.QValueKindUInt16 {
+		switch qkind {
+		case types.QValueKindUInt16:
 			return types.QValueUInt16{Val: uint16(val)}, nil
-		} else {
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
+		default:
 			return types.QValueInt16{Val: val}, nil
 		}
 	case int32:
-		if qkind == types.QValueKindUInt32 {
+		switch qkind {
+		case types.QValueKindUInt32:
 			if mytype == mysql.MYSQL_TYPE_INT24 {
 				return types.QValueUInt32{Val: uint32(val) & 0xFFFFFF}, nil
 			} else {
 				return types.QValueUInt32{Val: uint32(val)}, nil
 			}
-		} else {
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
+		default:
 			return types.QValueInt32{Val: val}, nil
 		}
 	case int64:
@@ -418,8 +410,14 @@ func QValueFromMysqlRowEvent(
 			}
 		}
 	case float32:
+		if qkind == types.QValueKindFloat64 {
+			return types.QValueFloat64{Val: float64(val)}, nil
+		}
 		return types.QValueFloat32{Val: val}, nil
 	case float64:
+		if qkind == types.QValueKindFloat32 {
+			return types.QValueFloat32{Val: float32(val)}, nil
+		}
 		return types.QValueFloat64{Val: val}, nil
 	case decimal.Decimal:
 		return types.QValueNumeric{Val: val}, nil
@@ -443,7 +441,7 @@ func QValueFromMysqlRowEvent(
 			return types.QValueJSON{Val: string(val)}, nil
 		case types.QValueKindGeometry:
 			// Handle geometry data as binary (WKB format)
-			return processGeometryData(val), nil
+			return processGeometryData(val)
 		case types.QValueKindArrayFloat32:
 			floats := make([]float32, 0, len(val)/4)
 			for i := 0; i < len(val); i += 4 {
@@ -468,14 +466,37 @@ func QValueFromMysqlRowEvent(
 			}
 			return types.QValueTime{Val: tm}, nil
 		case types.QValueKindDate:
-			if val == "0000-00-00" {
-				return types.QValueDate{Val: time.Unix(0, 0).UTC()}, nil
+			switch mytype {
+			case mysql.MYSQL_TYPE_DATETIME, mysql.MYSQL_TYPE_DATETIME2,
+				mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_TIMESTAMP2:
+				// Column was altered from DATE to DATETIME/TIMESTAMP.
+				// go-mysql returns strings for pre-1970, zero, and partial zero dates:
+				// DATETIME    zero, partial zero
+				// https://github.com/go-mysql-org/go-mysql/blob/v1.13.0/replication/row_event.go#L1331-L1363
+				// DATETIME2   zero, pre-1970, partial zero
+				// https://github.com/go-mysql-org/go-mysql/blob/v1.13.0/replication/row_event.go#L1690-L1748
+				// TIMESTAMP   zero
+				// https://github.com/go-mysql-org/go-mysql/blob/v1.13.0/replication/row_event.go#L1316-L1327
+				// TIMESTAMP2  zero
+				// https://github.com/go-mysql-org/go-mysql/blob/v1.13.0/replication/row_event.go#L1663-L1686
+				if strings.HasPrefix(val, "0000-00-00") {
+					return types.QValueDate{Val: time.Unix(0, 0).UTC()}, nil
+				}
+				tm, err := time.Parse("2006-01-02 15:04:05.999999", strings.ReplaceAll(val, "-00", "-01"))
+				if err != nil {
+					return nil, err
+				}
+				return types.QValueDate{Val: tm.Truncate(24 * time.Hour).UTC()}, nil
+			default:
+				if val == "0000-00-00" {
+					return types.QValueDate{Val: time.Unix(0, 0).UTC()}, nil
+				}
+				val, err := time.Parse(time.DateOnly, strings.ReplaceAll(val, "-00", "-01"))
+				if err != nil {
+					return nil, err
+				}
+				return types.QValueDate{Val: val.UTC()}, nil
 			}
-			val, err := time.Parse(time.DateOnly, strings.ReplaceAll(val, "-00", "-01"))
-			if err != nil {
-				return nil, err
-			}
-			return types.QValueDate{Val: val.UTC()}, nil
 		case types.QValueKindTimestamp: // 0000-00-00 ends up here
 			if mytype == mysql.MYSQL_TYPE_TIME || mytype == mysql.MYSQL_TYPE_TIME2 {
 				tm, err := processTime(val)
@@ -492,7 +513,95 @@ func QValueFromMysqlRowEvent(
 				return nil, err
 			}
 			return types.QValueTimestamp{Val: tm.UTC()}, nil
+		case types.QValueKindBoolean:
+			// integer types shouldn't get here, but try work with schema changes
+			return types.QValueBoolean{
+				Val: strings.EqualFold(val, "true") || strings.EqualFold(val, "t") ||
+					strings.EqualFold(val, "on") || strings.EqualFold(val, "yes") || strings.EqualFold(val, "1"),
+			}, nil
+		case types.QValueKindInt8:
+			v, err := strconv.ParseInt(val, 10, 8)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueInt8{Val: int8(v)}, nil
+		case types.QValueKindInt16:
+			v, err := strconv.ParseInt(val, 10, 16)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueInt16{Val: int16(v)}, nil
+		case types.QValueKindInt32:
+			v, err := strconv.ParseInt(val, 10, 32)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueInt32{Val: int32(v)}, nil
+		case types.QValueKindInt64:
+			v, err := strconv.ParseInt(val, 10, 64)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueInt64{Val: v}, nil
+		case types.QValueKindUInt8:
+			v, err := strconv.ParseUint(val, 10, 8)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueUInt8{Val: uint8(v)}, nil
+		case types.QValueKindUInt16:
+			v, err := strconv.ParseUint(val, 10, 16)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueUInt16{Val: uint16(v)}, nil
+		case types.QValueKindUInt32:
+			v, err := strconv.ParseUint(val, 10, 32)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueUInt32{Val: uint32(v)}, nil
+		case types.QValueKindUInt64:
+			v, err := strconv.ParseUint(val, 10, 64)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueUInt64{Val: v}, nil
+		case types.QValueKindFloat32:
+			v, err := strconv.ParseFloat(val, 32)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueFloat32{Val: float32(v)}, nil
+		case types.QValueKindFloat64:
+			v, err := strconv.ParseFloat(val, 64)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueFloat64{Val: v}, nil
 		}
 	}
-	return nil, fmt.Errorf("unexpected type %T for mysql type %d, qkind %s", val, mytype, qkind)
+
+	schemaName := string(ev.Schema)
+	tableName := string(ev.Table)
+	columnName := "__peerdb_unknown_" + strconv.Itoa(idx)
+	if len(ev.ColumnName) > idx {
+		columnName = string(ev.ColumnName[idx])
+	}
+	qkindStr := string(qkind)
+
+	err := exceptions.NewMySQLIncompatibleColumnTypeError(
+		fmt.Sprintf("%s.%s", schemaName, tableName), columnName, mytype, fmt.Sprintf("%T", val), qkindStr)
+	logger.Warn(err.Error())
+	return nil, err
 }

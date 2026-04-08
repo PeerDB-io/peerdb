@@ -3,8 +3,18 @@ name: Flow build and test
 on:
   pull_request:
     branches: [main]
+    # Ignore changes to files that don't require builds or validations.
+    # If more complex build avoidance is required, or for other events than pull_request, push, and pull_request_target,
+    # replace this with a gate step in the job.
+    paths-ignore: &ignore_paths
+        - '.claude/**'
+        - 'README.md'
   push:
     branches: [main]
+    paths-ignore: *ignore_paths
+  pull_request_target:
+    branches: [main]
+    paths-ignore: *ignore_paths
 
 permissions:
   id-token: write
@@ -12,11 +22,20 @@ permissions:
 
 jobs:
   flow_test:
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) ||
+      github.event_name == 'push'
+    environment: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) && 'external-contributor' || null }}
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
-        db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
+        db-version: [
+          {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
+          {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
+          {pg: 18, mysql: 'maria', mongo: '8.0', ch: 'latest'},
+        ]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -34,37 +53,21 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      mysql:
-        image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
-        ports:
-          - 3306:3306
-        env:
-          MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:b22ff89f4384e72f773aca495ade051c789f41976a78699644ba3039b9e43f84
+        image: redpandadata/redpanda@sha256:65a7a93449f113a2941e0e8a9cd7eb1ed3ba153547b6b2b47f11796e9f754345
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.0.2@sha256:12829bb0fa8b3c6b65928868d2af0fbe67bf74aa6b92b14eca87957e9f554136
+        image: elasticsearch:9.3.2@sha256:56282e41f1d9c8dc437e4c99d132cf9f154def73b6ea8a25ac969a28c2f529c6
         ports:
           - 9200:9200
         env:
           discovery.type: single-node
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
-      minio:
-        image: bitnami/minio:2025.5.24@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
-        ports:
-          - 9999:9999
-        env:
-          MINIO_ROOT_USER: minio
-          MINIO_ROOT_PASSWORD: miniosecret
-          MINIO_API_PORT_NUMBER: 9999
-          AWS_EC2_METADATA_DISABLED: true
-          MINIO_DEFAULT_BUCKETS: peerdb
       opensearch:
-        image: opensearchproject/opensearch:2.13.0
+        image: opensearchproject/opensearch:3
         ports:
           - 19200:9200
         env:
@@ -82,19 +85,45 @@ jobs:
           --health-timeout 10s
           --health-retries 20
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.129.1@sha256:4798e3095561ac8ae13a81965088d68b943b1991bbeede91b1564e12c95372cc
+        image: otel/opentelemetry-collector-contrib:0.149.0@sha256:0fba96233274f6d665ac8831ad99dfe6479a9a20459f6e2719c0d20945773b46
         ports:
           - 4317:4317
+      toxiproxy:
+        image: ghcr.io/shopify/toxiproxy:2.12.0@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e
+        ports:
+          - 18474:8474
+          - 9902:9902
+          - 9904:9904
+          - 9903:9903
+          - 42001:42001
+          - 42002:42002
+          - 42003:42003
+          - 49001:49001
+          - 49002:49002
+          - 49003:49003
+      openssh:
+        image: linuxserver/openssh-server:latest@sha256:57c13941ef385d735cca18ee969eeba18e42ab95480c97af2182505aacdfe307
+        ports:
+          - 2222:2222
+        env:
+          PUID: 1000
+          PGID: 1000
+          TZ: Etc/UTC
+          USER_NAME: testuser
+          USER_PASSWORD: testpass
+          PASSWORD_ACCESS: true
+          DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24.4'
+          go-version: '1.26.1'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
@@ -135,7 +164,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
@@ -144,15 +173,21 @@ jobs:
           mask-aws-account-id: true
           output-credentials: true
 
-      - name: MariaDB
-        if: matrix.db-version.mysql == 'maria'
-        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
+      - name: MySQL
+        run: |
+          if [ "${{ matrix.db-version.mysql }}" = "mysql-gtid" ]; then
+            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:9.5
+          elif [ "${{ matrix.db-version.mysql }}" = "mysql-pos" ]; then
+            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:5.7 --log_bin=mysql-bin --server-id=1 --bind-address=::
+          elif [ "${{ matrix.db-version.mysql }}" = "maria" ]; then
+            docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
+          fi
 
       - name: Mongo
         run: |
           echo "starting mongoDB..."
           docker run -d --rm --name mongo -p 27017:27017 mongo:${{ matrix.db-version.mongo }} \
-            bash -c 'openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && mongod --replSet rs0 --bind_ip_all --keyFile /data/mongo.key'
+            bash -c 'openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && mongod --replSet rs0  --oplogMinRetentionHours 24 --bind_ip_all --keyFile /data/mongo.key'
 
           until docker exec mongo mongosh --eval 'db.runCommand({ ping: 1 })' &> /dev/null; do
             echo "waiting for MongoDB to be ready..."
@@ -180,22 +215,51 @@ jobs:
             db.createUser({
               user: "csuser",
               pwd: "cspass",
-              roles: ["readAnyDatabase"]
+              roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - name: MinIO TLS
+      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        id: cache-minio
+        with:
+          path: ./minio
+          key: ${{ runner.os }}-minio
+
+      - name: Install MinIO Server
+        if: steps.cache-minio.outputs.cache-hit != 'true'
+        run: |
+          curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
+
+      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        id: cache-minio-client
+        with:
+          path: ./mc
+          key: ${{ runner.os }}-minio-client
+
+      - name: Install MinIO Client
+        if: steps.cache-minio-client.outputs.cache-hit != 'true'
+        run: |
+          curl -O https://dl.min.io/client/mc/release/linux-amd64/mc && chmod +x mc
+
+      - name: MinIO
         run: >
-          mkdir -p certs &&
+          mkdir -p certs minio-data &&
           openssl genrsa -out certs/cert.key 2048 &&
           openssl req -new -key certs/cert.key -out certs/cert.csr -subj /CN=minio.local &&
           openssl x509 -req -days 3650 -in certs/cert.csr -signkey certs/cert.key -out certs/cert.crt &&
           chown -R 1001 certs &&
-          docker run -d --rm --name miniotls -p 9998:9998 -v "$PWD/certs:/certs" -e MINIO_SCHEME=https bitnami/minio:latest
+          ./minio server ./minio-data --certs-dir ./certs --address :9999 &
+          sleep 2 &&
+          ./mc alias set myminiopeerdb http://localhost:9999 minio miniosecret &&
+          ./mc mb myminiopeerdb/peerdb
+        env:
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: miniosecret
+          AWS_EC2_METADATA_DISABLED: true
 
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
           docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
-          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
+          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
           docker exec "${{ job.services.catalog.id }}" sh -c 'cd /tmp/pgvector && make with_llvm=no && make with_llvm=no install' &&
           docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;CREATE EXTENSION vector;"
           -c "ALTER SYSTEM SET wal_level=logical;"
@@ -207,19 +271,42 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      - name: set ClickHouse version
+        id: ch-version
+        run: |
+          if [ "${{ matrix.db-version.ch }}" = "lts" ]; then
+            echo "ch_version=v25.8.11.66-lts" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.db-version.ch }}" = "stable" ]; then
+            echo "ch_version=v25.12.4.35-stable" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.db-version.ch }}" = "latest" ]; then
+            # note: latest tag does not always reflect the latest version (could be an update on an lts),
+            # but that is okay as we are only using it to invalidate the cache.
+            echo "ch_version=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         id: cache-clickhouse
         with:
           path: ./clickhouse
-          key: ${{ runner.os }}-clickhouse
+          key: ${{ runner.os }}-clickhouse-${{ steps.ch-version.outputs.ch_version }}
 
       - name: Install ClickHouse
         if: steps.cache-clickhouse.outputs.cache-hit != 'true'
         run: |
-          curl https://clickhouse.com | sh
+          if [[ "${{ matrix.db-version.ch }}" = 'latest' ]]; then
+            curl https://clickhouse.com | sh
+          else
+            VERSION="${{ steps.ch-version.outputs.ch_version }}"
+            VERSION_NUM=$(echo ${VERSION#v} | cut -d'-' -f1)
+            curl -sL https://github.com/ClickHouse/ClickHouse/releases/download/$VERSION/clickhouse-common-static-$VERSION_NUM-amd64.tgz | tar -xzf -
+            mv "clickhouse-common-static-$VERSION_NUM/usr/bin/clickhouse" ./clickhouse
+            rm -rf "clickhouse-common-static-$VERSION_NUM"
+            chmod +x clickhouse
+          fi
 
       - name: Run ClickHouse
         run: |
+          ./clickhouse --version
           cat > config1.xml <<EOF
           <clickhouse>
             <profiles><default></default></profiles>
@@ -370,17 +457,20 @@ jobs:
           curl -fsSL -o aws-global-bundle.pem "$URL"
           sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- aws-global-bundle.pem '/-----BEGIN CERTIFICATE-----/' '{*}'
           sudo update-ca-certificates
-
+      - name: Install gotestsum
+        run: |
+          go install gotest.tools/gotestsum@latest
       - name: run tests
         run: |
-          temporal server start-dev --namespace default --headless &
           mkdir coverage
+          mkdir -p ../logs
+          temporal server start-dev --namespace default --headless > ../logs/temporal.log 2>&1 &
           go build -cover -ldflags="-s -w" -o peer-flow
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
-          ./peer-flow worker &
-          ./peer-flow snapshot-worker &
-          ./peer-flow api --port 8112 --gateway-port 8113 &
-          go test -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          ./peer-flow worker > ../logs/peer-flow-worker.log 2>&1 &
+          ./peer-flow snapshot-worker > ../logs/peer-flow-snapshot-worker.log 2>&1 &
+          ./peer-flow api --port 8112 --gateway-port 8113 > ../logs/peer-flow-api.log 2>&1 &
+          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
@@ -416,20 +506,25 @@ jobs:
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
+          PG_HOST: localhost
+          PG_PORT: 5432
+          PG_USER: postgres
+          PG_PASSWORD: postgres
+          PG_DATABASE: postgres
+          PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           OPENSEARCH_TEST_ADDRESS: http://localhost:19200
-          OPENSEARCH_TEST_USERNAME: admin
-          OPENSEARCH_TEST_PASSWORD: S3curepa55!
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
-          CI_MONGO_ADMIN_URI: mongodb://localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_ADMIN_URI: mongodb://localhost:27017
           CI_MONGO_ADMIN_USERNAME: "admin"
           CI_MONGO_ADMIN_PASSWORD: "admin"
-          CI_MONGO_URI: mongodb://localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_URI: mongodb://localhost:27017
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
-          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
+          TOXIPROXY_POSTGRES_HOST: catalog
+          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
           PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
@@ -453,7 +548,22 @@ jobs:
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
 
+      - name: Upload peer-flow logs and test results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
+          path: logs/
+          retention-days: 30
+
+      - name: Upload test results to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        with:
+          report_type: test_results
+          files: logs/test-results.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

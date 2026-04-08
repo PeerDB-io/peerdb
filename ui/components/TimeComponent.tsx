@@ -5,6 +5,19 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import moment from 'moment-timezone';
 import { useEffect, useState } from 'react';
 
+// Custom hook to handle hydration
+function useHydrated() {
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    // Defer the state update to avoid synchronous setState
+    const timer = setTimeout(() => setHydrated(true), 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return hydrated;
+}
+
 export default function TimeLabel({
   timeVal,
   fontSize,
@@ -12,11 +25,9 @@ export default function TimeLabel({
   timeVal: Date | string;
   fontSize?: number;
 }) {
-  const [timezone] = useLocalStorage('timezone-ui', 'UTC'); // ['UTC', 'Local', 'Relative']
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const [timezone] = useLocalStorage('timezone-ui', 'UTC');
+  const mounted = useHydrated();
+
   const formattedTimestamp = (zone: string) => {
     switch (zone) {
       case 'Local':
@@ -29,6 +40,7 @@ export default function TimeLabel({
         return moment(timeVal).utc().format('YYYY-MM-DD HH:mm:ss');
     }
   };
+
   if (!mounted) {
     return (
       <Label>
@@ -36,6 +48,7 @@ export default function TimeLabel({
       </Label>
     );
   }
+
   return (
     <Label as='label' style={{ fontSize: fontSize }}>
       {formattedTimestamp(timezone)}

@@ -2,22 +2,30 @@ package alerting
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
+	"syscall"
 	"testing"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
+	pErrors "github.com/pingcap/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -30,8 +38,8 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourcePostgres,
-		Code:   "UNKNOWN",
+		Source: ErrorSourceNet,
+		Code:   "net.DNSError",
 	}, errInfo, "Unexpected error info")
 }
 
@@ -91,7 +99,7 @@ func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
 				JSONExtractArrayRaw(JSONExtractRaw(s, 'more_data')) AS md SETTINGS final = 1`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w",
-		exceptions.NewQRepSyncError(err, "error_table_name_abc", "db_name_xyz")))
+		exceptions.NewClickHouseQRepSyncError(err, "error_table_name_abc", "db_name_xyz")))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -99,21 +107,25 @@ func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPostgresWalRemovedErrorShouldBeRecoverable(t *testing.T) {
-	// Simulate a WAL removed error
-	err := &exceptions.PostgresWalError{
-		Msg: &pgproto3.ErrorResponse{
-			Severity: "ERROR",
-			Code:     pgerrcode.InternalError,
-			Message:  "requested WAL segment 000000010001337F0000002E has already been removed",
-		},
+func TestPostgresWalRemovedErrorShouldBeNotifyUser(t *testing.T) {
+	for _, code := range []string{pgerrcode.InternalError, pgerrcode.UndefinedFile} {
+		t.Run(code, func(t *testing.T) {
+			// Simulate a WAL removed error
+			err := &exceptions.PostgresWalError{
+				Msg: &pgproto3.ErrorResponse{
+					Severity: "ERROR",
+					Code:     code,
+					Message:  "requested WAL segment 000000010001337F0000002E has already been removed",
+				},
+			}
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+			assert.Equal(t, ErrorNotifyWalSegmentRemoved, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   code,
+			}, errInfo, "Unexpected error info")
+		})
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourcePostgres,
-		Code:   pgerrcode.InternalError,
-	}, errInfo, "Unexpected error info")
 }
 
 func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
@@ -133,18 +145,94 @@ func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
-	// Simulate a ClickHouse access entity not found error
-	err := &clickhouse.Exception{
-		Code:    492,
-		Message: "ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories",
+func TestNeonProjectQuotaExceededErrorShouldBeConnectivity(t *testing.T) {
+	// Simulate a Neon project quota exceeded error
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InternalError,
+		Message:  "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewPeerCreateError(fmt.Errorf("failed to create connection: failed to connect to `<user, host>: server error: `: %w", err)))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresMemoryAllocErrorShouldBeSlotMemalloc(t *testing.T) {
+	// Simulate a Postgres memory allocation error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "invalid memory alloc request size 1073741824",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorNotifyPostgresSlotMemalloc, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresPfreeInvalidPointerErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a Postgres pfree invalid pointer error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "pfree called with invalid pointer 0x400720764ed0 (header 0x0000400720825ae0) ",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourceClickHouse,
-		Code:   "492",
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
 	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresUnrecognizedSIMessageIDErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate shared invalidation message corruption error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "FATAL",
+			Code:     pgerrcode.InternalError,
+			Message:  "unrecognized SI message ID: -60",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("ReceiveMessage failed: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a ClickHouse access entity not found error
+	for idx, msg := range []string{
+		"ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories",
+		// With backticks
+		"ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in `user directories`",
+	} {
+		t.Run(fmt.Sprintf("Test case %d", idx), func(t *testing.T) {
+			err := &clickhouse.Exception{
+				Code:    492,
+				Message: msg,
+			}
+			errorClass, errInfo := GetErrorClass(t.Context(),
+				exceptions.NewClickHouseQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
+			assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceClickHouse,
+				Code:   "492",
+			}, errInfo, "Unexpected error info")
+		})
+	}
 }
 
 func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
@@ -155,7 +243,8 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 		is not supported: while converting source column created_at to destination column created_at:
 		while pushing to view db_name.hello_mv`,
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", err)))
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", peerdb_clickhouse.NewViewError(err))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -163,7 +252,7 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
+func TestPostgresQueryCancelledErrorShouldBeNotifyConnectivity(t *testing.T) {
 	t.Parallel()
 
 	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
@@ -176,7 +265,7 @@ func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
 	_, err = connectConfig.Exec(t.Context(), "SELECT pg_sleep(2)")
 
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed querying: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.QueryCanceled,
@@ -214,6 +303,65 @@ func TestPostgresPublicationDoesNotExistErrorShouldBePublicationMissing(t *testi
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.UndefinedObject,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresSnapshotDoesNotExistErrorShouldBeInvalidSnapshot(t *testing.T) {
+	// Simulate a snapshot does not exist error
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.UndefinedObject,
+		Message:  `snapshot "custom_snap" does not exist`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to set snapshot: %w", err))
+	assert.Equal(t, ErrorNotifyInvalidSnapshotIdentifier, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UndefinedObject,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InvalidParameterValue,
+		Message:  `"synchronized_standby_slots"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to query for total rows: %w", err))
+	assert.Equal(t, ErrorNotifyInvalidSynchronizedStandbySlots, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InvalidParameterValue,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.FeatureNotSupported,
+		Message:  "logical decoding cannot be used while in recovery",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error starting replication at startLsn - 11763874329649: %w", err))
+	assert.Equal(t, ErrorNotifyLogicalDecodingStandbyNotSupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.FeatureNotSupported,
+	}, errInfo)
+}
+
+func TestPostgresCreatingSlotOnReader(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InternalError,
+		Message: `ERROR: Creating logical replication slot peerflow_slot_mirror_1cd7f87b__d143__4cea__a247__a2acc5f5b746
+		is not supported on the Multi-AZ DB cluster reader node.
+		Create the replication slot from the writer node instead. (SQLSTATE XX000)`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("slot error: [slot] error creating replication slot: %w", err))
+	assert.Equal(t, ErrNotifyPostgresCreatingSlotOnReader, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
 	}, errInfo, "Unexpected error info")
 }
 
@@ -268,6 +416,24 @@ func TestPostgresReorderbufferSpillFileBadFileDescriptorErrorShouldBeRecoverable
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresReorderBufferIterTXNNextResourceUnavailableShouldBeRecoverable(t *testing.T) {
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message: "Unable to restore changes for xid 468194444. " +
+				"Restored 10/9 changes from disk and currently at segno 8846. Resource temporarily unavailable",
+			Routine: "ReorderBufferIterTXNNext",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T) {
 	// Simulate an "undefined object" error without publication related message
 	err := &pgconn.PgError{
@@ -283,15 +449,15 @@ func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
+func TestPostgresQueryCancelledDuringWalShouldBeNotifyConnectivity(t *testing.T) {
 	// Simulate a query cancelled error during WAL
-	err := exceptions.NewPostgresWalError(errors.New("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
+	err := exceptions.NewPostgresWalError(fmt.Errorf("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
 		Severity: "ERROR",
 		Code:     pgerrcode.QueryCanceled,
 		Message:  "canceling statement due to user request",
 	})
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.QueryCanceled,
@@ -300,7 +466,7 @@ func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
 
 func TestRandomErrorShouldBeOther(t *testing.T) {
 	// Simulate a random error
-	err := errors.New("some random error")
+	err := fmt.Errorf("some random error")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
 	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -317,6 +483,31 @@ func TestPeerCreateTimeoutErrorShouldBeConnectivity(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "CONTEXT_DEADLINE_EXCEEDED",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestConnectionResetDuringPeerCreateShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewPeerCreateError(
+		fmt.Errorf("failed to open connection to ClickHouse peer: failed to ping to ClickHouse peer: read: %w", syscall.ECONNRESET))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to recreate destination connector: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   syscall.ECONNRESET.Error(),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestConnectionResetFromSourceShouldBeIgnored(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("failed to pull records: read tcp 10.0.0.1:5432: %w", syscall.ECONNRESET)
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorIgnoreConnTemporary, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   syscall.ECONNRESET.Error(),
 	}, errInfo, "Unexpected error info")
 }
 
@@ -368,11 +559,25 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), err)
 			assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   "UNKNOWN",
+				Source: ErrorSourceNet,
+				Code:   "connect: connection refused",
 			}, errInfo, "Unexpected error info")
 		})
 	}
+}
+
+func TestClickHouseViewShouldBeDestinationModified(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    48,
+		Message: "Alter of type 'ADD_COLUMN' is not supported by storage View",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to push records: %w", err))
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "48",
+	}, errInfo, "Unexpected error info")
 }
 
 func TestClickHouseUnknownTableShouldBeDestinationModified(t *testing.T) {
@@ -398,10 +603,378 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   "60",
 	}, errInfo, "Unexpected error info")
+}
+
+func TestNonClassifiedNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
+	// Simulate an unclassified normalize error
+	err := &clickhouse.Exception{
+		Code:    207,
+		Message: "JOIN  ANY LEFT JOIN ... ON a.id = b.b_id ambiguous identifier 'c_id'. In scope SELECT ...",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "207",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestErrIncorrectDataWithMVErrorShouldBeNotifyMV(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrIncorrectData),
+		Message: "REDACTED",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrIncorrectData)),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestNonClassifiedNonNormalizeErrorShouldBeOtherWithSourceClickHouse(t *testing.T) {
+	// Simulate an unclassified non-normalize error
+	err := &clickhouse.Exception{
+		Code:    -1,
+		Message: "Some random exception",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("random exception: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "-1",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestNumericTruncateOrOutOfRangeWarningShouldBeLossyConversion(t *testing.T) {
+	for code, err := range map[string]error{
+		"NUMERIC_TRUNCATED":    exceptions.NewNumericTruncatedError(errors.New("testing numeric truncated warning"), "tableA1", "columnB2"),
+		"NUMERIC_OUT_OF_RANGE": exceptions.NewNumericOutOfRangeError(errors.New("testing numeric out of range warning"), "tableA1", "columnB2"),
+	} {
+		t.Run(code, func(t *testing.T) {
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("lossy conversion: %w", err))
+			assert.Equal(t, ErrorLossyConversion, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: "typeConversion",
+				Code:   code,
+				AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+					ErrorAttributeKeyTable:  "tableA1",
+					ErrorAttributeKeyColumn: "columnB2",
+				},
+			}, errInfo, "Unexpected error info")
+		})
+	}
+}
+
+func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
+	type classAndInfo struct {
+		errorClass ErrorClass
+		errInfo    ErrorInfo
+	}
+	for code, cinfo := range map[exceptions.ApplicationErrorType]classAndInfo{
+		exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot: {
+			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(),
+			},
+		},
+		exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot: {
+			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot.String(),
+			},
+		},
+	} {
+		t.Run(code.String(), func(t *testing.T) {
+			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError(
+				"irrecoverable error",
+				code.String(),
+				nil,
+			))
+			assert.Equal(t, cinfo.errorClass, errorClass, "Unexpected error class")
+			assert.Equal(t, cinfo.errInfo, errInfo, "Unexpected error info")
+		})
+	}
+}
+
+func TestTemporalKnownIrrecoverableErrorTypesHaveCorrectClassification(t *testing.T) {
+	for _, code := range exceptions.IrrecoverableApplicationErrorTypesList {
+		t.Run(code, func(t *testing.T) {
+			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError("unknown", code, nil))
+			assert.NotEqual(t, ErrorOther, errorClass, "Error class should not be other")
+			assert.NotEqual(t, ErrorSourceTemporal, errInfo.Source)
+		})
+	}
+}
+
+func TestTemporalUnknownErrorShouldBeOther(t *testing.T) {
+	errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError("irrecoverable error", "UNKNOWN_ERROR", nil))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceTemporal,
+		Code:   "UNKNOWN_ERROR",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoShutdownInProgressErrorShouldBeIgnored(t *testing.T) {
+	// Simulate a MongoDB shutdown in progress error (quiesce mode)
+	de := driver.Error{
+		Code: 0,
+		//nolint:lll
+		Message: "connection pool for <host>:<port> was cleared because another operation failed with: (ShutdownInProgress) The server is in quiesce mode and will shut down",
+	}
+	err := mongo.CommandError{
+		Message: de.Message,
+		Code:    de.Code,
+		Wrapped: de,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorIgnoreConnTemporary, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "0",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
+	//nolint:lll
+	err := fmt.Errorf("change stream error: connection pool for abc.123.mongodb.net:27017 was cleared because another operation failed with: (InterruptedDueToReplStateChange) operation was interrupted")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "POOL_CLEARED_ERROR(11602)",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoCursorErrors(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    6,
+		Message: "(HostUnreachable) Error on remote shard test.mongodb.net:27017 :: caused by :: interrupted at shutdown",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("cursor error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "6",
+	}, errInfo)
+
+	err = mongo.CommandError{
+		Code:    43,
+		Message: "cursor id 1234567890 not found",
+	}
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("cursor error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "43",
+	}, errInfo)
+}
+
+func TestAuroraMySQLZeroDowntimePatchErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate Aurora MySQL Zero Downtime Patch error
+	mysqlErr := &mysql.MyError{
+		Code:    1105, // ER_UNKNOWN_ERROR
+		State:   "HY000",
+		Message: "The last transaction was aborted due to Zero Downtime Patch. Please retry.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", mysqlErr))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1105",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate Aurora MySQL Zero Downtime Restart error
+	mysqlErr := &mysql.MyError{
+		Code:    1105, // ER_UNKNOWN_ERROR
+		State:   "HY000",
+		Message: "The last transaction was aborted due to Zero Downtime Restart. Please retry.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql errors: %w", mysqlErr))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1105",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
+	err := exceptions.NewMySQLStreamingError(
+		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"})
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "STREAMING_TRANSIENT_ERROR",
+	}, errInfo, "Unexpected error info")
+
+	err = exceptions.NewMySQLStreamingError(
+		tls.RecordHeaderError{Msg: "unsupported SSLv2 handshake received"})
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNKNOWN",
+	}, errInfo, "Unexpected error info")
+
+	err = exceptions.NewMySQLStreamingError(context.DeadlineExceeded)
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "STREAMING_TRANSIENT_ERROR",
+	}, errInfo, "Unexpected error info")
+
+	tlsErr := tls.RecordHeaderError{Msg: "remote error: tls: error decoding message"}
+	innerErr := pErrors.Wrapf(mysql.ErrBadConn, "io.ReadFull(header) failed. err %v", tlsErr)
+	err = exceptions.NewMySQLStreamingError(pErrors.Errorf("failed to set @slave_gtid_strict_mode=1: %v", innerErr))
+	errorClass, errInfo = GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "STREAMING_TRANSIENT_ERROR",
+	}, errInfo)
+}
+
+func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrTooManyParts),
+		//nolint:lll
+		Message: "Too many parts (3025 with average size of 65.51 MiB) in table 'ss_replica.posts_resync (db2b0f62-f577-4116-8b5d-e0f760a42bee)'. Merges are processing significantly slower than inserts",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewClickHouseQRepSyncError(err, "", ""))
+	assert.Equal(t, ErrorNotifyTooManyPartsError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrTooManyParts)),
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "ss_replica.posts_resync (db2b0f62-f577-4116-8b5d-e0f760a42bee)",
+		},
+	}, errInfo)
+}
+
+func TestClickHouseTooManyPartsWithoutTableName(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrTooManyParts),
+		//nolint:lll
+		Message: "Too many partitions for single INSERT block (more than 9999). The limit is controlled by 'max_partitions_per_insert_block' setting.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewClickHouseQRepSyncError(err, "", ""))
+	assert.Equal(t, ErrorNotifyTooManyPartsError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrTooManyParts)),
+	}, errInfo)
+}
+
+func TestClickHouseFailedToLoadAllDataPartsShouldNotifyUser(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnfinished),
+		Message: "Failed to load all data parts",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("clickhouse error: %w", err))
+	assert.Equal(t, ErrorNotifyClickHouseError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
+	}, errInfo)
+}
+
+func TestClickHouseOtherUnfinishedShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnfinished),
+		Message: "some other unfinished error",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("clickhouse error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
+	}, errInfo)
+}
+
+func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
+	err := exceptions.NewMySQLUnsupportedDDLError("test_db.test_table")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogRowMetadataInvalid, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "test_db.test_table",
+		},
+	}, errInfo)
+}
+
+func TestPublicationMissingError(t *testing.T) {
+	err := exceptions.NewPublicationMissingError("test_pub")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
+	assert.Equal(t, ErrorNotifyPublicationMissing, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "irrecoverable_publication_missing",
+	}, errInfo)
+}
+
+func TestSlotMissingError(t *testing.T) {
+	err := exceptions.NewSlotMissingError("test_slot")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))
+	assert.Equal(t, ErrorNotifyReplicationSlotMissing, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "irrecoverable_slot_missing",
+	}, errInfo)
+}
+
+func TestMongoClientDisconnectedShouldBeInternal(t *testing.T) {
+	err := fmt.Errorf("operation failed: %w", mongo.ErrClientDisconnected)
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorInternal, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "CLIENT_DISCONNECTED",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestYugabyteDBSnapshotExportDisabledShouldBeSnapshotExportDisabled(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.SyntaxError,
+		Message:  "cannot export or import snapshot when ysql_enable_pg_export_snapshot is disabled.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to set transaction snapshot: %w", err))
+	assert.Equal(t, ErrorNotifySnapshotExportDisabled, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.SyntaxError,
+	}, errInfo)
+}
+
+func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
+	pgErr := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.ObjectNotInPrerequisiteState,
+		Message:  "replication slots cannot be used on RO (Read Only) node",
+	}
+	err := fmt.Errorf("error starting replication at startLsn - 18598145761: %w", pgErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records when: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.ObjectNotInPrerequisiteState,
+	}, errInfo)
 }

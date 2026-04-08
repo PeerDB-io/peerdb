@@ -1,5 +1,8 @@
+'use client';
+
 import { Icon } from '@/lib/Icon';
 import * as Popover from '@radix-ui/react-popover';
+import { useTheme } from 'styled-components';
 
 export default function InfoPopover({
   tips,
@@ -10,6 +13,8 @@ export default function InfoPopover({
   link?: string;
   command?: string;
 }) {
+  const theme = useTheme();
+
   return (
     <Popover.Root modal={true}>
       <Popover.Trigger asChild>
@@ -20,14 +25,14 @@ export default function InfoPopover({
 
       <Popover.Portal>
         <Popover.Content
-          style={{ backgroundColor: '#fff' }}
+          style={{ backgroundColor: theme.colors.base.surface.normal }}
           className='PopoverContent'
           sideOffset={5}
         >
           <div
             style={{
-              border: '1px solid #d9d7d7',
-              boxShadow: '0 0 10px #d9d7d7',
+              border: `1px solid ${theme.colors.base.border.normal}`,
+              boxShadow: '0 0 10px rgba(0,0,0,0.15)',
               padding: '0.5rem',
               borderRadius: '0.5rem',
               minWidth: '15rem',
@@ -44,7 +49,7 @@ export default function InfoPopover({
                 href={link}
                 rel='noreferrer'
                 target='_blank'
-                style={{ color: '#0070f3', fontSize: 16 }}
+                style={{ color: theme.colors.blue.fill.normal, fontSize: 16 }}
               >
                 Click here for more info.
               </a>

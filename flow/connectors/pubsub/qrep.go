@@ -6,7 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/v2"
+	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -30,7 +31,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	if err != nil {
 		return 0, nil, err
 	}
-	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
+	topiccache := c.NewTopicCache()
 	publish := make(chan publishResult, 32)
 	waitChan := make(chan struct{})
 	numRecords := atomic.Int64{}
@@ -120,7 +121,9 @@ Loop:
 		return 0, nil, err
 	}
 	close(publish)
-	topiccache.Stop(queueCtx)
+	topiccache.ForEach(queueCtx, func(_ *pubsubpb.Topic, publisher *pubsub.Publisher) {
+		publisher.Stop()
+	})
 	select {
 	case <-queueCtx.Done():
 		return 0, nil, queueCtx.Err()

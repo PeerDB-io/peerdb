@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -12,10 +13,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -32,7 +34,7 @@ const (
 		_peerdb_batch_id Int64,
 		_peerdb_unchanged_toast_columns String
 	)`
-	zooPathPrefix = "/clickhouse/tables/{uuid}/{shard}/{database}/%s"
+	zooPathPrefix = "/clickhouse/tables/{uuid}/{shard}/{database}/"
 )
 
 // GetRawTableName returns the raw table name for the given table identifier.
@@ -55,7 +57,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	var rawDistributedName string
 	rawTableName := c.GetRawTableName(req.FlowJobName)
 	engine := "MergeTree()"
-	if c.config.Replicated {
+	if c.Config.Replicated {
 		engine = fmt.Sprintf(
 			"ReplicatedMergeTree('%s%s','{replica}')",
 			zooPathPrefix,
@@ -80,8 +82,8 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		if err := c.execWithLogging(ctx,
 			fmt.Sprintf(createRawDistributedSQL, peerdb_clickhouse.QuoteIdentifier(rawDistributedName), onCluster,
 				rawColumns,
-				peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
-				peerdb_clickhouse.QuoteIdentifier(c.config.Database),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Database),
 				peerdb_clickhouse.QuoteIdentifier(rawTableName)),
 		); err != nil {
 			return nil, fmt.Errorf("unable to create raw table: %w", err)
@@ -118,7 +120,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, unboundedNumericAsString,
 		protos.DBType_CLICKHOUSE,
 	)
-	numericTruncator := model.NewStreamNumericTruncator(req.TableMappings, peerdb_clickhouse.NumericDestinationTypes)
+	numericTruncator := model.NewStreamNumericTruncator(req.TableMappings, NumericDestinationTypes)
 	stream, err := utils.RecordsToRawTableStream(streamReq, numericTruncator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -131,7 +133,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}
 	warnings := numericTruncator.Warnings()
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, req.Flags); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -159,12 +161,69 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 	return res, nil
 }
 
+// getDistributedShardTable queries the Distributed table engine definition from system.tables
+// and extracts the shard (local) table name. After a resync, shard tables have a timestamp suffix
+// (e.g., table_shard1710425678) and the Distributed table is the source of truth for the actual name.
+func (c *ClickHouseConnector) getDistributedShardTable(ctx context.Context, tableName string) (string, error) {
+	var engineFull string
+	if err := c.queryRow(ctx, fmt.Sprintf(
+		"SELECT engine_full FROM system.tables WHERE database = %s AND name = %s AND engine = 'Distributed'",
+		peerdb_clickhouse.QuoteLiteral(c.Config.Database),
+		peerdb_clickhouse.QuoteLiteral(tableName),
+	)).Scan(&engineFull); err != nil {
+		return "", fmt.Errorf("failed to get engine_full for Distributed table %s: %w", tableName, err)
+	}
+
+	// engine_full format: Distributed('cluster', 'database', 'shard_table'[, sharding_key[, 'policy']])
+	// Extract the third single-quoted parameter (the shard table name).
+	quoted := extractSingleQuotedStrings(engineFull)
+	if len(quoted) < 3 {
+		return "", fmt.Errorf("unexpected engine_full format for Distributed table %s: %s", tableName, engineFull)
+	}
+	return quoted[2], nil
+}
+
+// extractSingleQuotedStrings returns all single-quoted string values from s in order.
+func extractSingleQuotedStrings(s string) []string {
+	var result []string
+	for {
+		start := strings.IndexByte(s, '\'')
+		if start == -1 {
+			break
+		}
+		// Scan for the closing quote, skipping backslash-escaped characters.
+		var val strings.Builder
+		i := start + 1
+		found := false
+		for i < len(s) {
+			if s[i] == '\\' && i+1 < len(s) {
+				val.WriteByte(s[i+1])
+				i += 2
+			} else if s[i] == '\'' {
+				found = true
+				i++
+				break
+			} else {
+				val.WriteByte(s[i])
+				i++
+			}
+		}
+		if !found {
+			break
+		}
+		result = append(result, val.String())
+		s = s[i:]
+	}
+	return result
+}
+
 func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	env map[string]string,
 	flowJobName string,
 	tableMappings []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
+	flags []string,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil
@@ -185,20 +244,32 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			}
 		}
 
+		// Resolve the actual shard table name from the Distributed table definition.
+		// After resync, the shard table has a timestamp suffix (e.g., table_shard1710425678)
+		// and hardcoding "_shard" would target the wrong table.
+		// Distributed table isn't created for null tables
+		var shardTableName string
+		if c.Config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
+			var err error
+			shardTableName, err = c.getDistributedShardTable(ctx, schemaDelta.DstTableName)
+			if err != nil {
+				return fmt.Errorf("failed to resolve shard table for %s: %w", schemaDelta.DstTableName, err)
+			}
+		}
+
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			clickHouseColType, err := qvalue.ToDWHColumnType(
-				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled,
+				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled, flags,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
 
-			// Distributed table isn't created for null tables, no need to alter shard tables that don't exist
-			if c.config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
+			if shardTableName != "" {
 				if err := c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
-						peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName+"_shard"), onCluster,
+						peerdb_clickhouse.QuoteIdentifier(shardTableName), onCluster,
 						peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
 				); err != nil {
 					return fmt.Errorf("failed to add column %s for table shards %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
@@ -226,9 +297,10 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 func (c *ClickHouseConnector) RenameTables(
 	ctx context.Context,
 	req *protos.RenameTablesInput,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
 	onCluster := c.onCluster()
+	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
+		chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingMaxTableSizeToDrop, "0")
 	for _, renameRequest := range req.RenameTableOptions {
 		if renameRequest.CurrentName == renameRequest.NewName {
 			c.logger.Info("table rename is nop, probably Null table engine, skipping rename for it",
@@ -236,7 +308,7 @@ func (c *ClickHouseConnector) RenameTables(
 			continue
 		}
 
-		resyncTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.CurrentName)
+		resyncTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, renameRequest.CurrentName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if resync table %s exists: %w", renameRequest.CurrentName, err)
 		}
@@ -246,7 +318,7 @@ func (c *ClickHouseConnector) RenameTables(
 			continue
 		}
 
-		originalTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.NewName)
+		originalTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if table %s exists: %w", renameRequest.NewName, err)
 		}
@@ -261,7 +333,7 @@ func (c *ClickHouseConnector) RenameTables(
 					peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
 			); err == nil {
 				if err := c.execWithLogging(ctx,
-					fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
+					fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
 				); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
 				}
@@ -276,7 +348,7 @@ func (c *ClickHouseConnector) RenameTables(
 		// or err is set (in which case err comes from EXCHANGE TABLES)
 		if !originalTableExists || err != nil {
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster),
+				fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster),
 			); err != nil {
 				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 			}
@@ -302,14 +374,16 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	// delete raw table if exists
 	rawTableIdentifier := c.GetRawTableName(jobName)
 	onCluster := c.onCluster()
+	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
+		chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingMaxTableSizeToDrop, "0")
 	if err := c.execWithLogging(ctx,
-		fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), onCluster),
+		fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), onCluster),
 	); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
 	if onCluster != "" {
 		if err := c.execWithLogging(ctx,
-			fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier+"_shard"), onCluster),
+			fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier+"_shard"), onCluster),
 		); err != nil {
 			return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 		}
@@ -323,7 +397,7 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
 	req *protos.RemoveTablesFromRawTableInput,
 ) error {
-	if c.config.Cluster != "" {
+	if c.Config.Cluster != "" {
 		// this operation isn't crucial, okay to skip
 		c.logger.Info("skipping raw table cleanup of tables, DELETE not supported on Distributed table engine",
 			slog.Any("tables", req.DestinationTableNames))

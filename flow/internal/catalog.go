@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -23,7 +24,14 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (shared.CatalogPool, e
 	if pool == nil {
 		var err error
 		catalogConnectionString := GetCatalogConnectionStringFromEnv(ctx)
-		pool, err = pgxpool.New(ctx, catalogConnectionString)
+		config, err := pgxpool.ParseConfig(catalogConnectionString)
+		if err != nil {
+			return shared.CatalogPool{},
+				exceptions.NewCatalogError(fmt.Errorf("unable to parse catalog connection string: %w", err))
+		}
+		config.MaxConns = 3
+		config.MaxConnIdleTime = 90 * time.Second
+		pool, err = pgxpool.NewWithConfig(ctx, config)
 		if err != nil {
 			return shared.CatalogPool{Pool: pool},
 				exceptions.NewCatalogError(fmt.Errorf("unable to establish connection with catalog: %w", err))
@@ -50,5 +58,15 @@ func GetCatalogPostgresConfigFromEnv(ctx context.Context) *protos.PostgresConfig
 		Password:   PeerDBCatalogPassword(ctx),
 		Database:   PeerDBCatalogDatabase(),
 		RequireTls: PeerDBCatalogRequireTls(),
+	}
+}
+
+func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
+	return &protos.PostgresConfig{
+		Host:     GetEnvString("PG_HOST", "localhost"),
+		Port:     uint32(getEnvUint[uint16]("PG_PORT", 5432)),
+		User:     GetEnvString("PG_USER", "postgres"),
+		Password: GetEnvString("PG_PASSWORD", "postgres"),
+		Database: GetEnvString("PG_DATABASE", "postgres"),
 	}
 }

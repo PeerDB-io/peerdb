@@ -11,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -39,7 +40,7 @@ func (c *KafkaConnector) SyncQRepRecords(
 	}
 	defer pool.Close()
 
-	shutdown := shared.Interval(ctx, time.Minute, func() {
+	shutdown := common.Interval(ctx, time.Minute, func() {
 		c.logger.Info(fmt.Sprintf("sent %d records", numRecords.Load()))
 	})
 	defer shutdown()

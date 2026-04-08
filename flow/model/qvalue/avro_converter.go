@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/big"
+	"math/bits"
 	"regexp"
 	"strings"
 	"time"
@@ -154,6 +156,10 @@ func GetAvroSchemaFromQValueKind(
 	}
 }
 
+func NullableAvroSchema(schema avro.Schema) (avro.Schema, error) {
+	return avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), schema})
+}
+
 func getAvroNumericSchema(
 	ctx context.Context,
 	env map[string]string,
@@ -182,14 +188,39 @@ type QValueAvroConverter struct {
 	binaryFormat             internal.BinaryFormat
 }
 
+type sizeOpt int8
+
+const (
+	sizeSkip sizeOpt = iota
+	sizePlain
+	sizeNullable
+)
+
+func (s sizeOpt) nullableSize() int64 {
+	if s == sizeNullable {
+		return 1
+	}
+	return 0
+}
+
 func QValueToAvro(
 	ctx context.Context,
 	value types.QValue, field *types.QField, targetDWH protos.DBType, logger log.Logger,
 	unboundedNumericAsString bool, stat *NumericStat,
 	binaryFormat internal.BinaryFormat,
-) (any, error) {
+	calcSize bool,
+) (any, int64, error) {
+	// Condense calcSize and nullable into a single value for shorter case statements
+	sizeOpt := sizeSkip
+	if calcSize {
+		sizeOpt = sizePlain
+		if field.Nullable {
+			sizeOpt = sizeNullable
+		}
+	}
+
 	if value.Value() == nil {
-		return nil, nil
+		return nil, sizeOpt.nullableSize(), nil
 	}
 
 	c := QValueAvroConverter{
@@ -203,192 +234,223 @@ func QValueToAvro(
 
 	switch v := value.(type) {
 	case types.QValueInvalid:
-		// we will attempt to convert invalid to a string
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), stringSize(v.Val, sizeOpt), nil
 	case types.QValueTime:
-		return c.processNullableUnion(c.processGoTime(v.Val))
+		val, size := c.processGoTime(v.Val, sizeOpt)
+		return c.processNullableUnion(val), size, nil
 	case types.QValueTimeTZ:
-		return c.processNullableUnion(c.processGoTime(v.Val))
+		val, size := c.processGoTime(v.Val, sizeOpt)
+		return c.processNullableUnion(val), size, nil
 	case types.QValueTimestamp:
-		return c.processNullableUnion(c.processGoTimestamp(v.Val))
+		val, size := c.processGoTimestamp(v.Val, sizeOpt)
+		return c.processNullableUnion(val), size, nil
 	case types.QValueTimestampTZ:
-		return c.processNullableUnion(c.processGoTimestampTZ(v.Val))
+		val, size := c.processGoTimestampTZ(v.Val, sizeOpt)
+		return c.processNullableUnion(val), size, nil
 	case types.QValueDate:
-		return c.processNullableUnion(c.processGoDate(v.Val))
+		val, size := c.processGoDate(v.Val, sizeOpt)
+		return c.processNullableUnion(val), size, nil
 	case types.QValueQChar:
-		return c.processNullableUnion(string(v.Val))
+		return c.processNullableUnion(string(v.Val)), constSize(2, sizeOpt), nil
 	case types.QValueString,
 		types.QValueCIDR, types.QValueINET, types.QValueMacaddr,
 		types.QValueInterval, types.QValueEnum,
 		types.QValueGeography, types.QValueGeometry, types.QValuePoint:
+		size := stringSize(v.Value().(string), sizeOpt)
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
-			slog.Warn("Clearing TEXT value > 15MB for Snowflake!")
-			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
-			return nil, nil
+			slog.WarnContext(ctx, "Clearing TEXT value > 15MB for Snowflake!")
+			slog.WarnContext(ctx, "Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+
+			if c.Nullable {
+				return nil, size, nil
+			} else {
+				return "", size, nil
+			}
 		}
-		return c.processNullableUnion(v.Value())
+		return c.processNullableUnion(v.Value()), size, nil
 	case types.QValueFloat32:
+		size := constSize(4, sizeOpt)
 		if c.TargetDWH == protos.DBType_BIGQUERY {
-			return c.processNullableUnion(float64(v.Val))
+			return c.processNullableUnion(float64(v.Val)), size, nil
 		}
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), size, nil
 	case types.QValueFloat64:
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), constSize(8, sizeOpt), nil
 	case types.QValueInt8:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueInt16:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueInt32:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueInt64:
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), varIntSize(v.Val, sizeOpt), nil
 	case types.QValueInt256:
-		return c.processInt256(v.Val), nil
+		return c.processInt256(v.Val), constSize(32, sizeOpt), nil
 	case types.QValueUInt8:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt16:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt32:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt64:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt256:
-		return c.processUInt256(v.Val), nil
+		return c.processUInt256(v.Val), constSize(32, sizeOpt), nil
 	case types.QValueBoolean:
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), constSize(1, sizeOpt), nil
 	case types.QValueNumeric:
-		return c.processNumeric(v.Val), nil
+		val, size := c.processNumeric(v.Val, sizeOpt)
+		return val, size, nil
 	case types.QValueBytes:
-		return c.processBytes(v.Val), nil
+		val, size := c.processBytes(v.Val, sizeOpt)
+		return val, size, nil
 	case types.QValueJSON:
-		return c.processJSON(v.Val), nil
+		return c.processJSON(v.Val), stringSize(v.Val, sizeOpt), nil
 	case types.QValueHStore:
-		return c.processHStore(v.Val)
+		val, err := c.processHStore(v.Val)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error processing HStore value: %w", err)
+		}
+		return val, stringSize(v.Val, sizeOpt), nil
 	case types.QValueArrayFloat32:
-		return c.processArrayFloat32(v.Val), nil
+		return c.processArrayFloat32(v.Val), fixedArraySize(len(v.Val), 4, sizeOpt), nil
 	case types.QValueArrayFloat64:
-		return c.processArrayFloat64(v.Val), nil
+		return c.processArrayFloat64(v.Val), fixedArraySize(len(v.Val), 8, sizeOpt), nil
 	case types.QValueArrayInt16:
-		return c.processArrayInt16(v.Val), nil
+		return c.processArrayInt16(v.Val), varIntArraySize(v.Val, sizeOpt), nil
 	case types.QValueArrayInt32:
-		return c.processArrayInt32(v.Val), nil
+		return c.processArrayInt32(v.Val), varIntArraySize(v.Val, sizeOpt), nil
 	case types.QValueArrayInt64:
-		return c.processArrayInt64(v.Val), nil
+		return c.processArrayInt64(v.Val), varIntArraySize(v.Val, sizeOpt), nil
 	case types.QValueArrayString:
-		return c.processArrayString(v.Val), nil
+		return c.processArrayString(v.Val), stringArraySize(v.Val, sizeOpt), nil
 	case types.QValueArrayEnum:
-		return c.processArrayString(v.Val), nil
+		return c.processArrayString(v.Val), stringArraySize(v.Val, sizeOpt), nil
 	case types.QValueArrayInterval:
-		return c.processArrayString(v.Val), nil
+		return c.processArrayString(v.Val), stringArraySize(v.Val, sizeOpt), nil
 	case types.QValueArrayBoolean:
-		return c.processArrayBoolean(v.Val), nil
+		return c.processArrayBoolean(v.Val), fixedArraySize(len(v.Val), 1, sizeOpt), nil
 	case types.QValueArrayTimestamp:
-		return c.processArrayTime(v.Val), nil
+		val, size := c.processArrayTime(v.Val, sizeOpt)
+		return val, size, nil
 	case types.QValueArrayTimestampTZ:
-		return c.processArrayTime(v.Val), nil
+		val, size := c.processArrayTime(v.Val, sizeOpt)
+		return val, size, nil
 	case types.QValueArrayDate:
-		return c.processArrayDate(v.Val), nil
+		val, size := c.processArrayDate(v.Val, sizeOpt)
+		return val, size, nil
 	case types.QValueUUID:
-		return c.processUUID(v.Val), nil
+		val, size := c.processUUID(v.Val, sizeOpt)
+		return val, size, nil
 	case types.QValueArrayUUID:
-		return c.processArrayUUID(v.Val), nil
+		val, size := c.processArrayUUID(v.Val, sizeOpt)
+		return val, size, nil
 	case types.QValueArrayNumeric:
-		return c.processArrayNumeric(v.Val), nil
+		val, size := c.processArrayNumeric(v.Val, sizeOpt)
+		return val, size, nil
 	default:
-		return nil, fmt.Errorf("[toavro] unsupported %T", value)
+		return nil, 0, fmt.Errorf("[QValueToAvro] unsupported %T", value)
 	}
 }
 
-func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
+func (c *QValueAvroConverter) processGoTime(t time.Duration, so sizeOpt) (any, int64) {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
+		// Snowflake TIME must be in range [0, 24h)
 		t = max(min(t, 86399999999*time.Microsecond), 0)
-		return time.Time{}.Add(t).Format("15:04:05.999999")
+		s := time.Time{}.Add(t).Format("15:04:05.999999")
+		return s, stringSize(s, so)
 	}
-	return t
+	return t, varIntSize(int64(t/time.Microsecond), so)
 }
 
-func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("2006-01-02 15:04:05.999999-0700")
-	}
-
+func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, avroVal int64, so sizeOpt) (any, int64) {
 	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-	// So make such timestamps null
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
+	switch c.TargetDWH {
+	case protos.DBType_BIGQUERY:
+		year := t.Year()
+		if year < 1 || year > 9999 {
+			c.logger.Warn("Nulling Timestamp value for BigQuery as it exceeds allowed range",
+				"timestamp", t.String())
+			if c.Nullable {
+				return nil, so.nullableSize()
+			} else {
+				return time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), varIntSize(0, so)
+			}
+		}
+	case protos.DBType_SNOWFLAKE:
+		// Snowflake has issues with avro timestamp types, returning as string form
+		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+		s := t.Format(format)
+		return s, stringSize(s, so)
 	}
-
-	return t
+	return t, varIntSize(avroVal, so)
 }
 
-func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("2006-01-02 15:04:05.999999")
-	}
-
-	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-	// So make such timestamps null
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
-	}
-
-	return t
+func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time, so sizeOpt) (any, int64) {
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700", t.UnixMicro(), so)
 }
 
-func (c *QValueAvroConverter) processGoDate(t time.Time) any {
-	// Bigquery will not allow Date if it is less than 1AD and more than 9999AD
-	// So make such Dates null
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
-	}
+func (c *QValueAvroConverter) processGoTimestamp(t time.Time, so sizeOpt) (any, int64) {
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999", t.UnixMicro(), so)
+}
 
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("2006-01-02")
-	}
-	return t
+func (c *QValueAvroConverter) processGoDate(t time.Time, so sizeOpt) (any, int64) {
+	// Date is days since epoch, encoded as Avro int (varint)
+	return c.processGeneralTime(t, "2006-01-02", t.Unix()/86400, so)
 }
 
 func (c *QValueAvroConverter) processNullableUnion(
 	value any,
-) (any, error) {
+) any {
 	if c.Nullable {
 		if value == nil {
-			return nil, nil
-		}
-		return &value, nil
-	}
-	return value, nil
-}
-
-func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
-	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
-	if destType.IsString {
-		numStr, _ := c.processNullableUnion(num.String())
-		return numStr
-	}
-
-	num, ok := TruncateNumeric(num, destType.Precision, destType.Scale, c.TargetDWH, c.Stat)
-	if !ok {
-		if c.Nullable {
 			return nil
 		}
-		return big.Rat{}
+		return &value
+	}
+	return value
+}
+
+// Avro size of zero: varint(1) + 1 byte = 2
+const zeroDecimalSize = 2
+
+func (c *QValueAvroConverter) processNumeric(num decimal.Decimal, so sizeOpt) (any, int64) {
+	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
+	if destType.IsString {
+		s := num.String()
+		return c.processNullableUnion(s), stringSize(s, so)
 	}
 
-	rat := num.Rat()
-	if c.Nullable {
-		return &rat
+	num, intDigits, ok := TruncateNumeric(num, destType.Precision, destType.Scale, c.TargetDWH, c.Stat)
+	if !ok {
+		if c.Nullable {
+			return nil, so.nullableSize()
+		}
+		return big.Rat{}, constSize(zeroDecimalSize, so)
 	}
-	return rat
+
+	return c.processNullableUnion(num.Rat()), decimalSize(num, intDigits, int(destType.Scale), so)
+}
+
+// decimalSize estimates Avro-encoded size from integer digit count and scale.
+// Total digits = intDigits + scale determines byte length of two's complement encoding.
+func decimalSize(num decimal.Decimal, intDigits, scale int, so sizeOpt) int64 {
+	if so == sizeSkip {
+		return 0
+	}
+	if num.IsZero() {
+		return so.nullableSize() + zeroDecimalSize
+	}
+
+	// log2(10) gives exact bits needed for a power of 10, but actual values
+	// may need fewer bits (e.g., 127 needs 7 bits, not 10 bits like 999). This can
+	// overestimate by ~1 byte for values well below the max for their digit count.
+	estimatedBitLen := max(int(float64(intDigits+scale)*math.Log2(10)), 8)
+	byteLen := int64((estimatedBitLen + 9) / 8) // +9 for sign bit and rounding
+	return so.nullableSize() + varIntSize(byteLen, sizePlain) + byteLen
 }
 
 var (
@@ -422,11 +484,7 @@ func (c *QValueAvroConverter) processInt256(num *big.Int) any {
 		num = new(big.Int).Add(num, twoPow256)
 	}
 
-	res := bigIntTo32Bytes(num)
-	if c.Nullable {
-		return &res
-	}
-	return res
+	return c.processNullableUnion(bigIntTo32Bytes(num))
 }
 
 func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
@@ -438,36 +496,38 @@ func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
 		return bigIntTo32Bytes(big.NewInt(0))
 	}
 
-	res := bigIntTo32Bytes(num)
-	if c.Nullable {
-		return &res
-	}
-	return res
+	return c.processNullableUnion(bigIntTo32Bytes(num))
 }
 
-func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) any {
+func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal, so sizeOpt) (any, int64) {
 	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
 	if destType.IsString {
 		transformedNumArr := make([]string, 0, len(arrayNum))
+		totalElemSize := int64(0)
 		for _, num := range arrayNum {
-			transformedNumArr = append(transformedNumArr, num.String())
+			s := num.String()
+			transformedNumArr = append(transformedNumArr, s)
+			totalElemSize += stringSize(s, sizePlain)
 		}
-		return transformedNumArr
+		return transformedNumArr, arraySize(len(arrayNum), totalElemSize, so)
 	}
 
 	transformedNumArr := make([]*big.Rat, 0, len(arrayNum))
+	totalElemSize := int64(0)
 	for _, num := range arrayNum {
-		num, ok := TruncateNumeric(num, destType.Precision, destType.Scale, c.TargetDWH, c.Stat)
+		num, intDigits, ok := TruncateNumeric(num, destType.Precision, destType.Scale, c.TargetDWH, c.Stat)
 		if !ok {
 			transformedNumArr = append(transformedNumArr, &big.Rat{})
+			totalElemSize += zeroDecimalSize
 			continue
 		}
 		transformedNumArr = append(transformedNumArr, num.Rat())
+		totalElemSize += decimalSize(num, intDigits, int(destType.Scale), sizePlain)
 	}
-	return transformedNumArr
+	return transformedNumArr, arraySize(len(arrayNum), totalElemSize, so)
 }
 
-func (c *QValueAvroConverter) processBytes(byteData []byte) any {
+func (c *QValueAvroConverter) processBytes(byteData []byte, so sizeOpt) (any, int64) {
 	if c.TargetDWH == protos.DBType_CLICKHOUSE && c.binaryFormat != internal.BinaryFormatRaw {
 		var encoded string
 		switch c.binaryFormat {
@@ -478,30 +538,32 @@ func (c *QValueAvroConverter) processBytes(byteData []byte) any {
 		default:
 			panic(fmt.Sprintf("unhandled binary format: %d", c.binaryFormat))
 		}
+		size := stringSize(encoded, so)
 		if c.Nullable {
-			return &encoded
+			return &encoded, size
 		}
-		return encoded
+		return encoded, size
 	}
+	size := stringSize(shared.UnsafeFastReadOnlyBytesToString(byteData), so)
 	if c.Nullable {
-		return &byteData
+		return &byteData, size
 	}
-	return byteData
+	return byteData, size
 }
 
 func (c *QValueAvroConverter) processJSON(jsonString string) any {
 	if c.Nullable {
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
-			slog.Warn("Clearing JSON value > 15MB for Snowflake!")
-			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+			c.logger.Warn("Clearing JSON value > 15MB for Snowflake!")
+			c.logger.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return nil
 		}
 		return &jsonString
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
-		slog.Warn("Clearing JSON value > 15MB for Snowflake!")
-		slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+		c.logger.Warn("Clearing JSON value > 15MB for Snowflake!")
+		c.logger.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return ""
 	}
 	return jsonString
@@ -511,38 +573,50 @@ func (c *QValueAvroConverter) processArrayBoolean(arrayData []bool) any {
 	return arrayData
 }
 
-func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) any {
+func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time, so sizeOpt) (any, int64) {
 	if c.Nullable && arrayTime == nil {
-		return nil
+		return nil, so.nullableSize()
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		// Snowflake has issues with avro timestamp types, returning as string form
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 		transformedTimeArr := make([]string, 0, len(arrayTime))
+		totalElemSize := int64(0)
 		for _, t := range arrayTime {
-			transformedTimeArr = append(transformedTimeArr, t.String())
+			s := t.String()
+			transformedTimeArr = append(transformedTimeArr, s)
+			totalElemSize += stringSize(s, sizePlain)
 		}
-		return transformedTimeArr
+		return transformedTimeArr, arraySize(len(arrayTime), totalElemSize, so)
 	}
 
-	return arrayTime
+	return arrayTime, fixedArraySize(len(arrayTime), 8, so)
 }
 
-func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) any {
+func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time, so sizeOpt) (any, int64) {
 	if c.Nullable && arrayDate == nil {
-		return nil
+		return nil, so.nullableSize()
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		transformedTimeArr := make([]string, 0, len(arrayDate))
+		totalElemSize := int64(0)
 		for _, t := range arrayDate {
-			transformedTimeArr = append(transformedTimeArr, t.Format("2006-01-02"))
+			s := t.Format("2006-01-02")
+			transformedTimeArr = append(transformedTimeArr, s)
+			totalElemSize += stringSize(s, sizePlain)
 		}
-		return transformedTimeArr
+		return transformedTimeArr, arraySize(len(arrayDate), totalElemSize, so)
 	}
 
-	return arrayDate
+	// Date is days since epoch, encoded as Avro int (varint)
+	totalElemSize := int64(0)
+	for _, t := range arrayDate {
+		days := int32(t.Unix() / 86400)
+		totalElemSize += varIntSize(int64(days), sizePlain)
+	}
+	return arrayDate, arraySize(len(arrayDate), totalElemSize, so)
 }
 
 func (c *QValueAvroConverter) processHStore(hstore string) (any, error) {
@@ -553,39 +627,40 @@ func (c *QValueAvroConverter) processHStore(hstore string) (any, error) {
 
 	if c.Nullable {
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
-			slog.Warn("Clearing HStore equivalent JSON value > 15MB for Snowflake!")
-			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+			c.logger.Warn("Clearing HStore equivalent JSON value > 15MB for Snowflake!")
+			c.logger.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return nil, nil
 		}
 		return &jsonString, nil
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
-		slog.Warn("Clearing HStore equivalent JSON value > 15MB for Snowflake!")
-		slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+		c.logger.Warn("Clearing HStore equivalent JSON value > 15MB for Snowflake!")
+		c.logger.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return "", nil
 	}
 	return jsonString, nil
 }
 
-func (c *QValueAvroConverter) processUUID(byteData uuid.UUID) any {
+func (c *QValueAvroConverter) processUUID(byteData uuid.UUID, so sizeOpt) (any, int64) {
 	uuidString := byteData.String()
+	size := stringSize(uuidString, so)
 	if c.Nullable {
-		return &uuidString
+		return &uuidString, size
 	}
-	return uuidString
+	return uuidString, size
 }
 
-func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) any {
+func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID, so sizeOpt) (any, int64) {
 	if c.Nullable && arrayData == nil {
-		return nil
+		return nil, so.nullableSize()
 	}
 
 	UUIDData := make([]string, 0, len(arrayData))
 	for _, uuid := range arrayData {
 		UUIDData = append(UUIDData, uuid.String())
 	}
-	return UUIDData
+	return UUIDData, stringArraySize(UUIDData, so)
 }
 
 func (c *QValueAvroConverter) processArrayInt16(arrayData []int16) any {
@@ -621,9 +696,12 @@ func (c *QValueAvroConverter) processArrayString(arrayData []string) any {
 	return arrayData
 }
 
+// TruncateNumeric truncates a decimal to fit within the target precision and scale.
+// Returns the truncated decimal, the number of integer digits, and whether truncation succeeded.
+// If ok is false, the value was too large and should be treated as zero.
 func TruncateNumeric(
 	num decimal.Decimal, targetPrecision, targetScale int16, targetDWH protos.DBType, stat *NumericStat,
-) (decimal.Decimal, bool) {
+) (decimal.Decimal, int, bool) {
 	switch targetDWH {
 	case protos.DBType_CLICKHOUSE, protos.DBType_SNOWFLAKE, protos.DBType_BIGQUERY:
 		bi := num.BigInt()
@@ -636,16 +714,17 @@ func TruncateNumeric(
 				stat.LongIntegersClearedCount++
 				stat.MaxIntegerDigits = max(int32(bidigi), stat.MaxIntegerDigits)
 			}
-			return decimal.Zero, false
+			return decimal.Zero, 0, false
 		} else if num.Exponent() < -int32(targetScale) {
 			if stat != nil {
 				stat.TruncatedCount++
 				stat.MaxExponent = max(-num.Exponent(), stat.MaxExponent)
 			}
-			return num.Truncate(int32(targetScale)), true
+			return num.Truncate(int32(targetScale)), bidigi, true
 		}
+		return num, bidigi, true
 	}
-	return num, true
+	return num, 0, true
 }
 
 //nolint:govet // logically grouped, fieldalignment confuses things
@@ -700,4 +779,71 @@ func (ns *NumericStat) CollectWarnings(warnings *shared.QRepWarnings) {
 		warning := exceptions.NewNumericOutOfRangeError(err, ns.DestinationTable, ns.DestinationColumn)
 		*warnings = append(*warnings, warning)
 	}
+}
+
+func constSize(n int64, so sizeOpt) int64 {
+	if so == sizeSkip {
+		return 0
+	}
+	return so.nullableSize() + n
+}
+
+func stringSize(s string, so sizeOpt) int64 {
+	if so == sizeSkip {
+		return 0
+	}
+	return so.nullableSize() + varIntSize(int64(len(s)), sizePlain) + int64(len(s))
+}
+
+func varIntSize(n int64, so sizeOpt) int64 {
+	if so == sizeSkip {
+		return 0
+	}
+	if n == 0 {
+		return so.nullableSize() + 1
+	}
+	// Avro uses Variable-Length Zig-Zag encoding
+	encoded := uint64((n << 1) ^ (n >> 63))
+	bitLen := bits.Len64(encoded)
+	return so.nullableSize() + int64((bitLen+6)/7)
+}
+
+func fixedArraySize(count int, elemSize int64, so sizeOpt) int64 {
+	return arraySize(count, int64(count)*elemSize, so)
+}
+
+func varIntArraySize[T ~int16 | ~int32 | ~int64](vals []T, so sizeOpt) int64 {
+	if so == sizeSkip {
+		return 0
+	}
+	totalElemSize := int64(0)
+	for _, elem := range vals {
+		totalElemSize += varIntSize(int64(elem), sizePlain)
+	}
+	return arraySize(len(vals), totalElemSize, so)
+}
+
+func stringArraySize(vals []string, so sizeOpt) int64 {
+	if so == sizeSkip {
+		return 0
+	}
+	totalElemSize := int64(0)
+	for _, elem := range vals {
+		totalElemSize += stringSize(elem, sizePlain)
+	}
+	return arraySize(len(vals), totalElemSize, so)
+}
+
+func arraySize(count int, totalElemSize int64, so sizeOpt) int64 {
+	if so == sizeSkip {
+		return 0
+	}
+	// Avro array encoding: block header (negative count + byte size) + elements + termination (varint 0)
+	// Block header: varint(-count) + varint(totalElemSize)
+	size := so.nullableSize()
+	if count > 0 {
+		size += varIntSize(int64(-count), sizePlain) + varIntSize(totalElemSize, sizePlain) + totalElemSize
+	}
+	size += 1 // array termination byte (varint 0)
+	return size
 }

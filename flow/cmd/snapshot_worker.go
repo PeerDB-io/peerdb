@@ -24,13 +24,14 @@ type SnapshotWorkerOptions struct {
 	TemporalHostPort  string
 	TemporalNamespace string
 	EnableOtelMetrics bool
+	EnableOtelTraces  bool
 }
 
 func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*WorkerSetupResponse, error) {
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
-		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))),
 		ContextPropagators: []workflow.ContextPropagator{
 			internal.NewContextPropagator[*protos.FlowContextMetadata](internal.FlowMetadataKey),
 		},
@@ -50,6 +51,20 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 		Meter: metricsProvider.Meter("temporal-sdk-go"),
 	})
 
+	tracerProvider, err := otel_metrics.SetupTracerProvider(ctx, otel_metrics.FlowSnapshotWorkerServiceName, opts.EnableOtelTraces)
+	if err != nil {
+		return nil, fmt.Errorf("unable to setup tracer provider: %w", err)
+	}
+	if opts.EnableOtelTraces {
+		tracingInterceptor, err := temporalotel.NewTracingInterceptor(temporalotel.TracerOptions{
+			Tracer: tracerProvider.Tracer("temporal-sdk-go"),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to create tracing interceptor: %w", err)
+		}
+		clientOptions.Interceptors = append(clientOptions.Interceptors, tracingInterceptor)
+	}
+
 	c, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
@@ -59,7 +74,7 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 		OnFatalError: func(err error) {
-			slog.Error("Snapshot Worker failed", slog.Any("error", err))
+			slog.ErrorContext(ctx, "Snapshot Worker failed", slog.Any("error", err))
 		},
 	})
 
@@ -78,8 +93,9 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 	})
 
 	return &WorkerSetupResponse{
-		Client:      c,
-		Worker:      w,
-		OtelManager: otelManager,
+		Client:         c,
+		Worker:         w,
+		OtelManager:    otelManager,
+		TracerProvider: tracerProvider,
 	}, nil
 }

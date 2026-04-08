@@ -1,8 +1,10 @@
 'use client';
 
+import { useSelectTheme } from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
 import { PartitionStatus } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
+import { useSortButtonColor } from '@/lib/hooks/useSortButtonColor';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
@@ -66,6 +68,8 @@ type QRepStatusTableProps = {
 };
 
 export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
+  const selectTheme = useSelectTheme();
+  const sortButtonColor = useSortButtonColor();
   const ROWS_PER_PAGE = 10;
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(partitions.length / ROWS_PER_PAGE);
@@ -156,13 +160,14 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
                   setSortField(sortVal);
                 }}
                 defaultValue={{ value: 'startTime', label: 'Start Time' }}
+                theme={selectTheme}
               />
             </div>
             <button
               className='IconButton'
               onClick={() => setSortDir('asc')}
               aria-label='sort up'
-              style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+              style={{ color: sortButtonColor(sortDir === 'asc') }}
             >
               <Icon name='arrow_upward' />
             </button>
@@ -170,7 +175,7 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
               className='IconButton'
               onClick={() => setSortDir('dsc')}
               aria-label='sort down'
-              style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+              style={{ color: sortButtonColor(sortDir === 'dsc') }}
             >
               <Icon name='arrow_downward' />
             </button>

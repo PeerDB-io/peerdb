@@ -242,7 +242,9 @@ function SkipSnapshotWaitSection() {
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(
+          `HTTP error! status: ${response.status}, body: ${await response.text()}`
+        );
       }
 
       const result: SkipSnapshotWaitFlowsResponse = await response.json();

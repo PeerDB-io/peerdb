@@ -2,6 +2,7 @@
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import { notifyErr } from '@/app/utils/notify';
+import ThemedToastContainer from '@/components/ThemedToastContainer';
 import {
   CDCFlowConfigUpdate,
   FlowStatus,
@@ -11,15 +12,14 @@ import {
   FlowStateChangeRequest,
   MirrorStatusResponse,
 } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
-import { Callout } from '@tremor/react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
+import React, { useEffect, useMemo, useState } from 'react';
 import TablePicker from '../../create/cdc/tablemapping';
 import {
   changesToTablesMapping,
@@ -29,21 +29,31 @@ import { blankCDCSetting } from '../../create/helpers/common';
 import { tableMappingSchema } from '../../create/schema';
 import * as styles from '../../create/styles';
 import { getMirrorState } from '../handlers';
+import {
+  fieldStyle,
+  notPausedCalloutStyle,
+  tablesSelectedCalloutHeaderStyle,
+  tablesSelectedCalloutStyle,
+} from '../styles/edit.styles';
 
 type EditMirrorProps = {
-  params: { mirrorId: string };
+  params: Promise<{ mirrorId: string }>;
 };
 
-export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
-  const defaultBatchSize = blankCDCSetting.maxBatchSize;
-  const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
-  const defaultSnapshotNumRowsPerPartition =
-    blankCDCSetting.snapshotNumRowsPerPartition;
-  const defaultSnapshotMaxParallelWorkers =
-    blankCDCSetting.snapshotMaxParallelWorkers;
-  const defaultSnapshotNumTablesInParallel =
-    blankCDCSetting.snapshotNumTablesInParallel;
+const defaultBatchSize = blankCDCSetting.maxBatchSize;
+const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
+const defaultSnapshotNumRowsPerPartition =
+  blankCDCSetting.snapshotNumRowsPerPartition;
+const defaultSnapshotNumPartitionsOverride =
+  blankCDCSetting.snapshotNumPartitionsOverride;
+const defaultSnapshotMaxParallelWorkers =
+  blankCDCSetting.snapshotMaxParallelWorkers;
+const defaultSnapshotNumTablesInParallel =
+  blankCDCSetting.snapshotNumTablesInParallel;
 
+export default function EditMirror({ params }: EditMirrorProps) {
+  const { mirrorId } = React.use(params);
+  const theme = useTheme();
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
@@ -55,48 +65,54 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
     numberOfSyncs: 0,
     updatedEnv: {},
     snapshotNumRowsPerPartition: defaultSnapshotNumRowsPerPartition,
+    snapshotNumPartitionsOverride: defaultSnapshotNumPartitionsOverride,
     snapshotMaxParallelWorkers: defaultSnapshotMaxParallelWorkers,
     snapshotNumTablesInParallel: defaultSnapshotNumTablesInParallel,
+    skipInitialSnapshotForTableAdditions: false,
   });
   const { push } = useRouter();
 
-  const fetchStateAndUpdateDeps = useCallback(async () => {
-    const res = await getMirrorState(mirrorId);
-    setMirrorState(res);
-
-    setConfig({
-      batchSize:
-        (res as MirrorStatusResponse).cdcStatus?.config?.maxBatchSize ||
-        defaultBatchSize,
-      idleTimeout:
-        (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds ||
-        defaultIdleTimeout,
-      additionalTables: [],
-      removedTables: [],
-      numberOfSyncs: 0,
-      updatedEnv: {},
-      snapshotNumRowsPerPartition:
-        (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotNumRowsPerPartition || defaultSnapshotNumRowsPerPartition,
-      snapshotMaxParallelWorkers:
-        (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotMaxParallelWorkers || defaultSnapshotMaxParallelWorkers,
-      snapshotNumTablesInParallel:
-        (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotNumTablesInParallel || defaultSnapshotNumTablesInParallel,
-    });
-  }, [
-    mirrorId,
-    defaultBatchSize,
-    defaultIdleTimeout,
-    defaultSnapshotNumRowsPerPartition,
-    defaultSnapshotMaxParallelWorkers,
-    defaultSnapshotNumTablesInParallel,
-  ]);
-
   useEffect(() => {
+    const fetchStateAndUpdateDeps = async () => {
+      try {
+        const res = await getMirrorState(mirrorId);
+        setMirrorState(res);
+
+        setConfig({
+          batchSize:
+            (res as MirrorStatusResponse).cdcStatus?.config?.maxBatchSize ||
+            defaultBatchSize,
+          idleTimeout:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.idleTimeoutSeconds || defaultIdleTimeout,
+          additionalTables: [],
+          removedTables: [],
+          numberOfSyncs: 0,
+          updatedEnv: {},
+          snapshotNumRowsPerPartition:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.snapshotNumRowsPerPartition ||
+            defaultSnapshotNumRowsPerPartition,
+          snapshotNumPartitionsOverride:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.snapshotNumPartitionsOverride ||
+            defaultSnapshotNumPartitionsOverride,
+          snapshotMaxParallelWorkers:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.snapshotMaxParallelWorkers || defaultSnapshotMaxParallelWorkers,
+          snapshotNumTablesInParallel:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.snapshotNumTablesInParallel ||
+            defaultSnapshotNumTablesInParallel,
+          skipInitialSnapshotForTableAdditions: false,
+        });
+      } catch (error) {
+        notifyErr('Failed to fetch mirror state');
+      }
+    };
+
     fetchStateAndUpdateDeps();
-  }, [fetchStateAndUpdateDeps]);
+  }, [mirrorId]);
 
   const alreadySelectedTablesMapping: Map<string, TableMapping[]> =
     useMemo(() => {
@@ -125,12 +141,14 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   }
 
   const sendFlowStateChangeRequest = async () => {
-    const tablesValidity = tableMappingSchema.safeParse(
-      reformattedTableMapping(rows)
-    );
-    if (!tablesValidity.success) {
-      notifyErr(tablesValidity.error.issues[0].message);
-      return;
+    if (rows.length > 0) {
+      const tablesValidity = tableMappingSchema.safeParse(
+        reformattedTableMapping(rows)
+      );
+      if (!tablesValidity.success) {
+        notifyErr(tablesValidity.error.issues[0].message);
+        return;
+      }
     }
     setLoading(true);
     const req: FlowStateChangeRequest = {
@@ -165,13 +183,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         key={1}
         label={<Label>{'Pull Batch Size'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -181,7 +193,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   batchSize: e.target.valueAsNumber,
                 })
               }
-              value={config.batchSize}
+              value={Number.isNaN(config.batchSize) ? '' : config.batchSize}
             />
           </div>
         }
@@ -191,13 +203,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         key={2}
         label={<Label>{'Sync Interval (Seconds)'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -207,7 +213,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   idleTimeout: e.target.valueAsNumber,
                 })
               }
-              value={config.idleTimeout}
+              value={Number.isNaN(config.idleTimeout) ? '' : config.idleTimeout}
             />
           </div>
         }
@@ -217,13 +223,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         key={3}
         label={<Label>{'Snapshot Rows Per Partition'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -233,7 +233,11 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   snapshotNumRowsPerPartition: e.target.valueAsNumber,
                 })
               }
-              value={config.snapshotNumRowsPerPartition}
+              value={
+                Number.isNaN(config.snapshotNumRowsPerPartition)
+                  ? ''
+                  : config.snapshotNumRowsPerPartition
+              }
             />
           </div>
         }
@@ -243,13 +247,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         key={4}
         label={<Label>{'Snapshot Max Parallel Workers'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -259,7 +257,11 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   snapshotMaxParallelWorkers: e.target.valueAsNumber,
                 })
               }
-              value={config.snapshotMaxParallelWorkers}
+              value={
+                Number.isNaN(config.snapshotMaxParallelWorkers)
+                  ? ''
+                  : config.snapshotMaxParallelWorkers
+              }
             />
           </div>
         }
@@ -269,13 +271,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         key={5}
         label={<Label>{'Snapshot Tables In Parallel'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -285,7 +281,11 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   snapshotNumTablesInParallel: e.target.valueAsNumber,
                 })
               }
-              value={config.snapshotNumTablesInParallel}
+              value={
+                Number.isNaN(config.snapshotNumTablesInParallel)
+                  ? ''
+                  : config.snapshotNumTablesInParallel
+              }
             />
           </div>
         }
@@ -295,20 +295,19 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         Adding Tables
       </Label>
       {!isNotPaused && rows.some((row) => row.selected) && (
-        <Callout
-          title='Note on adding tables'
-          color={'gray'}
-          style={{ marginTop: '1rem' }}
-        >
+        <div style={tablesSelectedCalloutStyle(theme.theme)}>
+          <div style={tablesSelectedCalloutHeaderStyle}>
+            Note on adding tables
+          </div>
           CDC will be put on hold until initial load for these added tables have
           been completed.
-          <br></br>
+          <br />
           The <b>replication slot will grow</b> during this period.
-          <br></br>
+          <br />
           For custom publications, ensure that the tables are part of the
-          publication you provided. This can be done with ALTER PUBLICATION
-          pubname ADD TABLE table1, table2;
-        </Callout>
+          publication you provided. This can be done with{' '}
+          <code>ALTER PUBLICATION pubname ADD TABLE table1, table2;</code>
+        </div>
       )}
 
       <TablePicker
@@ -321,9 +320,9 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
       />
 
       {isNotPaused && (
-        <Callout title='' color={'rose'} style={{ marginTop: '1rem' }}>
+        <div style={notPausedCalloutStyle(theme.theme)}>
           Mirror can only be edited while paused.
-        </Callout>
+        </div>
       )}
 
       <div style={styles.MirrorButtonContainer}>
@@ -348,7 +347,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
           )}
         </Button>
       </div>
-      <ToastContainer />
+      <ThemedToastContainer />
     </div>
   );
 }

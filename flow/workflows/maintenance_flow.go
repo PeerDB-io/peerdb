@@ -64,12 +64,12 @@ func RunEndMaintenanceWorkflow(
 
 func StartMaintenanceWorkflow(ctx workflow.Context, input *protos.StartMaintenanceFlowInput) (*protos.StartMaintenanceFlowOutput, error) {
 	logger := workflow.GetLogger(ctx)
-	logger.Info("Starting StartMaintenance workflow", "input", input)
+	logger.Info("Starting StartMaintenance workflow", slog.Any("input", input))
 	defer runBackgroundAlerter(ctx)()
 
 	maintenanceFlowOutput, err := startMaintenance(ctx, logger)
 	if err != nil {
-		logger.Error("Error in StartMaintenance workflow", "error", err)
+		logger.Error("Error in StartMaintenance workflow", slog.Any("error", err))
 		return nil, err
 	}
 	return maintenanceFlowOutput, nil
@@ -98,10 +98,6 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 		}
 	})
 
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 24 * time.Hour,
-	})
-
 	snapshotWaitCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 2 * 24 * time.Hour,
 		HeartbeatTimeout:    1 * time.Minute,
@@ -114,7 +110,7 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 			var snapshotWaitCancelCtx workflow.Context
 			snapshotWaitCancelCtx, cancelCurrentChild = workflow.WithCancel(snapshotWaitCtx)
 			waitSnapshotsFuture := workflow.ExecuteActivity(snapshotWaitCancelCtx,
-				maintenance.WaitForRunningSnapshots,
+				maintenance.WaitForRunningSnapshotsAndIntermediateStates,
 				skippedFlows,
 			)
 			if err := waitSnapshotsFuture.Get(snapshotWaitCancelCtx, nil); err != nil {
@@ -165,7 +161,7 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 	}
 
 	version := GetPeerDBVersion(ctx)
-	logger.Info("StartMaintenance workflow completed", "version", version)
+	logger.Info("StartMaintenance workflow completed", slog.String("version", version))
 	return &protos.StartMaintenanceFlowOutput{
 		Version: version,
 	}, nil
@@ -176,25 +172,25 @@ func pauseAndGetRunningMirrors(
 	mirrorsList *protos.MaintenanceMirrors,
 	logger log.Logger,
 ) (*protos.MaintenanceMirrors, error) {
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    1 * time.Minute,
-	})
 	selector := workflow.NewSelector(ctx)
 	runningMirrors := make([]*protos.MaintenanceMirror, 0, len(mirrorsList.Mirrors))
 	for _, mirror := range mirrorsList.Mirrors {
-		f := workflow.ExecuteActivity(
-			ctx,
+		pauseMirrorIfRunningCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 24 * time.Hour,
+			HeartbeatTimeout:    1 * time.Minute,
+		})
+		pauseMirrorIfRunningFuture := workflow.ExecuteActivity(
+			pauseMirrorIfRunningCtx,
 			maintenance.PauseMirrorIfRunning,
 			mirror,
 		)
 
-		selector.AddFuture(f, func(f workflow.Future) {
+		selector.AddFuture(pauseMirrorIfRunningFuture, func(f workflow.Future) {
 			var wasRunning bool
 			if err := f.Get(ctx, &wasRunning); err != nil {
-				logger.Error("Error checking and pausing mirror", "mirror", mirror, "error", err)
+				logger.Error("Error checking and pausing mirror", slog.Any("mirror", mirror), slog.Any("error", err))
 			} else {
-				logger.Info("Finished check and pause for mirror", "mirror", mirror, "wasRunning", wasRunning)
+				logger.Info("Finished check and pause for mirror", slog.Any("mirror", mirror), slog.Bool("wasRunning", wasRunning))
 				if wasRunning {
 					runningMirrors = append(runningMirrors, mirror)
 				}
@@ -213,10 +209,10 @@ func pauseAndGetRunningMirrors(
 }
 
 func getAllMirrors(ctx workflow.Context) (*protos.MaintenanceMirrors, error) {
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+	getMirrorsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 2 * time.Minute,
 	})
-	getMirrorsFuture := workflow.ExecuteActivity(ctx, maintenance.GetAllMirrors)
+	getMirrorsFuture := workflow.ExecuteActivity(getMirrorsCtx, maintenance.GetAllMirrors)
 	var mirrorsList protos.MaintenanceMirrors
 	err := getMirrorsFuture.Get(ctx, &mirrorsList)
 	return &mirrorsList, err
@@ -224,34 +220,32 @@ func getAllMirrors(ctx workflow.Context) (*protos.MaintenanceMirrors, error) {
 
 func EndMaintenanceWorkflow(ctx workflow.Context, input *protos.EndMaintenanceFlowInput) (*protos.EndMaintenanceFlowOutput, error) {
 	logger := workflow.GetLogger(ctx)
-	logger.Info("Starting EndMaintenance workflow", "input", input)
+	logger.Info("Starting EndMaintenance workflow", slog.Any("input", input))
 	defer runBackgroundAlerter(ctx)()
 
 	flowOutput, err := endMaintenance(ctx, logger)
 	if err != nil {
-		logger.Error("Error in EndMaintenance workflow", "error", err)
+		logger.Error("Error in EndMaintenance workflow", slog.Any("error", err))
 		return nil, err
 	}
 	return flowOutput, nil
 }
 
 func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMaintenanceFlowOutput, error) {
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    1 * time.Minute,
-	})
-
 	mirrorsList, err := resumeBackedUpMirrors(ctx, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	clearBackupsFuture := workflow.ExecuteActivity(ctx, maintenance.CleanBackedUpFlows)
+	cleanBackedUpFlowsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+	})
+	clearBackupsFuture := workflow.ExecuteActivity(cleanBackedUpFlowsCtx, maintenance.CleanBackedUpFlows)
 	if err := clearBackupsFuture.Get(ctx, nil); err != nil {
 		return nil, err
 	}
 
-	logger.Info("Resumed backed up mirrors", "mirrors", mirrorsList)
+	logger.Info("Resumed backed up mirrors", slog.Any("mirrors", mirrorsList))
 
 	disableCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -262,17 +256,18 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 	}
 
 	version := GetPeerDBVersion(ctx)
-	logger.Info("EndMaintenance workflow completed", "version", version)
+	logger.Info("EndMaintenance workflow completed", slog.String("version", version))
 	return &protos.EndMaintenanceFlowOutput{
 		Version: version,
 	}, nil
 }
 
 func resumeBackedUpMirrors(ctx workflow.Context, logger log.Logger) (*protos.MaintenanceMirrors, error) {
-	future := workflow.ExecuteActivity(ctx, maintenance.GetBackedUpFlows)
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+	getBackedUpFlowsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
 	})
+	future := workflow.ExecuteActivity(getBackedUpFlowsCtx, maintenance.GetBackedUpFlows)
+
 	var mirrorsList *protos.MaintenanceMirrors
 	err := future.Get(ctx, &mirrorsList)
 	if err != nil {
@@ -282,18 +277,21 @@ func resumeBackedUpMirrors(ctx workflow.Context, logger log.Logger) (*protos.Mai
 	selector := workflow.NewSelector(ctx)
 	for _, mirror := range mirrorsList.Mirrors {
 		activityInput := mirror
-		f := workflow.ExecuteActivity(
-			ctx,
+		resumeMirrorCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+		resumeMirrorFuture := workflow.ExecuteActivity(
+			resumeMirrorCtx,
 			maintenance.ResumeMirror,
 			activityInput,
 		)
 
-		selector.AddFuture(f, func(f workflow.Future) {
+		selector.AddFuture(resumeMirrorFuture, func(f workflow.Future) {
 			err := f.Get(ctx, nil)
 			if err != nil {
-				logger.Error("Error resuming mirror", "mirror", mirror, "error", err)
+				logger.Error("Error resuming mirror", slog.Any("mirror", mirror), slog.Any("error", err))
 			} else {
-				logger.Info("Finished resuming mirror", "mirror", mirror)
+				logger.Info("Finished resuming mirror", slog.Any("mirror", mirror))
 			}
 		})
 	}

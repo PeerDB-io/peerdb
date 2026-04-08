@@ -54,6 +54,13 @@ export function IsPostgresPeer(peerType?: DBType): boolean {
   );
 }
 
+export function IsClickHousePeer(peerType?: DBType): boolean {
+  return (
+    (!!peerType && peerType === DBType.CLICKHOUSE) ||
+    peerType?.toString() === DBType[DBType.CLICKHOUSE]
+  );
+}
+
 function ValidSchemaQualifiedTarget(
   peerType: DBType,
   tableName: string
@@ -188,6 +195,7 @@ export function reformattedTableMapping(
       engine: row.engine,
       shardingKey: row.shardingKey,
       policyName: row.policyName,
+      partitionByExpr: row.partitionByExpr,
     }));
 }
 
@@ -222,6 +230,9 @@ export function changesToTablesMapping(
           exclude: Array.from(row.exclude),
           columns: row.columns,
           engine: row.engine,
+          shardingKey: row.shardingKey,
+          policyName: row.policyName,
+          partitionByExpr: row.partitionByExpr,
         }) as TableMapping
     );
   return mapping;
@@ -353,7 +364,6 @@ export async function handleCreateQRep(
     method: 'POST',
     body: JSON.stringify({
       qrepConfig: config,
-      createCatalogEntry: true,
     } as CreateQRepFlowRequest),
   });
   if (!res.ok) {
@@ -455,6 +465,8 @@ export async function fetchTables(
         engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
         shardingKey: '',
         policyName: '',
+        partitionByExpr: '',
+        isReplicaIdentityFull: tableObject.isReplicaIdentityFull,
       });
     }
   }
