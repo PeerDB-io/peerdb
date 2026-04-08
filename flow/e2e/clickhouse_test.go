@@ -919,14 +919,16 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	}
 	if totalTruncated > 0 {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
+			msg := "truncated 1 NUMERIC value too precise to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), numericCatalogPool, flowJobName, "warn", "truncated 1 NUMERIC value too precise to fit into the destination column",
+				s.t.Context(), numericCatalogPool, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated*2 // positive and negative
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated array messages", func() bool {
+			msg := "truncated 2 NUMERIC values too precise to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), numericCatalogPool, flowJobName, "warn", "truncated 2 NUMERIC values too precise to fit into the destination column",
+				s.t.Context(), numericCatalogPool, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated
 		})
@@ -938,28 +940,32 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 
 	if totalCleared > 0 {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared messages", func() bool {
+			msg := "cleared 1 NUMERIC value too big to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), numericCatalogPool, flowJobName, "warn", "cleared 1 NUMERIC value too big to fit into the destination column",
+				s.t.Context(), numericCatalogPool, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalCleared*2*2 // positive and negative, snapshot and cdc
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared array messages", func() bool {
+			msg := "cleared 2 NUMERIC values too big to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), numericCatalogPool, flowJobName, "warn", "cleared 2 NUMERIC values too big to fit into the destination column",
+				s.t.Context(), numericCatalogPool, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalCleared*2 // snapshot and cdc
 		})
 	}
 	if totalTruncated > 0 {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
+			msg := "truncated 1 NUMERIC value too precise to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), numericCatalogPool, flowJobName, "warn", "truncated 1 NUMERIC value too precise to fit into the destination column",
+				s.t.Context(), numericCatalogPool, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated*2*2 // positive and negative, snapshot and cdc
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated array messages", func() bool {
+			msg := "truncated 2 NUMERIC values too precise to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), numericCatalogPool, flowJobName, "warn", "truncated 2 NUMERIC values too precise to fit into the destination column",
+				s.t.Context(), numericCatalogPool, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated*2 // snapshot and cdc
 		})
