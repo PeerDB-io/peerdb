@@ -1445,6 +1445,9 @@ func (s APITestSuite) TestResyncFailed() {
 	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	EnvWaitForCount(env, s.ch, "resync should have 2 rows", dstTableName, cols, 2)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s APITestSuite) TestDropCompleted() {
