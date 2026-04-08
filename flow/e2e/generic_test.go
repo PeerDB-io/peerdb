@@ -523,15 +523,30 @@ func (s Generic) Test_Partitioned_Table_With_Different_Column_Ordering() {
 	EnvWaitForEqualTablesWithNames(env, s, "first batch 3 rows",
 		srcTable, dstTable, `id,key,value,created_at`)
 
-	// Batch 2: insert into all 3 partitions, verify correctness across batches
+	// DDL: add a new partition dynamically while CDC is running
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s_p4(
+			value INT,
+			created_at TIMESTAMP DEFAULT now(),
+			key TEXT,
+			id INT NOT NULL,
+			PRIMARY KEY (created_at, id)
+		);
+		ALTER TABLE %[1]s ATTACH PARTITION %[1]s_p4
+			FOR VALUES FROM ('2025-01-01') TO ('2025-05-01');
+	`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	// Batch 2: insert into all 4 partitions, verify correctness
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
 		`INSERT INTO %s(id, key, value, created_at) VALUES
 			(4, 'd', 40, '2024-11-15'),
 			(5, 'e', 50, '2024-03-15'),
-			(6, 'f', 60, '2024-07-15')`, srcSchemaTable))
+			(6, 'f', 60, '2024-07-15'),
+			(7, 'g', 70, '2025-02-15')`, srcSchemaTable))
 	EnvNoError(t, env, err)
 
-	EnvWaitForEqualTablesWithNames(env, s, "all 6 rows",
+	EnvWaitForEqualTablesWithNames(env, s, "all 7 rows",
 		srcTable, dstTable, `id,key,value,created_at`)
 
 	// DDL: add a new column to the parent, should propagate to all children
@@ -539,16 +554,18 @@ func (s Generic) Test_Partitioned_Table_With_Different_Column_Ordering() {
 		`ALTER TABLE %s ADD COLUMN extra TEXT`, srcSchemaTable))
 	EnvNoError(t, env, err)
 
-	// Batch 3: insert into all 3 partitions, verify correctness with new column addition
+	// Batch 3: insert into all 4 partitions, verify correctness with new column addition
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
 		`INSERT INTO %s(id, key, value, created_at, extra) VALUES
-			(7, 'g', 70, '2024-08-15', 'x1'),
-			(8, 'h', 80, '2024-12-15', 'x2'),
-			(9, 'i', 90, '2024-04-15', 'x3')`, srcSchemaTable))
+			(8, 'h', 80, '2024-08-15', 'x1'),
+			(9, 'l', 90, '2024-12-15', 'x2'),
+			(10, 'j', 100, '2024-04-15', 'x3'),
+			(11, 'k', 110, '2025-01-15', 'x4')`, srcSchemaTable))
 	EnvNoError(t, env, err)
 
-	EnvWaitForEqualTablesWithNames(env, s, "all 9 rows with new column",
+	EnvWaitForEqualTablesWithNames(env, s, "all 11 rows with new column",
 		srcTable, dstTable, `id,key,value,created_at,extra`)
+
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
 }
