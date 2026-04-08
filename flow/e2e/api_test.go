@@ -82,7 +82,7 @@ func (s APITestSuite) checkMigrationCompleted(
 		migrationName,
 	).Scan(&completed)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			// Migration record doesn't exist, so it hasn't been completed
 			return false, nil
 		}
@@ -1581,15 +1581,17 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
 		var workflowID string
-		return s.catalog.QueryRow(
+		err := s.catalog.QueryRow(
 			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
 	})
 	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
 		var workflowID string
-		return s.catalog.QueryRow(
+		err := s.catalog.QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
 	})
 }
 
@@ -2202,9 +2204,10 @@ func (s APITestSuite) TestDropQRep() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for qrep flow dropped", func() bool {
 		var workflowID string
-		return s.catalog.QueryRow(
+		err := s.catalog.QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", qrepConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
 	})
 }
 
