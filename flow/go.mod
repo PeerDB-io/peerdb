@@ -55,6 +55,7 @@ require (
 	github.com/twmb/franz-go v1.20.6
 	github.com/twmb/franz-go/pkg/kadm v1.17.2
 	github.com/twmb/franz-go/plugin/kslog v1.0.0
+	github.com/twpayne/go-geom v1.6.1
 	github.com/twpayne/go-geos v0.20.2
 	github.com/urfave/cli/v3 v3.6.2
 	github.com/xdg-go/scram v1.2.0
