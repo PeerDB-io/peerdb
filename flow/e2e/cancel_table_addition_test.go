@@ -100,7 +100,7 @@ func (s APITestSuite) removeOneTable(
 	EnvWaitFor(s.t, env, 3*time.Minute, fmt.Sprintf(
 		"wait for table removal of %s to finish", tableToRemove), func() bool {
 		valid, err := s.checkCatalogTableMapping(s.t.Context(),
-			s.pg.PostgresConnector.Conn(), flowJobName, expectedRemainingSourceTables)
+			flowJobName, expectedRemainingSourceTables)
 		if err != nil {
 			return false
 		}
@@ -171,7 +171,7 @@ func (s APITestSuite) checkQrepRuns(
 	flowJobName string,
 	expectedTables []includedTable,
 ) {
-	rows, err := s.pg.PostgresConnector.Conn().Query(s.t.Context(),
+	rows, err := s.catalog.Query(s.t.Context(),
 		`SELECT source_table, COUNT(*) as entry_count
         FROM peerdb_stats.qrep_runs
         WHERE parent_mirror_name = $1 AND consolidate_complete = true
@@ -208,7 +208,7 @@ func (s APITestSuite) checkQrepRuns(
 		"qrep_runs entries do not match expected tables and counts")
 
 	var incompleteCount int
-	err = s.pg.PostgresConnector.Conn().QueryRow(s.t.Context(),
+	err = s.catalog.QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_runs
         WHERE parent_mirror_name = $1 AND consolidate_complete = false`,
 		flowJobName,
@@ -222,7 +222,7 @@ func (s APITestSuite) checkQrepPartitions(
 	flowJobName string,
 	expectedTables []includedTable,
 ) {
-	rows, err := s.pg.PostgresConnector.Conn().Query(s.t.Context(),
+	rows, err := s.catalog.Query(s.t.Context(),
 		`SELECT qr.source_table, COUNT(DISTINCT qp.partition_uuid) as partition_count
         FROM peerdb_stats.qrep_partitions qp
         JOIN peerdb_stats.qrep_runs qr ON qr.parent_mirror_name = qp.parent_mirror_name AND qr.run_uuid = qp.run_uuid
@@ -268,7 +268,7 @@ func (s APITestSuite) checkTableSchemaMapping(
 	flowJobName string,
 	expectedTables []includedTable,
 ) {
-	rows, err := s.pg.PostgresConnector.Conn().Query(s.t.Context(),
+	rows, err := s.catalog.Query(s.t.Context(),
 		`SELECT table_name, COUNT(*) as entry_count FROM table_schema_mapping
         WHERE flow_name = $1
         GROUP BY table_name
@@ -356,7 +356,7 @@ func (s APITestSuite) testCancelTableAddition(
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -448,8 +448,8 @@ func (s APITestSuite) testCancelTableAddition(
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
 	})
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for initial load MV error messages for t5", func() bool {
-		count, err := s.pg.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error",
+		count, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
 			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, t5Mv.mvName),
 		)
 		return err == nil && count > 0
@@ -631,7 +631,7 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -672,8 +672,8 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
 	})
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for initial load MV error messages for t2", func() bool {
-		count, err := s.pg.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error",
+		count, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
 			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, t2Mv.mvName),
 		)
 		return err == nil && count > 0
@@ -782,7 +782,7 @@ func (s APITestSuite) TestCancelAddCancel() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -827,8 +827,8 @@ func (s APITestSuite) TestCancelAddCancel() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
 	})
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for initial load MV error messages for t2", func() bool {
-		count, err := s.pg.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error",
+		count, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
 			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, t2Mv1.mvName),
 		)
 		return err == nil && count > 0
@@ -874,8 +874,8 @@ func (s APITestSuite) TestCancelAddCancel() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
 	})
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for initial load MV error messages for t2 second time", func() bool {
-		count, err := s.pg.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error",
+		count, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
 			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, t2Mv2.mvName),
 		)
 		return err == nil && count > 0
@@ -917,8 +917,8 @@ func (s APITestSuite) TestCancelAddCancel() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
 	})
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for initial load MV error messages for t2 third time", func() bool {
-		count, err := s.pg.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error",
+		count, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
 			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, t2Mv3.mvName),
 		)
 		return err == nil && count > 0
@@ -1019,7 +1019,7 @@ func (s APITestSuite) TestCancelErrorOnPostgresZeroOIDs() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -1101,8 +1101,8 @@ func (s APITestSuite) TestCancelErrorOnPostgresZeroOIDs() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
 	})
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for initial load MV error messages for t2", func() bool {
-		count, err := s.pg.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error",
+		count, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
 			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, t2Mv.mvName),
 		)
 		return err == nil && count > 0
@@ -1158,7 +1158,7 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -1359,7 +1359,7 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
@@ -1433,8 +1433,8 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
 	})
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for MV error messages for t2", func() bool {
-		count, err := s.pg.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error",
+		count, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
 			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, t2Mv.mvName),
 		)
 		return err == nil && count > 0

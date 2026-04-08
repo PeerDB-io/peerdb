@@ -35,11 +35,12 @@ import (
 
 type APITestSuite struct {
 	protos.FlowServiceClient
-	t      *testing.T
-	pg     *PostgresSource
-	source SuiteSource
-	suffix string
-	ch     ClickHouseSuite
+	t       *testing.T
+	pg      *PostgresSource
+	catalog shared.CatalogPool
+	source  SuiteSource
+	suffix  string
+	ch      ClickHouseSuite
 }
 
 func (s APITestSuite) Teardown(ctx context.Context) {
@@ -69,12 +70,11 @@ func (s APITestSuite) DestinationTable(table string) string {
 // checkMigrationCompleted checks if a migration has been completed for a given flow
 func (s APITestSuite) checkMigrationCompleted(
 	ctx context.Context,
-	conn *pgx.Conn,
 	flowName string,
 	migrationName string,
 ) (bool, error) {
 	var completed bool
-	err := conn.QueryRow(
+	err := s.catalog.QueryRow(
 		ctx,
 		"SELECT completed FROM flow_migrations WHERE flow_name = $1 AND migration_name = $2",
 		flowName,
@@ -102,7 +102,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 ) {
 	EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
 		var syncBatchID pgtype.Int8
-		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
+		queryErr := s.catalog.QueryRow(
 			s.t.Context(),
 			"select sync_batch_id from metadata_last_sync_state where job_name = $1",
 			flowConnConfig.FlowJobName,
@@ -115,7 +115,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "normalize flow check: "+reason, func() bool {
 		var normalizeBatchID pgtype.Int8
-		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
+		queryErr := s.catalog.QueryRow(
 			s.t.Context(),
 			"select normalize_batch_id from metadata_last_sync_state where job_name = $1",
 			flowConnConfig.FlowJobName,
@@ -127,11 +127,11 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 	})
 }
 
-func (s APITestSuite) waitForActiveSlotForPostgresMirror(env WorkflowRun, conn *pgx.Conn, mirrorName string) {
+func (s APITestSuite) waitForActiveSlotForPostgresMirror(env WorkflowRun, mirrorName string) {
 	slotName := "peerflow_slot_" + mirrorName
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to become active", func() bool {
 		var active pgtype.Bool
-		err := conn.QueryRow(s.t.Context(),
+		err := s.pg.PostgresConnector.Conn().QueryRow(s.t.Context(),
 			`SELECT active FROM pg_replication_slots WHERE slot_name = $1`, slotName).Scan(&active)
 		if err != nil {
 			return false
@@ -142,11 +142,10 @@ func (s APITestSuite) waitForActiveSlotForPostgresMirror(env WorkflowRun, conn *
 
 func (s APITestSuite) loadConfigFromCatalog(
 	ctx context.Context,
-	conn *pgx.Conn,
 	flowName string,
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
-	if err := conn.QueryRow(ctx,
+	if err := s.catalog.QueryRow(ctx,
 		"SELECT config_proto FROM flows WHERE name = $1", flowName,
 	).Scan(&configBytes); err != nil {
 		return nil, err
@@ -159,11 +158,10 @@ func (s APITestSuite) loadConfigFromCatalog(
 // checkCatalogTableMapping checks the table mappings in the catalog for a given flow
 func (s APITestSuite) checkCatalogTableMapping(
 	ctx context.Context,
-	conn *pgx.Conn,
 	flowName string,
 	expectedSourceTableNames []string,
 ) (bool, error) {
-	config, err := s.loadConfigFromCatalog(ctx, conn, flowName)
+	config, err := s.loadConfigFromCatalog(ctx, flowName)
 	if err != nil {
 		return false, fmt.Errorf("failed to load config from catalog: %w", err)
 	}
@@ -190,12 +188,11 @@ func (s APITestSuite) checkCatalogTableMapping(
 
 func (s APITestSuite) getCatalogTableSchemaForSourceTable(
 	ctx context.Context,
-	conn *pgx.Conn,
 	flowName string,
 	sourceTableIdentifier string,
 ) (*protos.TableSchema, error) {
 	var configBytes sql.RawBytes
-	if err := conn.QueryRow(ctx,
+	if err := s.catalog.QueryRow(ctx,
 		`SELECT table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_name = $2`,
 		flowName, sourceTableIdentifier,
 	).Scan(&configBytes); err != nil {
@@ -221,10 +218,13 @@ func testApi[TSource SuiteSource](
 		require.NoError(t, err)
 		client, err := NewApiClient()
 		require.NoError(t, err)
+		catalog, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+		require.NoError(t, err)
 		return APITestSuite{
 			FlowServiceClient: client,
 			t:                 t,
 			pg:                pg,
+			catalog:           catalog,
 			source:            source,
 			ch: SetupClickHouseSuite(t, false, func(*testing.T) (TSource, string, error) {
 				return source, suffix, nil
@@ -1296,13 +1296,13 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	RequireEqualTables(s.ch, tableName, cols)
 
-	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	// tags are explicitly updated via a separate call, so here we update tags before resync to validate they are persisted after resync
@@ -1335,7 +1335,7 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NoError(s.t, err)
 
 	EnvWaitForEqualTables(env, s.ch, "resync", tableName, cols)
-	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	EnvWaitForFinished(s.t, env, time.Minute)
 
@@ -1346,12 +1346,12 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NoError(s.t, err)
 
 	EnvWaitForEqualTables(env, s.ch, "resync 2", tableName, cols)
-	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	EnvWaitForFinished(s.t, env, time.Minute)
 
 	// check that custom config options persist across resync
-	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	configBeforeResync.Resync = true
 	require.EqualExportedValues(s.t, configBeforeResync, configAfterResync)
@@ -1409,12 +1409,12 @@ func (s APITestSuite) TestResyncFailed() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "wait for MV error messages", func() bool {
-		count, err := s.pg.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error",
+		count, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
 			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, mvManager.mvName),
 		)
 		return err == nil && count > 0
@@ -1441,7 +1441,7 @@ func (s APITestSuite) TestResyncFailed() {
 	})
 	require.NoError(s.t, err)
 
-	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	EnvWaitForCount(env, s.ch, "resync should have 2 rows", dstTableName, cols, 2)
 }
@@ -1480,7 +1480,7 @@ func (s APITestSuite) TestDropCompleted() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
@@ -1493,13 +1493,13 @@ func (s APITestSuite) TestDropCompleted() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
 		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
+		return s.catalog.QueryRow(
 			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
 	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
 		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
+		return s.catalog.QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
@@ -1564,7 +1564,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
@@ -1578,13 +1578,13 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
 		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
+		return s.catalog.QueryRow(
 			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
 	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
 		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
+		return s.catalog.QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
@@ -1630,7 +1630,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -1665,7 +1665,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	})
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
-		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
 			AttachSchema(s, "added"),
 			AttachSchema(s, "original"),
 		})
@@ -1728,7 +1728,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	require.NoError(s.t, err)
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table removal to finish", func() bool {
-		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
 			AttachSchema(s, "added"),
 		})
 		if err != nil {
@@ -1737,8 +1737,8 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 
 		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
-		s.waitForActiveSlotForPostgresMirror(env, pgconn.Conn(), flowConnConfig.FlowJobName)
+	if _, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
+		s.waitForActiveSlotForPostgresMirror(env, flowConnConfig.FlowJobName)
 	}
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -1768,7 +1768,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 		DropMirrorStats:    true,
 	})
 	require.NoError(s.t, err)
-	newEnv, newErr := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	newEnv, newErr := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, newErr)
 	// test resync initial load
 	EnvWaitForEqualTables(newEnv, s.ch, "resync", "added", cols)
@@ -1889,7 +1889,7 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -1991,7 +1991,7 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -2019,7 +2019,6 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 
 	schema1, err := s.getCatalogTableSchemaForSourceTable(
 		s.t.Context(),
-		pgconn.Conn(),
 		flowConnConfig.FlowJobName,
 		"table1",
 	)
@@ -2029,7 +2028,6 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 
 	schema2, err := s.getCatalogTableSchemaForSourceTable(
 		s.t.Context(),
-		pgconn.Conn(),
 		flowConnConfig.FlowJobName,
 		"table2",
 	)
@@ -2039,7 +2037,6 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 
 	ok, err = s.checkMigrationCompleted(
 		s.t.Context(),
-		pgconn.Conn(),
 		flowConnConfig.FlowJobName,
 		shared.POSTGRES_TABLE_OID_MIGRATION,
 	)
@@ -2120,7 +2117,7 @@ func (s APITestSuite) TestQRep() {
 	require.NoError(s.t, err)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	EnvWaitForEqualTables(env, s.ch, "qrep initial load", tableName, "id,val")
@@ -2190,7 +2187,7 @@ func (s APITestSuite) TestDropQRep() {
 	require.NoError(s.t, err)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	EnvWaitForEqualTables(env, s.ch, "qrep initial load", tableName, "id,val")
@@ -2202,7 +2199,7 @@ func (s APITestSuite) TestDropQRep() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for qrep flow dropped", func() bool {
 		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
+		return s.catalog.QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", qrepConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
@@ -2248,7 +2245,7 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -2283,7 +2280,7 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	})
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
-		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
 			AttachSchema(s, "added"),
 			AttachSchema(s, "original"),
 		})
@@ -2318,12 +2315,11 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 }
 
 func (s APITestSuite) TestDropMissing() {
-	conn := s.pg.PostgresConnector.Conn()
 	peer := s.source.GeneratePeer(s.t)
 	var peerId int32
-	require.NoError(s.t, conn.QueryRow(s.t.Context(), "select id from peers where name = $1", peer.Name).Scan(&peerId))
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(), "select id from peers where name = $1", peer.Name).Scan(&peerId))
 
-	_, err := conn.Exec(s.t.Context(),
+	_, err := s.catalog.Exec(s.t.Context(),
 		"insert into flows (name,source_peer,destination_peer,workflow_id,status) values ('test-drop-missing',$1,$1,'drop-missing-wf-id',$2)",
 		peerId, protos.FlowStatus_STATUS_COMPLETED,
 	)
@@ -2386,7 +2382,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequests() {
 
 	// Verify workflow is actually running
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
@@ -2504,7 +2500,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 
 	// Verify workflow is actually running
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
@@ -2546,7 +2542,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachSequentialRequests() {
 
 	// Verify workflow is actually running
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
@@ -2586,22 +2582,21 @@ func (s APITestSuite) TestCreateCDCFlowAttachExternalFlowEntry() {
 	flowConnConfig.DoInitialSnapshot = true
 
 	// Simulate a crash: create flows entry without creating workflow
-	conn := s.pg.PostgresConnector.Conn()
 	sourcePeer := s.source.GeneratePeer(s.t)
 	destPeer, err := s.GetPeerInfo(s.t.Context(), &protos.PeerInfoRequest{PeerName: s.ch.Peer().Name})
 	require.NoError(s.t, err)
 
 	var sourcePeerID, destPeerID int32
-	require.NoError(s.t, conn.QueryRow(s.t.Context(),
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
 		"SELECT id FROM peers WHERE name = $1", sourcePeer.Name).Scan(&sourcePeerID))
-	require.NoError(s.t, conn.QueryRow(s.t.Context(),
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
 		"SELECT id FROM peers WHERE name = $1", destPeer.Peer.Name).Scan(&destPeerID))
 
 	cfgBytes, err := proto.Marshal(flowConnConfig)
 	require.NoError(s.t, err)
 
 	workflowID := flowConnConfig.FlowJobName + "-peerflow"
-	_, err = conn.Exec(s.t.Context(),
+	_, err = s.catalog.Exec(s.t.Context(),
 		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,	description)
 		VALUES ($1,$2,$3,$4,$5,$6,'gRPC')`,
 		workflowID, flowConnConfig.FlowJobName, sourcePeerID, destPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
@@ -2619,7 +2614,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachExternalFlowEntry() {
 
 	// Verify workflow is created and running
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), conn, tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
@@ -2658,7 +2653,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 	require.NotNil(s.t, response1)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	// Cancel the workflow to simulate failure
@@ -2697,7 +2692,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 		"should have created a new workflow run")
 
 	// Clean up
-	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
@@ -2730,7 +2725,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	require.NotNil(s.t, response1)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
@@ -2800,7 +2795,7 @@ func (s APITestSuite) TestSnapshotNullPartitionKey() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)

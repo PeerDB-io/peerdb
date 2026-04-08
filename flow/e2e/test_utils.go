@@ -648,7 +648,7 @@ type WorkflowRun struct {
 	c client.Client
 }
 
-func GetPeerflow(ctx context.Context, catalog *pgx.Conn, tc client.Client, flowName string) (WorkflowRun, error) {
+func GetPeerflow(ctx context.Context, catalog shared.CatalogPool, tc client.Client, flowName string) (WorkflowRun, error) {
 	var workflowID string
 	if err := catalog.QueryRow(
 		ctx, "select workflow_id from flows where name = $1", flowName,
