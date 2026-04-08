@@ -93,12 +93,18 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 	}
 
 	var publishViaPartitionRoot bool
-	if err := c.conn.QueryRow(ctx,
-		"SELECT COALESCE(pubviaroot, false) FROM pg_publication WHERE pubname=$1",
-		cdcConfig.Publication,
-	).Scan(&publishViaPartitionRoot); err != nil {
-		return nil, fmt.Errorf("error checking publish_via_partition_root for publication %s: %w",
-			cdcConfig.Publication, err)
+	majorVersion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error getting major version: %w", err)
+	}
+	if majorVersion >= shared.POSTGRES_13 {
+		if err := c.conn.QueryRow(ctx,
+			"SELECT COALESCE(pubviaroot, false) FROM pg_publication WHERE pubname=$1",
+			cdcConfig.Publication,
+		).Scan(&publishViaPartitionRoot); err != nil {
+			return nil, fmt.Errorf("error checking publish_via_partition_root for publication %s: %w",
+				cdcConfig.Publication, err)
+		}
 	}
 
 	var schemaNameForRelID map[uint32]string
