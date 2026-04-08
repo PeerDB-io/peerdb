@@ -77,6 +77,11 @@ func Equals(qv types.QValue, other types.QValue) bool {
 		return compareString(q.Val, otherValue)
 	case types.QValueEnum:
 		return compareString(q.Val, otherValue)
+	case types.QValueUint16Enum:
+		if otherVal, ok := other.(types.QValueUint16Enum); ok {
+			return q.Val == otherVal.Val
+		}
+		return false
 	case types.QValueINET:
 		return compareString(q.Val, otherValue)
 	case types.QValueCIDR:

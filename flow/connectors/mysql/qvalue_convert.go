@@ -229,6 +229,8 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 	case mysql.FieldValueTypeUnsigned:
 		v := fv.AsUint64()
 		switch qkind {
+		case types.QValueKindUint16Enum:
+			return types.QValueUint16Enum{Val: uint16(v)}, nil
 		case types.QValueKindEnum:
 			return types.QValueEnum{Val: strconv.FormatUint(v, 10)}, nil
 		case types.QValueKindBoolean:
@@ -415,6 +417,8 @@ func QValueFromMysqlRowEvent(
 				}
 			}
 			return types.QValueString{Val: strings.Join(set, ",")}, nil
+		case types.QValueKindUint16Enum:
+			return types.QValueUint16Enum{Val: uint16(val)}, nil
 		case types.QValueKindEnum: // enum
 			if val == 0 {
 				return types.QValueEnum{Val: ""}, nil

@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func QkindFromMysqlColumnType(ct string) (types.QValueKind, error) {
+func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, version uint32) (types.QValueKind, error) {
 	// https://mariadb.com/docs/server/reference/data-types/date-and-time-data-types/timestamp#tab-current-1
 	ct, _ = strings.CutSuffix(ct, " /* mariadb-5.3 */")
 	ct, _ = strings.CutSuffix(ct, " zerofill")
@@ -19,6 +20,9 @@ func QkindFromMysqlColumnType(ct string) (types.QValueKind, error) {
 	case "char", "varchar", "text", "set", "tinytext", "mediumtext", "longtext":
 		return types.QValueKindString, nil
 	case "enum":
+		if !binlogRowMetadataSupported && version >= shared.InternalVersion_MySQL5ConvertEnumsToInts {
+			return types.QValueKindUint16Enum, nil
+		}
 		return types.QValueKindEnum, nil
 	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob":
 		return types.QValueKindBytes, nil

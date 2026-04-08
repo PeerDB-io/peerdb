@@ -75,7 +75,8 @@ func GetAvroSchemaFromQValueKind(
 	case types.QValueKindGeometry, types.QValueKindGeography, types.QValueKindPoint:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
-		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64:
+		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64,
+		types.QValueKindUint16Enum:
 		return avro.NewPrimitiveSchema(avro.Long, nil), nil
 	case types.QValueKindFloat32:
 		if targetDWH == protos.DBType_BIGQUERY {
@@ -290,6 +291,8 @@ func QValueToAvro(
 	case types.QValueUInt8:
 		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt16:
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+	case types.QValueUint16Enum:
 		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt32:
 		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil

@@ -92,6 +92,8 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 			values[i] = v.Val
 		case types.QValueEnum:
 			values[i] = v.Val
+		case types.QValueUint16Enum:
+			values[i] = v.Val
 		case types.QValueCIDR:
 			values[i] = v.Val
 		case types.QValueINET:

@@ -21,7 +21,8 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 		bqField.Type = bigquery.BooleanFieldType
 	// integer types
 	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
-		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64:
+		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64,
+		types.QValueKindUint16Enum:
 		bqField.Type = bigquery.IntegerFieldType
 	// decimal types
 	case types.QValueKindFloat32, types.QValueKindFloat64:

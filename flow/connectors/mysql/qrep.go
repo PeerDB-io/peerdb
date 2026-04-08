@@ -177,7 +177,7 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	}, nil
 }
 
-func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string, isBinlogMetadataSupported bool, mirrorVersion uint32) string {
+func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string) string {
 	columns := []string{}
 	selectAsterisk := true
 	for _, col := range cols {
@@ -187,9 +187,7 @@ func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string, isB
 		}
 
 		converted := common.QuoteMySQLIdentifier(col.Name)
-		if !isBinlogMetadataSupported && col.Type == string(types.QValueKindEnum) &&
-			mirrorVersion >= shared.InternalVersion_MySQLConvertEnumsToInts {
-			// if binlog metadata is not supported, we need to cast enum columns to integers to align it with cdc stream
+		if col.Type == string(types.QValueKindUint16Enum) {
 			converted = fmt.Sprintf("CAST(%s AS UNSIGNED) AS %s", converted, converted)
 			selectAsterisk = false
 		}
@@ -213,18 +211,18 @@ func (c *MySqlConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
+	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
+	}
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
-		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
+		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q,
+		binlogRowMetadataSupported, config.Version)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	isBinlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to determine if binlog metadata is supported: %w", err)
-	}
-
-	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude, isBinlogRowMetadataSupported, config.Version)
+	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude)
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		c.logger.Error("unable to parse source table", slog.Any("error", err))
