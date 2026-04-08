@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -1493,15 +1494,17 @@ func (s APITestSuite) TestDropCompleted() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
 		var workflowID string
-		return s.catalog.QueryRow(
+		err := s.catalog.QueryRow(
 			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
 	})
 	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
 		var workflowID string
-		return s.catalog.QueryRow(
+		err := s.catalog.QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
 	})
 }
 
