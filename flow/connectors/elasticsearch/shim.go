@@ -45,7 +45,7 @@ type searchBulkIndexer interface {
 type searchBulkIndexerItem struct {
 	Action     string
 	DocumentID string
-	Body       io.Reader
+	Body       io.ReadSeeker
 	OnSuccess  func()
 	OnFailure  func(searchBulkIndexerFailure)
 }
