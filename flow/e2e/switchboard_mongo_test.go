@@ -85,7 +85,7 @@ func SetupSwitchboardMongoSuite(t *testing.T) SwitchboardMongoSuite {
 	conn, err := pgx.Connect(t.Context(), switchboardDSN(peer.Name, nil))
 	if err != nil {
 		source.Teardown(t, t.Context(), suffix)
-		t.Skipf("Switchboard not available: %v", err)
+		t.Fatalf("Switchboard not available: %v", err)
 	}
 	conn.Close(t.Context())
 

@@ -89,11 +89,15 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 		return nil, fmt.Errorf("failed to set read-only mode: %w", err)
 	}
 
+	execTimeoutVar := "max_execution_time"
+	execTimeoutVal := queryTimeout.Milliseconds()
+	if config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		execTimeoutVar = "max_statement_time"
+		execTimeoutVal = int64(timeoutSec)
+	}
 	_, err = conn.ExecuteNoRetry(ctx, fmt.Sprintf(
-		"SET SESSION max_execution_time = %d, "+
-			"lock_wait_timeout = %d, "+
-			"innodb_lock_wait_timeout = %d",
-		queryTimeout.Milliseconds(), timeoutSec, timeoutSec,
+		"SET SESSION %s = %d, lock_wait_timeout = %d, innodb_lock_wait_timeout = %d",
+		execTimeoutVar, execTimeoutVal, timeoutSec, timeoutSec,
 	))
 	if err != nil {
 		conn.Close()
