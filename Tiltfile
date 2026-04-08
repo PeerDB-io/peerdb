@@ -1,5 +1,39 @@
 docker_compose('./docker-compose-dev.yml')
 
+docker_build('flow-api', '.',
+    dockerfile='stacks/flow.Dockerfile',
+    target='flow-api',
+    only=['flow/', 'stacks/flow.Dockerfile'],
+    build_args={'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', '')},
+)
+
+docker_build('flow-worker', '.',
+    dockerfile='stacks/flow.Dockerfile',
+    target='flow-worker',
+    only=['flow/', 'stacks/flow.Dockerfile'],
+)
+
+docker_build('flow-snapshot-worker', '.',
+    dockerfile='stacks/flow.Dockerfile',
+    target='flow-snapshot-worker',
+    only=['flow/', 'stacks/flow.Dockerfile'],
+)
+
+docker_build('peerdb', '.',
+    dockerfile='stacks/peerdb-server.Dockerfile',
+    only=['nexus/', 'protos/', 'scripts/', 'stacks/peerdb-server.Dockerfile'],
+    build_args={
+        'BUILD_MODE': 'debug',
+        'CARGO_FLAGS': '--no-default-features --features mysql',
+    },
+)
+
+docker_build('peerdb-ui', '.',
+    dockerfile='stacks/peerdb-ui.Dockerfile',
+    target='dev',
+    only=['ui/', 'stacks/peerdb-ui.Dockerfile', 'stacks/ui/'],
+)
+
 local_resource(
     'proto-gen',
     cmd='./generate-protos.sh',

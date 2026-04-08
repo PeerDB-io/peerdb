@@ -18,7 +18,7 @@ type SuiteSource interface {
 	Teardown(t *testing.T, ctx context.Context, suffix string)
 	GeneratePeer(t *testing.T) *protos.Peer
 	Connector() connectors.Connector
-	Exec(ctx context.Context, sql string) error
+	Exec(ctx context.Context, sql string, args ...any) error
 	GetRows(ctx context.Context, suffix, table, cols string) (*model.QRecordBatch, error)
 }
 

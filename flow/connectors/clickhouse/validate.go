@@ -12,6 +12,25 @@ import (
 	chvalidate "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 )
 
+func engineToString(e protos.TableEngine) (string, error) {
+	switch e {
+	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE:
+		return chvalidate.EngineReplacingMergeTree, nil
+	case protos.TableEngine_CH_ENGINE_MERGE_TREE:
+		return chvalidate.EngineMergeTree, nil
+	case protos.TableEngine_CH_ENGINE_NULL:
+		return chvalidate.EngineNull, nil
+	case protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
+		return chvalidate.EngineReplicatedReplacingMergeTree, nil
+	case protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
+		return chvalidate.EngineReplicatedMergeTree, nil
+	case protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE:
+		return chvalidate.EngineCoalescingMergeTree, nil
+	default:
+		return "", fmt.Errorf("unhandled TableEngine proto value: %v", e)
+	}
+}
+
 func (c *ClickHouseConnector) ValidateMirrorDestination(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigsCore,
@@ -79,18 +98,22 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 			return fmt.Errorf("source table %s not found in schema mapping", tableMapping.SourceTableIdentifier)
 		}
 
-		hasOrderingKeys := len(processedSchema.PrimaryKeyColumns) > 0 ||
-			slices.ContainsFunc(tableMapping.Columns, func(col *protos.ColumnSetting) bool {
-				return col.Ordering > 0
-			})
-		if !hasOrderingKeys &&
-			tableMapping.Engine != protos.TableEngine_CH_ENGINE_NULL &&
-			tableMapping.Engine != protos.TableEngine_CH_ENGINE_MERGE_TREE {
-			if err := chvalidate.CheckEmptyOrderingKeySupported(ctx, c.logger, c.database,
-				c.chVersion, tableMapping.SourceTableIdentifier,
-			); err != nil {
-				return err
+		var sortingKeys []string
+		for _, col := range tableMapping.Columns {
+			if col.Ordering > 0 {
+				sortingKeys = append(sortingKeys, col.SourceName)
 			}
+		}
+		engine, err := engineToString(tableMapping.Engine)
+		if err != nil {
+			return err
+		}
+		if err := chvalidate.ValidateOrderingKeys(ctx, c.logger, c.database,
+			c.chVersion, tableMapping.SourceTableIdentifier,
+			len(processedSchema.PrimaryKeyColumns) > 0,
+			sortingKeys, engine,
+		); err != nil {
+			return err
 		}
 
 		// if destination table does not exist, we're good

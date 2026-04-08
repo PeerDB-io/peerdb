@@ -25,6 +25,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -163,6 +164,9 @@ var (
 	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
 		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
 	}
+	ErrorNotifySnapshotExportDisabled = ErrorClass{
+		Class: "NOTIFY_SNAPSHOT_EXPORT_DISABLED", action: NotifyUser,
+	}
 	ErrorNotifyTerminate = ErrorClass{
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
@@ -216,6 +220,9 @@ var (
 	}
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
+	}
+	ErrorNotifyWalSegmentRemoved = ErrorClass{
+		Class: "NOTIFY_WAL_SEGMENT_REMOVED", action: NotifyUser,
 	}
 	ErrorNotifyClickHouseSupportIsDisabledError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_SUPPORT_IS_DISABLED_ERROR", action: NotifyUser,
@@ -523,9 +530,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.UndefinedFile:
 			// Handle WAL segment removed errors
-			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
+			// It either shows up once then disappears
+			// (quirk in some PG installs where replication can try read a segment that hasn't been created yet)
+			// or shows up and persists
+			// NotifyUser with repeat threshold accommodates both
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
-				return ErrorRetryRecoverable, pgErrorInfo
+				return ErrorNotifyWalSegmentRemoved, pgErrorInfo
 			}
 			// Handles missing spill-to-disk file during logical decoding (transient error)
 			if PostgresSpillFileMissingRe.MatchString(pgErr.Message) {
@@ -553,9 +563,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// Handle WAL segment removed errors
-			// There is a quirk in some PG installs where replication can try read a segment that hasn't been created yet but will show up
+			// It either shows up once then disappears
+			// (quirk in some PG installs where replication can try read a segment that hasn't been created yet)
+			// or shows up and persists
+			// NotifyUser with repeat threshold accommodates both
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
-				return ErrorRetryRecoverable, pgErrorInfo
+				return ErrorNotifyWalSegmentRemoved, pgErrorInfo
 			}
 
 			// Handle Neon quota exceeded errors
@@ -662,6 +675,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.FeatureNotSupported:
 			if strings.Contains(pgErr.Message, "logical decoding cannot be used while in recovery") {
 				return ErrorNotifyLogicalDecodingStandbyNotSupported, pgErrorInfo
+			}
+
+		case pgerrcode.SyntaxError:
+			if strings.Contains(pgErr.Message, "ysql_enable_pg_export_snapshot") {
+				return ErrorNotifySnapshotExportDisabled, pgErrorInfo
 			}
 
 		case pgerrcode.DeadlockDetected,
@@ -832,6 +850,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// ErrClientDisconnected is only produced when the topology is explicitly closed via
+	// Client.Disconnect(); classify as internal to flag client lifecycle bugs in our code.
+	if errors.Is(err, mongo.ErrClientDisconnected) {
+		return ErrorInternal, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "CLIENT_DISCONNECTED",
+		}
+	}
+
 	// MongoDB can leak error without properly encapsulate it into a pre-defined error type.
 	// Use string matching as a catch-all for poolClearedErrors. These errors occur when a
 	// connection pool is cleared due to another operation failure; they are always retryable
@@ -867,10 +894,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// "Too large string for FixedString column: (at row 10195)"
 			// The only one created by us is FixedString(1) for PG QChar so assuming the user did it for a string and it didn't work
 			chproto.ErrTooLargeStringSize:
-			if isClickHouseMvError(chException) {
+			var viewErr *peerdb_clickhouse.ViewError
+			if errors.As(err, &viewErr) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 			return ErrorNotifyDestinationModified, chErrorInfo
+		case chproto.ErrIncorrectData:
+			var viewErr *peerdb_clickhouse.ViewError
+			if errors.As(err, &viewErr) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
 		case chproto.ErrUnknownDatabase,
@@ -881,6 +914,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
 			return ErrorInternalClickHouse, chErrorInfo
+		case chproto.ErrNotImplemented:
+			if strings.HasSuffix(chException.Message, "is not supported by storage View") {
+				return ErrorNotifyDestinationModified, chErrorInfo
+			}
 		case chproto.ErrUnfinished:
 			if strings.Contains(chException.Message, "Failed to load all data parts") {
 				return ErrorNotifyClickHouseError, chErrorInfo
@@ -928,7 +965,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrUnknownElementOfEnum,
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
-			var qrepSyncError *exceptions.QRepSyncError
+			var qrepSyncError *exceptions.ClickHouseQRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
@@ -967,11 +1004,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				AdditionalAttributes: additionalAttributes,
 			}
 		}
-		var normalizationErr *exceptions.NormalizationError
-		if isClickHouseMvError(chException) {
+		// a catch-all for MV or view errors
+		var viewErr *peerdb_clickhouse.ViewError
+		if errors.As(err, &viewErr) {
 			return ErrorNotifyMVOrView, chErrorInfo
-		} else if errors.As(err, &normalizationErr) {
-			// notify if normalization hits error on destination
+		}
+		// a catch-all for normalization errors, which typically indicate a bad MV or view
+		var normalizationErr *exceptions.NormalizationError
+		if errors.As(err, &normalizationErr) {
 			logger := internal.LoggerFromCtx(ctx)
 			logger.Warn("Assuming a normalization error is bad MV or view", slog.Any("error", err))
 			return ErrorNotifyMVOrView, chErrorInfo
@@ -1088,8 +1128,4 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		Source: ErrorSourceOther,
 		Code:   "UNKNOWN",
 	}
-}
-
-func isClickHouseMvError(exception *clickhouse.Exception) bool {
-	return strings.Contains(exception.Message, "while pushing to view")
 }

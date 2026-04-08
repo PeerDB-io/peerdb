@@ -67,6 +67,12 @@ func (u *MongoUpstream) Exec(ctx context.Context, query string) (ResultIterator,
 		return NewFormattedIterator(spec.HelpColumns, spec.HelpRows), nil
 	}
 
+	// Handle database switching
+	if spec.SwitchDB != "" {
+		u.database = spec.SwitchDB
+		return NewFormattedIterator([]string{"status"}, [][]string{{"switched to db " + spec.SwitchDB}}), nil
+	}
+
 	// Add comment for cancel support only on commands that support it
 	cmd := spec.Command
 	if len(cmd) > 0 &&

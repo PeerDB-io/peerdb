@@ -298,6 +298,7 @@ message TimestampPartitionRange {
 
 message TID {
   uint32 block_number = 1;
+  // Maps to pgtype.TID.OffsetNumber (uint16). Protobuf lacks uint16
   uint32 offset_number = 2;
 }
 
@@ -424,10 +425,20 @@ message QRepConfig {
   bool add_null_partition = 32; // internal
 }
 
+message ChildTableRange {
+  string table = 1;
+  uint32 start = 2;
+  uint32 end = 3;
+}
+
 message QRepPartition {
   string partition_id = 2;
   PartitionRange range = 3;
   bool full_table_partition = 4;
+  // For partitioned tables with CTID partitioning: each entry specifies a
+  // child table and block range to query instead of the parent watermark table.
+  // When populated, the top-level `range` field is unused.
+  repeated ChildTableRange child_table_ranges = 5;
 }
 
 message QRepPartitionBatch {
@@ -640,6 +651,7 @@ message FlowContextMetadata{
   PeerContextMetadata destination = 3;
   FlowStatus status = 4;
   bool is_resync = 5;
+  map<string, string> tags = 6;
 }
 
 message AdditionalContextMetadata{

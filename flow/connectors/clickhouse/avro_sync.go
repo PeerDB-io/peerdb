@@ -357,7 +357,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 					slog.Uint64("numParts", numParts),
 					slog.Int("chunkIdx", chunkIdx),
 					slog.Any("error", err))
-				return exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.Config.Database)
+				return exceptions.NewClickHouseQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.Config.Database)
 			}
 
 			s.logger.Info("inserted part",

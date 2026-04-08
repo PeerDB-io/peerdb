@@ -1,6 +1,7 @@
 package connmysql
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -8,8 +9,6 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"slices"
-	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -71,14 +70,24 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	rs, err := c.Execute(ctx, fmt.Sprintf(`select column_name, column_type, column_key, is_nullable, numeric_precision, numeric_scale
-		from information_schema.columns where table_schema = '%s' and table_name = '%s' order by ordinal_position`,
+	rs, err := c.Execute(ctx, fmt.Sprintf(`
+		select c.column_name, c.column_type, c.is_nullable, c.numeric_precision, c.numeric_scale, s.seq_in_index
+		from information_schema.columns c
+		left join information_schema.statistics s
+			on c.table_schema = s.table_schema and c.table_name = s.table_name
+			and c.column_name = s.column_name and s.index_name = 'PRIMARY'
+		where c.table_schema = '%s' and c.table_name = '%s'
+		order by c.ordinal_position`,
 		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
 	if err != nil {
 		return nil, err
 	}
 	columns := make([]*protos.FieldDescription, 0, rs.RowNumber())
-	primary := make([]string, 0)
+	type pkEntry struct {
+		name       string
+		seqInIndex int64
+	}
+	var primaryEntries []pkEntry
 
 	for idx := range rs.RowNumber() {
 		columnName, err := rs.GetString(idx, 0)
@@ -93,19 +102,15 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
-		columnKey, err := rs.GetString(idx, 2)
+		isNullable, err := rs.GetString(idx, 2)
 		if err != nil {
 			return nil, err
 		}
-		isNullable, err := rs.GetString(idx, 3)
+		numericPrecision, err := rs.GetInt(idx, 3)
 		if err != nil {
 			return nil, err
 		}
-		numericPrecision, err := rs.GetInt(idx, 4)
-		if err != nil {
-			return nil, err
-		}
-		numericScale, err := rs.GetInt(idx, 5)
+		numericScale, err := rs.GetInt(idx, 4)
 		if err != nil {
 			return nil, err
 		}
@@ -120,10 +125,27 @@ func (c *MySqlConnector) getTableSchemaForTable(
 			TypeModifier: datatypes.MakeNumericTypmod(int32(numericPrecision), int32(numericScale)),
 			Nullable:     isNullable == "YES",
 		}
-		if columnKey == "PRI" {
-			primary = append(primary, columnName)
-		}
 		columns = append(columns, column)
+
+		seqIsNull, err := rs.IsNull(idx, 5)
+		if err != nil {
+			return nil, err
+		}
+		if !seqIsNull {
+			seq, err := rs.GetInt(idx, 5)
+			if err != nil {
+				return nil, err
+			}
+			primaryEntries = append(primaryEntries, pkEntry{name: columnName, seqInIndex: seq})
+		}
+	}
+
+	slices.SortFunc(primaryEntries, func(a, b pkEntry) int {
+		return cmp.Compare(a.seqInIndex, b.seqInIndex)
+	})
+	primary := make([]string, len(primaryEntries))
+	for i, e := range primaryEntries {
+		primary[i] = e.name
 	}
 
 	return &protos.TableSchema{
@@ -244,22 +266,18 @@ func (c *MySqlConnector) startStreaming(
 	ctx context.Context,
 	pos string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	if rest, isFile := strings.CutPrefix(pos, "!f:"); isFile {
-		comma := strings.LastIndexByte(rest, ',')
-		if comma == -1 {
-			return nil, nil, nil, mysql.Position{}, fmt.Errorf("no comma in file/pos offset %s", pos)
-		}
-		offset, err := strconv.ParseUint(rest[comma+1:], 16, 32)
-		if err != nil {
-			return nil, nil, nil, mysql.Position{}, fmt.Errorf("invalid offset in file/pos offset %s: %w", pos, err)
-		}
-		return c.startCdcStreamingFilePos(ctx, mysql.Position{Name: rest[:comma], Pos: uint32(offset)})
-	} else {
-		gset, err := mysql.ParseGTIDSet(c.Flavor(), pos)
-		if err != nil {
-			return nil, nil, nil, mysql.Position{}, err
-		}
-		return c.startCdcStreamingGtid(ctx, gset)
+	parsedOffset, err := parseReplicationOffsetText(c.Flavor(), pos)
+	if err != nil {
+		return nil, nil, nil, mysql.Position{}, err
+	}
+
+	switch parsedOffset.mechanism {
+	case protos.MySqlReplicationMechanism_MYSQL_FILEPOS.String():
+		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos)
+	case protos.MySqlReplicationMechanism_MYSQL_GTID.String():
+		return c.startCdcStreamingGtid(ctx, parsedOffset.gset)
+	default:
+		return nil, nil, nil, mysql.Position{}, fmt.Errorf("empty mysql replication offset")
 	}
 }
 

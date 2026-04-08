@@ -664,6 +664,11 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	if err != nil {
 		return err
 	}
+	// getting tags before dropping the flow since the flow entry is deleted unconditionally
+	tags, err := alerting.GetTags(ctx, h.pool, flowName)
+	if err != nil {
+		return err
+	}
 
 	config.Resync = true
 	config.DoInitialSnapshot = true
@@ -682,6 +687,10 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
 	if _, err := h.createCDCFlow(ctx, configCore, workflowID); err != nil {
 		return err
+	}
+
+	if err := alerting.UpdateTags(ctx, h.pool, flowName, tags); err != nil {
+		slog.WarnContext(ctx, "unable to restore tags after resync", slog.Any("error", err))
 	}
 	return nil
 }

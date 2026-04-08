@@ -1023,7 +1023,7 @@ func (s *bigQuerySource) Connector() connectors.Connector {
 	return s.conn
 }
 
-func (s *bigQuerySource) Exec(ctx context.Context, sql string) error {
+func (s *bigQuerySource) Exec(ctx context.Context, sql string, args ...any) error {
 	return errors.New("not implemented")
 }
 

@@ -263,6 +263,9 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 	cfg *protos.FlowConnectionConfigsCore,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
+	if cfg.Resync {
+		return nil // no need to validate schema for resync, as we will create or replace the tables
+	}
 	// Validate that all source columns exist in destination tables
 	for _, tableMapping := range cfg.TableMappings {
 		srcTableIdentifier := tableMapping.SourceTableIdentifier
