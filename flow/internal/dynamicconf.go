@@ -436,6 +436,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_MONGODB_PARALLEL_SNAPSHOTTING",
+		Description:      "Enable parallel partitioning for MongoDB initial snapshot",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_MONGODB_DIRECT_BSON_CONVERTER",
 		Description: "Use direct BSON-to-JSON converter for MongoDB (faster, no intermediate deserialization). " +
 			"Set to false to fall back to legacy converter.",
@@ -795,6 +803,10 @@ func PeerDBS3ChunkOnUncompressed(ctx context.Context, env map[string]string) (bo
 
 func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
+}
+
+func PeerDBMongoDBParallelSnapshotting(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_PARALLEL_SNAPSHOTTING")
 }
 
 func PeerDBMongoDBDirectBsonConverter(ctx context.Context, env map[string]string) (bool, error) {
