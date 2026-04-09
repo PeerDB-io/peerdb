@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	actionIndex  = "index"
-	actionDelete = "delete"
+	actionIndex searchAction = iota + 1
+	actionDelete
 )
 
 type tableUpsertCol struct {
@@ -34,10 +34,9 @@ type tableUpsertCol struct {
 }
 
 type ElasticsearchConnector struct {
+	client searchClient
+	logger log.Logger
 	*metadataStore.PostgresMetadata
-	client                   searchClient
-	backend                  searchBackend
-	logger                   log.Logger
 	hushWarnUpsertColMissing map[tableUpsertCol]struct{}
 }
 
@@ -54,17 +53,16 @@ func NewElasticsearchConnector(ctx context.Context,
 	}
 
 	return &ElasticsearchConnector{
-		PostgresMetadata:         pgMetadata,
 		client:                   client,
-		backend:                  client.Backend(),
 		logger:                   internal.LoggerFromCtx(ctx),
+		PostgresMetadata:         pgMetadata,
 		hushWarnUpsertColMissing: make(map[tableUpsertCol]struct{}),
 	}, nil
 }
 
 func (esc *ElasticsearchConnector) ConnectionActive(ctx context.Context) error {
 	if err := esc.client.DiscoverNodes(); err != nil {
-		return fmt.Errorf("failed to check if %s peer is active: %w", esc.backend, err)
+		return fmt.Errorf("failed to check if %s peer is active: %w", esc.client.Backend(), err)
 	}
 	return nil
 }
@@ -75,7 +73,7 @@ func (esc *ElasticsearchConnector) Close() error {
 }
 
 func (esc *ElasticsearchConnector) logPrefix() string {
-	return esc.backend.logPrefix()
+	return esc.client.Backend().logPrefix()
 }
 
 // ES is queue-like, no raw table staging needed

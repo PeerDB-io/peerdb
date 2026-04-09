@@ -16,16 +16,17 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+//nolint:govet // test fixture keeps related search settings grouped for readability.
 type elasticsearchSuite struct {
-	t           *testing.T
-	conn        *connpostgres.PostgresConnector
-	suffix      string
-	backend     string
+	searchAddrs []string
 	searchURL   string
-	searchAuth  protos.ElasticsearchAuthType
 	searchUser  string
 	searchPass  string
-	searchAddrs []string
+	suffix      string
+	backend     string
+	t           *testing.T
+	conn        *connpostgres.PostgresConnector
+	searchAuth  protos.ElasticsearchAuthType
 }
 
 func (s elasticsearchSuite) T() *testing.T {
@@ -45,10 +46,12 @@ func (s elasticsearchSuite) Suffix() string {
 }
 
 func SetupElasticSuite(t *testing.T) elasticsearchSuite {
+	t.Helper()
 	return setupSearchSuite(t, "elasticsearch", "es", "ELASTICSEARCH_TEST_ADDRESS")
 }
 
 func SetupOpenSearchSuite(t *testing.T) elasticsearchSuite {
+	t.Helper()
 	return setupSearchSuite(t, "opensearch", "os", "OPENSEARCH_TEST_ADDRESS")
 }
 

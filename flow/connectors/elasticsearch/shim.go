@@ -30,6 +30,8 @@ func (b searchBackend) logPrefix() string {
 	return "[" + string(b) + "]"
 }
 
+type searchAction uint8
+
 type searchClient interface {
 	Backend() searchBackend
 	DiscoverNodes() error
@@ -42,21 +44,22 @@ type searchBulkIndexer interface {
 	NumFlushed() uint64
 }
 
+//nolint:govet // callback-heavy helper; ordering is kept for readability.
 type searchBulkIndexerItem struct {
-	Action     string
-	DocumentID string
 	Body       io.ReadSeeker
-	OnSuccess  func()
+	DocumentID string
 	OnFailure  func(searchBulkIndexerFailure)
+	OnSuccess  func()
+	Action     searchAction
 }
 
 type searchBulkIndexerFailure struct {
 	Err         error
-	Status      int
 	ErrorType   string
 	ErrorReason string
 	CauseType   string
 	CauseReason string
+	Status      int
 }
 
 func searchFailureToError(documentID string, failure searchBulkIndexerFailure) error {
@@ -79,12 +82,13 @@ func searchHTTPTransport() http.RoundTripper {
 	}
 }
 
+//nolint:govet // auth transport state is tiny and readability matters more than packing.
 type searchAuthTransport struct {
-	base     http.RoundTripper
-	authType protos.ElasticsearchAuthType
 	username string
 	password string
 	apiKey   string
+	base     http.RoundTripper
+	authType protos.ElasticsearchAuthType
 }
 
 func newSearchAuthTransport(config *protos.ElasticsearchConfig, base http.RoundTripper) http.RoundTripper {
@@ -128,7 +132,7 @@ func detectSearchBackend(ctx context.Context, addresses []string, transport http
 	}
 
 	infoURL := strings.TrimRight(addresses[0], "/") + "/"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to create backend probe request: %w", err)
 	}
@@ -230,7 +234,7 @@ type elasticsearchBulkIndexerShim struct {
 
 func (s elasticsearchBulkIndexerShim) Add(ctx context.Context, item searchBulkIndexerItem) error {
 	return s.indexer.Add(ctx, esutil.BulkIndexerItem{
-		Action:     item.Action,
+		Action:     item.Action.String(),
 		DocumentID: item.DocumentID,
 		Body:       item.Body,
 		OnSuccess: func(_ context.Context, _ esutil.BulkIndexerItem, _ esutil.BulkIndexerResponseItem) {
@@ -293,7 +297,7 @@ type opensearchBulkIndexerShim struct {
 
 func (s opensearchBulkIndexerShim) Add(ctx context.Context, item searchBulkIndexerItem) error {
 	return s.indexer.Add(ctx, opensearchutil.BulkIndexerItem{
-		Action:     item.Action,
+		Action:     item.Action.String(),
 		DocumentID: item.DocumentID,
 		Body:       item.Body,
 		OnSuccess: func(_ context.Context, _ opensearchutil.BulkIndexerItem, _ opensearchapi.BulkRespItem) {
@@ -322,4 +326,13 @@ func (s opensearchBulkIndexerShim) Close(ctx context.Context) error {
 
 func (s opensearchBulkIndexerShim) NumFlushed() uint64 {
 	return s.indexer.Stats().NumFlushed
+}
+
+func (a searchAction) String() string {
+	switch a {
+	case actionDelete:
+		return "delete"
+	default:
+		return "index"
+	}
 }
