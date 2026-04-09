@@ -1426,8 +1426,32 @@ func (s APITestSuite) TestResyncFailed() {
 		"%"+s.suffix+"%")
 	require.NoError(s.t, err)
 
+	// Use a dedicated connection with a different application_name to avoid being killed
+	// by the pg_terminate_backend above, which targets application_name = 'peerdb'
+	catalogConnStr := internal.GetCatalogConnectionStringFromEnv(s.t.Context())
+	statusConnConfig, err := pgx.ParseConfig(catalogConnStr)
+	require.NoError(s.t, err)
+	statusConnConfig.RuntimeParams["application_name"] = "catalog_test_access"
+	statusConn, err := pgx.ConnectConfig(s.t.Context(), statusConnConfig)
+	require.NoError(s.t, err)
+	defer statusConn.Close(s.t.Context())
+
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for failed", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_FAILED
+		var flowStatus protos.FlowStatus
+		// This is the only test not using `GetFlowStatus` because that method
+		// will use a PG connection pool that has the `application_name` set to 'peerdb' because
+		// this is an internal method and initializes the connection assuming it is being called from PeerDB service
+		// rather than test code.
+		//
+		// In CI, the catalog DB is the same as the source DB (Postgres), so the pg_terminate_backend call above will
+		// kill all connections with application_name 'peerdb', including those from the connection pool used by GetFlowStatus.
+		// This generated a race condition between the backend termination and the test finalization that
+		// is removed by initializing a dedicated connection with a different application_name that is not killed by
+		// the query above thanks to the filter condition `application_name == 'peerdb'`.
+		err := statusConn.QueryRow(
+			s.t.Context(), "SELECT status FROM flows WHERE workflow_id = $1", env.GetID(),
+		).Scan(&flowStatus)
+		return err == nil && flowStatus == protos.FlowStatus_STATUS_FAILED
 	})
 
 	err = mvManager.DropBadMV(s.t.Context())
