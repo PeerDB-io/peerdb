@@ -1422,7 +1422,7 @@ func (s APITestSuite) TestResyncFailed() {
 	})
 
 	_, err = pgSource.PostgresConnector.Conn().Exec(s.t.Context(),
-		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE $1`,
+		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'peerdb' AND query LIKE $1`,
 		"%"+s.suffix+"%")
 	require.NoError(s.t, err)
 
