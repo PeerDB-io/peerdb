@@ -125,7 +125,8 @@ func Test_Eventhubs(t *testing.T) {
 }
 
 func (s EventhubsSuite) Test_EH_Simple() {
-	srcTableName := AttachSchema(s, "eh_simple")
+	srcTableQualified := AttachSchema(s, "eh_simple")
+	srcTableName := srcTableQualified.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -148,7 +149,7 @@ func (s EventhubsSuite) Test_EH_Simple() {
 	destinationPeer := s.Peer(ehCreds)
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: scopedEventhubName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): scopedEventhubName},
 		Destination:      destinationPeer.Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)

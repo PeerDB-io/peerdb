@@ -286,7 +286,7 @@ func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid").String())))
 	case *MongoSource:
 		require.NoError(s.t, s.Source().(*MongoSource).AdminClient().
 			Database(Schema(s)).CreateCollection(s.t.Context(), "valid"))
@@ -295,7 +295,7 @@ func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	}
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "ch_validation_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "valid"): "valid"},
+		TableNameMapping: map[string]string{AttachSchema(s, "valid").Deparse(): "valid"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -309,7 +309,7 @@ func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int, val text)", AttachSchema(s, "no_pkey"))))
+			fmt.Sprintf("CREATE TABLE %s(id int, val text)", AttachSchema(s, "no_pkey").String())))
 	case *MongoSource:
 		s.t.Skip("MongoDB always has _id as primary key")
 	default:
@@ -321,7 +321,7 @@ func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
 	isAtLeast25_12 := chproto.CheckMinVersion(
 		chproto.Version{Major: 25, Minor: 12, Patch: 0}, chproto.ParseVersion(chVersion))
 
-	srcTable := AttachSchema(s, "no_pkey")
+	srcTable := AttachSchema(s, "no_pkey").Deparse()
 
 	tests := []struct {
 		name      string
@@ -383,12 +383,12 @@ func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey_ReplicaIdentit
 	case *PostgresSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
 			fmt.Sprintf(`CREATE TABLE %s(id int, val text);
-				ALTER TABLE %[1]s REPLICA IDENTITY FULL`, AttachSchema(s, "no_pkey_rif"))))
+				ALTER TABLE %[1]s REPLICA IDENTITY FULL`, AttachSchema(s, "no_pkey_rif").String())))
 	default:
 		s.t.Skip("replica identity full only applies to Postgres")
 	}
 
-	srcTable := AttachSchema(s, "no_pkey_rif")
+	srcTable := AttachSchema(s, "no_pkey_rif").Deparse()
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: "ch_no_pkey_rif_" + s.suffix,
@@ -468,14 +468,14 @@ func (s APITestSuite) TestPostgresDestinationValidation_MissingColumns() {
 	}
 
 	// Create source table with multiple columns
-	srcTableName := AttachSchema(s, "validation_src")
+	srcTableQualified := AttachSchema(s, "validation_src")
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, col2 int, col3 timestamp)", srcTableName)))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, col2 int, col3 timestamp)", srcTableQualified.String())))
 
 	// Create destination table with missing columns (only id and col1)
-	dstTableName := AttachSchema(s, "validation_dst")
+	dstTableQualified := AttachSchema(s, "validation_dst")
 	_, err := s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableName))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableQualified.String()))
 	require.NoError(s.t, err)
 
 	// Test validation should fail because col2 and col3 are missing from destination
@@ -485,8 +485,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_MissingColumns() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableQualified.Deparse(),
+				DestinationTableIdentifier: dstTableQualified.Deparse(),
 			},
 		},
 		DoInitialSnapshot: true,
@@ -509,14 +509,14 @@ func (s APITestSuite) TestPostgresDestinationValidation_ExtraColumnsOk() {
 	}
 
 	// Create source table with two columns
-	srcTableName := AttachSchema(s, "validation_src_extra")
+	srcTableQualified := AttachSchema(s, "validation_src_extra")
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", srcTableName)))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", srcTableQualified.String())))
 
 	// Create destination table with extra columns (should be fine)
-	dstTableName := AttachSchema(s, "validation_dst_extra")
+	dstTableQualified := AttachSchema(s, "validation_dst_extra")
 	_, err := s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, col2 int, col3 timestamp)", dstTableName))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, col2 int, col3 timestamp)", dstTableQualified.String()))
 	require.NoError(s.t, err)
 
 	// Test validation should succeed
@@ -526,8 +526,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_ExtraColumnsOk() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableQualified.Deparse(),
+				DestinationTableIdentifier: dstTableQualified.Deparse(),
 			},
 		},
 		DoInitialSnapshot: true,
@@ -545,14 +545,14 @@ func (s APITestSuite) TestPostgresDestinationValidation_WithExcludedColumns() {
 	}
 
 	// Create source table with multiple columns
-	srcTableName := AttachSchema(s, "validation_src_exclude")
+	srcTableQualified := AttachSchema(s, "validation_src_exclude")
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, excluded_col int)", srcTableName)))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text, excluded_col int)", srcTableQualified.String())))
 
 	// Create destination table without the excluded column (should be fine)
-	dstTableName := AttachSchema(s, "validation_dst_exclude")
+	dstTableQualified := AttachSchema(s, "validation_dst_exclude")
 	_, err := s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableName))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableQualified.String()))
 	require.NoError(s.t, err)
 
 	// Test validation should succeed because excluded_col is excluded
@@ -562,8 +562,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_WithExcludedColumns() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableQualified.Deparse(),
+				DestinationTableIdentifier: dstTableQualified.Deparse(),
 				Exclude:                    []string{"excluded_col"},
 			},
 		},
@@ -605,8 +605,8 @@ func (s APITestSuite) postgresDestinationValidationNonEmptyTable(doInitialSnapsh
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableName.Deparse(),
+				DestinationTableIdentifier: dstTableName.Deparse(),
 			},
 		},
 		DoInitialSnapshot: doInitialSnapshot,
@@ -651,7 +651,7 @@ func (s APITestSuite) TestPostgresDestinationValidation_MissingSchema() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTableName.Deparse(),
 				DestinationTableIdentifier: "nonexistent_schema_" + s.suffix + ".some_table",
 			},
 		},
@@ -690,8 +690,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_NumericPrecisionMismatch
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableName.Deparse(),
+				DestinationTableIdentifier: dstTableName.Deparse(),
 			},
 		},
 		DoInitialSnapshot: true,
@@ -730,8 +730,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_NumericSuperset() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableName.Deparse(),
+				DestinationTableIdentifier: dstTableName.Deparse(),
 			},
 		},
 		DoInitialSnapshot: true,
@@ -766,8 +766,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_UnboundedNumeric() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableName.Deparse(),
+				DestinationTableIdentifier: dstTableName.Deparse(),
 			},
 		},
 		DoInitialSnapshot: true,
@@ -802,8 +802,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_TypeCompatible() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableName.Deparse(),
+				DestinationTableIdentifier: dstTableName.Deparse(),
 			},
 		},
 		DoInitialSnapshot: true,
@@ -841,8 +841,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_UserDefinedTypeMatch() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableName.Deparse(),
+				DestinationTableIdentifier: dstTableName.Deparse(),
 			},
 		},
 		DoInitialSnapshot: true,
@@ -881,8 +881,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_UserDefinedTypeMismatch(
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTableIdentifier:      srcTableName.Deparse(),
+				DestinationTableIdentifier: dstTableName.Deparse(),
 			},
 		},
 		DoInitialSnapshot: true,
@@ -935,7 +935,7 @@ func (s APITestSuite) TestSchemaEndpoints() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName).String())))
 	case *MongoSource:
 		require.NoError(s.t, s.Source().(*MongoSource).AdminClient().
 			Database(Schema(s)).CreateCollection(s.t.Context(), tableName))
@@ -961,7 +961,7 @@ func (s APITestSuite) TestSchemaEndpoints() {
 		PeerName: peer.Name,
 	})
 	require.NoError(s.t, err)
-	require.Contains(s.t, tablesResponse.Tables, AttachSchema(s, tableName))
+	require.Contains(s.t, tablesResponse.Tables, AttachSchema(s, tableName).Deparse())
 
 	switch source := s.source.(type) {
 	case *PostgresSource:
@@ -1014,11 +1014,11 @@ func (s APITestSuite) TestGetTablesExcludeViews() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName).String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) VALUES (1, 'foo')", AttachSchema(s, tableName))))
+			fmt.Sprintf("INSERT INTO %s(id, val) VALUES (1, 'foo')", AttachSchema(s, tableName).String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE VIEW %s AS SELECT * FROM %s", AttachSchema(s, viewName), AttachSchema(s, tableName))))
+			fmt.Sprintf("CREATE VIEW %s AS SELECT * FROM %s", AttachSchema(s, viewName).String(), AttachSchema(s, tableName).String())))
 	case *MongoSource:
 		adminClient := s.Source().(*MongoSource).AdminClient()
 		res, err := adminClient.Database(Schema(s)).Collection(tableName).
@@ -1127,7 +1127,7 @@ func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "mongo_validation_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "t1"): "t1"},
+		TableNameMapping: map[string]string{AttachSchema(s, "t1").Deparse(): "t1"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1261,9 +1261,9 @@ func (s APITestSuite) TestResyncCompleted() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName).String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName).String())))
 		cols = "id,val"
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
@@ -1278,7 +1278,7 @@ func (s APITestSuite) TestResyncCompleted() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "resync_completed_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		TableNameMapping: map[string]string{AttachSchema(s, tableName).Deparse(): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1317,7 +1317,7 @@ func (s APITestSuite) TestResyncCompleted() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", AttachSchema(s, tableName))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", AttachSchema(s, tableName).String())))
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
 			Database(Schema(s)).Collection(tableName).
@@ -1380,9 +1380,9 @@ func (s APITestSuite) TestResyncFailed() {
 	cols := "id,val"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, srcTableName))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, srcTableName).String())))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, srcTableName))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, srcTableName).String())))
 
 	err := s.ch.CreateRMTTable(dstTableName, []TestClickHouseColumn{
 		{Name: "id", Type: "Int64"},
@@ -1398,7 +1398,7 @@ func (s APITestSuite) TestResyncFailed() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "resync_failed_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, srcTableName): dstTableName},
+		TableNameMapping: map[string]string{AttachSchema(s, srcTableName).Deparse(): dstTableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1433,7 +1433,7 @@ func (s APITestSuite) TestResyncFailed() {
 	require.NoError(s.t, err)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, srcTableName))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, srcTableName).String())))
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
@@ -1452,9 +1452,9 @@ func (s APITestSuite) TestDropCompleted() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName).String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName).String())))
 		cols = "id,val"
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
@@ -1469,7 +1469,7 @@ func (s APITestSuite) TestDropCompleted() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "drop_completed_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		TableNameMapping: map[string]string{AttachSchema(s, tableName).Deparse(): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1529,9 +1529,9 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	}()
 
 	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid"))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid").String())))
 	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "valid"))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "valid").String())))
 
 	// Create peer for the proxy connection
 	proxyConfig.Port = uint32(9903)
@@ -1550,7 +1550,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: "create_concurrent_toxi_" + suffix,
 		TableNameMapping: map[string]string{
-			AttachSchema(s, "valid"): "valid",
+			AttachSchema(s, "valid").Deparse(): "valid",
 		},
 		Destination: s.ch.Peer().Name,
 	}
@@ -1595,13 +1595,13 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "original"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "original").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "added"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "added").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "original"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "original").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "added"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "added").String())))
 		cols = "id,val"
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
@@ -1620,7 +1620,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	}
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "edit_tables_before_resync_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "original"): "original"},
+		TableNameMapping: map[string]string{AttachSchema(s, "original").Deparse(): "original"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1655,7 +1655,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					AdditionalTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      AttachSchema(s, "added"),
+							SourceTableIdentifier:      AttachSchema(s, "added").Deparse(),
 							DestinationTableIdentifier: "added",
 						},
 					},
@@ -1666,8 +1666,8 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
 		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
-			AttachSchema(s, "added"),
-			AttachSchema(s, "original"),
+			AttachSchema(s, "added").Deparse(),
+			AttachSchema(s, "original").Deparse(),
 		})
 		if err != nil {
 			return false
@@ -1688,7 +1688,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'added_table_cdc')", AttachSchema(s, "added"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'added_table_cdc')", AttachSchema(s, "added").String())))
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
 			Database(Schema(s)).Collection("added").
@@ -1717,7 +1717,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					RemovedTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      AttachSchema(s, "original"),
+							SourceTableIdentifier:      AttachSchema(s, "original").Deparse(),
 							DestinationTableIdentifier: "original",
 						},
 					},
@@ -1729,7 +1729,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table removal to finish", func() bool {
 		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
-			AttachSchema(s, "added"),
+			AttachSchema(s, "added").Deparse(),
 		})
 		if err != nil {
 			return false
@@ -1752,7 +1752,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (3,'resync')", AttachSchema(s, "added"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (3,'resync')", AttachSchema(s, "added").String())))
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
 			Database(Schema(s)).Collection("added").
@@ -1787,7 +1787,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (4,'cdc_after_resync')", AttachSchema(s, "added"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (4,'cdc_after_resync')", AttachSchema(s, "added").String())))
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
 			Database(Schema(s)).Collection("added").
@@ -1854,13 +1854,13 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table1"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table1").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table2"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table2").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table1"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table1").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table2"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table2").String())))
 		cols = "id,val"
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
@@ -1879,7 +1879,7 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	}
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "test_total_rows_synced_mirror" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "table1"): "table1", AttachSchema(s, "table2"): "table2"},
+		TableNameMapping: map[string]string{AttachSchema(s, "table1").Deparse(): "table1", AttachSchema(s, "table2").Deparse(): "table2"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1902,9 +1902,9 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "table1"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "table1").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "table2"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "table2").String())))
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
 			Database(Schema(s)).Collection("table1").
@@ -1971,17 +1971,17 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 
 	cols := "id,val"
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table1"))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table1").String())))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table2"))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table2").String())))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table1"))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table1").String())))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table2"))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table2").String())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "test_postgres_table_oids_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "table1"): "table1", AttachSchema(s, "table2"): "table2"},
+		TableNameMapping: map[string]string{AttachSchema(s, "table1").Deparse(): "table1", AttachSchema(s, "table2").Deparse(): "table2"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2024,7 +2024,7 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 		"table1",
 	)
 	require.NoError(s.t, err)
-	require.Equal(s.t, AttachSchema(s, "table1"), schema1.TableIdentifier)
+	require.Equal(s.t, AttachSchema(s, "table1").Deparse(), schema1.TableIdentifier)
 	require.Equal(s.t, table1OID, schema1.TableOid)
 
 	schema2, err := s.getCatalogTableSchemaForSourceTable(
@@ -2034,7 +2034,7 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 		"table2",
 	)
 	require.NoError(s.t, err)
-	require.Equal(s.t, AttachSchema(s, "table2"), schema2.TableIdentifier)
+	require.Equal(s.t, AttachSchema(s, "table2").Deparse(), schema2.TableIdentifier)
 	require.Equal(s.t, table2OID, schema2.TableOid)
 
 	ok, err = s.checkMigrationCompleted(
@@ -2090,19 +2090,21 @@ func (s APITestSuite) TestQRep() {
 	})
 	require.NoError(s.t, err)
 	tableName := AddSuffix(s, "qrepapi")
-	schemaQualified := AttachSchema(s, tableName)
+	srcTableQualified := AttachSchema(s, tableName)
+	schemaQualifiedSQL := srcTableQualified.String()
+	schemaQualifiedIdent := srcTableQualified.Deparse()
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", schemaQualified)))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", schemaQualifiedSQL)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualifiedSQL)))
 
 	flowName := fmt.Sprintf("qrepapiflow_%s_%s", peerType.PeerType, s.suffix)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		flowName,
-		schemaQualified,
+		schemaQualifiedIdent,
 		tableName,
-		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
+		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualifiedSQL),
 		s.ch.Peer().Name,
 		"",
 		true,
@@ -2126,7 +2128,7 @@ func (s APITestSuite) TestQRep() {
 	EnvWaitForEqualTables(env, s.ch, "qrep initial load", tableName, "id,val")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualified)))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualifiedSQL)))
 
 	EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tableName, "id,val")
 	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
@@ -2170,7 +2172,7 @@ func (s APITestSuite) TestDropQRep() {
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		flowName,
-		schemaQualified,
+		schemaQualified.Deparse(),
 		tableName,
 		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
 		s.ch.Peer().Name,
@@ -2213,13 +2215,13 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "original"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "original").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "added"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "added").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "original"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "original").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "added"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "added").String())))
 		cols = "id,val"
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
@@ -2239,7 +2241,7 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "added_tables_no_initial_load_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "original"): "original"},
+		TableNameMapping: map[string]string{AttachSchema(s, "original").Deparse(): "original"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2272,7 +2274,7 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					AdditionalTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      AttachSchema(s, "added"),
+							SourceTableIdentifier:      AttachSchema(s, "added").Deparse(),
 							DestinationTableIdentifier: "added",
 						},
 					},
@@ -2284,8 +2286,8 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
 		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
-			AttachSchema(s, "added"),
-			AttachSchema(s, "original"),
+			AttachSchema(s, "added").Deparse(),
+			AttachSchema(s, "original").Deparse(),
 		})
 		if err != nil {
 			return false
@@ -2301,7 +2303,7 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "added"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "added").String())))
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
 			Database(Schema(s)).Collection("added").
@@ -2344,13 +2346,13 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequests() {
 
 	tableName := "concurrent_test"
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName).String())))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName).String())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "create_concurrent_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		TableNameMapping: map[string]string{AttachSchema(s, tableName).Deparse(): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2524,13 +2526,13 @@ func (s APITestSuite) TestCreateCDCFlowAttachSequentialRequests() {
 
 	tableName := "sequential_test"
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName).String())))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName).String())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "create_sequential_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		TableNameMapping: map[string]string{AttachSchema(s, tableName).Deparse(): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2575,11 +2577,11 @@ func (s APITestSuite) TestCreateCDCFlowAttachExternalFlowEntry() {
 
 	tableName := "external_entry_test"
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName).String())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "create_external_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		TableNameMapping: map[string]string{AttachSchema(s, tableName).Deparse(): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2639,11 +2641,11 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 
 	tableName := "canceled_workflow_test"
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName).String())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "create_canceled_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		TableNameMapping: map[string]string{AttachSchema(s, tableName).Deparse(): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2711,11 +2713,11 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 
 	tableName := "continue_as_new_test"
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName).String())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "create_continue_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		TableNameMapping: map[string]string{AttachSchema(s, tableName).Deparse(): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -2776,16 +2778,16 @@ func (s APITestSuite) TestSnapshotNullPartitionKey() {
 
 	tableName := "null_partition"
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text, updated_at timestamp)", AttachSchema(s, tableName))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text, updated_at timestamp)", AttachSchema(s, tableName).String())))
 	// insert rows with both non-null and null partition key values
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val, updated_at) VALUES (1,'a','2024-01-01'), (2,'b',NULL), (3,'c','2024-01-02'), (4,'d',NULL)",
-			AttachSchema(s, tableName))))
+			AttachSchema(s, tableName).String())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: "snapshot_null_pk_" + s.suffix,
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      AttachSchema(s, tableName),
+			SourceTableIdentifier:      AttachSchema(s, tableName).Deparse(),
 			DestinationTableIdentifier: tableName,
 			PartitionKey:               "updated_at",
 		}},

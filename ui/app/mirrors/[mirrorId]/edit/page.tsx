@@ -18,6 +18,7 @@ import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
+import { parseTableIdentifier } from '@/lib/utils/tableIdentifier';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useMemo, useState } from 'react';
 import TablePicker from '../../create/cdc/tablemapping';
@@ -118,7 +119,9 @@ export default function EditMirror({ params }: EditMirrorProps) {
     useMemo(() => {
       const alreadySelectedTablesMap: Map<string, TableMapping[]> = new Map();
       mirrorState?.cdcStatus?.config?.tableMappings.forEach((value) => {
-        const sourceSchema = value.sourceTableIdentifier.split('.').at(0)!;
+        const sourceSchema = parseTableIdentifier(
+          value.sourceTableIdentifier
+        ).schema;
         const mapVal: TableMapping[] =
           alreadySelectedTablesMap.get(sourceSchema) ?? [];
         // needs to be schema qualified

@@ -29,8 +29,8 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 	tm := make([]*protos.TableMapping, 0, len(tables)/2)
 	for i := 0; i < len(tables); i += 2 {
 		tm = append(tm, &protos.TableMapping{
-			SourceTableIdentifier:      AttachSchema(s, tables[i]),
-			DestinationTableIdentifier: s.DestinationTable(tables[i+1]), //nolint:gosec // G602: even length enforced above
+			SourceTableIdentifier:      AttachSchema(s, tables[i]).Deparse(),
+			DestinationTableIdentifier: s.DestinationTable(tables[i+1]), //nolint:gosec
 			ShardingKey:                "id",
 		})
 	}

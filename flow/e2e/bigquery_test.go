@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -44,8 +45,8 @@ func (s PeerFlowE2ETestSuiteBQ) checkJSONValue(tableName, colName, fieldName, va
 	return nil
 }
 
-func (s PeerFlowE2ETestSuiteBQ) attachSchemaSuffix(tableName string) string {
-	return fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tableName)
+func (s PeerFlowE2ETestSuiteBQ) attachSchemaSuffix(tableName string) *common.QualifiedTable {
+	return AttachSchema(s, tableName)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) attachSuffix(input string) string {
@@ -87,7 +88,8 @@ func (s PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDele
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_no_data")
+	srcTable := s.attachSchemaSuffix("test_no_data")
+	srcTableName := srcTable.String()
 	dstTableName := "test_no_data"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -100,7 +102,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_complete_flow_no_data"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -117,7 +119,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_char_coltype")
+	srcTable := s.attachSchemaSuffix("test_char_coltype")
+	srcTableName := srcTable.String()
 	dstTableName := "test_char_coltype"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -130,7 +133,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_char_table"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -147,7 +150,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_bq_1")
+	srcTable := s.attachSchemaSuffix("test_toast_bq_1")
+	srcTableName := srcTable.String()
 	dstTableName := "test_toast_bq_1"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -161,7 +165,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_1"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -196,7 +200,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_bq_3")
+	srcTable := s.attachSchemaSuffix("test_toast_bq_3")
+	srcTableName := srcTable.String()
 	dstTableName := "test_toast_bq_3"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -210,7 +215,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_3"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -250,7 +255,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_bq_4")
+	srcTable := s.attachSchemaSuffix("test_toast_bq_4")
+	srcTableName := srcTable.String()
 	dstTableName := "test_toast_bq_4"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -264,7 +270,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_4"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -299,7 +305,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_bq_5")
+	srcTable := s.attachSchemaSuffix("test_toast_bq_5")
+	srcTableName := srcTable.String()
 	dstTableName := "test_toast_bq_5"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -314,7 +321,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_5"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -345,7 +352,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Types() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_types_bq")
+	srcTable := s.attachSchemaSuffix("test_types_bq")
+	srcTableName := srcTable.String()
 	dstTableName := "test_types_bq"
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	_, enumErr := s.Conn().Exec(s.t.Context(), createMoodEnum)
@@ -368,7 +376,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_types_bq"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -441,7 +449,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types() {
 func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_nans_bq")
+	srcTable := s.attachSchemaSuffix("test_nans_bq")
+	srcTableName := srcTable.String()
 	dstTableName := "test_nans_bq"
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 double precision,c2 double precision[],c3 numeric)`, srcTableName))
@@ -449,7 +458,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_nans_bq"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -486,7 +495,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_Avro_CDC() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_invalid_geo_bq_avro_cdc")
+	srcTable := s.attachSchemaSuffix("test_invalid_geo_bq_avro_cdc")
+	srcTableName := srcTable.String()
 	dstTableName := "test_invalid_geo_bq_avro_cdc"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -500,7 +510,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_Avro_CDC() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_invalid_geo_bq_avro_cdc"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -563,9 +573,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_Avro_CDC() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table() {
 	tc := NewTemporalClient(s.t)
 
-	srcTable1Name := s.attachSchemaSuffix("test1_bq")
+	srcTable1 := s.attachSchemaSuffix("test1_bq")
+	srcTable1Name := srcTable1.String()
 	dstTable1Name := "test1_bq"
-	srcTable2Name := s.attachSchemaSuffix("test2_bq")
+	srcTable2 := s.attachSchemaSuffix("test2_bq")
+	srcTable2Name := srcTable2.String()
 	dstTable2Name := "test2_bq"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -576,7 +588,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_multi_table_bq"),
-		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
+		TableNameMapping: map[string]string{srcTable1.Deparse(): dstTable1Name, srcTable2.Deparse(): dstTable2Name},
 		Destination:      s.Peer().Name,
 	}
 
@@ -618,7 +630,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_simple_schema_changes"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -630,7 +643,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
-		TableNameMapping: map[string]string{srcTableName: tableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): tableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -696,7 +709,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_all_types_schema_changes"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -708,7 +722,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
-		TableNameMapping: map[string]string{srcTableName: tableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): tableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -761,7 +775,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_simple_cpkey"
-	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
+	srcTable := s.attachSchemaSuffix("test_simple_cpkey")
+	srcTableName := srcTable.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -776,7 +791,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_flow"),
-		TableNameMapping: map[string]string{srcTableName: tableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): tableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -815,7 +830,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
+	srcTable := s.attachSchemaSuffix("test_cpkey_toast1")
+	srcTableName := srcTable.String()
 	dstTableName := "test_cpkey_toast1"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -832,7 +848,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast1_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -876,7 +892,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_cpkey_toast2"
-	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
+	srcTable := s.attachSchemaSuffix("test_cpkey_toast2")
+	srcTableName := srcTable.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -892,7 +909,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast2_flow"),
-		TableNameMapping: map[string]string{srcTableName: tableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): tableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -929,7 +946,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Columns() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_peerdb_cols")
+	srcTable := s.attachSchemaSuffix("test_peerdb_cols")
+	srcTableName := srcTable.String()
 	dstTableName := "test_peerdb_cols_dst"
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -942,7 +960,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_peerdb_cols_mirror"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 		SoftDelete:       true,
 	}
@@ -976,10 +994,12 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset() {
 	tc := NewTemporalClient(s.t)
 
-	srcTable1Name := s.attachSchemaSuffix("test1_bq")
+	srcTable1 := s.attachSchemaSuffix("test1_bq")
+	srcTable1Name := srcTable1.String()
 	dstTable1Name := "test1_bq"
 	secondDataset := s.bqHelper.Config.DatasetId + "_2"
-	srcTable2Name := s.attachSchemaSuffix("test2_bq")
+	srcTable2 := s.attachSchemaSuffix("test2_bq")
+	srcTable2Name := srcTable2.String()
 	dstTable2Name := "test2_bq"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -991,8 +1011,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("test_multi_table_multi_dataset_bq"),
 		TableNameMapping: map[string]string{
-			srcTable1Name: dstTable1Name,
-			srcTable2Name: fmt.Sprintf("%s.%s", secondDataset, dstTable2Name),
+			srcTable1.Deparse(): dstTable1Name,
+			srcTable2.Deparse(): fmt.Sprintf("%s.%s", secondDataset, dstTable2Name),
 		},
 		Destination: s.Peer().Name,
 	}
@@ -1036,7 +1056,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 
 	tableName := "test_softdel"
 	srcName := "test_softdel_src"
-	srcTableName := s.attachSchemaSuffix(srcName)
+	srcTable := s.attachSchemaSuffix(srcName)
+	srcTableName := srcTable.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -1053,7 +1074,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: tableName,
 			},
 		},
@@ -1103,8 +1124,10 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	tc := NewTemporalClient(s.t)
 
-	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
-	srcTableName := cmpTableName + "_src"
+	cmpTable := s.attachSchemaSuffix("test_softdel_iud")
+	cmpTableName := cmpTable.String()
+	srcTable := s.attachSchemaSuffix("test_softdel_iud_src")
+	srcTableName := srcTable.String()
 	dstTableName := "test_softdel_iud"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -1122,7 +1145,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
@@ -1171,7 +1194,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	tc := NewTemporalClient(s.t)
 
 	srcName := "test_softdel_ud_src"
-	srcTableName := s.attachSchemaSuffix(srcName)
+	srcTable := s.attachSchemaSuffix(srcName)
+	srcTableName := srcTable.String()
 	dstName := "test_softdel_ud"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -1189,7 +1213,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: dstName,
 			},
 		},
@@ -1247,7 +1271,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_softdel_iad"
-	srcTableName := s.attachSchemaSuffix(tableName)
+	srcTable := s.attachSchemaSuffix(tableName)
+	srcTableName := srcTable.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -1264,7 +1289,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
+				SourceTableIdentifier:      srcTable.Deparse(),
 				DestinationTableIdentifier: tableName,
 			},
 		},
@@ -1314,7 +1339,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey() {
-	srcTableName := s.attachSchemaSuffix("test_json_pkey_bq")
+	srcTable := s.attachSchemaSuffix("test_json_pkey_bq")
+	srcTableName := srcTable.String()
 	dstTableName := "test_json_pkey_bq"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -1333,7 +1359,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_json_pkey_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		TableNameMapping: map[string]string{srcTable.Deparse(): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 

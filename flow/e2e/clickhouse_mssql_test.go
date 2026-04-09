@@ -49,7 +49,7 @@ func (s ClickHouseSuite) Test_Simple_MsSQL() {
 	require.NoError(s.t, mssqlSource.EnableTableCdc(s.t.Context(), "dbo", srcTableName))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSchemaSuffix(srcTableName),
+		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -153,7 +153,7 @@ func (s ClickHouseSuite) Test_Types_MsSQL() {
 		)`, srcTableName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSchemaSuffix(srcTableName),
+		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -231,7 +231,7 @@ func (s ClickHouseSuite) Test_Nullable_MsSQL() {
 		srcTableName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSchemaSuffix(srcTableName),
+		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}

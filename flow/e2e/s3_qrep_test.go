@@ -129,15 +129,15 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 
 	tableName := "test_complete_flow_s3"
 	jobName := AddSuffix(s, tableName)
-	schemaQualifiedName := AttachSchema(s, tableName)
+	schemaQualified := AttachSchema(s, tableName)
 
 	s.setupSourceTable(tableName, 10)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
-		schemaQualifiedName)
+		schemaQualified.String())
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		jobName,
-		schemaQualifiedName,
+		schemaQualified.Deparse(),
 		"e2e_dest_1",
 		query,
 		s.Peer().Name,
@@ -173,14 +173,14 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	tableName := "test_complete_flow_s3_ctid"
 	jobName := AddSuffix(s, tableName)
-	schemaQualifiedName := AttachSchema(s, tableName)
+	schemaQualified := AttachSchema(s, tableName)
 
 	s.setupSourceTable(tableName, 20000)
-	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", schemaQualifiedName)
+	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", schemaQualified.String())
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		jobName,
-		schemaQualifiedName,
+		schemaQualified.Deparse(),
 		"e2e_dest_ctid",
 		query,
 		s.Peer().Name,
