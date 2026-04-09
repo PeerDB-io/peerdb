@@ -13,6 +13,7 @@ import {
   PubSubConfig,
   S3Config,
   SnowflakeConfig,
+  SqlServerConfig,
 } from '@/grpc_generated/peers';
 import {
   CreatePeerRequest,
@@ -39,6 +40,7 @@ import {
   psSchema,
   s3Schema,
   sfSchema,
+  ssSchema,
 } from './schema';
 
 function constructPeer(
@@ -112,6 +114,12 @@ function constructPeer(
         name,
         type: DBType.MONGO,
         mongoConfig: config as MongoConfig,
+      };
+    case 'SQLSERVER':
+      return {
+        name,
+        type: DBType.SQLSERVER,
+        sqlserverConfig: config as SqlServerConfig,
       };
     default:
       return;
@@ -195,6 +203,10 @@ async function validateFields(
       const mongoConfig = mongoSchema.safeParse(config);
       if (!mongoConfig.success)
         validationErr = mongoConfig.error.issues[0].message;
+      break;
+    case 'SQLSERVER':
+      const ssConfig = ssSchema.safeParse(config);
+      if (!ssConfig.success) validationErr = ssConfig.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;

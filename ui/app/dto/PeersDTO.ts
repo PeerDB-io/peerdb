@@ -11,6 +11,7 @@ import {
   PubSubConfig,
   S3Config,
   SnowflakeConfig,
+  SqlServerConfig,
 } from '@/grpc_generated/peers';
 
 export type PeerConfig =
@@ -25,7 +26,8 @@ export type PeerConfig =
   | PubSubConfig
   | EventHubConfig
   | EventHubGroupConfig
-  | ElasticsearchConfig;
+  | ElasticsearchConfig
+  | SqlServerConfig;
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
 
 export interface SupabaseListProjectsResponse {

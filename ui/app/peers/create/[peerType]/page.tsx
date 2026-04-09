@@ -10,6 +10,7 @@ import PostgresForm from '@/components/PeerForms/PostgresForm';
 import PubSubForm from '@/components/PeerForms/PubSubConfig';
 import S3Form from '@/components/PeerForms/S3Form';
 import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
+import SqlServerForm from '@/components/PeerForms/SqlServerForm';
 
 import { notifyErr } from '@/app/utils/notify';
 import TitleCase from '@/app/utils/titlecase';
@@ -22,6 +23,7 @@ import {
   MongoConfig,
   MySqlConfig,
   PostgresConfig,
+  SqlServerConfig,
 } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -40,6 +42,7 @@ import { mongoSetting } from './helpers/mo';
 import { mysqlSetting } from './helpers/my';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
+import { sqlServerSetting } from './helpers/ss';
 import { peerNameSchema } from './schema';
 
 type CreateConfigProps = {
@@ -127,6 +130,14 @@ export default function CreateConfig({ params }: CreateConfigProps) {
             settings={mongoSetting}
             setter={setConfig}
             config={config as MongoConfig}
+          />
+        );
+      case 'SQLSERVER':
+        return (
+          <SqlServerForm
+            settings={sqlServerSetting}
+            setter={setConfig}
+            config={config as SqlServerConfig}
           />
         );
       default:
