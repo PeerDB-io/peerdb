@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgproto3"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -30,7 +31,7 @@ type Upstream interface {
 	ServerParameters(ctx context.Context) map[string]string
 
 	// BackendKeyData returns (pid, secret) for cancel request routing
-	BackendKeyData() (uint32, uint32)
+	BackendKeyData() (uint32, []byte)
 
 	// Cancel cancels the currently running query
 	Cancel(ctx context.Context) error
@@ -123,7 +124,22 @@ func NewUpstream(ctx context.Context, catalogPool shared.CatalogPool, peerName s
 		}
 		return NewMySQLUpstream(ctx, mysqlConfig, queryTimeout)
 
+	case protos.DBType_MONGO:
+		mongoConfig := peer.GetMongoConfig()
+		if mongoConfig == nil {
+			return nil, fmt.Errorf("peer '%s' has no MongoDB configuration", peerName)
+		}
+		cs, err := connstring.Parse(mongoConfig.Uri)
+		if err != nil {
+			return nil, fmt.Errorf("peer '%s' has invalid MongoDB URI: %w", peerName, err)
+		}
+		database := cs.Database
+		if database == "" {
+			database = "test"
+		}
+		return NewMongoUpstream(ctx, mongoConfig, database)
+
 	default:
-		return nil, fmt.Errorf("peer '%s' is type %s, only PostgreSQL and MySQL are supported", peerName, peer.Type)
+		return nil, fmt.Errorf("peer '%s' is type %s, only PostgreSQL, MySQL, and MongoDB are supported", peerName, peer.Type)
 	}
 }

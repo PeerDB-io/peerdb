@@ -3,6 +3,7 @@
 tmp/
 .envrc
 .idea/
+.DS_Store
 
 private/
 nexus/server/tests/assets/*.json
@@ -18,3 +19,10 @@ go.work.sum
 ui/grpc_generated
 flow/generated
 nexus/pt/src/gen
+
+# generated ancillary images file
+ancillary.env
+
+# Ephemeral volumes for docker compose
+volumes/ch_*
+

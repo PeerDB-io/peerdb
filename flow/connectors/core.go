@@ -348,6 +348,12 @@ type DatabaseVariantConnector interface {
 	GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error)
 }
 
+type ReplicationMechanismInUseConnector interface {
+	Connector
+
+	GetReplicationMechanismInUse(ctx context.Context, flowJobName string) (string, error)
+}
+
 type TableSizeEstimatorConnector interface {
 	Connector
 
@@ -663,6 +669,8 @@ var (
 
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}
+	_ GetTableSchemaConnector = &connmongo.MongoConnector{}
+	_ GetTableSchemaConnector = &connbigquery.BigQueryConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
 	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
 
@@ -690,6 +698,7 @@ var (
 	_ QRepSyncConnector = &conns3.S3Connector{}
 	_ QRepSyncConnector = &connclickhouse.ClickHouseConnector{}
 	_ QRepSyncConnector = &connelasticsearch.ElasticsearchConnector{}
+	_ QRepSyncConnector = &connpubsub.PubSubConnector{}
 
 	_ QRepSyncPgConnector = &connpostgres.PostgresConnector{}
 
@@ -715,6 +724,7 @@ var (
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
 	_ ValidationConnector = &connmysql.MySqlConnector{}
+	_ ValidationConnector = &connmongo.MongoConnector{}
 
 	_ MirrorSourceValidationConnector = &connpostgres.PostgresConnector{}
 	_ MirrorSourceValidationConnector = &connmysql.MySqlConnector{}
@@ -723,6 +733,7 @@ var (
 
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ MirrorDestinationValidationConnector = &connpostgres.PostgresConnector{}
+	_ MirrorDestinationValidationConnector = &connbigquery.BigQueryConnector{}
 
 	_ GetFlagsConnector = &connclickhouse.ClickHouseConnector{}
 
@@ -743,4 +754,6 @@ var (
 	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
 	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}
 	_ TableSizeEstimatorConnector = &connmongo.MongoConnector{}
+
+	_ ReplicationMechanismInUseConnector = &connmysql.MySqlConnector{}
 )

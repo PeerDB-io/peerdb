@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type ObservationMapValue[V comparable] struct {
@@ -125,12 +126,17 @@ func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
 		if flowMetadata.Destination != nil {
 			attributes = append(attributes,
 				attribute.Stringer(DestinationPeerType, flowMetadata.Destination.Type),
-				attribute.String(DestinationPeerName, flowMetadata.Destination.Name))
+				attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
+				attribute.String(destinationPeerHostname, flowMetadata.Destination.Hostname))
 		}
 		attributes = append(attributes,
 			attribute.Stringer(FlowStatusKey, flowMetadata.Status),
 			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync))
+		if pipeName := flowMetadata.Tags[common.PipeNameTag]; pipeName != "" {
+			attributes = append(attributes, attribute.String(PipeNameKey, pipeName))
+		}
 	}
+
 	additionalMetadata := internal.GetAdditionalMetadata(ctx)
 	attributes = append(attributes, attribute.Stringer(FlowOperationKey, additionalMetadata.Operation))
 

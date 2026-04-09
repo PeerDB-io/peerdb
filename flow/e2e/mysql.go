@@ -26,7 +26,7 @@ func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
 	myVersion := os.Getenv("CI_MYSQL_VERSION")
 	if myVersion == "" {
-		t.Skip()
+		t.Error("Expected CI_MYSQL_VERSION to be set")
 	}
 	var replicationMode protos.MySqlReplicationMechanism
 	var mysqlFlavor protos.MySqlFlavor
@@ -179,8 +179,8 @@ func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	return peer
 }
 
-func (s *MySqlSource) Exec(ctx context.Context, sql string) error {
-	_, err := s.MySqlConnector.Execute(ctx, sql)
+func (s *MySqlSource) Exec(ctx context.Context, sql string, args ...any) error {
+	_, err := s.MySqlConnector.Execute(ctx, sql, args...)
 	return err
 }
 

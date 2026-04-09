@@ -142,7 +142,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
+		return nil, fmt.Errorf("connection to source down: %w", err)
 	}
 
 	batchSize := options.BatchSize
@@ -743,7 +743,8 @@ func (a *FlowableActivity) normalizeLoop(
 			return
 		case <-ch:
 			reqBatchID := normalizeRequests.Load()
-			if reqBatchID <= normalizingBatchID.Load() {
+			lastNormalizedBatchID := normalizingBatchID.Load()
+			if reqBatchID <= lastNormalizedBatchID {
 				continue
 			}
 			retryInterval := time.Minute
@@ -764,6 +765,11 @@ func (a *FlowableActivity) normalizeLoop(
 						default:
 							time.Sleep(retryInterval)
 							retryInterval = min(retryInterval*2, 5*time.Minute)
+							// record the last normalized batch ID even if retry fails to populate metrics consistently
+							a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(
+								ctx, lastNormalizedBatchID, metric.WithAttributeSet(attribute.NewSet(
+									attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+								)))
 							reqBatchID = normalizeRequests.Load()
 							continue retryLoop
 						}

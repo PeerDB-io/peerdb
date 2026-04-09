@@ -75,7 +75,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.29@sha256:bdd857aa9574fbc1544028ee37795e29fdce5017c767dabf86957a10732afc15
+    image: temporalio/auto-setup:1.29@sha256:7eaaed21322c8bc98977fab38873847958024e01ffcc1efeffcd474c4f6461ca
     ports:
       - 7233:7233
     volumes:
@@ -112,12 +112,13 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3030
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.47.2@sha256:2081da2b305d9c311a5d13dc6b98173c5aff2072a74000a7b79ef47a97210c0e
+    image: temporalio/ui:2.48.1@sha256:edb5dd1b3e0ddb35611939dde9b573533afd6fbafbbf077b73c7131a30ca91ff
     ports:
       - 8085:8080
 
   flow-api:
     container_name: flow_api
+    image: flow-api
     build:
       context: .
       dockerfile: stacks/flow.Dockerfile
@@ -142,6 +143,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
+    image: flow-snapshot-worker
     build:
       context: .
       dockerfile: stacks/flow.Dockerfile
@@ -154,6 +156,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
+    image: flow-worker
     build:
       context: .
       dockerfile: stacks/flow.Dockerfile
@@ -169,6 +172,7 @@ services:
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
+    image: peerdb
     build:
       context: .
       dockerfile: stacks/peerdb-server.Dockerfile
@@ -189,6 +193,7 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
+    image: peerdb-ui
     build:
       context: .
       dockerfile: stacks/peerdb-ui.Dockerfile

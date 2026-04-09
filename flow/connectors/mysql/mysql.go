@@ -126,6 +126,10 @@ func (c *MySqlConnector) Flavor() string {
 	}
 }
 
+func (c *MySqlConnector) Conn() *client.Conn {
+	return c.conn.Load()
+}
+
 func (c *MySqlConnector) Close() error {
 	c.logger.Info("Closing MySQL connector")
 	var errs []error
@@ -165,7 +169,9 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 	if conn == nil {
 		argF := []client.Option{func(conn *client.Conn) error {
 			if c.config.Compression > 0 {
-				conn.SetCapability(mysql.CLIENT_COMPRESS)
+				if err := conn.SetCapability(mysql.CLIENT_COMPRESS); err != nil {
+					return err
+				}
 			}
 			if !c.config.DisableTls {
 				config, err := common.CreateTlsConfig(

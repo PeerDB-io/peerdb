@@ -68,7 +68,7 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 		}
 	case "vector":
 		return types.QValueKindArrayFloat32, nil
-	case "geometry", "point", "polygon", "linestring", "multipoint", "multipolygon", "geomcollection":
+	case "geometry", "point", "polygon", "linestring", "multipoint", "multilinestring", "multipolygon", "geomcollection", "geometrycollection":
 		return types.QValueKindGeometry, nil
 	default:
 		return types.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)

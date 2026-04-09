@@ -167,7 +167,7 @@ export const cdcSettings: MirrorSetting[] = [
     required: true,
   },
   {
-    label: 'Hard delete',
+    label: 'Delete rows on ReplacingMergeTree MERGE',
     stateHandler: (value, setter) =>
       setter(
         (curr: CDCConfig): CDCConfig => ({
@@ -178,7 +178,7 @@ export const cdcSettings: MirrorSetting[] = [
             : '',
         })
       ),
-    tips: 'Places the is_deleted column inside the ReplacingMergeTree syntax - allowing FINAL and merges to remove records marked as deleted',
+    tips: 'Places the _peerdb_is_deleted column inside the ReplacingMergeTree syntax - allowing FINAL and merges to remove records marked as deleted',
     default: false,
     type: 'switch',
     required: false,

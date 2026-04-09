@@ -2,6 +2,7 @@ package monitoring
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -15,7 +16,6 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -325,13 +325,6 @@ func AppendSlotSizeInfo(
 	return nil
 }
 
-func supportsStatsForFullTablePartition(partition *protos.QRepPartition) bool {
-	if partition == nil {
-		return false
-	}
-	return partition.PartitionId == utils.FullTablePartitionID
-}
-
 func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	runUUID string, partition *protos.QRepPartition, parentMirrorName string,
 ) error {
@@ -339,12 +332,6 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		internal.LoggerFromCtx(ctx).Info("cannot add nil partition to qrep run",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
 		return fmt.Errorf("cannot add nil partition to qrep run")
-	}
-	if partition.Range == nil && partition.FullTablePartition && !supportsStatsForFullTablePartition(partition) {
-		internal.LoggerFromCtx(ctx).Info("partition "+partition.PartitionId+
-			" is a full table partition. Metrics logging is skipped.",
-			slog.String(string(shared.FlowNameKey), parentMirrorName))
-		return nil
 	}
 
 	var rangeStart, rangeEnd *string
@@ -383,16 +370,27 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}
-	} else {
+	} else if !partition.FullTablePartition {
 		internal.LoggerFromCtx(ctx).Warn("[monitoring]: partition "+partition.PartitionId+" has nil range",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
 	}
+
+	var childTableBlockRangesJSON []byte
+	if len(partition.ChildTableRanges) > 0 {
+		internal.LoggerFromCtx(ctx).Info("Child table ranges detected")
+		var err error
+		childTableBlockRangesJSON, err = json.Marshal(partition.ChildTableRanges)
+		if err != nil {
+			return fmt.Errorf("failed to marshal child table block ranges: %w", err)
+		}
+	}
+
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO peerdb_stats.qrep_partitions
-		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,restart_count,parent_mirror_name)
-		 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(run_uuid,partition_uuid) DO UPDATE SET
+		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,restart_count,parent_mirror_name,child_table_ranges)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(run_uuid,partition_uuid) DO UPDATE SET
 		 restart_count=qrep_partitions.restart_count+1`,
-		flowJobName, runUUID, partition.PartitionId, rangeStart, rangeEnd, 0, parentMirrorName,
+		flowJobName, runUUID, partition.PartitionId, rangeStart, rangeEnd, 0, parentMirrorName, childTableBlockRangesJSON,
 	); err != nil {
 		return fmt.Errorf("error while inserting qrep partition in qrep_partitions: %w", err)
 	}

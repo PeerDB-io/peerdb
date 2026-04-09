@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -214,6 +215,10 @@ func (c *PostgresConnector) getPartitions(
 		if err != nil {
 			return nil, err
 		}
+		if computedNumPartitions == 0 {
+			c.logger.Info("no records to partition")
+			return []*protos.QRepPartition{}, nil
+		}
 		partitionParams.numPartitions = computedNumPartitions
 	}
 
@@ -225,16 +230,19 @@ func (c *PostgresConnector) getPartitions(
 	}
 
 	var partitionFunc PartitioningFunc
+	var partitionFuncName string
 	switch {
 	case isCTIDWatermarkCol && (hasCTIDOverride || hasPartitionOverride):
 		partitionFunc = CTIDBlockPartitioningFunc
+		partitionFuncName = "CTIDBlockPartitioningFunc"
 	case hasPartitionOverride:
 		partitionFunc = MinMaxRangePartitioningFunc
+		partitionFuncName = "MinMaxRangePartitioningFunc"
 	default:
 		partitionFunc = NTileBucketPartitioningFunc
+		partitionFuncName = "NTileBucketPartitioningFunc"
 	}
-
-	c.logger.Info("using partition function", slog.String("partitionFunc", fmt.Sprintf("%T", partitionFunc)))
+	c.logger.Info("using partition function", slog.String("partitionFunc", partitionFuncName))
 	return partitionFunc(ctx, partitionParams)
 }
 
@@ -363,7 +371,7 @@ func corePullQRepRecords(
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
 	selectedColumns := "*"
-	if len(config.Exclude) != 0 {
+	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
 		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to load table schema: %w", err)
@@ -397,6 +405,11 @@ func corePullQRepRecords(
 		}
 		return executor.ExecuteQueryIntoSink(ctx, sink, query)
 	}
+
+	if len(partition.ChildTableRanges) > 0 {
+		return pullChildTableRanges(c, ctx, config, partition, sink, selectedColumns)
+	}
+
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
 	var rangeStart any
@@ -468,6 +481,70 @@ func corePullQRepRecords(
 		slog.Int64("records", numRecords),
 		slog.Int64("bytes", numBytes))
 	return numRecords, numBytes, nil
+}
+
+// pullChildTableRanges executes one query per ChildTableRange entry,
+// building a query directly for each child table, and accumulates results.
+func pullChildTableRanges(
+	c *PostgresConnector,
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	sink QRepPullSink,
+	selectedColumns string,
+) (int64, int64, error) {
+	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
+
+	executor, err := c.NewQRepQueryExecutorSnapshot(
+		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
+	}
+
+	quotedWatermarkColumn := common.QuoteIdentifier(config.WatermarkColumn)
+
+	var totalRecords, totalBytes int64
+	for _, child := range partition.ChildTableRanges {
+		parsedChild, err := common.ParseTableIdentifier(child.Table)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to parse child table %s: %w", child.Table, err)
+		}
+
+		// ONLY excludes rows from child tables, ensuring we don't double-count inherited rows.
+		query := fmt.Sprintf("SELECT %s FROM ONLY %s WHERE %s BETWEEN $1 AND $2",
+			selectedColumns, parsedChild.String(), quotedWatermarkColumn)
+
+		rangeStart := pgtype.TID{
+			BlockNumber:  child.Start,
+			OffsetNumber: 0,
+			Valid:        true,
+		}
+		rangeEnd := pgtype.TID{
+			BlockNumber:  child.End,
+			OffsetNumber: math.MaxUint16,
+			Valid:        true,
+		}
+
+		c.logger.Info("pulling child table range",
+			partitionIdLog,
+			slog.String("childTable", child.Table),
+			slog.Any("start", rangeStart),
+			slog.Any("end", rangeEnd))
+
+		numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
+		if err != nil {
+			return totalRecords, totalBytes, fmt.Errorf("failed to pull from child %s: %w", child.Table, err)
+		}
+		totalRecords += numRecords
+		totalBytes += numBytes
+	}
+
+	c.logger.Info("pulled records from child table ranges",
+		partitionIdLog,
+		slog.Int64("records", totalRecords),
+		slog.Int64("bytes", totalBytes),
+		slog.Int("childTableRanges", len(partition.ChildTableRanges)))
+	return totalRecords, totalBytes, nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(

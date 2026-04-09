@@ -25,6 +25,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -98,7 +99,7 @@ func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
 				JSONExtractArrayRaw(JSONExtractRaw(s, 'more_data')) AS md SETTINGS final = 1`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w",
-		exceptions.NewQRepSyncError(err, "error_table_name_abc", "db_name_xyz")))
+		exceptions.NewClickHouseQRepSyncError(err, "error_table_name_abc", "db_name_xyz")))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -106,21 +107,25 @@ func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPostgresWalRemovedErrorShouldBeRecoverable(t *testing.T) {
-	// Simulate a WAL removed error
-	err := &exceptions.PostgresWalError{
-		Msg: &pgproto3.ErrorResponse{
-			Severity: "ERROR",
-			Code:     pgerrcode.InternalError,
-			Message:  "requested WAL segment 000000010001337F0000002E has already been removed",
-		},
+func TestPostgresWalRemovedErrorShouldBeNotifyUser(t *testing.T) {
+	for _, code := range []string{pgerrcode.InternalError, pgerrcode.UndefinedFile} {
+		t.Run(code, func(t *testing.T) {
+			// Simulate a WAL removed error
+			err := &exceptions.PostgresWalError{
+				Msg: &pgproto3.ErrorResponse{
+					Severity: "ERROR",
+					Code:     code,
+					Message:  "requested WAL segment 000000010001337F0000002E has already been removed",
+				},
+			}
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+			assert.Equal(t, ErrorNotifyWalSegmentRemoved, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   code,
+			}, errInfo, "Unexpected error info")
+		})
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourcePostgres,
-		Code:   pgerrcode.InternalError,
-	}, errInfo, "Unexpected error info")
 }
 
 func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
@@ -219,7 +224,8 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 				Code:    492,
 				Message: msg,
 			}
-			errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
+			errorClass, errInfo := GetErrorClass(t.Context(),
+				exceptions.NewClickHouseQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
 			assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{
 				Source: ErrorSourceClickHouse,
@@ -237,7 +243,8 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 		is not supported: while converting source column created_at to destination column created_at:
 		while pushing to view db_name.hello_mv`,
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", err)))
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", peerdb_clickhouse.NewViewError(err))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -559,6 +566,20 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 	}
 }
 
+func TestClickHouseViewShouldBeDestinationModified(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    48,
+		Message: "Alter of type 'ADD_COLUMN' is not supported by storage View",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to push records: %w", err))
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "48",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestClickHouseUnknownTableShouldBeDestinationModified(t *testing.T) {
 	// Simulate an unknown table error
 	err := &clickhouse.Exception{
@@ -582,7 +603,7 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -602,6 +623,20 @@ func TestNonClassifiedNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   "207",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestErrIncorrectDataWithMVErrorShouldBeNotifyMV(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrIncorrectData),
+		Message: "REDACTED",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrIncorrectData)),
 	}, errInfo, "Unexpected error info")
 }
 
@@ -820,8 +855,7 @@ func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
 		//nolint:lll
 		Message: "Too many parts (3025 with average size of 65.51 MiB) in table 'ss_replica.posts_resync (db2b0f62-f577-4116-8b5d-e0f760a42bee)'. Merges are processing significantly slower than inserts",
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewQRepSyncError(fmt.Errorf("QRepSync Error: %w", err), "", ""))
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewClickHouseQRepSyncError(err, "", ""))
 	assert.Equal(t, ErrorNotifyTooManyPartsError, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -838,8 +872,7 @@ func TestClickHouseTooManyPartsWithoutTableName(t *testing.T) {
 		//nolint:lll
 		Message: "Too many partitions for single INSERT block (more than 9999). The limit is controlled by 'max_partitions_per_insert_block' setting.",
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewQRepSyncError(fmt.Errorf("QRepSync Error: %w", err), "", ""))
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewClickHouseQRepSyncError(err, "", ""))
 	assert.Equal(t, ErrorNotifyTooManyPartsError, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -906,6 +939,31 @@ func TestSlotMissingError(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMongoClientDisconnectedShouldBeInternal(t *testing.T) {
+	err := fmt.Errorf("operation failed: %w", mongo.ErrClientDisconnected)
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorInternal, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "CLIENT_DISCONNECTED",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestYugabyteDBSnapshotExportDisabledShouldBeSnapshotExportDisabled(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.SyntaxError,
+		Message:  "cannot export or import snapshot when ysql_enable_pg_export_snapshot is disabled.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to set transaction snapshot: %w", err))
+	assert.Equal(t, ErrorNotifySnapshotExportDisabled, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.SyntaxError,
+	}, errInfo)
+}
+
 func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
 	pgErr := &pgconn.PgError{
 		Severity: "ERROR",
@@ -918,5 +976,20 @@ func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.ObjectNotInPrerequisiteState,
+	}, errInfo)
+}
+
+func TestClickHouseStdExceptionObjectStorageIOErrorShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrStdException),
+		//nolint:lll
+		Message: `std::__1::ios_base::failure: ios_base::clear: unspecified iostream_category error: while reading path/to/file.000000.avro: While executing ReadFromObjectStorage`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewClickHouseQRepSyncError(fmt.Errorf("failed to sync records: %w", err), "tbl", "db"))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrStdException)),
 	}, errInfo)
 }

@@ -3,10 +3,14 @@ package connpostgres
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
+	"slices"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
@@ -79,8 +83,8 @@ func NTileBucketPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 // but actual row distribution may be skewed due to non-uniform data distribution, gaps in the
 // value range, or deleted rows.
 func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
-	if pp.numPartitions <= 1 {
-		return nil, fmt.Errorf("expect numPartitions to be greater than 1")
+	if pp.numPartitions <= 0 {
+		return nil, fmt.Errorf("expect numPartitions to be greater than 0")
 	}
 
 	const queryTemplate = "SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s"
@@ -116,19 +120,41 @@ func MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*pr
 // blocks uniformly. Note that partition boundaries (block ranges) are uniform, but actual row distribution
 // may be skewed due to table bloat, deleted tuples, or uneven data distribution across blocks.
 func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
-	if pp.numPartitions <= 1 {
-		return nil, fmt.Errorf("expect numPartitions to be greater than 1")
+	if pp.numPartitions <= 0 {
+		return nil, fmt.Errorf("expect numPartitions to be greater than 0")
 	}
 
-	const partitionsQuery = "SELECT (pg_relation_size(to_regclass($1)) / current_setting('block_size')::int)::bigint"
-	pp.logger.Info("[CTIDBlockPartitioning] partitions query", slog.String("query", partitionsQuery))
-
-	var totalBlocks pgtype.Int8
-	if err := pp.tx.QueryRow(ctx, partitionsQuery, pp.watermarkTable).Scan(&totalBlocks); err != nil {
-		return nil, fmt.Errorf("failed to get relation blocks: %w", err)
+	tc, err := classifyTable(ctx, pp.tx, pp.watermarkTable)
+	if err != nil {
+		return nil, err
 	}
-	if !totalBlocks.Valid || totalBlocks.Int64 <= 0 {
-		return nil, fmt.Errorf("failed to get valid block count: total blocks: %d, valid: %t", totalBlocks.Int64, totalBlocks.Valid)
+	switch {
+	case tc.relkind == "p":
+		blocksPerTable, err := getPartitionedTables(ctx, pp.tx, tc.qualifiedName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get child partitioned tables: %w", err)
+		}
+		return ctidPartitionsForChildTables(pp, blocksPerTable)
+	case tc.relhassubclass:
+		blocksPerTable, err := getInheritedTables(ctx, pp.tx, tc.qualifiedName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get child inherited tables: %w", err)
+		}
+		return ctidPartitionsForChildTables(pp, blocksPerTable)
+	default:
+		return ctidPartitionsForTable(ctx, pp)
+	}
+}
+
+// ctidPartitionsForTable generates CTID block partitions for a single (non-partitioned) table.
+func ctidPartitionsForTable(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {
+	totalBlocks, err := getTableBlockCount(ctx, pp.tx, pp.watermarkTable)
+	if err != nil {
+		return nil, err
+	}
+	if totalBlocks == 0 {
+		pp.logger.Warn("table has 0 blocks, returning empty partition list", slog.String("table", pp.watermarkTable))
+		return nil, nil
 	}
 
 	tidCmp := func(a pgtype.TID, b pgtype.TID) int {
@@ -146,8 +172,8 @@ func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*prot
 	}
 
 	tidRangeForPartition := func(partitionIndex int64) (pgtype.TID, pgtype.TID, bool) {
-		blockStart := uint32((partitionIndex * totalBlocks.Int64) / pp.numPartitions)
-		nextPartitionBlockStart := uint32(((partitionIndex + 1) * totalBlocks.Int64) / pp.numPartitions)
+		blockStart := uint32((partitionIndex * totalBlocks) / pp.numPartitions)
+		nextPartitionBlockStart := uint32(((partitionIndex + 1) * totalBlocks) / pp.numPartitions)
 		if nextPartitionBlockStart <= blockStart {
 			return pgtype.TID{}, pgtype.TID{}, false
 		}
@@ -187,6 +213,227 @@ func CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*prot
 		}
 	}
 	return partitionHelper.GetPartitions(), nil
+}
+
+// ctidPartitionsForChildTables discovers child tables via the provided discovery function,
+// then generates snapshot partitions using a greedy algorithm.
+// It walks tables (sorted by name) sequentially, greedily filling each partition with
+// <blocksPerPartition> blocks before starting the next. A single snapshot partition may
+// span multiple tables, and a single table may be split across snapshot partitions.
+//
+// Example: tables [T1:30 blocks, T2:20 blocks, T3:10 blocks] with blocksPerPartition=25 produces:
+//   - partition 1: [T1:0-24]
+//   - partition 2: [T1:25-29, T2:0-19]
+//   - partition 3: [T3:0-9]
+func ctidPartitionsForChildTables(
+	pp PartitionParams,
+	blocksPerTable map[string]int64,
+) ([]*protos.QRepPartition, error) {
+	var totalBlocks int64
+	for _, blocks := range blocksPerTable {
+		totalBlocks += blocks
+	}
+	if totalBlocks == 0 {
+		pp.logger.Warn("zero non-empty child tables found")
+		return nil, nil
+	}
+
+	pp.logger.Info("child tables detected",
+		slog.String("table", pp.watermarkTable),
+		slog.Int("numChildTables", len(blocksPerTable)),
+		slog.Int64("totalBlocks", totalBlocks))
+
+	sortedTables := slices.Sorted(maps.Keys(blocksPerTable))
+	blocksPerPartition := max(int64(1), shared.DivCeil(totalBlocks, pp.numPartitions))
+
+	var partitions []*protos.QRepPartition
+	childIdx := 0
+	blockOffset := int64(0)
+	for childIdx < len(sortedTables) {
+		remaining := blocksPerPartition
+		var ranges []*protos.ChildTableRange
+
+		for remaining > 0 && childIdx < len(sortedTables) {
+			tableName := sortedTables[childIdx]
+			blocks := blocksPerTable[tableName]
+			remainingBlocks := blocks - blockOffset
+			consume := min(remaining, remainingBlocks)
+
+			blockStart := uint32(blockOffset)
+			blockEnd := uint32(blockOffset + consume)
+
+			ranges = append(ranges, &protos.ChildTableRange{
+				Table: tableName,
+				Start: blockStart,
+				End:   blockEnd - 1,
+			})
+
+			remaining -= consume
+			blockOffset += consume
+			if blockOffset >= blocks {
+				childIdx++
+				blockOffset = 0
+			}
+		}
+
+		if len(ranges) > 0 {
+			partitions = append(partitions, &protos.QRepPartition{
+				PartitionId:      uuid.NewString(),
+				ChildTableRanges: ranges,
+			})
+		}
+	}
+
+	pp.logger.Info("generated partitions for child tables",
+		slog.Int("numPartitions", len(partitions)),
+		slog.Int64("blocksPerPartition", blocksPerPartition),
+		slog.Int64("totalBlocks", totalBlocks))
+
+	return partitions, nil
+}
+
+func getTableBlockCount(ctx context.Context, tx pgx.Tx, table string) (int64, error) {
+	var blocks int64
+	if err := tx.QueryRow(ctx,
+		"SELECT (pg_relation_size(to_regclass($1)) / current_setting('block_size')::int)::bigint",
+		table).Scan(&blocks); err != nil {
+		return 0, fmt.Errorf("failed to get block count for %s: %w", table, err)
+	}
+	return blocks, nil
+}
+
+type tableClassification struct {
+	qualifiedName  string
+	relkind        string
+	relhassubclass bool
+}
+
+func classifyTable(ctx context.Context, tx pgx.Tx, table string) (tableClassification, error) {
+	var classification tableClassification
+	err := tx.QueryRow(ctx,
+		// We fetch the qualified name from pg_class instead of using the input directly because
+		// the input table name is quoted; and we want the unquoted canonical form for uniformity
+		`SELECT format('%s.%s', n.nspname, c.relname), c.relkind::text, c.relhassubclass
+		 FROM pg_class c
+		 JOIN pg_namespace n ON c.relnamespace = n.oid
+		 WHERE c.oid = to_regclass($1)`,
+		table).Scan(&classification.qualifiedName, &classification.relkind, &classification.relhassubclass)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return classification, fmt.Errorf("table %s not found in pg_class", table)
+		}
+		return classification, fmt.Errorf("failed to classify table %s: %w", table, err)
+	}
+	return classification, nil
+}
+
+// getPartitionedTables returns a map of partitioned child table names to their block counts,
+// recursively handle multi-level partitioned tables.
+func getPartitionedTables(ctx context.Context, tx pgx.Tx, table string) (map[string]int64, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT format('%s.%s', n.nspname, c.relname), c.relkind::text,
+			(pg_relation_size(c.oid) / current_setting('block_size')::int)::bigint
+		FROM pg_inherits i
+		JOIN pg_class c ON i.inhrelid = c.oid
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE i.inhparent = to_regclass($1)
+		ORDER BY c.relname
+	`, table)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query child tables for %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	type tableInfo struct {
+		name   string
+		kind   string
+		blocks int64
+	}
+	var tableInfos []tableInfo
+	for rows.Next() {
+		var info tableInfo
+		if err := rows.Scan(&info.name, &info.kind, &info.blocks); err != nil {
+			return nil, fmt.Errorf("failed to scan child table: %w", err)
+		}
+		tableInfos = append(tableInfos, info)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	blocksPerPartitionedTable := make(map[string]int64)
+	for _, info := range tableInfos {
+		if info.kind == "p" {
+			leaveTables, err := getPartitionedTables(ctx, tx, info.name)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get partitions of %s: %w", info.name, err)
+			}
+			maps.Copy(blocksPerPartitionedTable, leaveTables)
+		} else if info.blocks > 0 { // skips empty table
+			blocksPerPartitionedTable[info.name] = info.blocks
+		}
+	}
+	return blocksPerPartitionedTable, nil
+}
+
+// getInheritedTables returns a map of table names to their block counts for an inherited
+// table hierarchy. Unlike partitioned tables, the parent itself stores data and is included.
+func getInheritedTables(ctx context.Context, tx pgx.Tx, table string) (map[string]int64, error) {
+	blocksPerTable := make(map[string]int64)
+
+	numBlocks, err := getTableBlockCount(ctx, tx, table)
+	if err != nil {
+		return nil, err
+	}
+	if numBlocks > 0 {
+		blocksPerTable[table] = numBlocks
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT format('%s.%s', n.nspname, c.relname), c.relhassubclass,
+			(pg_relation_size(c.oid) / current_setting('block_size')::int)::bigint
+		FROM pg_inherits i
+		JOIN pg_class c ON i.inhrelid = c.oid
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE i.inhparent = to_regclass($1)
+		ORDER BY c.relname
+	`, table)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query child tables for %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	type tableInfo struct {
+		name        string
+		hasSubclass bool
+		blocks      int64
+	}
+	var children []tableInfo
+	for rows.Next() {
+		var info tableInfo
+		if err := rows.Scan(&info.name, &info.hasSubclass, &info.blocks); err != nil {
+			return nil, fmt.Errorf("failed to scan child table: %w", err)
+		}
+		children = append(children, info)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, child := range children {
+		if child.blocks > 0 {
+			blocksPerTable[child.name] = child.blocks
+		}
+		if child.hasSubclass {
+			childTables, err := getInheritedTables(ctx, tx, child.name)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get inherited tables of %s: %w", child.name, err)
+			}
+			maps.Copy(blocksPerTable, childTables)
+		}
+	}
+
+	return blocksPerTable, nil
 }
 
 // ComputeNumPartitions computes the number of partitions given desired number of rows

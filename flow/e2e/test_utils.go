@@ -46,9 +46,13 @@ func init() {
 type Suite interface {
 	e2eshared.Suite
 	T() *testing.T
-	Connector() *connpostgres.PostgresConnector
 	Suffix() string
 	Source() SuiteSource
+}
+
+type PgSuite interface {
+	Suite
+	Connector() *connpostgres.PostgresConnector
 }
 
 type RowSource interface {

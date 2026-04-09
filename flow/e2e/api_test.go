@@ -28,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -252,7 +253,7 @@ func (s APITestSuite) TestGetVersion() {
 }
 
 func (s APITestSuite) TestPostgresValidation_WrongPassword() {
-	config := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	config := internal.GetAncillaryPostgresConfigFromEnv()
 	config.Password = "wrong"
 	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: &protos.Peer{
@@ -268,7 +269,7 @@ func (s APITestSuite) TestPostgresValidation_WrongPassword() {
 }
 
 func (s APITestSuite) TestPostgresValidation_Pass() {
-	config := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	config := internal.GetAncillaryPostgresConfigFromEnv()
 	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: &protos.Peer{
 			Name:   "testfail",
@@ -572,6 +573,330 @@ func (s APITestSuite) TestPostgresDestinationValidation_WithExcludedColumns() {
 	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err, "validation should succeed when excluded columns are not in destination")
 	require.NotNil(s.t, response)
+}
+
+func (s APITestSuite) postgresDestinationValidationNonEmptyTable(doInitialSnapshot bool) {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	suffix := "nosnap"
+	if doInitialSnapshot {
+		suffix = "snap"
+	}
+
+	srcTableName := AttachSchema(s, "validation_src_nonempty_"+suffix)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", srcTableName)))
+
+	dstTableName := AttachSchema(s, "validation_dst_nonempty_"+suffix)
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, col1 text)", dstTableName))
+	require.NoError(s.t, err)
+
+	// Insert a row into the destination table so it's non-empty
+	_, err = s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, col1) VALUES (1, 'existing')", dstTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_nonempty_" + suffix + "_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: doInitialSnapshot,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	if doInitialSnapshot {
+		require.Error(s.t, err, "expected validation to fail when destination table has existing rows")
+		require.Nil(s.t, response)
+
+		st, ok := status.FromError(err)
+		require.True(s.t, ok, "expected gRPC status error")
+		require.Equal(s.t, codes.FailedPrecondition, st.Code())
+		require.Contains(s.t, st.Message(), "already has existing rows")
+	} else {
+		require.NoError(s.t, err, "validation should pass when DoInitialSnapshot is false even with non-empty destination")
+		require.NotNil(s.t, response)
+	}
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_NonEmptyTableBlocksSnapshot() {
+	s.postgresDestinationValidationNonEmptyTable(true)
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_NonEmptyTableAllowedWithoutSnapshot() {
+	s.postgresDestinationValidationNonEmptyTable(false)
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_MissingSchema() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	srcTableName := AttachSchema(s, "validation_src_noschema")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", srcTableName)))
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_noschema_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: "nonexistent_schema_" + s.suffix + ".some_table",
+			},
+		},
+		DoInitialSnapshot: true,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err, "expected validation to fail when destination schema does not exist")
+	require.Nil(s.t, response)
+
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error")
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
+	require.Contains(s.t, st.Message(), "does not exist on destination")
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_NumericPrecisionMismatch() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	srcTableName := AttachSchema(s, "validation_src_numericmismatch")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, amount numeric(10,2))", srcTableName)))
+
+	dstTableName := AttachSchema(s, "validation_dst_numericmismatch")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		// destination is narrower on both axes — should be rejected
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, amount numeric(5,1))", dstTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_numericmismatch_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+		System:            protos.TypeSystem_PG,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err, "expected validation to fail: destination numeric is narrower than source")
+	require.Nil(s.t, response)
+
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error")
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
+	require.Contains(s.t, st.Message(), "numeric")
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_NumericSuperset() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	srcTableName := AttachSchema(s, "validation_src_numericsuperset")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, amount numeric(5,2))", srcTableName)))
+
+	dstTableName := AttachSchema(s, "validation_dst_numericsuperset")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		// destination has wider precision and scale — superset
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, amount numeric(10,4))", dstTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_numericsuperset_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+		System:            protos.TypeSystem_PG,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err, "wider destination numeric should be accepted as superset")
+	require.NotNil(s.t, response)
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_UnboundedNumeric() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	srcTableName := AttachSchema(s, "validation_src_unboundednumeric")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		// unbounded numeric on source
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, amount numeric)", srcTableName)))
+
+	dstTableName := AttachSchema(s, "validation_dst_unboundednumeric")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		// constrained destination — allowed because source is unbounded
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, amount numeric(20,4))", dstTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_unboundednumeric_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+		System:            protos.TypeSystem_PG,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err, "unbounded source numeric into constrained destination should be accepted")
+	require.NotNil(s.t, response)
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_TypeCompatible() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	srcTableName := AttachSchema(s, "validation_src_typecompat")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		// mixed-case column name, int2 source, varchar(50) source
+		fmt.Sprintf(`CREATE TABLE %s("MyId" int primary key, score int2, label varchar(50))`, srcTableName)))
+
+	dstTableName := AttachSchema(s, "validation_dst_typecompat")
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		// int4 wider than int2 (integer promotion), text superset of varchar, mixed-case preserved
+		fmt.Sprintf(`CREATE TABLE %s("MyId" int primary key, score int4, label text)`, dstTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_typecompat_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+		System:            protos.TypeSystem_PG,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err, "integer promotion and varchar→text with mixed-case column names should be accepted")
+	require.NotNil(s.t, response)
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_UserDefinedTypeMatch() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	schema := Schema(s)
+	enumDDL := fmt.Sprintf("CREATE TYPE %s.emotion AS ENUM ('happy', 'sad', 'neutral')", schema)
+	_, err := s.pg.Conn().Exec(s.t.Context(), enumDDL)
+	require.NoError(s.t, err)
+
+	srcTableName := AttachSchema(s, "validation_src_udt")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, feeling %s.emotion)", srcTableName, schema)))
+
+	dstTableName := AttachSchema(s, "validation_dst_udt")
+	_, err = s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, feeling %s.emotion)", dstTableName, schema))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_udt_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+		System:            protos.TypeSystem_PG,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err, "matching user-defined enum type should be accepted")
+	require.NotNil(s.t, response)
+}
+
+func (s APITestSuite) TestPostgresDestinationValidation_UserDefinedTypeMismatch() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	schema := Schema(s)
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TYPE %s.status AS ENUM ('active', 'inactive')", schema))
+	require.NoError(s.t, err)
+
+	srcTableName := AttachSchema(s, "validation_src_udtmismatch")
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, state %s.status)", srcTableName, schema)))
+
+	// Destination uses text instead of the enum — type mismatch
+	dstTableName := AttachSchema(s, "validation_dst_udtmismatch")
+	_, err = s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, state text)", dstTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "postgres_dest_validation_udtmismatch_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		DoInitialSnapshot: true,
+		System:            protos.TypeSystem_PG,
+	}
+
+	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err, "expected validation to fail: enum source vs text destination")
+	require.Nil(s.t, response)
+
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error")
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
+	require.Contains(s.t, st.Message(), "does not match destination column")
 }
 
 func (s APITestSuite) TestSchemaEndpoints() {
@@ -980,6 +1305,15 @@ func (s APITestSuite) TestResyncCompleted() {
 	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
+	// tags are explicitly updated via a separate call, so here we update tags before resync to validate they are persisted after resync
+	_, err = s.CreateOrReplaceFlowTags(s.t.Context(), &protos.CreateOrReplaceFlowTagsRequest{
+		FlowName: flowConnConfig.FlowJobName,
+		Tags: []*protos.FlowTag{
+			{Key: common.PipeNameTag, Value: "test"},
+		},
+	})
+	require.NoError(s.t, err)
+
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -1021,6 +1355,18 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NoError(s.t, err)
 	configBeforeResync.Resync = true
 	require.EqualExportedValues(s.t, configBeforeResync, configAfterResync)
+
+	// check that tags persist across resync
+	tagsResp, err := s.GetFlowTags(s.t.Context(), &protos.GetFlowTagsRequest{
+		FlowName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, tagsResp.Tags, 1)
+	tagMap := make(map[string]string, len(tagsResp.Tags))
+	for _, tag := range tagsResp.Tags {
+		tagMap[tag.Key] = tag.Value
+	}
+	require.Equal(s.t, "test", tagMap[common.PipeNameTag])
 }
 
 func (s APITestSuite) TestResyncFailed() {
@@ -1166,7 +1512,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	}
 
 	suffix := "drop_unavailable_" + s.suffix
-	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	proxyConfig := internal.GetAncillaryPostgresConfigFromEnv()
 	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9903)
 	require.NoError(s.t, err)
 	defer func() {
@@ -1804,6 +2150,64 @@ func (s APITestSuite) TestQRep() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s APITestSuite) TestDropQRep() {
+	if _, ok := s.source.(*MongoSource); ok {
+		s.t.Skip("QRepFlowWorkFlow is not implemented for MongoDB")
+	}
+
+	peerType, err := s.GetPeerType(s.t.Context(), &protos.PeerInfoRequest{
+		PeerName: s.source.GeneratePeer(s.t).Name,
+	})
+	require.NoError(s.t, err)
+	tableName := AddSuffix(s, "dropqrep")
+	schemaQualified := AttachSchema(s, tableName)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", schemaQualified)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
+
+	flowName := fmt.Sprintf("dropqrepflow_%s_%s", peerType.PeerType, s.suffix)
+	qrepConfig := CreateQRepWorkflowConfig(
+		s.t,
+		flowName,
+		schemaQualified,
+		tableName,
+		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
+		s.ch.Peer().Name,
+		"",
+		true,
+		"",
+		"",
+	)
+	qrepConfig.SourceName = s.source.GeneratePeer(s.t).Name
+	qrepConfig.WatermarkColumn = "id"
+	qrepConfig.InitialCopyOnly = false
+	qrepConfig.WaitBetweenBatchesSeconds = 5
+	qrepConfig.NumRowsPerPartition = 1
+	_, err = s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
+		QrepConfig: qrepConfig,
+	})
+	require.NoError(s.t, err)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	EnvWaitForEqualTables(env, s.ch, "qrep initial load", tableName, "id,val")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        qrepConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for qrep flow dropped", func() bool {
+		var workflowID string
+		return s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", qrepConfig.FlowJobName,
+		).Scan(&workflowID) == pgx.ErrNoRows
+	})
+}
+
 func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	var cols string
 	switch s.source.(type) {
@@ -2020,7 +2424,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 		fmt.Sprintf("CREATE TABLE e2e_test_%s.%s(id int primary key, val text)", suffix, tableName)))
 
 	// Create peer for the proxy connection
-	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	proxyConfig := internal.GetAncillaryPostgresConfigFromEnv()
 	proxyConfig.Port = uint32(9902)
 	proxyPeer := &protos.Peer{
 		Name: "proxy_postgres_" + suffix,

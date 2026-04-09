@@ -3,6 +3,7 @@ package alerting
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -25,4 +26,14 @@ func GetTags(ctx context.Context, catalogPool shared.CatalogPool, flowName strin
 	}
 
 	return tags, nil
+}
+
+func UpdateTags(ctx context.Context, catalogPool shared.CatalogPool, flowName string, tags map[string]string) error {
+	if len(tags) == 0 {
+		return nil
+	}
+	if _, err := catalogPool.Exec(ctx, "UPDATE flows SET tags=$1, updated_at=now() WHERE name=$2", tags, flowName); err != nil {
+		return fmt.Errorf("unable to update tags for flow %s: %w", flowName, err)
+	}
+	return nil
 }

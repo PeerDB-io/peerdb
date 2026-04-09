@@ -475,6 +475,11 @@ func (a *Alerter) recordFlowErrorInternal(
 		slog.String("flowErrorType", errorType.String()),
 	)
 
+	if ctx.Err() != nil {
+		logger.Error("Skipping flow error handling: " + ctx.Err().Error())
+		return
+	}
+
 	// 2. Insert log to flow_errors table
 	if err := InsertFlowLog(ctx, a.CatalogPool, flowName, errMessage, errorType); err != nil {
 		logger.Error("failed to insert flow error", slog.Any("error", err))

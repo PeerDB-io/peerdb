@@ -1,41 +1,58 @@
-name: Update docker-compose.yaml tags
+name: Update Deployment tags (Docker Compose and Helm Charts)
 
 on:
-  schedule:
-    - cron: '0 15 * * 1'
   workflow_dispatch:
     inputs: {}
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
-    
+
 permissions:
   issues: write
   pull-requests: write
   contents: write
 
 
-env:
-  PR_BRANCH: automated/docker-compose-image-tags-upgrade
-  PR_LABEL: dependencies
-  PR_TITLE: "feat: upgrade `docker-compose.yml` stable image tags"
-
 jobs:
-  update-docker-compose-tag:
+  get-latest-release:
     runs-on: ubuntu-latest
+    outputs:
+      latest_tag: ${{ steps.get_latest_release.outputs.latest_tag }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: main
-      - name: create-PR
+      - name: Get latest release tag
+        id: get_latest_release
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -eou pipefail
           latest_tag="$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             /repos/${{ github.repository }}/releases/latest | jq -r '.tag_name')"
+          echo "latest_tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+  update-docker-compose-tag:
+    runs-on: ubuntu-latest
+    needs: get-latest-release
+    env:
+      PR_BRANCH: automated/docker-compose-image-tags-upgrade-${{ needs.get-latest-release.outputs.latest_tag }}
+      PR_LABEL: dependencies
+      PR_TITLE: "feat: upgrade `docker-compose.yml` stable image tags"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: main
+      - name: Update PeerDb Version in docker-compose.yml
+        id: update-peerdb-version
+        shell: bash
+        run: |
+          set -eou pipefail
+          latest_tag="${{ needs.get-latest-release.outputs.latest_tag }}"
           sed -i -E 's|(image: ghcr\.io/peerdb\-io/.*?:stable-)(.*$)|\1'"${latest_tag}"'|g' docker-compose.yml
+          git diff --exit-code || echo "changes=true" >> "$GITHUB_OUTPUT"
+      - name: Create PR
+        if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
+        shell: bash
+        run: |
           git config --global user.name "${GITHUB_ACTOR}"
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git checkout -b "${PR_BRANCH}"
@@ -49,7 +66,69 @@ jobs:
             PR_ID=$(gh pr create -l "$PR_LABEL" -t "$PR_TITLE" --body "")
           fi
 
-          
           gh pr merge --auto --squash
         env:
           GH_TOKEN: ${{ github.token }}
+
+  update-helm-chart-peerdb-tag:
+    runs-on: ubuntu-latest
+    needs: get-latest-release
+    env:
+      PR_BRANCH: automated/peerdb-release-version-update-${{ needs.get-latest-release.outputs.latest_tag }}
+      PR_LABEL: automated/peerdb-release-version-update
+      PR_TITLE: "feat: upgrade PeerDB release version in enterprise charts"
+      PEERDB_VERSION: ${{ needs.get-latest-release.outputs.latest_tag }}
+      STABLE_PEERDB_VERSION: stable-${{ needs.get-latest-release.outputs.latest_tag }}
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: main
+          repository: PeerDB-io/peerdb-enterprise
+          token: ${{ secrets.DEVOPS_BOT_GITHUB_TOKEN }}
+      - name: Update PeerDB version
+        id: update-peerdb-version
+        run: |
+          set -eo pipefail
+          sed -i -E 's:(^PEERDB_VERSION=).*?($):\1${{ env.STABLE_PEERDB_VERSION }}\2:g' .env.template
+          yq -e -i '.appVersion = strenv(PEERDB_VERSION)' peerdb/Chart.yaml
+          yq -e -i '.appVersion = strenv(PEERDB_VERSION)' peerdb-catalog/Chart.yaml
+          yq -e -i '.peerdb.version = strenv(STABLE_PEERDB_VERSION)' peerdb/values.yaml
+          git diff --exit-code || echo "changes=true" >> "$GITHUB_OUTPUT"
+      - name: Get next version
+        if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
+        uses: reecetech/version-increment@a29aa752dc3b8118a2dc2ed93faf0e95a73a9c7e # 2024.10.1
+        id: version
+        with:
+          scheme: semver
+          increment: patch
+      - name: Update Chart version
+        if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
+        run: |
+          set -eo pipefail
+          yq -e -i '.version = "${{ steps.version.outputs.version }}"' peerdb/Chart.yaml
+          yq -e -i '.version = "${{ steps.version.outputs.version }}"' peerdb-catalog/Chart.yaml
+      - name: Update helm-docs for both charts
+        if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
+        run: |
+          docker run -v "$PWD:/helm-docs" -u $(id -u) jnorwood/helm-docs:latest -c peerdb -d > peerdb/README.md
+          docker run -v "$PWD:/helm-docs" -u $(id -u) jnorwood/helm-docs:latest -c peerdb-catalog -d > peerdb-catalog/README.md
+      - name: Commit changes
+        if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
+        run: |
+          git config --global user.name "DevOps Bot"
+          git config --global user.email "peerdb-oss-devops-bot@clickhouse.com"
+          git add -u .
+          git checkout -b "${{ env.PR_BRANCH }}"
+          git commit -m "feat: upgrade PeerDB release version to ${{ env.PEERDB_VERSION }}"
+          git push -u origin "${{ env.PR_BRANCH }}" --force-with-lease
+          PR_ID=$(gh pr list --label "${PR_LABEL}" --head "${PR_BRANCH}" --json number | jq -r '.[0].number // ""')
+          if [ "$PR_ID" == "" ]; then
+            PR_ID=$(gh pr create -l "$PR_LABEL" -t "$PR_TITLE" --body "")
+          fi
+          echo 'This PR updates the PeerDB release version to `${{ env.PEERDB_VERSION }}` and the chart version to `${{ steps.version.outputs.version }}`.' > pr_body.txt
+          echo 'Please review and merge it to update the charts.' >> pr_body.txt
+          gh pr edit "$PR_ID" --body "$(cat pr_body.txt)"
+          gh pr merge "$PR_ID" --squash --auto
+        env:
+          GITHUB_TOKEN: ${{ secrets.DEVOPS_BOT_GITHUB_TOKEN }}
