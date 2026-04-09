@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmssql "github.com/PeerDB-io/peerdb/flow/connectors/mssql"
@@ -149,14 +150,23 @@ func (s *MsSqlSource) Exec(ctx context.Context, sql string, args ...any) error {
 	return err
 }
 
-// EnableTableCdc enables CDC on a table, retrying on deadlock.
+// EnableTableCdc enables CDC on a table, retrying on transient errors.
+// sp_cdc_enable_table is idempotent and catches internal deadlocks,
+// re-raising them as a different error number with 1205 in the message text,
+// so structured deadlock detection doesn't work here.
 func (s *MsSqlSource) EnableTableCdc(ctx context.Context, schema, table string) error {
-	return s.MsSqlConnector.RetryOnDeadlock(func() error {
-		_, err := s.conn.ExecContext(ctx, fmt.Sprintf(
-			"EXEC sys.sp_cdc_enable_table @source_schema=N'%s', @source_name=N'%s', @role_name=NULL, @supports_net_changes=0",
-			schema, table))
-		return err
-	})
+	query := fmt.Sprintf(
+		"EXEC sys.sp_cdc_enable_table @source_schema=N'%s', @source_name=N'%s', @role_name=NULL, @supports_net_changes=0",
+		schema, table)
+	var err error
+	for range 5 {
+		_, err = s.conn.ExecContext(ctx, query)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+	return err
 }
 
 func (s *MsSqlSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
