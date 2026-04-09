@@ -48,3 +48,17 @@ func TestNewSearchClientDetectsOpenSearch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, searchBackendOpenSearch, client.Backend())
 }
+
+func TestDetectSearchBackendDefaultsToElasticsearch(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"tagline":"search backend"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	backend, err := detectSearchBackend(context.Background(), []string{server.URL}, server.Client().Transport)
+	require.NoError(t, err)
+	require.Equal(t, searchBackendElastic, backend)
+}
