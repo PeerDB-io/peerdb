@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"slices"
 	"net/url"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -28,10 +29,16 @@ const errDeadlock = 1205
 
 func isDeadlock(err error) bool {
 	var mssqlErr mssql.Error
-	if !errors.As(err, &mssqlErr) {
-		return false
+	if errors.As(err, &mssqlErr) {
+		if mssqlErr.Number == errDeadlock {
+			return true
+		}
+		if slices.ContainsFunc(mssqlErr.All, func(e mssql.Error) bool { return e.Number == errDeadlock }) {
+			return true
+		}
 	}
-	return slices.ContainsFunc(mssqlErr.All, func(e mssql.Error) bool { return e.Number == errDeadlock })
+	// fallback: error may be wrapped by database/sql in a way errors.As can't unwrap
+	return strings.Contains(err.Error(), "1205")
 }
 
 type MsSqlConnector struct {
