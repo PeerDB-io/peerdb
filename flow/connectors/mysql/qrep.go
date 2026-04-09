@@ -211,13 +211,9 @@ func (c *MySqlConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
-	}
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q,
-		binlogRowMetadataSupported, config.Version)
+		config.Version)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
