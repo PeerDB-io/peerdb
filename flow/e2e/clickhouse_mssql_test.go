@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -12,12 +13,21 @@ import (
 )
 
 func TestPeerFlowE2ETestSuiteMSSQL_CH(t *testing.T) {
+	if os.Getenv("CI_MSSQL_HOST") == "" {
+		t.Skip("CI_MSSQL_HOST not set")
+	}
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MsSqlSource, string, error) {
 		t.Helper()
 		suffix := "mssch_" + strings.ToLower(shared.RandomString(8))
 		source, err := SetupMsSql(t, suffix)
 		return source, suffix, err
 	}))
+}
+
+// mssqlTable returns "dbo.<table>" for use as source table identifier.
+// MSSQL connector targets the database, tables live in dbo schema.
+func mssqlTable(table string) string {
+	return "dbo." + table
 }
 
 func (s ClickHouseSuite) Test_Simple_MsSQL() {
@@ -27,7 +37,7 @@ func (s ClickHouseSuite) Test_Simple_MsSQL() {
 	mssqlSource := s.source.(*MsSqlSource)
 
 	srcTableName := "test_simple"
-	srcFullName := s.attachSchemaSuffix(srcTableName)
+	srcFullName := mssqlTable(srcTableName)
 	dstTableName := "test_simple"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`CREATE TABLE %s (
@@ -39,7 +49,7 @@ func (s ClickHouseSuite) Test_Simple_MsSQL() {
 	require.NoError(s.t, mssqlSource.EnableTableCdc(s.t.Context(), "dbo", srcTableName))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      srcFullName,
+		FlowJobName:      s.attachSchemaSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -87,7 +97,7 @@ func (s ClickHouseSuite) Test_Types_MsSQL() {
 	mssqlSource := s.source.(*MsSqlSource)
 
 	srcTableName := "test_types"
-	srcFullName := s.attachSchemaSuffix(srcTableName)
+	srcFullName := mssqlTable(srcTableName)
 	dstTableName := "test_types"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`CREATE TABLE %s (
@@ -136,13 +146,14 @@ func (s ClickHouseSuite) Test_Types_MsSQL() {
 			3.14, 2.718281828, 123456.7890, 123456.789012, 922337203685477.5807, 214748.3647,
 			'fixed', 'variable', 'long text', N'unicode', N'nvarchar val', N'ntext val',
 			0xDEADBEEF00000000, 0xCAFEBABE,
-			'2024-01-15', '10:30:45.1234567', '2024-01-15T10:30:00',
-			'2024-01-15T10:30:00.1234567', '2024-01-15T10:30:00', '2024-01-15T10:30:00+05:30',
-			'550e8400-e29b-41d4-a716-446655440000', '<root><item>test</item></root>', CAST('hello variant' AS sql_variant)
+			'2024-01-15', '10:30:45.123456', '2024-01-15T10:30:00',
+			'2024-01-15T10:30:00.123456', '2024-01-15T10:30:00', '2024-01-15T10:30:00+05:30',
+			'550e8400-e29b-41d4-a716-446655440000', '<root><item>test</item></root>',
+			CAST('hello variant' AS sql_variant)
 		)`, srcTableName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      srcFullName,
+		FlowJobName:      s.attachSchemaSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -163,7 +174,6 @@ func (s ClickHouseSuite) Test_Types_MsSQL() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on snapshot",
 		srcTableName, dstTableName, allCols)
 
-	// CDC: second row with boundary values
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s
 		(c_bit, c_tinyint, c_smallint, c_int, c_bigint,
 		 c_real, c_float, c_decimal, c_numeric, c_money, c_smallmoney,
@@ -176,8 +186,10 @@ func (s ClickHouseSuite) Test_Types_MsSQL() {
 			0.0, 0.0, 0.0000, 0.000000, 0.0000, 0.0000,
 			'', '', '', N'', N'', N'',
 			0x0000000000000000, 0x00,
-			'1753-01-01', '00:00:00', '1753-01-01T00:00:00', '0001-01-01T00:00:00', '1900-01-01T00:00:00', '0001-01-01T00:00:00+00:00',
-			'00000000-0000-0000-0000-000000000000', '<empty/>', CAST(0 AS sql_variant)
+			'1753-01-01', '00:00:00', '1753-01-01T00:00:00',
+			'0001-01-01T00:00:00', '1900-01-01T00:00:00', '0001-01-01T00:00:00+00:00',
+			'00000000-0000-0000-0000-000000000000', '<empty/>',
+			CAST(0 AS sql_variant)
 		)`, srcTableName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc insert",
@@ -194,7 +206,7 @@ func (s ClickHouseSuite) Test_Nullable_MsSQL() {
 	mssqlSource := s.source.(*MsSqlSource)
 
 	srcTableName := "test_nullable"
-	srcFullName := s.attachSchemaSuffix(srcTableName)
+	srcFullName := mssqlTable(srcTableName)
 	dstTableName := "test_nullable"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`CREATE TABLE %s (
@@ -209,24 +221,23 @@ func (s ClickHouseSuite) Test_Nullable_MsSQL() {
 
 	require.NoError(s.t, mssqlSource.EnableTableCdc(s.t.Context(), "dbo", srcTableName))
 
-	// row with all NULLs
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		"INSERT INTO %s (c_int, c_varchar, c_decimal, c_date, c_uniqueid, c_varbinary)"+
 			" VALUES (NULL, NULL, NULL, NULL, NULL, NULL)", srcTableName)))
 
-	// row with values
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		"INSERT INTO %s (c_int, c_varchar, c_decimal, c_date, c_uniqueid, c_varbinary)"+
 			" VALUES (42, 'hello', 3.14, '2024-06-15', 'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11', 0xDEAD)",
 		srcTableName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      srcFullName,
+		FlowJobName:      s.attachSchemaSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -236,7 +247,6 @@ func (s ClickHouseSuite) Test_Nullable_MsSQL() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on snapshot",
 		srcTableName, dstTableName, allCols)
 
-	// CDC: update non-null to null
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		"UPDATE %s SET c_int=NULL, c_varchar=NULL WHERE c_int=42", srcTableName)))
 

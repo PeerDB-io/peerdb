@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"slices"
 	"net/url"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,14 @@ import (
 
 // https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-1205-database-engine-error
 const errDeadlock = 1205
+
+func isDeadlock(err error) bool {
+	var mssqlErr mssql.Error
+	if !errors.As(err, &mssqlErr) {
+		return false
+	}
+	return slices.ContainsFunc(mssqlErr.All, func(e mssql.Error) bool { return e.Number == errDeadlock })
+}
 
 type MsSqlConnector struct {
 	*metadataStore.PostgresMetadata
@@ -96,8 +105,7 @@ func (c *MsSqlConnector) RetryOnDeadlock(f func() error) error {
 		if err == nil {
 			return nil
 		}
-		var mssqlErr mssql.Error
-		if !errors.As(err, &mssqlErr) || mssqlErr.Number != errDeadlock {
+		if !isDeadlock(err) {
 			return err
 		}
 	}

@@ -92,7 +92,8 @@ func QValueFromMssqlValue(qkind types.QValueKind, val any) (types.QValue, error)
 		case []byte:
 			return types.QValueString{Val: string(v)}, nil
 		default:
-			return nil, fmt.Errorf("expected string for %s, got %T", qkind, val)
+			// sql_variant and other polymorphic types can return any Go type
+			return types.QValueString{Val: fmt.Sprint(val)}, nil
 		}
 
 	case types.QValueKindBytes:

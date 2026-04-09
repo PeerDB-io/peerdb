@@ -38,6 +38,15 @@ func (s ClickHouseSuite) T() *testing.T {
 	return s.t
 }
 
+// RequirePgOrMySQL skips tests that use Postgres/MySQL-specific SQL syntax
+func (s ClickHouseSuite) RequirePgOrMySQL() {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+	default:
+		s.t.Skipf("test uses Postgres/MySQL-specific SQL, skipping for %T", s.source)
+	}
+}
+
 func (s ClickHouseSuite) Connector() connectors.Connector {
 	return s.source.Connector()
 }

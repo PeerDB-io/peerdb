@@ -35,11 +35,15 @@ func mssqlPort() uint32 {
 func SetupMsSql(t *testing.T, suffix string) (*MsSqlSource, error) {
 	t.Helper()
 
+	if os.Getenv("CI_MSSQL_HOST") == "" {
+		return nil, fmt.Errorf("CI_MSSQL_HOST not set, skipping SQL Server tests")
+	}
+
 	config := &protos.SqlServerConfig{
 		Host:     mssqlHost(),
 		Port:     mssqlPort(),
 		User:     "sa",
-		Password: "PeerDB@1234",
+		Password: "PeerDB@ci1234",
 		Database: "",
 	}
 
@@ -130,7 +134,7 @@ func (s *MsSqlSource) Teardown(t *testing.T, ctx context.Context, suffix string)
 func (s *MsSqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 	peer := &protos.Peer{
-		Name: "mssql",
+		Name: s.Config.Database,
 		Type: protos.DBType_SQLSERVER,
 		Config: &protos.Peer_SqlserverConfig{
 			SqlserverConfig: s.Config,
@@ -145,12 +149,14 @@ func (s *MsSqlSource) Exec(ctx context.Context, sql string, args ...any) error {
 	return err
 }
 
-// EnableTableCdc enables CDC on a table. Call after CREATE TABLE.
+// EnableTableCdc enables CDC on a table, retrying on deadlock.
 func (s *MsSqlSource) EnableTableCdc(ctx context.Context, schema, table string) error {
-	_, err := s.conn.ExecContext(ctx, fmt.Sprintf(
-		"EXEC sys.sp_cdc_enable_table @source_schema=N'%s', @source_name=N'%s', @role_name=NULL, @supports_net_changes=0",
-		schema, table))
-	return err
+	return s.MsSqlConnector.RetryOnDeadlock(func() error {
+		_, err := s.conn.ExecContext(ctx, fmt.Sprintf(
+			"EXEC sys.sp_cdc_enable_table @source_schema=N'%s', @source_name=N'%s', @role_name=NULL, @supports_net_changes=0",
+			schema, table))
+		return err
+	})
 }
 
 func (s *MsSqlSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
