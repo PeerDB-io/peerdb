@@ -152,6 +152,7 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
 # Test services: Services supporting test execution that are not data stores, like proxies, mock servers, etc.
 
 dc_resource('toxiproxy', labels=['TestInfra'], auto_init=False)
+dc_resource('openssh', labels=['TestInfra'], auto_init=False)
 
 # Cleanup
 

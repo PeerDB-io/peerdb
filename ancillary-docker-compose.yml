@@ -156,6 +156,29 @@ services:
     #  timeout: 10s
     #  retries: 5
 
+  openssh:
+    container_name: peerdb-test-ssh
+    # Same image as CI flow
+    image: linuxserver/openssh-server:latest@sha256:57c13941ef385d735cca18ee969eeba18e42ab95480c97af2182505aacdfe307
+    restart: unless-stopped
+    ports:
+      - "2222:2222"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - USER_NAME=testuser
+      - USER_PASSWORD=testpass
+      - PASSWORD_ACCESS=true
+      - DOCKER_MODS=linuxserver/mods:openssh-server-ssh-tunnel
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2222"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
 volumes:
   postgres_data:
   clickhouse_data:
