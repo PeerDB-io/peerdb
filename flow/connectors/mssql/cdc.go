@@ -99,9 +99,11 @@ func (c *MsSqlConnector) captureInstanceForTable(ctx context.Context, schema, ta
 }
 
 func (c *MsSqlConnector) getCapturedColumns(ctx context.Context, captureInstance string) ([]string, error) {
-	rows, err := c.conn.QueryContext(ctx, fmt.Sprintf(
-		"SELECT column_name FROM cdc.captured_columns WHERE capture_instance = %s ORDER BY column_ordinal",
-		sanitize.QuoteString(captureInstance)))
+	rows, err := c.conn.QueryContext(ctx,
+		"SELECT cc.column_name FROM cdc.captured_columns cc"+
+			" JOIN cdc.change_tables ct ON cc.object_id = ct.object_id"+
+			" WHERE ct.capture_instance = @p1 ORDER BY cc.column_ordinal",
+		captureInstance)
 	if err != nil {
 		return nil, fmt.Errorf("[mssql] failed to get captured columns for %s: %w", captureInstance, err)
 	}
