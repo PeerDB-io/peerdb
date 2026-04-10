@@ -249,7 +249,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 	var slotName pgtype.Text
 	err := c.conn.QueryRow(ctx,
 		"SELECT slot_name FROM pg_replication_slots WHERE slot_name = $1",
-		slot).Scan(&slotName)
+		pgx.QueryExecModeSimpleProtocol, slot).Scan(&slotName)
 	if err != nil {
 		// check if the error is a "no rows" error
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -262,7 +262,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 	// Check if the publication exists
 	var pubName pgtype.Text
 	if err := c.conn.QueryRow(ctx,
-		"SELECT pubname FROM pg_publication WHERE pubname = $1", publication,
+		"SELECT pubname FROM pg_publication WHERE pubname = $1", pgx.QueryExecModeSimpleProtocol, publication,
 	).Scan(&pubName); err != nil {
 		// check if the error is a "no rows" error
 		if !errors.Is(err, pgx.ErrNoRows) {
