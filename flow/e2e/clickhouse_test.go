@@ -24,7 +24,6 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -808,9 +807,6 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
 	}
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-
 	nines := func(integer, fraction int) string {
 		integerStr := strings.Repeat("9", integer)
 		if integer == 0 {
@@ -886,7 +882,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	fmt.Fprint(&sb, ")")
 	insertQuery := sb.String()
 
-	err = s.Source().Exec(s.t.Context(), insertQuery)
+	err := s.Source().Exec(s.t.Context(), insertQuery)
 	require.NoError(s.t, err)
 
 	flowJobName := s.attachSuffix(fmt.Sprintf("clickhouse_test_num_trunc_ff_%v", unbNumAsStringFf))
@@ -906,13 +902,13 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	if totalCleared > 0 {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared messages", func() bool {
 			count, err := GetLogCount(
-				s.t.Context(), catalogPool, flowJobName, "warn", "cleared 1 NUMERIC value too big to fit into the destination column",
+				s.t.Context(), s.catalog, flowJobName, "warn", "cleared 1 NUMERIC value too big to fit into the destination column",
 			)
 			return err == nil && count == totalCleared*2 // positive and negative
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared array messages", func() bool {
 			count, err := GetLogCount(
-				s.t.Context(), catalogPool, flowJobName, "warn", "cleared 2 NUMERIC values too big to fit into the destination column",
+				s.t.Context(), s.catalog, flowJobName, "warn", "cleared 2 NUMERIC values too big to fit into the destination column",
 			)
 			return err == nil && count == totalCleared
 		})
@@ -921,14 +917,14 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
 			msg := "truncated 1 NUMERIC value too precise to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), catalogPool, flowJobName, "warn", msg,
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated*2 // positive and negative
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated array messages", func() bool {
 			msg := "truncated 2 NUMERIC values too precise to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), catalogPool, flowJobName, "warn", msg,
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated
 		})
@@ -942,14 +938,14 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared messages", func() bool {
 			msg := "cleared 1 NUMERIC value too big to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), catalogPool, flowJobName, "warn", msg,
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalCleared*2*2 // positive and negative, snapshot and cdc
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared array messages", func() bool {
 			msg := "cleared 2 NUMERIC values too big to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), catalogPool, flowJobName, "warn", msg,
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalCleared*2 // snapshot and cdc
 		})
@@ -958,14 +954,14 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
 			msg := "truncated 1 NUMERIC value too precise to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), catalogPool, flowJobName, "warn", msg,
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated*2*2 // positive and negative, snapshot and cdc
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated array messages", func() bool {
 			msg := "truncated 2 NUMERIC values too precise to fit into the destination column"
 			count, err := GetLogCount(
-				s.t.Context(), catalogPool, flowJobName, "warn", msg,
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated*2 // snapshot and cdc
 		})
@@ -2223,12 +2219,9 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	require.NoError(s.t, renameErr)
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update1'`, srcFullName2)))
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for first sync to complete", func() bool {
 		var syncBatchID pgtype.Int8
-		queryErr := catalogPool.QueryRow(s.t.Context(),
+		queryErr := s.catalog.QueryRow(s.t.Context(),
 			"SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name=$1",
 			flowConnConfig.FlowJobName).Scan(&syncBatchID)
 		if queryErr != nil {
@@ -2252,7 +2245,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for normalize error", func() bool {
 		errorCount, err := GetLogCount(
-			s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "error while inserting into target clickhouse table",
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error", "error while inserting into target clickhouse table",
 		)
 		return err == nil && errorCount > 0
 	})
@@ -2265,7 +2258,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for second sync to complete", func() bool {
 		var syncBatchID pgtype.Int8
-		queryErr := catalogPool.QueryRow(s.t.Context(),
+		queryErr := s.catalog.QueryRow(s.t.Context(),
 			"SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name=$1",
 			flowConnConfig.FlowJobName).Scan(&syncBatchID)
 		if queryErr != nil {
@@ -2288,7 +2281,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "check normalize table metadata after normalize", func() bool {
 		var batchID1, batchID2 pgtype.Int8
-		queryErr := catalogPool.QueryRow(s.t.Context(), fmt.Sprintf(`
+		queryErr := s.catalog.QueryRow(s.t.Context(), fmt.Sprintf(`
 		SELECT (table_batch_id_data->>'%s')::bigint, (table_batch_id_data->>'%s')::bigint
 		FROM metadata_last_sync_state WHERE job_name=$1`,
 			dstTableName1, dstTableName2),
@@ -2818,9 +2811,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-	countRow := catalogPool.QueryRow(s.t.Context(),
+	countRow := s.catalog.QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
@@ -2878,9 +2869,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-	countRow := catalogPool.QueryRow(s.t.Context(),
+	countRow := s.catalog.QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
@@ -2925,9 +2914,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Empty() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-	countRow := catalogPool.QueryRow(s.t.Context(),
+	countRow := s.catalog.QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
@@ -2982,9 +2969,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-	countRow := catalogPool.QueryRow(s.t.Context(),
+	countRow := s.catalog.QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
@@ -3154,9 +3139,7 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 		`, srcFullName, numRows+1, 25, numRows+1)))
 	EnvWaitForCount(env, s, "wait on cdc", dstTableName, "id", numRows-deletedRows+1)
 
-	partitionCatalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-	rows, err := partitionCatalogPool.Query(s.t.Context(),
+	rows, err := s.catalog.Query(s.t.Context(),
 		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1
 		ORDER BY
 			CAST(split_part(trim(both '()' from partition_start), ',', 1) AS bigint),

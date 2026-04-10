@@ -21,7 +21,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -30,6 +32,7 @@ type ClickHouseSuite struct {
 	source    SuiteSource
 	s3Helper  *S3TestHelper
 	connector *connclickhouse.ClickHouseConnector
+	catalog   shared.CatalogPool
 	suffix    string
 	cluster   bool
 }
@@ -429,6 +432,10 @@ func SetupClickHouseSuite[TSource SuiteSource](
 		connector, err := connclickhouse.NewClickHouseConnector(t.Context(), nil, s.Peer().GetClickhouseConfig())
 		require.NoError(t, err)
 		s.connector = connector
+
+		catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+		require.NoError(t, err, "failed to get catalog connection pool")
+		s.catalog = catalogPool
 
 		return s
 	}
