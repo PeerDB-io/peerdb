@@ -827,10 +827,14 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		var notFound *exceptions.NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 			logger := internal.LoggerFromCtx(ctx)
 			logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
+			return nil
+		}
+		if _, ok := errors.AsType[*exceptions.AuthError](err); ok {
+			logger := internal.LoggerFromCtx(ctx)
+			logger.Warn("auth error, skipping to avoid triggering security tools", slog.String("peer", req.PeerName))
 			return nil
 		}
 		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
@@ -840,8 +844,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	defer srcClose(ctx)
 
 	if err := srcConn.PullFlowCleanup(ctx, req.FlowJobName); err != nil {
-		var dnsErr *net.DNSError
-		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		if dnsErr, ok := errors.AsType[*net.DNSError](err); ok && dnsErr.IsNotFound {
 			a.Alerter.LogFlowWarning(ctx, req.FlowJobName, fmt.Errorf("[DropFlowSource] hostname not found, skipping: %w", err))
 			return nil
 		} else {
