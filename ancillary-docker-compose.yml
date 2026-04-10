@@ -147,14 +147,11 @@ services:
       - 49003:49003
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # curl is not available in toxyproxy image, there are several ways to work around
-    # this but I don't see the need to follow this path for a test supporting container
-    # without configuration.
-    #healthcheck:
-    #  test: ["CMD", "curl", "-f", "http://localhost:8474/health"]
-    #  interval: 2s
-    #  timeout: 10s
-    #  retries: 5
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
 
   openssh:
     container_name: peerdb-test-ssh
