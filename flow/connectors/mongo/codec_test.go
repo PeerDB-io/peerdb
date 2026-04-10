@@ -251,6 +251,11 @@ func TestMarshalDocument(t *testing.T) {
 			expected: `{"date":"1970-01-01T00:00:00Z"}`,
 		},
 		{
+			desc:     "bson.DateTime pre-1970",
+			input:    bson.D{{Key: "date", Value: bson.DateTime(-1)}},
+			expected: `{"date":"1969-12-31T23:59:59.999Z"}`,
+		},
+		{
 			desc:     "bson.DateTime",
 			input:    bson.D{{Key: "date", Value: bson.DateTime(1672531200000)}}, // 2023-01-01 00:00:00 UTC
 			expected: `{"date":"2023-01-01T00:00:00Z"}`,
