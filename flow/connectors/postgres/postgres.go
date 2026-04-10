@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -100,6 +101,15 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, tunnel)
 	if err != nil {
 		tunnel.Close()
+
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+			switch pgErr.Code {
+			case pgerrcode.InvalidAuthorizationSpecification,
+				pgerrcode.InvalidPassword,
+				pgerrcode.InsufficientPrivilege:
+				err = exceptions.NewAuthError(err)
+			}
+		}
 		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
