@@ -49,9 +49,11 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	}
 	var chPort uint32 = 9000
 	if port := os.Getenv("CI_CLICKHOUSE_NATIVE_PORT"); port != "" {
-		if p, err := strconv.ParseUint(port, 10, 32); err == nil {
-			chPort = uint32(p)
+		p, err := strconv.ParseUint(port, 10, 32)
+		if err != nil {
+			t.Fatalf("invalid CI_CLICKHOUSE_NATIVE_PORT %q: %v", port, err)
 		}
+		chPort = uint32(p)
 	}
 
 	conn, err := NewClickHouseConnector(ctx, nil,
