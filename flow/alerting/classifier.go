@@ -789,7 +789,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 202: // NetworkInterfaceExceededTimeLimit
 			return ErrorNotifyConnectivity, mongoErrorInfo
-		case 286: // ChangeStreamHistoryLost
+		case 136, // CappedPositionLost
+			286: // ChangeStreamHistoryLost
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
 		case 11600, //  InterruptedAtShutdown
 			11601, // Interrupted

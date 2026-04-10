@@ -70,7 +70,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.29@sha256:69e19e8aae1c1362f9fda86ad98624e8495b0330e4674c693a931b1f8ad9bce8
+    image: temporalio/auto-setup:1.29@sha256:7eaaed21322c8bc98977fab38873847958024e01ffcc1efeffcd474c4f6461ca
     ports:
       - 7233:7233
     volumes:
@@ -114,7 +114,7 @@ services:
 
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:stable-v0.36.12
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.36.16
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -130,7 +130,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.36.12
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.36.16
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -140,7 +140,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
-    image: ghcr.io/peerdb-io/flow-worker:stable-v0.36.12
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.36.16
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -153,7 +153,7 @@ services:
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.36.12
+    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.36.16
     restart: unless-stopped
     environment:
       <<: *catalog-config
@@ -169,7 +169,7 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.36.12
+    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.36.16
     restart: unless-stopped
     ports:
       - 3000:3000

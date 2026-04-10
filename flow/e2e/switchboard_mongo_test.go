@@ -85,7 +85,7 @@ func SetupSwitchboardMongoSuite(t *testing.T) SwitchboardMongoSuite {
 	conn, err := pgx.Connect(t.Context(), switchboardDSN(peer.Name, nil))
 	if err != nil {
 		source.Teardown(t, t.Context(), suffix)
-		t.Skipf("Switchboard not available: %v", err)
+		t.Fatalf("Switchboard not available: %v", err)
 	}
 	conn.Close(t.Context())
 
@@ -175,10 +175,30 @@ func (s SwitchboardMongoSuite) Test_AdminDB() {
 	require.NotEmpty(s.t, output)
 }
 
+// NOTE: psql behavior differs in interactive vs non-interactive contexts
+// Interactive mode intercepts commands like "help", and there's no practical way to test that.
 func (s SwitchboardMongoSuite) Test_Help() {
-	output, err := s.psql(`help`)
+	output, err := s.psql(`show help`)
 	require.NoError(s.t, err)
-	require.NotEmpty(s.t, output)
+
+	// Structural sections
+	require.Contains(s.t, output, "Input Format:")
+	require.Contains(s.t, output, "Shell Commands:")
+	require.Contains(s.t, output, "use <dbname>")
+	require.Contains(s.t, output, "Allowed Wire Commands:")
+
+	// Every category from the allowlist must appear
+	for _, section := range []string{"Query", "User/Role Info", "Replication", "Sharding", "Sessions", "Admin", "Diagnostic"} {
+		require.Contains(s.t, output, section+":", "missing section %q", section)
+	}
+
+	// Spot-check representative commands from different categories
+	for _, cmd := range []string{"find", "aggregate", "ping", "listCollections", "listDatabases", "explain", "serverStatus"} {
+		require.Contains(s.t, output, cmd, "missing command %q", cmd)
+	}
+
+	// Each command should have a docs link
+	require.Contains(s.t, output, "https://www.mongodb.com/docs/manual/reference/command/")
 }
 
 // ========================================

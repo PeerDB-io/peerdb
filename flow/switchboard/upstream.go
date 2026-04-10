@@ -31,7 +31,7 @@ type Upstream interface {
 	ServerParameters(ctx context.Context) map[string]string
 
 	// BackendKeyData returns (pid, secret) for cancel request routing
-	BackendKeyData() (uint32, uint32)
+	BackendKeyData() (uint32, []byte)
 
 	// Cancel cancels the currently running query
 	Cancel(ctx context.Context) error

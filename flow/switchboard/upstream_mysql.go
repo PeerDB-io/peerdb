@@ -2,6 +2,7 @@ package switchboard
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -43,9 +44,9 @@ func wrapMySQLError(err error) error {
 type MySQLUpstream struct {
 	conn         *connmysql.MySqlConnector
 	config       *protos.MySqlConfig
+	secret       []byte
 	connectionID uint32
 	pid          uint32
-	secret       uint32
 }
 
 // mysqlDeniedFunctions are functions that are denied even in SELECT statements
@@ -88,11 +89,15 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 		return nil, fmt.Errorf("failed to set read-only mode: %w", err)
 	}
 
+	execTimeoutVar := "max_execution_time"
+	execTimeoutVal := queryTimeout.Milliseconds()
+	if config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		execTimeoutVar = "max_statement_time"
+		execTimeoutVal = int64(timeoutSec)
+	}
 	_, err = conn.ExecuteNoRetry(ctx, fmt.Sprintf(
-		"SET SESSION max_execution_time = %d, "+
-			"lock_wait_timeout = %d, "+
-			"innodb_lock_wait_timeout = %d",
-		queryTimeout.Milliseconds(), timeoutSec, timeoutSec,
+		"SET SESSION %s = %d, lock_wait_timeout = %d, innodb_lock_wait_timeout = %d",
+		execTimeoutVar, execTimeoutVal, timeoutSec, timeoutSec,
 	))
 	if err != nil {
 		conn.Close()
@@ -101,7 +106,8 @@ func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTime
 
 	// Use MySQL connection ID as pid, generate random secret
 	pid := uint32(connectionID)
-	secret := rand.Uint32() //nolint:gosec // not security-critical, used for cancel routing
+	secret := make([]byte, 4)
+	binary.BigEndian.PutUint32(secret, rand.Uint32()) //nolint:gosec // not security-critical, used for cancel routing
 
 	return &MySQLUpstream{
 		conn:         conn,
@@ -140,7 +146,7 @@ func (u *MySQLUpstream) ServerParameters(ctx context.Context) map[string]string 
 }
 
 // BackendKeyData returns the synthetic PID and secret for cancel support
-func (u *MySQLUpstream) BackendKeyData() (uint32, uint32) {
+func (u *MySQLUpstream) BackendKeyData() (uint32, []byte) {
 	return u.pid, u.secret
 }
 

@@ -44,5 +44,6 @@
   "additionalReviewers": [
     "team:eng"
   ],
-  "prConcurrentLimit": 8
+  "prConcurrentLimit": 8,
+  "minimumReleaseAge": "7 days"
 }

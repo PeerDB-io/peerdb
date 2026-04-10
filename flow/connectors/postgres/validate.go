@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pg_validation "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -266,7 +267,9 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 	if cfg.Resync {
 		return nil // no need to validate schema for resync, as we will create or replace the tables
 	}
+
 	// Validate that all source columns exist in destination tables
+	checkedSchemas := make(map[string]struct{})
 	for _, tableMapping := range cfg.TableMappings {
 		srcTableIdentifier := tableMapping.SourceTableIdentifier
 		dstTableIdentifier := tableMapping.DestinationTableIdentifier
@@ -281,29 +284,34 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 			return fmt.Errorf("source table %s not found in schema mapping", srcTableIdentifier)
 		}
 
-		// Parse destination table identifier
-		dstTable, err := common.ParseTableIdentifier(dstTableIdentifier)
+		// Get destination table columns with types
+		dstColumns, err := pg_validation.GetDestinationTableSchema(ctx, c.conn, dstTableIdentifier)
 		if err != nil {
-			return fmt.Errorf("invalid destination table identifier %s: %w", dstTableIdentifier, err)
-		}
-
-		// Get destination table columns
-		dstColumns, err := c.getDestinationTableColumns(ctx, dstTable)
-		if err != nil {
-			// If table doesn't exist, that's fine - we'll create it
+			// If table doesn't exist, check that the schema does before continuing
 			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "does not exist") {
+				parsedDst, parseErr := common.ParseTableIdentifier(dstTableIdentifier)
+				if parseErr != nil {
+					return fmt.Errorf("invalid destination table identifier %s: %w", dstTableIdentifier, parseErr)
+				}
+				if _, alreadyChecked := checkedSchemas[parsedDst.Namespace]; !alreadyChecked {
+					if schemaErr := pg_validation.CheckSchemaExists(ctx, c.conn, parsedDst.Namespace); schemaErr != nil {
+						return schemaErr
+					}
+					checkedSchemas[parsedDst.Namespace] = struct{}{}
+				}
 				continue
 			}
 			return fmt.Errorf("failed to get columns for destination table %s: %w", dstTableIdentifier, err)
 		}
 
-		// Build a set of destination column names for quick lookup
-		dstColumnSet := make(map[string]struct{}, len(dstColumns))
-		for _, col := range dstColumns {
-			dstColumnSet[col] = struct{}{}
+		if cfg.DoInitialSnapshot {
+			// Check if destination table already has rows
+			if err := pg_validation.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
+				return err
+			}
 		}
 
-		// Check if all source columns exist in destination
+		// Check if all source columns exist in destination with matching types
 		for _, srcField := range srcSchema.Columns {
 			colName := srcField.Name
 
@@ -312,48 +320,34 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 				continue
 			}
 
-			// Check if column is renamed in the mapping
+			// Resolve rename if present
+			columnMappings := make([]pg_validation.ColumnMapping, 0, len(tableMapping.Columns))
 			for _, col := range tableMapping.Columns {
-				if col.SourceName == colName && col.DestinationName != "" {
-					colName = col.DestinationName
-					break
-				}
+				columnMappings = append(columnMappings, pg_validation.ColumnMapping{
+					SourceName:      col.SourceName,
+					DestinationName: col.DestinationName,
+				})
 			}
+			colName = pg_validation.ResolveDestinationColumnName(colName, columnMappings)
 
 			// Check if the column exists in destination
-			if _, exists := dstColumnSet[colName]; !exists {
-				return fmt.Errorf("source column %s (as %s) not found in destination table %s",
-					srcField.Name, colName, dstTableIdentifier)
+			if err := pg_validation.CheckColumnExists(srcField.Name, colName, dstColumns, dstTableIdentifier); err != nil {
+				return err
+			}
+
+			// Check type compatibility when using the PG type system
+			if cfg.System == protos.TypeSystem_PG {
+				dstCol := dstColumns[colName]
+				if err := pg_validation.CheckColumnTypeCompatibility(
+					srcField.Name, srcField.Type, srcField.TypeModifier,
+					colName, dstCol.TypeName, dstCol.TypeMod,
+					dstTableIdentifier,
+				); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
 	return nil
-}
-
-func (c *PostgresConnector) getDestinationTableColumns(ctx context.Context, table *common.QualifiedTable) ([]string, error) {
-	rows, err := c.conn.Query(ctx, `
-		SELECT attname
-		FROM pg_attribute
-		JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
-		JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
-		WHERE pg_namespace.nspname = $1
-			AND pg_class.relname = $2
-			AND pg_attribute.attnum > 0
-			AND NOT pg_attribute.attisdropped
-	`, table.Namespace, table.Table)
-	if err != nil {
-		return nil, err
-	}
-
-	columns, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return nil, err
-	}
-
-	if len(columns) == 0 {
-		return nil, pgx.ErrNoRows
-	}
-
-	return columns, nil
 }

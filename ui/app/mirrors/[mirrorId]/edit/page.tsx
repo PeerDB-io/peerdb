@@ -193,7 +193,7 @@ export default function EditMirror({ params }: EditMirrorProps) {
                   batchSize: e.target.valueAsNumber,
                 })
               }
-              value={config.batchSize}
+              value={Number.isNaN(config.batchSize) ? '' : config.batchSize}
             />
           </div>
         }
@@ -213,7 +213,7 @@ export default function EditMirror({ params }: EditMirrorProps) {
                   idleTimeout: e.target.valueAsNumber,
                 })
               }
-              value={config.idleTimeout}
+              value={Number.isNaN(config.idleTimeout) ? '' : config.idleTimeout}
             />
           </div>
         }
@@ -233,7 +233,11 @@ export default function EditMirror({ params }: EditMirrorProps) {
                   snapshotNumRowsPerPartition: e.target.valueAsNumber,
                 })
               }
-              value={config.snapshotNumRowsPerPartition}
+              value={
+                Number.isNaN(config.snapshotNumRowsPerPartition)
+                  ? ''
+                  : config.snapshotNumRowsPerPartition
+              }
             />
           </div>
         }
@@ -253,7 +257,11 @@ export default function EditMirror({ params }: EditMirrorProps) {
                   snapshotMaxParallelWorkers: e.target.valueAsNumber,
                 })
               }
-              value={config.snapshotMaxParallelWorkers}
+              value={
+                Number.isNaN(config.snapshotMaxParallelWorkers)
+                  ? ''
+                  : config.snapshotMaxParallelWorkers
+              }
             />
           </div>
         }
@@ -273,7 +281,11 @@ export default function EditMirror({ params }: EditMirrorProps) {
                   snapshotNumTablesInParallel: e.target.valueAsNumber,
                 })
               }
-              value={config.snapshotNumTablesInParallel}
+              value={
+                Number.isNaN(config.snapshotNumTablesInParallel)
+                  ? ''
+                  : config.snapshotNumTablesInParallel
+              }
             />
           </div>
         }

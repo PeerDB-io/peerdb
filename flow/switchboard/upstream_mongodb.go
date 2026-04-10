@@ -2,6 +2,7 @@ package switchboard
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -33,7 +34,7 @@ type MongoUpstream struct {
 	conn       *connmongo.MongoConnector
 	database   string
 	commentTag string // Unique tag for identifying operations (used for cancel)
-	secret     uint32 // Secret for cancel routing (pid is always 0)
+	secret     []byte // Secret for cancel routing (pid is always 0)
 }
 
 // NewMongoUpstream creates a new MongoDB upstream connection
@@ -44,8 +45,10 @@ func NewMongoUpstream(ctx context.Context, config *protos.MongoConfig, database 
 	}
 
 	// Generate secret for cancel routing and unique comment tag
-	secret := rand.Uint32() //nolint:gosec // not security-critical, used for cancel routing
-	commentTag := fmt.Sprintf("peerdb-%08x", secret)
+	secretInt := rand.Uint32() //nolint:gosec // not security-critical, used for cancel routing
+	secret := make([]byte, 4)
+	binary.BigEndian.PutUint32(secret, secretInt)
+	commentTag := fmt.Sprintf("peerdb-%08x", secretInt)
 
 	return &MongoUpstream{
 		conn:       conn,
@@ -119,7 +122,7 @@ func (u *MongoUpstream) TxStatus() byte {
 // ServerParameters returns fake PostgreSQL parameters for client compatibility
 func (u *MongoUpstream) ServerParameters(ctx context.Context) map[string]string {
 	return map[string]string{
-		"server_version":              "16.0-mongodb-proxy",
+		"server_version":              "16.0-mongodb-proxy; >> Type \"show help;\" for help on MongoDB switchboard <<",
 		"server_encoding":             "UTF8",
 		"client_encoding":             "UTF8",
 		"DateStyle":                   "ISO, MDY",
@@ -130,7 +133,7 @@ func (u *MongoUpstream) ServerParameters(ctx context.Context) map[string]string 
 }
 
 // BackendKeyData returns (0, secret) for cancel routing
-func (u *MongoUpstream) BackendKeyData() (uint32, uint32) {
+func (u *MongoUpstream) BackendKeyData() (uint32, []byte) {
 	return 0, u.secret
 }
 

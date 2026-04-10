@@ -34,6 +34,7 @@ func XminFlowWorkflow(
 	}
 
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
+	stateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
 
 	q := newQRepFlowExecution(ctx, config, originalRunID)
 	logger := q.logger
@@ -44,15 +45,21 @@ func XminFlowWorkflow(
 		q.activeSignal = model.PauseSignal
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 
+		selector := workflow.NewNamedSelector(ctx, "XminPauseLoop")
+		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+		signalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
+			q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, logger)
+		})
+		stateChangeChan.AddToSelector(selector, q.handleFlowSignalStateChange)
 		for q.activeSignal == model.PauseSignal {
 			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
-			// only place we block on receive, so signal processing is immediate
-			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
-			if ok {
-				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, logger)
-			} else if err := ctx.Err(); err != nil {
+			selector.Select(ctx)
+			if err := ctx.Err(); err != nil {
 				return state, err
 			}
+		}
+		if q.activeSignal == model.TerminateSignal {
+			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
 		}
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
@@ -119,6 +126,17 @@ func XminFlowWorkflow(
 			break
 		}
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+	}
+	for {
+		val, ok := stateChangeChan.ReceiveAsync()
+		if !ok {
+			break
+		}
+		q.handleFlowSignalStateChange(val, true)
+	}
+
+	if q.activeSignal == model.TerminateSignal {
+		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
 	}
 
 	logger.Info("Continuing as new workflow",
