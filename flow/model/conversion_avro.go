@@ -110,8 +110,7 @@ type QRecordAvroSchemaDefinition struct {
 }
 
 type QRecordAvroChunkSizeTracker struct {
-	TrackUncompressed bool
-	Bytes             atomic.Int64
+	Bytes atomic.Int64
 }
 
 func GetAvroSchemaDefinition(

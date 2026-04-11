@@ -193,17 +193,9 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name:             "PEERDB_S3_BYTES_PER_AVRO_FILE",
-		Description:      "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
+		Description:      "S3 upload chunk size in bytes before compression, needed for large unpartitioned initial loads.",
 		DefaultValue:     "1000000000",
 		ValueType:        protos.DynconfValueType_INT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
-	},
-	{
-		Name:             "PEERDB_S3_CHUNK_ON_UNCOMPRESSED",
-		Description:      "Track uncompressed Avro size during initial load, following the in-memory size on the destination.",
-		DefaultValue:     "true",
-		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
@@ -787,10 +779,6 @@ func PeerDBPostgresWalSenderTimeout(ctx context.Context, env map[string]string) 
 
 func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED")
-}
-
-func PeerDBS3ChunkOnUncompressed(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_S3_CHUNK_ON_UNCOMPRESSED")
 }
 
 func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {

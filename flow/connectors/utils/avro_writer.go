@@ -19,7 +19,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -125,13 +124,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			}
 			w.Close()
 		}()
-		var writer io.Writer
-		if p.sizeTracker == nil || p.sizeTracker.TrackUncompressed {
-			writer = w
-		} else {
-			writer = shared.NewWatchWriter(w, &p.sizeTracker.Bytes)
-		}
-		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions, numericTruncator)
+		numRows, writeOcfError = p.WriteOCF(ctx, env, w, typeConversions, numericTruncator)
 	}()
 
 	partSize, err := internal.PeerDBS3PartSize(ctx, env)
@@ -255,7 +248,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		return 0, err
 	}
 
-	calcSize := p.sizeTracker != nil && p.sizeTracker.TrackUncompressed
+	calcSize := p.sizeTracker != nil
 	for qrecord := range p.stream.Records {
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err

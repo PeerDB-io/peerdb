@@ -193,14 +193,6 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 		return nil, 0, err
 	}
 
-	trackUncompressed, err := internal.PeerDBS3ChunkOnUncompressed(ctx, config.Env)
-	if err != nil {
-		return nil, 0, err
-	}
-	if config.SourceType == protos.DBType_MONGO {
-		trackUncompressed = true
-	}
-
 	s.logger.Info("writing avro chunks to S3 start",
 		slog.String("partitionId", partition.PartitionId),
 		slog.Int64("bytesPerAvroFile", bytesPerAvroFile))
@@ -210,7 +202,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 		substream := model.NewQRecordStream(0)
 		substream.SetSchema(schema)
 		substream.SetSchemaDebug(stream.SchemaDebug())
-		sizeTracker := model.QRecordAvroChunkSizeTracker{TrackUncompressed: trackUncompressed}
+		sizeTracker := model.QRecordAvroChunkSizeTracker{}
 		go func() {
 			recordsDone := true
 			for record := range stream.Records {
