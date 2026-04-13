@@ -73,11 +73,11 @@ func TestMySQLRDSBinlog(t *testing.T) {
 
 func (s MySQLRDSBinlogAPITestSuite) TestMySQLRDSBinlogValidation() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid"))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid").MySQL())))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "my_validation_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "valid"): "valid"},
+		TableNameMapping: map[string]string{AttachSchema(s, "valid").Deparse(): "valid"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)

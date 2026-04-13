@@ -83,7 +83,7 @@ func (s Generic) Test_Simple_Flow() {
 	t := s.T()
 	srcTable := "test_simple"
 	dstTable := "test_simple_dst"
-	srcSchemaTable := AttachSchema(s, srcTable)
+	srcSchemaTable := SourceSQL(s, AttachSchema(s, srcTable))
 	hstoreType := "TEXT"
 	if _, isPg := s.Source().Connector().(*connpostgres.PostgresConnector); isPg {
 		hstoreType = "HSTORE"
@@ -145,7 +145,7 @@ func (s Generic) Test_Initial_Custom_Partition() {
 	srcTable := "test_custom"
 	dstTable := "test_custom_dst"
 	dstTableTm := "test_custom_tm_dst"
-	srcSchemaTable := AttachSchema(s, srcTable)
+	srcSchemaTable := SourceSQL(s, AttachSchema(s, srcTable))
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -212,7 +212,8 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	srcTable := "test_simple_schema_changes"
 	dstTable := "test_simple_schema_changes_dst"
-	srcTableName := AttachSchema(s, srcTable)
+	srcTableQualified := AttachSchema(s, srcTable)
+	srcTableName := SourceSQL(s, srcTableQualified)
 	dstTableName := s.DestinationTable(dstTable)
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
@@ -405,7 +406,7 @@ func (s Generic) Test_Partitioned_Table() {
 
 	srcTable := "test_partition"
 	dstTable := "test_partition_dst"
-	srcSchemaTable := AttachSchema(s, srcTable)
+	srcSchemaQT := AttachSchema(s, srcTable)
 
 	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 			CREATE TABLE %[1]s(
@@ -414,16 +415,19 @@ func (s Generic) Test_Partitioned_Table() {
 				created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
 				PRIMARY KEY (created_at, id)
 			) PARTITION BY RANGE(created_at);
-			CREATE TABLE %[1]s_2024q1
+			CREATE TABLE %[2]s
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-01-01') TO ('2024-04-01');
-			CREATE TABLE %[1]s_2024q2
+			CREATE TABLE %[3]s
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-04-01') TO ('2024-07-01');
-			CREATE TABLE %[1]s_2024q3
+			CREATE TABLE %[4]s
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-07-01') TO ('2024-10-01');
-	`, srcSchemaTable))
+	`, srcSchemaQT.String(),
+		AttachSchema(s, srcTable+"_2024q1").String(),
+		AttachSchema(s, srcTable+"_2024q2").String(),
+		AttachSchema(s, srcTable+"_2024q3").String()))
 	require.NoError(t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -442,7 +446,7 @@ func (s Generic) Test_Partitioned_Table() {
 		testName := fmt.Sprintf("test_name_%d", i)
 		_, err := conn.Conn().Exec(t.Context(),
 			fmt.Sprintf(`INSERT INTO %s(name, created_at) VALUES ($1, '2024-%d-01')`,
-				srcSchemaTable, max(1, i)), testName)
+				srcSchemaQT.String(), max(1, i)), testName)
 		EnvNoError(t, env, err)
 	}
 	t.Log("Inserted 10 rows into the source table")
@@ -469,6 +473,9 @@ func (s Generic) Test_Partitioned_Table_With_Different_Column_Ordering() {
 	// p1: uses parent column ordering
 	// p2: attaches partitioned table with different column ordering from parent
 	// p3: attaches partitioned table with same column ordering as parent
+	p1 := AttachSchema(s, srcTable+"_p1")
+	p2 := AttachSchema(s, srcTable+"_p2")
+	p3 := AttachSchema(s, srcTable+"_p3")
 	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %[1]s(
 			id INT NOT NULL,
@@ -477,28 +484,28 @@ func (s Generic) Test_Partitioned_Table_With_Different_Column_Ordering() {
 			created_at TIMESTAMP DEFAULT now(),
 			PRIMARY KEY (created_at, id)
 		) PARTITION BY RANGE(created_at);
-		CREATE TABLE %[1]s_p1
+		CREATE TABLE %[2]s
 			PARTITION OF %[1]s
 			FOR VALUES FROM ('2024-01-01') TO ('2024-05-01');
-		CREATE TABLE %[1]s_p2(
+		CREATE TABLE %[3]s(
 			value INT,
 			created_at TIMESTAMP DEFAULT now(),
 			key TEXT,
 			id INT NOT NULL,
 			PRIMARY KEY (created_at, id)
 		);
-		ALTER TABLE %[1]s ATTACH PARTITION %[1]s_p2
+		ALTER TABLE %[1]s ATTACH PARTITION %[3]s
 			FOR VALUES FROM ('2024-05-01') TO ('2024-09-01');
-		CREATE TABLE %[1]s_p3(
+		CREATE TABLE %[4]s(
 			id INT NOT NULL,
 			key TEXT,
 			value INT,
 			created_at TIMESTAMP DEFAULT now(),
 			PRIMARY KEY (created_at, id)
 		);
-		ALTER TABLE %[1]s ATTACH PARTITION %[1]s_p3
+		ALTER TABLE %[1]s ATTACH PARTITION %[4]s
 			FOR VALUES FROM ('2024-09-01') TO ('2025-01-01');
-	`, srcSchemaTable))
+	`, srcSchemaTable, p1, p2, p3))
 	require.NoError(t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -582,9 +589,9 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	dstTable1 := "test_schema_changes_cutoff_bug_dst1"
 	srcTable2 := "test_schema_changes_cutoff_bug2"
 	dstTable2 := "test_schema_changes_cutoff_bug_dst2"
-	srcTableName1 := AttachSchema(s, srcTable1)
+	srcTableName1 := SourceSQL(s, AttachSchema(s, srcTable1))
 	dstTableName1 := s.DestinationTable(dstTable1)
-	srcTableName2 := AttachSchema(s, srcTable2)
+	srcTableName2 := SourceSQL(s, AttachSchema(s, srcTable2))
 	dstTableName2 := s.DestinationTable(dstTable2)
 
 	require.NoError(t, s.Source().Exec(t.Context(),
@@ -705,7 +712,8 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 
 	srcTable := "test_lost_column_bug"
 	dstTable := "test_lost_column_bug_dst"
-	srcTableName := AttachSchema(s, srcTable)
+	srcTableQualified := AttachSchema(s, srcTable)
+	srcTableName := SourceSQL(s, srcTableQualified)
 	dstTableName := s.DestinationTable(dstTable)
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
@@ -743,7 +751,7 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 	}
 
 	expectedCatalogSchema := &protos.TableSchema{
-		TableIdentifier:       srcTableName,
+		TableIdentifier:       srcTableQualified.Deparse(),
 		PrimaryKeyColumns:     []string{"id"},
 		IsReplicaIdentityFull: false,
 		NullableEnabled:       false,
@@ -823,7 +831,8 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 
 	srcTable := "test_ddl_drop_column"
 	dstTable := "test_ddl_drop_column_dst"
-	srcTableName := AttachSchema(s, srcTable)
+	srcTableQualified := AttachSchema(s, srcTable)
+	srcTableName := SourceSQL(s, srcTableQualified)
 	dstTableName := s.DestinationTable(dstTable)
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
@@ -860,7 +869,7 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 
 	// dropped columns persist in catalog
 	expectedCatalogSchema := &protos.TableSchema{
-		TableIdentifier:       srcTableName,
+		TableIdentifier:       srcTableQualified.Deparse(),
 		PrimaryKeyColumns:     []string{"id"},
 		IsReplicaIdentityFull: false,
 		NullableEnabled:       false,
@@ -934,7 +943,7 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 
 	srcTable := "test_partition_noroot"
 	dstTable := "test_partition_noroot_dst"
-	srcSchemaTable := AttachSchema(s, srcTable)
+	srcSchemaQT := AttachSchema(s, srcTable)
 	srcPublicationName := fmt.Sprintf("%s_%s_pub", srcTable, s.Suffix())
 
 	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
@@ -944,17 +953,21 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 				created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
 				PRIMARY KEY (created_at, id)
 			) PARTITION BY RANGE(created_at);
-			CREATE TABLE %[1]s_2024q1
+			CREATE TABLE %[2]s
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-01-01') TO ('2024-04-01');
-			CREATE TABLE %[1]s_2024q2
+			CREATE TABLE %[3]s
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-04-01') TO ('2024-07-01');
-			CREATE TABLE %[1]s_2024q3
+			CREATE TABLE %[4]s
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-07-01') TO ('2024-10-01');
-			CREATE PUBLICATION %[2]s FOR ALL TABLES;
-	`, srcSchemaTable, srcPublicationName, Schema(s)))
+			CREATE PUBLICATION %[5]s FOR ALL TABLES;
+	`, srcSchemaQT.String(),
+		AttachSchema(s, srcTable+"_2024q1").String(),
+		AttachSchema(s, srcTable+"_2024q2").String(),
+		AttachSchema(s, srcTable+"_2024q3").String(),
+		srcPublicationName, Schema(s)))
 	require.NoError(t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -975,15 +988,16 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	go func() {
 		time.Sleep(15 * time.Second)
 		_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-		CREATE TABLE %[1]s_2024q4
-			PARTITION OF %[1]s
-			FOR VALUES FROM ('2024-10-01') TO ('2025-01-01');`, srcSchemaTable))
+		CREATE TABLE %[1]s
+			PARTITION OF %[2]s
+			FOR VALUES FROM ('2024-10-01') TO ('2025-01-01');`,
+			AttachSchema(s, srcTable+"_2024q4").String(), srcSchemaQT.String()))
 		EnvNoError(t, env, err)
 		_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-10-01');
 		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
 		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-12-01');`,
-			srcSchemaTable))
+			srcSchemaQT.String()))
 		EnvNoError(t, env, err)
 	}()
 	// insert 10 rows into the source table
@@ -991,7 +1005,7 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 		testName := fmt.Sprintf("test_name_%d", i)
 		_, err := conn.Conn().Exec(t.Context(),
 			fmt.Sprintf(`INSERT INTO %s(name, created_at) VALUES ($1, '2024-%d-01')`,
-				srcSchemaTable, max(1, i)), testName)
+				srcSchemaQT.String(), max(1, i)), testName)
 		EnvNoError(t, env, err)
 	}
 	t.Log("Inserted 13 rows into the source table")
@@ -1012,7 +1026,7 @@ func (s Generic) Test_Inheritance_Table_Without_Dynamic_Setting() {
 
 	srcTable := "test_inheritance"
 	dstTable := "test_inheritance_dst"
-	srcSchemaTable := AttachSchema(s, srcTable)
+	srcSchemaQT := AttachSchema(s, srcTable)
 	srcPublicationName := fmt.Sprintf("%s_%s_pub", srcTable, s.Suffix())
 
 	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
@@ -1022,10 +1036,13 @@ func (s Generic) Test_Inheritance_Table_Without_Dynamic_Setting() {
 				created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
 				PRIMARY KEY (created_at, id)
 			);
-			CREATE TABLE %[1]s_child1() INHERITS (%[1]s);
-			CREATE TABLE %[1]s_child2() INHERITS (%[1]s);
-			CREATE PUBLICATION %[2]s FOR TABLES IN SCHEMA %[3]s;
-	`, srcSchemaTable, srcPublicationName, Schema(s)))
+			CREATE TABLE %[2]s() INHERITS (%[1]s);
+			CREATE TABLE %[3]s() INHERITS (%[1]s);
+			CREATE PUBLICATION %[4]s FOR TABLES IN SCHEMA %[5]s;
+	`, srcSchemaQT.String(),
+		AttachSchema(s, srcTable+"_child1").String(),
+		AttachSchema(s, srcTable+"_child2").String(),
+		srcPublicationName, Schema(s)))
 	require.NoError(t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -1043,9 +1060,11 @@ func (s Generic) Test_Inheritance_Table_Without_Dynamic_Setting() {
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-01-01');
-	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2025-02-01');
-	INSERT INTO %[1]s_child2(name, created_at) VALUES ('test_name', '2025-03-01');`,
-		srcSchemaTable))
+	INSERT INTO %[2]s(name, created_at) VALUES ('test_name', '2025-02-01');
+	INSERT INTO %[3]s(name, created_at) VALUES ('test_name', '2025-03-01');`,
+		srcSchemaQT.String(),
+		AttachSchema(s, srcTable+"_child1").String(),
+		AttachSchema(s, srcTable+"_child2").String()))
 	EnvNoError(t, env, err)
 	t.Log("Inserted 3 rows into the source table during CDC")
 
@@ -1065,7 +1084,9 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 
 	srcTable := "test_inheritance_dynconf"
 	dstTable := "test_inheritance_dynconf_dst"
-	srcSchemaTable := AttachSchema(s, srcTable)
+	srcSchemaQT := AttachSchema(s, srcTable)
+	child1 := AttachSchema(s, srcTable+"_child1").String()
+	child2 := AttachSchema(s, srcTable+"_child2").String()
 	srcPublicationName := fmt.Sprintf("%s_%s_pub", srcTable, s.Suffix())
 
 	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
@@ -1075,16 +1096,16 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 				created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
 				PRIMARY KEY (created_at, id)
 			);
-			CREATE TABLE %[1]s_child1() INHERITS (%[1]s);
-			CREATE TABLE %[1]s_child2() INHERITS (%[1]s);
-			CREATE PUBLICATION %[2]s FOR TABLES IN SCHEMA %[3]s;
-	`, srcSchemaTable, srcPublicationName, Schema(s)))
+			CREATE TABLE %[2]s() INHERITS (%[1]s);
+			CREATE TABLE %[3]s() INHERITS (%[1]s);
+			CREATE PUBLICATION %[4]s FOR TABLES IN SCHEMA %[5]s;
+	`, srcSchemaQT.String(), child1, child2, srcPublicationName, Schema(s)))
 	require.NoError(t, err)
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-01-01');
-	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2024-02-01');
-	INSERT INTO %[1]s_child2(name, created_at) VALUES ('test_name', '2024-03-01');`,
-		srcSchemaTable))
+	INSERT INTO %[2]s(name, created_at) VALUES ('test_name', '2024-02-01');
+	INSERT INTO %[3]s(name, created_at) VALUES ('test_name', '2024-03-01');`,
+		srcSchemaQT.String(), child1, child2))
 	require.NoError(t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -1102,22 +1123,24 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// add a child table after CDC is running to test if is picked up by the flow.
+	child3 := AttachSchema(s, srcTable+"_child3").String()
 	go func() {
 		time.Sleep(15 * time.Second)
-		_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %[1]s_child3() INHERITS (%[1]s);`, srcSchemaTable))
+		_, err := conn.Conn().Exec(t.Context(),
+			fmt.Sprintf(`CREATE TABLE %[1]s() INHERITS (%[2]s);`, child3, srcSchemaQT.String()))
 		EnvNoError(t, env, err)
 		_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-04-01');
-		INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-05-01');`,
-			srcSchemaTable))
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-04-01');
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-05-01');`,
+			child3))
 		EnvNoError(t, env, err)
 		t.Log("Inserted 2 rows into child table created during CDC")
 	}()
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-01-01');
-	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2025-02-01');
-	INSERT INTO %[1]s_child2(name, created_at) VALUES ('test_name', '2025-03-01');`,
-		srcSchemaTable))
+	INSERT INTO %[2]s(name, created_at) VALUES ('test_name', '2025-02-01');
+	INSERT INTO %[3]s(name, created_at) VALUES ('test_name', '2025-03-01');`,
+		srcSchemaQT.String(), child1, child2))
 	EnvNoError(t, env, err)
 	t.Log("Inserted 3 rows into the source table during CDC")
 
@@ -1138,7 +1161,7 @@ func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
 
 	srcTable := "test_custom_slot_cdc"
 	dstTable := "test_custom_slot_cdc_dst"
-	srcSchemaTable := AttachSchema(s, srcTable)
+	srcSchemaTable := AttachSchema(s, srcTable).String()
 	customSlotName := "112_custom_slot_" + strings.ToLower(shared.RandomString(8))
 	customPubName := "112_custom_pub_" + strings.ToLower(shared.RandomString(8))
 

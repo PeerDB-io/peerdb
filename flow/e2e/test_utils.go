@@ -31,6 +31,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
@@ -71,8 +72,15 @@ func Schema(s Suite) string {
 	return "e2e_test_" + s.Suffix()
 }
 
-func AttachSchema(s Suite, table string) string {
-	return fmt.Sprintf("e2e_test_%s.%s", s.Suffix(), table)
+func AttachSchema(s Suite, table string) *common.QualifiedTable {
+	return &common.QualifiedTable{Namespace: Schema(s), Table: table}
+}
+
+func SourceSQL(s Suite, qt *common.QualifiedTable) string {
+	if _, ok := s.Source().(*MySqlSource); ok {
+		return qt.MySQL()
+	}
+	return qt.String()
 }
 
 func AddSuffix(s Suite, str string) string {
