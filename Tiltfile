@@ -6,7 +6,7 @@ docker_build('flow-api', '.',
     dockerfile='stacks/flow.Dockerfile',
     target='flow-api',
     only=['flow/', 'stacks/flow.Dockerfile'],
-    build_args={'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', '')},
+    build_args={'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
 )
 
 docker_build('flow-worker', '.',
@@ -149,6 +149,11 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
     link('http://localhost:8118', 'Dozzle Container Monitor'),
 ])
 
+# Test services: Services supporting test execution that are not data stores, like proxies, mock servers, etc.
+
+dc_resource('toxiproxy', labels=['TestInfra'], auto_init=False)
+dc_resource('openssh', labels=['TestInfra'], auto_init=False)
+
 # Cleanup
 
 load('ext://uibutton', 'cmd_button', 'location')
@@ -178,6 +183,8 @@ def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
     )
 
+# Generic e2e tests
+
 # Postgres to ClickHouse generic tests
 e2e_test('postgres', 'TestGenericCH_PG', ['provision-postgres'])
 
@@ -192,3 +199,7 @@ e2e_test('mariadb', 'TestGenericCH_MySQL', ['provision-mariadb'], vars_overrides
 
 # MongoDB to ClickHouse test suite
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
+
+# API e2e tests
+
+e2e_test('api-postgres', 'TestApiPg', ['provision-postgres'])
