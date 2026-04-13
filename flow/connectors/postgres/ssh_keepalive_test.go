@@ -2,6 +2,9 @@ package connpostgres
 
 import (
 	"context"
+	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,9 +26,21 @@ func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName 
 	toxiproxyClient := utils.NewToxiproxyClient(t)
 	sshProxy := utils.CreateSSHProxy(t, toxiproxyClient, proxyName, proxyPort)
 
+	pgHost := "catalog"
+	if envHost := os.Getenv("PG_HOST"); envHost != "" {
+		pgHost = envHost
+	}
+
+	var pgPort uint32 = 5432
+	if envPortStr := os.Getenv("PG_PORT"); envPortStr != "" {
+		envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
+		require.NoError(t, err, "Failed to parse PG_PORT")
+		pgPort = uint32(envPort)
+	}
+
 	connector, err := NewPostgresConnector(ctx, nil, &protos.PostgresConfig{
-		Host:     "catalog",
-		Port:     5432,
+		Host:     pgHost,
+		Port:     pgPort,
 		User:     "postgres",
 		Password: "postgres",
 		Database: "postgres",
