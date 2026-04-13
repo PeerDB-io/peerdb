@@ -728,58 +728,64 @@ func (a *FlowableActivity) normalizeLoop(
 	defer normalizeWaiting.Store(false)
 
 	for {
-		normalizeWaiting.Store(true)
-		ch := normalizeRequests.Wait()
-		if ch == nil {
-			logger.Info("[normalize-loop] lastChan closed")
-			return
-		}
-		select {
-		case <-syncDone:
-			logger.Info("[normalize-loop] syncDone closed")
-			return
-		case <-ctx.Done():
-			logger.Info("[normalize-loop] context closed")
-			return
-		case <-ch:
-			reqBatchID := normalizeRequests.Load()
-			lastNormalizedBatchID := normalizingBatchID.Load()
-			if reqBatchID <= lastNormalizedBatchID {
+		// Check for pending work before waiting on the channel.
+		// This avoids a race where Update() replaces the channel while we're
+		// processing, causing Wait() to return the new (unclosed) channel
+		// and missing the signal entirely until the next Update.
+		reqBatchID := normalizeRequests.Load()
+		lastNormalizedBatchID := normalizingBatchID.Load()
+		if reqBatchID <= lastNormalizedBatchID {
+			normalizeWaiting.Store(true)
+			ch := normalizeRequests.Wait()
+			if ch == nil {
+				logger.Info("[normalize-loop] lastChan closed")
+				return
+			}
+			select {
+			case <-syncDone:
+				logger.Info("[normalize-loop] syncDone closed")
+				return
+			case <-ctx.Done():
+				logger.Info("[normalize-loop] context closed")
+				return
+			case <-ch:
 				continue
 			}
-			retryInterval := time.Minute
-		retryLoop:
-			for {
-				normalizingBatchID.Store(reqBatchID)
-				if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
-					_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-					for {
-						// update req to latest normalize request & retry
-						select {
-						case <-syncDone:
-							logger.Info("[normalize-loop] syncDone closed before retry")
-							return
-						case <-ctx.Done():
-							logger.Info("[normalize-loop] context closed before retry")
-							return
-						default:
-							time.Sleep(retryInterval)
-							retryInterval = min(retryInterval*2, 5*time.Minute)
-							// record the last normalized batch ID even if retry fails to populate metrics consistently
-							a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(
-								ctx, lastNormalizedBatchID, metric.WithAttributeSet(attribute.NewSet(
-									attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-								)))
-							reqBatchID = normalizeRequests.Load()
-							continue retryLoop
-						}
+		}
+		normalizeWaiting.Store(false)
+
+		retryInterval := time.Minute
+	retryLoop:
+		for {
+			normalizingBatchID.Store(reqBatchID)
+			if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
+				_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+				for {
+					// update req to latest normalize request & retry
+					select {
+					case <-syncDone:
+						logger.Info("[normalize-loop] syncDone closed before retry")
+						return
+					case <-ctx.Done():
+						logger.Info("[normalize-loop] context closed before retry")
+						return
+					default:
+						time.Sleep(retryInterval)
+						retryInterval = min(retryInterval*2, 5*time.Minute)
+						// record the last normalized batch ID even if retry fails to populate metrics consistently
+						a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(
+							ctx, lastNormalizedBatchID, metric.WithAttributeSet(attribute.NewSet(
+								attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+							)))
+						reqBatchID = normalizeRequests.Load()
+						continue retryLoop
 					}
 				}
-				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-				)))
-				break
 			}
+			a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+			)))
+			break
 		}
 	}
 }
