@@ -87,7 +87,8 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to create changestream pipeline: %w", err)
 	}
-	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
+
+	changeStream, err := createChangeStream(c.client, ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
 	}
@@ -156,7 +157,7 @@ func (c *MongoConnector) PullRecords(
 		return err
 	}
 
-	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
+	changeStream, err := createChangeStream(c.client, ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		if isResumeTokenNotFoundError(err) && resumeToken != nil {
 			timestamp, err := decodeTimestampFromResumeToken(resumeToken)
@@ -165,7 +166,7 @@ func (c *MongoConnector) PullRecords(
 			}
 			changeStreamOpts.SetStartAtOperationTime(&timestamp)
 			changeStreamOpts.SetResumeAfter(nil)
-			changeStream, err = c.client.Watch(ctx, pipeline, changeStreamOpts)
+			changeStream, err = createChangeStream(c.client, ctx, pipeline, changeStreamOpts)
 			if err != nil {
 				return fmt.Errorf("failed to recreate change stream: %w", err)
 			}
@@ -299,7 +300,7 @@ func (c *MongoConnector) PullRecords(
 			changeStreamOpts.SetStartAtOperationTime(nil)
 		}
 
-		changeStream, err = c.client.Watch(ctx, pipeline, changeStreamOpts)
+		changeStream, err = createChangeStream(c.client, ctx, pipeline, changeStreamOpts)
 		if err != nil {
 			return err
 		}
@@ -325,6 +326,8 @@ func (c *MongoConnector) PullRecords(
 				if err := recreateChangeStream(false); err != nil {
 					return fmt.Errorf("failed to recreate change stream: %w", err)
 				}
+				c.logger.Info("[mongo] recreated change stream because context deadline exceeded",
+					slog.Duration("elapsed", time.Since(pullStart)))
 				continue
 			}
 
@@ -332,6 +335,7 @@ func (c *MongoConnector) PullRecords(
 				if err := recreateChangeStream(true); err != nil {
 					return fmt.Errorf("failed to recreate change stream: %w", err)
 				}
+				c.logger.Info("[mongo] recreated change stream because resume token not found", slog.Duration("elapsed", time.Since(pullStart)))
 				continue
 			}
 
@@ -459,6 +463,20 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 	)
 
 	return pipeline, nil
+}
+
+// createChangeStream calls client.Watch with a 5 minute context deadline
+// so the driver sends it as maxTimeMS over the wire. Otherwise, server-side
+// default maxTimeMS is used which can sometimes be too short.
+func createChangeStream(
+	client *mongo.Client,
+	parent context.Context,
+	pipeline mongo.Pipeline,
+	opts *options.ChangeStreamOptionsBuilder,
+) (*mongo.ChangeStream, error) {
+	watchCtx, cancel := context.WithTimeout(parent, 5*time.Minute)
+	defer cancel()
+	return client.Watch(watchCtx, pipeline, opts)
 }
 
 // This can happen if the resumeToken we are attempting to `ResumeAfter` refers to a table that has been
