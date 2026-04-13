@@ -83,9 +83,10 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	s.logger.Info("closing slot keep alive for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Minute,
+		StartToCloseTimeout: 3 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
+			MaximumAttempts: 3,
 		},
 	})
 
@@ -94,7 +95,6 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	}
 
 	s.logger.Info("closed slot keep alive for peer flow")
-
 	return nil
 }
 
@@ -357,7 +357,6 @@ func SnapshotFlowWorkflow(
 		if err := se.closeSlotKeepAlive(sessionCtx); err != nil {
 			return fmt.Errorf("failed to close slot keep alive: %w", err)
 		}
-
 		return nil
 	}
 

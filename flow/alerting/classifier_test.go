@@ -978,3 +978,18 @@ func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
 		Code:   pgerrcode.ObjectNotInPrerequisiteState,
 	}, errInfo)
 }
+
+func TestClickHouseStdExceptionObjectStorageIOErrorShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrStdException),
+		//nolint:lll
+		Message: `std::__1::ios_base::failure: ios_base::clear: unspecified iostream_category error: while reading path/to/file.000000.avro: While executing ReadFromObjectStorage`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewClickHouseQRepSyncError(fmt.Errorf("failed to sync records: %w", err), "tbl", "db"))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrStdException)),
+	}, errInfo)
+}

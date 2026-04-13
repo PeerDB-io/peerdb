@@ -8,17 +8,11 @@
     {
       "groupName": "{{manager}} dependencies",
       "groupSlug": "{{manager}}",
-      "packageRules": [
-        {
-          "groupName": "{{manager}} dependencies",
-          "groupSlug": "{{manager}}",
-          "matchPackagePatterns": [
-            "*"
-          ]
-        }
-      ],
       "separateMajorMinor": false,
-      "automerge": true
+      "automerge": true,
+      "matchPackageNames": [
+        "*"
+      ]
     },
     {
       "matchPackageNames": ["next", "react", "react-*", "@types/react", "@types/react-*", "eslint", "eslint-config-next"],
@@ -44,5 +38,6 @@
   "additionalReviewers": [
     "team:eng"
   ],
-  "prConcurrentLimit": 8
+  "prConcurrentLimit": 8,
+  "minimumReleaseAge": "7 days"
 }

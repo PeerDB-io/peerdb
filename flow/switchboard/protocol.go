@@ -18,8 +18,8 @@ func defaultWriteTimeout() time.Duration {
 
 // CancelRequestError is returned when a cancel request is received during startup
 type CancelRequestError struct {
+	SecretKey []byte
 	ProcessID uint32
-	SecretKey uint32
 }
 
 func (e *CancelRequestError) Error() string {
@@ -71,7 +71,7 @@ func acceptStartup(conn net.Conn) (net.Conn, *pgproto3.Backend, *pgproto3.Startu
 
 // sendGreeting sends the complete startup greeting sequence to the client
 // If writeTimeout is 0, uses the default from env var
-func sendGreeting(conn io.Writer, pid, secret uint32, params map[string]string, txStatus byte, writeTimeout time.Duration) error {
+func sendGreeting(conn io.Writer, pid uint32, secret []byte, params map[string]string, txStatus byte, writeTimeout time.Duration) error {
 	// 1. AuthenticationOk
 	if err := writeBackendMessage(conn, &pgproto3.AuthenticationOk{}, writeTimeout); err != nil {
 		return fmt.Errorf("failed to send AuthenticationOk: %w", err)

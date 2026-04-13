@@ -452,6 +452,124 @@ func (s Generic) Test_Partitioned_Table() {
 	RequireEnvCanceled(t, env)
 }
 
+func (s Generic) Test_Partitioned_Table_With_Different_Column_Ordering() {
+	t := s.T()
+
+	pgSource, ok := s.Source().(*PostgresSource)
+	if !ok {
+		t.Skip("test only applies to postgres")
+	}
+	conn := pgSource.PostgresConnector
+
+	srcTable := "test_partition_reorder"
+	dstTable := "test_partition_reorder_dst"
+	srcSchemaTable := AttachSchema(s, srcTable)
+
+	// Parent: column ordering: id, key, value, created_at
+	// p1: uses parent column ordering
+	// p2: attaches partitioned table with different column ordering from parent
+	// p3: attaches partitioned table with same column ordering as parent
+	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s(
+			id INT NOT NULL,
+			key TEXT,
+			value INT,
+			created_at TIMESTAMP DEFAULT now(),
+			PRIMARY KEY (created_at, id)
+		) PARTITION BY RANGE(created_at);
+		CREATE TABLE %[1]s_p1
+			PARTITION OF %[1]s
+			FOR VALUES FROM ('2024-01-01') TO ('2024-05-01');
+		CREATE TABLE %[1]s_p2(
+			value INT,
+			created_at TIMESTAMP DEFAULT now(),
+			key TEXT,
+			id INT NOT NULL,
+			PRIMARY KEY (created_at, id)
+		);
+		ALTER TABLE %[1]s ATTACH PARTITION %[1]s_p2
+			FOR VALUES FROM ('2024-05-01') TO ('2024-09-01');
+		CREATE TABLE %[1]s_p3(
+			id INT NOT NULL,
+			key TEXT,
+			value INT,
+			created_at TIMESTAMP DEFAULT now(),
+			PRIMARY KEY (created_at, id)
+		);
+		ALTER TABLE %[1]s ATTACH PARTITION %[1]s_p3
+			FOR VALUES FROM ('2024-09-01') TO ('2025-01-01');
+	`, srcSchemaTable))
+	require.NoError(t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// Batch 1: insert into all 3 partitions, verify correctness
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id, key, value, created_at) VALUES
+			(1, 'a', 10, '2024-02-15'),
+			(2, 'b', 20, '2024-06-15'),
+			(3, 'c', 30, '2024-10-15')`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	EnvWaitForEqualTablesWithNames(env, s, "first batch 3 rows",
+		srcTable, dstTable, `id,key,value,created_at`)
+
+	// DDL: add a new partition dynamically while CDC is running
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s_p4(
+			value INT,
+			created_at TIMESTAMP DEFAULT now(),
+			key TEXT,
+			id INT NOT NULL,
+			PRIMARY KEY (created_at, id)
+		);
+		ALTER TABLE %[1]s ATTACH PARTITION %[1]s_p4
+			FOR VALUES FROM ('2025-01-01') TO ('2025-05-01');
+	`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	// Batch 2: insert into all 4 partitions, verify correctness
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id, key, value, created_at) VALUES
+			(4, 'd', 40, '2024-11-15'),
+			(5, 'e', 50, '2024-03-15'),
+			(6, 'f', 60, '2024-07-15'),
+			(7, 'g', 70, '2025-02-15')`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	EnvWaitForEqualTablesWithNames(env, s, "all 7 rows",
+		srcTable, dstTable, `id,key,value,created_at`)
+
+	// DDL: add a new column to the parent, should propagate to all children
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN extra TEXT`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	// Batch 3: insert into all 4 partitions, verify correctness with new column addition
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id, key, value, created_at, extra) VALUES
+			(8, 'h', 80, '2024-08-15', 'x1'),
+			(9, 'l', 90, '2024-12-15', 'x2'),
+			(10, 'j', 100, '2024-04-15', 'x3'),
+			(11, 'k', 110, '2025-01-15', 'x4')`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	EnvWaitForEqualTablesWithNames(env, s, "all 11 rows with new column",
+		srcTable, dstTable, `id,key,value,created_at,extra`)
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	t := s.T()
 

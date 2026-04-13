@@ -40,7 +40,7 @@ func SetupSwitchboardPostgresSuite(t *testing.T) SwitchboardPostgresSuite {
 	// Verify Switchboard is available
 	conn, err := pgx.Connect(t.Context(), switchboardDSN(peer.Name, nil))
 	if err != nil {
-		t.Skipf("Switchboard not available: %v", err)
+		t.Fatalf("Switchboard not available: %v", err)
 	}
 	conn.Close(t.Context())
 
