@@ -1,11 +1,19 @@
 package shared
 
 import (
+	"math/big"
+
 	"golang.org/x/exp/constraints"
 )
 
 func DivCeil[T constraints.Integer](x, y T) T {
 	return (x + y - 1) / y
+}
+
+// BigIntDivCeil returns ceil(x / y) for big.Int values.
+func BigIntDivCeil(x, y *big.Int) *big.Int {
+	result := new(big.Int).Add(x, new(big.Int).Sub(y, big.NewInt(1)))
+	return result.Div(result, y)
 }
 
 // AdjustedPartitions represents the adjusted partitioning parameters
