@@ -26,9 +26,18 @@ func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName 
 	toxiproxyClient := utils.NewToxiproxyClient(t)
 	sshProxy := utils.CreateSSHProxy(t, toxiproxyClient, proxyName, proxyPort)
 
-	pgHost := "catalog"
+	pgHost := "localhost" // Default for local environments
+
+	// In local set-up environments like Tilt, when a non catalog
+	// instance of Postgres is present, we use it instead of the catalog.
 	if envHost := os.Getenv("PG_HOST"); envHost != "" {
 		pgHost = envHost
+	}
+
+	// In CI, TOXIPROXY_POSTGRES_HOST is set, usually pointing to 'catalog'
+	// network.
+	if toxiproxyPgHost := os.Getenv("TOXIPROXY_POSTGRES_HOST"); toxiproxyPgHost != "" {
+		pgHost = toxiproxyPgHost
 	}
 
 	var pgPort uint32 = 5432
