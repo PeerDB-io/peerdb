@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/netip"
 	"strings"
@@ -56,6 +57,8 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "INTEGER"
 	case types.QValueKindInt64, types.QValueKindUInt64:
 		return "BIGINT"
+	case types.QValueKindUInt128:
+		return "NUMERIC(39,0)"
 	case types.QValueKindFloat32:
 		return "REAL"
 	case types.QValueKindFloat64:
@@ -723,6 +726,13 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		return types.QValuePoint{
 			Val: fmt.Sprintf("POINT(%f %f)", coord.X, coord.Y),
 		}, nil
+	case types.QValueKindUInt128:
+		str := fmt.Sprint(value)
+		bigInt := new(big.Int)
+		if _, ok := bigInt.SetString(str, 10); !ok {
+			return nil, fmt.Errorf("failed to parse uint128 value: %s", str)
+		}
+		return types.QValueUInt128{Val: bigInt}, nil
 	case types.QValueKindHStore:
 		return types.QValueHStore{Val: fmt.Sprint(value)}, nil
 	case types.QValueKindGeography, types.QValueKindGeometry:
