@@ -157,11 +157,11 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	RequireEnvCanceled(t, env)
 }
 
-func (s MongoClickhouseSuite) Test_Snapshot_Partition_Capped_To_Timestamp_Range() {
+func (s MongoClickhouseSuite) Test_Snapshot_Collection_With_Single_Document() {
 	t := s.T()
 	srcDatabase := GetTestDatabase(s.Suffix())
-	srcTable := "test_partition_cap"
-	dstTable := "test_partition_cap_dst"
+	srcTable := "test_single_doc_snapshot"
+	dstTable := "test_single_doc_snapshot_dst"
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:   AddSuffix(s, srcTable),
@@ -170,31 +170,19 @@ func (s MongoClickhouseSuite) Test_Snapshot_Partition_Capped_To_Timestamp_Range(
 	}
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
-	// 1 row per partition would normally request 100 partitions for 100 docs,
-	// but the 5-second timestamp range should cap it to 5 partitions.
 	flowConnConfig.SnapshotNumRowsPerPartition = 1
 	flowConnConfig.Env["PEERDB_MONGODB_PARALLEL_SNAPSHOTTING"] = "true"
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
-	baseTime := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	docs := make([]any, 100)
-	for i := range 100 {
-		// insert 100 docs spread across 5 seconds (20 docs per second)
-		oid := bson.NewObjectIDFromTimestamp(baseTime.Add(time.Duration(i/20) * time.Second))
-		docs[i] = bson.D{
-			{Key: "_id", Value: oid},
-			{Key: "key", Value: fmt.Sprintf("value_%d", i)},
-		}
-	}
-	_, err := collection.InsertMany(t.Context(), docs)
+	_, err := collection.InsertOne(t.Context(), bson.D{{Key: "key", Value: "value"}})
 	require.NoError(t, err)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
 
-	EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
 	require.NoError(t, err)
@@ -202,7 +190,14 @@ func (s MongoClickhouseSuite) Test_Snapshot_Partition_Capped_To_Timestamp_Range(
 	require.NoError(t, catalogPool.QueryRow(t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName).Scan(&partitionCount))
-	require.Equal(t, 5, partitionCount)
+	require.Equal(t, 1, partitionCount)
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{{Key: "cdc_key", Value: "cdc_value"}})
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	EnvWaitForEqualTablesWithNames(env, s, "cdc after single doc snapshot", srcTable, dstTable, "_id,doc")
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
@@ -232,7 +227,6 @@ func (s MongoClickhouseSuite) Test_Snapshot_Empty_Collection() {
 	env := ExecutePeerflow(t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
-	// insert after snapshot to verify CDC still works
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
 	require.NoError(t, err)
