@@ -171,17 +171,16 @@ cmd_button(
     location=location.NAV
 )
 
-cmd_button(
-    'start-all-test-services',
-    argv=['sh', '-c', ' '.join([
+local_resource(
+    'all-test-resources',
+    cmd=' '.join([
         "resources=$(tilt --port 10352 get uiresource -o json |",
         "jq -r '.items[] | select(.metadata.labels.DataStore or .metadata.labels.TestInfra) | .metadata.name');",
         "tilt --port 10352 enable $resources &&",
         "for r in $resources; do tilt --port 10352 trigger $r; done",
-    ])],
-    text='Start all test services',
-    icon_name='play_arrow',
-    location=location.NAV,
+    ]),
+    labels=['Utilities'],
+    auto_init=False,
 )
 
 cmd_button(
