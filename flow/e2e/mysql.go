@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -53,11 +54,22 @@ func mysqlHost() string {
 	return "localhost"
 }
 
+func mysqlPort() uint32 {
+	if envPortStr := os.Getenv("CI_MYSQL_PORT"); envPortStr != "" {
+		envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to parse CI_MYSQL_PORT: %v", err))
+		}
+		return uint32(envPort)
+	}
+	return 3306
+}
+
 func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicationMechanism, flavor protos.MySqlFlavor) (*MySqlSource, error) {
 	t.Helper()
 	config := &protos.MySqlConfig{
 		Host:                 mysqlHost(),
-		Port:                 3306,
+		Port:                 mysqlPort(),
 		User:                 "root",
 		Password:             "cipass",
 		Database:             "",

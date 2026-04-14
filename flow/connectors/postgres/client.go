@@ -55,12 +55,12 @@ const (
 	ARRAY_AGG(DISTINCT _peerdb_unchanged_toast_columns) FROM %s.%s WHERE
 	_peerdb_batch_id=$1 AND _peerdb_record_type!=2 GROUP BY _peerdb_destination_table_name`
 	mergeStatementSQL = `WITH src_rank AS (
-		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
+		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,_peerdb_timestamp,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
 		FROM %s.%s WHERE _peerdb_batch_id = $1 AND _peerdb_destination_table_name=$2
 	)
 	MERGE INTO %s dst
-	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE _peerdb_rank=1) src
+	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE _peerdb_rank=1 ORDER BY _peerdb_timestamp) src
 	ON %s
 	WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN
 	INSERT (%s) VALUES (%s) %s
@@ -249,7 +249,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 	var slotName pgtype.Text
 	err := c.conn.QueryRow(ctx,
 		"SELECT slot_name FROM pg_replication_slots WHERE slot_name = $1",
-		slot).Scan(&slotName)
+		pgx.QueryExecModeSimpleProtocol, slot).Scan(&slotName)
 	if err != nil {
 		// check if the error is a "no rows" error
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -262,7 +262,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 	// Check if the publication exists
 	var pubName pgtype.Text
 	if err := c.conn.QueryRow(ctx,
-		"SELECT pubname FROM pg_publication WHERE pubname = $1", publication,
+		"SELECT pubname FROM pg_publication WHERE pubname = $1", pgx.QueryExecModeSimpleProtocol, publication,
 	).Scan(&pubName); err != nil {
 		// check if the error is a "no rows" error
 		if !errors.Is(err, pgx.ErrNoRows) {

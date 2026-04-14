@@ -1,0 +1,2 @@
+# When launching tests via VS Code, it builds binaries with this prefix in the test folder
+**/__debug_bin*
