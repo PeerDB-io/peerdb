@@ -183,6 +183,16 @@ def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
     )
 
+def connector_test(connector, extra_deps=[], vars_overrides={}):
+    overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
+    local_resource(
+        'connector_' + connector,
+        cmd='cd flow && go clean -cache && %s go test -v ./connectors/%s/...' % (overrides_str, connector),
+        labels=['Test'],
+        auto_init=False,
+        resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
+    )
+
 # Generic e2e tests
 
 # Postgres to ClickHouse generic tests
@@ -203,3 +213,12 @@ e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
 # API e2e tests
 
 e2e_test('api-postgres', 'TestApiPg', ['provision-postgres'])
+e2e_test('api-mysql', 'TestApiMy', ['provision-mysql-gtid'])
+e2e_test('api-mongodb', 'TestApiMongo', ['provision-mongodb'])
+
+# Connectors tests
+
+connector_test('postgres', ['provision-postgres'])
+connector_test('mongodb', ['provision-mongodb'])
+connector_test('mysql', ['provision-mysql-gtid'])
+connector_test('clickhouse')
