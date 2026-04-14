@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -11,13 +12,15 @@ import (
 // LoadEnv walks up from the current directory until the project root
 // is found and loads the .env file if it exists
 func LoadEnv() {
+	ctx := context.Background()
+
 	dir, err := os.Getwd()
 	if err != nil {
-		slog.Error("LoadEnv: failed to get working directory", "error", err)
+		slog.ErrorContext(ctx, "LoadEnv: failed to get working directory", "error", err)
 		return
 	}
 
-	slog.Info("LoadEnv: starting search", "cwd", dir)
+	slog.InfoContext(ctx, "LoadEnv: starting search", "cwd", dir)
 
 	var lastVisited string
 
@@ -26,8 +29,10 @@ func LoadEnv() {
 	for !rootReached {
 		envPath := filepath.Join(dir, ".env")
 		if _, err := os.Stat(envPath); err == nil && filepath.Base(lastVisited) == "flow" {
-			slog.Info("LoadEnv: found .env", "path", envPath)
-			godotenv.Load(envPath)
+			slog.InfoContext(ctx, "LoadEnv: found .env", "path", envPath)
+			if err := godotenv.Load(envPath); err != nil {
+				slog.ErrorContext(ctx, "LoadEnv: failed to load .env", "path", envPath, "error", err)
+			}
 			return
 		}
 
@@ -40,5 +45,5 @@ func LoadEnv() {
 		dir = parent
 	}
 
-	slog.Warn("LoadEnv: no .env file found above flow directory")
+	slog.WarnContext(ctx, "LoadEnv: no .env file found above flow directory")
 }

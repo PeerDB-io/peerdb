@@ -18,13 +18,9 @@ func TestLoadEnv_FindsEnvAboveFlow(t *testing.T) {
 	require.NoError(t, os.MkdirAll(e2eDir, 0o755))
 
 	envFile := filepath.Join(projectDir, ".env")
-	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV=found_above_flow\n"), 0o644))
+	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV=found_above_flow\n"), 0o600))
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { os.Chdir(originalDir) })
-
-	require.NoError(t, os.Chdir(e2eDir))
+	t.Chdir(e2eDir)
 
 	os.Unsetenv("TEST_LOAD_ENV")
 	LoadEnv()
@@ -41,13 +37,9 @@ func TestLoadEnv_IgnoresEnvNotAboveFlow(t *testing.T) {
 	require.NoError(t, os.MkdirAll(subDir, 0o755))
 
 	envFile := filepath.Join(tmp, ".env")
-	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV_IGNORE=should_not_load\n"), 0o644))
+	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV_IGNORE=should_not_load\n"), 0o600))
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { os.Chdir(originalDir) })
-
-	require.NoError(t, os.Chdir(subDir))
+	t.Chdir(subDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_IGNORE")
 	LoadEnv()
@@ -62,11 +54,7 @@ func TestLoadEnv_NoEnvFile(t *testing.T) {
 	e2eDir := filepath.Join(tmp, "project", "flow", "e2e")
 	require.NoError(t, os.MkdirAll(e2eDir, 0o755))
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { os.Chdir(originalDir) })
-
-	require.NoError(t, os.Chdir(e2eDir))
+	t.Chdir(e2eDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_NONE")
 	LoadEnv()
@@ -84,13 +72,9 @@ func TestLoadEnv_EnvInsideFlowIgnored(t *testing.T) {
 	require.NoError(t, os.MkdirAll(e2eDir, 0o755))
 
 	envFile := filepath.Join(flowDir, ".env")
-	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV_INSIDE=inside_flow\n"), 0o644))
+	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV_INSIDE=inside_flow\n"), 0o600))
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { os.Chdir(originalDir) })
-
-	require.NoError(t, os.Chdir(e2eDir))
+	t.Chdir(e2eDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_INSIDE")
 	LoadEnv()
@@ -107,13 +91,9 @@ func TestLoadEnv_FromConnectorsSubdir(t *testing.T) {
 	require.NoError(t, os.MkdirAll(connectorsDir, 0o755))
 
 	envFile := filepath.Join(projectDir, ".env")
-	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV_CONNECTORS=from_connectors\n"), 0o644))
+	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV_CONNECTORS=from_connectors\n"), 0o600))
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { os.Chdir(originalDir) })
-
-	require.NoError(t, os.Chdir(connectorsDir))
+	t.Chdir(connectorsDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_CONNECTORS")
 	LoadEnv()
@@ -130,13 +110,9 @@ func TestLoadEnv_RunFromFlowDirectly(t *testing.T) {
 	require.NoError(t, os.MkdirAll(flowDir, 0o755))
 
 	envFile := filepath.Join(projectDir, ".env")
-	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV_FROM_FLOW=from_flow\n"), 0o644))
+	require.NoError(t, os.WriteFile(envFile, []byte("TEST_LOAD_ENV_FROM_FLOW=from_flow\n"), 0o600))
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { os.Chdir(originalDir) })
-
-	require.NoError(t, os.Chdir(flowDir))
+	t.Chdir(flowDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_FROM_FLOW")
 	LoadEnv()
