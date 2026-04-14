@@ -168,7 +168,29 @@ cmd_button(
     ])],
     text='Wipe ancillary volumes',
     icon_name='delete',
+    location=location.NAV
+)
+
+cmd_button(
+    'start-all-test-services',
+    argv=['sh', '-c', ' '.join([
+        "resources=$(tilt --port 10352 get uiresource -o json |",
+        "jq -r '.items[] | select(.metadata.labels.DataStore or .metadata.labels.TestInfra) | .metadata.name');",
+        "tilt --port 10352 enable $resources &&",
+        "for r in $resources; do tilt --port 10352 trigger $r; done",
+    ])],
+    text='Start all test services',
+    icon_name='play_arrow',
     location=location.NAV,
+)
+
+cmd_button(
+    'Clean-up test code caches',
+    argv=['sh', '-c', 'cd flow && go clean -cache'],
+    text='Clean-up test code caches',
+    icon_name='delete_sweep',
+    resource='Test',
+    location=location.NAV
 )
 
 # Tests launchers
@@ -177,7 +199,7 @@ def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     local_resource(
         'e2e_' + name,
-        cmd='cd flow && go clean -cache && %s go test -v -run %s ./e2e/' % (overrides_str, test_run),
+        cmd='cd flow && %s go test -v -run %s ./e2e/' % (overrides_str, test_run),
         labels=['Test'],
         auto_init=False,
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
@@ -187,7 +209,7 @@ def connector_test(connector, extra_deps=[], vars_overrides={}):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     local_resource(
         'connector_' + connector,
-        cmd='cd flow && go clean -cache && %s go test -v ./connectors/%s/...' % (overrides_str, connector),
+        cmd='cd flow && %s go test -v ./connectors/%s/...' % (overrides_str, connector),
         labels=['Test'],
         auto_init=False,
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
