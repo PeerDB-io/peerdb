@@ -323,15 +323,15 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status", 2)
 
 	// Verify both rows have the same status value (consistency between snapshot and CDC)
-	rows, err := s.GetRows(dstTableName, "status")
+	rows, err := s.GetRows(dstTableName, "id,status")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2)
-	require.Equal(s.t, rows.Records[0][0].Value(), rows.Records[1][0].Value(),
+	require.Equal(s.t, rows.Records[0][1].Value(), rows.Records[1][1].Value(),
 		"snapshot and CDC enum values should be consistent")
 	if mysqlEnumUsesOrdinals() {
-		require.EqualValues(s.t, 1, rows.Records[0][0].Value())
+		require.EqualValues(s.t, 1, rows.Records[0][1].Value())
 	} else {
-		require.Equal(s.t, "active", rows.Records[0][0].Value())
+		require.Equal(s.t, "active", rows.Records[0][1].Value())
 	}
 
 	env.Cancel(s.t.Context())
@@ -378,14 +378,16 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status", 2)
 
-	rows, err := s.GetRows(dstTableName, "status")
+	rows, err := s.GetRows(dstTableName, "id,status")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2)
-	require.Equal(s.t, "active", rows.Records[0][0].Value())
+	require.EqualValues(s.t, 1, rows.Records[0][0].Value())
+	require.EqualValues(s.t, 2, rows.Records[1][0].Value())
+	require.Equal(s.t, "active", rows.Records[0][1].Value())
 	if mysqlEnumUsesOrdinals() {
-		require.Equal(s.t, "1", rows.Records[1][0].Value())
+		require.Equal(s.t, "1", rows.Records[1][1].Value())
 	} else {
-		require.Equal(s.t, "active", rows.Records[1][0].Value())
+		require.Equal(s.t, "active", rows.Records[1][1].Value())
 	}
 
 	env.Cancel(s.t.Context())
