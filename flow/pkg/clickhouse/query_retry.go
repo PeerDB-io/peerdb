@@ -36,9 +36,7 @@ var retryableExceptions = map[chproto.Error]struct{}{
 	chproto.ErrKeeperException:            {},
 }
 
-// conditionallyRetryableExceptions are error codes that are only retryable
-// when the error message contains one of the specified substrings
-var conditionallyRetryableExceptions = map[chproto.Error][]string{
+var retryableExceptionSubstrings = map[chproto.Error][]string{
 	chproto.ErrStdException: {"unspecified iostream_category error"},
 }
 
@@ -51,7 +49,7 @@ func isRetryableException(err error) bool {
 		if _, ok := retryableExceptions[code]; ok {
 			return true
 		}
-		if substr, ok := conditionallyRetryableExceptions[code]; ok {
+		if substr, ok := retryableExceptionSubstrings[code]; ok {
 			msg := ex.Error()
 			for _, s := range substr {
 				if strings.Contains(msg, s) {
