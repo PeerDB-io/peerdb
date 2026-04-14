@@ -36,13 +36,30 @@ var retryableExceptions = map[chproto.Error]struct{}{
 	chproto.ErrKeeperException:            {},
 }
 
+// conditionallyRetryableExceptions are error codes that are only retryable
+// when the error message contains one of the specified substrings
+var conditionallyRetryableExceptions = map[chproto.Error][]string{
+	chproto.ErrStdException: {"unspecified iostream_category error"},
+}
+
 func isRetryableException(err error) bool {
-	if ex, ok := err.(*clickhouse.Exception); ok {
+	if ex, ok := errors.AsType[*clickhouse.Exception](err); ok {
 		if ex == nil {
 			return false
 		}
-		_, yes := retryableExceptions[chproto.Error(ex.Code)]
-		return yes
+		code := chproto.Error(ex.Code)
+		if _, ok := retryableExceptions[code]; ok {
+			return true
+		}
+		if substr, ok := conditionallyRetryableExceptions[code]; ok {
+			msg := ex.Error()
+			for _, s := range substr {
+				if strings.Contains(msg, s) {
+					return true
+				}
+			}
+		}
+		return false
 	}
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET)
 }
@@ -61,8 +78,8 @@ func Exec(ctx context.Context, logger log.Logger,
 			time.Sleep(time.Second * time.Duration(i*5+1))
 		}
 	}
-	if ex, ok := err.(*clickhouse.Exception); ok {
-		isMV := strings.Contains(ex.Message, "while pushing to view")
+	if ex, ok := errors.AsType[*clickhouse.Exception](err); ok {
+		isMV := strings.Contains(ex.Error(), "while pushing to view")
 		if chproto.Error(ex.Code) == chproto.ErrIncorrectData {
 			ex.Message = "REDACTED"
 		}

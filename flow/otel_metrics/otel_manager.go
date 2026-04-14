@@ -80,6 +80,7 @@ const (
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 	CodeNotificationCounterName          = "code_notification"
 	ServerWalEndLagGaugeName             = "wal_end_lag"
+	ClickHouseDDLExecutionGaugeName      = "clickhouse_ddl_execution_duration"
 )
 
 type Metrics struct {
