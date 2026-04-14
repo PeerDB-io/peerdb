@@ -263,8 +263,8 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		"select_sequential_consistency": uint64(1),
 		// broken downstream views should not interrupt ingestion
 		"ignore_materialized_views_with_dropped_target_table": true,
-		// avoid "there is no metadata of table ..."
-		"alter_sync": uint64(1),
+		// synchronous wait for ALTER commands; skip replicas that are down
+		"alter_sync": uint64(3),
 		// to handle JSON like "{"key": []}"
 		"input_format_json_infer_incomplete_types_as_strings": uint64(1),
 	}
