@@ -255,16 +255,16 @@ func (s *PostgresSource) Query(ctx context.Context, query string) (*model.QRecor
 	return pgQueryExecutor.ExecuteAndProcessQuery(ctx, query)
 }
 
-func (s *PostgresSource) GetLogCount(ctx context.Context, flowJobName, errorType, pattern string) (int, error) {
-	rows, err := s.Query(ctx, fmt.Sprintf(`
+func GetLogCount(ctx context.Context, catalog shared.CatalogPool, flowJobName, errorType, pattern string) (int, error) {
+	var count int
+	err := catalog.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COUNT(*) FROM peerdb_stats.flow_errors
 		WHERE error_type='%s' AND position('%s' in flow_name) > 0
-		AND error_message ILIKE '%%%s%%'`, errorType, flowJobName, pattern))
+		AND error_message ILIKE '%%%s%%'`, errorType, flowJobName, pattern)).Scan(&count)
 	if err != nil {
 		return 0, err
 	}
-
-	return int(rows.Records[0][0].Value().(int64)), nil
+	return count, nil
 }
 
 // Toxiproxy support for testing concurrent scenarios

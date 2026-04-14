@@ -3,6 +3,8 @@ package connmysql
 import (
 	"context"
 	"os"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,11 +35,28 @@ func setupMySQLConnectorWithProxy(ctx context.Context, t *testing.T, proxyName s
 	toxiproxyClient := utils.NewToxiproxyClient(t)
 	sshProxy := utils.CreateSSHProxy(t, toxiproxyClient, proxyName, proxyPort)
 
+	mysqlHost := "mysql"
+	if envHost := os.Getenv("CI_MYSQL_HOST"); envHost != "" {
+		mysqlHost = envHost
+	}
+
+	var mysqlPort uint32 = 3306
+	if envPortStr := os.Getenv("CI_MYSQL_PORT"); envPortStr != "" {
+		envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
+		require.NoError(t, err, "Failed to parse CI_MYSQL_PORT")
+		mysqlPort = uint32(envPort)
+	}
+
+	mysqlRootPass := "cipass"
+	if envPass := os.Getenv("CI_MYSQL_ROOT_PASSWORD"); envPass != "" {
+		mysqlRootPass = envPass
+	}
+
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
-		Host:     "mysql",
-		Port:     3306,
+		Host:     mysqlHost,
+		Port:     mysqlPort,
 		User:     "root",
-		Password: "cipass",
+		Password: mysqlRootPass,
 		Database: "mysql",
 		SshConfig: &protos.SSHConfig{
 			Host:     "localhost",

@@ -52,8 +52,11 @@ var (
 		`Cannot insert Avro decimal with scale \d+ and precision \d+ to ClickHouse type Decimal\(\d+, \d+\) with scale \d+ and precision \d+`,
 	)
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
-	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
-	ClickHouseTooManyPartsTableRe     = regexp.MustCompile(`in table '(.+)'\.`)
+	ClickHouseNotFoundInUserDirsRe   = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
+	ClickHouseTooManyPartsTableRe    = regexp.MustCompile(`in table '(.+)'\.`)
+	ClickHouseObjectStorageIOErrorRe = regexp.MustCompile(
+		`unspecified iostream_category error: while reading .+: While executing ReadFromObjectStorage`,
+	)
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
 	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
@@ -982,6 +985,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrSocketTimeout,
 			chproto.ErrTableIsReadOnly:
 			return ErrorRetryRecoverable, chErrorInfo
+		case chproto.ErrStdException:
+			if ClickHouseObjectStorageIOErrorRe.MatchString(chException.Message) {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
 		case chproto.ErrTimeoutExceeded:
 			if strings.HasSuffix(chException.Message, "distributed_ddl_task_timeout") {
 				return ErrorRetryRecoverable, chErrorInfo

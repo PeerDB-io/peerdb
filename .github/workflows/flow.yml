@@ -54,7 +54,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:65a7a93449f113a2941e0e8a9cd7eb1ed3ba153547b6b2b47f11796e9f754345
+        image: redpandadata/redpanda@sha256:519c125d22c14b01562a428addcecea327f20eceee923805aff29fff53391cf8
         ports:
           - 9092:9092
           - 9644:9644
@@ -86,7 +86,7 @@ jobs:
           - 49002:49002
           - 49003:49003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:57c13941ef385d735cca18ee969eeba18e42ab95480c97af2182505aacdfe307
+        image: linuxserver/openssh-server:latest@sha256:969edac1221e0f211d86dc5a94ee9337340c9c585527f73e5fabf2dae7bb8de3
         ports:
           - 2222:2222
         env:
@@ -148,7 +148,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
@@ -202,7 +202,7 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         id: cache-minio
         with:
           path: ./minio
@@ -213,7 +213,7 @@ jobs:
         run: |
           curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
-      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         id: cache-minio-client
         with:
           path: ./mc
@@ -268,7 +268,7 @@ jobs:
             echo "ch_version=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)" >> $GITHUB_OUTPUT
           fi
 
-      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         id: cache-clickhouse
         with:
           path: ./clickhouse
@@ -533,7 +533,7 @@ jobs:
 
       - name: Upload peer-flow logs and test results
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
           path: logs/
