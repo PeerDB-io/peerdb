@@ -210,6 +210,24 @@ e2e_test('mariadb', 'TestGenericCH_MySQL', ['provision-mariadb'], vars_overrides
 # MongoDB to ClickHouse test suite
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
 
+# Switchboard tests
+
+e2e_test('switchboard-postgres', 'TestSwitchboardPostgres', ['provision-postgres'])
+
+e2e_test('switchboard-mysql-gtid', 'TestSwitchboardMySQL', ['provision-mysql-gtid'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_GTID_PORT'})
+e2e_test('switchboard-mysql-pos', 'TestSwitchboardMySQL', ['provision-mysql-pos'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_POS_PORT'})
+e2e_test('switchboard-mariadb', 'TestSwitchboardMySQL', ['provision-mariadb'], vars_overrides={'CI_MYSQL_PORT': '$CI_MARIADB_PORT'})
+
+e2e_test('switchboard-mongodb', 'TestSwitchboardMongoDB', ['provision-mongodb'])
+
+# Peer flow E2E
+
+e2e_test('peer-flow-postgres', '^TestPeerFlowE2ETestSuitePG_CH$', ['provision-postgres'])
+
+e2e_test('peer-flow-mysql-gtid', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-gtid'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_GTID_PORT'})
+e2e_test('peer-flow-mysql-pos', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-pos'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_POS_PORT'})
+e2e_test('peer-flow-mariadb', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mariadb'], vars_overrides={'CI_MYSQL_PORT': '$CI_MARIADB_PORT'})
+
 # API e2e tests
 
 e2e_test('api-postgres', 'TestApiPg', ['provision-postgres'])
