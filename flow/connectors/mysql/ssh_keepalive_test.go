@@ -93,6 +93,7 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, proxyName str
 }
 
 func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
@@ -102,6 +103,7 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 }
 
 func TestMySQLSSHKeepaliveLatency(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
@@ -111,6 +113,7 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 }
 
 func TestMySQLSSHResetPeer(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
@@ -120,7 +123,7 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 }
 
 func setupCDCPullRecords(
-	ctx context.Context, t *testing.T, connector *MySqlConnector,
+	ctx context.Context, t *testing.T, connector *MySqlConnector, flowJobName string,
 ) (*model.PullRecordsRequest[model.RecordItems], *otel_metrics.OtelManager) {
 	t.Helper()
 
@@ -142,7 +145,7 @@ func setupCDCPullRecords(
 	require.NoError(t, err)
 
 	req := &model.PullRecordsRequest[model.RecordItems]{
-		FlowJobName:            "test_ssh_cdc",
+		FlowJobName:            flowJobName,
 		RecordStream:           model.NewCDCStream[model.RecordItems](100),
 		TableNameMapping:       map[string]model.NameAndExclude{},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
@@ -156,6 +159,7 @@ func setupCDCPullRecords(
 }
 
 func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
@@ -167,7 +171,7 @@ func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
 	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
 	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
 
-	req, otelManager := setupCDCPullRecords(ctx, t, connector)
+	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_ssh_cdc_hang")
 
 	pullDone := concurrency.NewLatch[error]()
 	go func() {
@@ -208,6 +212,7 @@ func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
 }
 
 func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
@@ -220,7 +225,7 @@ func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
 	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
 	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
 
-	req, otelManager := setupCDCPullRecords(ctx, t, connector)
+	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_ssh_cdc_close_hang")
 
 	// Use a short-lived context so PullRecords starts shutting down while
 	// the connection is blocked by latency
