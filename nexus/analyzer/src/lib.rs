@@ -754,10 +754,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             let port_str = opts.get("port").context("port not specified")?;
             let port: u32 = port_str.parse().context("port is invalid")?;
             let sqlserver_config = SqlServerConfig {
-                server: opts
-                    .get("server")
-                    .context("server not specified")?
-                    .to_string(),
+                host: opts.get("host").context("host not specified")?.to_string(),
                 port,
                 user: opts.get("user").context("user not specified")?.to_string(),
                 password: opts

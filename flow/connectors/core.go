@@ -15,6 +15,7 @@ import (
 	conneventhub "github.com/PeerDB-io/peerdb/flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peerdb/flow/connectors/kafka"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
+	connmssql "github.com/PeerDB-io/peerdb/flow/connectors/mssql"
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connpubsub "github.com/PeerDB-io/peerdb/flow/connectors/pubsub"
@@ -562,6 +563,8 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 		return connmongo.NewMongoConnector(ctx, inner.MongoConfig)
 	case *protos.Peer_MysqlConfig:
 		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
+	case *protos.Peer_SqlserverConfig:
+		return connmssql.NewMsSqlConnector(ctx, inner.SqlserverConfig)
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickHouseConnector(ctx, env, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
@@ -644,6 +647,7 @@ var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
 	_ CDCPullConnector = &connmysql.MySqlConnector{}
 	_ CDCPullConnector = &connmongo.MongoConnector{}
+	_ CDCPullConnector = &connmssql.MsSqlConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -666,10 +670,12 @@ var (
 
 	_ StatActivityConnector = &connpostgres.PostgresConnector{}
 	_ StatActivityConnector = &connmysql.MySqlConnector{}
+	_ StatActivityConnector = &connmssql.MsSqlConnector{}
 
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetTableSchemaConnector = &connmongo.MongoConnector{}
+	_ GetTableSchemaConnector = &connmssql.MsSqlConnector{}
 	_ GetTableSchemaConnector = &connbigquery.BigQueryConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
 	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
@@ -677,6 +683,7 @@ var (
 	_ GetSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetSchemaConnector = &connmongo.MongoConnector{}
+	_ GetSchemaConnector = &connmssql.MsSqlConnector{}
 	_ GetSchemaConnector = &connbigquery.BigQueryConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
@@ -690,6 +697,7 @@ var (
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connmysql.MySqlConnector{}
 	_ QRepPullConnector = &connmongo.MongoConnector{}
+	_ QRepPullConnector = &connmssql.MsSqlConnector{}
 
 	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
@@ -725,10 +733,12 @@ var (
 	_ ValidationConnector = &conns3.S3Connector{}
 	_ ValidationConnector = &connmysql.MySqlConnector{}
 	_ ValidationConnector = &connmongo.MongoConnector{}
+	_ ValidationConnector = &connmssql.MsSqlConnector{}
 
 	_ MirrorSourceValidationConnector = &connpostgres.PostgresConnector{}
 	_ MirrorSourceValidationConnector = &connmysql.MySqlConnector{}
 	_ MirrorSourceValidationConnector = &connmongo.MongoConnector{}
+	_ MirrorSourceValidationConnector = &connmssql.MsSqlConnector{}
 	_ MirrorSourceValidationConnector = &connbigquery.BigQueryConnector{}
 
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
@@ -741,6 +751,7 @@ var (
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
 	_ GetVersionConnector = &connmysql.MySqlConnector{}
 	_ GetVersionConnector = &connmongo.MongoConnector{}
+	_ GetVersionConnector = &connmssql.MsSqlConnector{}
 
 	_ GetLogRetentionConnector = &connmysql.MySqlConnector{}
 	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
@@ -754,6 +765,7 @@ var (
 	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
 	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}
 	_ TableSizeEstimatorConnector = &connmongo.MongoConnector{}
+	_ TableSizeEstimatorConnector = &connmssql.MsSqlConnector{}
 
 	_ ReplicationMechanismInUseConnector = &connmysql.MySqlConnector{}
 )

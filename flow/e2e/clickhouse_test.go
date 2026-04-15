@@ -80,6 +80,7 @@ func (s ClickHouseSuite) attachSuffix(input string) string {
 }
 
 func (s ClickHouseSuite) Test_Addition_Removal() {
+	s.RequirePgOrMySQL()
 	tc := NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_table_add_remove")
@@ -207,6 +208,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 }
 
 func (s ClickHouseSuite) Test_NullableMirrorSetting() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_nullable_mirror"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_nullable_mirror_dst"
@@ -247,6 +249,7 @@ func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 }
 
 func (s ClickHouseSuite) Test_NullableColumnSetting() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_nullable_column"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_nullable_column_dst"
@@ -294,6 +297,7 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 }
 
 func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_update_pkey_disabled"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_update_pkey_disabled_dst"
@@ -335,6 +339,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 }
 
 func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_update_pkey_enabled"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_update_pkey_enabled_dst"
@@ -372,6 +377,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
 }
 
 func (s ClickHouseSuite) Test_Chunking_Initial_Load_Parts_Per_Partition() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_update_pkey_chunking_initial_load_enabled"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_update_pkey_chunking_initial_load_enabled_dst"
@@ -545,18 +551,22 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Keyword() {
+	s.RequirePgOrMySQL()
 	s.WeirdTable("table")
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_MixedCase() {
+	s.RequirePgOrMySQL()
 	s.WeirdTable("myMixedCaseTable")
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Question() {
+	s.RequirePgOrMySQL()
 	s.WeirdTable("whatIsTable?")
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {
+	s.RequirePgOrMySQL()
 	s.WeirdTable("table-group%c%i%t%i%z%e%n")
 }
 
@@ -796,10 +806,12 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 }
 
 func (s ClickHouseSuite) Test_Unbounded_Numeric_With_FF() {
+	s.RequirePgOrMySQL()
 	s.testNumericFF(true)
 }
 
 func (s ClickHouseSuite) Test_Unbounded_Numeric_Without_FF() {
+	s.RequirePgOrMySQL()
 	s.testNumericFF(false)
 }
 
@@ -1021,10 +1033,12 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 }
 
 func (s ClickHouseSuite) Test_Numeric_Truncation_With_UnbNumAsString_FF() {
+	s.RequirePgOrMySQL()
 	s.testNumericTruncation(true)
 }
 
 func (s ClickHouseSuite) Test_Numeric_Truncation_Without_UnbNumAsString_FF() {
+	s.RequirePgOrMySQL()
 	s.testNumericTruncation(false)
 }
 
@@ -1080,10 +1094,12 @@ func (s ClickHouseSuite) testBinaryFormat(format string, expected string) {
 }
 
 func (s ClickHouseSuite) Test_Binary_Format_Raw() {
+	s.RequirePgOrMySQL()
 	s.testBinaryFormat("raw", binaryFormatTestcase)
 }
 
 func (s ClickHouseSuite) Test_Binary_Format_Hex() {
+	s.RequirePgOrMySQL()
 	s.testBinaryFormat("hex", "0001303132337FFF")
 }
 
@@ -1323,6 +1339,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 }
 
 func (s ClickHouseSuite) Test_Time64() {
+	s.RequirePgOrMySQL()
 	_, isPostgres := s.source.(*PostgresSource)
 	_, isMySQL := s.source.(*MySqlSource)
 	if !isPostgres && !isMySQL {
@@ -1574,6 +1591,7 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 }
 
 func (s ClickHouseSuite) Test_JSON_CH() {
+	s.RequirePgOrMySQL()
 	mysqlUtf8mb4Support := true
 	if mySource, ok := s.source.(*MySqlSource); ok {
 		if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
@@ -1848,6 +1866,7 @@ func (s ClickHouseSuite) Test_PgVector_Version0() {
 }
 
 func (s ClickHouseSuite) Test_Column_Exclusion() {
+	s.RequirePgOrMySQL()
 	if mySource, isMysql := s.source.(*MySqlSource); isMysql {
 		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
 		require.NoError(s.t, err)
@@ -1927,6 +1946,7 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 }
 
 func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
+	s.RequirePgOrMySQL()
 	tc := NewTemporalClient(s.t)
 
 	tableName := "test_nullable_sc_ch"
@@ -2125,6 +2145,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 }
 
 func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
+	s.RequirePgOrMySQL()
 	// No primary key means empty ordering key,  which works in 25.11 but will fail in 25.12 unless
 	// `SETTINGS allow_suspicious_primary_key = TRUE`. So we skip this test here.
 	chVersion, err := s.connector.GetVersion(s.t.Context())
@@ -2467,6 +2488,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 }
 
 func (s ClickHouseSuite) Test_SkipSnapshotExport() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_skip_snapshot"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_skip_snapshot"
@@ -2499,6 +2521,7 @@ func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 }
 
 func (s ClickHouseSuite) Test_SchemaAsColumn() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_schema_as_column"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_schema_as_column"
@@ -2538,6 +2561,7 @@ func (s ClickHouseSuite) Test_SchemaAsColumn() {
 }
 
 func (s ClickHouseSuite) Test_Extra_CH_Columns() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_extra_ch_cols"
 	srcFullName := s.attachSchemaSuffix("test_extra_ch_cols")
 	dstTableName := "test_extra_ch_cols"
@@ -2579,6 +2603,7 @@ func (s ClickHouseSuite) Test_Extra_CH_Columns() {
 }
 
 func (s ClickHouseSuite) Test_NullEngine() {
+	s.RequirePgOrMySQL()
 	chPeer := s.Peer().GetClickhouseConfig()
 	srcTableName := "test_nullengine"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -2666,6 +2691,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 }
 
 func (s ClickHouseSuite) Test_Schema_Change_After_Resync_Cluster() {
+	s.RequirePgOrMySQL()
 	if !s.cluster {
 		s.t.Skip("only applies to cluster mode")
 	}
@@ -2766,6 +2792,7 @@ func (s ClickHouseSuite) Test_CoalescingEngine() {
 }
 
 func (s ClickHouseSuite) Test_Partition_Key_Integer() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_partition_key_integer"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_partition_key_integer"
@@ -2824,6 +2851,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 }
 
 func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_partition_key_timestamp"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_partition_key_timestamp"
@@ -2883,6 +2911,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 
 // tests where panic happened when using custom partition key on empty table
 func (s ClickHouseSuite) Test_Partition_Key_Empty() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_partition_key_empty"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_partition_key_empty"
@@ -2928,6 +2957,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Empty() {
 
 // edge case: min/max will be null, but null partition should still replicate all null rows
 func (s ClickHouseSuite) Test_Partition_Key_Null() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_partition_key_null"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_partition_key_null"
@@ -2982,6 +3012,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 }
 
 func (s ClickHouseSuite) Test_PartitionBy() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_partition_by"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_partition_by"
@@ -3033,6 +3064,7 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 }
 
 func (s ClickHouseSuite) Test_PartitionByExpr() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_partition_by_expr"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_partition_by_expr"
@@ -3519,6 +3551,7 @@ func (s ClickHouseSuite) Test_CTID_Inherited_Table_Extra_Columns() {
 }
 
 func (s ClickHouseSuite) Test_Composite_PKey() {
+	s.RequirePgOrMySQL()
 	srcTableName := "test_composite_pkey_ordering"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_composite_pkey_ordering"

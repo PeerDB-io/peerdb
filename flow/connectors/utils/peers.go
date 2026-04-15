@@ -93,6 +93,12 @@ func CreatePeerNoValidate(
 			return wrongConfigResponse, nil
 		}
 		innerConfig = mongoConfigObject.MongoConfig
+	case protos.DBType_SQLSERVER:
+		ssConfigObject, ok := config.(*protos.Peer_SqlserverConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		innerConfig = ssConfigObject.SqlserverConfig
 	default:
 		return wrongConfigResponse, nil
 	}

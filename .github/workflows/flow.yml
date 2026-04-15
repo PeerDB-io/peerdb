@@ -167,6 +167,25 @@ jobs:
             docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
           fi
 
+      - name: SQL Server
+        if: matrix.db-version.mysql == 'mysql-pos'
+        run: |
+          sudo sysctl -w fs.aio-max-nr=1048576
+          docker run -d --name mssql --network ${{ job.container.network }} \
+            -e 'ACCEPT_EULA=Y' -e 'MSSQL_SA_PASSWORD=PeerDB@ci1234' -e 'MSSQL_AGENT_ENABLED=true' \
+            -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+          for i in $(seq 1 30); do
+            if docker exec mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'PeerDB@ci1234' -C -Q "SELECT 1" &> /dev/null; then
+              echo "SQL Server ready"
+              exit 0
+            fi
+            echo "waiting for SQL Server ($i/30)..."
+            sleep 2
+          done
+          echo "SQL Server failed to start"
+          docker logs mssql
+          exit 1
+
       - name: Mongo
         run: |
           echo "starting mongoDB..."
@@ -500,6 +519,7 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          CI_MSSQL_HOST: ${{ matrix.db-version.mysql == 'mysql-pos' && 'localhost' || '' }}
           CI_MONGO_ADMIN_URI: mongodb://localhost:27017
           CI_MONGO_ADMIN_USERNAME: "admin"
           CI_MONGO_ADMIN_PASSWORD: "admin"

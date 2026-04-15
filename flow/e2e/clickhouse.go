@@ -41,6 +41,15 @@ func (s ClickHouseSuite) T() *testing.T {
 	return s.t
 }
 
+// RequirePgOrMySQL skips tests that use Postgres/MySQL-specific SQL syntax
+func (s ClickHouseSuite) RequirePgOrMySQL() {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+	default:
+		s.t.Skipf("test uses Postgres/MySQL-specific SQL, skipping for %T", s.source)
+	}
+}
+
 func (s ClickHouseSuite) Connector() connectors.Connector {
 	return s.source.Connector()
 }
@@ -360,6 +369,12 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				qrow = append(qrow, types.QValueFloat64{Val: *v})
 			case *[]float64:
 				qrow = append(qrow, types.QValueArrayFloat64{Val: *v})
+			case **uuid.UUID:
+				if *v == nil {
+					qrow = append(qrow, types.QValueNull(types.QValueKindUUID))
+				} else {
+					qrow = append(qrow, types.QValueUUID{Val: **v})
+				}
 			case *uuid.UUID:
 				qrow = append(qrow, types.QValueUUID{Val: *v})
 			case *[]uuid.UUID:

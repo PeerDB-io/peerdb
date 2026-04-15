@@ -189,7 +189,7 @@ message ClickhouseConfig{
 }
 
 message SqlServerConfig {
-  string server = 1;
+  string host = 1;
   uint32 port = 2;
   string user = 3;
   string password = 4 [(peerdb_redacted) = true];

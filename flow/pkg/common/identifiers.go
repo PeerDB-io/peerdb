@@ -3,6 +3,8 @@ package common
 import (
 	"fmt"
 	"strings"
+
+	mssql "github.com/microsoft/go-mssqldb"
 )
 
 type QualifiedTable struct {
@@ -16,6 +18,10 @@ func (t QualifiedTable) String() string {
 
 func (t QualifiedTable) MySQL() string {
 	return fmt.Sprintf("%s.%s", QuoteMySQLIdentifier(t.Namespace), QuoteMySQLIdentifier(t.Table))
+}
+
+func (t QualifiedTable) MsSql() string {
+	return fmt.Sprintf("%s.%s", QuoteMsSqlIdentifier(t.Namespace), QuoteMsSqlIdentifier(t.Table))
 }
 
 // ParseTableIdentifier parses a table name into namespace and table name.
@@ -53,4 +59,8 @@ func QuoteMySQLIdentifier(name string) string {
 		name = name[:end]
 	}
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
+func QuoteMsSqlIdentifier(name string) string {
+	return mssql.TSQLQuoter{}.ID(name)
 }
