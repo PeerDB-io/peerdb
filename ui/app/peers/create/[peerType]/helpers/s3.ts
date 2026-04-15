@@ -91,7 +91,7 @@ export const s3Setting: PeerSetting[] = [
 ];
 
 export const blankS3Setting: S3Config = {
-  url: 's3://<bucket_name>/<prefix_name>',
+  url: '',
   accessKeyId: undefined,
   secretAccessKey: undefined,
   roleArn: undefined,

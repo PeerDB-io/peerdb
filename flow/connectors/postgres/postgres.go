@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -642,6 +643,12 @@ func syncRecordsCore[Items model.Items](
 		return nil, nil
 	}
 
+	if req.Version >= shared.InternalVersion_PartitionedRawTable {
+		if err := c.ensureRawTablePartition(ctx, rawTableIdentifier, req.SyncBatchID); err != nil {
+			return nil, err
+		}
+	}
+
 	syncRecordsTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for syncing records: %w", err)
@@ -762,6 +769,12 @@ func (c *PostgresConnector) NormalizeRecords(
 	}
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 
+	if req.Version >= shared.InternalVersion_PartitionedRawTable {
+		if err := c.cleanupRawTablePartitions(ctx, rawTableIdentifier, req.SyncBatchID, req.Env); err != nil {
+			c.logger.Warn("failed to cleanup raw table partitions", slog.Any("error", err))
+		}
+	}
+
 	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
@@ -853,9 +866,29 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}
 	defer shared.RollbackTx(createRawTableTx, c.logger)
 
-	if _, err := createRawTableTx.Exec(ctx, fmt.Sprintf(createRawTableSQL, c.metadataSchema, rawTableIdentifier)); err != nil {
-		return nil, fmt.Errorf("error creating raw table: %w", err)
+	if req.Version >= shared.InternalVersion_PartitionedRawTable {
+		if _, err := createRawTableTx.Exec(ctx,
+			fmt.Sprintf(createPartitionedRawTableSQL, c.metadataSchema, rawTableIdentifier),
+		); err != nil {
+			return nil, fmt.Errorf("error creating partitioned raw table: %w", err)
+		}
+		// create initial partition covering batches [0, rawTablePartitionRange)
+		partitionName := fmt.Sprintf("%s_p0", rawTableIdentifier)
+		if _, err := createRawTableTx.Exec(ctx,
+			fmt.Sprintf(createRawPartitionSQL,
+				c.metadataSchema, partitionName, c.metadataSchema, rawTableIdentifier,
+				0, rawTablePartitionRange),
+		); err != nil {
+			return nil, fmt.Errorf("error creating initial raw table partition: %w", err)
+		}
+	} else {
+		if _, err := createRawTableTx.Exec(ctx,
+			fmt.Sprintf(createRawTableSQL, c.metadataSchema, rawTableIdentifier),
+		); err != nil {
+			return nil, fmt.Errorf("error creating raw table: %w", err)
+		}
 	}
+
 	if _, err := createRawTableTx.Exec(ctx,
 		fmt.Sprintf(createRawTableBatchIDIndexSQL, rawTableIdentifier, c.metadataSchema, rawTableIdentifier),
 	); err != nil {
@@ -872,6 +905,121 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}
 
 	return nil, nil
+}
+
+// cleanupRawTablePartitions detaches and drops partitions whose batch ranges
+// have been fully normalized, respecting the configured retention buffer.
+func (c *PostgresConnector) cleanupRawTablePartitions(
+	ctx context.Context, rawTableIdentifier string, normalizeBatchID int64, env map[string]string,
+) error {
+	retentionBatches, err := internal.PeerDBRawTableCleanupRetentionBatches(ctx, env)
+	if err != nil {
+		return fmt.Errorf("failed to get retention batches config: %w", err)
+	}
+	if retentionBatches <= 0 {
+		return nil
+	}
+
+	cleanupBelowBatchID := normalizeBatchID - retentionBatches
+	if cleanupBelowBatchID <= 0 {
+		return nil
+	}
+
+	// find partitions whose upper bound is <= cleanupBelowBatchID
+	// pg_catalog stores partition bounds; we query child tables of the raw table
+	qualifiedParent := fmt.Sprintf("%s.%s", c.metadataSchema, rawTableIdentifier)
+	rows, err := c.conn.Query(ctx,
+		`SELECT c.relname, pg_get_expr(c.relpartbound, c.oid)
+		FROM pg_inherits i
+		JOIN pg_class c ON c.oid = i.inhrelid
+		JOIN pg_class p ON p.oid = i.inhparent
+		JOIN pg_namespace n ON n.oid = p.relnamespace
+		WHERE n.nspname = $1 AND p.relname = $2`,
+		c.metadataSchema, rawTableIdentifier,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to query raw table partitions: %w", err)
+	}
+	defer rows.Close()
+
+	type partitionInfo struct {
+		name     string
+		upperStr string
+	}
+	var toDrop []partitionInfo
+	for rows.Next() {
+		var partName, boundExpr string
+		if err := rows.Scan(&partName, &boundExpr); err != nil {
+			return fmt.Errorf("failed to scan partition info: %w", err)
+		}
+		// boundExpr looks like: FOR VALUES FROM ('0') TO ('1000')
+		upper, parseErr := parsePartitionUpperBound(boundExpr)
+		if parseErr != nil {
+			c.logger.Warn("could not parse partition bound, skipping",
+				slog.String("partition", partName), slog.String("bound", boundExpr))
+			continue
+		}
+		if upper <= cleanupBelowBatchID {
+			toDrop = append(toDrop, partitionInfo{name: partName, upperStr: boundExpr})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating partitions: %w", err)
+	}
+
+	for _, part := range toDrop {
+		c.logger.Info("detaching and dropping raw table partition",
+			slog.String("partition", part.name), slog.String("bound", part.upperStr))
+		if _, err := c.conn.Exec(ctx,
+			fmt.Sprintf("ALTER TABLE %s DETACH PARTITION %s.%s",
+				qualifiedParent, c.metadataSchema, part.name),
+		); err != nil {
+			return fmt.Errorf("failed to detach partition %s: %w", part.name, err)
+		}
+		if _, err := c.conn.Exec(ctx,
+			fmt.Sprintf("DROP TABLE %s.%s", c.metadataSchema, part.name),
+		); err != nil {
+			return fmt.Errorf("failed to drop partition %s: %w", part.name, err)
+		}
+	}
+	return nil
+}
+
+// parsePartitionUpperBound extracts the upper bound integer from a partition bound expression
+// like "FOR VALUES FROM ('0') TO ('1000')"
+func parsePartitionUpperBound(boundExpr string) (int64, error) {
+	// extract the value after "TO ('" and before "')"
+	const toMarker = "TO ('"
+	idx := strings.Index(boundExpr, toMarker)
+	if idx < 0 {
+		return 0, fmt.Errorf("no TO clause found in %q", boundExpr)
+	}
+	rest := boundExpr[idx+len(toMarker):]
+	endIdx := strings.Index(rest, "')")
+	if endIdx < 0 {
+		return 0, fmt.Errorf("no closing ')' found in %q", boundExpr)
+	}
+	return strconv.ParseInt(rest[:endIdx], 10, 64)
+}
+
+// ensureRawTablePartition creates the partition covering batchID if it doesn't exist,
+// plus one partition ahead so the next batch doesn't need to wait.
+func (c *PostgresConnector) ensureRawTablePartition(ctx context.Context, rawTableIdentifier string, batchID int64) error {
+	partitionIndex := batchID / int64(rawTablePartitionRange)
+	// create partition for current batch and one ahead
+	for _, idx := range []int64{partitionIndex, partitionIndex + 1} {
+		lower := idx * int64(rawTablePartitionRange)
+		upper := lower + int64(rawTablePartitionRange)
+		partitionName := fmt.Sprintf("%s_p%d", rawTableIdentifier, idx)
+		if _, err := c.conn.Exec(ctx,
+			fmt.Sprintf(createRawPartitionSQL,
+				c.metadataSchema, partitionName, c.metadataSchema, rawTableIdentifier,
+				lower, upper),
+		); err != nil {
+			return fmt.Errorf("error creating raw table partition %s: %w", partitionName, err)
+		}
+	}
+	return nil
 }
 
 func (c *PostgresConnector) StatActivity(

@@ -229,6 +229,7 @@ message CreateRawTableInput {
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
   string peer_name = 4;
+  uint32 version = 5;
 }
 
 message CreateRawTableOutput { string table_identifier = 1; }

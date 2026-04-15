@@ -37,6 +37,8 @@ const (
 	InternalVersion_MongoDBIdWithoutRedundantQuotes
 	// MySQL: convert enums to integers for older versions without binlog row metadata support
 	InternalVersion_MySQL5ConvertEnumsToInts
+	// Postgres destination: raw table created with PARTITION BY RANGE (_peerdb_batch_id) for efficient cleanup
+	InternalVersion_PartitionedRawTable
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1

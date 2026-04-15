@@ -1,3 +1,4 @@
+import { SOFT_DELETE_COLUMN_NAME } from '@/app/mirrors/create/helpers/common';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 
 export default function MirrorValues(
@@ -24,7 +25,11 @@ export default function MirrorValues(
       value: mirrorConfig?.softDeleteColName
         ? `Enabled (${mirrorConfig?.softDeleteColName})`
         : 'Disabled',
-      label: 'Soft Delete',
+      label:
+        mirrorConfig?.softDeleteColName &&
+        mirrorConfig.softDeleteColName !== SOFT_DELETE_COLUMN_NAME
+          ? 'Hard Delete'
+          : 'Soft Delete',
     },
     {
       value: mirrorConfig?.script,

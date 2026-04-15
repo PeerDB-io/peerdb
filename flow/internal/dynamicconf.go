@@ -444,6 +444,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name: "PEERDB_RAW_TABLE_CLEANUP_RETENTION_BATCHES",
+		Description: "Number of already-normalized batches to retain in the raw table before cleanup. " +
+			"Higher values provide more recovery protection. 0 disables cleanup",
+		DefaultValue:     "5",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -799,4 +808,8 @@ func PeerDBMongoDBParallelSnapshotting(ctx context.Context, env map[string]strin
 
 func PeerDBMongoDBDirectBsonConverter(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_DIRECT_BSON_CONVERTER")
+}
+
+func PeerDBRawTableCleanupRetentionBatches(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_RAW_TABLE_CLEANUP_RETENTION_BATCHES")
 }
