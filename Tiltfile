@@ -260,7 +260,7 @@ e2e_test('switchboard-mysql-gtid', 'TestSwitchboardMySQL', ['provision-mysql-gti
 e2e_test('switchboard-mysql-pos', 'TestSwitchboardMySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
 e2e_test('switchboard-mariadb', 'TestSwitchboardMySQL', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
-e2e_test('switchboard-mongodb', 'TestSwitchboardMongoDB', ['provision-mongodb'])
+e2e_test('switchboard-mongodb', 'TestSwitchboardMongo', ['provision-mongodb'])
 
 # Peer flow E2E
 
