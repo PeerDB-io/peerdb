@@ -198,7 +198,7 @@ def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     local_resource(
         'e2e_' + name,
-        cmd='cd flow && %s go test -v -run %s ./e2e/' % (overrides_str, test_run),
+        cmd='cd flow && %s go test -count=1 -v -run %s ./e2e/' % (overrides_str, test_run),
         labels=['Test'],
         auto_init=False,
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
@@ -208,7 +208,7 @@ def connector_test(connector, extra_deps=[], vars_overrides={}):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     local_resource(
         'connector_' + connector,
-        cmd='cd flow && %s go test -v ./connectors/%s/...' % (overrides_str, connector),
+        cmd='cd flow && %s go test -count=1 -v ./connectors/%s/...' % (overrides_str, connector),
         labels=['Test'],
         auto_init=False,
         resource_deps=['catalog'] + extra_deps,
