@@ -211,7 +211,7 @@ def connector_test(connector, extra_deps=[], vars_overrides={}):
         cmd='cd flow && %s go test -v ./connectors/%s/...' % (overrides_str, connector),
         labels=['Test'],
         auto_init=False,
-        resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
+        resource_deps=['catalog'] + extra_deps,
     )
 
 # Generic e2e tests
@@ -258,6 +258,6 @@ e2e_test('api-mongodb', 'TestApiMongo', ['provision-mongodb'])
 # Connectors tests
 
 connector_test('postgres', ['provision-postgres'])
-connector_test('mongodb', ['provision-mongodb'])
+connector_test('mongo', ['provision-mongodb'])
 connector_test('mysql', ['provision-mysql-gtid'])
-connector_test('clickhouse')
+connector_test('clickhouse', ['provision-clickhouse'])
