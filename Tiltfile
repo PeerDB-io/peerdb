@@ -67,42 +67,42 @@ dc_resource('minio', labels=['PeerDB'])
 local_resource(
     'provision-mongodb',
     cmd='./local_provision_scripts/mongodb.sh',
-    labels=['Provisioning'],
+    labels=['Ancillary-DB-Provisioning'],
     resource_deps=['mongodb']
 )
 
 local_resource(
     'provision-clickhouse',
     cmd='./local_provision_scripts/clickhouse.sh',
-    labels=['Provisioning'],
+    labels=['Ancillary-DB-Provisioning'],
     resource_deps=['clickhouse']
 )
 
 local_resource(
     'provision-mysql-gtid',
     cmd='./local_provision_scripts/mysql.sh peerdb-mysql-gtid',
-    labels=['Provisioning'],
+    labels=['Ancillary-DB-Provisioning'],
     resource_deps=['mysql-gtid']
 )
 
 local_resource(
     'provision-mysql-pos',
     cmd='./local_provision_scripts/mysql.sh peerdb-mysql-pos',
-    labels=['Provisioning'],
+    labels=['Ancillary-DB-Provisioning'],
     resource_deps=['mysql-pos']
 )
 
 local_resource(
     'provision-mariadb',
     cmd='./local_provision_scripts/mysql.sh peerdb-mariadb',
-    labels=['Provisioning'],
+    labels=['Ancillary-DB-Provisioning'],
     resource_deps=['mariadb']
 )
 
 local_resource(
     'provision-postgres',
     cmd='./local_provision_scripts/postgres.sh',
-    labels=['Provisioning'],
+    labels=['Ancillary-DB-Provisioning'],
     resource_deps=['postgres']
 )
 
@@ -118,30 +118,42 @@ docker_compose('./ancillary-docker-compose.yml', env_file=tiltfile_dir + '/ancil
 # of their corresponding datastore.
 # This way, users can choose which ones to start and when, depending on the tests they want to run.
 
-dc_resource('clickhouse', labels=['DataStore'], links=[
+dc_resource('clickhouse', labels=['Ancillary-DB'], links=[
     link('http://localhost:11123', 'ClickHouse HTTP'),
     link('http://localhost:11000', 'ClickHouse TCP'),
 ], auto_init=False)
 
-dc_resource('mongodb', labels=['DataStore'], links=[
+dc_resource('mongodb', labels=['Ancillary-DB'], links=[
     link('http://localhost:11017', 'MongoDB'),
 ], auto_init=False)
 
-dc_resource('mysql-gtid', labels=['DataStore'], links=[
+dc_resource('mysql-gtid', labels=['Ancillary-DB'], links=[
     link('http://localhost:3306', 'MySQL GTID'),
 ], auto_init=False)
 
-dc_resource('mysql-pos', labels=['DataStore'], links=[
+dc_resource('mysql-pos', labels=['Ancillary-DB'], links=[
     link('http://localhost:3307', 'MySQL File-Pos'),
 ], auto_init=False)
 
-dc_resource('mariadb', labels=['DataStore'], links=[
+dc_resource('mariadb', labels=['Ancillary-DB'], links=[
     link('http://localhost:3308', 'MariaDB'),
 ], auto_init=False)
 
-dc_resource('postgres', labels=['DataStore'], links=[
+dc_resource('postgres', labels=['Ancillary-DB'], links=[
     link('http://localhost:5432', 'PostgreSQL'),
 ], auto_init=False)
+
+local_resource(
+    'all-test-resources',
+    cmd=' '.join([
+        "resources=$(tilt --port 10352 get uiresource -o json |",
+        "jq -r '.items[] | select(.metadata.labels.DataStore or .metadata.labels.TestInfra) | .metadata.name');",
+        "tilt --port 10352 enable $resources &&",
+        "for r in $resources; do tilt --port 10352 trigger $r; done",
+    ]),
+    labels=['Ancillary-Utilities'],
+    auto_init=False,
+)
 
 # Monitoring and utility tools
 
@@ -151,8 +163,8 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
 
 # Test services: Services supporting test execution that are not data stores, like proxies, mock servers, etc.
 
-dc_resource('toxiproxy', labels=['TestInfra'], auto_init=False)
-dc_resource('openssh', labels=['TestInfra'], auto_init=False)
+dc_resource('toxiproxy', labels=['Ancillary-TestInfra'], auto_init=False)
+dc_resource('openssh', labels=['Ancillary-TestInfra'], auto_init=False)
 
 # Cleanup
 
@@ -169,18 +181,6 @@ cmd_button(
     text='Wipe ancillary volumes',
     icon_name='delete',
     location=location.NAV
-)
-
-local_resource(
-    'all-test-resources',
-    cmd=' '.join([
-        "resources=$(tilt --port 10352 get uiresource -o json |",
-        "jq -r '.items[] | select(.metadata.labels.DataStore or .metadata.labels.TestInfra) | .metadata.name');",
-        "tilt --port 10352 enable $resources &&",
-        "for r in $resources; do tilt --port 10352 trigger $r; done",
-    ]),
-    labels=['Utilities'],
-    auto_init=False,
 )
 
 cmd_button(
