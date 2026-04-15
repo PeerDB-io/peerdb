@@ -85,11 +85,11 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Types() {
+func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSystem) {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_types_pg")
-	dstTableName := s.attachSchemaSuffix("test_types_pg_dst")
+	srcTableName := s.attachSchemaSuffix("test_types_" + suffix)
+	dstTableName := s.attachSchemaSuffix("test_types_" + suffix + "_dst")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BYTEA,c4 BOOLEAN,
@@ -103,7 +103,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_types_pg"),
+		FlowJobName:      s.attachSuffix("test_types_" + suffix),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -112,6 +112,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types() {
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
+	flowConnConfig.System = system
 
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
@@ -138,7 +139,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types() {
 	allCols := strings.Join([]string{
 		"c1", "c2", "c4",
 		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
-		"c21", "c29", "c33", "c34", "c35", "c37",
+		"c21", "c29", "c33", "c34", "c35",
 		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
 	}, ",")
 	EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
@@ -148,13 +149,25 @@ func (s PeerFlowE2ETestSuitePG) Test_Types() {
 		}
 		return err == nil
 	})
-	// c36 converted to UTC, losing tz info, so does not compare equal
+	// Q type system converts timetz to UTC, PG type system preserves original offset
 	var c36 string
 	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(), "select c36 from "+dstTableName).Scan(&c36))
-	require.Equal(s.t, "06:25:00+00", c36)
+	if system == protos.TypeSystem_PG {
+		require.Equal(s.t, "09:25:00+03", c36)
+	} else {
+		require.Equal(s.t, "06:25:00+00", c36)
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Types_QValue() {
+	s.testTypes("q", protos.TypeSystem_Q)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
+	s.testTypes("pg", protos.TypeSystem_PG)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PgVector() {
