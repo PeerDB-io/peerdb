@@ -77,6 +77,10 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 			case <-ssh.GetKeepaliveChan(ctx):
 				c.logger.Info("SSH keepalive failed, closing connection")
 				ctx = context.Background()
+				// close the SSH client so that BinlogSyncer notices too
+				if err := ssh.Client.Close(); err != nil {
+					c.logger.Error("Failed to close SSH client", slog.Any("error", err))
+				}
 				if conn := c.conn.Swap(nil); conn != nil {
 					c.logger.Info("Closing connection due to SSH keepalive failure")
 					if err := conn.Close(); err != nil {
