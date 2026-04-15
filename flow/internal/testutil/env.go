@@ -5,15 +5,22 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/joho/godotenv"
 )
 
-// LoadEnv walks up from the current directory until the project root
-// is found and loads the .env file if it exists
-func LoadEnv() {
-	ctx := context.Background()
+var loadedEnv atomic.Bool
 
+// LoadEnv walks up from the current directory until the project root
+// is found and loads the .env file if it exists.
+// After the first call, subsequent calls to LoadEnv are no-ops.
+func LoadEnv() {
+	if !loadedEnv.CompareAndSwap(false, true) {
+		return
+	}
+
+	ctx := context.Background()
 	dir, err := os.Getwd()
 	if err != nil {
 		slog.ErrorContext(ctx, "LoadEnv: failed to get working directory", "error", err)
