@@ -56,7 +56,8 @@ func LoadEnv() {
 			maybeForcedTZ := os.Getenv(timeZoneEnvKey)
 
 			if maybeForcedTZ != "" {
-				slog.InfoContext(ctx, "LoadEnv: attempting to force time zone from environment variable", "key", timeZoneEnvKey, "forced_value", maybeForcedTZ)
+				slog.InfoContext(ctx, "LoadEnv: attempting to force time zone from environment variable",
+					"key", timeZoneEnvKey, "forced_value", maybeForcedTZ)
 				if err := forceTimeZone(maybeForcedTZ); err != nil {
 					slog.ErrorContext(ctx, "LoadEnv: failed to force time zone", "error", err)
 				}
