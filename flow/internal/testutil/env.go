@@ -6,11 +6,23 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/joho/godotenv"
 )
 
+const timeZoneEnvKey = "TZ"
+
 var loadedEnv atomic.Bool
+
+func forceTimeZone(tzString string) error {
+	location, err := time.LoadLocation(tzString)
+	if err != nil {
+		return err
+	}
+	time.Local = location
+	return nil
+}
 
 // LoadEnv walks up from the current directory until the project root
 // is found and loads the .env file if it exists.
@@ -40,6 +52,16 @@ func LoadEnv() {
 			if err := godotenv.Load(envPath); err != nil {
 				slog.ErrorContext(ctx, "LoadEnv: failed to load .env", "path", envPath, "error", err)
 			}
+
+			maybeForcedTZ := os.Getenv(timeZoneEnvKey)
+
+			if maybeForcedTZ != "" {
+				slog.InfoContext(ctx, "LoadEnv: attempting to force time zone from environment variable", "key", timeZoneEnvKey, "forced_value", maybeForcedTZ)
+				if err := forceTimeZone(maybeForcedTZ); err != nil {
+					slog.ErrorContext(ctx, "LoadEnv: failed to force time zone", "error", err)
+				}
+			}
+
 			return
 		}
 
