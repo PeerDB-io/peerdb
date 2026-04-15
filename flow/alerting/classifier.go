@@ -803,6 +803,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 133: // FailedToSatisfyReadPreference
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 17287: // Bad query specified (documentDB only)
+			return ErrorRetryRecoverable, mongoErrorInfo
 		default:
 			return ErrorOther, mongoErrorInfo
 		}
