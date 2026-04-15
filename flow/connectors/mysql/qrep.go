@@ -177,6 +177,31 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	}, nil
 }
 
+func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string) string {
+	columns := []string{}
+	selectAsterisk := true
+	for _, col := range cols {
+		if slices.Contains(exclude, col.Name) {
+			selectAsterisk = false
+			continue
+		}
+
+		converted := common.QuoteMySQLIdentifier(col.Name)
+		if col.Type == string(types.QValueKindUint16Enum) {
+			converted = fmt.Sprintf("CAST(%s AS UNSIGNED) AS %s", converted, converted)
+			selectAsterisk = false
+		}
+		columns = append(columns, converted)
+	}
+
+	selectedColumns := "*"
+	if !selectAsterisk {
+		selectedColumns = strings.Join(columns, ", ")
+	}
+
+	return selectedColumns
+}
+
 func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
@@ -187,22 +212,13 @@ func (c *MySqlConnector) PullQRepRecords(
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
-		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
+		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q,
+		config.Version)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	selectedColumns := "*"
-	if len(config.Exclude) != 0 {
-		quotedColumns := make([]string, 0, len(tableSchema.Columns))
-		for _, col := range tableSchema.Columns {
-			if !slices.Contains(config.Exclude, col.Name) {
-				quotedColumns = append(quotedColumns, common.QuoteMySQLIdentifier(col.Name))
-			}
-		}
-		selectedColumns = strings.Join(quotedColumns, ",")
-	}
-
+	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude)
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		c.logger.Error("unable to parse source table", slog.Any("error", err))

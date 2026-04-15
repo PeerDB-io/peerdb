@@ -26,7 +26,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -42,7 +41,7 @@ func (c *MySqlConnector) GetTableSchema(
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMappings))
 	for _, tm := range tableMappings {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system)
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -59,6 +58,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
+	mirrorVersion uint32,
 ) (*protos.TableSchema, error) {
 	qualifiedTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 	if err != nil {
@@ -87,8 +87,13 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		name       string
 		seqInIndex int64
 	}
-	var primaryEntries []pkEntry
 
+	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
+	}
+
+	var primaryEntries []pkEntry
 	for idx := range rs.RowNumber() {
 		columnName, err := rs.GetString(idx, 0)
 		if err != nil {
@@ -114,7 +119,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
-		qkind, err := QkindFromMysqlColumnType(dataType)
+		qkind, err := QkindFromMysqlColumnType(dataType, binlogRowMetadataSupported, mirrorVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -338,15 +343,10 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
-	versionToCmp := mysql_validation.MySQLMinVersionForBinlogRowMetadata
-	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		versionToCmp = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
-	}
-	cmp, err := c.CompareServerVersion(ctx, versionToCmp)
+	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get server version: %w", err)
+		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
-	binlogRowMetadataSupported := cmp >= 0
 
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
@@ -516,7 +516,7 @@ func (c *MySqlConnector) PullRecords(
 			for _, stmt := range stmts {
 				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, req, alterTableStmt, string(ev.Schema), binlogRowMetadataSupported); err != nil {
+						ctx, catalogPool, req, alterTableStmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
 				}
@@ -706,7 +706,7 @@ func (c *MySqlConnector) PullRecords(
 
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
 	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
-	binlogRowMetadataSupported bool,
+	binlogRowMetadataSupported bool, mirrorVersion uint32,
 ) error {
 	// if ALTER TABLE doesn't have database/schema name, use one attached to event
 	var sourceSchemaName string
@@ -753,7 +753,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						slog.String("tableName", sourceTableName))
 				}
 
-				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
+				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
 				if err != nil {
 					return err
 				}

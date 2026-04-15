@@ -269,6 +269,14 @@ func TestAvroSizeComputation(t *testing.T) {
 			},
 		},
 		{
+			name:       "uint16enum",
+			kind:       types.QValueKindUint16Enum,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueUint16Enum{Val: uint16(rand.IntN(65536))}
+			},
+		},
+		{
 			name:       "timestamp",
 			kind:       types.QValueKindTimestamp,
 			numRecords: 10_000,

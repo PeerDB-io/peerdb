@@ -3,6 +3,8 @@ package e2e
 import (
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func mysqlEnumUsesOrdinals() bool {
+	return os.Getenv("CI_MYSQL_VERSION") == "mysql-pos"
+}
 
 func (s ClickHouseSuite) Test_UnsignedMySQL() {
 	if _, ok := s.source.(*MySqlSource); !ok {
@@ -269,6 +275,120 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 		('cdc','b''s','a,b'),('cdc','','')`, quotedSrcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",e,s")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_my_enum_consistency"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_my_enum_consistency_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			status ENUM('active', 'inactive', 'pending') NOT NULL
+		)
+	`, srcFullName)))
+
+	// Insert row before snapshot
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Wait for snapshot row to appear in destination
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,status", 1)
+
+	// Insert row via CDC — on old MySQL this comes as integer from binlog
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+
+	// Wait for CDC row
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status", 2)
+
+	// Verify both rows have the same status value (consistency between snapshot and CDC)
+	rows, err := s.GetRows(dstTableName, "id,status")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	require.Equal(s.t, rows.Records[0][1].Value(), rows.Records[1][1].Value(),
+		"snapshot and CDC enum values should be consistent")
+	if mysqlEnumUsesOrdinals() {
+		require.EqualValues(s.t, 1, rows.Records[0][1].Value())
+	} else {
+		require.Equal(s.t, "active", rows.Records[0][1].Value())
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_my_enum_consistency_v0"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_my_enum_consistency_v0_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			status ENUM('active', 'inactive', 'pending') NOT NULL
+		)
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(shared.InternalVersion_First), 10)}
+	flowConnConfig.Version = shared.InternalVersion_First
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,status", 1)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status", 2)
+
+	rows, err := s.GetRows(dstTableName, "id,status")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	require.EqualValues(s.t, 1, rows.Records[0][0].Value())
+	require.EqualValues(s.t, 2, rows.Records[1][0].Value())
+	require.Equal(s.t, "active", rows.Records[0][1].Value())
+	if mysqlEnumUsesOrdinals() {
+		require.Equal(s.t, "1", rows.Records[1][1].Value())
+	} else {
+		require.Equal(s.t, "active", rows.Records[1][1].Value())
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

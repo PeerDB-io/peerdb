@@ -24,6 +24,7 @@ const (
 	QValueKindQChar       QValueKind = "qchar"
 	QValueKindString      QValueKind = "string"
 	QValueKindEnum        QValueKind = "enum"
+	QValueKindUint16Enum  QValueKind = "uint16enum"
 	QValueKindTimestamp   QValueKind = "timestamp"
 	QValueKindTimestampTZ QValueKind = "timestamptz"
 	QValueKindDate        QValueKind = "date"
@@ -83,6 +84,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindQChar:       "CHAR",
 	QValueKindString:      "STRING",
 	QValueKindEnum:        "STRING",
+	QValueKindUint16Enum:  "INTEGER",
 	QValueKindJSON:        "VARIANT",
 	QValueKindJSONB:       "VARIANT",
 	QValueKindTimestamp:   "TIMESTAMP_NTZ",
@@ -135,6 +137,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindQChar:       "FixedString(1)",
 	QValueKindString:      "String",
 	QValueKindEnum:        "LowCardinality(String)",
+	QValueKindUint16Enum:  "UInt16",
 	QValueKindJSON:        "String",
 	QValueKindTimestamp:   "DateTime64(6)",
 	QValueKindTimestampTZ: "DateTime64(6)",

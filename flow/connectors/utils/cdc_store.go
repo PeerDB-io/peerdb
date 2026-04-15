@@ -97,6 +97,7 @@ func init() {
 	gob.Register(types.QValueQChar{})
 	gob.Register(types.QValueString{})
 	gob.Register(types.QValueEnum{})
+	gob.Register(types.QValueUint16Enum{})
 	gob.Register(types.QValueTimestamp{})
 	gob.Register(types.QValueTimestampTZ{})
 	gob.Register(types.QValueDate{})
