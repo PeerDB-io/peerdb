@@ -432,7 +432,7 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_test_replident_full_toast"),
+		FlowJobName:      s.attachSuffix("ch_replident_full_toast"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -2094,7 +2094,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("clickhouse_test_unprivileged_columns"),
+		FlowJobName: s.attachSuffix("ch_unprivileged_columns"),
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
