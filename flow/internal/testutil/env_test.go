@@ -23,6 +23,7 @@ func TestLoadEnv_FindsEnvAboveFlow(t *testing.T) {
 	t.Chdir(e2eDir)
 
 	os.Unsetenv("TEST_LOAD_ENV")
+	loadedEnv.Store(false)
 	LoadEnv()
 
 	require.Equal(t, "found_above_flow", os.Getenv("TEST_LOAD_ENV"))
@@ -42,6 +43,7 @@ func TestLoadEnv_IgnoresEnvNotAboveFlow(t *testing.T) {
 	t.Chdir(subDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_IGNORE")
+	loadedEnv.Store(false)
 	LoadEnv()
 
 	require.Empty(t, os.Getenv("TEST_LOAD_ENV_IGNORE"))
@@ -57,6 +59,7 @@ func TestLoadEnv_NoEnvFile(t *testing.T) {
 	t.Chdir(e2eDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_NONE")
+	loadedEnv.Store(false)
 	LoadEnv()
 
 	require.Empty(t, os.Getenv("TEST_LOAD_ENV_NONE"))
@@ -77,6 +80,7 @@ func TestLoadEnv_EnvInsideFlowIgnored(t *testing.T) {
 	t.Chdir(e2eDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_INSIDE")
+	loadedEnv.Store(false)
 	LoadEnv()
 
 	require.Empty(t, os.Getenv("TEST_LOAD_ENV_INSIDE"))
@@ -96,6 +100,7 @@ func TestLoadEnv_FromConnectorsSubdir(t *testing.T) {
 	t.Chdir(connectorsDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_CONNECTORS")
+	loadedEnv.Store(false)
 	LoadEnv()
 
 	require.Equal(t, "from_connectors", os.Getenv("TEST_LOAD_ENV_CONNECTORS"))
@@ -115,6 +120,7 @@ func TestLoadEnv_RunFromFlowDirectly(t *testing.T) {
 	t.Chdir(flowDir)
 
 	os.Unsetenv("TEST_LOAD_ENV_FROM_FLOW")
+	loadedEnv.Store(false)
 	LoadEnv()
 
 	require.Equal(t, "from_flow", os.Getenv("TEST_LOAD_ENV_FROM_FLOW"))
