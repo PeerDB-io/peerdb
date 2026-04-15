@@ -214,19 +214,40 @@ def connector_test(connector, extra_deps=[], vars_overrides={}):
         resource_deps=['catalog'] + extra_deps,
     )
 
+# These are overrides to provide different MySQL flavors with the same test definitions.
+
+def resolve_env(var_name):
+    for line in str(read_file('.env')).splitlines():
+        if line.startswith(var_name + '='):
+            return line.strip().split('=', 1)[1]
+    return None
+
+mysql_gtid_vars = {
+    'CI_MYSQL_PORT': resolve_env('CI_MYSQL_GTID_PORT'),
+    'CI_MYSQL_VERSION': resolve_env('CI_MYSQL_GTID_VERSION'),
+}
+mysql_pos_vars = {
+    'CI_MYSQL_PORT': resolve_env('CI_MYSQL_POS_PORT'),
+    'CI_MYSQL_VERSION': resolve_env('CI_MYSQL_POS_VERSION'),
+}
+mariadb_vars = {
+    'CI_MYSQL_PORT': resolve_env('CI_MARIADB_PORT'),
+    'CI_MYSQL_VERSION': resolve_env('CI_MARIADB_VERSION'),
+}
+
 # Generic e2e tests
 
 # Postgres to ClickHouse generic tests
 e2e_test('postgres', 'TestGenericCH_PG', ['provision-postgres'])
 
 # MySQL GTID to ClickHouse generic tests
-e2e_test('mysql-gtid', 'TestGenericCH_MySQL', ['provision-mysql-gtid'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_GTID_PORT'})
+e2e_test('mysql-gtid', 'TestGenericCH_MySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
 
 # MySQL Pos to ClickHouse generic tests
-e2e_test('mysql-pos', 'TestGenericCH_MySQL', ['provision-mysql-pos'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_POS_PORT'})
+e2e_test('mysql-pos', 'TestGenericCH_MySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
 
 # MariaDB to ClickHouse generic tests
-e2e_test('mariadb', 'TestGenericCH_MySQL', ['provision-mariadb'], vars_overrides={'CI_MYSQL_PORT': '$CI_MARIADB_PORT'})
+e2e_test('mariadb', 'TestGenericCH_MySQL', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 # MongoDB to ClickHouse test suite
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
@@ -235,9 +256,9 @@ e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
 
 e2e_test('switchboard-postgres', 'TestSwitchboardPostgres', ['provision-postgres'])
 
-e2e_test('switchboard-mysql-gtid', 'TestSwitchboardMySQL', ['provision-mysql-gtid'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_GTID_PORT'})
-e2e_test('switchboard-mysql-pos', 'TestSwitchboardMySQL', ['provision-mysql-pos'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_POS_PORT'})
-e2e_test('switchboard-mariadb', 'TestSwitchboardMySQL', ['provision-mariadb'], vars_overrides={'CI_MYSQL_PORT': '$CI_MARIADB_PORT'})
+e2e_test('switchboard-mysql-gtid', 'TestSwitchboardMySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('switchboard-mysql-pos', 'TestSwitchboardMySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('switchboard-mariadb', 'TestSwitchboardMySQL', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 e2e_test('switchboard-mongodb', 'TestSwitchboardMongoDB', ['provision-mongodb'])
 
@@ -245,14 +266,18 @@ e2e_test('switchboard-mongodb', 'TestSwitchboardMongoDB', ['provision-mongodb'])
 
 e2e_test('peer-flow-postgres', '^TestPeerFlowE2ETestSuitePG_CH$', ['provision-postgres'])
 
-e2e_test('peer-flow-mysql-gtid', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-gtid'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_GTID_PORT'})
-e2e_test('peer-flow-mysql-pos', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-pos'], vars_overrides={'CI_MYSQL_PORT': '$CI_MYSQL_POS_PORT'})
-e2e_test('peer-flow-mariadb', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mariadb'], vars_overrides={'CI_MYSQL_PORT': '$CI_MARIADB_PORT'})
+e2e_test('peer-flow-mysql-gtid', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('peer-flow-mysql-pos', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('peer-flow-mariadb', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 # API e2e tests
 
 e2e_test('api-postgres', 'TestApiPg', ['provision-postgres'])
-e2e_test('api-mysql', 'TestApiMy', ['provision-mysql-gtid'])
+
+e2e_test('api-mysql-gtid', 'TestApiMy', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('api-mysql-pos', 'TestApiMy', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('api-mariadb', 'TestApiMy', ['provision-mariadb'], vars_overrides=mariadb_vars)
+
 e2e_test('api-mongodb', 'TestApiMongo', ['provision-mongodb'])
 
 # Connectors tests
