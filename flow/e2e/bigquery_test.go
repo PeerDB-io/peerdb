@@ -99,7 +99,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_complete_flow_no_data"),
+		FlowJobName:      s.attachSuffix("complete_flow_no_data"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -499,7 +499,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_Avro_CDC() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_invalid_geo_bq_avro_cdc"),
+		FlowJobName:      s.attachSuffix("invalid_geo_bq_avro_cdc"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -629,7 +629,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix(tableName),
+		FlowJobName:      s.attachSuffix("simple_schema_changes"),
 		TableNameMapping: map[string]string{srcTableName: tableName},
 		Destination:      s.Peer().Name,
 	}
@@ -707,7 +707,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix(tableName),
+		FlowJobName:      s.attachSuffix("all_types_schema_changes"),
 		TableNameMapping: map[string]string{srcTableName: tableName},
 		Destination:      s.Peer().Name,
 	}
@@ -989,7 +989,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("test_multi_table_multi_dataset_bq"),
+		FlowJobName: s.attachSuffix("multi_table_multi_ds_bq"),
 		TableNameMapping: map[string]string{
 			srcTable1Name: dstTable1Name,
 			srcTable2Name: fmt.Sprintf("%s.%s", secondDataset, dstTable2Name),
