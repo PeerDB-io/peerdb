@@ -325,14 +325,13 @@ func (s APITestSuite) testCancelTableAddition(
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
 
-	flowName := "cancel_table_addition_test_flow"
-	// based on the two inputs
+	flowName := "cancel_tbl_add"
 	if assumeTableRemovalWillNotHappen && !withRemoval {
-		flowName += "_no_removal_assumed"
+		flowName += "_no_rm_assumed"
 	} else if !assumeTableRemovalWillNotHappen && withRemoval {
-		flowName += "_with_removal"
+		flowName += "_with_rm"
 	} else if assumeTableRemovalWillNotHappen && withRemoval {
-		flowName += "_no_removal_assumed_with_removal"
+		flowName += "_no_rm_assumed_with_rm"
 	} else {
 		flowName += "_normal"
 	}
@@ -1143,7 +1142,7 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 	}
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "cancel_table_addition_test_" + s.suffix,
+		FlowJobName:      "cancel_tbl_add_" + s.suffix,
 		TableNameMapping: map[string]string{AttachSchema(s, "original"): "original"},
 		Destination:      s.ch.Peer().Name,
 	}
