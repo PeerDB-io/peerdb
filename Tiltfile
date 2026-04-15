@@ -1,3 +1,5 @@
+update_settings(max_parallel_updates=10)
+
 allow_k8s_contexts(k8s_context()) # to unblock local() in local set-ups with a Kubernetes context configured, like Docker Desktop
 
 docker_compose('./docker-compose-dev.yml')
@@ -202,6 +204,7 @@ def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
         labels=['Test'],
         auto_init=False,
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
+        allow_parallel=True,
     )
 
 def connector_test(connector, extra_deps=[], vars_overrides={}):
@@ -212,6 +215,7 @@ def connector_test(connector, extra_deps=[], vars_overrides={}):
         labels=['Test'],
         auto_init=False,
         resource_deps=['catalog'] + extra_deps,
+        allow_parallel=True,
     )
 
 # These are overrides to provide different MySQL flavors with the same test definitions.
