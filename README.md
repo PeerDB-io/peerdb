@@ -100,7 +100,7 @@ For example:
 ```bash
 cd flow
 go clean -cache
-env -f ../.env go test -v -run TestGenericCH_MySQL ./e2e/
+go test -v -run TestGenericCH_MySQL ./e2e/
 ```
 
 Or local debugging sessions.
@@ -110,6 +110,8 @@ These tests require both PeerDB services, source and destination stores to be ru
 This is done through [Tilt](https://tilt.dev/) orchestrated Docker compose.
 
 To get the environment up you first need to specify the shared environment variables for both the test and the test environment in your local `.env` file. You can use the provided `.env.example` as a template: `cp .env.example .env `.
+
+If a `.env` file is present in the project root, tests will automatically load it. Any variable defined in `.env` can be overridden by user-provided environment variables.
 
 :memo: In the template, services URLs are set to `host.docker.internal`, which is the name for the default Docker gateway in Docker Desktop set-ups such as macOS and Windows. Using the default gateway address allows both test processes and services running inside Docker to access services on the host machine. In native Docker (Linux) this name is not resolved by default, you might replace it with the default gateway IP (e.g., `172.18.0.1`) or add a custom entry to your `/etc/hosts` file to resolve `host.docker.internal` to the appropriate IP address. e.g:
 
@@ -127,10 +129,10 @@ And follow the status of the services and access logs through the Tilt UI at htt
 
 <img width="1593" height="693" alt="image" src="https://github.com/user-attachments/assets/6c294dda-ca8f-45cc-b75c-11594118a641" />
 
-Since `.env` is the environment configuration source of truth, it can be used directly to inject the required variables to the test execution processes. e.g:
+Since `.env` is the environment configuration source of truth, tests automatically pick it up from the project root. For example:
 
 ```bash
-go clean -cache; env -f ../.env go test -v -run TestGenericCH_MySQL ./e2e/ # Some MySQL generic tests
+go clean -cache; go test -v -run TestGenericCH_MySQL ./e2e/ # Some MySQL generic tests
 ```
 
 ### Running tests from Tilt
