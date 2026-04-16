@@ -95,19 +95,15 @@ jobs:
           yq -e -i '.appVersion = strenv(PEERDB_VERSION)' peerdb-catalog/Chart.yaml
           yq -e -i '.peerdb.version = strenv(STABLE_PEERDB_VERSION)' peerdb/values.yaml
           git diff --exit-code || echo "changes=true" >> "$GITHUB_OUTPUT"
-      - name: Get next version
-        if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
-        uses: reecetech/version-increment@a29aa752dc3b8118a2dc2ed93faf0e95a73a9c7e # 2024.10.1
+      - name: Repo SemVer
+        uses: lhstrh/action-repo-semver@23839f38b149db8715f21dbd38e6dde122817222
         id: version
-        with:
-          scheme: semver
-          increment: patch
       - name: Update Chart version
         if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
         run: |
           set -eo pipefail
-          yq -e -i '.version = "${{ steps.version.outputs.version }}"' peerdb/Chart.yaml
-          yq -e -i '.version = "${{ steps.version.outputs.version }}"' peerdb-catalog/Chart.yaml
+          yq -e -i '.version = "${{ steps.version.outputs.next-patch }}"' peerdb/Chart.yaml
+          yq -e -i '.version = "${{ steps.version.outputs.next-patch }}"' peerdb-catalog/Chart.yaml
       - name: Update helm-docs for both charts
         if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
         run: |
@@ -126,7 +122,7 @@ jobs:
           if [ "$PR_ID" == "" ]; then
             PR_ID=$(gh pr create -l "$PR_LABEL" -t "$PR_TITLE" --body "")
           fi
-          echo 'This PR updates the PeerDB release version to `${{ env.PEERDB_VERSION }}` and the chart version to `${{ steps.version.outputs.version }}`.' > pr_body.txt
+          echo 'This PR updates the PeerDB release version to `${{ env.PEERDB_VERSION }}` and the chart version to `${{ steps.version.outputs.next-patch }}`.' > pr_body.txt
           echo 'Please review and merge it to update the charts.' >> pr_body.txt
           gh pr edit "$PR_ID" --body "$(cat pr_body.txt)"
           gh pr merge "$PR_ID" --squash --auto
