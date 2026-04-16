@@ -707,7 +707,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("all_types_schema_changes"),
+		FlowJobName:      s.attachSuffix("all_types_schema_chg"),
 		TableNameMapping: map[string]string{srcTableName: tableName},
 		Destination:      s.Peer().Name,
 	}
