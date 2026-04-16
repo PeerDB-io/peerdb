@@ -387,7 +387,7 @@ func (s ClickHouseSuite) Test_Chunking_Initial_Load_Parts_Per_Partition() {
 		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_pkey_update_chunking_enabled"),
+		FlowJobName:      s.attachSuffix("ch_pkey_update_chunking_enabled"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -432,7 +432,7 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_test_replident_full_toast"),
+		FlowJobName:      s.attachSuffix("ch_replident_full_toast"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -487,7 +487,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ToLower(qvalue.ConvertToAvroCompatibleName(tableName))),
+		FlowJobName: s.attachSuffix("ch_weird_table_" + strings.ToLower(qvalue.ConvertToAvroCompatibleName(tableName))),
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
 			DestinationTableIdentifier: dstTableName,
@@ -557,7 +557,7 @@ func (s ClickHouseSuite) Test_WeirdTable_Question() {
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {
-	s.WeirdTable("table-group%c%i%t%i%z%e%n")
+	s.WeirdTable("table-group%a%b%c")
 }
 
 // large NUMERICs (precision >76) are mapped to String on CH, test
@@ -758,7 +758,7 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix(fmt.Sprintf("clickhouse_test_unbounded_numerics_ff_%v", ffValue)),
+		FlowJobName:      s.attachSuffix(fmt.Sprintf("ch_unbounded_numerics_ff_%v", ffValue)),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -2094,7 +2094,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("clickhouse_test_unprivileged_columns"),
+		FlowJobName: s.attachSuffix("ch_unprivileged_columns"),
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,

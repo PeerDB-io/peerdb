@@ -129,7 +129,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 }
 
 func (s APITestSuite) waitForActiveSlotForPostgresMirror(env WorkflowRun, mirrorName string) {
-	slotName := "peerflow_slot_" + mirrorName
+	slotName := connpostgres.GetDefaultSlotName(mirrorName)
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to become active", func() bool {
 		var active pgtype.Bool
 		err := s.pg.PostgresConnector.Conn().QueryRow(s.t.Context(),
@@ -1546,16 +1546,10 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9903)
 	require.NoError(s.t, err)
 	defer func() {
-		require.NoError(s.t, proxy.Enable())
-		connectionString := internal.GetPGConnectionString(proxyConfig, "")
-		connConfig, err := connpostgres.ParseConfig(connectionString, proxyConfig)
-		require.NoError(s.t, err)
-		conn, err := connpostgres.NewPostgresConnFromConfig(s.t.Context(), connConfig, "", nil, nil)
-		if err != nil {
-			s.t.Logf("failed to connect for teardown: %v", err)
-		} else if err := cleanPostgres(s.t.Context(), conn, suffix); err != nil {
-			s.t.Logf("failed to teardown: %v", err)
+		if err := cleanPostgres(s.t.Context(), s.pg.Conn(), suffix); err != nil {
+			s.t.Logf("failed to clean proxy schema: %v", err)
 		}
+		require.NoError(s.t, proxy.Delete())
 	}()
 
 	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
@@ -1578,7 +1572,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	}()
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: "create_concurrent_toxi_" + suffix,
+		FlowJobName: "concurrent_toxi_" + suffix,
 		TableNameMapping: map[string]string{
 			AttachSchema(s, "valid"): "valid",
 		},
@@ -2471,7 +2465,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 	}()
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: "create_concurrent_toxi_" + suffix,
+		FlowJobName: "concurrent_toxi_" + suffix,
 		TableNameMapping: map[string]string{
 			fmt.Sprintf("e2e_test_%s.%s", suffix, tableName): tableName,
 		},
