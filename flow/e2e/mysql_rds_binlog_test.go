@@ -72,6 +72,11 @@ func TestMySQLRDSBinlog(t *testing.T) {
 }
 
 func (s MySQLRDSBinlogAPITestSuite) TestMySQLRDSBinlogValidation() {
+	// Register cleanup before creating the table so it is always dropped even if the test fails early.
+	s.t.Cleanup(func() {
+		_ = s.source.Exec(context.Background(), "DROP TABLE IF EXISTS mysql.rds_configuration")
+	})
+
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid"))))
 
@@ -109,6 +114,4 @@ func (s MySQLRDSBinlogAPITestSuite) TestMySQLRDSBinlogValidation() {
 	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, res)
-
-	require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;"))
 }
