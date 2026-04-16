@@ -181,7 +181,7 @@ func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 
 	peer := &protos.Peer{
-		Name: "mysql",
+		Name: os.Getenv("CI_MYSQL_VERSION"),
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: s.Config,
