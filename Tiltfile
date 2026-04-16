@@ -149,7 +149,7 @@ local_resource(
     'all-test-resources',
     cmd=' '.join([
         "resources=$(tilt --port 10352 get uiresource -o json |",
-        "jq -r '.items[] | select(.metadata.labels.DataStore or .metadata.labels.TestInfra) | .metadata.name');",
+        "jq -r '.items[] | select(.metadata.labels[\"Ancillary-DB\"] or .metadata.labels[\"Ancillary-TestInfra\"]) | .metadata.name');",
         "tilt --port 10352 enable $resources &&",
         "for r in $resources; do tilt --port 10352 trigger $r; done",
     ]),
