@@ -4,10 +4,13 @@ allow_k8s_contexts(k8s_context()) # to unblock local() in local set-ups with a K
 
 docker_compose('./docker-compose-dev.yml')
 
+flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
+
 docker_build('flow-api', '.',
     dockerfile='stacks/flow.Dockerfile',
     target='flow-api',
     only=['flow/', 'stacks/flow.Dockerfile'],
+    ignore=flow_ignore,
     build_args={'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
 )
 
@@ -15,12 +18,14 @@ docker_build('flow-worker', '.',
     dockerfile='stacks/flow.Dockerfile',
     target='flow-worker',
     only=['flow/', 'stacks/flow.Dockerfile'],
+    ignore=flow_ignore,
 )
 
 docker_build('flow-snapshot-worker', '.',
     dockerfile='stacks/flow.Dockerfile',
     target='flow-snapshot-worker',
     only=['flow/', 'stacks/flow.Dockerfile'],
+    ignore=flow_ignore,
 )
 
 docker_build('peerdb', '.',

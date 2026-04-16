@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -68,6 +69,12 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(s Suite) 
 				ShardingKey:                "id",
 			})
 		}
+	}
+
+	if _, ok := s.Source().(*PostgresSource); ok {
+		slotName := connpostgres.GetDefaultSlotName(c.FlowJobName)
+		require.LessOrEqual(t, len(slotName), 64,
+			"slot name %q is %d chars, PostgreSQL limit is 64 and may cause conflicts on test rerun", slotName, len(slotName))
 	}
 
 	ret := &protos.FlowConnectionConfigs{

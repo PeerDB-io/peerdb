@@ -1088,7 +1088,7 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	require.NoError(t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:   AddSuffix(s, "test_inheritance_dynconf"),
+		FlowJobName:   AddSuffix(s, "test_inheritance_dyncnf"),
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
