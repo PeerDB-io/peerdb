@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -13,7 +13,7 @@ import (
 
 const timeZoneEnvKey = "TZ"
 
-var loadedEnv atomic.Bool
+var loadedEnv sync.Once
 
 func forceTimeZone(tzString string) error {
 	location, err := time.LoadLocation(tzString)
@@ -28,10 +28,12 @@ func forceTimeZone(tzString string) error {
 // is found and loads the .env file if it exists.
 // After the first call, subsequent calls to LoadEnv are no-ops.
 func LoadEnv() {
-	if !loadedEnv.CompareAndSwap(false, true) {
-		return
-	}
+	loadedEnv.Do(func() {
+		loadEnvOnce()
+	})
+}
 
+func loadEnvOnce() {
 	ctx := context.Background()
 	dir, err := os.Getwd()
 	if err != nil {
