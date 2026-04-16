@@ -92,7 +92,7 @@ func (s MySQLRDSBinlogAPITestSuite) TestMySQLRDSBinlogValidation() {
 	st, ok := status.FromError(err)
 	require.True(s.t, ok)
 	require.Equal(s.t, codes.FailedPrecondition, st.Code())
-	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
+	require.Equal(s.t, "failed to validate source connector "+flowConnConfig.SourceName+": binlog configuration error: "+
 		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset", st.Message())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours'"))
@@ -102,7 +102,7 @@ func (s MySQLRDSBinlogAPITestSuite) TestMySQLRDSBinlogValidation() {
 	st, ok = status.FromError(err)
 	require.True(s.t, ok)
 	require.Equal(s.t, codes.FailedPrecondition, st.Code())
-	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
+	require.Equal(s.t, "failed to validate source connector "+flowConnConfig.SourceName+": binlog configuration error: "+
 		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1", st.Message())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';"))
