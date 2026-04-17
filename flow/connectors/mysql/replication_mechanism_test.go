@@ -66,7 +66,7 @@ func TestReplicationMechanismInUseFromOffsetText(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		mechanism, err := replicationMechanismInUseFromOffsetText("mysql", "")
 		require.NoError(t, err)
-		require.Empty(t, mechanism)
+		require.Equal(t, protos.MySqlReplicationMechanism_MYSQL_GTID.String(), mechanism)
 	})
 
 	t.Run("invalid", func(t *testing.T) {
