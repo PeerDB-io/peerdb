@@ -2,7 +2,7 @@
 
 set -eo pipefail # For jq to propagate yq failures.
 
-# This script processses the XML tests results and outputs a NDJSON stream with one document per test execution.
+# This script processes the XML tests results and outputs a NDJSON stream with one document per test execution.
 # Hence, each document corresponds to a testcase entry in the XML. It contains the following fields:
 #
 #   - 'suite_name': As the entry class name.
