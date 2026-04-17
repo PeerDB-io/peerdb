@@ -3,7 +3,6 @@ package connclickhouse
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
@@ -43,23 +43,10 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	t.Setenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", os.Getenv(bucketNameEnvVar))
 	ctx := t.Context()
 
-	chHost := "localhost"
-	if host := os.Getenv("CI_CLICKHOUSE_HOST"); host != "" {
-		chHost = host
-	}
-	var chPort uint32 = 9000
-	if port := os.Getenv("CI_CLICKHOUSE_NATIVE_PORT"); port != "" {
-		p, err := strconv.ParseUint(port, 10, 32)
-		if err != nil {
-			t.Fatalf("invalid CI_CLICKHOUSE_NATIVE_PORT %q: %v", port, err)
-		}
-		chPort = uint32(p)
-	}
-
 	conn, err := NewClickHouseConnector(ctx, nil,
 		&protos.ClickhouseConfig{
-			Host:       chHost,
-			Port:       chPort,
+			Host:       internal.ClickHouseTestHost(),
+			Port:       internal.ClickHouseTestPort(),
 			Database:   "default",
 			DisableTls: true,
 		})
