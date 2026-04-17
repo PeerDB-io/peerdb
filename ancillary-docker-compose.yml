@@ -46,6 +46,8 @@ services:
   mysql-gtid:
     container_name: peerdb-mysql-gtid
     image: mysql:9.5
+    command:
+      - "--binlog-row-metadata=FULL"
     restart: unless-stopped
     volumes:
       - mysql_gtid_data:/var/lib/mysql
@@ -83,7 +85,10 @@ services:
   mariadb:
     container_name: peerdb-mariadb
     image: mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e
-    command: ["--log-bin=maria"]
+    command:
+      - "--log-bin=maria"
+      - "--binlog-format=ROW"
+      - "--binlog-row-metadata=FULL"
     restart: unless-stopped
     volumes:
       - mariadb_data:/var/lib/mysql
