@@ -576,6 +576,11 @@ func QRepFlowWorkflow(
 	if config.MaxParallelWorkers > 0 {
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
+	if config.SourceType == protos.DBType_MONGO {
+		if parallelism, ok := getMongoDBParallelSnapshottingParallelism(ctx, q.logger, config.Env); ok {
+			maxParallelWorkers = int(parallelism)
+		}
+	}
 
 	if err := q.setupWatermarkTableOnDestination(ctx); err != nil {
 		return state, fmt.Errorf("failed to setup watermark table: %w", err)

@@ -2077,6 +2077,10 @@ func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, e
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
 }
 
+func (a *FlowableActivity) PeerDBMongoDBParallelSnapshottingParallelism(ctx context.Context, env map[string]string) (uint32, error) {
+	return internal.PeerDBMongoDBParallelSnapshottingParallelism(ctx, env)
+}
+
 func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos.FlowStatus) error {
 	_, isActive := activeFlowStatuses[status]
 	a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(

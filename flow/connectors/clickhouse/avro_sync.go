@@ -394,7 +394,17 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
 	stagingPath := s.credsProvider.BucketPath
-	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE, sizeTracker)
+	codec := ocf.ZStandard
+	if s.config.SourceType == protos.DBType_MONGO {
+		useZstd, err := internal.PeerDBMongoDBOCFWriterCompressionCodecZstd(ctx, s.config.Env)
+		if err != nil {
+			return utils.AvroFile{}, err
+		}
+		if !useZstd {
+			codec = ocf.Null
+		}
+	}
+	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, codec, protos.DBType_CLICKHOUSE, sizeTracker)
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
 		return utils.AvroFile{}, fmt.Errorf("failed to parse staging path: %w", err)

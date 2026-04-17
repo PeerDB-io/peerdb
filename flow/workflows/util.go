@@ -59,3 +59,17 @@ func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, e
 	}
 	return fullRefreshEnabled
 }
+
+func getMongoDBParallelSnapshottingParallelism(wCtx workflow.Context, logger log.Logger, env map[string]string) (uint32, bool) {
+	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var parallelism uint32
+	future := workflow.ExecuteActivity(checkCtx, flowable.PeerDBMongoDBParallelSnapshottingParallelism, env)
+	if err := future.Get(checkCtx, &parallelism); err != nil {
+		logger.Warn("Failed to get MongoDB parallel snapshotting parallelism", slog.Any("error", err))
+		return 0, false
+	}
+	return parallelism, true
+}

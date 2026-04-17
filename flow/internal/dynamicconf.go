@@ -436,6 +436,22 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_MONGODB_PARALLEL_SNAPSHOTTING_PARALLELISM",
+		Description:      "Max parallel workers for MongoDB parallel snapshotting, overrides SnapshotMaxParallelWorkers",
+		DefaultValue:     "16",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_MONGODB_OCF_WRITER_COMPRESSION_CODEC_ZSTD",
+		Description:      "Use ZStandard compression for MongoDB Avro OCF writer. If false, writes uncompressed.",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_MONGODB_DIRECT_BSON_CONVERTER",
 		Description: "Use direct BSON-to-JSON converter for MongoDB (faster, no intermediate deserialization). " +
 			"Set to false to fall back to legacy converter.",
@@ -795,6 +811,14 @@ func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[strin
 
 func PeerDBMongoDBParallelSnapshotting(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_PARALLEL_SNAPSHOTTING")
+}
+
+func PeerDBMongoDBParallelSnapshottingParallelism(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_MONGODB_PARALLEL_SNAPSHOTTING_PARALLELISM")
+}
+
+func PeerDBMongoDBOCFWriterCompressionCodecZstd(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_OCF_WRITER_COMPRESSION_CODEC_ZSTD")
 }
 
 func PeerDBMongoDBDirectBsonConverter(ctx context.Context, env map[string]string) (bool, error) {
