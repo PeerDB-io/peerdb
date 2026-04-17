@@ -10,12 +10,6 @@ import (
 )
 
 func TestParseReplicationOffsetText(t *testing.T) {
-	t.Run("empty", func(t *testing.T) {
-		parsedOffset, err := parseReplicationOffsetText("mysql", "")
-		require.NoError(t, err)
-		require.Equal(t, parsedReplicationOffset{}, parsedOffset)
-	})
-
 	t.Run("filepos", func(t *testing.T) {
 		parsedOffset, err := parseReplicationOffsetText("mysql", "!f:mysql-bin.000001,4d2")
 		require.NoError(t, err)
@@ -39,6 +33,14 @@ func TestParseReplicationOffsetText(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, protos.MySqlReplicationMechanism_MYSQL_GTID.String(), parsedOffset.mechanism)
 		require.Equal(t, "3e11fa47-71ca-11e1-9e33-c80aa9429562:23", parsedOffset.gset.String())
+		require.Equal(t, mysql.Position{}, parsedOffset.pos)
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		parsedOffset, err := parseReplicationOffsetText("mysql", "")
+		require.NoError(t, err)
+		require.Equal(t, protos.MySqlReplicationMechanism_MYSQL_GTID.String(), parsedOffset.mechanism)
+		require.True(t, parsedOffset.gset.IsEmpty())
 		require.Equal(t, mysql.Position{}, parsedOffset.pos)
 	})
 
