@@ -123,7 +123,7 @@ func ValidateCollections(ctx context.Context, client *mongo.Client, tables []*co
 		}
 		for _, col := range collections {
 			if !slices.Contains(allCollections, col) {
-				return fmt.Errorf("collection %s.%s does not exist", database, col)
+				return common.NewSourceTableMissingError(common.QualifiedTable{Namespace: database, Table: col})
 			}
 		}
 	}

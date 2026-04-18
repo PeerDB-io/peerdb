@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -65,7 +66,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			return nil, NewAlreadyExistsApiError(
 				fmt.Errorf("mirror with name %s already exists", connectionConfigs.FlowJobName),
 				NewMirrorErrorInfo(map[string]string{
-					ErrorMetadataOffendingField: "flow_job_name",
+					common.ErrorMetadataOffendingField: "flow_job_name",
 				}))
 		}
 	}
@@ -106,6 +107,12 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	defer srcClose(ctx)
 
 	if err := srcConn.ValidateMirrorSource(ctx, connectionConfigs); err != nil {
+		if missing, ok := errors.AsType[*common.SourceTableMissingError](err); ok {
+			table := fmt.Sprintf("%s.%s", missing.Table.Namespace, missing.Table.Table)
+			return nil, NewFailedPreconditionApiError(
+				fmt.Errorf("source table %s does not exist", table),
+				NewSourceTableMissingErrorInfo(table))
+		}
 		return nil, NewFailedPreconditionApiError(
 			fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
 	}

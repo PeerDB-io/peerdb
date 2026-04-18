@@ -20,6 +20,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -1368,6 +1369,83 @@ func (s APITestSuite) TestResyncCompleted() {
 		tagMap[tag.Key] = tag.Value
 	}
 	require.Equal(s.t, "test", tagMap[common.PipeNameTag])
+}
+
+func (s APITestSuite) TestResyncSourceTableMissing() {
+	tableName := "missing_src"
+	qualifiedSourceTable := AttachSchema(s, tableName)
+	var cols string
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", qualifiedSourceTable)))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", qualifiedSourceTable)))
+		cols = "id,val"
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "resync_missing_" + s.suffix,
+		TableNameMapping: map[string]string{qualifiedSourceTable: tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	RequireEqualTables(s.ch, tableName, cols)
+
+	// Drop the source table/collection so that the resync-time validation fails.
+	switch src := s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE "+qualifiedSourceTable))
+	case *MongoSource:
+		require.NoError(s.t, src.AdminClient().Database(Schema(s)).Collection(tableName).Drop(s.t.Context()))
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+	})
+	require.Error(s.t, err)
+
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition, got %s", st.Code())
+
+	var missing *errdetails.ErrorInfo
+	for _, d := range st.Details() {
+		info, ok := d.(*errdetails.ErrorInfo)
+		if !ok {
+			continue
+		}
+		if info.Domain == common.ErrorInfoDomain && info.Reason == common.ErrorInfoReasonSourceTableMissing {
+			missing = info
+			break
+		}
+	}
+	require.NotNil(s.t, missing, "expected SourceTableMissing ErrorInfo detail in status")
+	require.Equal(s.t, fmt.Sprintf("%s.%s", Schema(s), tableName), missing.Metadata[common.ErrorMetadataMissingTable])
 }
 
 func (s APITestSuite) TestResyncFailed() {

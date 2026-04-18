@@ -505,7 +505,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 					ConnectionConfigs: config,
 				}); err != nil {
-					return nil, NewFailedPreconditionApiError(fmt.Errorf("invalid mirror: %w", err))
+					return nil, err
 				}
 				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 				if changeErr == nil {
@@ -534,6 +534,10 @@ func (h *FlowRequestHandler) FlowStateChange(
 		}
 		if changeErr != nil {
 			slog.ErrorContext(ctx, "unable to signal workflow", logs, slog.Any("error", changeErr))
+			// Preserve typed API errors
+			if apiErr, ok := changeErr.(APIError); ok {
+				return nil, apiErr
+			}
 			return nil, NewInternalApiError(fmt.Errorf("unable to signal workflow: %w", changeErr))
 		}
 	}

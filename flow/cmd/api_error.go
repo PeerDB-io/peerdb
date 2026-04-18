@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/protoadapt"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/grpc_handler"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 // APIError is a strongly-typed error that must be a gRPC status error.
@@ -107,33 +108,19 @@ func AsAPIError(err error) APIError {
 	return NewInternalApiError(err)
 }
 
-const (
-	ErrorInfoReasonClickHousePeer = "CLICKHOUSE_PEER"
-	ErrorInfoReasonMirror         = "MIRROR"
-)
-
-const (
-	ErrorInfoDomain = "peerdb.io"
-)
-
-const (
-	ErrorMetadataDownstreamErrorCode = "downstreamErrorCode"
-	ErrorMetadataOffendingField      = "offendingField"
-)
-
-func NewClickHousePeerErrorInfo(metadata map[string]string) *rpc.ErrorInfo {
+func NewMirrorErrorInfo(metadata map[string]string) *rpc.ErrorInfo {
 	return &rpc.ErrorInfo{
-		Reason:   ErrorInfoReasonClickHousePeer,
-		Domain:   ErrorInfoDomain,
+		Reason:   common.ErrorInfoReasonMirror,
+		Domain:   common.ErrorInfoDomain,
 		Metadata: metadata,
 	}
 }
 
-func NewMirrorErrorInfo(metadata map[string]string) *rpc.ErrorInfo {
+func NewSourceTableMissingErrorInfo(table string) *rpc.ErrorInfo {
 	return &rpc.ErrorInfo{
-		Reason:   ErrorInfoReasonMirror,
-		Domain:   ErrorInfoDomain,
-		Metadata: metadata,
+		Reason:   common.ErrorInfoReasonSourceTableMissing,
+		Domain:   common.ErrorInfoDomain,
+		Metadata: map[string]string{common.ErrorMetadataMissingTable: table},
 	}
 }
 

@@ -7,7 +7,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -62,6 +64,9 @@ func (c *PostgresConnector) CheckSourceTables(
 		if err := c.conn.QueryRow(ctx,
 			fmt.Sprintf("SELECT %s FROM %s LIMIT 0", selectedColumnsStr, parsedTable),
 		).Scan(&row); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UndefinedTable {
+				return common.NewSourceTableMissingError(*parsedTable)
+			}
 			return fmt.Errorf("failed to select from table %s: %w", parsedTable, err)
 		}
 	}
