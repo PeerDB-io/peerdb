@@ -467,7 +467,7 @@ func (c *MySqlConnector) PullRecords(
 			} else {
 				c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
 			}
-			return err
+			return exceptions.NewMySQLStreamingError(err)
 		}
 
 		allFetchedBytes.Add(int64(len(event.RawData)))
