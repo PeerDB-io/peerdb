@@ -73,8 +73,16 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
 	}
 
+	qryCtx := ctx
+	if config.IsResync {
+		// CREATE OR REPLACE TABLE (used by resync) internally would create a NEW table with name
+		// <_tmp_replace_*>, atomic swap with the existing table, and then drop the existing table.
+		// Setting max_table_size_to_drop = 0 ensure the implicit drop can't fail, since it can be
+		// non-empty if a resync is triggered on top of another resync that is mid-snapshot.
+		qryCtx = clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{string(chinternal.SettingMaxTableSizeToDrop): 0}))
+	}
 	for _, sql := range normalizedTableCreateSQL {
-		if err := c.execWithLogging(ctx, sql); err != nil {
+		if err := c.execWithLogging(qryCtx, sql); err != nil {
 			return false, fmt.Errorf("[clickhouse] error while creating destination ClickHouse table: %w", err)
 		}
 	}
