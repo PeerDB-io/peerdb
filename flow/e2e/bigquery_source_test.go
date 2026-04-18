@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -302,7 +303,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Invalid_Table_Mappings() {
 
 	err := bqConn.ValidateMirrorSource(ctx, flowConfig)
 	require.Error(t, err, "should fail with non-existent table")
-	require.Contains(t, err.Error(), "failed to get metadata for table", "error should mention metadata failure")
+	missing, ok := errors.AsType[*common.SourceTableMissingError](err)
+	require.True(t, ok, "expected SourceTableMissingError, got %T: %v", err, err)
+	require.Equal(t, source.config.DatasetId, missing.Table.Namespace)
+	require.Equal(t, "nonexistent_table", missing.Table.Table)
 }
 
 func (s BigQueryClickhouseSuite) Test_BigQuery_Source_ValidateMirrorSource_Success() {

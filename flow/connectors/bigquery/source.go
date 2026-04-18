@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
@@ -25,6 +27,12 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
 
 		if _, err := table.Metadata(ctx); err != nil {
+			if c.isApiErrorWithStatusCode(err, http.StatusNotFound) {
+				return common.NewSourceTableMissingError(common.QualifiedTable{
+					Namespace: dstDatasetTable.dataset,
+					Table:     dstDatasetTable.table,
+				})
+			}
 			return fmt.Errorf("failed to get metadata for table %s: %w", tableMapping.DestinationTableIdentifier, err)
 		}
 	}
