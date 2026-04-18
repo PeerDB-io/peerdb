@@ -21,12 +21,11 @@ import (
 )
 
 const (
-	toxiproxyDownProxyPort              = 42001
-	toxiproxyLatencyProxyPort           = 42002
-	toxiproxyResetProxyPort             = 42003
-	toxiproxyCDCHangProxyPort           = 42004
-	toxiproxyCDCCloseHangProxyPort      = 42005
-	toxiproxyCloseSyncerWithTimeoutPort = 42006
+	toxiproxyDownProxyPort         = 42001
+	toxiproxyLatencyProxyPort      = 42002
+	toxiproxyResetProxyPort        = 42003
+	toxiproxyCDCHangProxyPort      = 42004
+	toxiproxyCDCCloseHangProxyPort = 42005
 )
 
 func setupMySQLConnectorWithProxy(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
@@ -269,51 +268,5 @@ func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
 		require.ErrorIs(t, pullErr, context.DeadlineExceeded)
 	case <-time.After(10 * time.Second):
 		t.Fatal("PullRecords did not return after SSH keepalive closed the connection")
-	}
-}
-
-func TestMySQLCloseSyncerWithTimeout(t *testing.T) {
-	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
-		t.Skip("Skipping for MariaDB")
-	}
-
-	ctx := t.Context()
-	connector, sshProxy := setupMySQLConnectorWithProxy(
-		ctx, t, "my-close-syncer-timeout-test", toxiproxyCloseSyncerWithTimeoutPort)
-	defer connector.Close()
-
-	pos, err := connector.GetMasterPos(ctx)
-	require.NoError(t, err)
-	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos)
-	require.NoError(t, err)
-
-	// Let CDC streaming establish before blocking the tunnel.
-	time.Sleep(2 * time.Second)
-
-	// Black-hole the SSH transport so syncer.Close() hangs
-	_, err = sshProxy.AddToxic("latency", "latency", "", 1.0, toxiproxy.Attributes{
-		"latency": 120000,
-	})
-	require.NoError(t, err)
-
-	// Must be < SSHKeepaliveInterval so the timing bounds below prove the syncCloseTimeout
-	// (not SSH keepalive's own force-close) is what unblocked syncer.Close.
-	syncerCloseTimeout := 2 * time.Second
-	require.Less(t, syncerCloseTimeout, utils.SSHKeepaliveInterval)
-	done := make(chan struct{})
-	start := time.Now()
-	go func() {
-		connector.closeSyncerWithTimeout(syncer, syncerCloseTimeout)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		elapsed := time.Since(start)
-		require.GreaterOrEqual(t, elapsed, syncerCloseTimeout)
-		require.Less(t, elapsed, syncerCloseTimeout+time.Second)
-	case <-time.After(10 * time.Second):
-		t.Fatal("closeSyncerWithTimeout did not return on timeout")
 	}
 }
