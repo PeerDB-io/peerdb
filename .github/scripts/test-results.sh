@@ -39,11 +39,11 @@ yq -p=xml -o=json \
     "result": ((keys | map(select(. == "failure" or . == "skipped")) | .[0]) // "success"),
     "reason": ((.failure."+content" // .skipped."+@message") // null),
     "duration_seconds": (."+@time" | select(. != "") | tonumber // null),
-    "workflow_run_id": ((strenv(WORKFLOW_RUN_ID) | select(. != "") | tonumber) // null),
-    "workflow_run_link": ((strenv(WORKFLOW_RUN_LINK) | select(. != "")) // null),
-    "workflow_head_branch": ((strenv(WORKFLOW_HEAD_BRANCH) | select(. != "")) // null),
-    "workflow_retry_number": ((strenv(WORKFLOW_RUN_NUMBER) | select(. != "") | tonumber) // null),
-    "commit_sha": ((strenv(COMMIT_SHA) | select(. != "")) // null)
+    "workflow_run_id": (strenv(WORKFLOW_RUN_ID) | tonumber),
+    "workflow_run_link": strenv(WORKFLOW_RUN_LINK),
+    "workflow_head_branch": strenv(WORKFLOW_HEAD_BRANCH),
+    "workflow_retry_number": (strenv(WORKFLOW_RUN_NUMBER) | tonumber),
+    "commit_sha": strenv(COMMIT_SHA)
   } |
   select(.suite_name != null)
   ' \
