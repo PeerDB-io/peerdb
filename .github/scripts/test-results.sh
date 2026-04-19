@@ -42,7 +42,8 @@ yq -p=xml -o=json \
     "workflow_run_id": ((strenv(WORKFLOW_RUN_ID) | select(. != "") | tonumber) // null),
     "workflow_run_link": ((strenv(WORKFLOW_RUN_LINK) | select(. != "")) // null),
     "workflow_head_branch": ((strenv(WORKFLOW_HEAD_BRANCH) | select(. != "")) // null),
-    "workflow_retry_number": ((strenv(WORKFLOW_RUN_NUMBER) | select(. != "") | tonumber) // null)
+    "workflow_retry_number": ((strenv(WORKFLOW_RUN_NUMBER) | select(. != "") | tonumber) // null),
+    "commit_sha": ((strenv(COMMIT_SHA) | select(. != "")) // null)
   } |
   select(.suite_name != null)
   ' \

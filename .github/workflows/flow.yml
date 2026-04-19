@@ -553,6 +553,7 @@ jobs:
           WORKFLOW_RUN_LINK: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           WORKFLOW_HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
           WORKFLOW_RUN_NUMBER: ${{ github.run_attempt }}
+          COMMIT_SHA: ${{ github.sha }}
           SUMMARY_HEADER: "x-clickhouse-summary"
         run: |
           if [ -z "${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}" ] \
