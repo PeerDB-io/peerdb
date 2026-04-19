@@ -476,7 +476,11 @@ func createChangeStream(
 ) (*mongo.ChangeStream, error) {
 	watchCtx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
-	return client.Watch(watchCtx, pipeline, opts)
+	cs, err := client.Watch(watchCtx, pipeline, opts)
+	if err != nil {
+		return nil, exceptions.NewMongoCreateChangeStreamError(err)
+	}
+	return cs, nil
 }
 
 // This can happen if the resumeToken we are attempting to `ResumeAfter` refers to a table that has been

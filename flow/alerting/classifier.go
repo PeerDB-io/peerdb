@@ -63,6 +63,7 @@ var (
 	PostgresSpillFileMissingRe        = regexp.MustCompile(`Unable to restore changes for xid \d+`)
 	MySqlRdsBinlogFileNotFoundRe      = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe           = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
+	MongoServerSideTimeoutRe          = regexp.MustCompile(`calculated server-side timeout \(.*\) is less than or equal to \d+`)
 )
 
 func (e ErrorAction) String() string {
@@ -220,6 +221,10 @@ var (
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
+	}
+	// ErrorNotifyMongoServerSideTimeout fires when the Mongo driver rejects Watch because the computed maxTimeMS is <= 0
+	ErrorNotifyMongoServerSideTimeout = ErrorClass{
+		Class: "NOTIFY_MONGO_INVALID_TIMEOUT", action: NotifyUser,
 	}
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
@@ -1133,6 +1138,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable: mongoInvalidIdValueError.Table,
 			},
+		}
+	}
+
+	if mongoCreateChangeStreamErr, ok := errors.AsType[*exceptions.MongoCreateChangeStreamError](err); ok {
+		if MongoServerSideTimeoutRe.MatchString(mongoCreateChangeStreamErr.Error()) {
+			return ErrorNotifyMongoServerSideTimeout, ErrorInfo{
+				Source: ErrorSourceMongoDB,
+				Code:   "SERVER_SIDE_TIMEOUT",
+			}
+		}
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "UNKNOWN",
 		}
 	}
 

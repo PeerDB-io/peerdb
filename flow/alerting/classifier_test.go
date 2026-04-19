@@ -757,6 +757,20 @@ func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMongoCreateChangeStreamServerSideTimeoutShouldNotifyUser(t *testing.T) {
+	e := errors.New("calculated server-side timeout (0 ms) is less than or equal to 0" +
+		"(network round-trip time stats: moving avg: 20.14653ms, min: 20.054326ms, moving " +
+		"stddev: 105.47µs): operation not sent to server, as Timeout would be exceeded: " +
+		"context deadline exceeded")
+	err := exceptions.NewMongoCreateChangeStreamError(e)
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyMongoServerSideTimeout, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "SERVER_SIDE_TIMEOUT",
+	}, errInfo)
+}
+
 func TestMongoCursorErrors(t *testing.T) {
 	err := mongo.CommandError{
 		Code:    6,
