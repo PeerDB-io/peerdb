@@ -571,7 +571,7 @@ jobs:
             --user "${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}:${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}" \
             "${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}" \
             --data-binary @logs/normalized-test-results.ndjson \
-            | tee -a upload.log
+            | tee upload.log
           WRITTEN_ROWS=$(cat upload.log | grep $SUMMARY_HEADER | sed "s/$SUMMARY_HEADER: //" | jq '.written_rows' -r)
           if [ -z "$WRITTEN_ROWS" ] || [ "$WRITTEN_ROWS" -eq 0 ]; then
               echo "No results uploaded. Query client logs:"
