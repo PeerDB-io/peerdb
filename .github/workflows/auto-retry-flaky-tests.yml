@@ -27,7 +27,7 @@ jobs:
 
       - name: Detect flaky test failures
         id: detect
-        uses: anthropics/claude-code-action@ff49ec5fd6668a7e8f5bd680d618d2c0dbe7e00e # main
+        uses: anthropics/claude-code-action@632a368e81692f2e33c14b7133a7ef56ae6d35e1 # main
         with:
           allowed_bots: 'renovate'
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
