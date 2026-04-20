@@ -6,6 +6,8 @@ use std::{
 };
 
 use anyhow::Context;
+use parser::PeerDBStatement;
+use parser::ast_peerdb::CreateMirror::{CDC, Select};
 use pt::peerdb_peers::{MySqlAuthType, PostgresAuthType};
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
@@ -17,10 +19,8 @@ use pt::{
 };
 use qrep::process_options;
 use sqlparser::ast::{
-    self,
-    CreateMirror::{CDC, Select},
-    DollarQuotedString, Expr, FetchDirection, SqlOption, Statement, Value, visit_relations,
-    visit_statements,
+    self, DollarQuotedString, Expr, FetchDirection, SqlOption, Statement, Value, ValueWithSpan,
+    visit_relations, visit_statements,
 };
 
 mod qrep;
@@ -31,9 +31,7 @@ pub trait StatementAnalyzer {
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output>;
 }
 
-/// PeerExistanceAnalyzer is a statement analyzer that checks if the given
-/// statement touches a peer that exists in the system. If there isn't a peer
-/// this points to a catalog query.
+/// PeerExistanceAnalyzer checks if a statement touches a peer in the system.
 pub struct PeerExistanceAnalyzer<'a> {
     peers: &'a HashMap<String, Peer>,
 }
@@ -67,14 +65,18 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
             match stmt {
                 Statement::Drop { names, .. } => {
                     for name in names {
-                        analyze_name(&name.0[0].value);
+                        if let Some(ident) = name.0[0].as_ident() {
+                            analyze_name(&ident.value);
+                        }
                     }
                 }
                 Statement::Declare { stmts } => {
                     for stmt in stmts {
                         if let Some(ref query) = stmt.for_query {
                             let _ = visit_relations(query, |relation| {
-                                analyze_name(&relation.0[0].value);
+                                if let Some(ident) = relation.0[0].as_ident() {
+                                    analyze_name(&ident.value);
+                                }
                                 ControlFlow::<()>::Continue(())
                             });
                         }
@@ -86,7 +88,9 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
         });
 
         let _ = visit_relations(statement, |relation| {
-            analyze_name(&relation.0[0].value);
+            if let Some(ident) = relation.0[0].as_ident() {
+                analyze_name(&ident.value);
+            }
             ControlFlow::<()>::Continue(())
         });
 
@@ -101,12 +105,6 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
         }
     }
 }
-
-/// PeerDDLAnalyzer is a statement analyzer that checks if the given
-/// statement is a PeerDB DDL statement. If it is, it returns the type of
-/// DDL statement.
-#[derive(Default)]
-pub struct PeerDDLAnalyzer;
 
 #[derive(Debug, Clone)]
 pub enum PeerDDL {
@@ -152,336 +150,389 @@ pub enum PeerDDL {
     },
 }
 
-impl StatementAnalyzer for PeerDDLAnalyzer {
-    type Output = Option<PeerDDL>;
+/// Analyze a PeerDBStatement (from peerdb-sqlparser pre-parsing) into PeerDDL.
+pub fn analyze_peerdb_stmt(statement: &PeerDBStatement) -> anyhow::Result<Option<PeerDDL>> {
+    match statement {
+        PeerDBStatement::CreatePeer {
+            if_not_exists,
+            peer_name,
+            peer_type,
+            with_options,
+        } => {
+            let db_type = DbType::from(peer_type.clone());
+            let config = parse_db_options(db_type, with_options)?;
+            let peer = Peer {
+                name: peer_name.0[0]
+                    .as_ident()
+                    .ok_or_else(|| anyhow::anyhow!("invalid peer name"))?
+                    .value
+                    .clone(),
+                r#type: db_type as i32,
+                config,
+            };
+            Ok(Some(PeerDDL::CreatePeer {
+                peer: Box::new(peer),
+                if_not_exists: *if_not_exists,
+            }))
+        }
+        PeerDBStatement::CreateMirror {
+            if_not_exists,
+            create_mirror,
+        } => match create_mirror {
+            CDC(cdc) => {
+                let flow_job_table_mappings = cdc
+                    .mapping_options
+                    .iter()
+                    .map(|table_mapping| FlowJobTableMapping {
+                        source_table_identifier: table_mapping.source.to_string(),
+                        destination_table_identifier: table_mapping.destination.to_string(),
+                        partition_key: table_mapping
+                            .partition_key
+                            .as_ref()
+                            .map(|s| s.value.clone()),
+                        exclude: table_mapping
+                            .exclude
+                            .as_ref()
+                            .map(|ss| ss.iter().map(|s| s.value.clone()).collect())
+                            .unwrap_or_default(),
+                    })
+                    .collect::<Vec<_>>();
 
-    fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
-        match statement {
-            Statement::CreatePeer {
-                if_not_exists,
-                peer_name,
-                peer_type,
-                with_options,
-            } => {
-                let db_type = DbType::from(peer_type.clone());
-                let config = parse_db_options(db_type, with_options)?;
-                let peer = Peer {
-                    name: peer_name.0[0].value.clone(),
-                    r#type: db_type as i32,
-                    config,
+                let mut raw_options = HashMap::with_capacity(cdc.with_options.len());
+                for option in &cdc.with_options {
+                    if let SqlOption::KeyValue { key, value } = option {
+                        raw_options.insert(key.value.as_str(), value);
+                    }
+                }
+                let do_initial_copy = match raw_options.remove("do_initial_copy") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::Boolean(b),
+                        ..
+                    })) => *b,
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::SingleQuotedString(s),
+                        ..
+                    })) => match s.as_ref() {
+                        "true" => true,
+                        "false" => false,
+                        _ => return Err(anyhow::anyhow!("do_initial_copy must be a boolean")),
+                    },
+                    _ => return Err(anyhow::anyhow!("do_initial_copy must be a boolean")),
                 };
 
-                Ok(Some(PeerDDL::CreatePeer {
-                    peer: Box::new(peer),
-                    if_not_exists: *if_not_exists,
-                }))
-            }
-            Statement::CreateMirror {
-                if_not_exists,
-                create_mirror,
-            } => {
-                match create_mirror {
-                    CDC(cdc) => {
-                        let flow_job_table_mappings = cdc
-                            .mapping_options
-                            .iter()
-                            .map(|table_mapping| FlowJobTableMapping {
-                                source_table_identifier: table_mapping.source.to_string(),
-                                destination_table_identifier: table_mapping.destination.to_string(),
-                                partition_key: table_mapping
-                                    .partition_key
-                                    .as_ref()
-                                    .map(|s| s.value.clone()),
-                                exclude: table_mapping
-                                    .exclude
-                                    .as_ref()
-                                    .map(|ss| ss.iter().map(|s| s.value.clone()).collect())
-                                    .unwrap_or_default(),
-                            })
-                            .collect::<Vec<_>>();
+                let resync = match raw_options.remove("resync") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::Boolean(b),
+                        ..
+                    })) => *b,
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::SingleQuotedString(s),
+                        ..
+                    })) => match s.as_ref() {
+                        "true" => true,
+                        "false" => false,
+                        _ => return Err(anyhow::anyhow!("resync must be a boolean")),
+                    },
+                    _ => false,
+                };
 
-                        // get do_initial_copy from with_options
-                        let mut raw_options = HashMap::with_capacity(cdc.with_options.len());
-                        for option in &cdc.with_options {
-                            raw_options.insert(&option.name.value as &str, &option.value);
-                        }
-                        let do_initial_copy = match raw_options.remove("do_initial_copy") {
-                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
-                            // also support "true" and "false" as strings
-                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => {
-                                match s.as_ref() {
-                                    "true" => true,
-                                    "false" => false,
-                                    _ => {
-                                        return Err(anyhow::anyhow!(
-                                            "do_initial_copy must be a boolean"
-                                        ));
-                                    }
-                                }
-                            }
-                            _ => return Err(anyhow::anyhow!("do_initial_copy must be a boolean")),
-                        };
-
-                        // bool resync true or false, default to false if not in opts
-                        let resync = match raw_options.remove("resync") {
-                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
-                            // also support "true" and "false" as strings
-                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => {
-                                match s.as_ref() {
-                                    "true" => true,
-                                    "false" => false,
-                                    _ => return Err(anyhow::anyhow!("resync must be a boolean")),
-                                }
-                            }
-                            _ => false,
-                        };
-
-                        let publication_name: Option<String> = match raw_options
-                            .remove("publication_name")
-                        {
-                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
-                            _ => None,
-                        };
-
-                        let replication_slot_name: Option<String> = match raw_options
-                            .remove("replication_slot_name")
-                        {
-                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
-                            _ => None,
-                        };
-
-                        let snapshot_num_rows_per_partition: Option<u32> = match raw_options
-                            .remove("snapshot_num_rows_per_partition")
-                        {
-                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
-                            _ => None,
-                        };
-
-                        let snapshot_num_partitions_override: Option<u32> = match raw_options
-                            .remove("snapshot_num_partitions_override")
-                        {
-                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
-                            _ => None,
-                        };
-
-                        let snapshot_num_tables_in_parallel: Option<u32> = match raw_options
-                            .remove("snapshot_num_tables_in_parallel")
-                        {
-                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
-                            _ => None,
-                        };
-                        let snapshot_staging_path =
-                            match raw_options.remove("snapshot_staging_path") {
-                                Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
-                                _ => String::new(),
-                            };
-
-                        let snapshot_max_parallel_workers: Option<u32> = match raw_options
-                            .remove("snapshot_max_parallel_workers")
-                        {
-                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
-                            _ => None,
-                        };
-
-                        let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
-                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
-                            _ => None,
-                        };
-
-                        let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
-                        {
-                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
-                            _ => None,
-                        };
-
-                        let sync_interval: Option<u64> = match raw_options.remove("sync_interval") {
-                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u64>()?),
-                            _ => None,
-                        };
-
-                        let soft_delete_col_name: Option<String> = match raw_options
-                            .remove("soft_delete_col_name")
-                        {
-                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
-                            _ => None,
-                        };
-
-                        let synced_at_col_name: Option<String> = match raw_options
-                            .remove("synced_at_col_name")
-                        {
-                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
-                            _ => None,
-                        };
-
-                        let initial_copy_only = match raw_options.remove("initial_copy_only") {
-                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
-                            _ => false,
-                        };
-
-                        let script = match raw_options.remove("script") {
-                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
-                            _ => String::new(),
-                        };
-
-                        let system = match raw_options.remove("system") {
-                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
-                            _ => "Q".to_string(),
-                        };
-
-                        let disable_peerdb_columns =
-                            match raw_options.remove("disable_peerdb_columns") {
-                                Some(Expr::Value(ast::Value::Boolean(b))) => *b,
-                                _ => false,
-                            };
-
-                        let flow_job = FlowJob {
-                            name: cdc.mirror_name.to_string().to_lowercase(),
-                            source_peer: cdc.source_peer.to_string().to_lowercase(),
-                            target_peer: cdc.target_peer.to_string().to_lowercase(),
-                            table_mappings: flow_job_table_mappings,
-                            do_initial_copy,
-                            publication_name,
-                            snapshot_num_rows_per_partition,
-                            snapshot_num_partitions_override,
-                            snapshot_max_parallel_workers,
-                            snapshot_num_tables_in_parallel,
-                            snapshot_staging_path,
-                            cdc_staging_path,
-                            replication_slot_name,
-                            max_batch_size,
-                            sync_interval,
-                            resync,
-                            soft_delete_col_name,
-                            synced_at_col_name,
-                            initial_snapshot_only: initial_copy_only,
-                            script,
-                            system,
-                            disable_peerdb_columns,
-                        };
-
-                        if initial_copy_only && !do_initial_copy {
-                            anyhow::bail!(
-                                "initial_copy_only is set to true, but do_initial_copy is set to false"
-                            );
-                        }
-
-                        Ok(Some(PeerDDL::CreateMirrorForCDC {
-                            if_not_exists: *if_not_exists,
-                            flow_job: Box::new(flow_job),
-                        }))
-                    }
-                    Select(select) => {
-                        let mut raw_options = HashMap::with_capacity(select.with_options.len());
-                        for option in &select.with_options {
-                            if let Expr::Value(ref value) = option.value {
-                                raw_options.insert(&option.name.value as &str, value);
-                            }
-                        }
-
-                        // we treat disabled as a special option, and do not pass it to the
-                        // flow server, this is primarily used for external orchestration.
-                        let mut disabled = false;
-                        if let Some(ast::Value::Boolean(b)) = raw_options.remove("disabled") {
-                            disabled = *b;
-                        }
-
-                        let processed_options = process_options(raw_options)?;
-
-                        let qrep_flow_job = QRepFlowJob {
-                            name: select.mirror_name.to_string().to_lowercase(),
-                            source_peer: select.source_peer.to_string().to_lowercase(),
-                            target_peer: select.target_peer.to_string().to_lowercase(),
-                            query_string: select.query_string.to_string(),
-                            flow_options: processed_options,
-                            description: String::new(), // TODO: add description
-                            disabled,
-                        };
-
-                        Ok(Some(PeerDDL::CreateMirrorForSelect {
-                            if_not_exists: *if_not_exists,
-                            qrep_flow_job: Box::new(qrep_flow_job),
-                        }))
-                    }
-                }
-            }
-            Statement::Execute {
-                name, parameters, ..
-            } => {
-                if let Some(Expr::Value(query)) = parameters.first() {
-                    if let Some(query) = match query {
-                        Value::DoubleQuotedString(query)
-                        | Value::SingleQuotedString(query)
-                        | Value::EscapedStringLiteral(query) => Some(query.clone()),
-                        Value::DollarQuotedString(DollarQuotedString { value, .. }) => {
-                            Some(value.clone())
-                        }
-                        _ => None,
-                    } {
-                        Ok(Some(PeerDDL::ExecutePeer {
-                            peer_name: name.to_string().to_lowercase(),
-                            query: query.to_string(),
-                        }))
-                    } else {
-                        Ok(None)
-                    }
-                } else {
-                    Ok(None)
-                }
-            }
-            Statement::ExecuteMirror { mirror_name } => Ok(Some(PeerDDL::ExecuteMirrorForSelect {
-                flow_job_name: mirror_name.to_string().to_lowercase(),
-            })),
-            Statement::DropMirror {
-                if_exists,
-                mirror_name,
-            } => Ok(Some(PeerDDL::DropMirror {
-                if_exists: *if_exists,
-                flow_job_name: mirror_name.to_string().to_lowercase(),
-            })),
-            Statement::DropPeer {
-                if_exists,
-                peer_name,
-            } => Ok(Some(PeerDDL::DropPeer {
-                if_exists: *if_exists,
-                peer_name: peer_name.to_string().to_lowercase(),
-            })),
-            Statement::ResyncMirror {
-                if_exists,
-                mirror_name,
-                with_options,
-            } => {
-                let mut raw_options = HashMap::with_capacity(with_options.len());
-                for option in with_options {
-                    raw_options.insert(&option.name.value as &str, &option.value);
-                }
-
-                let query_string = match raw_options.remove("query_string") {
-                    Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
+                let publication_name: Option<String> = match raw_options.remove("publication_name")
+                {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::SingleQuotedString(s),
+                        ..
+                    })) => Some(s.clone()),
                     _ => None,
                 };
 
-                Ok(Some(PeerDDL::ResyncMirror {
-                    if_exists: *if_exists,
-                    mirror_name: mirror_name.to_string().to_lowercase(),
-                    query_string,
+                let replication_slot_name: Option<String> =
+                    match raw_options.remove("replication_slot_name") {
+                        Some(Expr::Value(ValueWithSpan {
+                            value: ast::Value::SingleQuotedString(s),
+                            ..
+                        })) => Some(s.clone()),
+                        _ => None,
+                    };
+
+                let snapshot_num_rows_per_partition: Option<u32> =
+                    match raw_options.remove("snapshot_num_rows_per_partition") {
+                        Some(Expr::Value(ValueWithSpan {
+                            value: ast::Value::Number(n, _),
+                            ..
+                        })) => Some(n.parse::<u32>()?),
+                        _ => None,
+                    };
+
+                let snapshot_num_partitions_override: Option<u32> =
+                    match raw_options.remove("snapshot_num_partitions_override") {
+                        Some(Expr::Value(ValueWithSpan {
+                            value: ast::Value::Number(n, _),
+                            ..
+                        })) => Some(n.parse::<u32>()?),
+                        _ => None,
+                    };
+
+                let snapshot_num_tables_in_parallel: Option<u32> =
+                    match raw_options.remove("snapshot_num_tables_in_parallel") {
+                        Some(Expr::Value(ValueWithSpan {
+                            value: ast::Value::Number(n, _),
+                            ..
+                        })) => Some(n.parse::<u32>()?),
+                        _ => None,
+                    };
+                let snapshot_staging_path = match raw_options.remove("snapshot_staging_path") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::SingleQuotedString(s),
+                        ..
+                    })) => s.clone(),
+                    _ => String::new(),
+                };
+
+                let snapshot_max_parallel_workers: Option<u32> =
+                    match raw_options.remove("snapshot_max_parallel_workers") {
+                        Some(Expr::Value(ValueWithSpan {
+                            value: ast::Value::Number(n, _),
+                            ..
+                        })) => Some(n.parse::<u32>()?),
+                        _ => None,
+                    };
+
+                let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::SingleQuotedString(s),
+                        ..
+                    })) => Some(s.clone()),
+                    _ => None,
+                };
+
+                let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::Number(n, _),
+                        ..
+                    })) => Some(n.parse::<u32>()?),
+                    _ => None,
+                };
+
+                let sync_interval: Option<u64> = match raw_options.remove("sync_interval") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::Number(n, _),
+                        ..
+                    })) => Some(n.parse::<u64>()?),
+                    _ => None,
+                };
+
+                let soft_delete_col_name: Option<String> =
+                    match raw_options.remove("soft_delete_col_name") {
+                        Some(Expr::Value(ValueWithSpan {
+                            value: ast::Value::SingleQuotedString(s),
+                            ..
+                        })) => Some(s.clone()),
+                        _ => None,
+                    };
+
+                let synced_at_col_name: Option<String> =
+                    match raw_options.remove("synced_at_col_name") {
+                        Some(Expr::Value(ValueWithSpan {
+                            value: ast::Value::SingleQuotedString(s),
+                            ..
+                        })) => Some(s.clone()),
+                        _ => None,
+                    };
+
+                let initial_copy_only = match raw_options.remove("initial_copy_only") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::Boolean(b),
+                        ..
+                    })) => *b,
+                    _ => false,
+                };
+
+                let script = match raw_options.remove("script") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::SingleQuotedString(s),
+                        ..
+                    })) => s.clone(),
+                    _ => String::new(),
+                };
+
+                let system = match raw_options.remove("system") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::SingleQuotedString(s),
+                        ..
+                    })) => s.clone(),
+                    _ => "Q".to_string(),
+                };
+
+                let disable_peerdb_columns = match raw_options.remove("disable_peerdb_columns") {
+                    Some(Expr::Value(ValueWithSpan {
+                        value: ast::Value::Boolean(b),
+                        ..
+                    })) => *b,
+                    _ => false,
+                };
+
+                let flow_job = FlowJob {
+                    name: cdc.mirror_name.to_string().to_lowercase(),
+                    source_peer: cdc.source_peer.to_string().to_lowercase(),
+                    target_peer: cdc.target_peer.to_string().to_lowercase(),
+                    table_mappings: flow_job_table_mappings,
+                    do_initial_copy,
+                    publication_name,
+                    snapshot_num_rows_per_partition,
+                    snapshot_num_partitions_override,
+                    snapshot_max_parallel_workers,
+                    snapshot_num_tables_in_parallel,
+                    snapshot_staging_path,
+                    cdc_staging_path,
+                    replication_slot_name,
+                    max_batch_size,
+                    sync_interval,
+                    resync,
+                    soft_delete_col_name,
+                    synced_at_col_name,
+                    initial_snapshot_only: initial_copy_only,
+                    script,
+                    system,
+                    disable_peerdb_columns,
+                };
+
+                if initial_copy_only && !do_initial_copy {
+                    anyhow::bail!(
+                        "initial_copy_only is set to true, but do_initial_copy is set to false"
+                    );
+                }
+
+                Ok(Some(PeerDDL::CreateMirrorForCDC {
+                    if_not_exists: *if_not_exists,
+                    flow_job: Box::new(flow_job),
                 }))
             }
-            Statement::PauseMirror {
-                if_exists,
-                mirror_name,
-            } => Ok(Some(PeerDDL::PauseMirror {
-                if_exists: *if_exists,
+            Select(select) => {
+                let mut raw_options = HashMap::with_capacity(select.with_options.len());
+                for option in &select.with_options {
+                    if let SqlOption::KeyValue { key, value: Expr::Value(vws) } = option {
+                        raw_options.insert(key.value.as_str(), &vws.value);
+                    }
+                }
+
+                let mut disabled = false;
+                if let Some(ast::Value::Boolean(b)) = raw_options.remove("disabled") {
+                    disabled = *b;
+                }
+
+                let processed_options = process_options(raw_options)?;
+
+                let qrep_flow_job = QRepFlowJob {
+                    name: select.mirror_name.to_string().to_lowercase(),
+                    source_peer: select.source_peer.to_string().to_lowercase(),
+                    target_peer: select.target_peer.to_string().to_lowercase(),
+                    query_string: select.query_string.to_string(),
+                    flow_options: processed_options,
+                    description: String::new(),
+                    disabled,
+                };
+
+                Ok(Some(PeerDDL::CreateMirrorForSelect {
+                    if_not_exists: *if_not_exists,
+                    qrep_flow_job: Box::new(qrep_flow_job),
+                }))
+            }
+        },
+        PeerDBStatement::ExecuteMirror { mirror_name } => {
+            Ok(Some(PeerDDL::ExecuteMirrorForSelect {
                 flow_job_name: mirror_name.to_string().to_lowercase(),
-            })),
-            Statement::ResumeMirror {
-                if_exists,
-                mirror_name,
-            } => Ok(Some(PeerDDL::ResumeMirror {
-                if_exists: *if_exists,
-                flow_job_name: mirror_name.to_string().to_lowercase(),
-            })),
-            _ => Ok(None),
+            }))
         }
+        PeerDBStatement::DropMirror {
+            if_exists,
+            mirror_name,
+        } => Ok(Some(PeerDDL::DropMirror {
+            if_exists: *if_exists,
+            flow_job_name: mirror_name.to_string().to_lowercase(),
+        })),
+        PeerDBStatement::DropPeer {
+            if_exists,
+            peer_name,
+        } => Ok(Some(PeerDDL::DropPeer {
+            if_exists: *if_exists,
+            peer_name: peer_name.to_string().to_lowercase(),
+        })),
+        PeerDBStatement::ResyncMirror {
+            if_exists,
+            mirror_name,
+            with_options,
+        } => {
+            let mut raw_options = HashMap::with_capacity(with_options.len());
+            for option in with_options {
+                if let SqlOption::KeyValue { key, value } = option {
+                    raw_options.insert(key.value.as_str(), value);
+                }
+            }
+
+            let query_string = match raw_options.remove("query_string") {
+                Some(Expr::Value(ValueWithSpan {
+                    value: ast::Value::SingleQuotedString(s),
+                    ..
+                })) => Some(s.clone()),
+                _ => None,
+            };
+
+            Ok(Some(PeerDDL::ResyncMirror {
+                if_exists: *if_exists,
+                mirror_name: mirror_name.to_string().to_lowercase(),
+                query_string,
+            }))
+        }
+        PeerDBStatement::PauseMirror {
+            if_exists,
+            mirror_name,
+        } => Ok(Some(PeerDDL::PauseMirror {
+            if_exists: *if_exists,
+            flow_job_name: mirror_name.to_string().to_lowercase(),
+        })),
+        PeerDBStatement::ResumeMirror {
+            if_exists,
+            mirror_name,
+        } => Ok(Some(PeerDDL::ResumeMirror {
+            if_exists: *if_exists,
+            flow_job_name: mirror_name.to_string().to_lowercase(),
+        })),
+        // Standard SQL statement, not PeerDB DDL
+        PeerDBStatement::Statement(_) => Ok(None),
+    }
+}
+
+/// Check if a standard Statement is EXECUTE peer_name $$query$$ pattern.
+pub fn check_execute_peer(statement: &Statement) -> anyhow::Result<Option<PeerDDL>> {
+    match statement {
+        Statement::Execute {
+            name, parameters, ..
+        } => {
+            if let Some(Expr::Value(query)) = parameters.first() {
+                if let Some(query) = match &query.value {
+                    Value::DoubleQuotedString(query)
+                    | Value::SingleQuotedString(query)
+                    | Value::EscapedStringLiteral(query) => Some(query.clone()),
+                    Value::DollarQuotedString(DollarQuotedString { value, .. }) => {
+                        Some(value.clone())
+                    }
+                    _ => None,
+                } {
+                    Ok(Some(PeerDDL::ExecutePeer {
+                        peer_name: name
+                            .as_ref()
+                            .map(|n| n.to_string().to_lowercase())
+                            .unwrap_or_default(),
+                        query: query.to_string(),
+                    }))
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Ok(None)
+            }
+        }
+        _ => Ok(None),
     }
 }
 
@@ -492,15 +543,6 @@ pub enum CursorEvent {
     Close(String),
 }
 
-/// PeerCursorAnalyzer is a statement analyzer that checks if the given
-/// statement is a PeerDB cursor statement. If it is, it returns the type of
-/// cursor statement.
-///
-/// Cursor statements are statements that are used to manage cursors. They are
-/// used to fetch data from a peer and close cursors.
-///
-/// Note that this doesn't include DECLARE statements as they are not used to
-/// manage cursors, but rather to declare / create them.
 #[derive(Default)]
 pub struct PeerCursorAnalyzer;
 
@@ -544,14 +586,29 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
 fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Result<Option<Config>> {
     let mut opts: HashMap<&str, &str> = HashMap::with_capacity(with_options.len());
     for opt in with_options {
-        let val = match opt.value {
-            Expr::Value(ast::Value::SingleQuotedString(ref str)) => str,
-            Expr::Value(ast::Value::Number(ref v, _)) => v,
-            Expr::Value(ast::Value::Boolean(true)) => "true",
-            Expr::Value(ast::Value::Boolean(false)) => "false",
-            _ => panic!("invalid option type for peer"),
+        let SqlOption::KeyValue { key, value: expr } = opt else {
+            continue;
         };
-        opts.insert(&opt.name.value, val);
+        let val = match expr {
+            Expr::Value(ValueWithSpan {
+                value: ast::Value::SingleQuotedString(s),
+                ..
+            }) => s.as_str(),
+            Expr::Value(ValueWithSpan {
+                value: ast::Value::Number(v, _),
+                ..
+            }) => v.as_str(),
+            Expr::Value(ValueWithSpan {
+                value: ast::Value::Boolean(true),
+                ..
+            }) => "true",
+            Expr::Value(ValueWithSpan {
+                value: ast::Value::Boolean(false),
+                ..
+            }) => "false",
+            _ => anyhow::bail!("invalid option type for peer: {key}"),
+        };
+        opts.insert(key.value.as_str(), val);
     }
 
     Ok(Some(match db_type {
@@ -967,7 +1024,6 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 })
                 .ok_or_else(|| anyhow::anyhow!("missing connection addresses for Elasticsearch"))?;
 
-            // either basic auth or API key auth, not both
             let api_key = opts.get("api_key").map(|s| s.to_string());
             let username = opts.get("username").map(|s| s.to_string());
             let password = opts.get("password").map(|s| s.to_string());

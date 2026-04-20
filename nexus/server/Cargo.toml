@@ -53,7 +53,7 @@ peer-cursor = { path = "../peer-cursor" }
 peer-mysql = { path = "../peer-mysql", optional = true }
 peer-postgres = { path = "../peer-postgres" }
 peer-snowflake = { path = "../peer-snowflake", optional = true }
-peerdb-parser = { path = "../parser" }
+query-router = { path = "../query-router" }
 pgwire.workspace = true
 pt = { path = "../pt" }
 sqlparser = { workspace = true, features = ["visitor"] }

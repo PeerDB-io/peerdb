@@ -9,7 +9,7 @@ use gcp_bigquery_client::{
 use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::BigqueryConfig;
-use sqlparser::ast::{CloseCursor, Declare, Expr, FetchDirection, Statement, Value};
+use sqlparser::ast::{CloseCursor, Declare, Expr, FetchDirection, LimitClause, Statement, Value};
 use stream::{BqRecordStream, BqSchema};
 
 mod ast;
@@ -195,10 +195,12 @@ impl QueryExecutor for BigQueryQueryExecutor {
                     .context("unable to rewrite query")
                     .map_err(|err| PgWireError::ApiError(err.into()))?;
 
-                // add LIMIT 0 to the root level query.
-                // this is a workaround for the bigquery API not supporting DESCRIBE
-                // queries.
-                query.limit = Some(Expr::Value(Value::Number("0".to_owned(), false)));
+                // add LIMIT 0 to root query, workaround for BQ not supporting DESCRIBE
+                query.limit_clause = Some(LimitClause::LimitOffset {
+                    limit: Some(Expr::value(Value::Number("0".to_owned(), false))),
+                    offset: None,
+                    limit_by: vec![],
+                });
 
                 let query = query.to_string();
                 let query_response = self.run_tracked(&query).await?;

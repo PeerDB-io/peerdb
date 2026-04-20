@@ -13,7 +13,9 @@ impl PostgresAst {
             // if peer name is first part of table name, remove first part
             if let Some(ref peername) = self.peername
                 && table.0.len() > 1
-                && peername.eq_ignore_ascii_case(&table.0[0].value)
+                && table.0[0]
+                    .as_ident()
+                    .is_some_and(|ident| peername.eq_ignore_ascii_case(&ident.value))
             {
                 table.0.remove(0);
             }
@@ -27,10 +29,12 @@ impl PostgresAst {
             if let Statement::Drop {
                 object_type, names, ..
             } = stmt
-                && object_type == &ObjectType::Table
+                && *object_type == ObjectType::Table
                 && let Some(ref peername) = self.peername
                 && let Some(table) = names.first_mut()
-                && peername.eq_ignore_ascii_case(&table.0[0].value)
+                && table.0[0]
+                    .as_ident()
+                    .is_some_and(|ident| peername.eq_ignore_ascii_case(&ident.value))
             {
                 table.0.remove(0);
             }
@@ -40,7 +44,9 @@ impl PostgresAst {
         let _ = visit_relations_mut(stmt, |table| {
             // if peer name is first part of table name, remove first part
             if let Some(ref peername) = self.peername
-                && peername.eq_ignore_ascii_case(&table.0[0].value)
+                && table.0[0]
+                    .as_ident()
+                    .is_some_and(|ident| peername.eq_ignore_ascii_case(&ident.value))
             {
                 table.0.remove(0);
             }

@@ -1,7 +1,7 @@
 #![allow(clippy::all)]
 
+use parser::ast_peerdb::PeerType;
 use peerdb_peers::DbType;
-use sqlparser::ast::PeerType;
 
 pub mod flow_model;
 #[rustfmt::skip]

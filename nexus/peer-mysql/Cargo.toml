@@ -11,8 +11,8 @@ async-trait = "0.1"
 chrono.workspace = true
 futures = { version = "0.3.28", features = ["executor"] }
 mysql_async = { version = "0.36", default-features = false, features = ["minimal-rust", "rust_decimal", "chrono", "rustls-tls", "aws-lc-rs"] }
-peer-ast = { path = "../peer-ast" }
 peer-cursor = { path = "../peer-cursor" }
+parser.workspace = true
 pgwire.workspace = true
 pt = { path = "../pt" }
 rust_decimal.workspace = true

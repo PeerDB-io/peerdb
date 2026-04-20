@@ -18,10 +18,6 @@ type parsedReplicationOffset struct {
 }
 
 func parseReplicationOffsetText(flavor string, offsetText string) (parsedReplicationOffset, error) {
-	if offsetText == "" {
-		return parsedReplicationOffset{}, nil
-	}
-
 	if rest, isFilePos := strings.CutPrefix(offsetText, "!f:"); isFilePos {
 		comma := strings.LastIndexByte(rest, ',')
 		if comma == -1 {
