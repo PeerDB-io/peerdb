@@ -39,7 +39,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 	if len(missingTables) > 0 {
-		return common.NewSourceTableMissingError(missingTables)
+		return common.NewSourceTablesMissingError(missingTables)
 	}
 
 	if cfg.SnapshotStagingPath == "" {

@@ -73,7 +73,7 @@ func (c *PostgresConnector) CheckSourceTables(
 		}
 	}
 	if len(missingTables) > 0 {
-		return common.NewSourceTableMissingError(missingTables)
+		return common.NewSourceTablesMissingError(missingTables)
 	}
 
 	if pubName != "" && !noCDC {

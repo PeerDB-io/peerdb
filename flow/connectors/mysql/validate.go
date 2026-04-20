@@ -26,7 +26,7 @@ func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*co
 		}
 	}
 	if len(missingTables) > 0 {
-		return common.NewSourceTableMissingError(missingTables)
+		return common.NewSourceTablesMissingError(missingTables)
 	}
 	return nil
 }
