@@ -441,11 +441,11 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
 		chVersion   *chproto.Version
-		isResync    bool
+		name        string
 		contains    []string
 		notContains []string
+		isResync    bool
 	}{
 		{
 			name:      "basic non-resync 'create table if not exists' test",
