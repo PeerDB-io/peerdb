@@ -116,6 +116,10 @@ jobs:
           sudo apt-get remove --purge man-db
           sudo apt-get install libgeos-dev
 
+      - name: install retry tool
+        run: |
+          sudo apt-get install -y retry
+
       - run: go mod download
         working-directory: ./flow
 
@@ -567,7 +571,9 @@ jobs:
               echo "Failed to extract test results"
               exit 1
           fi
-          curl -i -H "Content-Type: application/octet-stream" \
+          # Retry upload with exponential backoff
+          retry --times=5 --delay "1,2,4,8,16,32,64,128" -- \
+          curl --fail-with-body -i -H "Content-Type: application/octet-stream" \
             --user "${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}:${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}" \
             "${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}" \
             --data-binary @logs/normalized-test-results.ndjson \
