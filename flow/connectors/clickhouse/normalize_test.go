@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"testing"
 
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -427,4 +428,92 @@ func TestGetOrderedPartitionByColumns(t *testing.T) {
 	require.Equal(t, expected, actual)
 
 	require.True(t, hasNullablePartitionKeys)
+}
+
+func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
+	tableIdentifier := "tbl"
+	tableSchema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+			{Name: "col", Type: string(types.QValueKindString)},
+		},
+		PrimaryKeyColumns: []string{"id"},
+	}
+
+	tests := []struct {
+		name        string
+		chVersion   *chproto.Version
+		isResync    bool
+		contains    []string
+		notContains []string
+	}{
+		{
+			name:      "basic non-resync 'create table if not exists' test",
+			chVersion: &chproto.Version{Major: 25, Minor: 8, Patch: 0},
+			isResync:  false,
+			contains: []string{
+				"CREATE TABLE IF NOT EXISTS `tbl`",
+				"`id` Int64",
+				"`col` String",
+				"`_peerdb_is_deleted` UInt8",
+				"`_peerdb_version` UInt64",
+				"ENGINE = ReplacingMergeTree(`_peerdb_version`)",
+				"PRIMARY KEY (`id`) ORDER BY (`id`)",
+			},
+			notContains: []string{"max_table_size_to_drop"},
+		},
+		{
+			name:      "basic resync 'create or replace table' test",
+			chVersion: &chproto.Version{Major: 25, Minor: 8, Patch: 0},
+			isResync:  true,
+			contains: []string{
+				"CREATE OR REPLACE TABLE `tbl`",
+				"`id` Int64",
+				"`col` String",
+				"`_peerdb_is_deleted` UInt8",
+				"`_peerdb_version` UInt64",
+				"ENGINE = ReplacingMergeTree(`_peerdb_version`)",
+				"SETTINGS max_table_size_to_drop=0",
+				"PRIMARY KEY (`id`) ORDER BY (`id`)",
+			},
+		},
+		{
+			name:        "resync on old CH version omits max_table_size_to_drop",
+			chVersion:   &chproto.Version{Major: 23, Minor: 11, Patch: 0},
+			isResync:    true,
+			contains:    []string{"CREATE OR REPLACE TABLE `tbl`"},
+			notContains: []string{"max_table_size_to_drop"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			c := &ClickHouseConnector{
+				Config:    &protos.ClickhouseConfig{Database: "db"},
+				chVersion: tc.chVersion,
+			}
+			config := &protos.SetupNormalizedTableBatchInput{
+				Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
+				TableMappings: []*protos.TableMapping{
+					{
+						SourceTableIdentifier:      tableIdentifier,
+						DestinationTableIdentifier: tableIdentifier,
+					},
+				},
+				IsResync: tc.isResync,
+			}
+
+			result, err := c.generateCreateTableSQLForNormalizedTable(ctx, config, tableIdentifier, tableSchema, tc.chVersion, nil)
+			require.NoError(t, err)
+			require.Len(t, result, 1)
+			sql := result[0]
+			for _, contain := range tc.contains {
+				require.Contains(t, sql, contain)
+			}
+			for _, notContain := range tc.notContains {
+				require.NotContains(t, sql, notContain)
+			}
+		})
+	}
 }
