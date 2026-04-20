@@ -10,12 +10,6 @@ import (
 )
 
 func TestParseReplicationOffsetText(t *testing.T) {
-	t.Run("empty", func(t *testing.T) {
-		parsedOffset, err := parseReplicationOffsetText("mysql", "")
-		require.NoError(t, err)
-		require.Equal(t, parsedReplicationOffset{}, parsedOffset)
-	})
-
 	t.Run("filepos", func(t *testing.T) {
 		parsedOffset, err := parseReplicationOffsetText("mysql", "!f:mysql-bin.000001,4d2")
 		require.NoError(t, err)
@@ -42,6 +36,14 @@ func TestParseReplicationOffsetText(t *testing.T) {
 		require.Equal(t, mysql.Position{}, parsedOffset.pos)
 	})
 
+	t.Run("empty", func(t *testing.T) {
+		parsedOffset, err := parseReplicationOffsetText("mysql", "")
+		require.NoError(t, err)
+		require.Equal(t, protos.MySqlReplicationMechanism_MYSQL_GTID.String(), parsedOffset.mechanism)
+		require.True(t, parsedOffset.gset.IsEmpty())
+		require.Equal(t, mysql.Position{}, parsedOffset.pos)
+	})
+
 	t.Run("invalid gtid", func(t *testing.T) {
 		_, err := parseReplicationOffsetText("mysql", "not-a-valid-offset")
 		require.ErrorContains(t, err, `failed to parse mysql offset text "not-a-valid-offset" as GTID set`)
@@ -64,7 +66,7 @@ func TestReplicationMechanismInUseFromOffsetText(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		mechanism, err := replicationMechanismInUseFromOffsetText("mysql", "")
 		require.NoError(t, err)
-		require.Empty(t, mechanism)
+		require.Equal(t, protos.MySqlReplicationMechanism_MYSQL_GTID.String(), mechanism)
 	})
 
 	t.Run("invalid", func(t *testing.T) {
