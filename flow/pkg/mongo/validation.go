@@ -129,7 +129,7 @@ func ValidateCollections(ctx context.Context, client *mongo.Client, tables []*co
 		}
 	}
 	if len(missingTables) > 0 {
-		return common.NewSourceTableMissingError(missingTables)
+		return common.NewSourceTablesMissingError(missingTables)
 	}
 	return nil
 }
