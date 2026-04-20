@@ -54,7 +54,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:519c125d22c14b01562a428addcecea327f20eceee923805aff29fff53391cf8
+        image: redpandadata/redpanda@sha256:f9d86102b8030b5a990a09e30ee3f7f3b8c8c677ee3eca921555d882becdeae7
         ports:
           - 9092:9092
           - 9644:9644
@@ -86,7 +86,7 @@ jobs:
           - 49002:49002
           - 49003:49003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:969edac1221e0f211d86dc5a94ee9337340c9c585527f73e5fabf2dae7bb8de3
+        image: linuxserver/openssh-server:latest@sha256:742f577d4100f5ad3b38f270d722931bbe98b997444c13b1a2a838df12a9971e
         ports:
           - 2222:2222
         env:
@@ -107,7 +107,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.26.1'
+          go-version: '1.26.2'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
