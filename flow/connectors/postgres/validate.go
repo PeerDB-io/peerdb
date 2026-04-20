@@ -250,6 +250,11 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	pubName := cfg.PublicationName
+	// Check source tables before the publication, for better errors
+	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
+		return fmt.Errorf("provided source tables invalidated: %w", err)
+	}
+
 	if pubName == "" && !noCDC {
 		srcTableNames := make([]string, 0, len(sourceTables))
 		for _, srcTable := range sourceTables {
@@ -259,10 +264,6 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		if err := c.CheckPublicationCreationPermissions(ctx, srcTableNames); err != nil {
 			return fmt.Errorf("invalid publication creation permissions: %w", err)
 		}
-	}
-
-	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
-		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 
 	return nil
