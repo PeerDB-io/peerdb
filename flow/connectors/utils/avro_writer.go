@@ -166,6 +166,52 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}, nil
 }
 
+// WriteRecordsToStaging serializes records as Avro OCF and uploads via the given StagingStore.
+// This is the cloud-agnostic equivalent of WriteRecordsToS3.
+func (p *peerDBOCFWriter) WriteRecordsToStaging(
+	ctx context.Context,
+	env map[string]string,
+	store StagingStore,
+	key string,
+	typeConversions map[string]types.TypeConversion,
+	numericTruncator model.SnapshotTableNumericTruncator,
+) (AvroFile, error) {
+	logger := internal.LoggerFromCtx(ctx)
+
+	r, w := io.Pipe()
+	defer r.Close()
+
+	var writeOcfError error
+	var numRows int64
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				writeOcfError = fmt.Errorf("panic occurred during WriteOCF: %v", r)
+				stack := string(debug.Stack())
+				logger.Error("panic during WriteOCF", slog.Any("error", writeOcfError), slog.String("stack", stack))
+			}
+			w.Close()
+		}()
+		numRows, writeOcfError = p.WriteOCF(ctx, env, w, typeConversions, numericTruncator)
+	}()
+
+	if err := store.Upload(ctx, env, key, r); err != nil {
+		return AvroFile{}, fmt.Errorf("failed to upload to staging: %w", err)
+	}
+
+	if writeOcfError != nil {
+		logger.Error("failed to write records to OCF", slog.Any("error", writeOcfError))
+		return AvroFile{}, writeOcfError
+	}
+
+	return AvroFile{
+		StorageLocation: AvroS3Storage,
+		FilePath:        key,
+		NumRecords:      numRows,
+	}, nil
+}
+
 func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[string]string, filePath string) (AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
