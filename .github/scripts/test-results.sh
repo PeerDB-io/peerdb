@@ -28,7 +28,7 @@ set -eo pipefail # For jq to propagate yq failures.
 #
 yq -p=xml -o=json \
   '
-  .testsuites.testsuite[] |
+  ((.testsuites.testsuite | select(kind == "seq") | .[]), (.testsuites.testsuite | select(kind == "map"))) |
   ."+@timestamp" as $ts |
   select(has("testcase")) |
   ((.testcase | select(kind == "seq") | .[]), (.testcase | select(kind == "map"))) |
