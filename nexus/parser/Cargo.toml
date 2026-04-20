@@ -1,18 +1,12 @@
 [package]
-name = "peerdb-parser"
+name = "parser"
 version = "0.1.0"
-edition = "2024"
-authors = ["PeerDB <copyright@peerdb.io>"]
+edition = "2021"
 
 [dependencies]
-analyzer = { path = "../analyzer" }
-anyhow = "1"
-async-trait = "0.1"
-catalog = { path = "../catalog", default-features = false }
-futures = { version = "0.3.28", features = ["executor"] }
-pgwire.workspace = true
-pt = { path = "../pt" }
-rand = "0.10"
-sqlparser.workspace = true
-tokio.workspace = true
-tracing.workspace = true
+anyhow = "1.0"
+sqlparser = "0.61"
+
+[features]
+default = []
+visitor = ["sqlparser/visitor"]

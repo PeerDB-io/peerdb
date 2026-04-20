@@ -22,7 +22,6 @@ use peer_cursor::{
     QueryExecutor, QueryOutput, Schema,
     util::{records_to_query_response, sendable_stream_to_query_response},
 };
-use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
         ClientInfo, ClientPortalStore, PgWireServerHandlers, Type,
@@ -49,6 +48,7 @@ use pt::{
     flow_model::QRepFlowJob,
     peerdb_peers::{Peer, peer::Config},
 };
+use query_router::{ParsedStatement, QueryRouter, Route};
 use rand::RngExt;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Mutex;
@@ -93,7 +93,7 @@ impl AuthSource for FixedPasswordAuthSource {
 
 pub struct NexusBackend {
     catalog: Arc<Catalog>,
-    query_parser: NexusQueryParser,
+    query_parser: QueryRouter,
     peer_cursors: Mutex<PeerCursors>,
     executors: DashMap<String, Arc<dyn QueryExecutor>>,
     flow_handler: Option<Arc<Mutex<FlowGrpcClient>>>,
@@ -106,7 +106,7 @@ impl NexusBackend {
         flow_handler: Option<Arc<Mutex<FlowGrpcClient>>>,
         peerdb_fdw_mode: bool,
     ) -> Self {
-        let query_parser = NexusQueryParser::new(catalog.clone());
+        let query_parser = QueryRouter::new(catalog.clone());
         Self {
             catalog,
             query_parser,
@@ -213,12 +213,9 @@ impl NexusBackend {
         }
     }
 
-    async fn handle_drop_mirror(
-        &self,
-        drop_mirror_stmt: &NexusStatement,
-    ) -> PgWireResult<Vec<Response>> {
+    async fn handle_drop_mirror(&self, drop_mirror_stmt: &Route) -> PgWireResult<Vec<Response>> {
         match drop_mirror_stmt {
-            NexusStatement::PeerDDL { stmt: _, ddl } => match ddl.as_ref() {
+            Route::PeerDDL { ddl } => match ddl.as_ref() {
                 PeerDDL::DropMirror {
                     if_exists,
                     flow_job_name,
@@ -260,10 +257,10 @@ impl NexusBackend {
 
     async fn handle_create_mirror_for_select(
         &self,
-        create_mirror_stmt: &NexusStatement,
+        create_mirror_stmt: &Route,
     ) -> PgWireResult<Vec<Response>> {
         match create_mirror_stmt {
-            NexusStatement::PeerDDL { stmt: _, ddl } => match ddl.as_ref() {
+            Route::PeerDDL { ddl } => match ddl.as_ref() {
                 PeerDDL::CreateMirrorForSelect {
                     if_not_exists,
                     qrep_flow_job,
@@ -307,9 +304,9 @@ impl NexusBackend {
         }
     }
 
-    async fn handle_query(&self, nexus_stmt: NexusStatement) -> PgWireResult<Vec<Response>> {
+    async fn handle_query(&self, nexus_stmt: Route) -> PgWireResult<Vec<Response>> {
         match nexus_stmt {
-            NexusStatement::PeerDDL { stmt: _, ref ddl } => match ddl.as_ref() {
+            Route::PeerDDL { ref ddl } => match ddl.as_ref() {
                 PeerDDL::CreatePeer { peer, .. } => {
                     self.create_peer(peer).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -569,7 +566,7 @@ impl NexusBackend {
                     Ok(vec![Response::Execution(Tag::new(&resume_mirror_success))])
                 }
             },
-            NexusStatement::PeerQuery { stmt, assoc } => {
+            Route::PeerQuery { stmt, assoc } => {
                 // get the query executor
                 let (peer_holder, executor): (Option<_>, Arc<dyn QueryExecutor>) = match assoc {
                     QueryAssociation::Peer(peer) => {
@@ -593,7 +590,7 @@ impl NexusBackend {
                 self.process_execution(res, peer_holder).await
             }
 
-            NexusStatement::PeerCursor { stmt, cursor } => {
+            Route::Cursor { stmt, cursor } => {
                 let executor = {
                     let peer_cursors = self.peer_cursors.lock().await;
                     let peer = match cursor {
@@ -615,12 +612,12 @@ impl NexusBackend {
                 self.process_execution(res, None).await
             }
 
-            NexusStatement::Rollback { stmt } => {
+            Route::Rollback { stmt } => {
                 let res = self.catalog.execute(&stmt).await?;
                 self.process_execution(res, None).await
             }
 
-            NexusStatement::Empty => Ok(vec![Response::EmptyQuery]),
+            Route::Empty => Ok(vec![Response::EmptyQuery]),
         }
     }
 
@@ -689,15 +686,15 @@ impl NexusBackend {
         })
     }
 
-    async fn do_describe(&self, stmt: &NexusParsedStatement) -> PgWireResult<Option<Schema>> {
+    async fn do_describe(&self, stmt: &ParsedStatement) -> PgWireResult<Option<Schema>> {
         tracing::info!("[eqp] do_describe: {}", stmt.query);
         let stmt = &stmt.statement;
         match stmt {
-            NexusStatement::PeerDDL { .. } => Ok(None),
-            NexusStatement::PeerCursor { .. } => Ok(None),
-            NexusStatement::Empty => Ok(None),
-            NexusStatement::Rollback { .. } => Ok(None),
-            NexusStatement::PeerQuery { stmt, assoc } => {
+            Route::PeerDDL { .. } => Ok(None),
+            Route::Cursor { .. } => Ok(None),
+            Route::Empty => Ok(None),
+            Route::Rollback { .. } => Ok(None),
+            Route::PeerQuery { stmt, assoc } => {
                 let schema: Option<Schema> = match assoc {
                     QueryAssociation::Peer(peer) => match &peer.config {
                         #[cfg(feature = "bigquery")]
@@ -782,7 +779,7 @@ impl SimpleQueryHandler for NexusBackend {
     }
 }
 
-fn parameter_to_string(portal: &Portal<NexusParsedStatement>, idx: usize) -> PgWireResult<String> {
+fn parameter_to_string(portal: &Portal<ParsedStatement>, idx: usize) -> PgWireResult<String> {
     // the index is managed from portal's parameters count so it's safe to
     // unwrap here.
     if let Some(param_type) = portal.statement.parameter_types.get(idx).unwrap() {
@@ -832,8 +829,8 @@ fn parameter_to_string(portal: &Portal<NexusParsedStatement>, idx: usize) -> PgW
 
 #[async_trait]
 impl ExtendedQueryHandler for NexusBackend {
-    type Statement = NexusParsedStatement;
-    type QueryParser = NexusQueryParser;
+    type Statement = ParsedStatement;
+    type QueryParser = QueryRouter;
 
     fn query_parser(&self) -> Arc<Self::QueryParser> {
         Arc::new(self.query_parser.clone())
