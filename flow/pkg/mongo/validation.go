@@ -116,6 +116,7 @@ func ValidateCollections(ctx context.Context, client *mongo.Client, tables []*co
 		databaseCollectionsMapping[t.Namespace] = append(databaseCollectionsMapping[t.Namespace], t.Table)
 	}
 
+	var missingTables []common.QualifiedTable
 	for database, collections := range databaseCollectionsMapping {
 		allCollections, err := GetCollectionNames(ctx, client, database)
 		if err != nil {
@@ -123,9 +124,12 @@ func ValidateCollections(ctx context.Context, client *mongo.Client, tables []*co
 		}
 		for _, col := range collections {
 			if !slices.Contains(allCollections, col) {
-				return common.NewSourceTableMissingError(common.QualifiedTable{Namespace: database, Table: col})
+				missingTables = append(missingTables, common.QualifiedTable{Namespace: database, Table: col})
 			}
 		}
+	}
+	if len(missingTables) > 0 {
+		return common.NewSourceTableMissingError(missingTables)
 	}
 	return nil
 }

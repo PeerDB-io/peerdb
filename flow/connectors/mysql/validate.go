@@ -15,13 +15,18 @@ import (
 )
 
 func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*common.QualifiedTable) error {
+	var missingTables []common.QualifiedTable
 	for _, parsedTable := range tableNames {
 		if _, err := c.Execute(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", parsedTable.MySQL())); err != nil {
 			if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_NO_SUCH_TABLE {
-				return common.NewSourceTableMissingError(*parsedTable)
+				missingTables = append(missingTables, *parsedTable)
+				continue
 			}
 			return fmt.Errorf("error checking table %s: %w", parsedTable.MySQL(), err)
 		}
+	}
+	if len(missingTables) > 0 {
+		return common.NewSourceTableMissingError(missingTables)
 	}
 	return nil
 }

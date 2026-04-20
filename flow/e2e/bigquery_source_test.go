@@ -303,10 +303,11 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Invalid_Table_Mappings() {
 
 	err := bqConn.ValidateMirrorSource(ctx, flowConfig)
 	require.Error(t, err, "should fail with non-existent table")
-	missing, ok := errors.AsType[*common.SourceTableMissingError](err)
+	missing, ok := errors.AsType[*common.SourceTablesMissingError](err)
 	require.True(t, ok, "expected SourceTableMissingError, got %T: %v", err, err)
-	require.Equal(t, source.config.DatasetId, missing.Table.Namespace)
-	require.Equal(t, "nonexistent_table", missing.Table.Table)
+	require.Len(t, missing.Tables, 1)
+	require.Equal(t, source.config.DatasetId, missing.Tables[0].Namespace)
+	require.Equal(t, "nonexistent_table", missing.Tables[0].Table)
 }
 
 func (s BigQueryClickhouseSuite) Test_BigQuery_Source_ValidateMirrorSource_Success() {

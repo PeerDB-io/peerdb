@@ -43,6 +43,7 @@ func (c *PostgresConnector) CheckSourceTables(
 
 	// Check that we can select from all tables
 	tableArr := make([]string, 0, len(tableNames))
+	var missingTables []common.QualifiedTable
 	for idx, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
@@ -65,10 +66,14 @@ func (c *PostgresConnector) CheckSourceTables(
 			fmt.Sprintf("SELECT %s FROM %s LIMIT 0", selectedColumnsStr, parsedTable),
 		).Scan(&row); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UndefinedTable {
-				return common.NewSourceTableMissingError(*parsedTable)
+				missingTables = append(missingTables, *parsedTable)
+				continue
 			}
 			return fmt.Errorf("failed to select from table %s: %w", parsedTable, err)
 		}
+	}
+	if len(missingTables) > 0 {
+		return common.NewSourceTableMissingError(missingTables)
 	}
 
 	if pubName != "" && !noCDC {
@@ -98,20 +103,19 @@ func (c *PostgresConnector) CheckSourceTables(
 			if err != nil {
 				return err
 			}
-			missing, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
-				var schema string
-				var table string
-				if err := row.Scan(&schema, &table); err != nil {
-					return "", err
+			missing, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (common.QualifiedTable, error) {
+				var qt common.QualifiedTable
+				if err := row.Scan(&qt.Namespace, &qt.Table); err != nil {
+					return common.QualifiedTable{}, err
 				}
-				return fmt.Sprintf("%s.%s", common.QuoteIdentifier(schema), common.QuoteIdentifier(table)), nil
+				return qt, nil
 			})
 			if err != nil {
 				return err
 			}
 
 			if len(missing) != 0 {
-				return fmt.Errorf("some tables missing from publication: %s", strings.Join(missing, ", "))
+				return common.NewTablesNotInPublicationError(pubName, missing)
 			}
 		}
 	}

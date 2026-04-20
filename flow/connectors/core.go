@@ -45,7 +45,7 @@ type MirrorSourceValidationConnector interface {
 	GetTableSchemaConnector
 
 	// ValidateMirrorSource checks that the source is ready to replicate the configured tables.
-	// MUST return *common.SourceTableMissingError when a mapped source table is absent.
+	// MUST return *common.SourceTablesMissingError when a mapped source table is absent.
 	ValidateMirrorSource(context.Context, *protos.FlowConnectionConfigsCore) error
 }
 

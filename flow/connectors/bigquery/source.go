@@ -18,6 +18,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		return fmt.Errorf("BigQuery source connector only supports initial snapshot flows. CDC is not supported")
 	}
 
+	var missingTables []common.QualifiedTable
 	for _, tableMapping := range cfg.TableMappings {
 		dstDatasetTable, err := c.convertToDatasetTable(tableMapping.SourceTableIdentifier)
 		if err != nil {
@@ -28,13 +29,17 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 
 		if _, err := table.Metadata(ctx); err != nil {
 			if c.isApiErrorWithStatusCode(err, http.StatusNotFound) {
-				return common.NewSourceTableMissingError(common.QualifiedTable{
+				missingTables = append(missingTables, common.QualifiedTable{
 					Namespace: dstDatasetTable.dataset,
 					Table:     dstDatasetTable.table,
 				})
+				continue
 			}
 			return fmt.Errorf("failed to get metadata for table %s: %w", tableMapping.DestinationTableIdentifier, err)
 		}
+	}
+	if len(missingTables) > 0 {
+		return common.NewSourceTableMissingError(missingTables)
 	}
 
 	if cfg.SnapshotStagingPath == "" {

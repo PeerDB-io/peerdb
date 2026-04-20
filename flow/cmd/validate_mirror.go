@@ -107,11 +107,17 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	defer srcClose(ctx)
 
 	if err := srcConn.ValidateMirrorSource(ctx, connectionConfigs); err != nil {
-		if missing, ok := errors.AsType[*common.SourceTableMissingError](err); ok {
-			table := fmt.Sprintf("%s.%s", missing.Table.Namespace, missing.Table.Table)
+		if missing, ok := errors.AsType[*common.SourceTablesMissingError](err); ok {
 			return nil, NewFailedPreconditionApiError(
-				fmt.Errorf("source table %s does not exist", table),
-				NewSourceTableMissingErrorInfo(table))
+				missing,
+				NewSourceTableMissingErrorInfo(),
+				NewSourceTableMissingPreconditionFailure(missing.Tables))
+		}
+		if notInPub, ok := errors.AsType[*common.TablesNotInPublicationError](err); ok {
+			return nil, NewFailedPreconditionApiError(
+				notInPub,
+				NewTablesNotInPublicationErrorInfo(notInPub.Publication),
+				NewTablesNotInPublicationPreconditionFailure(notInPub.Publication, notInPub.Tables))
 		}
 		return nil, NewFailedPreconditionApiError(
 			fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
