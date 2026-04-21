@@ -19,6 +19,7 @@ const (
 	SSHServerPort    = "2222"
 	ToxiproxyHost    = "localhost"
 	SSHServerHost    = "openssh"
+	MySQLProxyHost   = "toxiproxy"
 )
 
 // Callbacks avoid adding test-only methods to the connector interfaces in core.go.
@@ -36,9 +37,11 @@ func NewToxiproxyClient(t *testing.T) *toxiproxy.Client {
 	return client
 }
 
-func CreateSSHProxy(t *testing.T, client *toxiproxy.Client, name string, port int) *toxiproxy.Proxy {
+func CreateToxiproxyForward(
+	t *testing.T, client *toxiproxy.Client, name string, listenPort int, upstream string,
+) *toxiproxy.Proxy {
 	t.Helper()
-	proxy, err := client.CreateProxy(name, "0.0.0.0:"+strconv.Itoa(port), SSHServerHost+":"+SSHServerPort)
+	proxy, err := client.CreateProxy(name, "0.0.0.0:"+strconv.Itoa(listenPort), upstream)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		if err := proxy.Delete(); err != nil {
@@ -46,6 +49,11 @@ func CreateSSHProxy(t *testing.T, client *toxiproxy.Client, name string, port in
 		}
 	})
 	return proxy
+}
+
+func CreateSSHProxy(t *testing.T, client *toxiproxy.Client, name string, port int) *toxiproxy.Proxy {
+	t.Helper()
+	return CreateToxiproxyForward(t, client, name, port, SSHServerHost+":"+SSHServerPort)
 }
 
 func RunSSHKeepaliveDownTest(t *testing.T, cfg SSHKeepaliveTestConfig) {

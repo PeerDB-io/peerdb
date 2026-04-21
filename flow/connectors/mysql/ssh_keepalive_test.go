@@ -29,12 +29,8 @@ const (
 	toxiproxyCloseSyncerWithTimeoutPort = 42006
 )
 
-func setupMySQLConnectorWithProxy(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
-) (*MySqlConnector, *toxiproxy.Proxy) {
+func resolveMySQL(t *testing.T) (string, uint32, string) {
 	t.Helper()
-
-	toxiproxyClient := utils.NewToxiproxyClient(t)
-	sshProxy := utils.CreateSSHProxy(t, toxiproxyClient, proxyName, proxyPort)
 
 	mysqlHost := "mysql"
 	if envHost := os.Getenv("CI_MYSQL_HOST"); envHost != "" {
@@ -52,6 +48,19 @@ func setupMySQLConnectorWithProxy(ctx context.Context, t *testing.T, proxyName s
 	if envPass := os.Getenv("CI_MYSQL_ROOT_PASSWORD"); envPass != "" {
 		mysqlRootPass = envPass
 	}
+
+	return mysqlHost, mysqlPort, mysqlRootPass
+}
+
+// Connector -> Toxi -> SSH -> MySQL
+func setupMySQLConnectorWithSSHProxy(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
+) (*MySqlConnector, *toxiproxy.Proxy) {
+	t.Helper()
+
+	toxiproxyClient := utils.NewToxiproxyClient(t)
+	sshProxy := utils.CreateSSHProxy(t, toxiproxyClient, proxyName, proxyPort)
+
+	mysqlHost, mysqlPort, mysqlRootPass := resolveMySQL(t)
 
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
 		Host:     mysqlHost,
@@ -76,11 +85,48 @@ func setupMySQLConnectorWithProxy(ctx context.Context, t *testing.T, proxyName s
 	return connector, sshProxy
 }
 
-func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
+// Connector -> SSH -> Toxi -> MySQL
+func setupMySQLConnectorWithMySQLProxy(
+	ctx context.Context, t *testing.T, proxyName string, proxyPort int,
+) (*MySqlConnector, *toxiproxy.Proxy) {
+	t.Helper()
+
+	toxiproxyClient := utils.NewToxiproxyClient(t)
+	mysqlHost, mysqlPort, mysqlRootPass := resolveMySQL(t)
+	upstream := mysqlHost + ":" + strconv.FormatUint(uint64(mysqlPort), 10)
+	mysqlProxy := utils.CreateToxiproxyForward(t, toxiproxyClient, proxyName, proxyPort, upstream)
+
+	sshPortStr := utils.SSHServerPort
+	sshPort, err := strconv.ParseUint(sshPortStr, 10, 32)
+	require.NoError(t, err)
+
+	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
+		Host:     utils.MySQLProxyHost,
+		Port:     uint32(proxyPort),
+		User:     "root",
+		Password: mysqlRootPass,
+		Database: "mysql",
+		SshConfig: &protos.SSHConfig{
+			Host:     "localhost",
+			Port:     uint32(sshPort),
+			User:     "testuser",
+			Password: "testpass",
+		},
+		DisableTls: true,
+	})
+	require.NoError(t, err)
+
+	err = connector.ConnectionActive(ctx)
+	require.NoError(t, err, "Initial connection should work")
+
+	return connector, mysqlProxy
+}
+
+func setupMySQLSSHKeepaliveHarness(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
 ) (*MySqlConnector, utils.SSHKeepaliveTestConfig) {
 	t.Helper()
 
-	connector, sshProxy := setupMySQLConnectorWithProxy(ctx, t, proxyName, proxyPort)
+	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, proxyName, proxyPort)
 	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
 
 	return connector, utils.SSHKeepaliveTestConfig{
@@ -93,12 +139,12 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, proxyName str
 	}
 }
 
-func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
+func TestMySQLSSHKeepaliveTunnelDown(t *testing.T) {
 	t.Parallel()
 	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
-	connector, cfg := setupMySQLConnectorWithSSH(t.Context(), t, "my-ssh-keepalive-test", toxiproxyDownProxyPort)
+	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-keepalive-test", toxiproxyDownProxyPort)
 	defer connector.Close()
 	utils.RunSSHKeepaliveDownTest(t, cfg)
 }
@@ -108,7 +154,7 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
-	connector, cfg := setupMySQLConnectorWithSSH(t.Context(), t, "my-ssh-latency-test", toxiproxyLatencyProxyPort)
+	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-latency-test", toxiproxyLatencyProxyPort)
 	defer connector.Close()
 	utils.RunSSHKeepaliveLatencyTest(t, cfg)
 }
@@ -118,7 +164,7 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
-	connector, cfg := setupMySQLConnectorWithSSH(t.Context(), t, "my-ssh-reset-peer-test", toxiproxyResetProxyPort)
+	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-reset-peer-test", toxiproxyResetProxyPort)
 	defer connector.Close()
 	utils.RunSSHResetPeerTest(t, cfg)
 }
@@ -166,7 +212,7 @@ func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	connector, sshProxy := setupMySQLConnectorWithProxy(ctx, t, "my-ssh-cdc-down-test", toxiproxyCDCHangProxyPort)
+	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-down-test", toxiproxyCDCHangProxyPort)
 	defer connector.Close()
 
 	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
@@ -220,7 +266,7 @@ func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
 
 	ctx := t.Context()
 
-	connector, sshProxy := setupMySQLConnectorWithProxy(ctx, t, "my-ssh-cdc-latency-test", toxiproxyCDCCloseHangProxyPort)
+	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-latency-test", toxiproxyCDCCloseHangProxyPort)
 	defer connector.Close()
 
 	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
@@ -279,7 +325,7 @@ func TestMySQLCloseSyncerWithTimeout(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	connector, sshProxy := setupMySQLConnectorWithProxy(
+	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(
 		ctx, t, "my-close-syncer-timeout-test", toxiproxyCloseSyncerWithTimeoutPort)
 	defer connector.Close()
 
@@ -288,19 +334,16 @@ func TestMySQLCloseSyncerWithTimeout(t *testing.T) {
 	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos)
 	require.NoError(t, err)
 
-	// Let CDC streaming establish before blocking the tunnel.
+	// Let CDC streaming establish before blocking the MySQL server.
 	time.Sleep(2 * time.Second)
 
-	// Black-hole the SSH transport so syncer.Close() hangs
-	_, err = sshProxy.AddToxic("latency", "latency", "", 1.0, toxiproxy.Attributes{
+	// Black-hole the MySQL server so syncer.Close() hangs
+	_, err = mysqlProxy.AddToxic("latency", "latency", "", 1.0, toxiproxy.Attributes{
 		"latency": 120000,
 	})
 	require.NoError(t, err)
 
-	// Must be < SSHKeepaliveInterval so the timing bounds below prove the syncCloseTimeout
-	// (not SSH keepalive's own force-close) is what unblocked syncer.Close.
 	syncerCloseTimeout := 2 * time.Second
-	require.Less(t, syncerCloseTimeout, utils.SSHKeepaliveInterval)
 	done := make(chan struct{})
 	start := time.Now()
 	go func() {
