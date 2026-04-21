@@ -563,6 +563,7 @@ jobs:
           WORKFLOW_RUN_NUMBER: ${{ github.run_attempt }}
           COMMIT_SHA: ${{ github.sha }}
           SUMMARY_HEADER: "x-clickhouse-summary"
+          COMBINATION_ID: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}"
         run: |
           if [ -z "${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}" ] \
             || [ -z "${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}" ] \
