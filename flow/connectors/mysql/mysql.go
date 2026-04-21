@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
@@ -25,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type MySqlConnector struct {
