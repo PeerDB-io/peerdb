@@ -45,7 +45,8 @@ yq -p=xml -o=json \
     "workflow_run_link": strenv(WORKFLOW_RUN_LINK),
     "workflow_head_branch": strenv(WORKFLOW_HEAD_BRANCH),
     "workflow_retry_number": (strenv(WORKFLOW_RUN_NUMBER) | tonumber),
-    "commit_sha": strenv(COMMIT_SHA)
+    "commit_sha": strenv(COMMIT_SHA),
+    "compatibility_matrix_id": (strenv(COMBINATION_ID) | select(. != "") // null)
   } |
   select(.suite_name != null)
   ' \
