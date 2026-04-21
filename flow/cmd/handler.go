@@ -460,6 +460,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			return nil, NewInternalApiError(fmt.Errorf("unable to signal workflow update: %w", err))
 		}
 		telemetry.LogActivityStartFlowConfigUpdate(ctx, req.FlowJobName, req.FlowConfigUpdate.GetCdcFlowConfigUpdate())
+		h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Flow config update signaled")
 	}
 
 	slog.InfoContext(ctx, "[flow-state-change] received request", logs,
@@ -472,6 +473,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
 				if changeErr == nil {
 					telemetry.LogActivityPauseFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror pause signaled")
 				}
 			}
 		case protos.FlowStatus_STATUS_RUNNING:
@@ -479,6 +481,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
 				if changeErr == nil {
 					telemetry.LogActivityResumeFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resume signaled")
 				}
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
@@ -486,6 +489,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				changeErr = h.resyncByRecreatingFlow(ctx, req.FlowJobName, req.DropMirrorStats)
 				if changeErr == nil {
 					telemetry.LogActivityResyncFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resync signaled")
 				}
 			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, NewInternalApiError(fmt.Errorf("unable to determine if mirror is cdc: %w", err))
@@ -510,6 +514,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 				if changeErr == nil {
 					telemetry.LogActivityResyncFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resync signaled")
 				}
 			}
 		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_TERMINATED:
@@ -524,6 +529,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				}
 				if changeErr == nil {
 					telemetry.LogActivityTerminateFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror termination signaled")
 				}
 			}
 		default:
