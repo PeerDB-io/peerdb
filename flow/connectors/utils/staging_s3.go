@@ -174,4 +174,3 @@ func (s *S3StagingStore) Bucket() string {
 func (s *S3StagingStore) Prefix() string {
 	return s.prefix
 }
-
