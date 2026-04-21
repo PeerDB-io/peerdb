@@ -34,6 +34,18 @@ func MySQLTestPort() uint32 {
 	return uint32(envPort)
 }
 
+func MySQLTestVersion() string {
+	return os.Getenv("CI_MYSQL_VERSION")
+}
+
+func MySQLTestVersionIsMaria() bool {
+	return MySQLTestVersion() == "maria"
+}
+
+func MySQLTestVersionIsMysqlPos() bool {
+	return MySQLTestVersion() == "mysql-pos"
+}
+
 func SetupRDSIAMAuthAWSCredentials(t *testing.T) {
 	t.Helper()
 	t.Setenv("AWS_ACCESS_KEY_ID", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID"))
@@ -50,5 +62,49 @@ func RDSIAMAuthAssumeRoleConfig() *protos.AwsAuthenticationConfig {
 				ChainedRoleArn: new(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
 			},
 		},
+	}
+}
+
+type RDSIAMAuthTestConnectionInfo struct {
+	Host      string
+	ProxyHost string
+	Username  string
+}
+
+func RDSIAMAuthPostgresTestConnectionInfo() RDSIAMAuthTestConnectionInfo {
+	return RDSIAMAuthTestConnectionInfo{
+		Host:      os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES"),
+		ProxyHost: os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY"),
+		Username:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES"),
+	}
+}
+
+func RDSIAMAuthMySQLTestConnectionInfo() RDSIAMAuthTestConnectionInfo {
+	return RDSIAMAuthTestConnectionInfo{
+		Host:      os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL"),
+		ProxyHost: os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY"),
+		Username:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL"),
+	}
+}
+
+type MongoTestCredentials struct {
+	URI      string
+	Username string
+	Password string
+}
+
+func MongoAdminTestCredentials() MongoTestCredentials {
+	return MongoTestCredentials{
+		URI:      os.Getenv("CI_MONGO_ADMIN_URI"),
+		Username: os.Getenv("CI_MONGO_ADMIN_USERNAME"),
+		Password: os.Getenv("CI_MONGO_ADMIN_PASSWORD"),
+	}
+}
+
+func MongoUserTestCredentials() MongoTestCredentials {
+	return MongoTestCredentials{
+		URI:      os.Getenv("CI_MONGO_URI"),
+		Username: os.Getenv("CI_MONGO_USERNAME"),
+		Password: os.Getenv("CI_MONGO_PASSWORD"),
 	}
 }
