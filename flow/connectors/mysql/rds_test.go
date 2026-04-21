@@ -6,13 +6,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
-	e2eshared.SetupRDSIAMAuthAWSCredentials(t)
+	internal.SetupRDSIAMAuthAWSCredentials(t)
 	host := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL")
 	username := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL")
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
@@ -30,7 +29,7 @@ func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 }
 
 func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
-	e2eshared.SetupRDSIAMAuthAWSCredentials(t)
+	internal.SetupRDSIAMAuthAWSCredentials(t)
 	rdsHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL")
 	proxyHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY")
 

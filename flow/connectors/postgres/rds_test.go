@@ -6,14 +6,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 	t.Skip("flaky")
-	e2eshared.SetupRDSIAMAuthAWSCredentials(t)
+	internal.SetupRDSIAMAuthAWSCredentials(t)
 	host := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES")
 	username := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES")
 	postgresConnector, err := NewPostgresConnector(t.Context(),
@@ -43,7 +42,7 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 
 func TestAwsRDSIAMAuthConnectForPostgresViaProxy(t *testing.T) {
 	t.Skip("flaky")
-	e2eshared.SetupRDSIAMAuthAWSCredentials(t)
+	internal.SetupRDSIAMAuthAWSCredentials(t)
 	rdsHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES")
 	proxyHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY")
 

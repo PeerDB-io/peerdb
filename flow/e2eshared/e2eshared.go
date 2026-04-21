@@ -67,13 +67,6 @@ func RunSuiteNoParallel[T Suite](t *testing.T, setup func(t *testing.T) T) {
 	}
 }
 
-func SetupRDSIAMAuthAWSCredentials(t *testing.T) {
-	t.Helper()
-	t.Setenv("AWS_ACCESS_KEY_ID", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID"))
-	t.Setenv("AWS_SECRET_ACCESS_KEY", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY"))
-	t.Setenv("AWS_SESSION_TOKEN", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN"))
-}
-
 func ReadFileToBytes(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
