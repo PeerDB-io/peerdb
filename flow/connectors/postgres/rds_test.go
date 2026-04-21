@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,14 +12,13 @@ import (
 func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 	t.Skip("flaky")
 	internal.SetupRDSIAMAuthAWSCredentials(t)
-	host := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES")
-	username := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES")
+	conn := internal.RDSIAMAuthPostgresTestConnectionInfo()
 	postgresConnector, err := NewPostgresConnector(t.Context(),
 		nil,
 		&protos.PostgresConfig{
-			Host:       host,
+			Host:       conn.Host,
 			Database:   "postgres",
-			User:       username,
+			User:       conn.Username,
 			Port:       5432,
 			AuthType:   protos.PostgresAuthType_POSTGRES_IAM_AUTH,
 			RequireTls: true, // Assumed that AWS Root CA is installed
@@ -43,18 +41,15 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 func TestAwsRDSIAMAuthConnectForPostgresViaProxy(t *testing.T) {
 	t.Skip("flaky")
 	internal.SetupRDSIAMAuthAWSCredentials(t)
-	rdsHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES")
-	proxyHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY")
-
-	username := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES")
+	conn := internal.RDSIAMAuthPostgresTestConnectionInfo()
 	postgresConnector, err := NewPostgresConnector(t.Context(),
 		nil,
 		&protos.PostgresConfig{
-			Host:       proxyHost,
+			Host:       conn.ProxyHost,
 			Port:       5432,
-			User:       username,
+			User:       conn.Username,
 			Database:   "postgres",
-			TlsHost:    rdsHost,
+			TlsHost:    conn.Host,
 			RequireTls: true, // Assumed that AWS Root CA is installed
 			AuthType:   protos.PostgresAuthType_POSTGRES_IAM_AUTH,
 			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(),
