@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,24 +32,12 @@ const (
 func resolveMySQL(t *testing.T) (string, uint32, string) {
 	t.Helper()
 
-	mysqlHost := "mysql"
-	if envHost := os.Getenv("CI_MYSQL_HOST"); envHost != "" {
-		mysqlHost = envHost
-	}
-
-	var mysqlPort uint32 = 3306
-	if envPortStr := os.Getenv("CI_MYSQL_PORT"); envPortStr != "" {
-		envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
-		require.NoError(t, err, "Failed to parse CI_MYSQL_PORT")
-		mysqlPort = uint32(envPort)
-	}
-
 	mysqlRootPass := "cipass"
 	if envPass := os.Getenv("CI_MYSQL_ROOT_PASSWORD"); envPass != "" {
 		mysqlRootPass = envPass
 	}
 
-	return mysqlHost, mysqlPort, mysqlRootPass
+	return internal.MySQLTestHostWithFallback("mysql"), internal.MySQLTestPortWithFallback(3306), mysqlRootPass
 }
 
 // Connector -> Toxi -> SSH -> MySQL

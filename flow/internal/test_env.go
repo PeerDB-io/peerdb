@@ -18,20 +18,28 @@ func ClickHouseTestPort() uint32 {
 	return uint32(getEnvUint[uint16]("CI_CLICKHOUSE_NATIVE_PORT", 9000))
 }
 
-func MySQLTestHost() string {
-	return GetEnvString("CI_MYSQL_HOST", "localhost")
+func MySQLTestHostWithFallback(fallback string) string {
+	return GetEnvString("CI_MYSQL_HOST", fallback)
 }
 
-func MySQLTestPort() uint32 {
+func MySQLTestHost() string {
+	return MySQLTestHostWithFallback("localhost")
+}
+
+func MySQLTestPortWithFallback(fallback uint32) uint32 {
 	envPortStr, ok := os.LookupEnv("CI_MYSQL_PORT")
 	if !ok {
-		return 3306
+		return fallback
 	}
 	envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to parse CI_MYSQL_PORT: %v", err))
 	}
 	return uint32(envPort)
+}
+
+func MySQLTestPort() uint32 {
+	return MySQLTestPortWithFallback(3306)
 }
 
 func MySQLTestVersion() string {
