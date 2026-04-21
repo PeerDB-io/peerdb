@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -141,7 +142,7 @@ func setupMySQLSSHKeepaliveHarness(ctx context.Context, t *testing.T, proxyName 
 
 func TestMySQLSSHKeepaliveTunnelDown(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-keepalive-test", toxiproxyDownProxyPort)
@@ -151,7 +152,7 @@ func TestMySQLSSHKeepaliveTunnelDown(t *testing.T) {
 
 func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-latency-test", toxiproxyLatencyProxyPort)
@@ -161,7 +162,7 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 
 func TestMySQLSSHResetPeer(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-reset-peer-test", toxiproxyResetProxyPort)
@@ -207,7 +208,7 @@ func setupCDCPullRecords(
 
 func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 	ctx := t.Context()
@@ -260,7 +261,7 @@ func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
 
 func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 

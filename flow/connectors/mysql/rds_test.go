@@ -1,7 +1,6 @@
 package connmysql
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,13 +11,12 @@ import (
 
 func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 	internal.SetupRDSIAMAuthAWSCredentials(t)
-	host := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL")
-	username := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL")
+	conn := internal.RDSIAMAuthMySQLTestConnectionInfo()
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
 		&protos.MySqlConfig{
-			Host:       host,
+			Host:       conn.Host,
 			Database:   "postgres",
-			User:       username,
+			User:       conn.Username,
 			Port:       5432,
 			AuthType:   protos.MySqlAuthType_MYSQL_IAM_AUTH,
 			DisableTls: false, // Assumed that AWS Root CA is installed
@@ -30,17 +28,14 @@ func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 
 func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
 	internal.SetupRDSIAMAuthAWSCredentials(t)
-	rdsHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL")
-	proxyHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY")
-
-	username := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL")
+	conn := internal.RDSIAMAuthMySQLTestConnectionInfo()
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
 		&protos.MySqlConfig{
-			Host:       proxyHost,
+			Host:       conn.ProxyHost,
 			Database:   "postgres",
-			User:       username,
+			User:       conn.Username,
 			Port:       5432,
-			TlsHost:    rdsHost,
+			TlsHost:    conn.Host,
 			AuthType:   protos.MySqlAuthType_MYSQL_IAM_AUTH,
 			DisableTls: false, // Assumed that AWS Root CA is installed
 			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(),

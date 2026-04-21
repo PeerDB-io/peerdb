@@ -3,7 +3,6 @@ package e2e
 import (
 	"fmt"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,7 +22,7 @@ import (
 )
 
 func mysqlEnumUsesOrdinals() bool {
-	return os.Getenv("CI_MYSQL_VERSION") == "mysql-pos"
+	return internal.MySQLTestVersionIsMysqlPos()
 }
 
 func (s ClickHouseSuite) Test_UnsignedMySQL() {

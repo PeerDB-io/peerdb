@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -25,7 +24,7 @@ type MySqlSource struct {
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	myVersion := os.Getenv("CI_MYSQL_VERSION")
+	myVersion := internal.MySQLTestVersion()
 	if myVersion == "" {
 		t.Error("Expected CI_MYSQL_VERSION to be set")
 	}
