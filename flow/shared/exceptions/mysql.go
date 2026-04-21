@@ -5,10 +5,15 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
+
+// InvalidSequenceRe go-mysql-org returns "invalid sequence X != Y" when the TCP packet sequence
+// is out of sync — always transient, safe to retry.
+var InvalidSequenceRe = regexp.MustCompile(`invalid sequence \d+ != \d+`)
 
 type MySQLIncompatibleColumnTypeError struct {
 	TableName  string
@@ -72,14 +77,17 @@ func NewMySQLStreamingError(err error) *MySQLStreamingError {
 		return &MySQLStreamingError{err, true}
 	}
 
-	var recordHeaderError tls.RecordHeaderError
-	if errors.As(err, &recordHeaderError) {
+	if recordHeaderError, ok := errors.AsType[tls.RecordHeaderError](err); ok {
 		if recordHeaderError.Msg == "first record does not look like a TLS handshake" {
 			return &MySQLStreamingError{err, true}
 		}
 	}
 
 	if strings.Contains(err.Error(), mysql.ErrBadConn.Error()) {
+		return &MySQLStreamingError{err, true}
+	}
+
+	if InvalidSequenceRe.MatchString(err.Error()) {
 		return &MySQLStreamingError{err, true}
 	}
 

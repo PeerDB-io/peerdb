@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type MySqlConnector struct {
@@ -299,20 +300,23 @@ func (c *MySqlConnector) ExecuteNoRetry(ctx context.Context, cmd string, args ..
 }
 
 func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
-	var connectionErr error
+	var retryableErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
 			return nil, err
 		}
 
-		rs, err := conn.Execute(cmd, args...)
-		if err != nil && mysql.ErrorEqual(err, mysql.ErrBadConn) {
-			connectionErr = err
-			continue
+		if rs, err := conn.Execute(cmd, args...); err != nil {
+			if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+				retryableErr = err
+				continue
+			}
+			return nil, err
+		} else {
+			return rs, nil
 		}
-		return rs, err
 	}
-	return nil, connectionErr
+	return nil, retryableErr
 }
 
 func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string, result *mysql.Result,
@@ -320,7 +324,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 	resultCb client.SelectPerResultCallback,
 	args ...any,
 ) error {
-	var connectionErr error
+	var retryableErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
 			return err
@@ -328,8 +332,8 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 
 		if len(args) == 0 {
 			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) {
-					connectionErr = err
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+					retryableErr = err
 					continue
 				}
 				return err
@@ -337,8 +341,8 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 		} else {
 			stmt, err := conn.Prepare(cmd)
 			if err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) {
-					connectionErr = err
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+					retryableErr = err
 					continue
 				}
 				return err
@@ -346,8 +350,8 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
 			_ = stmt.Close()
 			if err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) {
-					connectionErr = err
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+					retryableErr = err
 					continue
 				}
 				return err
@@ -355,7 +359,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 		}
 		return nil
 	}
-	return connectionErr
+	return retryableErr
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
