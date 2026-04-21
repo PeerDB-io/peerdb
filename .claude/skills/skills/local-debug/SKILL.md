@@ -2,7 +2,7 @@
 name: local-debug
 description: Debug failing PeerDB e2e and connector tests locally. Use when the user wants to investigate test failures, run specific tests, isolate flaky tests, or troubleshoot test issues. Uses the /tilt skill for infrastructure management.
 argument-hint: "[test-name-or-resource]"
-allowed-tools: Bash(awk *) Bash(tilt *) Bash(./tilt.sh) Bash(docker ps *) Bash(go test *) Bash(go vet *) Bash(go build *) Bash(go clean *) Bash(dlv *) Bash(git log *) Bash(git diff *) Bash(git show *) Bash(git status *) Bash(git rev-parse *) Bash(git checkout *) Bash(git stash *) Bash(cd ./*) Bash(tail *) Bash(python3 *) Read Grep Glob Monitor ScheduleWakeup
+allowed-tools: Skill(tilt) Bash(awk *) Bash(tilt *) Bash(./tilt.sh) Bash(docker ps *) Bash(go test *) Bash(go vet *) Bash(go build *) Bash(go clean *) Bash(dlv *) Bash(git log *) Bash(git diff *) Bash(git show *) Bash(git status *) Bash(git rev-parse *) Bash(git checkout *) Bash(git stash *) Bash(cd ./*) Bash(tail *) Bash(python3 *) Read Grep Glob Monitor ScheduleWakeup
 ---
 
 You are debugging PeerDB e2e or connector test failures locally. For this you'll need Tilt. Please, use `/tilt` skill (see `.claude/skills/tilt/SKILL.md`) to interact with Tilt, including managing its life cycle.
