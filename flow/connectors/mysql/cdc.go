@@ -29,7 +29,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
-	"github.com/PeerDB-io/peerdb/flow/shared/timeout"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -325,11 +324,18 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 // for ssh tunnel, and killing a connection that has already been reaped by the server
 // but is not propagated to the client). This can lead to syncer.Close() stuck indefinitely.
 // TODO: better to fix properly upstream
-func (c *MySqlConnector) closeSyncer(syncer *replication.BinlogSyncer, deadline time.Duration) {
-	timeout.CloseWithTimeout(syncer.Close, deadline, func() {
-		c.logger.Error("[mysql] syncer.Close hung, force-closing SSH tunnel")
+func (c *MySqlConnector) closeSyncerWithTimeout(syncer *replication.BinlogSyncer, timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		syncer.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		c.logger.Error("[mysql] syncer.Close hung, force-closing SSH tunnel to unblock")
 		_ = c.ssh.Close()
-	})
+	}
 }
 
 func (c *MySqlConnector) ReplPing(context.Context) error {
@@ -367,7 +373,7 @@ func (c *MySqlConnector) PullRecords(
 	if err != nil {
 		return err
 	}
-	defer c.closeSyncer(syncer, 10*time.Second)
+	defer c.closeSyncerWithTimeout(syncer, 10*time.Second)
 
 	c.logger.Info("[mysql] PullRecords started streaming")
 
