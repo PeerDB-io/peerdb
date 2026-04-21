@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -19,10 +18,10 @@ import (
 
 // S3StagingStore implements StagingStore for AWS S3 (and S3-compatible services).
 type S3StagingStore struct {
+	creds    AWSCredentialsProvider
 	bucket   string
 	prefix   string
 	fullPath string // original "s3://bucket/prefix" for logging
-	creds    AWSCredentialsProvider
 }
 
 func NewS3StagingStore(bucketPath string, creds AWSCredentialsProvider) (*S3StagingStore, error) {
@@ -176,6 +175,3 @@ func (s *S3StagingStore) Prefix() string {
 	return s.prefix
 }
 
-func newValidationCheckKey(prefix string) string {
-	return strings.TrimPrefix(prefix+"/"+_peerDBCheck+uuid.NewString(), "/")
-}

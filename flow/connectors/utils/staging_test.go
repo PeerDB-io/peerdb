@@ -95,5 +95,5 @@ func TestNewS3StagingStoreNoBucket(t *testing.T) {
 	store, err := NewS3StagingStore("s3://bucket-only", creds)
 	require.NoError(t, err)
 	require.Equal(t, "bucket-only", store.Bucket())
-	require.Equal(t, "", store.Prefix())
+	require.Empty(t, store.Prefix())
 }
