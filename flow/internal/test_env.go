@@ -63,13 +63,21 @@ func SetupRDSIAMAuthAWSCredentials(t *testing.T) {
 	t.Setenv("AWS_SESSION_TOKEN", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN"))
 }
 
-func RDSIAMAuthAssumeRoleConfig() *protos.AwsAuthenticationConfig {
+func RDSIAMAuthAssumeRoleConfig(t *testing.T) *protos.AwsAuthenticationConfig {
+	t.Helper()
+	assumeRoleArn := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE")
+	require.NotEmpty(t, assumeRoleArn, "missing FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE env var")
+	chainedRoleArnEnv := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE") // Optional
+	var maybeChainedRoleArn *string
+	if chainedRoleArnEnv != "" {
+		maybeChainedRoleArn = &chainedRoleArnEnv
+	}
 	return &protos.AwsAuthenticationConfig{
 		AuthType: protos.AwsIAMAuthConfigType_IAM_AUTH_ASSUME_ROLE,
 		AuthConfig: &protos.AwsAuthenticationConfig_Role{
 			Role: &protos.AWSAuthAssumeRoleConfig{
-				AssumeRoleArn:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),
-				ChainedRoleArn: new(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
+				AssumeRoleArn:  assumeRoleArn,
+				ChainedRoleArn: maybeChainedRoleArn,
 			},
 		},
 	}
@@ -81,20 +89,30 @@ type RDSIAMAuthTestConnectionInfo struct {
 	Username  string
 }
 
-func RDSIAMAuthPostgresTestConnectionInfo() RDSIAMAuthTestConnectionInfo {
-	return RDSIAMAuthTestConnectionInfo{
+func RDSIAMAuthPostgresTestConnectionInfo(t *testing.T) RDSIAMAuthTestConnectionInfo {
+	t.Helper()
+	info := RDSIAMAuthTestConnectionInfo{
 		Host:      os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES"),
 		ProxyHost: os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY"),
 		Username:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES"),
 	}
+	require.NotEmpty(t, info.Host, "missing FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES env var")
+	require.NotEmpty(t, info.ProxyHost, "missing FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY env var")
+	require.NotEmpty(t, info.Username, "missing FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES env var")
+	return info
 }
 
-func RDSIAMAuthMySQLTestConnectionInfo() RDSIAMAuthTestConnectionInfo {
-	return RDSIAMAuthTestConnectionInfo{
+func RDSIAMAuthMySQLTestConnectionInfo(t *testing.T) RDSIAMAuthTestConnectionInfo {
+	t.Helper()
+	info := RDSIAMAuthTestConnectionInfo{
 		Host:      os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL"),
 		ProxyHost: os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY"),
 		Username:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL"),
 	}
+	require.NotEmpty(t, info.Host, "missing FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL env var")
+	require.NotEmpty(t, info.ProxyHost, "missing FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY env var")
+	require.NotEmpty(t, info.Username, "missing FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL env var")
+	return info
 }
 
 type MongoTestCredentials struct {

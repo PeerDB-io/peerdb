@@ -12,7 +12,7 @@ import (
 func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 	//t.Skip("flaky")
 	internal.SetupRDSIAMAuthAWSCredentials(t)
-	conn := internal.RDSIAMAuthPostgresTestConnectionInfo()
+	conn := internal.RDSIAMAuthPostgresTestConnectionInfo(t)
 	postgresConnector, err := NewPostgresConnector(t.Context(),
 		nil,
 		&protos.PostgresConfig{
@@ -22,7 +22,7 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 			Port:       5432,
 			AuthType:   protos.PostgresAuthType_POSTGRES_IAM_AUTH,
 			RequireTls: true, // Assumed that AWS Root CA is installed
-			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(),
+			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(t),
 		})
 	require.NoError(t, err)
 	defer postgresConnector.Close()
@@ -41,7 +41,7 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 func TestAwsRDSIAMAuthConnectForPostgresViaProxy(t *testing.T) {
 	//t.Skip("flaky")
 	internal.SetupRDSIAMAuthAWSCredentials(t)
-	conn := internal.RDSIAMAuthPostgresTestConnectionInfo()
+	conn := internal.RDSIAMAuthPostgresTestConnectionInfo(t)
 	postgresConnector, err := NewPostgresConnector(t.Context(),
 		nil,
 		&protos.PostgresConfig{
@@ -52,7 +52,7 @@ func TestAwsRDSIAMAuthConnectForPostgresViaProxy(t *testing.T) {
 			TlsHost:    conn.Host,
 			RequireTls: true, // Assumed that AWS Root CA is installed
 			AuthType:   protos.PostgresAuthType_POSTGRES_IAM_AUTH,
-			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(),
+			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(t),
 		})
 	require.NoError(t, err)
 	defer postgresConnector.Close()

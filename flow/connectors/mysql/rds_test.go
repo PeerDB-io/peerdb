@@ -11,7 +11,7 @@ import (
 
 func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 	internal.SetupRDSIAMAuthAWSCredentials(t)
-	conn := internal.RDSIAMAuthMySQLTestConnectionInfo()
+	conn := internal.RDSIAMAuthMySQLTestConnectionInfo(t)
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
 		&protos.MySqlConfig{
 			Host:       conn.Host,
@@ -20,7 +20,7 @@ func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 			Port:       5432,
 			AuthType:   protos.MySqlAuthType_MYSQL_IAM_AUTH,
 			DisableTls: false, // Assumed that AWS Root CA is installed
-			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(),
+			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(t),
 		})
 	require.NoError(t, err)
 	require.NoError(t, mysqlConnector.Ping(t.Context()))
@@ -28,7 +28,7 @@ func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 
 func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
 	internal.SetupRDSIAMAuthAWSCredentials(t)
-	conn := internal.RDSIAMAuthMySQLTestConnectionInfo()
+	conn := internal.RDSIAMAuthMySQLTestConnectionInfo(t)
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
 		&protos.MySqlConfig{
 			Host:       conn.ProxyHost,
@@ -38,7 +38,7 @@ func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
 			TlsHost:    conn.Host,
 			AuthType:   protos.MySqlAuthType_MYSQL_IAM_AUTH,
 			DisableTls: false, // Assumed that AWS Root CA is installed
-			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(),
+			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(t),
 		})
 	require.NoError(t, err)
 	require.NoError(t, mysqlConnector.Ping(t.Context()))
