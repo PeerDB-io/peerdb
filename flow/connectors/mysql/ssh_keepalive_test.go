@@ -2,7 +2,6 @@ package connmysql
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -31,13 +30,9 @@ const (
 
 func resolveMySQL(t *testing.T) (string, uint32, string) {
 	t.Helper()
-
-	mysqlRootPass := "cipass"
-	if envPass := os.Getenv("CI_MYSQL_ROOT_PASSWORD"); envPass != "" {
-		mysqlRootPass = envPass
-	}
-
-	return internal.MySQLTestHostWithFallback("mysql"), internal.MySQLTestPortWithFallback(3306), mysqlRootPass
+	return internal.MySQLTestHostWithFallback("mysql"),
+		internal.MySQLTestPortWithFallback(3306),
+		internal.MySQLTestRootPasswordWithFallback("cipass")
 }
 
 // Connector -> Toxi -> SSH -> MySQL
@@ -308,7 +303,7 @@ func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
 
 func TestMySQLCloseSyncerWithTimeout(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping for MariaDB")
 	}
 

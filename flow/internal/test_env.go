@@ -44,6 +44,10 @@ func MySQLTestPort() uint32 {
 	return MySQLTestPortWithFallback(3306)
 }
 
+func MySQLTestRootPasswordWithFallback(fallback string) string {
+	return GetEnvString("CI_MYSQL_ROOT_PASSWORD", fallback)
+}
+
 func MySQLTestVersion() string {
 	return os.Getenv("CI_MYSQL_VERSION")
 }
