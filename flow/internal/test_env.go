@@ -20,6 +20,16 @@ func ClickHouseTestPort() uint32 {
 	return uint32(getEnvUint[uint16]("CI_CLICKHOUSE_NATIVE_PORT", 9000))
 }
 
+func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
+	return &protos.PostgresConfig{
+		Host:     GetEnvString("PG_HOST", "localhost"),
+		Port:     uint32(getEnvUint[uint16]("PG_PORT", 5432)),
+		User:     GetEnvString("PG_USER", "postgres"),
+		Password: GetEnvString("PG_PASSWORD", "postgres"),
+		Database: GetEnvString("PG_DATABASE", "postgres"),
+	}
+}
+
 func MySQLTestHostWithFallback(fallback string) string {
 	return GetEnvString("CI_MYSQL_HOST", fallback)
 }
