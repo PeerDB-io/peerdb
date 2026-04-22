@@ -6,15 +6,16 @@ on:
     # Ignore changes to files that don't require builds or validations.
     # If more complex build avoidance is required, or for other events than pull_request, push, and pull_request_target,
     # replace this with a gate step in the job.
-    paths-ignore: &ignore_paths
-        - '.claude/**'
-        - 'README.md'
+    # TODO: Re-enable build avoidance once we figure out how not to block the merge on the flow checks.
+    #paths-ignore: &ignore_paths
+    #    - '.claude/**'
+    #    - 'README.md'
   push:
     branches: [main]
-    paths-ignore: *ignore_paths
+    #paths-ignore: *ignore_paths
   pull_request_target:
     branches: [main]
-    paths-ignore: *ignore_paths
+    #paths-ignore: *ignore_paths
 
 permissions:
   id-token: write
