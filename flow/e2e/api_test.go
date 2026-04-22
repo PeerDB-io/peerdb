@@ -20,6 +20,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -1368,6 +1369,227 @@ func (s APITestSuite) TestResyncCompleted() {
 		tagMap[tag.Key] = tag.Value
 	}
 	require.Equal(s.t, "test", tagMap[common.PipeNameTag])
+}
+
+func (s APITestSuite) TestResyncSourceTableMissing() {
+	tableNames := []string{"missing_src_a", "missing_src_b"}
+	qualifiedSourceTables := []string{AttachSchema(s, tableNames[0]), AttachSchema(s, tableNames[1])}
+	var cols string
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		for _, qt := range qualifiedSourceTables {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", qt)))
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", qt)))
+		}
+		cols = "id,val"
+	case *MongoSource:
+		for _, tn := range tableNames {
+			res, err := s.Source().(*MongoSource).AdminClient().
+				Database(Schema(s)).Collection(tn).
+				InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+			require.NoError(s.t, err)
+			require.True(s.t, res.Acknowledged)
+		}
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "resync_missing_" + s.suffix,
+		TableNameMapping: map[string]string{
+			qualifiedSourceTables[0]: tableNames[0],
+			qualifiedSourceTables[1]: tableNames[1],
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	for _, tn := range tableNames {
+		RequireEqualTables(s.ch, tn, cols)
+	}
+
+	switch src := s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		for _, qt := range qualifiedSourceTables {
+			require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE "+qt))
+		}
+	case *MongoSource:
+		for _, tn := range tableNames {
+			require.NoError(s.t, src.AdminClient().Database(Schema(s)).Collection(tn).Drop(s.t.Context()))
+		}
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+	})
+	require.Error(s.t, err)
+
+	// Shape of the error on the wire (see AIP-193, https://google.aip.dev/193):
+	//   status.Code = FailedPrecondition
+	//   status.Details = [
+	//     google.rpc.ErrorInfo{
+	//       Domain: "peerdb.io", Reason: "SOURCE_TABLE_MISSING",
+	//     },
+	//     google.rpc.PreconditionFailure{
+	//       Violations: [
+	//         {Type: "SOURCE_TABLE_MISSING", Subject: "<schema>.<tableA>", Description: "..."},
+	//         {Type: "SOURCE_TABLE_MISSING", Subject: "<schema>.<tableB>", Description: "..."},
+	//       ],
+	//     },
+	//   ]
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition, got %s", st.Code())
+
+	var hasSourceTableMissing bool
+	var violations []*errdetails.PreconditionFailure_Violation
+	for _, d := range st.Details() {
+		switch detail := d.(type) {
+		case *errdetails.ErrorInfo:
+			if detail.Domain == common.ErrorInfoDomain && detail.Reason == common.ErrorInfoReasonSourceTableMissing {
+				hasSourceTableMissing = true
+			}
+		case *errdetails.PreconditionFailure:
+			violations = append(violations, detail.Violations...)
+		}
+	}
+	require.True(s.t, hasSourceTableMissing, "expected SourceTableMissing ErrorInfo detail in status")
+	require.Len(s.t, violations, len(tableNames), "expected one PreconditionFailure violation per dropped table")
+	gotSubjects := make([]string, len(violations))
+	for i, v := range violations {
+		require.Equal(s.t, common.ErrorInfoReasonSourceTableMissing, v.Type)
+		gotSubjects[i] = v.Subject
+	}
+	wantSubjects := make([]string, len(tableNames))
+	for i, tn := range tableNames {
+		wantSubjects[i] = fmt.Sprintf("%s.%s", Schema(s), tn)
+	}
+	require.ElementsMatch(s.t, wantSubjects, gotSubjects)
+}
+
+func (s APITestSuite) TestResyncTablesNotInPublication() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only for PostgreSQL (publications are PG-specific)")
+	}
+
+	tableNames := []string{"resync_pub_a", "resync_pub_b"}
+	qualifiedSourceTables := []string{AttachSchema(s, tableNames[0]), AttachSchema(s, tableNames[1])}
+	for _, qt := range qualifiedSourceTables {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", qt)))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", qt)))
+	}
+
+	pubName := "pub_resync_" + s.suffix
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s, %s", pubName, qualifiedSourceTables[0], qualifiedSourceTables[1])))
+	s.t.Cleanup(func() {
+		_ = s.source.Exec(context.Background(), "DROP PUBLICATION IF EXISTS "+pubName)
+	})
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "resync_not_in_pub_" + s.suffix,
+		TableNameMapping: map[string]string{
+			qualifiedSourceTables[0]: tableNames[0],
+			qualifiedSourceTables[1]: tableNames[1],
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.PublicationName = pubName
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	for _, tn := range tableNames {
+		EnvWaitForCount(env, s.ch, "initial snapshot", tn, "id,val", 1)
+	}
+	EnvWaitFor(s.t, env, 3*time.Minute, "flow running", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	for _, qt := range qualifiedSourceTables {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s", pubName, qt)))
+	}
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+	})
+	require.Error(s.t, err)
+
+	// Shape of the error on the wire:
+	//   status.Code = FailedPrecondition
+	//   status.Details = [
+	//     google.rpc.ErrorInfo{
+	//       Domain: "peerdb.io", Reason: "TABLES_NOT_IN_PUBLICATION",
+	//       Metadata: {"publication": "<pubName>"},
+	//     },
+	//     google.rpc.PreconditionFailure{
+	//       Violations: [
+	//         {Type: "TABLES_NOT_IN_PUBLICATION", Subject: "<schema>.<tableA>", Description: "..."},
+	//         {Type: "TABLES_NOT_IN_PUBLICATION", Subject: "<schema>.<tableB>", Description: "..."},
+	//       ],
+	//     },
+	//   ]
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition, got %s", st.Code())
+
+	var gotReason, gotPublication string
+	var violations []*errdetails.PreconditionFailure_Violation
+	for _, d := range st.Details() {
+		switch detail := d.(type) {
+		case *errdetails.ErrorInfo:
+			if detail.Domain == common.ErrorInfoDomain {
+				gotReason = detail.Reason
+				gotPublication = detail.Metadata[common.ErrorMetadataPublication]
+			}
+		case *errdetails.PreconditionFailure:
+			violations = append(violations, detail.Violations...)
+		}
+	}
+	require.Equal(s.t, common.ErrorInfoReasonTablesNotInPublication, gotReason)
+	require.Equal(s.t, pubName, gotPublication)
+	require.Len(s.t, violations, len(tableNames))
+	gotSubjects := make([]string, len(violations))
+	for i, v := range violations {
+		require.Equal(s.t, common.ErrorInfoReasonTablesNotInPublication, v.Type)
+		gotSubjects[i] = v.Subject
+	}
+	wantSubjects := make([]string, len(tableNames))
+	for i, tn := range tableNames {
+		wantSubjects[i] = fmt.Sprintf("%s.%s", Schema(s), tn)
+	}
+	require.ElementsMatch(s.t, wantSubjects, gotSubjects)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s APITestSuite) TestResyncFailed() {
