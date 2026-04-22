@@ -325,6 +325,8 @@ func (c *MongoConnector) PullRecords(
 				if err := recreateChangeStream(false); err != nil {
 					return fmt.Errorf("failed to recreate change stream: %w", err)
 				}
+				c.logger.Info("[mongo] recreated change stream because context deadline exceeded",
+					slog.Duration("elapsed", time.Since(pullStart)))
 				continue
 			}
 
@@ -332,6 +334,7 @@ func (c *MongoConnector) PullRecords(
 				if err := recreateChangeStream(true); err != nil {
 					return fmt.Errorf("failed to recreate change stream: %w", err)
 				}
+				c.logger.Info("[mongo] recreated change stream because resume token not found", slog.Duration("elapsed", time.Since(pullStart)))
 				continue
 			}
 
