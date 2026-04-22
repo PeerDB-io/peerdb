@@ -54,7 +54,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:f9d86102b8030b5a990a09e30ee3f7f3b8c8c677ee3eca921555d882becdeae7
+        image: redpandadata/redpanda@sha256:12ddbd8e5572210a48d39afecac44db61503ce1cbdae50ee9b1ff5998a8d91e1
         ports:
           - 9092:9092
           - 9644:9644
