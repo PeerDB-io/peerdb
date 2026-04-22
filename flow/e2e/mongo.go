@@ -99,10 +99,7 @@ func GetTestDatabase(suffix string) string {
 func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 	t.Helper()
 
-	admin := internal.MongoAdminTestCredentials()
-	require.NotEmpty(t, admin.URI, "missing CI_MONGO_ADMIN_URI env var")
-	require.NotEmpty(t, admin.Username, "missing CI_MONGO_ADMIN_USERNAME env var")
-	require.NotEmpty(t, admin.Password, "missing CI_MONGO_ADMIN_PASSWORD env var")
+	admin := internal.MongoAdminTestCredentials(t)
 	adminClient, err := mongo.Connect(options.Client().
 		ApplyURI(admin.URI).
 		SetAppName("Mongo admin client").
@@ -114,10 +111,7 @@ func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 		}))
 	require.NoError(t, err, "failed to setup mongo admin client")
 
-	user := internal.MongoUserTestCredentials()
-	require.NotEmpty(t, user.URI, "missing CI_MONGO_URI env var")
-	require.NotEmpty(t, user.Username, "missing CI_MONGO_USERNAME env var")
-	require.NotEmpty(t, user.Password, "missing CI_MONGO_PASSWORD env var")
+	user := internal.MongoUserTestCredentials(t)
 
 	mongoConfig := &protos.MongoConfig{
 		Uri:        user.URI,
