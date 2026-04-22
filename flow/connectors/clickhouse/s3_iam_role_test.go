@@ -33,13 +33,7 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	} {
 		t.Setenv(envVar, "")
 	}
-	for _, envVar := range []string{
-		"AWS_ACCESS_KEY_ID",
-		"AWS_SECRET_ACCESS_KEY",
-		"AWS_SESSION_TOKEN",
-	} {
-		t.Setenv(envVar, os.Getenv("FLOW_TESTS_"+envVar))
-	}
+	internal.SetupFlowAWSCredentialsFromEnv(t)
 	t.Setenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", os.Getenv(bucketNameEnvVar))
 	ctx := t.Context()
 

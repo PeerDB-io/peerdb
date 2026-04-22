@@ -70,11 +70,27 @@ func MySQLTestVersionIsMySQLPos() bool {
 	return MySQLTestVersion() == "mysql-pos"
 }
 
+// setupAWSCredsFromEnv copies the three AWS_* credential env vars from sources
+// named "<sourcePrefix>AWS_ACCESS_KEY_ID" etc. into the unprefixed AWS_* names
+// for the duration of the test. Each source must be non-empty.
+func setupAWSCredsFromEnv(t *testing.T, sourcePrefix string) {
+	t.Helper()
+	for _, name := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
+		source := sourcePrefix + name
+		value := os.Getenv(source)
+		require.NotEmpty(t, value, "missing "+source+" env var")
+		t.Setenv(name, value)
+	}
+}
+
+func SetupFlowAWSCredentialsFromEnv(t *testing.T) {
+	t.Helper()
+	setupAWSCredsFromEnv(t, "FLOW_TESTS_")
+}
+
 func SetupRDSIAMAuthAWSCredentials(t *testing.T) {
 	t.Helper()
-	t.Setenv("AWS_ACCESS_KEY_ID", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID"))
-	t.Setenv("AWS_SECRET_ACCESS_KEY", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY"))
-	t.Setenv("AWS_SESSION_TOKEN", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN"))
+	setupAWSCredsFromEnv(t, "FLOW_TESTS_RDS_IAM_AUTH_")
 }
 
 func RDSIAMAuthAssumeRoleConfig(t *testing.T) *protos.AwsAuthenticationConfig {
