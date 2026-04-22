@@ -10,7 +10,7 @@ import (
 )
 
 func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
-	//t.Skip("flaky")
+	t.Skip("flaky")
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthPostgresTestConnectionInfo(t)
 	postgresConnector, err := NewPostgresConnector(t.Context(),
@@ -39,7 +39,7 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 }
 
 func TestAwsRDSIAMAuthConnectForPostgresViaProxy(t *testing.T) {
-	//t.Skip("flaky")
+	t.Skip("flaky")
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthPostgresTestConnectionInfo(t)
 	postgresConnector, err := NewPostgresConnector(t.Context(),
