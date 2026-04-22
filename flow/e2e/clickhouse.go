@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"os"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -57,22 +55,6 @@ func (s ClickHouseSuite) Suffix() string {
 	return s.suffix
 }
 
-func clickhouseHost() string {
-	if host := os.Getenv("CI_CLICKHOUSE_HOST"); host != "" {
-		return host
-	}
-	return "localhost"
-}
-
-func clickhousePort() uint32 {
-	if port := os.Getenv("CI_CLICKHOUSE_NATIVE_PORT"); port != "" {
-		if p, err := strconv.ParseUint(port, 10, 32); err == nil {
-			return uint32(p)
-		}
-	}
-	return 9000
-}
-
 func (s ClickHouseSuite) Peer() *protos.Peer {
 	dbname := "e2e_test_" + s.suffix
 	if s.cluster {
@@ -81,7 +63,7 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 			Type: protos.DBType_CLICKHOUSE,
 			Config: &protos.Peer_ClickhouseConfig{
 				ClickhouseConfig: &protos.ClickhouseConfig{
-					Host:       clickhouseHost(),
+					Host:       internal.ClickHouseTestHost(),
 					Port:       9001,
 					Database:   dbname,
 					DisableTls: true,
@@ -104,8 +86,8 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 		Type: protos.DBType_CLICKHOUSE,
 		Config: &protos.Peer_ClickhouseConfig{
 			ClickhouseConfig: &protos.ClickhouseConfig{
-				Host:       clickhouseHost(),
-				Port:       clickhousePort(),
+				Host:       internal.ClickHouseTestHost(),
+				Port:       internal.ClickHouseTestPort(),
 				Database:   dbname,
 				DisableTls: true,
 				S3:         s.s3Helper.S3Config,

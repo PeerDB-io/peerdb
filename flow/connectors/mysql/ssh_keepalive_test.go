@@ -2,9 +2,7 @@ package connmysql
 
 import (
 	"context"
-	"os"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -31,25 +30,9 @@ const (
 
 func resolveMySQL(t *testing.T) (string, uint32, string) {
 	t.Helper()
-
-	mysqlHost := "mysql"
-	if envHost := os.Getenv("CI_MYSQL_HOST"); envHost != "" {
-		mysqlHost = envHost
-	}
-
-	var mysqlPort uint32 = 3306
-	if envPortStr := os.Getenv("CI_MYSQL_PORT"); envPortStr != "" {
-		envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
-		require.NoError(t, err, "Failed to parse CI_MYSQL_PORT")
-		mysqlPort = uint32(envPort)
-	}
-
-	mysqlRootPass := "cipass"
-	if envPass := os.Getenv("CI_MYSQL_ROOT_PASSWORD"); envPass != "" {
-		mysqlRootPass = envPass
-	}
-
-	return mysqlHost, mysqlPort, mysqlRootPass
+	return internal.MySQLTestHostWithFallback("mysql"),
+		internal.MySQLTestPortWithFallback(3306),
+		internal.MySQLTestRootPasswordWithFallback("cipass")
 }
 
 // Connector -> Toxi -> SSH -> MySQL
@@ -141,7 +124,7 @@ func setupMySQLSSHKeepaliveHarness(ctx context.Context, t *testing.T, proxyName 
 
 func TestMySQLSSHKeepaliveTunnelDown(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-keepalive-test", toxiproxyDownProxyPort)
@@ -151,7 +134,7 @@ func TestMySQLSSHKeepaliveTunnelDown(t *testing.T) {
 
 func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-latency-test", toxiproxyLatencyProxyPort)
@@ -161,7 +144,7 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 
 func TestMySQLSSHResetPeer(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-reset-peer-test", toxiproxyResetProxyPort)
@@ -207,7 +190,7 @@ func setupCDCPullRecords(
 
 func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 	ctx := t.Context()
@@ -260,7 +243,7 @@ func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
 
 func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping SSH keepalive test for MariaDB")
 	}
 
@@ -320,7 +303,7 @@ func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
 
 func TestMySQLCloseSyncerWithTimeout(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+	if internal.MySQLTestVersionIsMaria() {
 		t.Skip("Skipping for MariaDB")
 	}
 

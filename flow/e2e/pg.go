@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -334,14 +333,7 @@ func GetPostgresToxicProxy(t *testing.T, suffix string, port uint32) (*tp.Proxy,
 
 	// Get upstream from environment configuration
 	config := internal.GetAncillaryPostgresConfigFromEnv()
-
-	// Allow override of upstream host for Toxiproxy
-	// In CI, Toxiproxy runs as a service container and needs to use service names
-	// while test code connects via localhost
-	upstreamHost := os.Getenv("TOXIPROXY_POSTGRES_HOST")
-	if upstreamHost == "" {
-		upstreamHost = config.Host
-	}
+	upstreamHost := internal.PostgresToxiproxyUpstreamHostWithFallback(config.Host)
 
 	return toxiClient.CreateProxy("postgres_"+suffix,
 		fmt.Sprintf("0.0.0.0:%d", port),

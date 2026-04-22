@@ -3,14 +3,13 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
@@ -25,7 +24,7 @@ type MySqlSource struct {
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	myVersion := os.Getenv("CI_MYSQL_VERSION")
+	myVersion := internal.MySQLTestVersion()
 	if myVersion == "" {
 		t.Error("Expected CI_MYSQL_VERSION to be set")
 	}
@@ -47,29 +46,11 @@ func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	return SetupMyCore(t, suffix, replicationMode, mysqlFlavor)
 }
 
-func mysqlHost() string {
-	if host := os.Getenv("CI_MYSQL_HOST"); host != "" {
-		return host
-	}
-	return "localhost"
-}
-
-func mysqlPort() uint32 {
-	if envPortStr := os.Getenv("CI_MYSQL_PORT"); envPortStr != "" {
-		envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
-		if err != nil {
-			panic(fmt.Sprintf("Failed to parse CI_MYSQL_PORT: %v", err))
-		}
-		return uint32(envPort)
-	}
-	return 3306
-}
-
 func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicationMechanism, flavor protos.MySqlFlavor) (*MySqlSource, error) {
 	t.Helper()
 	config := &protos.MySqlConfig{
-		Host:                 mysqlHost(),
-		Port:                 mysqlPort(),
+		Host:                 internal.MySQLTestHost(),
+		Port:                 internal.MySQLTestPort(),
 		User:                 "root",
 		Password:             "cipass",
 		Database:             "",

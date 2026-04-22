@@ -2,15 +2,13 @@ package connpostgres
 
 import (
 	"context"
-	"os"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 const (
@@ -26,40 +24,20 @@ func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName 
 	toxiproxyClient := utils.NewToxiproxyClient(t)
 	sshProxy := utils.CreateSSHProxy(t, toxiproxyClient, proxyName, proxyPort)
 
-	pgHost := "localhost" // Default for local environments
-
 	// In local set-up environments like Tilt, when a non catalog
 	// instance of Postgres is present, we use it instead of the catalog.
-	if envHost := os.Getenv("PG_HOST"); envHost != "" {
-		pgHost = envHost
+	pgConfig := internal.GetAncillaryPostgresConfigFromEnv()
+	// In CI, TOXIPROXY_POSTGRES_HOST is set, usually pointing to 'catalog' network,
+	// in this case, we override the host in pgConfig with the value from TOXIPROXY_POSTGRES_HOST.
+	pgConfig.Host = internal.PostgresToxiproxyUpstreamHostWithFallback(pgConfig.Host)
+	pgConfig.SshConfig = &protos.SSHConfig{
+		Host:     "localhost",
+		Port:     uint32(proxyPort),
+		User:     "testuser",
+		Password: "testpass",
 	}
 
-	// In CI, TOXIPROXY_POSTGRES_HOST is set, usually pointing to 'catalog'
-	// network.
-	if toxiproxyPgHost := os.Getenv("TOXIPROXY_POSTGRES_HOST"); toxiproxyPgHost != "" {
-		pgHost = toxiproxyPgHost
-	}
-
-	var pgPort uint32 = 5432
-	if envPortStr := os.Getenv("PG_PORT"); envPortStr != "" {
-		envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
-		require.NoError(t, err, "Failed to parse PG_PORT")
-		pgPort = uint32(envPort)
-	}
-
-	connector, err := NewPostgresConnector(ctx, nil, &protos.PostgresConfig{
-		Host:     pgHost,
-		Port:     pgPort,
-		User:     "postgres",
-		Password: "postgres",
-		Database: "postgres",
-		SshConfig: &protos.SSHConfig{
-			Host:     "localhost",
-			Port:     uint32(proxyPort),
-			User:     "testuser",
-			Password: "testpass",
-		},
-	})
+	connector, err := NewPostgresConnector(ctx, nil, pgConfig)
 	require.NoError(t, err)
 
 	// Test initial connection works

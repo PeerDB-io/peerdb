@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"errors"
-	"os"
 	"sort"
 	"testing"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -99,34 +99,24 @@ func GetTestDatabase(suffix string) string {
 func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 	t.Helper()
 
-	mongoAdminUri := os.Getenv("CI_MONGO_ADMIN_URI")
-	require.NotEmpty(t, mongoAdminUri, "missing CI_MONGO_ADMIN_URI env var")
-	mongoAdminUsername := os.Getenv("CI_MONGO_ADMIN_USERNAME")
-	require.NotEmpty(t, mongoAdminUsername, "missing CI_MONGO_ADMIN_USERNAME env var")
-	mongoAdminPassword := os.Getenv("CI_MONGO_ADMIN_PASSWORD")
-	require.NotEmpty(t, mongoAdminPassword, "missing CI_MONGO_ADMIN_PASSWORD env var")
+	admin := internal.MongoAdminTestCredentials(t)
 	adminClient, err := mongo.Connect(options.Client().
-		ApplyURI(mongoAdminUri).
+		ApplyURI(admin.URI).
 		SetAppName("Mongo admin client").
 		SetCompressors([]string{"zstd", "snappy"}).
 		SetReadPreference(readpref.Primary()).
 		SetAuth(options.Credential{
-			Username: mongoAdminUsername,
-			Password: mongoAdminPassword,
+			Username: admin.Username,
+			Password: admin.Password,
 		}))
 	require.NoError(t, err, "failed to setup mongo admin client")
 
-	mongoUri := os.Getenv("CI_MONGO_URI")
-	require.NotEmpty(t, mongoUri, "missing CI_MONGO_URI env var")
-	mongoUsername := os.Getenv("CI_MONGO_USERNAME")
-	require.NotEmpty(t, mongoUsername, "missing CI_MONGO_USERNAME env var")
-	mongoPassword := os.Getenv("CI_MONGO_PASSWORD")
-	require.NotEmpty(t, mongoPassword, "missing CI_MONGO_PASSWORD env var")
+	user := internal.MongoUserTestCredentials(t)
 
 	mongoConfig := &protos.MongoConfig{
-		Uri:        mongoUri,
-		Username:   mongoUsername,
-		Password:   mongoPassword,
+		Uri:        user.URI,
+		Username:   user.Username,
+		Password:   user.Password,
 		DisableTls: true,
 	}
 

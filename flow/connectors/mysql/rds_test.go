@@ -1,68 +1,44 @@
 package connmysql
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
-	t.Setenv("AWS_ACCESS_KEY_ID", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID"))
-	t.Setenv("AWS_SECRET_ACCESS_KEY", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY"))
-	t.Setenv("AWS_SESSION_TOKEN", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN"))
-	host := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL")
-	username := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL")
+	internal.SetupRDSIAMAuthAWSCredentials(t)
+	conn := internal.RDSIAMAuthMySQLTestConnectionInfo(t)
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
 		&protos.MySqlConfig{
-			Host:       host,
+			Host:       conn.Host,
 			Database:   "postgres",
-			User:       username,
+			User:       conn.Username,
 			Port:       5432,
 			AuthType:   protos.MySqlAuthType_MYSQL_IAM_AUTH,
 			DisableTls: false, // Assumed that AWS Root CA is installed
-			AwsAuth: &protos.AwsAuthenticationConfig{
-				AuthType: protos.AwsIAMAuthConfigType_IAM_AUTH_ASSUME_ROLE,
-				AuthConfig: &protos.AwsAuthenticationConfig_Role{
-					Role: &protos.AWSAuthAssumeRoleConfig{
-						AssumeRoleArn:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),
-						ChainedRoleArn: new(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
-					},
-				},
-			},
+			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(t),
 		})
 	require.NoError(t, err)
 	require.NoError(t, mysqlConnector.Ping(t.Context()))
 }
 
 func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
-	t.Setenv("AWS_ACCESS_KEY_ID", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID"))
-	t.Setenv("AWS_SECRET_ACCESS_KEY", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY"))
-	t.Setenv("AWS_SESSION_TOKEN", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN"))
-	rdsHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL")
-	proxyHost := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY")
-
-	username := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL")
+	internal.SetupRDSIAMAuthAWSCredentials(t)
+	conn := internal.RDSIAMAuthMySQLTestConnectionInfo(t)
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
 		&protos.MySqlConfig{
-			Host:       proxyHost,
+			Host:       conn.ProxyHost,
 			Database:   "postgres",
-			User:       username,
+			User:       conn.Username,
 			Port:       5432,
-			TlsHost:    rdsHost,
+			TlsHost:    conn.Host,
 			AuthType:   protos.MySqlAuthType_MYSQL_IAM_AUTH,
 			DisableTls: false, // Assumed that AWS Root CA is installed
-			AwsAuth: &protos.AwsAuthenticationConfig{
-				AuthType: protos.AwsIAMAuthConfigType_IAM_AUTH_ASSUME_ROLE,
-				AuthConfig: &protos.AwsAuthenticationConfig_Role{
-					Role: &protos.AWSAuthAssumeRoleConfig{
-						AssumeRoleArn:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),
-						ChainedRoleArn: new(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
-					},
-				},
-			},
+			AwsAuth:    internal.RDSIAMAuthAssumeRoleConfig(t),
 		})
 	require.NoError(t, err)
 	require.NoError(t, mysqlConnector.Ping(t.Context()))
