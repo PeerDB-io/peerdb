@@ -158,13 +158,13 @@ func PeerDBTemporalClientKeyPath() string {
 	return GetEnvString("TEMPORAL_CLIENT_KEY_PATH", "")
 }
 
-// PeerDBTemporalTLSServerName returns the value used as the SNI / hostname
+// PeerDBTemporalTLSServerName allows to override the value used as the SNI / hostname
 // verification target in the TLS handshake with the Temporal frontend. Set
 // this when the dial address (TEMPORAL_HOST_PORT) differs from the hostname
 // the server's certificate is issued for — e.g. connecting to Temporal Cloud
 // via an AWS PrivateLink VPC endpoint, whose hostname will not match the
 // namespace's wildcard cert. When empty, Go's TLS stack derives ServerName
-// from the dial address (existing behavior).
+// from TEMPORAL_HOST_PORT.
 func PeerDBTemporalTLSServerName() string {
 	return GetEnvString("TEMPORAL_TLS_SERVER_NAME", "")
 }
