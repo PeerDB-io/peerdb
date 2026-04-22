@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Docker Go Debug",
+      "type": "go",
+      "request": "attach",
+      "mode": "remote",
+      "remotePath": "/root",
+      "debugAdapter": "dlv-dap",
+      "hideSystemGoroutines": true,
+      "showGlobalVariables": true,
+      "substitutePath": [
+        {
+          "from": "${workspaceFolder}/flow",
+          "to": "/root/flow"
+        }
+      ],
+      "port": 40000,
+      "host": "127.0.0.1"
+    }
+  ]
+}

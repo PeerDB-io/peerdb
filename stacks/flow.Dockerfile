@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1.23@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
 
 FROM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1 AS builder
+# Allow build flags to be passed in at build time, for example debug flags
+ARG DEBUG_BUILD
+ENV DEBUG_BUILD=${DEBUG_BUILD}
+
 RUN apk add --no-cache gcc geos-dev musl-dev
 WORKDIR /root/flow
 
@@ -21,7 +25,8 @@ ENV CGO_ENABLED=1
 # Generate the typed handler wrapper
 RUN go generate
 ENV GOCACHE=/root/.cache/go-build
-RUN --mount=type=cache,target="/root/.cache/go-build" go build -o /root/peer-flow
+RUN --mount=type=cache,target="/root/.cache/go-build" go build ${DEBUG_BUILD:+-gcflags} ${DEBUG_BUILD:+"all=-N -l"} -o /root/peer-flow
+RUN --mount=type=cache,target="/root/.cache/go-build" go install github.com/go-delve/delve/cmd/dlv@latest
 
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS flow-base
 ENV TZ=UTC
@@ -57,6 +62,17 @@ ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 ENTRYPOINT ["./peer-flow", "snapshot-worker"]
 
+
+FROM flow-base AS flow-worker-debug
+ENV OTEL_METRIC_EXPORT_INTERVAL=10000
+ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+USER root
+COPY --from=builder /go/bin/dlv /usr/local/bin/dlv
+USER peerdb
+EXPOSE 40000
+ENTRYPOINT ["dlv", "--headless", "--continue", "--accept-multiclient", "--listen=:40000", "--api-version=2", "exec", "./peer-flow", "--", "worker"]
 
 FROM flow-base AS flow-maintenance
 
