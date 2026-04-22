@@ -239,7 +239,7 @@ func (s SwitchboardMySQLSuite) Test_QueryComplexity_GroupBy() {
 }
 
 func (s SwitchboardMySQLSuite) Test_QueryComplexity_CTE() {
-	if internal.MySQLTestVersionIsMysqlPos() {
+	if internal.MySQLTestVersionIsMySQLPos() {
 		s.t.Skip("MySQL 5.7 does not support CTEs")
 	}
 	output, err := s.psql("WITH cte AS (SELECT 1 AS x) SELECT * FROM cte")

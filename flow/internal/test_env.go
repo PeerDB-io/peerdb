@@ -66,7 +66,7 @@ func MySQLTestVersionIsMaria() bool {
 	return MySQLTestVersion() == "maria"
 }
 
-func MySQLTestVersionIsMysqlPos() bool {
+func MySQLTestVersionIsMySQLPos() bool {
 	return MySQLTestVersion() == "mysql-pos"
 }
 

@@ -22,7 +22,7 @@ import (
 )
 
 func mysqlEnumUsesOrdinals() bool {
-	return internal.MySQLTestVersionIsMysqlPos()
+	return internal.MySQLTestVersionIsMySQLPos()
 }
 
 func (s ClickHouseSuite) Test_UnsignedMySQL() {
