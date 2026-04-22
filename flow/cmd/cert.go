@@ -31,21 +31,21 @@ func parseTemporalCertAndKeyFromEnvironment(ctx context.Context) ([]tls.Certific
 }
 
 func setupTemporalClient(ctx context.Context, clientOptions client.Options) (client.Client, error) {
+	var tlsConfig *tls.Config
+
 	if certPath := internal.PeerDBTemporalClientCertPath(); certPath != "" {
 		slog.InfoContext(ctx, "Using temporal certificate/key from paths for authentication")
 		keyPath := internal.PeerDBTemporalClientKeyPath()
 
-		clientOptions.ConnectionOptions = client.ConnectionOptions{
-			TLS: &tls.Config{
-				GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-					keyPairValue, err := tls.LoadX509KeyPair(certPath, keyPath)
-					if err != nil {
-						return nil, fmt.Errorf("unable to obtain temporal key pair: %w", err)
-					}
-					return &keyPairValue, nil
-				},
-				MinVersion: tls.VersionTLS13,
+		tlsConfig = &tls.Config{
+			GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+				keyPairValue, err := tls.LoadX509KeyPair(certPath, keyPath)
+				if err != nil {
+					return nil, fmt.Errorf("unable to obtain temporal key pair: %w", err)
+				}
+				return &keyPairValue, nil
 			},
+			MinVersion: tls.VersionTLS13,
 		}
 	} else if internal.PeerDBTemporalEnableCertAuth() {
 		slog.InfoContext(ctx, "Using temporal certificate/key from environment for authentication")
@@ -55,12 +55,17 @@ func setupTemporalClient(ctx context.Context, clientOptions client.Options) (cli
 			return nil, fmt.Errorf("unable to base64 decode certificate and key: %w", err)
 		}
 
-		clientOptions.ConnectionOptions = client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: certs,
-				MinVersion:   tls.VersionTLS13,
-			},
+		tlsConfig = &tls.Config{
+			Certificates: certs,
+			MinVersion:   tls.VersionTLS13,
 		}
+	}
+
+	if tlsConfig != nil {
+		if serverName := internal.PeerDBTemporalTLSServerName(); serverName != "" {
+			tlsConfig.ServerName = serverName
+		}
+		clientOptions.ConnectionOptions = client.ConnectionOptions{TLS: tlsConfig}
 	}
 
 	tc, err := client.Dial(clientOptions)
