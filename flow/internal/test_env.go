@@ -30,6 +30,10 @@ func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
 	}
 }
 
+func PostgresToxiproxyUpstreamHostWithFallback(fallback string) string {
+	return GetEnvString("TOXIPROXY_POSTGRES_HOST", fallback)
+}
+
 func MySQLTestHostWithFallback(fallback string) string {
 	return GetEnvString("CI_MYSQL_HOST", fallback)
 }
