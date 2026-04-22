@@ -161,6 +161,8 @@ services:
       context: .
       dockerfile: stacks/flow.Dockerfile
       target: flow-worker
+    ports:
+      - 40000:40000
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     extra_hosts:
