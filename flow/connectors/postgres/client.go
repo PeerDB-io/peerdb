@@ -48,6 +48,7 @@ const (
 		sync_batch_id=EXCLUDED.sync_batch_id`
 	checkIfJobMetadataExistsSQL          = "SELECT EXISTS(SELECT * FROM %s.%s WHERE mirror_job_name=$1)"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
+	setSessionReplicaRoleSQL             = "SET LOCAL session_replication_role = 'replica'"
 
 	getDistinctDestinationTableNamesSQL = `SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE
 	_peerdb_batch_id=$1`

@@ -620,6 +620,13 @@ func syncQRepRecords(
 	}
 	defer shared.RollbackTx(tx, c.logger)
 
+	if config.System == protos.TypeSystem_PG {
+		if _, err := tx.Exec(ctx, setSessionReplicaRoleSQL); err != nil {
+			return 0, nil, fmt.Errorf("failed to set session_replication_role to replica: %w", err)
+		}
+		c.logger.Info("set session_replication_role to replica on destination for PG type system initial load")
+	}
+
 	// Step 2: Insert records into destination table
 	var numRowsSynced int64
 

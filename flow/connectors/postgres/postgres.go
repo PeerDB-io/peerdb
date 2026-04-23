@@ -786,6 +786,16 @@ func (c *PostgresConnector) normalizeBatch(
 	}
 	defer shared.RollbackTx(tx, c.logger)
 
+	for _, tableName := range destinationTableNames {
+		if schema, ok := normalizeStmtGen.tableSchemaMapping[tableName]; ok && schema.System == protos.TypeSystem_PG {
+			if _, err := tx.Exec(ctx, setSessionReplicaRoleSQL); err != nil {
+				return 0, fmt.Errorf("failed to set session_replication_role to replica: %w", err)
+			}
+			c.logger.Info("set session_replication_role to replica for PG type system normalize")
+			break
+		}
+	}
+
 	batch := &pgx.Batch{}
 	var entries []batchEntry
 	for _, destinationTableName := range destinationTableNames {
