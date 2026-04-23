@@ -1419,3 +1419,106 @@ func (s PeerFlowE2ETestSuitePG) Test_Table_With_Excluded_PK_And_ReplicaIdentityF
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s PeerFlowE2ETestSuitePG) Test_PG_PG_Target_Foreign_Keys() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName1 := s.attachSchemaSuffix("test_pg_pg_fk_src_1")
+	dstTableName1 := s.attachSchemaSuffix("test_pg_pg_fk_dst_1")
+	srcTableName2 := s.attachSchemaSuffix("test_pg_pg_fk_src_2")
+	dstTableName2 := s.attachSchemaSuffix("test_pg_pg_fk_dst_2")
+
+	// Source parent table
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			val TEXT NOT NULL
+		)`, srcTableName1))
+	require.NoError(s.t, err)
+
+	// Source child table with FK referencing parent
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			parent_id BIGINT NOT NULL REFERENCES %s(id),
+			val TEXT NOT NULL
+		)`, srcTableName2, srcTableName1))
+	require.NoError(s.t, err)
+
+	// Destination parent table
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			val TEXT NOT NULL
+		)`, dstTableName1))
+	require.NoError(s.t, err)
+
+	// Destination child table with FK referencing destination parent
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			parent_id BIGINT NOT NULL REFERENCES %s(id),
+			val TEXT NOT NULL
+		)`, dstTableName2, dstTableName1))
+	require.NoError(s.t, err)
+
+	// Insert rows only into the child table, bypassing FK checks via session_replication_role
+	rowsTx, err := s.Conn().Begin(s.t.Context())
+	require.NoError(s.t, err)
+	_, err = rowsTx.Exec(s.t.Context(), "SET LOCAL session_replication_role = 'replica'")
+	require.NoError(s.t, err)
+	for i := range 5 {
+		_, err = rowsTx.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s(parent_id, val) VALUES ($1, $2)`, srcTableName2), int64(i+100), fmt.Sprintf("child_val_%d", i))
+		require.NoError(s.t, err)
+	}
+	require.NoError(s.t, rowsTx.Commit(s.t.Context()))
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix("test_pg_pg_fk"),
+		DestinationName: s.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName1,
+				DestinationTableIdentifier: dstTableName1,
+			},
+			{
+				SourceTableIdentifier:      srcTableName2,
+				DestinationTableIdentifier: dstTableName2,
+			},
+		},
+		SourceName:        GeneratePostgresPeer(s.t).Name,
+		MaxBatchSize:      100,
+		DoInitialSnapshot: true,
+		System:            protos.TypeSystem_PG,
+		SoftDeleteColName: "",
+		SyncedAtColName:   "",
+	}
+
+	env := ExecutePeerflow(s.t, tc, config)
+	SetupCDCFlowStatusQuery(s.t, env, config)
+
+	// Verify initial load replicated the child table rows despite FK constraint on destination
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for child table initial load", func() bool {
+		return s.comparePGTables(srcTableName2, dstTableName2, "id,parent_id,val") == nil
+	})
+
+	// Insert more rows via CDC path, again only into child table bypassing FK
+	cdcTx, err := s.Conn().Begin(s.t.Context())
+	EnvNoError(s.t, env, err)
+	_, err = cdcTx.Exec(s.t.Context(), "SET LOCAL session_replication_role = 'replica'")
+	EnvNoError(s.t, env, err)
+	for i := range 5 {
+		_, err = cdcTx.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s(parent_id, val) VALUES ($1, $2)`, srcTableName2), int64(i+200), fmt.Sprintf("cdc_child_val_%d", i))
+		EnvNoError(s.t, env, err)
+	}
+	EnvNoError(s.t, env, cdcTx.Commit(s.t.Context()))
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for child table cdc", func() bool {
+		return s.comparePGTables(srcTableName2, dstTableName2, "id,parent_id,val") == nil
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
