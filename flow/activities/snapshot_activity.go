@@ -115,10 +115,24 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 	}
 	defer connClose(ctx)
 
+	logger := internal.LoggerFromCtx(ctx)
+
 	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, flowName, env)
 	if err != nil {
 		return err
 	}
+
+	// Ensure transaction is always finished, even if activity is terminated
+	defer func() {
+		a.SnapshotStatesMutex.Lock()
+		delete(a.TxSnapshotStates, sessionID)
+		a.SnapshotStatesMutex.Unlock()
+		if tx != nil {
+			if err := conn.FinishExport(tx); err != nil {
+				logger.Error("finish export error in defer", slog.Any("error", err))
+			}
+		}
+	}()
 
 	a.SnapshotStatesMutex.Lock()
 	if exportSnapshotOutput != nil {
@@ -130,21 +144,18 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 	}
 	a.SnapshotStatesMutex.Unlock()
 
-	logger := internal.LoggerFromCtx(ctx)
 	start := time.Now()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
 	for {
 		logger.Info("maintaining export snapshot transaction", slog.Int64("seconds", int64(time.Since(start).Round(time.Second)/time.Second)))
-		if ctx.Err() != nil {
-			a.SnapshotStatesMutex.Lock()
-			delete(a.TxSnapshotStates, sessionID)
-			a.SnapshotStatesMutex.Unlock()
-			if err := conn.FinishExport(tx); err != nil {
-				logger.Error("finish export error", slog.Any("error", err))
-				return err
-			}
+		select {
+		case <-ctx.Done():
 			return nil
+		case <-ticker.C:
+			// Continue loop
 		}
-		time.Sleep(time.Minute)
 	}
 }
 

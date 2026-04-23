@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -56,10 +57,19 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	query string,
 	args ...any,
 ) (int64, int64, error) {
+	defer qe.Conn().Close(context.Background())
 	defer shared.RollbackTx(tx, qe.logger)
 
+	// Clear any existing deadline at the start to ensure clean state
+	clearConnectionDeadline(qe.conn.PgConn(), qe.logger, "sink_pg start")
+
+	// Clear any deadline set during execution to ensure commit/rollback can proceed
+	// Must happen regardless of function exit path, so use defer
+	defer clearConnectionDeadline(qe.conn.PgConn(), qe.logger, "sink_pg cleanup")
+
 	if qe.snapshot != "" {
-		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
+		// Use context.Background() to prevent ContextWatcher creation
+		if _, err := tx.Exec(context.Background(), "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
 			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
@@ -74,7 +84,8 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 		}
 	}
 
-	norows, err := tx.Query(ctx, query+" limit 0", args...)
+	// Use context.Background() to prevent ContextWatcher creation
+	norows, err := tx.Query(context.Background(), query+" limit 0", args...)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -94,15 +105,37 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 
 	copyQuery := fmt.Sprintf("COPY (%s) TO STDOUT", query)
 	qe.logger.Info("[pg_query_executor] executing copy", slog.String("query", copyQuery))
-	ct, err := qe.conn.PgConn().CopyTo(ctx, p.PipeWriter, copyQuery)
+
+	// Monitor context cancellation and close pipe to trigger clean exit
+	// Use context.Background() for CopyTo to avoid ContextWatcher entirely
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.PipeWriter.CloseWithError(ctx.Err())
+		case <-done:
+		}
+	}()
+
+	// Use Background context to prevent ContextWatcher creation (ctx == context.Background() check)
+	// Cancellation is handled via pipe closing above, timeout is handled by Temporal activity timeout
+	ct, err := qe.conn.PgConn().CopyTo(context.Background(), p.PipeWriter, copyQuery)
 	if err != nil {
+		// Close pipe explicitly to ensure destination side exits cleanly
+		if closeErr := p.PipeWriter.CloseWithError(err); closeErr != nil {
+			qe.logger.Warn("[pg_query_executor] failed to close pipe on copy error",
+				slog.Any("closeError", closeErr), slog.Any("copyError", err))
+		}
 		qe.logger.Info("[pg_query_executor] failed to copy",
 			slog.String("copyQuery", copyQuery), slog.Any("error", err))
 		return 0, 0, fmt.Errorf("[pg_query_executor] failed to copy: %w", err)
 	}
 
 	qe.logger.Info("Committing transaction")
-	if err := tx.Commit(ctx); err != nil {
+	commitCtx, commitCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer commitCancel()
+	if err := tx.Commit(commitCtx); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to commit transaction", slog.Any("error", err))
 		return 0, 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
@@ -132,8 +165,27 @@ func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx
 	for _, col := range cols {
 		quotedCols = append(quotedCols, common.QuoteIdentifier(col))
 	}
+
+	// Monitor context cancellation and close pipe to trigger clean exit
+	// Use context.Background() for CopyFrom to avoid ContextWatcher entirely
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.PipeReader.CloseWithError(ctx.Err())
+		case <-done:
+		}
+	}()
+
+	// Clear deadline immediately before CopyFrom as final safeguard against races in BeginTx
+	// This handles the case where context was cancelled between BeginTx and here
+	clearConnectionDeadline(tx.Conn().PgConn(), c.logger, "before CopyFrom")
+
+	// Use Background context to prevent ContextWatcher creation (ctx == context.Background() check)
+	// Cancellation is handled via pipe closing above, timeout is handled by Temporal activity timeout
 	ct, err := tx.Conn().PgConn().CopyFrom(
-		ctx,
+		context.Background(),
 		p.PipeReader,
 		fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(quotedCols, ",")),
 	)
