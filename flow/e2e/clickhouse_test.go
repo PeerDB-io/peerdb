@@ -3239,9 +3239,6 @@ func (s ClickHouseSuite) Test_CTID_Partitioned_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 10
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3311,9 +3308,6 @@ func (s ClickHouseSuite) Test_CTID_Multi_Level_Partitioned_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 6
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3370,9 +3364,6 @@ func (s ClickHouseSuite) Test_CTID_Inherited_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 8
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3433,9 +3424,6 @@ func (s ClickHouseSuite) Test_CTID_Multi_Level_Inherited_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 10
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3500,9 +3488,6 @@ func (s ClickHouseSuite) Test_CTID_Inherited_Table_Extra_Columns() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 6
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)

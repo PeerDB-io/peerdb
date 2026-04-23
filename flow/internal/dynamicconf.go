@@ -422,7 +422,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE",
 		Description:      "Use CTID block partitioning for initial snapshot if watermark column is ctid",
-		DefaultValue:     "false",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -430,7 +430,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_MONGODB_PARALLEL_SNAPSHOTTING",
 		Description:      "Enable parallel partitioning for MongoDB initial snapshot",
-		DefaultValue:     "false",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
