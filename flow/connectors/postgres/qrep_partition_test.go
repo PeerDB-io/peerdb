@@ -65,6 +65,10 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 			Query:               query,
 			WatermarkTable:      schemaQualifiedTable,
 			WatermarkColumn:     ctidColumnName,
+			// The test table fits in a single 8 KB page, so block-based CTID partitioning only emit 1 partition.
+			// Override with PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE = false to test legacy behavior
+			// with NTileBucketPartitioning. We have separate tests below for testing CtidBlockPartitioning logic.
+			Env: map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "false"},
 		},
 		expectedNumPartitions: expectedNum,
 	}
@@ -320,7 +324,6 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 		Query:                 query,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -409,7 +412,6 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		Query:                 query,
 		WatermarkTable:        rootTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -471,7 +473,6 @@ func TestCTIDPartitioningOnEmptyPartitionedTable(t *testing.T) {
 		Query:                 query,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.Empty(t, partitions)
@@ -529,7 +530,6 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 		Query:                 query,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -637,7 +637,6 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 		NumPartitionsOverride: 8,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -700,7 +699,6 @@ func TestCTIDPartitioningOnMultiLevelInheritedTable(t *testing.T) {
 		NumPartitionsOverride: 10,
 		WatermarkTable:        grandparent,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -745,7 +743,6 @@ func TestCTIDPartitioningOnEmptyInheritedTable(t *testing.T) {
 		NumPartitionsOverride: 4,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.Empty(t, partitions)

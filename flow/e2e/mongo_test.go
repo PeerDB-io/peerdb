@@ -109,7 +109,6 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumRowsPerPartition = 10
-	flowConnConfig.Env["PEERDB_MONGODB_PARALLEL_SNAPSHOTTING"] = "true"
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
@@ -171,7 +170,6 @@ func (s MongoClickhouseSuite) Test_Snapshot_Collection_With_Single_Document() {
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumRowsPerPartition = 1
-	flowConnConfig.Env["PEERDB_MONGODB_PARALLEL_SNAPSHOTTING"] = "true"
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
@@ -217,7 +215,6 @@ func (s MongoClickhouseSuite) Test_Snapshot_Empty_Collection() {
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumRowsPerPartition = 1
-	flowConnConfig.Env["PEERDB_MONGODB_PARALLEL_SNAPSHOTTING"] = "true"
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	err := adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable)
@@ -251,7 +248,6 @@ func (s MongoClickhouseSuite) Test_Snapshot_Non_ObjectID_Falls_Back_To_Single_Pa
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumRowsPerPartition = 5
-	flowConnConfig.Env["PEERDB_MONGODB_PARALLEL_SNAPSHOTTING"] = "true"
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
@@ -297,7 +293,6 @@ func (s MongoClickhouseSuite) Test_Snapshot_Mixed_ObjectID_Falls_Back_To_Single_
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumRowsPerPartition = 1
-	flowConnConfig.Env["PEERDB_MONGODB_PARALLEL_SNAPSHOTTING"] = "true"
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
