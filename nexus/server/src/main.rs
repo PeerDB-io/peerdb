@@ -988,12 +988,16 @@ struct Args {
     /// KMS Key ID for decrypting the catalog password
     #[clap(long, env = "PEERDB_KMS_KEY_ID")]
     kms_key_id: Option<Arc<String>>,
+
+    /// KMS provider: "aws" (default) or "gcp"
+    #[clap(long, default_value = "aws", env = "PEERDB_KMS_PROVIDER")]
+    kms_provider: String,
 }
 
 // Get catalog config from args
 async fn get_catalog_config(args: &Args) -> anyhow::Result<CatalogConfig<'_>> {
     let password = if let Some(kms_key_id) = &args.kms_key_id {
-        kms_decrypt(&args.catalog_password, kms_key_id).await?
+        kms_decrypt(&args.catalog_password, kms_key_id, &args.kms_provider).await?
     } else {
         args.catalog_password.clone()
     };
@@ -1059,11 +1063,12 @@ fn setup_tracing(log_dir: Option<&str>) -> TracerGuards {
 async fn run_migrations(
     config: &CatalogConfig<'_>,
     kms_key_id: &Option<Arc<String>>,
+    kms_provider: &str,
 ) -> anyhow::Result<()> {
     // retry connecting to the catalog 3 times with 30 seconds delay
     // if it fails, return an error
     for _ in 0..3 {
-        match Catalog::new(config.to_postgres_config(), kms_key_id).await {
+        match Catalog::new(config.to_postgres_config(), kms_key_id, kms_provider).await {
             Ok(mut catalog) => {
                 catalog.run_migrations().await?;
                 return Ok(());
@@ -1158,7 +1163,7 @@ pub async fn main() -> anyhow::Result<()> {
     }
 
     if !args.migrations_disabled {
-        run_migrations(&catalog_config, &args.kms_key_id).await?;
+        run_migrations(&catalog_config, &args.kms_key_id, &args.kms_provider).await?;
     }
     if args.migrations_only {
         return Ok(());
@@ -1194,10 +1199,11 @@ pub async fn main() -> anyhow::Result<()> {
         let authenticator = authenticator.clone();
         let pg_config = catalog_config.to_postgres_config();
         let kms_key_id = args.kms_key_id.clone();
+        let kms_provider = args.kms_provider.clone();
         let tls_acceptor = tls_acceptor.clone();
 
         tokio::task::spawn(async move {
-            match Catalog::new(pg_config, &kms_key_id).await {
+            match Catalog::new(pg_config, &kms_key_id, &kms_provider).await {
                 Ok(catalog) => {
                     let nexus = Arc::new(NexusBackend::new(
                         Arc::new(catalog),
