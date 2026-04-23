@@ -70,4 +70,4 @@ uuid = "1"
 
 [dev-dependencies]
 postgres = "0.19.10"
-similar = "2.7.0"
+similar = "3.1.0"
