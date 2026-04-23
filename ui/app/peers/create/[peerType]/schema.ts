@@ -257,6 +257,7 @@ export const sfSchema = z.object({
     })
     .max(255, 's3Integration must be less than 255 characters')
     .optional(),
+  enableStreaming: z.boolean().optional(),
 });
 
 export const bqSchema = z.object({

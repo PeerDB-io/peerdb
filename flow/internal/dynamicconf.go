@@ -159,6 +159,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
 	},
 	{
+		Name:             "PEERDB_SNOWFLAKE_STREAMING_CHANNELS_PER_FLOW",
+		Description:      "Number of Snowpipe Streaming channels per CDC flow. Rows are dispatched across channels by destination-table-name hash, preserving per-table order while parallelising writes. Default 1; raise (e.g. 4–8) for high-throughput flows. Bounded by Snowflake's 2000 channels/pipe limit.",
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
 		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
 		DefaultValue:     "raw",
@@ -704,6 +712,13 @@ func PeerDBSnowflakeSkipCompression(ctx context.Context, env map[string]string) 
 
 func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_AUTO_COMPRESS")
+}
+
+// PeerDBSnowflakeStreamingChannelsPerFlow returns the configured channel-pool size
+// for the Snowpipe Streaming raw-table pipe. Defaults to 1; bounded at runtime by
+// Snowflake's 2000-channels-per-pipe ceiling.
+func PeerDBSnowflakeStreamingChannelsPerFlow(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_STREAMING_CHANNELS_PER_FLOW")
 }
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {

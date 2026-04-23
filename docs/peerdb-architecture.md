@@ -184,7 +184,7 @@ S3-compatible object storage used for staging AVRO files during snapshot operati
 | Connector | CDC Sync | Normalize/Merge | QRep Sync | Key Features |
 |-----------|----------|----------------|-----------|--------------|
 | **PostgreSQL** | Raw table insert | MERGE (PG15+) or UPSERT fallback | Direct insert | Soft delete, schema evolution, synced_at column |
-| **Snowflake** | Raw table + AVRO staging | SQL MERGE | AVRO file load | Merge-based upsert, AVRO consolidation, warehouse staging |
+| **Snowflake** | Raw table + AVRO staging _or_ Snowpipe Streaming | SQL MERGE | AVRO file load | Merge-based upsert, AVRO consolidation, warehouse staging, opt-in Snowpipe Streaming v2 (see §12) |
 | **BigQuery** | AVRO bulk load | INSERT with dedup | GCS object load | Clustering, partitioning, GCP service account auth |
 | **ClickHouse** | Raw table insert | ReplacingMergeTree / MergeTree | AVRO via S3/table functions | Partition keys, sharding keys, engine selection, S3 IAM, AVRO staging |
 | **S3** | — | — | AVRO file write | Deflate/snappy/zstd codecs |
@@ -661,3 +661,73 @@ PeerDB supports Lua-based record transformation via the `script` field on flow c
 - Route records to different tables
 
 Libraries: `glua64`, `gluajson`, `gluamsgpack` for Lua runtime support.
+
+---
+
+## 12. Snowflake — Snowpipe Streaming v2 (Opt-In)
+
+The Snowflake connector supports two CDC sync paths. The legacy AVRO/S3 path remains the default; **Snowpipe Streaming v2** is opt-in via `enable_streaming = true` on the Snowflake peer config.
+
+### 12.1 Architecture
+
+```
+DEFAULT (AVRO):
+  CDCStream → SyncRecords → Avro write → S3/internal stage → COPY INTO _PEERDB_RAW_<job> → MERGE → destination
+
+STREAMING (opt-in):
+  CDCStream → SyncRecords → NDJSON build → Snowpipe Streaming REST API → _PEERDB_STREAMING_<job> → MERGE → destination
+```
+
+Both paths land in a per-flow raw table inside `_PEERDB_INTERNAL` and reuse the same `mergeTablesForBatch` MERGE logic. The streaming path uses a distinct table prefix (`_PEERDB_STREAMING_*` vs `_PEERDB_RAW_*`) so the two paths never share rows.
+
+### 12.2 Components
+
+| File | Responsibility |
+|------|----------------|
+| `flow/connectors/snowflake/streaming_auth.go` | JWT mint, ingest-host discovery, scoped-token exchange (RS256, KEYPAIR_JWT) |
+| `flow/connectors/snowflake/streaming_channel.go` | `StreamingChannelManager`, `StreamingChannel`, channel reopen, retry classifier, bulk channel-status |
+| `flow/connectors/snowflake/streaming_sync.go` | `syncRecordsViaStreaming`, NDJSON row build, channel-pool routing, flush + ingestion confirmation |
+| `flow/connectors/snowflake/streaming_metrics.go` | OTel instruments: bytes sent, rows confirmed, rows errored, chunk retries, ingestion latency, commit lag |
+
+### 12.3 Channel pool
+
+A single Snowpipe Streaming pipe (`<JOB>_STREAMING_PIPE`) backs the raw table. The number of channels is controlled by the dynamic setting `PEERDB_SNOWFLAKE_STREAMING_CHANNELS_PER_FLOW` (default 1, max 64). Rows are routed by `fnv32(destination_table_name) % N`, preserving per-table ordering required by the downstream MERGE.
+
+Channel naming: `peerdb-{flowJobName}-raw-{idx}`. With `N=1` the legacy name `peerdb-{job}-raw-0` is preserved so existing mirrors retain their durable Snowpipe `offsetToken`s.
+
+### 12.4 Idempotency
+
+Each flush sends one or more NDJSON chunks with `offsetToken = "{syncBatchID}-{flushIndex}"`. Snowflake persists the offset token durably on the channel and treats a second `AppendRows` with the same token as a no-op. In addition, `syncRecordsViaStreaming` reads `GetLastSyncBatchID` at entry and skips re-sending rows when the activity is retried after a Temporal heartbeat timeout.
+
+### 12.5 Observability
+
+OTel instruments (prefixed `peerdb.snowpipe_*`):
+
+| Name | Type | Description |
+|------|------|-------------|
+| `snowpipe_bytes_sent` | counter | Bytes successfully delivered per chunk |
+| `snowpipe_rows_confirmed` | counter | Rows confirmed ingested by Snowflake |
+| `snowpipe_rows_errored` | counter | Rows rejected (`RowsErrorCount > 0`) |
+| `snowpipe_chunk_retries` | counter | Retry attempts, attribute `retry_reason ∈ {transport, channel_reopen, auth, transient}` |
+| `snowpipe_ingestion_latency_ms` | gauge | Snowflake-reported average processing latency |
+| `snowpipe_commit_lag_ms` | gauge | Client-perceived end-to-end commit lag (flush start → confirmation) |
+
+All instruments are context-aware via `otel_metrics.NewContextAwareInt64Counter`/`ContextAwareInt64Gauge` and inherit flow attributes automatically.
+
+### 12.6 Dynamic configuration
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `PEERDB_SNOWFLAKE_STREAMING_CHANNELS_PER_FLOW` | `1` | Channel pool size per flow |
+| `PEERDB_SNOWFLAKE_STREAMING_ERROR_LOG_TABLE` | `""` | Fully-qualified Snowflake table to surface as the DLQ via `peerdb_stats.snowflake_streaming_errors` (when populated) |
+
+Peer-level proto fields (`SnowflakeConfig`, fields 12–16): `enable_streaming`, `streaming_rate_limit_per_second`, `streaming_max_chunk_bytes`, `streaming_ingest_timeout_seconds`.
+
+### 12.7 Limits and caveats
+
+- **Snowflake hard limits**: 4 MB compressed per `AppendRows` request, 10 RPS per channel, 2000 channels per pipe, 10 GB/s per table.
+- **Schema evolution**: source-table schema changes do not affect the streaming pipe. Schema deltas (`RelationRecord` → `ReplayTableSchemaDeltas`) are absorbed by the JSON `_PEERDB_DATA` column on the raw table and projected into destination tables by the MERGE step (which adds new columns via `ALTER TABLE … ADD COLUMN IF NOT EXISTS`). The pipe itself is created once per mirror via `CREATE PIPE IF NOT EXISTS` against the fixed `rawTableColumns` list — atomic on Snowflake, idempotent across sync batches, and crucially does not invalidate existing channels (preserving their durable `offsetToken`s for Temporal-retry idempotency).
+- **`SYSTEM$PIPE_STATUS` is not used** — it is unreliable for error detection (rejects stay invisible). Delivery confirmation uses the bulk channel status REST endpoint, which exposes `last_error_message` for fast failure detection.
+- **Inactive channels**: Snowflake auto-deletes channels after 30 days of inactivity, dropping their durable offset tokens. Long-paused mirrors must keep at least one batch flushing within that window.
+- **QRep snapshot path is unchanged**: streaming is CDC-only. Bulk snapshot loads continue to use the AVRO/COPY path.
+

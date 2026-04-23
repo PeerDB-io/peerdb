@@ -701,6 +701,19 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("s3_integration")
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
+                enable_streaming: opts
+                    .get("enable_streaming")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                streaming_rate_limit_per_second: opts
+                    .get("streaming_rate_limit_per_second")
+                    .and_then(|s| s.parse::<i32>().ok()),
+                streaming_max_chunk_bytes: opts
+                    .get("streaming_max_chunk_bytes")
+                    .and_then(|s| s.parse::<i32>().ok()),
+                streaming_ingest_timeout_seconds: opts
+                    .get("streaming_ingest_timeout_seconds")
+                    .and_then(|s| s.parse::<i32>().ok()),
             };
             Config::SnowflakeConfig(snowflake_config)
         }
