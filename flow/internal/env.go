@@ -3,7 +3,10 @@ package internal
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"reflect"
 	"strconv"
@@ -17,7 +20,8 @@ import (
 )
 
 const (
-	KmsKeyIDEnvVar = "PEERDB_KMS_KEY_ID"
+	KmsKeyIDEnvVar    = "PEERDB_KMS_KEY_ID"
+	KmsProviderEnvVar = "PEERDB_KMS_PROVIDER"
 )
 
 // getEnvUint returns the value of the environment variable with the given name
@@ -71,6 +75,16 @@ func decryptWithKms(ctx context.Context, data []byte) ([]byte, error) {
 		return data, nil
 	}
 
+	provider := GetEnvString(KmsProviderEnvVar, "aws")
+	switch provider {
+	case "gcp":
+		return decryptWithGcpKms(ctx, data, keyID)
+	default:
+		return decryptWithAwsKms(ctx, data, keyID)
+	}
+}
+
+func decryptWithAwsKms(ctx context.Context, data []byte, keyID string) ([]byte, error) {
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
@@ -86,6 +100,61 @@ func decryptWithKms(ctx context.Context, data []byte) ([]byte, error) {
 	}
 
 	return decrypted.Plaintext, nil
+}
+
+func decryptWithGcpKms(ctx context.Context, data []byte, keyID string) ([]byte, error) {
+	// Get access token from GKE Workload Identity metadata server
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metadata request: %w", err)
+	}
+	req.Header.Set("Metadata-Flavor", "Google")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GCP access token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, fmt.Errorf("failed to parse GCP token response: %w", err)
+	}
+
+	// Call Cloud KMS decrypt API
+	ciphertext := base64.StdEncoding.EncodeToString(data)
+	body := fmt.Sprintf(`{"ciphertext":"%s"}`, ciphertext)
+
+	kmsURL := fmt.Sprintf("https://cloudkms.googleapis.com/v1/%s:decrypt", keyID)
+	kmsReq, err := http.NewRequestWithContext(ctx, http.MethodPost, kmsURL, strings.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create KMS request: %w", err)
+	}
+	kmsReq.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
+	kmsReq.Header.Set("Content-Type", "application/json")
+
+	kmsResp, err := http.DefaultClient.Do(kmsReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call GCP KMS: %w", err)
+	}
+	defer kmsResp.Body.Close()
+
+	if kmsResp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(kmsResp.Body)
+		return nil, fmt.Errorf("GCP KMS decrypt failed (%d): %s", kmsResp.StatusCode, string(respBody))
+	}
+
+	var kmsResult struct {
+		Plaintext string `json:"plaintext"`
+	}
+	if err := json.NewDecoder(kmsResp.Body).Decode(&kmsResult); err != nil {
+		return nil, fmt.Errorf("failed to parse GCP KMS response: %w", err)
+	}
+
+	return base64.StdEncoding.DecodeString(kmsResult.Plaintext)
 }
 
 var kmsCache sync.Map
