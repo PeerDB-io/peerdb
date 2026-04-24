@@ -346,13 +346,25 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 
 func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	t.Parallel()
-	schemaName, conn, connStr := setupTestSchema(t)
+	_, conn, connStr := setupTestSchema(t)
+
+	// Use a mixed-case schema name as well to verify OID-based lookups work
+	// for both schema and table identifiers (to_regclass lowercases unquoted identifiers).
+	schemaName := "Test_" + shared.RandomString(8)
+	schemaNameDDL := fmt.Sprintf(`%q`, schemaName)
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s`, schemaNameDDL))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if _, err := conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schemaNameDDL)); err != nil {
+			t.Logf("Failed to drop schema: %v", err)
+		}
+	})
 
 	// Mixed-case names to verify OID-based lookups work (to_regclass lowercases unquoted identifiers).
 	// rootTable is the unquoted form passed to PeerDB; rootTableDDL is the quoted form for SQL DDL.
 	rootTable := schemaName + ".MultiLevel"
-	rootTableDDL := fmt.Sprintf(`%s."MultiLevel"`, schemaName)
-	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
+	rootTableDDL := fmt.Sprintf(`%s."MultiLevel"`, schemaNameDDL)
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL,
 			region INT NOT NULL,
@@ -369,7 +381,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 
 	// Two mid-level partitions, each sub-partitioned by category
 	for r := range numMidLevelTables {
-		mid := fmt.Sprintf(`%s."Region_%d"`, schemaName, r)
+		mid := fmt.Sprintf(`%s."Region_%d"`, schemaNameDDL, r)
 		_, err = conn.Exec(t.Context(), fmt.Sprintf(
 			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d) PARTITION BY RANGE (category)`,
 			mid, rootTableDDL, r*50, (r+1)*50))
@@ -377,7 +389,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 
 		// Three leaf partitions per mid-level
 		for c := range numLeafChildTablesPerMidLevelTable {
-			leaf := fmt.Sprintf(`%s."Region_%d_Cat_%d"`, schemaName, r, c)
+			leaf := fmt.Sprintf(`%s."Region_%d_Cat_%d"`, schemaNameDDL, r, c)
 			_, err = conn.Exec(t.Context(), fmt.Sprintf(
 				`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
 				leaf, mid, c*33, (c+1)*33))
@@ -600,20 +612,32 @@ func TestCtidPartitionsForChildTablesOffsetNumberBounds(t *testing.T) {
 
 func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 	t.Parallel()
-	schemaName, conn, connStr := setupTestSchema(t)
+	_, conn, connStr := setupTestSchema(t)
+
+	// Use a mixed-case schema name as well to verify OID-based lookups work
+	// for both schema and table identifiers (to_regclass lowercases unquoted identifiers).
+	schemaName := "Test_" + shared.RandomString(8)
+	schemaNameDDL := fmt.Sprintf(`%q`, schemaName)
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s`, schemaNameDDL))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if _, err := conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schemaNameDDL)); err != nil {
+			t.Logf("Failed to drop schema: %v", err)
+		}
+	})
 
 	// Mixed-case names to verify OID-based lookups work (to_regclass lowercases unquoted identifiers).
 	// parentTable is the unquoted form passed to PeerDB; parentTableDDL is the quoted form for SQL DDL.
 	parentTable := schemaName + ".ParentInh"
-	parentTableDDL := fmt.Sprintf(`%s."ParentInh"`, schemaName)
-	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTableDDL))
+	parentTableDDL := fmt.Sprintf(`%s."ParentInh"`, schemaNameDDL)
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTableDDL))
 	require.NoError(t, err)
 
 	numChildren := 3
 	rowsPerTable := 20
 	childTablesDDL := make([]string, numChildren)
 	for i := range numChildren {
-		childTablesDDL[i] = fmt.Sprintf(`%s."ChildInh_%d"`, schemaName, i)
+		childTablesDDL[i] = fmt.Sprintf(`%s."ChildInh_%d"`, schemaNameDDL, i)
 		_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, childTablesDDL[i], parentTableDDL))
 		require.NoError(t, err)
 	}
