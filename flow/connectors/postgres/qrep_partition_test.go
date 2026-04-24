@@ -351,11 +351,11 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	// Use a mixed-case schema name as well to verify OID-based lookups work
 	// for both schema and table identifiers (to_regclass lowercases unquoted identifiers).
 	schemaName := "Test_" + shared.RandomString(8)
-	schemaNameDDL := fmt.Sprintf(`%q`, schemaName)
-	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s`, schemaNameDDL))
+	schemaNameDDL := `"` + schemaName + `"`
+	_, err := conn.Exec(t.Context(), `CREATE SCHEMA `+schemaNameDDL)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		if _, err := conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schemaNameDDL)); err != nil {
+		if _, err := conn.Exec(t.Context(), `DROP SCHEMA `+schemaNameDDL+` CASCADE`); err != nil {
 			t.Logf("Failed to drop schema: %v", err)
 		}
 	})
@@ -363,7 +363,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	// Mixed-case names to verify OID-based lookups work (to_regclass lowercases unquoted identifiers).
 	// rootTable is the unquoted form passed to PeerDB; rootTableDDL is the quoted form for SQL DDL.
 	rootTable := schemaName + ".MultiLevel"
-	rootTableDDL := fmt.Sprintf(`%s."MultiLevel"`, schemaNameDDL)
+	rootTableDDL := schemaNameDDL + `."MultiLevel"`
 	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL,
@@ -617,11 +617,11 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 	// Use a mixed-case schema name as well to verify OID-based lookups work
 	// for both schema and table identifiers (to_regclass lowercases unquoted identifiers).
 	schemaName := "Test_" + shared.RandomString(8)
-	schemaNameDDL := fmt.Sprintf(`%q`, schemaName)
-	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s`, schemaNameDDL))
+	schemaNameDDL := `"` + schemaName + `"`
+	_, err := conn.Exec(t.Context(), `CREATE SCHEMA `+schemaNameDDL)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		if _, err := conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schemaNameDDL)); err != nil {
+		if _, err := conn.Exec(t.Context(), `DROP SCHEMA `+schemaNameDDL+` CASCADE`); err != nil {
 			t.Logf("Failed to drop schema: %v", err)
 		}
 	})
@@ -629,7 +629,7 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 	// Mixed-case names to verify OID-based lookups work (to_regclass lowercases unquoted identifiers).
 	// parentTable is the unquoted form passed to PeerDB; parentTableDDL is the quoted form for SQL DDL.
 	parentTable := schemaName + ".ParentInh"
-	parentTableDDL := fmt.Sprintf(`%s."ParentInh"`, schemaNameDDL)
+	parentTableDDL := schemaNameDDL + `."ParentInh"`
 	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTableDDL))
 	require.NoError(t, err)
 

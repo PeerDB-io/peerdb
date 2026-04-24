@@ -303,9 +303,9 @@ func getTableBlockCount(ctx context.Context, tx pgx.Tx, table string) (int64, er
 }
 
 type tableClassification struct {
-	oid            uint32
 	qualifiedName  string
 	relkind        string
+	oid            uint32
 	relhassubclass bool
 }
 
@@ -349,10 +349,10 @@ func getPartitionedTables(ctx context.Context, tx pgx.Tx, parentOID uint32) (map
 	defer rows.Close()
 
 	type tableInfo struct {
-		oid    uint32
 		name   string
 		kind   string
 		blocks int64
+		oid    uint32
 	}
 	var tableInfos []tableInfo
 	for rows.Next() {
@@ -412,10 +412,10 @@ func getInheritedTables(ctx context.Context, tx pgx.Tx, parentOID uint32, parent
 	defer rows.Close()
 
 	type tableInfo struct {
-		oid         uint32
 		name        string
-		hasSubclass bool
 		blocks      int64
+		oid         uint32
+		hasSubclass bool
 	}
 	var children []tableInfo
 	for rows.Next() {
