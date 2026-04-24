@@ -345,8 +345,9 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	t.Parallel()
 	schemaName, conn, connStr := setupTestSchema(t)
 
-	// Root table partitioned by region
-	rootTable := schemaName + ".multi_level"
+	// Root table partitioned by region — uses mixed-case names to verify
+	// that OID-based lookups work correctly (to_regclass lowercases unquoted identifiers)
+	rootTable := fmt.Sprintf(`%s."MultiLevel"`, schemaName)
 	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL,
@@ -364,7 +365,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 
 	// Two mid-level partitions, each sub-partitioned by category
 	for r := range numMidLevelTables {
-		mid := fmt.Sprintf("%s.region_%d", schemaName, r)
+		mid := fmt.Sprintf(`%s."Region_%d"`, schemaName, r)
 		_, err = conn.Exec(t.Context(), fmt.Sprintf(
 			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d) PARTITION BY RANGE (category)`,
 			mid, rootTable, r*50, (r+1)*50))
@@ -372,7 +373,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 
 		// Three leaf partitions per mid-level
 		for c := range numLeafChildTablesPerMidLevelTable {
-			leaf := fmt.Sprintf("%s.region_%d_cat_%d", schemaName, r, c)
+			leaf := fmt.Sprintf(`%s."Region_%d_Cat_%d"`, schemaName, r, c)
 			_, err = conn.Exec(t.Context(), fmt.Sprintf(
 				`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
 				leaf, mid, c*33, (c+1)*33))
@@ -381,10 +382,11 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	}
 
 	// 6 leaf tables total, insert 20 rows into each
+	// expectedLeaves uses unquoted names since that's what format('%s.%s', ...) in pg_class returns
 	expectedLeaves := make([]string, 0, numLeafChildTablesPerMidLevelTable*numMidLevelTables)
 	for r := range numMidLevelTables {
 		for c := range numLeafChildTablesPerMidLevelTable {
-			leaf := fmt.Sprintf("%s.region_%d_cat_%d", schemaName, r, c)
+			leaf := fmt.Sprintf("%s.Region_%d_Cat_%d", schemaName, r, c)
 			expectedLeaves = append(expectedLeaves, leaf)
 			for j := range rowsPerPartition {
 				_, err = conn.Exec(t.Context(), fmt.Sprintf(
@@ -429,7 +431,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		require.Positive(t, childTableCounts[leaf])
 	}
 	for r := range numMidLevelTables {
-		mid := fmt.Sprintf("%s.region_%d", schemaName, r)
+		mid := fmt.Sprintf("%s.Region_%d", schemaName, r)
 		require.Zero(t, childTableCounts[mid], mid)
 	}
 }
