@@ -680,7 +680,7 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 	}
 	// pg_class returns unquoted names from format('%s.%s', ...) so assertions use the unquoted form
 	require.Len(t, childTablesCovered, 1+numChildren)
-	require.True(t, childTablesCovered[fmt.Sprintf("%s.ParentInh", schemaName)])
+	require.True(t, childTablesCovered[schemaName+".ParentInh"])
 	for i := range numChildren {
 		require.True(t, childTablesCovered[fmt.Sprintf("%s.ChildInh_%d", schemaName, i)])
 	}
