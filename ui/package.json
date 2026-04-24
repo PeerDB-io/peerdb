@@ -58,7 +58,7 @@
     "eslint-config-next": "^16.0.0",
     "eslint-config-prettier": "^10.1.2",
     "less": "^4.3.0",
-    "postcss": "^8.5.3",
+    "postcss": "^8.5.10",
     "prettier": "^3.5.3",
     "prettier-plugin-organize-imports": "^4.1.0",
     "tailwindcss": "^4.0.17",
