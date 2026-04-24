@@ -348,9 +348,10 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	t.Parallel()
 	schemaName, conn, connStr := setupTestSchema(t)
 
-	// Root table partitioned by region — uses mixed-case names to verify
-	// that OID-based lookups work correctly (to_regclass lowercases unquoted identifiers)
-	rootTable := fmt.Sprintf(`%s."MultiLevel"`, schemaName)
+	// Mixed-case names to verify OID-based lookups work (to_regclass lowercases unquoted identifiers).
+	// rootTable is the unquoted form passed to PeerDB; rootTableDDL is the quoted form for SQL DDL.
+	rootTable := schemaName + ".MultiLevel"
+	rootTableDDL := fmt.Sprintf(`%s."MultiLevel"`, schemaName)
 	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL,
@@ -359,7 +360,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 			value TEXT,
 			PRIMARY KEY (region, category, id)
 		) PARTITION BY RANGE (region)
-	`, rootTable))
+	`, rootTableDDL))
 	require.NoError(t, err)
 
 	rowsPerPartition := 20
@@ -371,7 +372,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		mid := fmt.Sprintf(`%s."Region_%d"`, schemaName, r)
 		_, err = conn.Exec(t.Context(), fmt.Sprintf(
 			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d) PARTITION BY RANGE (category)`,
-			mid, rootTable, r*50, (r+1)*50))
+			mid, rootTableDDL, r*50, (r+1)*50))
 		require.NoError(t, err)
 
 		// Three leaf partitions per mid-level
@@ -393,7 +394,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 			expectedLeaves = append(expectedLeaves, leaf)
 			for j := range rowsPerPartition {
 				_, err = conn.Exec(t.Context(), fmt.Sprintf(
-					`INSERT INTO %s (region, category, value) VALUES ($1, $2, $3)`, rootTable),
+					`INSERT INTO %s (region, category, value) VALUES ($1, $2, $3)`, rootTableDDL),
 					r*50, c*33+j%33, fmt.Sprintf("v_%d_%d_%d", r, c, j))
 				require.NoError(t, err)
 			}
@@ -406,7 +407,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		conn:    conn,
 		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testMultiLevel"))),
 	}
-	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, rootTable)
+	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, rootTableDDL)
 	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
 		FlowJobName:           "test_ctid_multi_level",
 		NumRowsPerPartition:   10,
@@ -601,25 +602,28 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 	t.Parallel()
 	schemaName, conn, connStr := setupTestSchema(t)
 
-	parentTable := schemaName + ".parent_inh"
-	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTable))
+	// Mixed-case names to verify OID-based lookups work (to_regclass lowercases unquoted identifiers).
+	// parentTable is the unquoted form passed to PeerDB; parentTableDDL is the quoted form for SQL DDL.
+	parentTable := schemaName + ".ParentInh"
+	parentTableDDL := fmt.Sprintf(`%s."ParentInh"`, schemaName)
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTableDDL))
 	require.NoError(t, err)
 
 	numChildren := 3
 	rowsPerTable := 20
-	childTables := make([]string, numChildren)
+	childTablesDDL := make([]string, numChildren)
 	for i := range numChildren {
-		childTables[i] = fmt.Sprintf("%s.child_inh_%d", schemaName, i)
-		_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, childTables[i], parentTable))
+		childTablesDDL[i] = fmt.Sprintf(`%s."ChildInh_%d"`, schemaName, i)
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, childTablesDDL[i], parentTableDDL))
 		require.NoError(t, err)
 	}
 
 	for j := range rowsPerTable {
 		_, err = conn.Exec(t.Context(), fmt.Sprintf(
-			`INSERT INTO %s (value) VALUES ($1)`, parentTable), fmt.Sprintf("parent_%d", j))
+			`INSERT INTO %s (value) VALUES ($1)`, parentTableDDL), fmt.Sprintf("parent_%d", j))
 		require.NoError(t, err)
 	}
-	for i, child := range childTables {
+	for i, child := range childTablesDDL {
 		for j := range rowsPerTable {
 			_, err = conn.Exec(t.Context(), fmt.Sprintf(
 				`INSERT INTO %s (value) VALUES ($1)`, child), fmt.Sprintf("child_%d_%d", i, j))
@@ -650,10 +654,11 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 			childTablesCovered[ctr.Table] = true
 		}
 	}
+	// pg_class returns unquoted names from format('%s.%s', ...) so assertions use the unquoted form
 	require.Len(t, childTablesCovered, 1+numChildren)
-	require.True(t, childTablesCovered[parentTable])
-	for _, child := range childTables {
-		require.True(t, childTablesCovered[child])
+	require.True(t, childTablesCovered[fmt.Sprintf("%s.ParentInh", schemaName)])
+	for i := range numChildren {
+		require.True(t, childTablesCovered[fmt.Sprintf("%s.ChildInh_%d", schemaName, i)])
 	}
 }
 
