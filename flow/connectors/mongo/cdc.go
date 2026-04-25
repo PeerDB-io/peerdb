@@ -206,10 +206,11 @@ func (c *MongoConnector) PullRecords(
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 	}()
 
+	var updatedOffset string
 	checkpoint := func() {
 		if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
-			resumeTokenText := base64.StdEncoding.EncodeToString(resumeToken)
-			req.RecordStream.UpdateLatestCheckpointText(resumeTokenText)
+			updatedOffset = base64.StdEncoding.EncodeToString(resumeToken)
+			req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 		} else {
 			c.logger.Warn("change stream does not currently contain a resume token")
 		}
@@ -315,12 +316,22 @@ func (c *MongoConnector) PullRecords(
 			}
 
 			if errors.Is(err, context.DeadlineExceeded) {
+				// always checkpoint regardless of whether the batch is empty or not,
+				// in case of empty batch we checkpoint with PostBatchResumeToken (PBRT)
+				// this avoids falling behind when tables are inactive
+				// ref: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
+				checkpoint()
 				if recordCount > 0 {
 					break
 				}
-				// update with PostBatchResumeToken on empty batch
-				// ref: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
-				checkpoint()
+				if updatedOffset != "" {
+					c.logger.Info("[mongo] updating inactive offset", slog.String("offset", updatedOffset))
+					if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
+						c.logger.Error("[mongo] failed to update offset, ignoring", slog.Any("error", err))
+					} else {
+						updatedOffset = ""
+					}
+				}
 				// DeadlineExceeded errors are deemed not recoverable/resumable, so we have to create a new change stream instance
 				if err := recreateChangeStream(false); err != nil {
 					return fmt.Errorf("failed to recreate change stream: %w", err)
