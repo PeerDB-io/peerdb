@@ -136,7 +136,12 @@ func (c *MongoConnector) PullRecords(
 
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
-		SetFullDocument(options.UpdateLookup)
+		SetFullDocument(options.UpdateLookup).
+		// batchSize=0 only affects the initial aggregate response, so Watch returns
+		// immediately without blocking on the initial cursor establishment. Subsequent
+		// getMore calls fall back to the server default (up to 16 MiB per batch).
+		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
+		SetBatchSize(0)
 
 	var resumeToken bson.Raw
 	var err error
@@ -206,12 +211,23 @@ func (c *MongoConnector) PullRecords(
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 	}()
 
-	checkpoint := func() {
-		if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
-			resumeTokenText := base64.StdEncoding.EncodeToString(resumeToken)
-			req.RecordStream.UpdateLatestCheckpointText(resumeTokenText)
-		} else {
+	checkpoint := func() string {
+		rt := changeStream.ResumeToken()
+		if rt == nil {
 			c.logger.Warn("change stream does not currently contain a resume token")
+			return ""
+		}
+		text := base64.StdEncoding.EncodeToString(rt)
+		req.RecordStream.UpdateLatestCheckpointText(text)
+		return text
+	}
+	checkpointToCatalog := func() {
+		text := checkpoint()
+		if text == "" {
+			return
+		}
+		if err := c.metadataStore.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: text}); err != nil {
+			c.logger.Error("failed to persist resume token", slog.String("resumeToken", text), slog.Any("error", err))
 		}
 	}
 
@@ -316,11 +332,14 @@ func (c *MongoConnector) PullRecords(
 
 			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount > 0 {
+					// advance offset to the PostBatchResumeToken since the last change event's resume token may be quite old
+					checkpoint()
 					break
 				}
-				// update with PostBatchResumeToken on empty batch
-				// ref: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
-				checkpoint()
+				// when no events arrived in this batch, still advance offset to the PostBatchResumeToken.
+				// it's safe to persist to catalog since no records were handed off to the sync workflow,
+				// so there's no in-flight data we could skip past by advancing the offset.
+				checkpointToCatalog()
 				// DeadlineExceeded errors are deemed not recoverable/resumable, so we have to create a new change stream instance
 				if err := recreateChangeStream(false); err != nil {
 					return fmt.Errorf("failed to recreate change stream: %w", err)
