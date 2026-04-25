@@ -4,43 +4,10 @@ allow_k8s_contexts(k8s_context()) # to unblock local() in local set-ups with a K
 
 docker_compose('./docker-compose-dev.yml')
 
-flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
-
-docker_build('flow-api', '.',
-    dockerfile='stacks/flow.Dockerfile',
-    target='flow-api',
-    only=['flow/', 'stacks/flow.Dockerfile'],
-    ignore=flow_ignore,
-    build_args={'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
-)
-
-docker_build('flow-worker', '.',
-    dockerfile='stacks/flow.Dockerfile',
-    target='flow-worker',
-    only=['flow/', 'stacks/flow.Dockerfile'],
-    ignore=flow_ignore,
-)
-
-docker_build('flow-snapshot-worker', '.',
-    dockerfile='stacks/flow.Dockerfile',
-    target='flow-snapshot-worker',
-    only=['flow/', 'stacks/flow.Dockerfile'],
-    ignore=flow_ignore,
-)
-
-docker_build('peerdb', '.',
-    dockerfile='stacks/peerdb-server.Dockerfile',
-    only=['nexus/', 'protos/', 'scripts/', 'stacks/peerdb-server.Dockerfile'],
-    build_args={
-        'BUILD_MODE': 'debug',
-        'CARGO_FLAGS': '--no-default-features --features mysql',
-    },
-)
-
-docker_build('peerdb-ui', '.',
-    dockerfile='stacks/peerdb-ui.Dockerfile',
-    target='dev',
-    only=['ui/', 'stacks/peerdb-ui.Dockerfile', 'stacks/ui/'],
+local_resource(
+    'preflight',
+    cmd='./scripts/preflight-local-dev.sh',
+    labels=['Setup'],
 )
 
 local_resource(
@@ -50,23 +17,144 @@ local_resource(
     labels=['PeerDB'],
 )
 
-dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
-    link('http://localhost:3030', 'PeerDB UI'),
-])
-dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
-    link('http://localhost:8112', 'Flow API gRPC'),
-    link('http://localhost:8113', 'Flow API HTTP'),
-])
 dc_resource('temporal-ui', labels=['PeerDB'], links=[
     link('http://localhost:8085', 'Temporal UI'),
 ])
 dc_resource('catalog', labels=['PeerDB'])
 dc_resource('temporal', labels=['PeerDB'])
 dc_resource('temporal-admin-tools', labels=['PeerDB'])
-dc_resource('flow-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
-dc_resource('flow-snapshot-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
-dc_resource('peerdb', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('minio', labels=['PeerDB'])
+
+flow_env = ' '.join([
+    'PEERDB_CATALOG_HOST=localhost',
+    'PEERDB_CATALOG_PORT=9901',
+    'PEERDB_CATALOG_USER=postgres',
+    'PEERDB_CATALOG_PASSWORD=postgres',
+    'PEERDB_CATALOG_DATABASE=postgres',
+    # For Temporal Cloud, this will look like:
+    # <yournamespace>.<id>.tmprl.cloud:7233
+    'TEMPORAL_HOST_PORT=localhost:7233',
+    'PEERDB_TEMPORAL_NAMESPACE=default',
+    # For the below 2 cert and key variables,
+    # paste as base64 encoded strings.
+    'TEMPORAL_CLIENT_CERT=${TEMPORAL_CLIENT_CERT:-}',
+    'TEMPORAL_CLIENT_KEY=${TEMPORAL_CLIENT_KEY:-}',
+    # For GCS, these will be your HMAC keys instead
+    # For more information:
+    # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
+    'AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}',
+    'AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}',
+    # For GCS, set this to "auto" without the quotes
+    'AWS_REGION=${AWS_REGION:-}',
+    # For GCS, set this as: https://storage.googleapis.com
+    'AWS_ENDPOINT=${AWS_ENDPOINT:-}',
+    'PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID=_peerdb_minioadmin',
+    'PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY=_peerdb_minioadmin',
+    'PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION=us-east-1',
+    # ClickHouse runs in docker; it must reach minio via host-gateway alias.
+    'PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3=http://host.docker.internal:9001',
+    'PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME=peerdb',
+    'ENABLE_PROFILING=true',
+])
+
+flow_deps = ['flow/']
+flow_ignore = ['flow/e2e/', 'flow/**/*_test.go', 'flow/peer-flow']
+
+local_resource(
+    'flow-compile',
+    cmd='cd flow && go build -o peer-flow .',
+    deps=flow_deps,
+    ignore=flow_ignore,
+    resource_deps=['preflight', 'proto-gen'],
+    labels=['PeerDB'],
+    allow_parallel=True,
+)
+
+local_resource(
+    'flow-api',
+    serve_cmd='cd flow && %s PPROF_PORT=6061 ./peer-flow api --port 8112 --gateway-port 8113' % flow_env,
+    deps=['flow/peer-flow'],
+    resource_deps=['preflight', 'flow-compile', 'catalog', 'temporal-admin-tools'],
+    labels=['PeerDB'],
+    allow_parallel=True,
+    links=[
+        link('http://localhost:8112', 'Flow API gRPC'),
+        link('http://localhost:8113', 'Flow API HTTP'),
+    ],
+)
+
+local_resource(
+    'flow-worker',
+    serve_cmd='cd flow && %s PPROF_PORT=6062 ./peer-flow worker' % flow_env,
+    deps=['flow/peer-flow'],
+    resource_deps=['preflight', 'flow-compile', 'catalog', 'temporal-admin-tools'],
+    labels=['PeerDB'],
+    allow_parallel=True,
+)
+
+local_resource(
+    'flow-snapshot-worker',
+    serve_cmd='cd flow && %s PPROF_PORT=6063 ./peer-flow snapshot-worker' % flow_env,
+    deps=['flow/peer-flow'],
+    resource_deps=['preflight', 'flow-compile', 'catalog', 'temporal-admin-tools'],
+    labels=['PeerDB'],
+    allow_parallel=True,
+)
+
+peerdb_server_env = ' '.join([
+    'PEERDB_CATALOG_HOST=localhost',
+    'PEERDB_CATALOG_PORT=9901',
+    'PEERDB_CATALOG_USER=postgres',
+    'PEERDB_CATALOG_PASSWORD=postgres',
+    'PEERDB_CATALOG_DATABASE=postgres',
+    'PEERDB_PASSWORD=peerdb',
+    'PEERDB_FLOW_SERVER_ADDRESS=grpc://localhost:8112',
+    'RUST_LOG=info',
+    'RUST_BACKTRACE=1',
+])
+
+local_resource(
+    'peerdb',
+    serve_cmd='cd nexus && %s cargo run --bin peerdb-server --no-default-features --features mysql' % peerdb_server_env,
+    deps=['nexus/'],
+    ignore=['nexus/target/'],
+    resource_deps=['preflight', 'proto-gen', 'catalog', 'flow-api'],
+    labels=['PeerDB'],
+    allow_parallel=True,
+    links=[link('postgres://localhost:9900', 'PeerDB SQL')],
+)
+
+local_resource(
+    'peerdb-ui-deps',
+    cmd='cd ui && npm ci',
+    deps=['ui/package.json', 'ui/package-lock.json'],
+    labels=['PeerDB'],
+    resource_deps=['preflight'],
+    allow_parallel=True,
+)
+
+peerdb_ui_env = ' '.join([
+    'PEERDB_CATALOG_HOST=localhost',
+    'PEERDB_CATALOG_PORT=9901',
+    'PEERDB_CATALOG_USER=postgres',
+    'PEERDB_CATALOG_PASSWORD=postgres',
+    'PEERDB_CATALOG_DATABASE=postgres',
+    'PEERDB_FLOW_SERVER_HTTP=http://localhost:8113',
+    'PEERDB_PASSWORD=peerdb',
+    'NEXTAUTH_SECRET=__changeme__',
+    'NEXTAUTH_URL=http://localhost:3030',
+    'PEERDB_EXPERIMENTAL_ENABLE_SCRIPTING=true',
+    'PORT=3030',
+])
+
+local_resource(
+    'peerdb-ui',
+    serve_cmd='cd ui && %s npx next dev --webpack' % peerdb_ui_env,
+    resource_deps=['preflight', 'proto-gen', 'peerdb-ui-deps', 'flow-api'],
+    labels=['PeerDB'],
+    allow_parallel=True,
+    links=[link('http://localhost:3030', 'PeerDB UI')],
+)
 
 
 # Ancillary services
