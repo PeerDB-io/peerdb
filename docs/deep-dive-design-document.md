@@ -851,6 +851,8 @@ PG Source → QValue (intermediate) → type mapping → Destination types
 
 6. **SSH handshake protection** (`ssh_wrapped_conn.go`): Body length limited during initial handshake to prevent crash from misbehaved TCP endpoints that send random bytes.
 
+7.**MongoDB password escape character quirk**: MongoDB credentials containing backslash characters (`\`) may be interpreted differently during user creation and authentication due to string escaping rules. For example, a password defined as `ab\\c` may be interpreted and authenticated as `ab\c`. Similarly, sequences such as `\n`, `\t`, or `\c` may be treated as escape sequences during user creation, leading to inconsistencies between the stored password and the authentication input. This can cause authentication mismatches when configuring MongoDB peers in PeerDB. Users must ensure consistent escaping when creating MongoDB users and providing credentials in connection configurations.
+
 ### 9.2 Idempotency Requirements
 
 Several connector methods are documented as requiring idempotency (`core.go`):
