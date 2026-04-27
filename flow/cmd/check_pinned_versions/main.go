@@ -17,6 +17,7 @@ import (
 // To update a pinned dependency, change both go.mod AND this map.
 var pinnedVersions = map[string]string{
 	"cloud.google.com/go/bigquery":                    "v1.72.0",
+	"cloud.google.com/go/kms":                         "v1.24.0",
 	"cloud.google.com/go/pubsub/v2":                   "v2.3.0",
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager": "v1.21.0",
 	"google.golang.org/api":                           "v0.257.0",
