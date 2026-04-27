@@ -131,7 +131,7 @@ async fn gcp_kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::R
         .decode(plaintext_b64)
         .context("failed to decode GCP KMS plaintext")?;
 
-    Ok(String::from_utf8(plaintext).context("GCP KMS plaintext is not valid UTF-8")?)
+    String::from_utf8(plaintext).context("GCP KMS plaintext is not valid UTF-8")
 }
 
 #[cfg(not(feature = "gcp"))]
