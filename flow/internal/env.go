@@ -105,7 +105,7 @@ func decryptWithAwsKms(ctx context.Context, data []byte, keyID string) ([]byte, 
 func decryptWithGcpKms(ctx context.Context, data []byte, keyID string) ([]byte, error) {
 	// Get access token from GKE Workload Identity metadata server
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", nil)
+		"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metadata request: %w", err)
 	}
