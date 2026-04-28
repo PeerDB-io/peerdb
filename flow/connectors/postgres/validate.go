@@ -14,7 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	pg_validation "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -295,7 +295,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 		}
 
 		// Get destination table columns with types
-		dstColumns, err := pg_validation.GetDestinationTableSchema(ctx, c.conn, dstTableIdentifier)
+		dstColumns, err := pkg_pg.GetDestinationTableSchema(ctx, c.conn, dstTableIdentifier)
 		if err != nil {
 			// If table doesn't exist, check that the schema does before continuing
 			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "does not exist") {
@@ -304,7 +304,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 					return fmt.Errorf("invalid destination table identifier %s: %w", dstTableIdentifier, parseErr)
 				}
 				if _, alreadyChecked := checkedSchemas[parsedDst.Namespace]; !alreadyChecked {
-					if schemaErr := pg_validation.CheckSchemaExists(ctx, c.conn, parsedDst.Namespace); schemaErr != nil {
+					if schemaErr := pkg_pg.CheckSchemaExists(ctx, c.conn, parsedDst.Namespace); schemaErr != nil {
 						return schemaErr
 					}
 					checkedSchemas[parsedDst.Namespace] = struct{}{}
@@ -316,7 +316,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 
 		if cfg.DoInitialSnapshot {
 			// Check if destination table already has rows
-			if err := pg_validation.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
+			if err := pkg_pg.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
 				return err
 			}
 		}
@@ -331,24 +331,24 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 			}
 
 			// Resolve rename if present
-			columnMappings := make([]pg_validation.ColumnMapping, 0, len(tableMapping.Columns))
+			columnMappings := make([]pkg_pg.ColumnMapping, 0, len(tableMapping.Columns))
 			for _, col := range tableMapping.Columns {
-				columnMappings = append(columnMappings, pg_validation.ColumnMapping{
+				columnMappings = append(columnMappings, pkg_pg.ColumnMapping{
 					SourceName:      col.SourceName,
 					DestinationName: col.DestinationName,
 				})
 			}
-			colName = pg_validation.ResolveDestinationColumnName(colName, columnMappings)
+			colName = pkg_pg.ResolveDestinationColumnName(colName, columnMappings)
 
 			// Check if the column exists in destination
-			if err := pg_validation.CheckColumnExists(srcField.Name, colName, dstColumns, dstTableIdentifier); err != nil {
+			if err := pkg_pg.CheckColumnExists(srcField.Name, colName, dstColumns, dstTableIdentifier); err != nil {
 				return err
 			}
 
 			// Check type compatibility when using the PG type system
 			if cfg.System == protos.TypeSystem_PG {
 				dstCol := dstColumns[colName]
-				if err := pg_validation.CheckColumnTypeCompatibility(
+				if err := pkg_pg.CheckColumnTypeCompatibility(
 					srcField.Name, srcField.Type, srcField.TypeModifier,
 					colName, dstCol.TypeName, dstCol.TypeMod,
 					dstTableIdentifier,

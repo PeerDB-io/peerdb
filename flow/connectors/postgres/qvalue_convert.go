@@ -17,19 +17,16 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	pg_validation "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping map[uint32]shared.CustomDataType) (string, error) {
-	return pg_validation.OIDToName(c.typeMap, recvOID, customTypeMapping)
-}
-
 func (c *PostgresConnector) postgresOIDToQValueKind(
 	recvOID uint32,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	version uint32,
 ) types.QValueKind {
 	colType, err := PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, version)
@@ -378,7 +375,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	nullable bool,
 	dstType protos.DBType,
 	value any,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	version uint32,
 ) (types.QValue, error) {
 	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping, version)
@@ -572,7 +569,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 					return types.QValueNumeric{}, nil
 				}
 			}
-			precision, scale := datatypes.ParseNumericTypmod(typmod)
+			precision, scale := common.ParseNumericTypmod(typmod)
 			return types.QValueNumeric{
 				Val:       num,
 				Precision: precision,
@@ -712,7 +709,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 				}
 			}
 			if allValid {
-				precision, scale := datatypes.ParseNumericTypmod(typmod)
+				precision, scale := common.ParseNumericTypmod(typmod)
 				return types.QValueArrayNumeric{
 					Val:       numArr,
 					Precision: precision,

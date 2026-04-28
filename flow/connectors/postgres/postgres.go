@@ -31,8 +31,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -45,7 +45,7 @@ type ReplState struct {
 
 type PostgresConnector struct {
 	logger                 log.Logger
-	customTypeMapping      map[uint32]shared.CustomDataType
+	customTypeMapping      map[uint32]pkg_pg.CustomDataType
 	ssh                    *utils.SSHTunnel
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
@@ -174,9 +174,9 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 	return connConfig, nil
 }
 
-func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]shared.CustomDataType, error) {
+func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]pkg_pg.CustomDataType, error) {
 	if c.customTypeMapping == nil {
-		customTypeMapping, err := shared.GetCustomDataTypes(ctx, c.conn)
+		customTypeMapping, err := pkg_pg.GetCustomDataTypes(ctx, c.conn)
 		if err != nil {
 			return nil, err
 		}
@@ -1212,7 +1212,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		var err error
 		switch system {
 		case protos.TypeSystem_PG:
-			colType, err = c.postgresOIDToName(fieldDescription.DataTypeOID, customTypeMapping)
+			colType, err = pkg_pg.OIDToName(c.typeMap, fieldDescription.DataTypeOID, customTypeMapping)
 		case protos.TypeSystem_Q:
 			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID, customTypeMapping, version)
 			colType = string(qColType)
@@ -1343,7 +1343,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 			}
 
 			if strings.EqualFold(columnType, "numeric") && addedColumn.TypeModifier != -1 {
-				precision, scale := numeric.ParseNumericTypmod(addedColumn.TypeModifier)
+				precision, scale := common.ParseNumericTypmod(addedColumn.TypeModifier)
 				columnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 			} else if schemaDelta.System == protos.TypeSystem_PG && addedColumn.TypeSchemaName != "" {
 				schemaQualifiedType := common.QualifiedTable{
