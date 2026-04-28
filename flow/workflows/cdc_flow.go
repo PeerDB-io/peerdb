@@ -594,7 +594,7 @@ func CDCFlowWorkflow(
 		if cfg.Resync {
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-					mapping.DestinationTableIdentifier += "_resync"
+					mapping.DestinationTableIdentifier += "_RESYNC"
 				}
 			}
 			// because we have renamed the tables.
@@ -727,7 +727,7 @@ func CDCFlowWorkflow(
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
 					oldName := mapping.DestinationTableIdentifier
-					newName := strings.TrimSuffix(oldName, "_resync")
+					newName := strings.TrimSuffix(oldName, "_RESYNC")
 					renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
 						CurrentName: oldName,
 						NewName:     newName,
