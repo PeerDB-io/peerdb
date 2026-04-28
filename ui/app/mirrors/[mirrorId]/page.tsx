@@ -1,122 +1,32 @@
-'use client';
-import { FormatStatus } from '@/app/utils/flowstatus';
-import MirrorActions from '@/components/MirrorActionsDropdown';
-import { FlowStatus } from '@/grpc_generated/flow';
-import { DBType, dBTypeFromJSON } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
-import { Badge } from '@/lib/Badge';
-import { Header } from '@/lib/Header';
-import { Label } from '@/lib/Label';
-import { LayoutMain } from '@/lib/Layout';
-import React, { useCallback, useEffect, useState } from 'react';
-import { CDCMirror } from './cdc';
-import { getMirrorState } from './handlers';
-import NoMirror from './nomirror';
-import QrepGraph from './qrepGraph';
-import QRepStatusButtons from './qrepStatusButtons';
-import QRepStatusTable from './qrepStatusTable';
-import SyncStatus from './syncStatus';
+import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import ViewMirror from './ViewMirror';
 
-type ViewMirrorProps = {
+async function getMirrorState(
+  flowJobName: string
+): Promise<MirrorStatusResponse> {
+  const addr = GetFlowHttpAddressFromEnv();
+  const res = await fetch(`${addr}/v1/mirrors/status`, {
+    method: 'POST',
+    cache: 'no-store',
+    body: JSON.stringify({
+      flow_job_name: flowJobName,
+      include_flow_info: true,
+      exclude_batches: true,
+    }),
+  });
+  if (!res.ok) throw new Error('Mirror not found');
+  return res.json();
+}
+
+type Props = {
   params: Promise<{ mirrorId: string }>;
 };
 
-export default function ViewMirror({ params }: ViewMirrorProps) {
-  const { mirrorId } = React.use(params);
-  const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
-  const [errorMessage, setErrorMessage] = useState('');
-  const [mounted, setMounted] = useState(false);
-
-  const fetchState = useCallback(async () => {
-    setMounted(true);
-    try {
-      const res = await getMirrorState(mirrorId);
-      setMirrorState(res);
-    } catch (ex: any) {
-      setErrorMessage(ex.message);
-    }
-  }, [mirrorId]);
-  useEffect(() => {
-    fetchState();
-  }, [fetchState]);
-
-  if (!mounted) {
-    return <></>;
-  }
-
-  if (errorMessage) {
-    return <NoMirror />;
-  }
-
-  let syncStatusChild = null;
-  let actionsDropdown = null;
-
-  if (mirrorState?.cdcStatus) {
-    syncStatusChild = <SyncStatus flowJobName={mirrorId} />;
-
-    const dbType = dBTypeFromJSON(mirrorState.cdcStatus.destinationType);
-
-    const isNotPaused =
-      mirrorState.currentFlowState.toString() !==
-      FlowStatus[FlowStatus.STATUS_PAUSED];
-    const canResync =
-      mirrorState.currentFlowState.toString() !==
-        FlowStatus[FlowStatus.STATUS_SETUP] &&
-      (dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
-        dbType.valueOf() === DBType.SNOWFLAKE.valueOf() ||
-        dbType.valueOf() === DBType.POSTGRES.valueOf() ||
-        dbType.valueOf() === DBType.CLICKHOUSE.valueOf());
-
-    actionsDropdown = (
-      <MirrorActions
-        mirrorName={mirrorId}
-        editLink={`/mirrors/${mirrorId}/edit`}
-        canResync={canResync}
-        isNotPaused={isNotPaused}
-      />
-    );
-
-    return (
-      <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingRight: '2rem',
-          }}
-        >
-          <Header variant='title2'>{mirrorId}</Header>
-          {actionsDropdown}
-        </div>
-        <CDCMirror syncStatusChild={syncStatusChild} status={mirrorState} />
-      </LayoutMain>
-    );
-  } else if (mirrorState?.qrepStatus) {
-    return (
-      <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingRight: '2rem',
-            marginBottom: '1rem',
-          }}
-        >
-          <Header variant='title2'>{mirrorId}</Header>
-          <QRepStatusButtons mirrorId={mirrorId} />
-        </div>
-        <Label>
-          Status: <Badge>{FormatStatus(mirrorState.currentFlowState)}</Badge>
-        </Label>
-        <QrepGraph syncs={mirrorState.qrepStatus.partitions} />
-        <br></br>
-        <QRepStatusTable
-          flowJobName={mirrorId}
-          partitions={mirrorState.qrepStatus.partitions}
-        />
-      </LayoutMain>
-    );
-  }
+export default async function ViewMirrorPage({ params }: Props) {
+  const { mirrorId } = await params;
+  const mirrorStatePromise = getMirrorState(mirrorId);
+  return (
+    <ViewMirror mirrorId={mirrorId} mirrorStatePromise={mirrorStatePromise} />
+  );
 }
