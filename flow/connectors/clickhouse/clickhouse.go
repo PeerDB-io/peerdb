@@ -331,7 +331,7 @@ func buildTLSConfig(config *protos.ClickhouseConfig) (*tls.Config, error) {
 		}
 	}
 
-	if len(tlsConfig.Certificates) == 0 {
+	if len(tlsConfig.Certificates) == 0 && tlsConfig.GetClientCertificate == nil {
 		return nil, fmt.Errorf("TLS is enabled but it was not possible to configure it")
 	}
 
