@@ -327,6 +327,17 @@ func configureDirectoryTLS(tlsConfig *tls.Config, dir string) error {
 		return fmt.Errorf("failed to read TLS private key from %q: %w", keyPath, err)
 	}
 
+	// Load CA certificate upfront — RootCAs must be set before the TLS
+	// handshake so the server certificate can be verified.
+	caCertPEM, err := os.ReadFile(caPath)
+	if err == nil && len(caCertPEM) > 0 {
+		caPool := x509.NewCertPool()
+		if !caPool.AppendCertsFromPEM(caCertPEM) {
+			return fmt.Errorf("failed to parse CA certificate from %q", caPath)
+		}
+		tlsConfig.RootCAs = caPool
+	}
+
 	// Use GetClientCertificate so the cert/key are re-read on every TLS
 	// handshake, ensuring rotated certificates are picked up immediately.
 	tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
@@ -342,16 +353,6 @@ func configureDirectoryTLS(tlsConfig *tls.Config, dir string) error {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse TLS certificate from directory %q: %w", dir, err)
 		}
-
-		caCertPEM, err := os.ReadFile(caPath)
-		if err == nil && len(caCertPEM) > 0 {
-			caPool := x509.NewCertPool()
-			if !caPool.AppendCertsFromPEM(caCertPEM) {
-				return nil, fmt.Errorf("failed to parse CA certificate from %q", caPath)
-			}
-			tlsConfig.RootCAs = caPool
-		}
-
 		return &cert, nil
 	}
 
