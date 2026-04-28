@@ -32,10 +32,23 @@ mod embedded {
 pub struct Catalog {
     pg: Client,
     kms_key_id: Option<Arc<String>>,
+    kms_provider: String,
+}
+
+pub async fn kms_decrypt(
+    encrypted_payload: &str,
+    kms_key_id: &str,
+    kms_provider: &str,
+) -> anyhow::Result<String> {
+    match kms_provider {
+        "gcp" => gcp_kms_decrypt(encrypted_payload, kms_key_id).await,
+        "aws" | "" => aws_kms_decrypt(encrypted_payload, kms_key_id).await,
+        other => Err(anyhow!("unsupported KMS provider: {}", other)),
+    }
 }
 
 #[cfg(feature = "aws")]
-pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
+async fn aws_kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
     let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
     let config = aws_config::defaults(BehaviorVersion::v2026_01_12())
         .region(region_provider)
@@ -61,8 +74,69 @@ pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::R
 }
 
 #[cfg(not(feature = "aws"))]
-pub async fn kms_decrypt(_encrypted_payload: &str, _kms_key_id: &str) -> anyhow::Result<String> {
+async fn aws_kms_decrypt(_encrypted_payload: &str, _kms_key_id: &str) -> anyhow::Result<String> {
     Err(anyhow::anyhow!("AWS KMS support not compiled in"))
+}
+
+#[cfg(feature = "gcp")]
+async fn gcp_kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
+    // kms_key_id is the full GCP resource name:
+    // projects/PROJECT/locations/LOCATION/keyRings/RING/cryptoKeys/KEY
+
+    // Get access token from GKE Workload Identity metadata server
+    let token = reqwest::Client::new()
+        .get("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token")
+        .header("Metadata-Flavor", "Google")
+        .send()
+        .await
+        .context("failed to get GCP access token from metadata server")?
+        .json::<serde_json::Value>()
+        .await
+        .context("failed to parse GCP token response")?;
+
+    let access_token = token["access_token"]
+        .as_str()
+        .ok_or_else(|| anyhow!("no access_token in metadata response"))?;
+
+    // Call Cloud KMS decrypt API
+    let url = format!(
+        "https://cloudkms.googleapis.com/v1/{}:decrypt",
+        kms_key_id
+    );
+
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(access_token)
+        .json(&serde_json::json!({ "ciphertext": encrypted_payload }))
+        .send()
+        .await
+        .context("failed to call GCP KMS decrypt API")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("GCP KMS decrypt failed ({}): {}", status, body));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .context("failed to parse GCP KMS decrypt response")?;
+
+    let plaintext_b64 = body["plaintext"]
+        .as_str()
+        .ok_or_else(|| anyhow!("no plaintext in GCP KMS response"))?;
+
+    let plaintext = BASE64_STANDARD
+        .decode(plaintext_b64)
+        .context("failed to decode GCP KMS plaintext")?;
+
+    String::from_utf8(plaintext).context("GCP KMS plaintext is not valid UTF-8")
+}
+
+#[cfg(not(feature = "gcp"))]
+async fn gcp_kms_decrypt(_encrypted_payload: &str, _kms_key_id: &str) -> anyhow::Result<String> {
+    Err(anyhow::anyhow!("GCP KMS support not compiled in"))
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
@@ -117,11 +191,13 @@ impl Catalog {
     pub async fn new(
         pt_config: pt::peerdb_peers::PostgresConfig,
         kms_key_id: &Option<Arc<String>>,
+        kms_provider: &str,
     ) -> anyhow::Result<Self> {
         let (pg, _) = connect_postgres(&pt_config).await?;
         Ok(Self {
             pg,
             kms_key_id: kms_key_id.clone(),
+            kms_provider: kms_provider.to_string(),
         })
     }
 
@@ -133,7 +209,7 @@ impl Catalog {
         let mut enc_keys = env::var("PEERDB_ENC_KEYS")?;
 
         if let Some(kms_key_id) = &self.kms_key_id {
-            enc_keys = kms_decrypt(&enc_keys, kms_key_id.as_ref()).await?;
+            enc_keys = kms_decrypt(&enc_keys, kms_key_id.as_ref(), &self.kms_provider).await?;
         }
 
         // TODO use serde derive

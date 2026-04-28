@@ -6,13 +6,15 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["aws"]
+default = ["aws", "gcp"]
 aws = ["dep:aws-config", "dep:aws-sdk-kms"]
+gcp = ["dep:reqwest"]
 
 [dependencies]
 anyhow = "1"
 aws-config = { version = "1", optional = true }
 aws-sdk-kms = { version = "1", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 async-trait = "0.1"
 base64 = "0.22"
 chacha20poly1305 = { version = "0.11.0-rc.1", default-features = false, features = ["alloc"] }
