@@ -1740,6 +1740,8 @@ func (c *PostgresConnector) HandleSlotInfo(
 				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
 			)),
 		)
+		logger.Info(fmt.Sprintf("Checking normalize interval for %s", alertKeys.FlowName),
+			slog.String("intervalSinceLastNormalize", intervalSinceLastNormalize.String()))
 		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
 	}
 
