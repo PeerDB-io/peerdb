@@ -1767,11 +1767,8 @@ type ClickhouseConfig struct {
 	S3              *S3Config              `protobuf:"bytes,16,opt,name=s3,proto3,oneof" json:"s3,omitempty"`
 	Cluster         string                 `protobuf:"bytes,17,opt,name=cluster,proto3" json:"cluster,omitempty"`
 	Replicated      bool                   `protobuf:"varint,18,opt,name=replicated,proto3" json:"replicated,omitempty"`
-	// Directory path containing TLS certificate files (tls.crt, tls.key, and optionally ca.crt).
-	// Typically a Kubernetes Secret mounted as a volume. When set, takes precedence over inline cert fields.
-	TlsCertificateDirectory *string `protobuf:"bytes,19,opt,name=tls_certificate_directory,json=tlsCertificateDirectory,proto3,oneof" json:"tls_certificate_directory,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ClickhouseConfig) Reset() {
@@ -1928,13 +1925,6 @@ func (x *ClickhouseConfig) GetReplicated() bool {
 		return x.Replicated
 	}
 	return false
-}
-
-func (x *ClickhouseConfig) GetTlsCertificateDirectory() string {
-	if x != nil && x.TlsCertificateDirectory != nil {
-		return *x.TlsCertificateDirectory
-	}
-	return ""
 }
 
 type SqlServerConfig struct {
@@ -2783,7 +2773,7 @@ const file_peers_proto_rawDesc = "" +
 	"\a_regionB\v\n" +
 	"\t_endpointB\n" +
 	"\n" +
-	"\b_root_ca\"\xff\x05\n" +
+	"\b_root_ca\"\xa0\x05\n" +
 	"\x10ClickhouseConfig\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x12\n" +
@@ -2807,15 +2797,13 @@ const file_peers_proto_rawDesc = "" +
 	"\acluster\x18\x11 \x01(\tR\acluster\x12\x1e\n" +
 	"\n" +
 	"replicated\x18\x12 \x01(\bR\n" +
-	"replicated\x12?\n" +
-	"\x19tls_certificate_directory\x18\x13 \x01(\tH\x05R\x17tlsCertificateDirectory\x88\x01\x01B\v\n" +
+	"replicatedB\v\n" +
 	"\t_endpointB\x0e\n" +
 	"\f_certificateB\x0e\n" +
 	"\f_private_keyB\n" +
 	"\n" +
 	"\b_root_caB\x05\n" +
-	"\x03_s3B\x1c\n" +
-	"\x1a_tls_certificate_directory\"\x90\x01\n" +
+	"\x03_s3\"\x90\x01\n" +
 	"\x0fSqlServerConfig\x12\x16\n" +
 	"\x06server\x18\x01 \x01(\tR\x06server\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x12\n" +
