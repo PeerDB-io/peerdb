@@ -30,6 +30,22 @@
       "matchUpdateTypes": ["pinDigest"],
       "matchFileNames": ["docker-compose.yml"],
       "enabled": false
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/pingcap/tidb",
+        "github.com/pingcap/tidb/pkg/parser",
+        "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+      ],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/PeerDB-io/peerdb/flow/generated/**"
+      ],
+      "enabled": false
     }
   ],
   "vulnerabilityAlerts": {
