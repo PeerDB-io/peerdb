@@ -16,8 +16,9 @@ docker_build('flow-api', '.',
 
 docker_build('flow-worker', '.',
     dockerfile='stacks/flow.Dockerfile',
-    target='flow-worker',
+    target='flow-worker-debug',
     only=['flow/', 'stacks/flow.Dockerfile'],
+    build_args={'DEBUG_BUILD':'1'},
     ignore=flow_ignore,
 )
 
