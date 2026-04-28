@@ -97,7 +97,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 
 func (c *ClickHouseConnector) avroSyncMethod(flowJobName string, env map[string]string, version uint32) *ClickHouseAvroSyncMethod {
 	qrepConfig := &protos.QRepConfig{
-		StagingPath:                c.credsProvider.BucketPath,
+		StagingPath:                c.staging.BucketPath(),
 		FlowJobName:                flowJobName,
 		DestinationTableIdentifier: c.GetRawTableName(flowJobName),
 		Env:                        env,

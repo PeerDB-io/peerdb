@@ -37,43 +37,12 @@ func NewClickHouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, avroFilePath string) (string, error) {
-	stagingPath := s.credsProvider.BucketPath
-	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
-	if err != nil {
-		return "", err
-	}
-
-	endpoint := s.credsProvider.Provider.GetEndpointURL()
-	region := s.credsProvider.Provider.GetRegion()
-	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFilePath)
-	creds, err := s.credsProvider.Provider.Retrieve(ctx)
-	if err != nil {
-		return "", err
-	}
-	if creds.AWS.CanExpire {
-		s.logger.Info("Retrieved Temporary AWS credentials",
-			slog.Time("expiryTimestamp", creds.AWS.Expires),
-			slog.Duration("duration", time.Until(creds.AWS.Expires)))
-	}
-
-	var expr strings.Builder
-	expr.WriteString("s3(")
-	expr.WriteString(peerdb_clickhouse.QuoteLiteral(avroFileUrl))
-	expr.WriteByte(',')
-	expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.AccessKeyID))
-	expr.WriteByte(',')
-	expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.SecretAccessKey))
-	if creds.AWS.SessionToken != "" {
-		expr.WriteByte(',')
-		expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.SessionToken))
-	}
-	expr.WriteString(",'Avro')")
-	return expr.String(), nil
+func (s *ClickHouseAvroSyncMethod) stagingTableFunctionBuilder(ctx context.Context, avroFilePath string) (string, error) {
+	return s.staging.TableFunctionExpr(ctx, avroFilePath, "Avro")
 }
 
 func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile utils.AvroFile) error {
-	s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
+	s3TableFunction, err := s.stagingTableFunctionBuilder(ctx, avroFile.FilePath)
 	if err != nil {
 		s.logger.Error("failed to build S3 table function",
 			slog.String("avroFilePath", avroFile.FilePath),
@@ -307,7 +276,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 
 		for i := range numParts {
 			// Get fresh credentials for each part
-			s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
+			s3TableFunction, err := s.stagingTableFunctionBuilder(ctx, avroFile.FilePath)
 			if err != nil {
 				s.logger.Error("failed to build S3 table function",
 					slog.String("avroFilePath", avroFile.FilePath),
@@ -393,30 +362,27 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
-	stagingPath := s.credsProvider.BucketPath
 	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE, sizeTracker)
-	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
-	if err != nil {
-		return utils.AvroFile{}, fmt.Errorf("failed to parse staging path: %w", err)
-	}
+	prefix := s.staging.KeyPrefix()
 
-	s3UuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, s.config.Env)
+	uuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, s.config.Env)
 	if err != nil {
 		return utils.AvroFile{}, err
 	}
 
-	var s3AvroFileKey string
-	if s3UuidPrefix {
-		s3AvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", s3o.Prefix, uuid.NewString(), flowJobName, identifierForFile)
+	var avroFileKey string
+	if uuidPrefix {
+		avroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", prefix, uuid.NewString(), flowJobName, identifierForFile)
 	} else {
-		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
+		avroFileKey = fmt.Sprintf("%s/%s/%s.avro", prefix, flowJobName, identifierForFile)
 	}
-	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
-	avroFile, err := ocfWriter.WriteRecordsToS3(
-		ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, typeConversions, numericTruncator,
+	avroFileKey = strings.TrimLeft(avroFileKey, "/")
+
+	avroFile, err := ocfWriter.WriteRecordsToStaging(
+		ctx, env, s.staging, avroFileKey, typeConversions, numericTruncator,
 	)
 	if err != nil {
-		return utils.AvroFile{}, fmt.Errorf("failed to write records to S3: %w", err)
+		return utils.AvroFile{}, fmt.Errorf("failed to write records to staging: %w", err)
 	}
 
 	return avroFile, nil
