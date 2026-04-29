@@ -36,6 +36,27 @@ type ChangeEvent struct {
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
+type createChangeStreamFn func(
+	ctx context.Context, pipeline mongo.Pipeline, opts ...options.Lister[options.ChangeStreamOptions],
+) (ChangeStream, error)
+
+// ChangeStream is defined as an interface, allowing tests inject mock change stream.
+type ChangeStream interface {
+	Next(ctx context.Context) bool
+	ResumeToken() bson.Raw
+	Err() error
+	Close(ctx context.Context) error
+	Current() bson.Raw
+}
+
+type changeStreamWrapper struct {
+	*mongo.ChangeStream
+}
+
+func (w *changeStreamWrapper) Current() bson.Raw {
+	return w.ChangeStream.Current
+}
+
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
 	_ map[string]string,
@@ -87,7 +108,7 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to create changestream pipeline: %w", err)
 	}
-	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
+	changeStream, err := c.createChangeStream(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
 	}
@@ -106,7 +127,7 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 			}
 		}
 	}
-	err = c.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
+	err = c.metadataStore.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
 		Text: base64.StdEncoding.EncodeToString(resumeToken),
 	})
 	if err != nil {
@@ -161,7 +182,7 @@ func (c *MongoConnector) PullRecords(
 		return err
 	}
 
-	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
+	changeStream, err := c.createChangeStream(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		if isResumeTokenNotFoundError(err) && resumeToken != nil {
 			timestamp, err := decodeTimestampFromResumeToken(resumeToken)
@@ -170,7 +191,7 @@ func (c *MongoConnector) PullRecords(
 			}
 			changeStreamOpts.SetStartAtOperationTime(&timestamp)
 			changeStreamOpts.SetResumeAfter(nil)
-			changeStream, err = c.client.Watch(ctx, pipeline, changeStreamOpts)
+			changeStream, err = c.createChangeStream(ctx, pipeline, changeStreamOpts)
 			if err != nil {
 				return fmt.Errorf("failed to recreate change stream: %w", err)
 			}
@@ -315,7 +336,7 @@ func (c *MongoConnector) PullRecords(
 			changeStreamOpts.SetStartAtOperationTime(nil)
 		}
 
-		changeStream, err = c.client.Watch(ctx, pipeline, changeStreamOpts)
+		changeStream, err = c.createChangeStream(ctx, pipeline, changeStreamOpts)
 		if err != nil {
 			return err
 		}
@@ -360,12 +381,13 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("change stream error: %w", err)
 		}
 
-		changeEventSize := int64(len(changeStream.Current))
+		current := changeStream.Current()
+		changeEventSize := int64(len(current))
 		deltaBytesProcessed.Add(changeEventSize)
 		cumulativeBytesProcessed.Add(changeEventSize)
 
 		var changeEvent ChangeEvent
-		if err := bson.Unmarshal(changeStream.Current, &changeEvent); err != nil {
+		if err := bson.Unmarshal(current, &changeEvent); err != nil {
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 
