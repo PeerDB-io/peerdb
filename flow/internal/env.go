@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	gcpkms "cloud.google.com/go/kms/apiv1"
+	gcpkmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -17,7 +19,8 @@ import (
 )
 
 const (
-	KmsKeyIDEnvVar = "PEERDB_KMS_KEY_ID"
+	KmsKeyIDEnvVar    = "PEERDB_KMS_KEY_ID"
+	KmsProviderEnvVar = "PEERDB_KMS_PROVIDER"
 )
 
 // getEnvUint returns the value of the environment variable with the given name
@@ -71,6 +74,16 @@ func decryptWithKms(ctx context.Context, data []byte) ([]byte, error) {
 		return data, nil
 	}
 
+	provider := GetEnvString(KmsProviderEnvVar, "aws")
+	switch provider {
+	case "gcp":
+		return decryptWithGcpKms(ctx, data, keyID)
+	default:
+		return decryptWithAwsKms(ctx, data, keyID)
+	}
+}
+
+func decryptWithAwsKms(ctx context.Context, data []byte, keyID string) ([]byte, error) {
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
@@ -86,6 +99,24 @@ func decryptWithKms(ctx context.Context, data []byte) ([]byte, error) {
 	}
 
 	return decrypted.Plaintext, nil
+}
+
+func decryptWithGcpKms(ctx context.Context, data []byte, keyID string) ([]byte, error) {
+	client, err := gcpkms.NewKeyManagementClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCP KMS client: %w", err)
+	}
+	defer client.Close()
+
+	resp, err := client.Decrypt(ctx, &gcpkmspb.DecryptRequest{
+		Name:       keyID,
+		Ciphertext: data,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt with GCP KMS: %w", err)
+	}
+
+	return resp.Plaintext, nil
 }
 
 var kmsCache sync.Map
