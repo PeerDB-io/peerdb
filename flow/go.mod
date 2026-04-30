@@ -30,7 +30,7 @@ require (
 	github.com/aws/smithy-go v1.24.2
 	github.com/cockroachdb/pebble/v2 v2.1.4
 	github.com/elastic/go-elasticsearch/v8 v8.19.3
-	github.com/go-mysql-org/go-mysql v1.14.0
+	github.com/go-mysql-org/go-mysql v1.14.1-0.20260408074128-d0b04ca1a7f0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0
 	github.com/hamba/avro/v2 v2.31.0
@@ -288,7 +288,7 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260330182312-d5a96adf58d8 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260330182312-d5a96adf58d8
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect

@@ -92,14 +92,15 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 			d DATE NOT NULL,
 			dt DATETIME NOT NULL,
 			tm TIMESTAMP(6) NOT NULL,
-			t TIME NOT NULL
+			t TIME NOT NULL,
+			y YEAR NOT NULL
 		)
 	`, quotedSrcFullName)))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t) VALUES
-		('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321'),
-		('init','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00'),
-		('init','2000-01-00','2000-00-01 00:00:00','2000-01-01 00:00:00.000','-800:0:1')`,
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t,y) VALUES
+		('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321',1935),
+		('init','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00',0),
+		('init','2000-01-00','2000-00-01 00:00:00','2000-01-01 00:00:00.000','-800:0:1',2155)`,
 		quotedSrcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -114,15 +115,15 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t,y")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t) VALUES
-		('cdc','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321'),
-		('cdc','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00'),
-		('cdc','2000-01-00','2000-00-01 00:00:00','2000-01-01 00:00:00.000','-800:0:1')`,
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t,y) VALUES
+		('cdc','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321',1935),
+		('cdc','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00',0),
+		('cdc','2000-01-00','2000-00-01 00:00:00','2000-01-01 00:00:00.000','-800:0:1',2155)`,
 		quotedSrcFullName)))
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t,y")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
