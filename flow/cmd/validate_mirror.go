@@ -36,11 +36,11 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
 	if req.ConnectionConfigs != nil {
-		if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env); err != nil {
+		settings, err := internal.LoadSettings(ctx, req.ConnectionConfigs.Env)
+		if err != nil {
 			return nil, NewInternalApiError(err)
-		} else {
-			req.ConnectionConfigs.Version = internalVersion
 		}
+		req.ConnectionConfigs.Version = settings.ForceInternalVersion
 	}
 	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
 	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
@@ -102,8 +102,12 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 		}
 	}
 
+	settings, err := internal.LoadSettings(ctx, connectionConfigs.Env)
+	if err != nil {
+		return nil, NewInternalApiError(err)
+	}
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.MirrorSourceValidationConnector](
-		ctx, connectionConfigs.Env, h.pool, connectionConfigs.SourceName,
+		ctx, settings, h.pool, connectionConfigs.SourceName,
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -131,7 +135,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
-		ctx, connectionConfigs.Env, h.pool, connectionConfigs.DestinationName,
+		ctx, settings, h.pool, connectionConfigs.DestinationName,
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -144,13 +148,13 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	var tableSchemaMap map[string]*protos.TableSchema
 	if !connectionConfigs.Resync {
 		var getTableSchemaError error
-		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, connectionConfigs.Env, connectionConfigs.Version,
+		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, settings, connectionConfigs.Version,
 			connectionConfigs.System, connectionConfigs.TableMappings)
 		if getTableSchemaError != nil {
 			return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get source table schema: %w", getTableSchemaError))
 		}
 	}
-	if err := dstConn.ValidateMirrorDestination(ctx, connectionConfigs, tableSchemaMap); err != nil {
+	if err := dstConn.ValidateMirrorDestination(ctx, settings, connectionConfigs, tableSchemaMap); err != nil {
 		return nil, NewFailedPreconditionApiError(
 			fmt.Errorf("failed to validate destination connector %s: %w", connectionConfigs.DestinationName, err))
 	}
@@ -174,7 +178,11 @@ func (h *FlowRequestHandler) checkFlagsCompatibility(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigsCore,
 ) APIError {
-	newFlags, err := h.determineFlags(ctx, cfg.Env, cfg.DestinationName)
+	cfgSettings, err := internal.LoadSettings(ctx, cfg.Env)
+	if err != nil {
+		return NewInternalApiError(err)
+	}
+	newFlags, err := h.determineFlags(ctx, cfgSettings, cfg.DestinationName)
 	if err != nil {
 		return NewInternalApiError(fmt.Errorf("failed to determine destination flags: %w", err))
 	}

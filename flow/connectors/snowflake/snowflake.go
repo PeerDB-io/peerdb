@@ -303,6 +303,7 @@ func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ a
 func (c *SnowflakeConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
+	_ *internal.Settings,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -325,7 +326,11 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 		return true, nil
 	}
 
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(ctx, config, normalizedSchemaTable, tableSchema)
+	settings, err := internal.LoadSettings(ctx, config.Env)
+	if err != nil {
+		return false, err
+	}
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(ctx, settings, config, normalizedSchemaTable, tableSchema)
 	if _, err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
 		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 	}
@@ -336,7 +341,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 // This could involve adding or dropping multiple columns.
 func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
@@ -366,7 +371,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			sfColtype, err := qvalue.ToDWHColumnType(
-				ctx, qvKind, env, protos.DBType_SNOWFLAKE, nil, addedColumn, schemaDelta.NullableEnabled, nil,
+				ctx, qvKind, settings, protos.DBType_SNOWFLAKE, nil, addedColumn, schemaDelta.NullableEnabled, nil,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
@@ -437,7 +442,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		FlowJobName: req.FlowJobName,
 		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.rawSchema,
 			rawTableIdentifier)),
-		Env:     req.Env,
+		Env:     req.Settings.Env,
 		Version: req.Version,
 	}
 	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
@@ -446,12 +451,12 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	numRecords, err := avroSyncer.SyncRecords(ctx, req.Env, destinationTableSchema, stream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(ctx, req.Settings, destinationTableSchema, stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Settings, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -483,7 +488,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
 		c.logger.Info(fmt.Sprintf("normalizing records for batch %d [of %d]", batchId, req.SyncBatchID))
 		mergeErr := c.mergeTablesForBatch(ctx, batchId,
-			req.FlowJobName, req.Env, req.TableNameSchemaMapping,
+			req.FlowJobName, req.Settings, req.TableNameSchemaMapping,
 			&protos.PeerDBColumns{
 				SoftDeleteColName: req.SoftDeleteColName,
 				SyncedAtColName:   req.SyncedAtColName,
@@ -508,7 +513,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	ctx context.Context,
 	batchId int64,
 	flowName string,
-	env map[string]string,
+	settings *internal.Settings,
 	tableToSchema map[string]*protos.TableSchema,
 	peerdbCols *protos.PeerDBColumns,
 ) error {
@@ -524,7 +529,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
-	mergeParallelism, err := internal.PeerDBSnowflakeMergeParallelism(ctx, env)
+	mergeParallelism, err := internal.PeerDBSnowflakeMergeParallelism(ctx, settings.Env)
 	if err != nil {
 		return fmt.Errorf("failed to get merge parallelism: %w", err)
 	}
@@ -544,7 +549,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 		}
 
 		g.Go(func() error {
-			mergeStatement, err := mergeGen.generateMergeStmt(gCtx, env, tableName)
+			mergeStatement, err := mergeGen.generateMergeStmt(gCtx, settings, tableName)
 			if err != nil {
 				return err
 			}
@@ -654,6 +659,7 @@ func (c *SnowflakeConnector) checkIfTableExists(
 
 func generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
+	settings *internal.Settings,
 	config *protos.SetupNormalizedTableBatchInput,
 	dstSchemaTable *common.QualifiedTable,
 	tableSchema *protos.TableSchema,
@@ -664,7 +670,7 @@ func generateCreateTableSQLForNormalizedTable(
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
 		qvKind := types.QValueKind(genericColumnType)
 		sfColType, err := qvalue.ToDWHColumnType(
-			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, nil, column, tableSchema.NullableEnabled, nil,
+			ctx, qvKind, settings, protos.DBType_SNOWFLAKE, nil, column, tableSchema.NullableEnabled, nil,
 		)
 		if err != nil {
 			slog.WarnContext(ctx, fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),

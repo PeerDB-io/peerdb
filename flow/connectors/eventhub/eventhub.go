@@ -175,7 +175,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+	flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Settings.Env)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get flush timeout: %w", err)
 	}
@@ -370,7 +370,7 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}, nil
 }
 
-func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
+func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, _ *internal.Settings,
 	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil

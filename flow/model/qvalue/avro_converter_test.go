@@ -165,7 +165,7 @@ func TestAvroQValueSize(t *testing.T) {
 		}
 
 		t.Run(string(qv.Kind()), func(t *testing.T) {
-			schema := getAvroSchema(t, ctx, env, qv, &field)
+			schema := getAvroSchema(t, internal.NewSettings(env), qv, &field)
 			avroVal, computedSize := qvalueToAvro(t, ctx, qv, &field, false)
 			actualSize := avroEncodedSize(t, schema, avroVal)
 			assert.Equal(t, actualSize, computedSize)
@@ -173,7 +173,7 @@ func TestAvroQValueSize(t *testing.T) {
 
 		t.Run(string(qv.Kind())+"_nullable", func(t *testing.T) {
 			nullableField := types.QField{Type: qv.Kind(), Nullable: true, Precision: field.Precision, Scale: field.Scale}
-			schema := getAvroSchema(t, ctx, env, qv, &nullableField)
+			schema := getAvroSchema(t, internal.NewSettings(env), qv, &nullableField)
 			avroVal, computedSize := qvalueToAvro(t, ctx, qv, &nullableField, false)
 			actualSize := avroEncodedSize(t, schema, avroVal)
 			assert.Equal(t, actualSize, computedSize)
@@ -215,7 +215,7 @@ func TestVarIntSize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			qv := types.QValueInt64{Val: tt.value}
 			field := types.QField{Type: types.QValueKindInt64, Nullable: false}
-			schema := getAvroSchema(t, ctx, env, qv, &field)
+			schema := getAvroSchema(t, internal.NewSettings(env), qv, &field)
 			avroVal, computedSize := qvalueToAvro(t, ctx, qv, &field, false)
 			actualSize := avroEncodedSize(t, schema, avroVal)
 			assert.Equal(t, actualSize, computedSize)
@@ -243,7 +243,7 @@ func TestStringSize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			qv := types.QValueString{Val: tt.str}
 			field := types.QField{Type: types.QValueKindString, Nullable: tt.nullable}
-			schema := getAvroSchema(t, ctx, env, qv, &field)
+			schema := getAvroSchema(t, internal.NewSettings(env), qv, &field)
 			avroVal, computedSize := qvalueToAvro(t, ctx, qv, &field, false)
 			actualSize := avroEncodedSize(t, schema, avroVal)
 			assert.Equal(t, actualSize, computedSize)
@@ -271,7 +271,7 @@ func TestFixedArraySize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			field := types.QField{Type: tt.qv.Kind(), Nullable: tt.nullable}
-			schema := getAvroSchema(t, ctx, env, tt.qv, &field)
+			schema := getAvroSchema(t, internal.NewSettings(env), tt.qv, &field)
 			avroVal, computedSize := qvalueToAvro(t, ctx, tt.qv, &field, false)
 			actualSize := avroEncodedSize(t, schema, avroVal)
 			assert.Equal(t, actualSize, computedSize)
@@ -298,7 +298,7 @@ func TestStringArraySize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			qv := types.QValueArrayString{Val: tt.vals}
 			field := types.QField{Type: types.QValueKindArrayString, Nullable: tt.nullable}
-			schema := getAvroSchema(t, ctx, env, qv, &field)
+			schema := getAvroSchema(t, internal.NewSettings(env), qv, &field)
 			avroVal, computedSize := qvalueToAvro(t, ctx, qv, &field, false)
 			actualSize := avroEncodedSize(t, schema, avroVal)
 			assert.Equal(t, actualSize, computedSize)
@@ -364,7 +364,7 @@ func TestDecimalSize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			qv := types.QValueNumeric{Val: tt.num, Precision: tt.precision, Scale: tt.scale}
 			field := types.QField{Type: types.QValueKindNumeric, Nullable: tt.nullable, Precision: tt.precision, Scale: tt.scale}
-			schema := getAvroSchema(t, ctx, env, qv, &field)
+			schema := getAvroSchema(t, internal.NewSettings(env), qv, &field)
 			avroVal, computedSize := qvalueToAvro(t, ctx, qv, &field, false)
 			actualSize := avroEncodedSize(t, schema, avroVal)
 			// computedSize may overestimate by up to 1 byte due to log2(10) estimation rounding
@@ -387,7 +387,7 @@ func TestDecimalSize(t *testing.T) {
 		t.Run("string/"+num.String(), func(t *testing.T) {
 			qv := types.QValueNumeric{Val: num}
 			field := types.QField{Type: types.QValueKindNumeric, Nullable: false}
-			schema := getAvroSchema(t, ctx, stringEnv, qv, &field)
+			schema := getAvroSchema(t, internal.NewSettings(stringEnv), qv, &field)
 			avroVal, computedSize := qvalueToAvro(t, ctx, qv, &field, true)
 			actualSize := avroEncodedSize(t, schema, avroVal)
 			assert.Equal(t, actualSize, computedSize)
@@ -396,10 +396,10 @@ func TestDecimalSize(t *testing.T) {
 }
 
 func getAvroSchema(
-	t *testing.T, ctx context.Context, env map[string]string, qv types.QValue, field *types.QField,
+	t *testing.T, settings *internal.Settings, qv types.QValue, field *types.QField,
 ) avro.Schema {
 	t.Helper()
-	schema, err := GetAvroSchemaFromQValueKind(ctx, env, qv.Kind(), protos.DBType_CLICKHOUSE, field.Precision, field.Scale)
+	schema, err := GetAvroSchemaFromQValueKind(settings, qv.Kind(), protos.DBType_CLICKHOUSE, field.Precision, field.Scale)
 	require.NoError(t, err)
 	if field.Nullable {
 		schema, err = NullableAvroSchema(schema)

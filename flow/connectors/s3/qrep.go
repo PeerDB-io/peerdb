@@ -21,18 +21,22 @@ func (c *S3Connector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
+	settings, err := internal.LoadSettings(ctx, config.Env)
+	if err != nil {
+		return 0, nil, err
+	}
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, nil, err
 	}
 
 	dstTableName := config.DestinationTableIdentifier
-	avroSchema, err := getAvroSchema(ctx, config.Env, dstTableName, schema)
+	avroSchema, err := getAvroSchema(ctx, settings, dstTableName, schema)
 	if err != nil {
 		return 0, nil, err
 	}
 
-	numRecords, err := c.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName)
+	numRecords, err := c.writeToAvroFile(ctx, settings, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -42,12 +46,12 @@ func (c *S3Connector) SyncQRepRecords(
 
 func getAvroSchema(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	dstTableName string,
 	schema types.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	// TODO: Support avro-incompatible column names
-	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_S3, nil)
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, settings, dstTableName, schema, protos.DBType_S3, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -57,7 +61,7 @@ func getAvroSchema(
 
 func (c *S3Connector) writeToAvroFile(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
@@ -68,12 +72,8 @@ func (c *S3Connector) writeToAvroFile(
 		return 0, fmt.Errorf("failed to parse bucket path: %w", err)
 	}
 
-	s3UuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, env)
-	if err != nil {
-		return 0, err
-	}
 	var s3AvroFileKey string
-	if s3UuidPrefix {
+	if settings.S3UuidPrefix {
 		s3AvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", s3o.Prefix, uuid.NewString(), jobName, partitionID)
 	} else {
 		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
@@ -94,7 +94,7 @@ func (c *S3Connector) writeToAvroFile(
 	}
 
 	writer := utils.NewPeerDBOCFWriter(stream, avroSchema, codec, protos.DBType_S3, nil)
-	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil)
+	avroFile, err := writer.WriteRecordsToS3(ctx, settings, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}

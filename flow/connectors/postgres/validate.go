@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pg_validation "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -198,9 +199,9 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	return nil
 }
 
-func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context, env map[string]string) error {
+func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context, settings *internal.Settings) error {
 	// Check if we can create a replication connection
-	conn, err := c.CreateReplConn(ctx, env)
+	conn, err := c.CreateReplConn(ctx, settings)
 	if err != nil {
 		return fmt.Errorf("failed to create replication connection: %v", err)
 	}
@@ -228,8 +229,12 @@ func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Cont
 func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	noCDC := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
 	if !noCDC {
+		settings, err := internal.LoadSettings(ctx, cfg.Env)
+		if err != nil {
+			return err
+		}
 		// Check replication connectivity
-		if err := c.CheckReplicationConnectivity(ctx, cfg.Env); err != nil {
+		if err := c.CheckReplicationConnectivity(ctx, settings); err != nil {
 			return fmt.Errorf("unable to establish replication connectivity: %w", err)
 		}
 
@@ -271,6 +276,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 
 func (c *PostgresConnector) ValidateMirrorDestination(
 	ctx context.Context,
+	_ *internal.Settings,
 	cfg *protos.FlowConnectionConfigsCore,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {

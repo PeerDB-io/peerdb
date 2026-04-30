@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -631,9 +632,13 @@ func TestMarshalDocument(t *testing.T) {
 		},
 	}
 
-	directConverter, err := NewBsonConverter(context.Background(), map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "true"})
+	directConverter, err := NewBsonConverter(
+		context.Background(), internal.NewSettings(map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "true"}),
+	)
 	require.NoError(t, err)
-	legacyConverter, err := NewBsonConverter(context.Background(), map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "false"})
+	legacyConverter, err := NewBsonConverter(
+		context.Background(), internal.NewSettings(map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "false"}),
+	)
 	require.NoError(t, err)
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
@@ -664,7 +669,7 @@ func TestMarshalId(t *testing.T) {
 		require.NoError(t, err)
 		return bson.Raw(raw).Lookup("_id")
 	}
-	converter, err := NewBsonConverter(context.Background(), nil)
+	converter, err := NewBsonConverter(context.Background(), internal.NewSettings(nil))
 	require.NoError(t, err)
 
 	objectId, err := bson.ObjectIDFromHex("6893edbecb1f9508891bbb84")
@@ -704,7 +709,7 @@ func TestMarshalId(t *testing.T) {
 // Tests that floats of all magnitudes are marshaled into a reasonable length and have a signifier
 // that they're not integers
 func TestMarshalFloatLengths(t *testing.T) {
-	converter, err := NewBsonConverter(context.Background(), nil)
+	converter, err := NewBsonConverter(context.Background(), internal.NewSettings(nil))
 	require.NoError(t, err)
 	maxExponent := 309
 	require.Equal(t, math.Inf(1), math.Pow10(maxExponent), "exponent range should cover +Inf")   //nolint:testifylint
@@ -754,7 +759,7 @@ func TestMarshalFloatLengths(t *testing.T) {
 }
 
 func TestQValuesFromBsonRawInvalidIds(t *testing.T) {
-	converter, err := NewBsonConverter(t.Context(), map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "true"})
+	converter, err := NewBsonConverter(t.Context(), internal.NewSettings(map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "true"}))
 	require.NoError(t, err)
 
 	t.Run("null _id is rejected", func(t *testing.T) {

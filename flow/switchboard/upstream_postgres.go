@@ -63,7 +63,7 @@ type PostgresUpstream struct {
 func NewPostgresUpstream(
 	ctx context.Context, config *protos.PostgresConfig, queryTimeout time.Duration, readOnly bool,
 ) (*PostgresUpstream, error) {
-	conn, err := connpostgres.NewPostgresConnector(ctx, nil, config)
+	conn, err := connpostgres.NewPostgresConnector(ctx, config)
 	if err != nil {
 		return nil, err
 	}

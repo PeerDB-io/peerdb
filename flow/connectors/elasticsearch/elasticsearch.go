@@ -99,7 +99,7 @@ func (esc *ElasticsearchConnector) CreateRawTable(ctx context.Context,
 }
 
 // we handle schema changes by not handling them since no mapping is being enforced right now
-func (esc *ElasticsearchConnector) ReplayTableSchemaDeltas(ctx context.Context, env map[string]string,
+func (esc *ElasticsearchConnector) ReplayTableSchemaDeltas(ctx context.Context, settings *internal.Settings,
 	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil
@@ -150,7 +150,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Settings.Env)
 		if err != nil {
 			esc.logger.Warn("[elasticsearch] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return

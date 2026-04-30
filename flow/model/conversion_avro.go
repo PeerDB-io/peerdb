@@ -27,20 +27,15 @@ type QRecordAvroConverter struct {
 }
 
 func NewQRecordAvroConverter(
-	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	schema *QRecordAvroSchemaDefinition,
 	targetDWH protos.DBType,
 	colNames []string,
 	logger log.Logger,
-) (*QRecordAvroConverter, error) {
+) *QRecordAvroConverter {
 	var unboundedNumericAsString bool
-	if targetDWH == protos.DBType_CLICKHOUSE {
-		var err error
-		unboundedNumericAsString, err = internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
-		if err != nil {
-			return nil, err
-		}
+	if targetDWH == protos.DBType_CLICKHOUSE && settings != nil {
+		unboundedNumericAsString = settings.ClickHouseUnboundedNumericAsString
 	}
 
 	return &QRecordAvroConverter{
@@ -49,12 +44,12 @@ func NewQRecordAvroConverter(
 		ColNames:                 colNames,
 		logger:                   logger,
 		UnboundedNumericAsString: unboundedNumericAsString,
-	}, nil
+	}
 }
 
 func (qac *QRecordAvroConverter) Convert(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	qrecord []types.QValue,
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator SnapshotTableNumericTruncator,
@@ -115,7 +110,7 @@ type QRecordAvroChunkSizeTracker struct {
 
 func GetAvroSchemaDefinition(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	dstTableName string,
 	qRecordSchema types.QRecordSchema,
 	targetDWH protos.DBType,
@@ -125,7 +120,7 @@ func GetAvroSchemaDefinition(
 	namedSchemaSeen := make(map[string]avro.NamedSchema)
 
 	for _, qField := range qRecordSchema.Fields {
-		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
+		avroType, err := qvalue.GetAvroSchemaFromQValueKind(settings, qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
 		}

@@ -18,6 +18,7 @@ import (
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -382,7 +383,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Get_Table_Schema() {
 		},
 	}
 
-	schemas, err := bqConn.GetTableSchema(ctx, map[string]string{}, 0, protos.TypeSystem_Q, tableMappings)
+	schemas, err := bqConn.GetTableSchema(ctx, internal.NewSettings(nil), 0, protos.TypeSystem_Q, tableMappings)
 	require.NoError(t, err, "should successfully get table schema")
 	require.NotNil(t, schemas, "schemas should not be nil")
 	require.Len(t, schemas, 1, "should have one table schema")

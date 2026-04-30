@@ -14,7 +14,6 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthPostgresTestConnectionInfo(t)
 	postgresConnector, err := NewPostgresConnector(t.Context(),
-		nil,
 		&protos.PostgresConfig{
 			Host:       conn.Host,
 			Database:   "postgres",
@@ -43,7 +42,6 @@ func TestAwsRDSIAMAuthConnectForPostgresViaProxy(t *testing.T) {
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthPostgresTestConnectionInfo(t)
 	postgresConnector, err := NewPostgresConnector(t.Context(),
-		nil,
 		&protos.PostgresConfig{
 			Host:       conn.ProxyHost,
 			Port:       5432,

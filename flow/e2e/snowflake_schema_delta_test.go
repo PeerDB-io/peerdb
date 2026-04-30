@@ -10,6 +10,7 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -53,19 +54,20 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	err := s.sfTestHelper.RunCommand(s.t.Context(), fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
-	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: []*protos.FieldDescription{
-			{
-				Name:         "HI",
-				Type:         string(types.QValueKindJSON),
-				TypeModifier: -1,
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(
+		s.t.Context(), internal.NewSettings(nil), "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+			SrcTableName: tableName,
+			DstTableName: tableName,
+			AddedColumns: []*protos.FieldDescription{
+				{
+					Name:         "HI",
+					Type:         string(types.QValueKindJSON),
+					TypeModifier: -1,
+				},
 			},
-		},
-	}}, nil))
+		}}, nil))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), internal.NewSettings(nil), 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
@@ -167,13 +169,14 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		}
 	}
 
-	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
-	}}, nil))
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(
+		s.t.Context(), internal.NewSettings(nil), "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+			SrcTableName: tableName,
+			DstTableName: tableName,
+			AddedColumns: addedColumns,
+		}}, nil))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), internal.NewSettings(nil), 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
@@ -246,13 +249,14 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		}
 	}
 
-	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
-	}}, nil))
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(
+		s.t.Context(), internal.NewSettings(nil), "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+			SrcTableName: tableName,
+			DstTableName: tableName,
+			AddedColumns: addedColumns,
+		}}, nil))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), internal.NewSettings(nil), 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
@@ -301,13 +305,14 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 		}
 	}
 
-	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
-	}}, nil))
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(
+		s.t.Context(), internal.NewSettings(nil), "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+			SrcTableName: tableName,
+			DstTableName: tableName,
+			AddedColumns: addedColumns,
+		}}, nil))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), internal.NewSettings(nil), 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])

@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -33,6 +34,7 @@ func (c *MySqlConnector) tableRowEstimate(ctx context.Context, schema string, ta
 
 func (c *MySqlConnector) GetQRepPartitions(
 	ctx context.Context,
+	_ *internal.Settings,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
@@ -211,7 +213,11 @@ func (c *MySqlConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
+	settings, err := internal.LoadSettings(ctx, config.Env)
+	if err != nil {
+		return 0, 0, err
+	}
+	tableSchema, err := c.getTableSchemaForTable(ctx, settings,
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q,
 		config.Version)
 	if err != nil {

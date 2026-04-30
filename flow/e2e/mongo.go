@@ -71,7 +71,7 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 		Records: nil,
 	}
 
-	converter, err := connmongo.NewBsonConverter(ctx, nil)
+	converter, err := connmongo.NewBsonConverter(ctx, internal.NewSettings(nil))
 	if err != nil {
 		return nil, err
 	}

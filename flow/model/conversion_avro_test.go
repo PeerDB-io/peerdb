@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -28,7 +29,7 @@ func TestAvroSchemaMultipleNamedTypeColumns(t *testing.T) {
 			}
 			schema := types.QRecordSchema{Fields: fields}
 			_, err := GetAvroSchemaDefinition(
-				context.Background(), nil, "test_table", schema, protos.DBType_CLICKHOUSE, nil,
+				context.Background(), internal.NewSettings(nil), "test_table", schema, protos.DBType_CLICKHOUSE, nil,
 			)
 			require.NoError(t, err)
 		})

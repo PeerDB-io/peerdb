@@ -48,6 +48,7 @@ func (c *ClickHouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ 
 func (c *ClickHouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
+	settings *internal.Settings,
 	config *protos.SetupNormalizedTableBatchInput,
 	destinationTableIdentifier string,
 	sourceTableSchema *protos.TableSchema,
@@ -60,9 +61,9 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		c.logger.Info("[clickhouse] destination ClickHouse table already exists, skipping", "table", destinationTableIdentifier)
 		return true, nil
 	}
-
 	normalizedTableCreateSQL, err := c.generateCreateTableSQLForNormalizedTable(
 		ctx,
+		settings,
 		config,
 		destinationTableIdentifier,
 		sourceTableSchema,
@@ -83,6 +84,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 
 func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
+	settings *internal.Settings,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -145,10 +147,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		engine = "Null"
 	}
 
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
-	if err != nil {
-		return nil, err
-	}
+	sourceSchemaAsDestinationColumn := settings.SourceSchemaAsDestinationColumn
 
 	var stmtBuilder strings.Builder
 	var stmtBuilderDistributed strings.Builder
@@ -206,7 +205,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			if clickHouseType == "" {
 				var err error
 				clickHouseType, err = qvalue.ToDWHColumnType(
-					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column,
+					ctx, colType, settings, protos.DBType_CLICKHOUSE, chVersion, column,
 					tableSchema.NullableEnabled || columnNullableEnabled, flags,
 				)
 				if err != nil {
@@ -436,15 +435,15 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	groupBatches, err := internal.PeerDBGroupNormalize(ctx, req.Env)
-	if err != nil || groupBatches <= 0 {
-		c.logger.Error("failed to lookup PEERDB_GROUP_NORMALIZE, only normalizing 4 batches")
+	groupBatches := req.Settings.GroupNormalize
+	if groupBatches <= 0 {
+		c.logger.Error("PEERDB_GROUP_NORMALIZE is invalid, only normalizing 4 batches")
 		groupBatches = 4
 	}
 
 	endBatchID := min(req.SyncBatchID, lastNormBatchID+groupBatches)
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, lastNormBatchID, endBatchID, req.Env, req.Version); err != nil {
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, lastNormBatchID, endBatchID, req.Settings, req.Version); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
@@ -460,17 +459,14 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
-	enablePrimaryUpdate, err := internal.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
+	enablePrimaryUpdate, err := internal.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Settings.Env)
 	if err != nil {
 		return model.NormalizeResponse{}, err
 	}
 
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
-	if err != nil {
-		return model.NormalizeResponse{}, err
-	}
+	sourceSchemaAsDestinationColumn := req.Settings.SourceSchemaAsDestinationColumn
 
-	parallelNormalize, err := internal.PeerDBClickHouseParallelNormalize(ctx, req.Env)
+	parallelNormalize, err := internal.PeerDBClickHouseParallelNormalize(ctx, req.Settings.Env)
 	if err != nil {
 		return model.NormalizeResponse{}, err
 	}
@@ -508,7 +504,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				chConn = c.database
 			} else {
 				var err error
-				chConn, err = Connect(errCtx, req.Env, c.Config)
+				chConn, err = Connect(errCtx, req.Settings, c.Config)
 				if err != nil {
 					return err
 				}
@@ -581,7 +577,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				lastNormBatchIDForTable,
 				enablePrimaryUpdate,
 				sourceSchemaAsDestinationColumn,
-				req.Env,
+				req.Settings,
 				rawTbl,
 				c.chVersion,
 				c.Config.Cluster != "",
@@ -674,10 +670,10 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 	ctx context.Context,
 	flowJobName string,
 	syncBatchID int64,
-	env map[string]string,
+	settings *internal.Settings,
 	version uint32,
 ) error {
-	avroSyncMethod := c.avroSyncMethod(flowJobName, env, version)
+	avroSyncMethod := c.avroSyncMethod(flowJobName, settings, version)
 	avroFile, err := GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
@@ -691,7 +687,7 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, lastNormBatchID int64, endBatchID int64, env map[string]string, version uint32,
+	ctx context.Context, flowJobName string, lastNormBatchID int64, endBatchID int64, settings *internal.Settings, version uint32,
 ) error {
 	// Skip batches already copied to raw table. This can happen if a previous normalization
 	// run failed after copying to raw table but before completing normalization.
@@ -704,7 +700,7 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 		slog.Int64("batchID", lastCopiedBatchID), slog.Int64("endBatchID", endBatchID))
 
 	for batchID := lastCopiedBatchID + 1; batchID <= endBatchID; batchID++ {
-		if err := c.copyAvroStageToDestination(ctx, flowJobName, batchID, env, version); err != nil {
+		if err := c.copyAvroStageToDestination(ctx, flowJobName, batchID, settings, version); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}
 		c.logger.Info("[clickhouse] setting last batch id in raw table",

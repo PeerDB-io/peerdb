@@ -24,6 +24,7 @@ import (
 
 func (c *MongoConnector) GetQRepPartitions(
 	ctx context.Context,
+	settings *internal.Settings,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
@@ -40,11 +41,7 @@ func (c *MongoConnector) GetQRepPartitions(
 		return fullTablePartition, nil
 	}
 
-	parallelSnapshotting, err := internal.PeerDBMongoDBParallelSnapshotting(ctx, config.Env)
-	if err != nil {
-		c.logger.Warn("failed to get parallel snapshotting config", slog.Any("error", err))
-	}
-	if !parallelSnapshotting {
+	if !settings.MongoDBParallelSnapshotting {
 		c.logger.Info("parallel snapshotting disabled, falling back to full table partition")
 		return fullTablePartition, nil
 	}
@@ -163,7 +160,11 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	defer cursor.Close(ctx)
 
-	converter, err := NewBsonConverter(ctx, config.Env)
+	settings, err := internal.LoadSettings(ctx, config.Env)
+	if err != nil {
+		return 0, 0, err
+	}
+	converter, err := NewBsonConverter(ctx, settings)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create bson converter: %w", err)
 	}

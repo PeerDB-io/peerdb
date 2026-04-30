@@ -89,7 +89,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                req.FlowJobName,
 		DestinationTableIdentifier: "raw_table_" + req.FlowJobName,
-		Env:                        req.Env,
+		Env:                        req.Settings.Env,
 		Version:                    req.Version,
 	}
 	partition := &protos.QRepPartition{
@@ -116,7 +116,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	}, nil
 }
 
-func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
+func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, _ *internal.Settings,
 	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil

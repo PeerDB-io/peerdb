@@ -13,7 +13,7 @@ func TestNewPostgresConnectorAuthError(t *testing.T) {
 	t.Parallel()
 	config := internal.GetCatalogPostgresConfigFromEnv(t.Context())
 	config.Password = "wrong_password"
-	_, err := NewPostgresConnector(t.Context(), nil, config)
+	_, err := NewPostgresConnector(t.Context(), config)
 	require.Error(t, err)
 
 	var authErr *exceptions.AuthError

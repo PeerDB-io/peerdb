@@ -32,7 +32,6 @@ type PubSubConnector struct {
 
 func NewPubSubConnector(
 	ctx context.Context,
-	env map[string]string,
 	config *protos.PubSubConfig,
 ) (*PubSubConnector, error) {
 	sa := utils.GcpServiceAccountFromProto(config.ServiceAccount)
@@ -74,7 +73,7 @@ func (c *PubSubConnector) CreateRawTable(ctx context.Context, req *protos.Create
 	return &protos.CreateRawTableOutput{TableIdentifier: "n/a"}, nil
 }
 
-func (c *PubSubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
+func (c *PubSubConnector) ReplayTableSchemaDeltas(_ context.Context, _ *internal.Settings,
 	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil
@@ -141,14 +140,14 @@ func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (PubSubMessage, err
 
 func (c *PubSubConnector) createPool(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	script string,
 	flowJobName string,
 	topiccache *topicCache,
 	publish chan<- publishResult,
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
-	maxSize, err := internal.PeerDBQueueParallelism(ctx, env)
+	maxSize, err := internal.PeerDBQueueParallelism(ctx, settings.Env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get parallelism: %w", err)
 	}
@@ -173,11 +172,7 @@ func (c *PubSubConnector) createPool(
 				})
 
 				if err != nil && status.Code(err) == codes.NotFound {
-					force, envErr := internal.PeerDBQueueForceTopicCreation(ctx, env)
-					if envErr != nil {
-						return nil, envErr
-					}
-					if force {
+					if settings.QueueForceTopicCreation {
 						if newTopic, err := c.client.TopicAdminClient.CreateTopic(ctx, &pubsubpb.Topic{
 							Name: topicName,
 						}); err != nil {
@@ -217,7 +212,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 
-	pool, err := c.createPool(queueCtx, req.Env, req.Script, req.FlowJobName, &topiccache, publish, queueErr)
+	pool, err := c.createPool(queueCtx, req.Settings, req.Script, req.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +232,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Settings.Env)
 		if err != nil {
 			c.logger.Warn("[pubsub] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return

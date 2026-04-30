@@ -146,6 +146,7 @@ func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
 
 func (c *BigQueryConnector) ValidateMirrorDestination(
 	ctx context.Context,
+	_ *internal.Settings,
 	_ *protos.FlowConnectionConfigsCore,
 	_ map[string]*protos.TableSchema,
 ) error {
@@ -235,7 +236,7 @@ func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable 
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
@@ -426,11 +427,8 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 // NormalizeRecords normalizes raw table to destination table,
 // one batch at a time from the previous normalized batch to the currently synced batch.
 func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
-	unchangedToastMergeChunking, err := internal.PeerDBBigQueryToastMergeChunking(ctx, req.Env)
-	if err != nil {
-		c.logger.Warn("failed to load PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING, continuing with 8", slog.Any("error", err))
-		unchangedToastMergeChunking = 8
-	} else if unchangedToastMergeChunking == 0 {
+	unchangedToastMergeChunking := req.Settings.BigQueryToastMergeChunking
+	if unchangedToastMergeChunking == 0 {
 		unchangedToastMergeChunking = 8
 	}
 
@@ -647,6 +645,7 @@ func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ an
 func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
+	settings *internal.Settings,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -738,12 +737,8 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
-	timePartitionEnabled, err := internal.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, config.Env)
-	if err != nil {
-		return false, fmt.Errorf("failed to get dynamic setting for BigQuery time partitioning: %w", err)
-	}
 	var timePartitioning *bigquery.TimePartitioning
-	if timePartitionEnabled && config.SyncedAtColName != "" {
+	if settings.BigQueryEnableSyncedAtPartitioning && config.SyncedAtColName != "" {
 		timePartitioning = &bigquery.TimePartitioning{
 			Type:  bigquery.DayPartitioningType,
 			Field: config.SyncedAtColName,

@@ -67,7 +67,8 @@ func (a *SnapshotActivity) SetupReplication(
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Setting up replication slot and publication")
 	a.Alerter.EmitFlowInfoTelemetryEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
-	conn, connClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
+	conn, connClose, err := connectors.GetByNameWithEnvAs[connectors.CDCPullConnectorCore](
+		ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
@@ -109,13 +110,17 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 		return "maintaining transaction snapshot"
 	})
 	defer shutdown()
-	conn, connClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, peer)
+	settings, err := internal.LoadSettings(ctx, env)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, sessionID, err)
+	}
+	conn, connClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, settings, a.CatalogPool, peer)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, sessionID, err)
 	}
 	defer connClose(ctx)
 
-	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, flowName, env)
+	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, flowName, settings)
 	if err != nil {
 		return err
 	}
@@ -186,7 +191,8 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.FlowConnectionConfigsCore,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
-	conn, connClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, nil, a.CatalogPool, input.SourceName)
+	conn, connClose, err := connectors.GetByNameWithEnvAs[connectors.QRepPullConnectorCore](
+		ctx, input.Env, a.CatalogPool, input.SourceName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}

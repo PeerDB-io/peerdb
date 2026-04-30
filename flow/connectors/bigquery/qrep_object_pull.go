@@ -141,6 +141,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 
 func (c *BigQueryConnector) GetQRepPartitions(
 	ctx context.Context,
+	_ *internal.Settings,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
@@ -311,7 +312,7 @@ func (c *BigQueryConnector) EnsurePullability(
 func (c *BigQueryConnector) ExportTxSnapshot(
 	ctx context.Context,
 	flowName string,
-	_ map[string]string,
+	_ *internal.Settings,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
 	cfg, err := internal.FetchConfigFromDB(ctx, c.catalogPool, flowName)
 	if err != nil {
@@ -475,7 +476,7 @@ func (c *BigQueryConnector) FinishExport(v any) error {
 	return nil
 }
 
-func (c *BigQueryConnector) SetupReplConn(context.Context, map[string]string) error {
+func (c *BigQueryConnector) SetupReplConn(context.Context, *internal.Settings) error {
 	return nil
 }
 

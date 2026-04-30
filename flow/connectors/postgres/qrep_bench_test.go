@@ -13,12 +13,12 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	query := "SELECT * FROM bench.large_table"
 
 	ctx := b.Context()
-	connector, err := NewPostgresConnector(ctx, nil, internal.GetCatalogPostgresConfigFromEnv(ctx))
+	connector, err := NewPostgresConnector(ctx, internal.GetCatalogPostgresConfigFromEnv(ctx))
 	require.NoError(b, err, "error while creating connector")
 	defer connector.Close()
 
 	// Create a new QRepQueryExecutor instance
-	qe, err := connector.NewQRepQueryExecutor(ctx, nil, shared.InternalVersion_Latest, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, internal.NewSettings(nil), shared.InternalVersion_Latest, "test flow", "test part")
 	require.NoError(b, err, "error while creating QRepQueryExecutor")
 
 	// Run the benchmark

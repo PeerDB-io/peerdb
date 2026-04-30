@@ -44,6 +44,7 @@ type QRepSyncSink interface {
 
 func (c *PostgresConnector) GetQRepPartitions(
 	ctx context.Context,
+	settings *internal.Settings,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
@@ -73,7 +74,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
-	partitions, err := c.getPartitions(ctx, getPartitionsTx, config, last)
+	partitions, err := c.getPartitions(ctx, getPartitionsTx, settings, config, last)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get partitions: %w", err)
 	}
@@ -168,6 +169,7 @@ func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.T
 func (c *PostgresConnector) getPartitions(
 	ctx context.Context,
 	tx pgx.Tx,
+	settings *internal.Settings,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
@@ -224,15 +226,11 @@ func (c *PostgresConnector) getPartitions(
 
 	isCTIDWatermarkCol := config.WatermarkColumn == ctidColumnName
 	hasPartitionOverride := config.NumPartitionsOverride > 0 // backwards-compatibility with old behavior
-	hasCTIDOverride, err := internal.PeerDBPostgresApplyCtidBlockPartitioning(ctx, config.Env)
-	if err != nil {
-		c.logger.Warn("failed to get CTID partitioning config", slog.Any("error", err))
-	}
 
 	var partitionFunc PartitioningFunc
 	var partitionFuncName string
 	switch {
-	case isCTIDWatermarkCol && (hasCTIDOverride || hasPartitionOverride):
+	case isCTIDWatermarkCol && (settings.PostgresApplyCtidBlockPartitioning || hasPartitionOverride):
 		partitionFunc = CTIDBlockPartitioningFunc
 		partitionFuncName = "CTIDBlockPartitioningFunc"
 	case hasPartitionOverride:
@@ -370,6 +368,10 @@ func corePullQRepRecords(
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
+	settings, err := internal.LoadSettings(ctx, config.Env)
+	if err != nil {
+		return 0, 0, err
+	}
 	selectedColumns := "*"
 	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
 		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
@@ -393,7 +395,7 @@ func corePullQRepRecords(
 
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.SnapshotName,
+		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, settings, config.Version, config.SnapshotName,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
@@ -466,7 +468,7 @@ func corePullQRepRecords(
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, settings, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -495,8 +497,12 @@ func pullChildTableRanges(
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
+	settings, err := internal.LoadSettings(ctx, config.Env)
+	if err != nil {
+		return 0, 0, err
+	}
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, settings, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -819,6 +825,10 @@ func pullXminRecordStream(
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 ) (int64, int64, int64, error) {
+	settings, err := internal.LoadSettings(ctx, config.Env)
+	if err != nil {
+		return 0, 0, 0, err
+	}
 	query := config.Query
 	var queryArgs []any
 	if partition.Range != nil {
@@ -826,7 +836,7 @@ func pullXminRecordStream(
 		queryArgs = []any{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
-	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.SnapshotName,
+	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, settings, config.Version, config.SnapshotName,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to create query executor: %w", err)

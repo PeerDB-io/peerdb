@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -253,7 +254,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 		lastNormBatchID,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
-		env,
+		internal.NewSettings(env),
 		rawTableName,
 		nil,
 		false,
@@ -308,7 +309,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		lastNormBatchID,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
-		env,
+		internal.NewSettings(env),
 		rawTableName,
 		nil,
 		false,
@@ -360,7 +361,7 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		lastNormBatchID,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
-		env,
+		internal.NewSettings(env),
 		rawTableName,
 		nil,
 		true,
@@ -504,7 +505,9 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 				IsResync: tc.isResync,
 			}
 
-			result, err := c.generateCreateTableSQLForNormalizedTable(ctx, config, tableIdentifier, tableSchema, tc.chVersion, nil)
+			result, err := c.generateCreateTableSQLForNormalizedTable(
+				ctx, internal.NewSettings(config.Env), config, tableIdentifier, tableSchema, tc.chVersion, nil,
+			)
 			require.NoError(t, err)
 			require.Len(t, result, 1)
 			sql := result[0]
