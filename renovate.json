@@ -46,6 +46,17 @@
         "github.com/PeerDB-io/peerdb/flow/generated/**"
       ],
       "enabled": false
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "cloud.google.com/go/bigquery",
+        "cloud.google.com/go/pubsub/v2",
+        "github.com/aws/aws-sdk-go-v2/feature/s3/manager",
+        "google.golang.org/api",
+        "github.com/tikv/pd/client"
+      ],
+      "enabled": false
     }
   ],
   "vulnerabilityAlerts": {
