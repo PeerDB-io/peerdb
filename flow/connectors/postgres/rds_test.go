@@ -13,7 +13,7 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 	t.Skip("flaky")
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthPostgresTestConnectionInfo(t)
-	postgresConnector, err := NewPostgresConnector(t.Context(),
+	postgresConnector, err := NewPostgresConnector(t.Context(), internal.NewSettings(nil),
 		&protos.PostgresConfig{
 			Host:       conn.Host,
 			Database:   "postgres",
@@ -41,7 +41,7 @@ func TestAwsRDSIAMAuthConnectForPostgresViaProxy(t *testing.T) {
 	t.Skip("flaky")
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthPostgresTestConnectionInfo(t)
-	postgresConnector, err := NewPostgresConnector(t.Context(),
+	postgresConnector, err := NewPostgresConnector(t.Context(), internal.NewSettings(nil),
 		&protos.PostgresConfig{
 			Host:       conn.ProxyHost,
 			Port:       5432,

@@ -34,14 +34,13 @@ import (
 
 func (c *MySqlConnector) GetTableSchema(
 	ctx context.Context,
-	settings *internal.Settings,
 	version uint32,
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMappings))
 	for _, tm := range tableMappings {
-		tableSchema, err := c.getTableSchemaForTable(ctx, settings, tm, system, version)
+		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, version)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -55,7 +54,6 @@ func (c *MySqlConnector) GetTableSchema(
 
 func (c *MySqlConnector) getTableSchemaForTable(
 	ctx context.Context,
-	settings *internal.Settings,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 	mirrorVersion uint32,
@@ -153,7 +151,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		PrimaryKeyColumns:     primary,
 		IsReplicaIdentityFull: false,
 		System:                system,
-		NullableEnabled:       settings.Nullable,
+		NullableEnabled:       c.Settings.Nullable,
 		Columns:               columns,
 	}, nil
 }
@@ -164,7 +162,7 @@ func (c *MySqlConnector) EnsurePullability(
 	return nil, nil
 }
 
-func (c *MySqlConnector) ExportTxSnapshot(context.Context, string, *internal.Settings) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *MySqlConnector) ExportTxSnapshot(context.Context, string) (*protos.ExportTxSnapshotOutput, any, error) {
 	// https://dev.mysql.com/doc/refman/8.4/en/replication-howto-masterstatus.html
 	return nil, nil, nil
 }
@@ -210,7 +208,7 @@ func (c *MySqlConnector) SetupReplication(
 	return model.SetupReplicationResult{}, nil
 }
 
-func (c *MySqlConnector) SetupReplConn(context.Context, *internal.Settings) error {
+func (c *MySqlConnector) SetupReplConn(context.Context) error {
 	// mysql code will spin up new connection for each normalize for now
 	return nil
 }
@@ -598,7 +596,7 @@ func (c *MySqlConnector) PullRecords(
 							}
 							items.AddColumn(fd.Name, val)
 						}
-						if req.Settings.SourceSchemaAsDestinationColumn {
+						if c.Settings.SourceSchemaAsDestinationColumn {
 							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 
@@ -649,7 +647,7 @@ func (c *MySqlConnector) PullRecords(
 							}
 							newItems.AddColumn(fd.Name, val)
 						}
-						if req.Settings.SourceSchemaAsDestinationColumn {
+						if c.Settings.SourceSchemaAsDestinationColumn {
 							newItems.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 
@@ -687,7 +685,7 @@ func (c *MySqlConnector) PullRecords(
 							}
 							items.AddColumn(fd.Name, val)
 						}
-						if req.Settings.SourceSchemaAsDestinationColumn {
+						if c.Settings.SourceSchemaAsDestinationColumn {
 							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 

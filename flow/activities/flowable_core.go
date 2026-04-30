@@ -119,6 +119,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
 	ctx context.Context,
 	a *FlowableActivity,
+	settings *internal.Settings,
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn TPull,
@@ -135,11 +136,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := internal.LoggerFromCtx(ctx)
-
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return nil, err
-	}
 
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
@@ -158,7 +154,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	lastOffset, err := func() (model.CdcCheckpoint, error) {
 		// special case pg-pg replication, where offsets are stored on destination instead of catalog
 		if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
-			dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, a.CatalogPool, config.DestinationName)
+			dstPgConn, dstPgClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](
+				ctx, settings, a.CatalogPool, config.DestinationName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
 					return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector to get last offset: %w", err)
@@ -214,7 +211,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			OverridePublicationName:     config.PublicationName,
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
-			Settings:                    settings,
 			InternalVersion:             config.Version,
 		})
 	})
@@ -242,7 +238,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 		syncState.Store(new("updating schema"))
 		if err := dstConn.ReplayTableSchemaDeltas(
-			ctx, settings, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags,
+			ctx, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags,
 		); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
@@ -255,7 +251,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		syncBatchID, err := func() (int64, error) {
 			// special case pg-pg replication, where batch ID is stored on destination instead of catalog
 			if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
-				dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, a.CatalogPool, config.DestinationName)
+				dstPgConn, dstPgClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](
+					ctx, settings, a.CatalogPool, config.DestinationName)
 				if err != nil {
 					if !errors.Is(err, errors.ErrUnsupported) {
 						return 0, fmt.Errorf("failed to get destination connector to get last sync batch ID: %w", err)
@@ -300,7 +297,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			StagingPath:            config.CdcStagingPath,
 			Script:                 config.Script,
 			TableNameSchemaMapping: tableNameSchemaMapping,
-			Settings:               settings,
 			Version:                config.Version,
 			Flags:                  config.Flags,
 		})
@@ -666,16 +662,13 @@ func (a *FlowableActivity) maintainReplConn(
 
 func (a *FlowableActivity) startNormalize(
 	ctx context.Context,
+	settings *internal.Settings,
 	config *protos.FlowConnectionConfigsCore,
 	batchID int64,
 	normalizeResponses *concurrency.LastChan,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return err
-	}
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
 		ctx,
 		settings,
@@ -699,7 +692,6 @@ func (a *FlowableActivity) startNormalize(
 		logger.Info("normalizing batches", slog.Int64("syncBatchID", batchID))
 		res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 			FlowJobName:            config.FlowJobName,
-			Settings:               settings,
 			TableNameSchemaMapping: tableNameSchemaMapping,
 			TableMappings:          config.TableMappings,
 			SoftDeleteColName:      config.SoftDeleteColName,
@@ -731,6 +723,7 @@ func (a *FlowableActivity) startNormalize(
 func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	logger log.Logger,
+	settings *internal.Settings,
 	config *protos.FlowConnectionConfigsCore,
 	syncDone <-chan struct{},
 	normalizeRequests *concurrency.LastChan,
@@ -771,7 +764,7 @@ func (a *FlowableActivity) normalizeLoop(
 	retryLoop:
 		for {
 			normalizingBatchID.Store(reqBatchID)
-			if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
+			if err := a.startNormalize(ctx, settings, config, reqBatchID, normalizeResponses); err != nil {
 				_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				for {
 					// update req to latest normalize request & retry

@@ -120,7 +120,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 	}
 	defer connClose(ctx)
 
-	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, flowName, settings)
+	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, flowName)
 	if err != nil {
 		return err
 	}

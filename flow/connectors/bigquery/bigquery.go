@@ -53,6 +53,7 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 
 type BigQueryConnector struct {
 	*metadataStore.PostgresMetadata
+	Settings      *internal.Settings
 	logger        log.Logger
 	bqConfig      *protos.BigqueryConfig
 	credentials   *auth.Credentials
@@ -63,7 +64,7 @@ type BigQueryConnector struct {
 	projectID     string
 }
 
-func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
+func NewBigQueryConnector(ctx context.Context, settings *internal.Settings, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
 	datasetID := config.GetDatasetId()
@@ -125,6 +126,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 
 	return &BigQueryConnector{
 		credentials:      creds,
+		Settings:         settings,
 		bqConfig:         config,
 		client:           client,
 		datasetID:        datasetID,
@@ -146,7 +148,6 @@ func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
 
 func (c *BigQueryConnector) ValidateMirrorDestination(
 	ctx context.Context,
-	_ *internal.Settings,
 	_ *protos.FlowConnectionConfigsCore,
 	_ map[string]*protos.TableSchema,
 ) error {
@@ -236,7 +237,6 @@ func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable 
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
-	settings *internal.Settings,
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
@@ -427,7 +427,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 // NormalizeRecords normalizes raw table to destination table,
 // one batch at a time from the previous normalized batch to the currently synced batch.
 func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
-	unchangedToastMergeChunking := req.Settings.BigQueryToastMergeChunking
+	unchangedToastMergeChunking := c.Settings.BigQueryToastMergeChunking
 	if unchangedToastMergeChunking == 0 {
 		unchangedToastMergeChunking = 8
 	}
@@ -645,7 +645,6 @@ func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ an
 func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
-	settings *internal.Settings,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -738,7 +737,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	}
 
 	var timePartitioning *bigquery.TimePartitioning
-	if settings.BigQueryEnableSyncedAtPartitioning && config.SyncedAtColName != "" {
+	if c.Settings.BigQueryEnableSyncedAtPartitioning && config.SyncedAtColName != "" {
 		timePartitioning = &bigquery.TimePartitioning{
 			Type:  bigquery.DayPartitioningType,
 			Field: config.SyncedAtColName,

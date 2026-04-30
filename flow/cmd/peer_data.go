@@ -214,7 +214,11 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSlotResponse, APIError) {
-	pgConn, pgClose, err := connectors.GetPostgresConnectorByName(ctx, h.pool, req.PeerName)
+	settings, err := internal.LoadSettings(ctx, nil)
+	if err != nil {
+		return nil, NewInternalApiError(err)
+	}
+	pgConn, pgClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, settings, h.pool, req.PeerName)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to create postgres connector", slog.Any("error", err))
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get postgres connector: %w", err))
@@ -326,7 +330,11 @@ func (h *FlowRequestHandler) GetPublications(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerPublicationsResponse, APIError) {
-	peerConn, peerClose, err := connectors.GetPostgresConnectorByName(ctx, h.pool, req.PeerName)
+	settings, err := internal.LoadSettings(ctx, nil)
+	if err != nil {
+		return nil, NewInternalApiError(err)
+	}
+	peerConn, peerClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, settings, h.pool, req.PeerName)
 	if err != nil {
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get postgres connector: %w", err))
 	}

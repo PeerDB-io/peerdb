@@ -13,7 +13,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -24,7 +23,6 @@ import (
 
 func (c *MongoConnector) GetQRepPartitions(
 	ctx context.Context,
-	settings *internal.Settings,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
@@ -41,7 +39,7 @@ func (c *MongoConnector) GetQRepPartitions(
 		return fullTablePartition, nil
 	}
 
-	if !settings.MongoDBParallelSnapshotting {
+	if !c.Settings.MongoDBParallelSnapshotting {
 		c.logger.Info("parallel snapshotting disabled, falling back to full table partition")
 		return fullTablePartition, nil
 	}
@@ -160,11 +158,7 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	defer cursor.Close(ctx)
 
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, 0, err
-	}
-	converter, err := NewBsonConverter(ctx, settings)
+	converter, err := NewBsonConverter(ctx, c.Settings)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create bson converter: %w", err)
 	}

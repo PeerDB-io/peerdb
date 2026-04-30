@@ -206,7 +206,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	// Use idempotent validation that skips mirror existence check
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
-	if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
+	if _, err := h.validateCDCMirrorImpl(ctx, settings, connectionConfigsCore, true); err != nil {
 		slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 	}

@@ -61,7 +61,7 @@ func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicatio
 		ReplicationMechanism: replication,
 	}
 
-	connector, err := connmysql.NewMySqlConnector(t.Context(), config)
+	connector, err := connmysql.NewMySqlConnector(t.Context(), internal.NewSettings(nil), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mysql connection: %w", err)
 	}
@@ -187,7 +187,7 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 	}
 
 	tableName := fmt.Sprintf("e2e_test_%s.%s", suffix, table)
-	tableSchemas, err := s.GetTableSchema(ctx, internal.NewSettings(nil), shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	tableSchemas, err := s.GetTableSchema(ctx, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	if err != nil {
 		return nil, err

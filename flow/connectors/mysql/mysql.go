@@ -29,6 +29,7 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
+	Settings       *internal.Settings
 	config         *protos.MySqlConfig
 	ssh            *utils.SSHTunnel
 	conn           atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
@@ -40,7 +41,7 @@ type MySqlConnector struct {
 	deltaBytesRead atomic.Int64
 }
 
-func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
+func NewMySqlConnector(ctx context.Context, settings *internal.Settings, config *protos.MySqlConfig) (*MySqlConnector, error) {
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		return nil, err
@@ -63,6 +64,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	contexts := make(chan context.Context)
 	c := &MySqlConnector{
 		PostgresMetadata: pgMetadata,
+		Settings:         settings,
 		config:           config,
 		ssh:              ssh,
 		conn:             atomic.Pointer[client.Conn]{},

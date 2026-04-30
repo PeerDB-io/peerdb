@@ -805,7 +805,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 		},
 	}
 	output, err := destinationSchemaConnector.GetTableSchema(
-		t.Context(), internal.NewSettings(nil), shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		t.Context(), shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -841,7 +841,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 		},
 	}
 	output, err = destinationSchemaConnector.GetTableSchema(
-		t.Context(), internal.NewSettings(nil), shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		t.Context(), shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -928,7 +928,7 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 		},
 	}
 	output, err := destinationSchemaConnector.GetTableSchema(
-		t.Context(), internal.NewSettings(nil), shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		t.Context(), shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -1047,7 +1047,7 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 		},
 	}
 	output, err = destinationSchemaConnector.GetTableSchema(
-		t.Context(), internal.NewSettings(nil), shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		t.Context(), shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))

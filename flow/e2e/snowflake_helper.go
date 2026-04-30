@@ -11,6 +11,7 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -50,7 +51,7 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 	runID := rand.Uint64()
 	testDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
 
-	adminClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), config)
+	adminClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), internal.NewSettings(nil), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
@@ -63,7 +64,7 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 	}
 
 	config.Database = testDatabaseName
-	testClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), config)
+	testClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), internal.NewSettings(nil), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}

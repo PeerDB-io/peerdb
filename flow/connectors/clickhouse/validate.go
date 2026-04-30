@@ -33,7 +33,6 @@ func engineToString(e protos.TableEngine) (string, error) {
 
 func (c *ClickHouseConnector) ValidateMirrorDestination(
 	ctx context.Context,
-	settings *internal.Settings,
 	cfg *protos.FlowConnectionConfigsCore,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
@@ -66,9 +65,9 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	// also in case of this setting; multiple source tables can be mapped to the same destination table
 	// so ignore the check in this case as well
 
-	if !settings.SourceSchemaAsDestinationColumn {
+	if !c.Settings.SourceSchemaAsDestinationColumn {
 		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
-			dstTableNames, cfg.DoInitialSnapshot, internal.PeerDBOnlyClickHouseAllowed(), settings.ClickHouseInitialLoadAllowNonEmptyTables,
+			dstTableNames, cfg.DoInitialSnapshot, internal.PeerDBOnlyClickHouseAllowed(), c.Settings.ClickHouseInitialLoadAllowNonEmptyTables,
 		); err != nil {
 			return err
 		}

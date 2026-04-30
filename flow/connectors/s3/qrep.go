@@ -21,22 +21,18 @@ func (c *S3Connector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, nil, err
-	}
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, nil, err
 	}
 
 	dstTableName := config.DestinationTableIdentifier
-	avroSchema, err := getAvroSchema(ctx, settings, dstTableName, schema)
+	avroSchema, err := getAvroSchema(ctx, c.Settings, dstTableName, schema)
 	if err != nil {
 		return 0, nil, err
 	}
 
-	numRecords, err := c.writeToAvroFile(ctx, settings, stream, avroSchema, partition.PartitionId, config.FlowJobName)
+	numRecords, err := c.writeToAvroFile(ctx, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -61,7 +57,6 @@ func getAvroSchema(
 
 func (c *S3Connector) writeToAvroFile(
 	ctx context.Context,
-	settings *internal.Settings,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
@@ -73,7 +68,7 @@ func (c *S3Connector) writeToAvroFile(
 	}
 
 	var s3AvroFileKey string
-	if settings.S3UuidPrefix {
+	if c.Settings.S3UuidPrefix {
 		s3AvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", s3o.Prefix, uuid.NewString(), jobName, partitionID)
 	} else {
 		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
@@ -94,7 +89,7 @@ func (c *S3Connector) writeToAvroFile(
 	}
 
 	writer := utils.NewPeerDBOCFWriter(stream, avroSchema, codec, protos.DBType_S3, nil)
-	avroFile, err := writer.WriteRecordsToS3(ctx, settings, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil)
+	avroFile, err := writer.WriteRecordsToS3(ctx, c.Settings, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}

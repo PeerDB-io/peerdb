@@ -120,7 +120,7 @@ func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 		DisableTls: true,
 	}
 
-	mongoConn, err := connmongo.NewMongoConnector(t.Context(), mongoConfig)
+	mongoConn, err := connmongo.NewMongoConnector(t.Context(), internal.NewSettings(nil), mongoConfig)
 	require.NoError(t, err, "failed to setup mongo connector")
 
 	testDb := GetTestDatabase(suffix)

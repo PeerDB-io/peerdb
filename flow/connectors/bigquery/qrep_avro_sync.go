@@ -58,7 +58,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	stagingTable := fmt.Sprintf("%s_%s_staging", rawTableName, strconv.FormatInt(syncBatchID, 10))
-	numRecords, err := s.writeToStage(ctx, req.Settings, strconv.FormatInt(syncBatchID, 10), rawTableName, avroSchema,
+	numRecords, err := s.writeToStage(ctx, s.connector.Settings, strconv.FormatInt(syncBatchID, 10), rawTableName, avroSchema,
 		&datasetTable{
 			project: s.connector.projectID,
 			dataset: s.connector.datasetID,
@@ -100,7 +100,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		slog.String("dstTableName", rawTableName))
 
 	if err := s.connector.ReplayTableSchemaDeltas(
-		ctx, req.Settings, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil,
+		ctx, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil,
 	); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}

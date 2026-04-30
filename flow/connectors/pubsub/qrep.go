@@ -11,7 +11,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -28,10 +27,6 @@ func (c *PubSubConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
 	startTime := time.Now()
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, nil, err
-	}
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, nil, err
@@ -42,7 +37,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	numRecords := atomic.Int64{}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(queueCtx, settings, config.Script, config.FlowJobName, &topiccache, publish, queueErr)
+	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
 		return 0, nil, err
 	}

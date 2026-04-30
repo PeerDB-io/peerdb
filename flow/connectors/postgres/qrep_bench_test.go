@@ -13,7 +13,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	query := "SELECT * FROM bench.large_table"
 
 	ctx := b.Context()
-	connector, err := NewPostgresConnector(ctx, internal.GetCatalogPostgresConfigFromEnv(ctx))
+	connector, err := NewPostgresConnector(ctx, internal.NewSettings(nil), internal.GetCatalogPostgresConfigFromEnv(ctx))
 	require.NoError(b, err, "error while creating connector")
 	defer connector.Close()
 

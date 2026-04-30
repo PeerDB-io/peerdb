@@ -14,7 +14,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -37,7 +36,6 @@ func NewSnowflakeAvroSyncHandler(
 
 func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	ctx context.Context,
-	settings *internal.Settings,
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
 	flowJobName string,
@@ -52,13 +50,13 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 
 	s.logger.Info("sync function called and schema acquired", tableLog)
 
-	avroSchema, err := s.getAvroSchema(ctx, settings, dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(ctx, dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}
 
 	partitionID := shared.RandomString(16)
-	avroFile, err := s.writeToAvroFile(ctx, settings, stream, avroSchema, partitionID, flowJobName)
+	avroFile, err := s.writeToAvroFile(ctx, stream, avroSchema, partitionID, flowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -71,7 +69,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	}
 	s.logger.Info("Created stage " + stage)
 
-	if err := s.putFileToStage(ctx, settings, avroFile, stage); err != nil {
+	if err := s.putFileToStage(ctx, avroFile, stage); err != nil {
 		return 0, err
 	}
 	s.logger.Info("pushed avro file to stage", tableLog)
@@ -103,16 +101,12 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	}
 	s.logger.Info("sync function called and schema acquired", partitionLog)
 
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, nil, err
-	}
-	avroSchema, err := s.getAvroSchema(ctx, settings, dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(ctx, dstTableName, schema)
 	if err != nil {
 		return 0, nil, err
 	}
 
-	avroFile, err := s.writeToAvroFile(ctx, settings, stream, avroSchema, partition.PartitionId, config.FlowJobName)
+	avroFile, err := s.writeToAvroFile(ctx, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -120,7 +114,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 
 	stage := s.getStageNameForJob(config.FlowJobName)
 
-	if err := s.putFileToStage(ctx, settings, avroFile, stage); err != nil {
+	if err := s.putFileToStage(ctx, avroFile, stage); err != nil {
 		return 0, nil, err
 	}
 	s.logger.Info("Put file to stage in Avro sync for snowflake", partitionLog)
@@ -134,12 +128,11 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 	ctx context.Context,
-	settings *internal.Settings,
 	dstTableName string,
 	schema types.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	// TODO: Support avroNameMap for avro-incompatible column name support
-	avroSchema, err := model.GetAvroSchemaDefinition(ctx, settings, dstTableName, schema, protos.DBType_SNOWFLAKE, nil)
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, s.Settings, dstTableName, schema, protos.DBType_SNOWFLAKE, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -150,7 +143,6 @@ func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 
 func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	ctx context.Context,
-	settings *internal.Settings,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
@@ -158,7 +150,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 ) (utils.AvroFile, error) {
 	if s.config.StagingPath == "" {
 		compression := ocf.ZStandard
-		if settings.SnowflakeSkipCompression {
+		if s.Settings.SnowflakeSkipCompression {
 			compression = ocf.Null
 		}
 
@@ -170,7 +162,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
 		s.logger.Info("writing records to local file " + localFilePath)
-		avroFile, err := ocfWriter.WriteRecordsToAvroFile(ctx, settings, localFilePath)
+		avroFile, err := ocfWriter.WriteRecordsToAvroFile(ctx, s.Settings, localFilePath)
 		if err != nil {
 			return utils.AvroFile{}, fmt.Errorf("failed to write records to Avro file: %w", err)
 		}
@@ -191,7 +183,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 		if err != nil {
 			return utils.AvroFile{}, err
 		}
-		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, settings, s3o.Bucket, s3AvroFileKey, provider, nil, nil)
+		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s.Settings, s3o.Bucket, s3AvroFileKey, provider, nil, nil)
 		if err != nil {
 			return utils.AvroFile{}, fmt.Errorf("failed to write records to S3: %w", err)
 		}
@@ -204,7 +196,6 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 func (s *SnowflakeAvroSyncHandler) putFileToStage(
 	ctx context.Context,
-	settings *internal.Settings,
 	avroFile utils.AvroFile,
 	stage string,
 ) error {
@@ -214,7 +205,7 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(
 	}
 
 	autoCompressionStr := ""
-	if !settings.SnowflakeAutoCompress {
+	if !s.Settings.SnowflakeAutoCompress {
 		autoCompressionStr = " AUTO_COMPRESS=FALSE"
 	}
 

@@ -37,7 +37,7 @@ func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName 
 		Password: "testpass",
 	}
 
-	connector, err := NewPostgresConnector(ctx, pgConfig)
+	connector, err := NewPostgresConnector(ctx, internal.NewSettings(nil), pgConfig)
 	require.NoError(t, err)
 
 	// Test initial connection works

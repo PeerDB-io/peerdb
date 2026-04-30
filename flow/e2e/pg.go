@@ -109,7 +109,7 @@ func SetupPostgres(t *testing.T, suffix string) (*PostgresSource, error) {
 	t.Helper()
 
 	connector, err := connpostgres.NewPostgresConnector(t.Context(),
-		internal.GetAncillaryPostgresConfigFromEnv())
+		internal.NewSettings(nil), internal.GetAncillaryPostgresConfigFromEnv())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
@@ -311,7 +311,7 @@ func SetupPostgresWithToxiproxy(t *testing.T, suffix string, port uint32) (*Post
 	// Don't set RequireTls - let it use the default from env
 
 	// Rest is same as SetupPostgres
-	connector, err := connpostgres.NewPostgresConnector(t.Context(), config)
+	connector, err := connpostgres.NewPostgresConnector(t.Context(), internal.NewSettings(nil), config)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}

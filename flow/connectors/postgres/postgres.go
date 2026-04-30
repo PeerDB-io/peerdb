@@ -51,6 +51,7 @@ type PostgresConnector struct {
 	replConn               *pgx.Conn
 	replState              *ReplState
 	Config                 *protos.PostgresConfig
+	Settings               *internal.Settings
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
@@ -61,14 +62,10 @@ type PostgresConnector struct {
 	pgVersion              shared.PGVersion
 }
 
-func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+func NewPostgresConnector(ctx context.Context, settings *internal.Settings, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
-	if err != nil {
-		logger.Error("Failed to get flow name from application name", slog.Any("error", err))
-	}
 	var flowName string
-	if flowNameInApplicationName {
+	if settings.ApplicationNamePerMirrorName {
 		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
 	}
 	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
@@ -122,6 +119,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	connector := &PostgresConnector{
 		logger:                 logger,
 		Config:                 pgConfig,
+		Settings:               settings,
 		ssh:                    tunnel,
 		conn:                   conn,
 		replConn:               nil,
@@ -185,7 +183,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 	return c.customTypeMapping, nil
 }
 
-func (c *PostgresConnector) CreateReplConn(ctx context.Context, settings *internal.Settings) (*pgx.Conn, error) {
+func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
 	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	replConfig, err := ParseConfig(c.connStr, c.Config)
@@ -202,9 +200,9 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, settings *intern
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	if !strings.EqualFold(settings.PostgresWalSenderTimeout, "NONE") {
-		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", settings.PostgresWalSenderTimeout))
-		replConfig.Config.RuntimeParams["wal_sender_timeout"] = settings.PostgresWalSenderTimeout
+	if !strings.EqualFold(c.Settings.PostgresWalSenderTimeout, "NONE") {
+		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", c.Settings.PostgresWalSenderTimeout))
+		replConfig.Config.RuntimeParams["wal_sender_timeout"] = c.Settings.PostgresWalSenderTimeout
 	} else {
 		c.logger.Info("not setting wal_sender_timeout")
 	}
@@ -217,8 +215,8 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, settings *intern
 	return conn, nil
 }
 
-func (c *PostgresConnector) SetupReplConn(ctx context.Context, settings *internal.Settings) error {
-	conn, err := c.CreateReplConn(ctx, settings)
+func (c *PostgresConnector) SetupReplConn(ctx context.Context) error {
+	conn, err := c.CreateReplConn(ctx)
 	if err != nil {
 		return err
 	}
@@ -476,7 +474,7 @@ func pullCore[Items model.Items](
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
-	handleInheritanceForNonPartitionedTables, err := internal.PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx, req.Settings.Env)
+	handleInheritanceForNonPartitionedTables, err := internal.PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx, c.Settings.Env)
 	if err != nil {
 		return fmt.Errorf("failed to get get setting for handleInheritanceForNonPartitionedTables: %w", err)
 	}
@@ -492,8 +490,8 @@ func pullCore[Items model.Items](
 		Slot:                                     slotName,
 		Publication:                              publicationName,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
-		SourceSchemaAsDestinationColumn:          req.Settings.SourceSchemaAsDestinationColumn,
-		OriginMetaAsDestinationColumn:            req.Settings.OriginMetadataAsDestinationColumn,
+		SourceSchemaAsDestinationColumn:          c.Settings.SourceSchemaAsDestinationColumn,
+		OriginMetaAsDestinationColumn:            c.Settings.OriginMetadataAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
 	})
 	if err != nil {
@@ -663,7 +661,7 @@ func syncRecordsCore[Items model.Items](
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Settings, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -946,7 +944,6 @@ func (c *PostgresConnector) StatActivity(
 
 func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
-	settings *internal.Settings,
 	version uint32,
 	system protos.TypeSystem,
 	tableMapping []*protos.TableMapping,
@@ -954,7 +951,7 @@ func (c *PostgresConnector) GetTableSchema(
 	res := make(map[string]*protos.TableSchema, len(tableMapping))
 	typeSchemaNameMapping := make(map[uint32]string, len(tableMapping))
 	for _, tm := range tableMapping {
-		tableSchema, err := c.getTableSchemaForTable(ctx, settings, tm, system, version, typeSchemaNameMapping)
+		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, version, typeSchemaNameMapping)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -1101,7 +1098,6 @@ func (c *PostgresConnector) GetSchemaNameOfColumnTypeByOID(ctx context.Context, 
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
-	settings *internal.Settings,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 	version uint32,
@@ -1224,7 +1220,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		Columns:               columns,
-		NullableEnabled:       settings.Nullable,
+		NullableEnabled:       c.Settings.Nullable,
 		System:                system,
 		TableOid:              relID,
 	}, nil
@@ -1246,7 +1242,6 @@ func (c *PostgresConnector) FinishSetupNormalizedTables(ctx context.Context, tx 
 func (c *PostgresConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
-	_ *internal.Settings,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -1291,7 +1286,6 @@ func (c *PostgresConnector) SetupNormalizedTable(
 // This could involve adding or dropping multiple columns.
 func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
-	_ *internal.Settings,
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
@@ -1414,9 +1408,8 @@ func (c *PostgresConnector) EnsurePullability(
 func (c *PostgresConnector) ExportTxSnapshot(
 	ctx context.Context,
 	_ string,
-	settings *internal.Settings,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
-	if settings.SkipSnapshotExport {
+	if c.Settings.SkipSnapshotExport {
 		return &protos.ExportTxSnapshotOutput{
 			SnapshotName: "",
 		}, nil, nil
@@ -1488,10 +1481,6 @@ func (c *PostgresConnector) SetupReplication(
 		return model.SetupReplicationResult{}, err
 	}
 
-	settings, err := internal.LoadSettings(ctx, req.Env)
-	if err != nil {
-		return model.SetupReplicationResult{}, err
-	}
 	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
 	for k, v := range req.TableNameMapping {
 		tableNameMapping[k] = model.NameAndExclude{
@@ -1501,7 +1490,7 @@ func (c *PostgresConnector) SetupReplication(
 	}
 	// Create the replication slot and publication
 	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping,
-		req.DoInitialSnapshot, settings.SkipSnapshotExport, settings)
+		req.DoInitialSnapshot, c.Settings.SkipSnapshotExport)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {

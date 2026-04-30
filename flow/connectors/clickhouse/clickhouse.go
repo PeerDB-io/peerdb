@@ -31,6 +31,7 @@ import (
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
+	Settings      *internal.Settings
 	database      clickhouse.Conn
 	logger        log.Logger
 	Config        *protos.ClickhouseConfig
@@ -105,6 +106,7 @@ func NewClickHouseConnector(
 	connector := &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
+		Settings:         settings,
 		Config:           config,
 		logger:           logger,
 		credsProvider: &utils.ClickHouseS3Credentials{
@@ -515,7 +517,6 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 
 func (c *ClickHouseConnector) GetTableSchema(
 	ctx context.Context,
-	_settings *internal.Settings,
 	_version uint32,
 	_system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,

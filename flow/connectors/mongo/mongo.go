@@ -51,6 +51,7 @@ var protoToReadPref = map[protos.ReadPreference]*readpref.ReadPref{
 type MongoConnector struct {
 	logger log.Logger
 	*metadataStore.PostgresMetadata
+	Settings       *internal.Settings
 	config         *protos.MongoConfig
 	client         *mongo.Client
 	ssh            *utils.SSHTunnel
@@ -58,7 +59,7 @@ type MongoConnector struct {
 	deltaBytesRead atomic.Int64
 }
 
-func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
+func NewMongoConnector(ctx context.Context, settings *internal.Settings, config *protos.MongoConfig) (*MongoConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
@@ -67,6 +68,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 
 	mc := &MongoConnector{
 		PostgresMetadata: pgMetadata,
+		Settings:         settings,
 		config:           config,
 		logger:           logger,
 	}

@@ -53,7 +53,7 @@ type MirrorDestinationValidationConnector interface {
 	Connector
 
 	ValidateMirrorDestination(
-		context.Context, *internal.Settings, *protos.FlowConnectionConfigsCore, map[string]*protos.TableSchema,
+		context.Context, *protos.FlowConnectionConfigsCore, map[string]*protos.TableSchema,
 	) error
 }
 
@@ -69,7 +69,6 @@ type GetTableSchemaConnector interface {
 	// GetTableSchema returns the schema of a table in terms of type system.
 	GetTableSchema(
 		ctx context.Context,
-		settings *internal.Settings,
 		version uint32,
 		system protos.TypeSystem,
 		tableMappings []*protos.TableMapping,
@@ -105,7 +104,6 @@ type CDCPullConnectorCore interface {
 	ExportTxSnapshot(
 		ctx context.Context,
 		flowName string,
-		settings *internal.Settings,
 	) (*protos.ExportTxSnapshotOutput, any, error)
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
@@ -115,7 +113,7 @@ type CDCPullConnectorCore interface {
 	SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error)
 
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
-	SetupReplConn(context.Context, *internal.Settings) error
+	SetupReplConn(context.Context) error
 
 	// Ping source to keep connection alive. Can be called concurrently with pulling records; skips ping in that case.
 	ReplPing(context.Context) error
@@ -169,7 +167,6 @@ type NormalizedTablesConnector interface {
 	SetupNormalizedTable(
 		ctx context.Context,
 		tx any,
-		settings *internal.Settings,
 		config *protos.SetupNormalizedTableBatchInput,
 		destinationTableIdentifier string,
 		sourceTableSchema *protos.TableSchema,
@@ -197,7 +194,7 @@ type CDCSyncConnectorCore interface {
 	// ReplayTableSchemaDelta changes a destination table to match the schema at source
 	// This could involve adding multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
-	ReplayTableSchemaDeltas(ctx context.Context, settings *internal.Settings, flowJobName string,
+	ReplayTableSchemaDeltas(ctx context.Context, flowJobName string,
 		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, flags []string,
 	) error
 }
@@ -238,7 +235,7 @@ type QRepPullConnectorCore interface {
 
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
 	GetQRepPartitions(
-		ctx context.Context, settings *internal.Settings, config *protos.QRepConfig, last *protos.QRepPartition,
+		ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition,
 	) ([]*protos.QRepPartition, error)
 
 	GetDefaultPartitionKeyForTables(ctx context.Context,
@@ -556,69 +553,40 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 func GetConnector(ctx context.Context, settings *internal.Settings, config *protos.Peer) (Connector, error) {
 	switch inner := config.Config.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, inner.PostgresConfig)
+		return connpostgres.NewPostgresConnector(ctx, settings, inner.PostgresConfig)
 	case *protos.Peer_BigqueryConfig:
-		return connbigquery.NewBigQueryConnector(ctx, inner.BigqueryConfig)
+		return connbigquery.NewBigQueryConnector(ctx, settings, inner.BigqueryConfig)
 	case *protos.Peer_SnowflakeConfig:
-		return connsnowflake.NewSnowflakeConnector(ctx, inner.SnowflakeConfig)
+		return connsnowflake.NewSnowflakeConnector(ctx, settings, inner.SnowflakeConfig)
 	case *protos.Peer_EventhubGroupConfig:
-		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
+		return conneventhub.NewEventHubConnector(ctx, settings, inner.EventhubGroupConfig)
 	case *protos.Peer_S3Config:
-		return conns3.NewS3Connector(ctx, inner.S3Config)
+		return conns3.NewS3Connector(ctx, settings, inner.S3Config)
 	case *protos.Peer_MongoConfig:
-		return connmongo.NewMongoConnector(ctx, inner.MongoConfig)
+		return connmongo.NewMongoConnector(ctx, settings, inner.MongoConfig)
 	case *protos.Peer_MysqlConfig:
-		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
+		return connmysql.NewMySqlConnector(ctx, settings, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickHouseConnector(ctx, settings, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
 		return connkafka.NewKafkaConnector(ctx, settings, inner.KafkaConfig)
 	case *protos.Peer_PubsubConfig:
-		return connpubsub.NewPubSubConnector(ctx, inner.PubsubConfig)
+		return connpubsub.NewPubSubConnector(ctx, settings, inner.PubsubConfig)
 	case *protos.Peer_ElasticsearchConfig:
-		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
+		return connelasticsearch.NewElasticsearchConnector(ctx, settings, inner.ElasticsearchConfig)
 	default:
 		return nil, errors.ErrUnsupported
 	}
 }
 
-// GetConnectorWithEnv is like GetConnector but loads settings from catalog only when the
-// peer type actually needs them (ClickHouse, Kafka). Other peer types skip the load.
+// GetConnectorWithEnv loads settings from env then calls GetConnector. Used when the
+// caller has env but no preloaded *Settings.
 func GetConnectorWithEnv(ctx context.Context, env map[string]string, config *protos.Peer) (Connector, error) {
-	switch inner := config.Config.(type) {
-	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, inner.PostgresConfig)
-	case *protos.Peer_BigqueryConfig:
-		return connbigquery.NewBigQueryConnector(ctx, inner.BigqueryConfig)
-	case *protos.Peer_SnowflakeConfig:
-		return connsnowflake.NewSnowflakeConnector(ctx, inner.SnowflakeConfig)
-	case *protos.Peer_EventhubGroupConfig:
-		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
-	case *protos.Peer_S3Config:
-		return conns3.NewS3Connector(ctx, inner.S3Config)
-	case *protos.Peer_MongoConfig:
-		return connmongo.NewMongoConnector(ctx, inner.MongoConfig)
-	case *protos.Peer_MysqlConfig:
-		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
-	case *protos.Peer_PubsubConfig:
-		return connpubsub.NewPubSubConnector(ctx, inner.PubsubConfig)
-	case *protos.Peer_ElasticsearchConfig:
-		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
-	case *protos.Peer_ClickhouseConfig:
-		settings, err := internal.LoadSettings(ctx, env)
-		if err != nil {
-			return nil, err
-		}
-		return connclickhouse.NewClickHouseConnector(ctx, settings, inner.ClickhouseConfig)
-	case *protos.Peer_KafkaConfig:
-		settings, err := internal.LoadSettings(ctx, env)
-		if err != nil {
-			return nil, err
-		}
-		return connkafka.NewKafkaConnector(ctx, settings, inner.KafkaConfig)
-	default:
-		return nil, errors.ErrUnsupported
+	settings, err := internal.LoadSettings(ctx, env)
+	if err != nil {
+		return nil, err
 	}
+	return GetConnector(ctx, settings, config)
 }
 
 var noopClose = func(context.Context) {}
@@ -712,31 +680,6 @@ func GetByNameWithEnvAs[T Connector](
 ) (T, func(context.Context), error) {
 	_, conn, connClose, err := LoadPeerAndGetByNameWithEnvAs[T](ctx, env, catalogPool, name)
 	return conn, connClose, err
-}
-
-// Gets Postgres connector by name. Returns a close function to recruit the compiler into helping us avoid connection leaks.
-func GetPostgresConnectorByName(
-	ctx context.Context,
-	catalogPool shared.CatalogPool,
-	name string,
-) (*connpostgres.PostgresConnector, func(context.Context), error) {
-	peer, err := LoadPeer(ctx, catalogPool, name)
-	if err != nil {
-		return nil, noopClose, err
-	}
-	if peer.Type != protos.DBType_POSTGRES {
-		return nil, noopClose, errors.ErrUnsupported
-	}
-	conn, err := connpostgres.NewPostgresConnector(ctx, peer.GetPostgresConfig())
-	if err != nil {
-		return nil, noopClose, exceptions.NewPeerCreateError(err)
-	}
-	connClose := func(closeCtx context.Context) {
-		if err := conn.Close(); err != nil {
-			internal.LoggerFromCtx(closeCtx).Error("error closing connector", slog.Any("error", err))
-		}
-	}
-	return conn, connClose, nil
 }
 
 // create type assertions to cause compile time error if connector interface not implemented

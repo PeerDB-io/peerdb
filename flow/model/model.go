@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -77,8 +76,6 @@ type PullRecordsRequest[T Items] struct {
 	TableNameMapping map[string]NameAndExclude
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
-	// overrides dynamic configuration
-	Settings *internal.Settings
 	// override publication name
 	OverridePublicationName string
 	// override replication slot name
@@ -149,7 +146,6 @@ type SyncRecordsRequest[T Items] struct {
 	FlowJobName string
 	// destination table name -> schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
-	Settings               *internal.Settings
 	// Staging path for AVRO files in CDC
 	StagingPath string
 	// Lua script
@@ -161,7 +157,6 @@ type SyncRecordsRequest[T Items] struct {
 	Flags         []string
 }
 type NormalizeRecordsRequest struct {
-	Settings               *internal.Settings
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	Flags                  []string
 	FlowJobName            string

@@ -9,7 +9,6 @@ import (
 	"cloud.google.com/go/bigquery"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -22,10 +21,6 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, nil, err
-	}
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	srcSchema, err := stream.Schema()
@@ -33,7 +28,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		return 0, nil, err
 	}
 
-	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, settings, config, partition, srcSchema)
+	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, config, partition, srcSchema)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -43,7 +38,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
-	result, err := avroSync.SyncQRepRecords(ctx, settings, config.FlowJobName, destTable, partition,
+	result, err := avroSync.SyncQRepRecords(ctx, c.Settings, config.FlowJobName, destTable, partition,
 		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName)
 	if err != nil {
 		return result, nil, err
@@ -53,7 +48,6 @@ func (c *BigQueryConnector) SyncQRepRecords(
 
 func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	ctx context.Context,
-	settings *internal.Settings,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	srcSchema types.QRecordSchema,
@@ -93,7 +87,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	}
 
 	if err := c.ReplayTableSchemaDeltas(
-		ctx, settings, config.FlowJobName, nil, []*protos.TableSchemaDelta{tableSchemaDelta}, nil,
+		ctx, config.FlowJobName, nil, []*protos.TableSchemaDelta{tableSchemaDelta}, nil,
 	); err != nil {
 		return nil, fmt.Errorf("failed to add columns to destination table: %w", err)
 	}

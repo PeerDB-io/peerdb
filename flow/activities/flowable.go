@@ -79,7 +79,11 @@ func getInitialNormalizeBatchID(
 
 	// Postgres keeps normalize progress in destination-local metadata.
 	if dstPeer.Type == protos.DBType_POSTGRES {
-		dstPgConn, dstClose, err := connectors.GetPostgresConnectorByName(ctx, catalogPool, destinationName)
+		settings, err := internal.LoadSettings(ctx, nil)
+		if err != nil {
+			return 0, fmt.Errorf("failed to load settings for normalize state: %w", err)
+		}
+		dstPgConn, dstClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, settings, catalogPool, destinationName)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get postgres destination connector for normalize state: %w", err)
 		}
@@ -225,7 +229,7 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 	defer srcClose(ctx)
 
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, settings, config.Version, config.System, config.TableMappings)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Version, config.System, config.TableMappings)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}
@@ -306,7 +310,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
-			settings,
 			config,
 			tableIdentifier,
 			tableSchema,
@@ -381,11 +384,9 @@ func (a *FlowableActivity) SyncFlow(
 	}
 	defer srcClose(ctx)
 
-	if err := srcConn.SetupReplConn(ctx, settings); err != nil {
+	if err := srcConn.SetupReplConn(ctx); err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
-
-	reconnectAfterBatches := settings.ReconnectAfterBatches
 
 	// syncDone will be closed by SyncFlow,
 	// whereas normalizeDone will be closed by normalizing goroutine
@@ -404,14 +405,13 @@ func (a *FlowableActivity) SyncFlow(
 		normalizingBatchID.Store(lastNormBatchID)
 		normResponses.Update(lastNormBatchID)
 	}
-	normBufferHours := settings.NormalizeBufferHours
 	idleTimeout := cdcIdleTimeout(int(options.IdleTimeoutSeconds))
-	// normBufferSize allows _approximately_ normBufferHours delay between pull/sync and normalize
+	// normBufferSize allows _approximately_ NormalizeBufferHours delay between pull/sync and normalize
 	// under normal steady operation where the batch hits idle timeout every time it will match the hours very closely
 	// effective hours will be longer if pull is idling, or there are waits on big transactions,
 	// or the sync interval is so small that start/stop overhead starts being visible
 	// will be shorter if the batches hit the size limit rather rather than idle timeout
-	normBufferSize := normBufferHours * 3600 / int64(idleTimeout.Seconds())
+	normBufferSize := settings.NormalizeBufferHours * 3600 / int64(idleTimeout.Seconds())
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)
 
@@ -419,7 +419,7 @@ func (a *FlowableActivity) SyncFlow(
 	group.Go(func() error {
 		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normalizeCtx, logger, settings, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {
@@ -436,10 +436,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncResponse *model.SyncResponse
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.syncRecords(groupCtx, settings, config, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.syncPg(groupCtx, settings, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
@@ -463,7 +463,7 @@ func (a *FlowableActivity) SyncFlow(
 			)))
 			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 		}
-		if reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches {
+		if settings.ReconnectAfterBatches > 0 && syncNum >= settings.ReconnectAfterBatches {
 			break
 		}
 	}
@@ -486,6 +486,7 @@ func (a *FlowableActivity) SyncFlow(
 
 func (a *FlowableActivity) syncRecords(
 	ctx context.Context,
+	settings *internal.Settings,
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
@@ -525,7 +526,7 @@ func (a *FlowableActivity) syncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, srcConn,
+	return syncCore(ctx, a, settings, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
@@ -534,6 +535,7 @@ func (a *FlowableActivity) syncRecords(
 
 func (a *FlowableActivity) syncPg(
 	ctx context.Context,
+	settings *internal.Settings,
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
@@ -544,7 +546,7 @@ func (a *FlowableActivity) syncPg(
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, srcConn,
+	return syncCore(ctx, a, settings, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
@@ -613,7 +615,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		}
 	}
 
-	partitions, err := srcConn.GetQRepPartitions(ctx, settings, config, last)
+	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to get partitions from source", err))
 	}
@@ -941,6 +943,11 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 		return err
 	}
 
+	settings, err := internal.LoadSettings(ctx, nil)
+	if err != nil {
+		return err
+	}
+
 	// run above command for each Postgres peer
 	for _, pgPeer := range pgPeers {
 		if err := ctx.Err(); err != nil {
@@ -949,7 +956,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
-			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, pgConfig)
+			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, settings, pgConfig)
 			if peerErr != nil {
 				logger.Error("error creating connector for postgres peer",
 					slog.String("peer", pgPeer.Name), slog.String("host", pgConfig.Host), slog.Any("error", err))
@@ -1487,7 +1494,8 @@ func (a *FlowableActivity) recordSlotInformation(
 	}
 
 	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-	srcConn, srcClose, err := connectors.GetPostgresConnectorByName(ctx, a.CatalogPool, info.config.SourceName)
+	_, srcConn, srcClose, err := connectors.LoadPeerAndGetByNameWithEnvAs[*connpostgres.PostgresConnector](
+		ctx, info.config.Env, a.CatalogPool, info.config.SourceName)
 	if err != nil {
 		if !errors.Is(err, errors.ErrUnsupported) {
 			logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
@@ -1616,7 +1624,8 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	// TODO implement for other QRepPullConnector sources
-	srcConn, srcClose, err := connectors.GetPostgresConnectorByName(ctx, a.CatalogPool, config.SourceName)
+	_, srcConn, srcClose, err := connectors.LoadPeerAndGetByNameWithEnvAs[*connpostgres.PostgresConnector](
+		ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			return true, nil
@@ -1834,7 +1843,8 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	defer shutdown()
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
-	srcConn, srcClose, err := connectors.GetPostgresConnectorByName(ctx, a.CatalogPool, cfg.SourceName)
+	_, srcConn, srcClose, err := connectors.LoadPeerAndGetByNameWithEnvAs[*connpostgres.PostgresConnector](
+		ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			return nil
@@ -1866,7 +1876,8 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	})
 	defer shutdown()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
-	srcConn, srcClose, err := connectors.GetPostgresConnectorByName(ctx, a.CatalogPool, cfg.SourceName)
+	_, srcConn, srcClose, err := connectors.LoadPeerAndGetByNameWithEnvAs[*connpostgres.PostgresConnector](
+		ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			return nil

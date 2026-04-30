@@ -10,7 +10,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pua"
@@ -29,17 +28,13 @@ func (c *KafkaConnector) SyncQRepRecords(
 ) (int64, shared.QRepWarnings, error) {
 	startTime := time.Now()
 	numRecords := atomic.Int64{}
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, nil, err
-	}
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, nil, err
 	}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(queueCtx, settings, config.Script, config.FlowJobName, nil, queueErr)
+	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, nil, queueErr)
 	if err != nil {
 		return 0, nil, err
 	}

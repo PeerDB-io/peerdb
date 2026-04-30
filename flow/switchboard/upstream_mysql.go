@@ -17,6 +17,7 @@ import (
 
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 // wrapMySQLError converts a MySQL error to an UpstreamError
@@ -60,7 +61,11 @@ var mysqlDeniedFunctions = map[string]struct{}{
 
 // NewMySQLUpstream creates a new MySQL upstream connection
 func NewMySQLUpstream(ctx context.Context, config *protos.MySqlConfig, queryTimeout time.Duration) (*MySQLUpstream, error) {
-	conn, err := connmysql.NewMySqlConnector(ctx, config)
+	settings, err := internal.LoadSettings(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := connmysql.NewMySqlConnector(ctx, settings, config)
 	if err != nil {
 		return nil, err
 	}
@@ -152,8 +157,12 @@ func (u *MySQLUpstream) BackendKeyData() (uint32, []byte) {
 
 // Cancel cancels the currently running query via KILL QUERY
 func (u *MySQLUpstream) Cancel(ctx context.Context) error {
+	settings, err := internal.LoadSettings(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to load settings for cancel: %w", err)
+	}
 	// Open ephemeral connection with same credentials
-	ephemeral, err := connmysql.NewMySqlConnector(ctx, u.config)
+	ephemeral, err := connmysql.NewMySqlConnector(ctx, settings, u.config)
 	if err != nil {
 		return fmt.Errorf("failed to create ephemeral connection for cancel: %w", err)
 	}

@@ -232,17 +232,13 @@ func (c *ClickHouseConnector) insertFromURLBatch(
 
 	urlTableFunction := c.buildURLTableFunction(urls, headers, format)
 
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, err
-	}
 	insertConfig := &insertFromTableFunctionConfig{
 		destinationTable:          config.DestinationTableIdentifier,
 		schema:                    schema,
 		columnNameMap:             columnNameFieldMap,
 		excludedColumns:           config.Exclude,
 		config:                    config,
-		settings:                  settings,
+		settings:                  c.Settings,
 		connector:                 c,
 		logger:                    c.logger,
 		fieldExpressionConverters: fieldExpressionConverters,

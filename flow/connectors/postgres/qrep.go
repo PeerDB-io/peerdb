@@ -44,7 +44,6 @@ type QRepSyncSink interface {
 
 func (c *PostgresConnector) GetQRepPartitions(
 	ctx context.Context,
-	settings *internal.Settings,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
@@ -74,7 +73,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
-	partitions, err := c.getPartitions(ctx, getPartitionsTx, settings, config, last)
+	partitions, err := c.getPartitions(ctx, getPartitionsTx, config, last)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get partitions: %w", err)
 	}
@@ -127,8 +126,8 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 	// compressed hypertables cannot do ctid scans, so disable for them
 	// NOTE: it appears that the hypercore "TAM" may give us access to ctid scans, but that's to be removed in Timescale 2.22
 	rows, err := c.conn.Query(ctx, `SELECT DISTINCT hypertable_schema, hypertable_name
-		FROM timescaledb_information.chunks
-		WHERE is_compressed='t';`)
+	FROM timescaledb_information.chunks
+	WHERE is_compressed='t';`)
 	if err != nil {
 		return nil, fmt.Errorf("query compressed hypertables: %w", err)
 	}
@@ -169,7 +168,6 @@ func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.T
 func (c *PostgresConnector) getPartitions(
 	ctx context.Context,
 	tx pgx.Tx,
-	settings *internal.Settings,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
@@ -230,7 +228,7 @@ func (c *PostgresConnector) getPartitions(
 	var partitionFunc PartitioningFunc
 	var partitionFuncName string
 	switch {
-	case isCTIDWatermarkCol && (settings.PostgresApplyCtidBlockPartitioning || hasPartitionOverride):
+	case isCTIDWatermarkCol && (c.Settings.PostgresApplyCtidBlockPartitioning || hasPartitionOverride):
 		partitionFunc = CTIDBlockPartitioningFunc
 		partitionFuncName = "CTIDBlockPartitioningFunc"
 	case hasPartitionOverride:
@@ -368,11 +366,8 @@ func corePullQRepRecords(
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, 0, err
-	}
 	selectedColumns := "*"
+	var err error
 	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
 		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
 		if err != nil {
@@ -395,7 +390,7 @@ func corePullQRepRecords(
 
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, settings, config.Version, config.SnapshotName,
+		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, c.Settings, config.Version, config.SnapshotName,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
@@ -468,7 +463,7 @@ func corePullQRepRecords(
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, settings, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, c.Settings, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -497,12 +492,8 @@ func pullChildTableRanges(
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, 0, err
-	}
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, settings, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, c.Settings, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -825,10 +816,6 @@ func pullXminRecordStream(
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 ) (int64, int64, int64, error) {
-	settings, err := internal.LoadSettings(ctx, config.Env)
-	if err != nil {
-		return 0, 0, 0, err
-	}
 	query := config.Query
 	var queryArgs []any
 	if partition.Range != nil {
@@ -836,7 +823,7 @@ func pullXminRecordStream(
 		queryArgs = []any{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
-	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, settings, config.Version, config.SnapshotName,
+	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, c.Settings, config.Version, config.SnapshotName,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to create query executor: %w", err)

@@ -116,7 +116,7 @@ func setupBigQuerySource(t *testing.T) (*bigQuerySource, error) {
 		return nil, fmt.Errorf("failed to create BigQuery helper: %w", err)
 	}
 
-	conn, err := connbigquery.NewBigQueryConnector(t.Context(), helper.Config)
+	conn, err := connbigquery.NewBigQueryConnector(t.Context(), internal.NewSettings(nil), helper.Config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery connector: %w", err)
 	}
@@ -383,7 +383,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Get_Table_Schema() {
 		},
 	}
 
-	schemas, err := bqConn.GetTableSchema(ctx, internal.NewSettings(nil), 0, protos.TypeSystem_Q, tableMappings)
+	schemas, err := bqConn.GetTableSchema(ctx, 0, protos.TypeSystem_Q, tableMappings)
 	require.NoError(t, err, "should successfully get table schema")
 	require.NotNil(t, schemas, "schemas should not be nil")
 	require.Len(t, schemas, 1, "should have one table schema")

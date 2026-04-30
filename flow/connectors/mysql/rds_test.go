@@ -12,7 +12,7 @@ import (
 func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthMySQLTestConnectionInfo(t)
-	mysqlConnector, err := NewMySqlConnector(t.Context(),
+	mysqlConnector, err := NewMySqlConnector(t.Context(), internal.NewSettings(nil),
 		&protos.MySqlConfig{
 			Host:       conn.Host,
 			Database:   "postgres",
@@ -29,7 +29,7 @@ func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthMySQLTestConnectionInfo(t)
-	mysqlConnector, err := NewMySqlConnector(t.Context(),
+	mysqlConnector, err := NewMySqlConnector(t.Context(), internal.NewSettings(nil),
 		&protos.MySqlConfig{
 			Host:       conn.ProxyHost,
 			Database:   "postgres",

@@ -310,7 +310,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Set Postgres application_name to have mirror name as suffix for each mirror",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
@@ -716,6 +716,7 @@ type Settings struct {
 	FullRefreshOverwriteMode                 bool         `dyn:"PEERDB_FULL_REFRESH_OVERWRITE_MODE"`
 	PostgresApplyCtidBlockPartitioning       bool         `dyn:"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE"`
 	MongoDBParallelSnapshotting              bool         `dyn:"PEERDB_MONGODB_PARALLEL_SNAPSHOTTING"`
+	ApplicationNamePerMirrorName             bool         `dyn:"PEERDB_APPLICATION_NAME_PER_MIRROR_NAME"`
 }
 
 var SettingsType = reflect.TypeFor[Settings]()

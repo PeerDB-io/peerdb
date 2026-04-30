@@ -30,8 +30,9 @@ import (
 
 type KafkaConnector struct {
 	*metadataStore.PostgresMetadata
-	client *kgo.Client
-	logger log.Logger
+	Settings *internal.Settings
+	client   *kgo.Client
+	logger   log.Logger
 }
 
 type kgoTemporalLogger struct {
@@ -143,6 +144,7 @@ func NewKafkaConnector(
 
 	return &KafkaConnector{
 		PostgresMetadata: pgMetadata,
+		Settings:         settings,
 		client:           client,
 		logger:           logger,
 	}, nil
@@ -163,7 +165,7 @@ func (c *KafkaConnector) CreateRawTable(ctx context.Context, req *protos.CreateR
 	return &protos.CreateRawTableOutput{TableIdentifier: "n/a"}, nil
 }
 
-func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context, _ *internal.Settings,
+func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context,
 	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil
@@ -224,13 +226,12 @@ type poolResult struct {
 
 func (c *KafkaConnector) createPool(
 	ctx context.Context,
-	settings *internal.Settings,
 	script string,
 	flowJobName string,
 	lastSeenLSN *atomic.Int64,
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
-	maxSize, err := internal.PeerDBQueueParallelism(ctx, settings.Env)
+	maxSize, err := internal.PeerDBQueueParallelism(ctx, c.Settings.Env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get parallelism: %w", err)
 	}
@@ -260,7 +261,7 @@ func (c *KafkaConnector) createPool(
 				if err != nil {
 					var success bool
 					if errors.Is(err, kerr.UnknownTopicOrPartition) {
-						if settings.QueueForceTopicCreation {
+						if c.Settings.QueueForceTopicCreation {
 							c.logger.Info("[kafka] force topic creation", slog.String("topic", kr.Topic))
 							_, err := kadm.NewClient(c.client).CreateTopic(ctx, 1, 3, nil, kr.Topic)
 							if err != nil && !errors.Is(err, kerr.TopicAlreadyExists) {
@@ -296,7 +297,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 
-	pool, err := c.createPool(queueCtx, req.Settings, req.Script, req.FlowJobName, &lastSeenLSN, queueErr)
+	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, &lastSeenLSN, queueErr)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +306,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Settings.Env)
+		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, c.Settings.Env)
 		if err != nil {
 			c.logger.Warn("[kafka] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return

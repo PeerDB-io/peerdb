@@ -15,7 +15,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -39,7 +38,6 @@ type ChangeEvent struct {
 
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
-	_ *internal.Settings,
 	internalVersion uint32,
 	_ protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
@@ -217,7 +215,7 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	converter, err := NewBsonConverter(ctx, req.Settings)
+	converter, err := NewBsonConverter(ctx, c.Settings)
 	if err != nil {
 		return fmt.Errorf("failed to create converter: %w", err)
 	}
@@ -496,7 +494,7 @@ func (c *MongoConnector) EnsurePullability(ctx context.Context, req *protos.Ensu
 	return nil, nil
 }
 
-func (c *MongoConnector) ExportTxSnapshot(context.Context, string, *internal.Settings) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *MongoConnector) ExportTxSnapshot(context.Context, string) (*protos.ExportTxSnapshotOutput, any, error) {
 	return nil, nil, nil
 }
 
@@ -504,7 +502,7 @@ func (c *MongoConnector) FinishExport(any) error {
 	return nil
 }
 
-func (c *MongoConnector) SetupReplConn(context.Context, *internal.Settings) error {
+func (c *MongoConnector) SetupReplConn(context.Context) error {
 	return nil
 }
 

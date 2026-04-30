@@ -19,7 +19,7 @@ import (
 func setupDB(t *testing.T, testName string) (*PostgresConnector, string) {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(t.Context(),
+	connector, err := NewPostgresConnector(t.Context(), internal.NewSettings(nil),
 		internal.GetCatalogPostgresConfigFromEnv(t.Context()))
 	require.NoError(t, err, "error while creating connector")
 
