@@ -346,7 +346,7 @@ func QValueFromMysqlRowEvent(
 	switch val := val.(type) {
 	case nil:
 		return types.QValueNull(qkind), nil
-	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
+	case int8: // minimal-metadata streams return all integers as signed
 		switch qkind {
 		case types.QValueKindBoolean:
 			return types.QValueBoolean{Val: val != 0}, nil
@@ -357,6 +357,17 @@ func QValueFromMysqlRowEvent(
 		default:
 			return types.QValueInt8{Val: val}, nil
 		}
+	case uint8:
+		switch qkind {
+		case types.QValueKindBoolean:
+			return types.QValueBoolean{Val: val != 0}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatUint(uint64(val), 10)}, nil
+		case types.QValueKindInt8:
+			return types.QValueInt8{Val: int8(val)}, nil
+		default:
+			return types.QValueUInt8{Val: val}, nil
+		}
 	case int16:
 		switch qkind {
 		case types.QValueKindUInt16:
@@ -365,6 +376,15 @@ func QValueFromMysqlRowEvent(
 			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
 		default:
 			return types.QValueInt16{Val: val}, nil
+		}
+	case uint16:
+		switch qkind {
+		case types.QValueKindInt16:
+			return types.QValueInt16{Val: int16(val)}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatUint(uint64(val), 10)}, nil
+		default:
+			return types.QValueUInt16{Val: val}, nil
 		}
 	case int32:
 		switch qkind {
@@ -378,6 +398,15 @@ func QValueFromMysqlRowEvent(
 			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
 		default:
 			return types.QValueInt32{Val: val}, nil
+		}
+	case uint32:
+		switch qkind {
+		case types.QValueKindInt32:
+			return types.QValueInt32{Val: int32(val)}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatUint(uint64(val), 10)}, nil
+		default:
+			return types.QValueUInt32{Val: val}, nil
 		}
 	case int64:
 		switch qkind {
@@ -412,6 +441,15 @@ func QValueFromMysqlRowEvent(
 			} else {
 				return nil, fmt.Errorf("enum value out of range %d %v", val, enums)
 			}
+		}
+	case uint64:
+		switch qkind {
+		case types.QValueKindInt64:
+			return types.QValueInt64{Val: int64(val)}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatUint(val, 10)}, nil
+		default:
+			return types.QValueUInt64{Val: val}, nil
 		}
 	case float32:
 		if qkind == types.QValueKindFloat64 {
