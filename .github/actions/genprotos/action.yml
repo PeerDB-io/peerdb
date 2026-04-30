@@ -21,6 +21,4 @@ runs:
         github_token: ${{ github.token }}
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: sh
-      run: |
-        buf generate protos
-        cd flow && go generate
+      run: ./generate-protos.sh
