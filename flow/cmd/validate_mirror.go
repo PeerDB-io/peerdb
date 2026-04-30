@@ -35,6 +35,13 @@ var FlagConstraints = map[string]flagConstraint{
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
+	if req.ConnectionConfigs != nil {
+		if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env); err != nil {
+			return nil, NewInternalApiError(err)
+		} else {
+			req.ConnectionConfigs.Version = internalVersion
+		}
+	}
 	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
 	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
 }
