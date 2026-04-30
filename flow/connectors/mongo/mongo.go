@@ -55,13 +55,17 @@ type metadataStore interface {
 	SetLastOffset(ctx context.Context, jobName string, offset model.CdcCheckpoint) error
 }
 
+type createChangeStreamFunc func(
+	ctx context.Context, pipeline mongo.Pipeline, opts ...options.Lister[options.ChangeStreamOptions],
+) (ChangeStream, error)
+
 type MongoConnector struct {
 	logger             log.Logger
 	metadataStore      metadataStore
 	config             *protos.MongoConfig
 	client             *mongo.Client
 	ssh                *utils.SSHTunnel
-	createChangeStream createChangeStreamFn
+	createChangeStream createChangeStreamFunc
 	totalBytesRead     atomic.Int64
 	deltaBytesRead     atomic.Int64
 }

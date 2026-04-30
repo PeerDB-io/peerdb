@@ -36,10 +36,6 @@ type ChangeEvent struct {
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
-type createChangeStreamFn func(
-	ctx context.Context, pipeline mongo.Pipeline, opts ...options.Lister[options.ChangeStreamOptions],
-) (ChangeStream, error)
-
 // ChangeStream is defined as an interface, allowing tests inject mock change stream.
 type ChangeStream interface {
 	Next(ctx context.Context) bool
