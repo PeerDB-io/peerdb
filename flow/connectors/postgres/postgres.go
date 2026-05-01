@@ -202,16 +202,18 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
-	}
-	if !strings.EqualFold(walSenderTimeout, "NONE") {
-		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", walSenderTimeout))
-		replConfig.Config.RuntimeParams["wal_sender_timeout"] = walSenderTimeout
-	} else {
-		c.logger.Info("not setting wal_sender_timeout")
-	}
+	// hard-code wal_sender_timeout to 10 minutes
+	replConfig.Config.RuntimeParams["wal_sender_timeout"] = "600s"
+	//walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
+	//if err != nil {
+	//	return nil, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
+	//}
+	//if !strings.EqualFold(walSenderTimeout, "NONE") {
+	//	c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", walSenderTimeout))
+	//	replConfig.Config.RuntimeParams["wal_sender_timeout"] = walSenderTimeout
+	//} else {
+	//	c.logger.Info("not setting wal_sender_timeout")
+	//}
 
 	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
 	if err != nil {
