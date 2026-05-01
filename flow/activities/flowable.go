@@ -67,6 +67,7 @@ func cdcIdleTimeout(value int) time.Duration {
 
 func getInitialNormalizeBatchID(
 	ctx context.Context,
+	settings *internal.Settings,
 	logger log.Logger,
 	catalogPool shared.CatalogPool,
 	destinationName string,
@@ -79,10 +80,6 @@ func getInitialNormalizeBatchID(
 
 	// Postgres keeps normalize progress in destination-local metadata.
 	if dstPeer.Type == protos.DBType_POSTGRES {
-		settings, err := internal.LoadSettings(ctx, nil)
-		if err != nil {
-			return 0, fmt.Errorf("failed to load settings for normalize state: %w", err)
-		}
 		dstPgConn, dstClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, settings, catalogPool, destinationName)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get postgres destination connector for normalize state: %w", err)
@@ -396,7 +393,7 @@ func (a *FlowableActivity) SyncFlow(
 	normResponses := concurrency.NewLastChan()
 
 	lastNormBatchID, err := getInitialNormalizeBatchID(
-		ctx, logger, a.CatalogPool, config.DestinationName, config.FlowJobName,
+		ctx, settings, logger, a.CatalogPool, config.DestinationName, config.FlowJobName,
 	)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
