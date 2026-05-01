@@ -110,7 +110,7 @@ func createStagingStore(
 ) (utils.StagingStore, *utils.ClickHouseS3Credentials, error) {
 	// If user provided explicit S3 config, always use S3 staging.
 	if config.S3 != nil || config.S3Path != "" || config.AccessKeyId != "" {
-		return createS3StagingStore(ctx, env, config)
+		return createS3StagingStore(ctx, env, config, "")
 	}
 
 	// Check environment-based staging provider config.
@@ -119,12 +119,18 @@ func createStagingStore(
 		return nil, nil, fmt.Errorf("failed to get staging provider: %w", err)
 	}
 
+	// Prefer unified PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME, fall back to provider-specific env vars.
+	bucketName, err := internal.PeerDBClickHouseStagingBucketName(ctx, env)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get staging bucket name: %w", err)
+	}
+
 	switch strings.ToLower(provider) {
 	case "gcs":
-		store, err := createGCSStagingStore(ctx, env)
+		store, err := createGCSStagingStore(ctx, bucketName)
 		return store, nil, err
 	default:
-		return createS3StagingStore(ctx, env, config)
+		return createS3StagingStore(ctx, env, config, bucketName)
 	}
 }
 
@@ -132,6 +138,7 @@ func createS3StagingStore(
 	ctx context.Context,
 	env map[string]string,
 	config *protos.ClickhouseConfig,
+	unifiedBucketName string,
 ) (utils.StagingStore, *utils.ClickHouseS3Credentials, error) {
 	var awsConfig utils.PeerAWSCredentials
 	var awsBucketPath string
@@ -159,9 +166,13 @@ func createS3StagingStore(
 		deploymentUID := internal.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
-		awsBucketName, err := internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
+		// Prefer unified bucket name, fall back to legacy S3-specific env var.
+		awsBucketName := unifiedBucketName
+		if awsBucketName == "" {
+			awsBucketName, err = internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
+			}
 		}
 		if awsBucketName == "" {
 			return nil, nil, errors.New("PeerDB ClickHouse Bucket Name not set")
@@ -184,20 +195,16 @@ func createS3StagingStore(
 
 func createGCSStagingStore(
 	ctx context.Context,
-	env map[string]string,
+	bucketName string,
 ) (utils.StagingStore, error) {
-	gcsBucketName, err := internal.PeerDBClickHouseGCSBucketName(ctx, env)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get GCS bucket name: %w", err)
-	}
-	if gcsBucketName == "" {
-		return nil, errors.New("PEERDB_CLICKHOUSE_GCS_BUCKET_NAME not set but staging provider is gcs")
+	if bucketName == "" {
+		return nil, errors.New("PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME must be set when staging provider is gcs")
 	}
 
 	deploymentUID := internal.PeerDBDeploymentUID()
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	bucketPath := fmt.Sprintf("gs://%s/%s/%s",
-		gcsBucketName, url.PathEscape(deploymentUID), url.PathEscape(flowName))
+		bucketName, url.PathEscape(deploymentUID), url.PathEscape(flowName))
 
 	return utils.NewGCSStagingStore(ctx, bucketPath)
 }

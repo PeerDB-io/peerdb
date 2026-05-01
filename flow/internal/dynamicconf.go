@@ -183,8 +183,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_GCS_BUCKET_NAME",
-		Description:      "GCS bucket to store Avro files for mirrors with ClickHouse target",
+		Name:             "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME",
+		Description:      "Staging bucket name for ClickHouse mirrors (provider-agnostic, preferred over legacy env vars)",
 		DefaultValue:     "",
 		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
@@ -730,8 +730,8 @@ func PeerDBClickHouseStagingProvider(ctx context.Context, env map[string]string)
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_PROVIDER")
 }
 
-func PeerDBClickHouseGCSBucketName(ctx context.Context, env map[string]string) (string, error) {
-	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_GCS_BUCKET_NAME")
+func PeerDBClickHouseStagingBucketName(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
 }
 
 func PeerDBS3UuidPrefix(ctx context.Context, env map[string]string) (bool, error) {

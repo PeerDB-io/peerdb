@@ -37,12 +37,12 @@ func NewClickHouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickHouseAvroSyncMethod) stagingTableFunctionBuilder(ctx context.Context, avroFilePath string) (string, error) {
+func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, avroFilePath string) (string, error) {
 	return s.staging.TableFunctionExpr(ctx, avroFilePath, "Avro")
 }
 
 func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile utils.AvroFile) error {
-	s3TableFunction, err := s.stagingTableFunctionBuilder(ctx, avroFile.FilePath)
+	s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
 	if err != nil {
 		s.logger.Error("failed to build S3 table function",
 			slog.String("avroFilePath", avroFile.FilePath),
@@ -276,7 +276,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 
 		for i := range numParts {
 			// Get fresh credentials for each part
-			s3TableFunction, err := s.stagingTableFunctionBuilder(ctx, avroFile.FilePath)
+			s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
 			if err != nil {
 				s.logger.Error("failed to build S3 table function",
 					slog.String("avroFilePath", avroFile.FilePath),
@@ -365,24 +365,24 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE, sizeTracker)
 	prefix := s.staging.KeyPrefix()
 
-	uuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, s.config.Env)
+	s3UuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, s.config.Env)
 	if err != nil {
 		return utils.AvroFile{}, err
 	}
 
-	var avroFileKey string
-	if uuidPrefix {
-		avroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", prefix, uuid.NewString(), flowJobName, identifierForFile)
+	var s3AvroFileKey string
+	if s3UuidPrefix {
+		s3AvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", prefix, uuid.NewString(), flowJobName, identifierForFile)
 	} else {
-		avroFileKey = fmt.Sprintf("%s/%s/%s.avro", prefix, flowJobName, identifierForFile)
+		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", prefix, flowJobName, identifierForFile)
 	}
-	avroFileKey = strings.TrimLeft(avroFileKey, "/")
+	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
 
-	avroFile, err := ocfWriter.WriteRecordsToStaging(
-		ctx, env, s.staging, avroFileKey, typeConversions, numericTruncator,
+	avroFile, err := ocfWriter.WriteRecordsToS3(
+		ctx, env, s.staging, s3AvroFileKey, typeConversions, numericTruncator,
 	)
 	if err != nil {
-		return utils.AvroFile{}, fmt.Errorf("failed to write records to staging: %w", err)
+		return utils.AvroFile{}, fmt.Errorf("failed to write records to S3: %w", err)
 	}
 
 	return avroFile, nil
