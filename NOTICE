@@ -1,0 +1,11 @@
+Peerflake
+Copyright (c) 2025 Peerflake contributors
+
+This product is a fork of PeerDB (https://github.com/PeerDB-io/peerdb),
+originally developed by PeerDB Inc. and currently maintained by ClickHouse Inc.
+
+The original PeerDB project is licensed under the GNU Affero General Public
+License v3.0 (AGPLv3). This fork retains the same license.
+
+All copyright notices in source files belong to their respective original
+authors and have been preserved.
