@@ -311,7 +311,6 @@ func (c *BigQueryConnector) EnsurePullability(
 func (c *BigQueryConnector) ExportTxSnapshot(
 	ctx context.Context,
 	flowName string,
-	_ map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
 	cfg, err := internal.FetchConfigFromDB(ctx, c.catalogPool, flowName)
 	if err != nil {
@@ -475,7 +474,7 @@ func (c *BigQueryConnector) FinishExport(v any) error {
 	return nil
 }
 
-func (c *BigQueryConnector) SetupReplConn(context.Context, map[string]string) error {
+func (c *BigQueryConnector) SetupReplConn(context.Context) error {
 	return nil
 }
 

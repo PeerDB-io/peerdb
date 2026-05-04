@@ -38,23 +38,19 @@ func GetNumericDestinationType(
 	}
 }
 
-func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, typeModifier int32) (string, error) {
+func getClickHouseTypeForNumericColumn(settings *internal.Settings, typeModifier int32) string {
 	precision, scale := datatypes.ParseNumericTypmod(typeModifier)
-	asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
-	if err != nil {
-		return "", err
-	}
-	destinationType := GetNumericDestinationType(precision, scale, protos.DBType_CLICKHOUSE, asString)
+	destinationType := GetNumericDestinationType(precision, scale, protos.DBType_CLICKHOUSE, settings.ClickHouseUnboundedNumericAsString)
 	if destinationType.IsString {
-		return "String", nil
+		return "String"
 	}
-	return fmt.Sprintf("Decimal(%d, %d)", destinationType.Precision, destinationType.Scale), nil
+	return fmt.Sprintf("Decimal(%d, %d)", destinationType.Precision, destinationType.Scale)
 }
 
 func ToDWHColumnType(
 	ctx context.Context,
 	kind types.QValueKind,
-	env map[string]string,
+	settings *internal.Settings,
 	dwhType protos.DBType,
 	dwhVersion *chproto.Version,
 	column *protos.FieldDescription,
@@ -77,19 +73,10 @@ func ToDWHColumnType(
 		}
 	case protos.DBType_CLICKHOUSE:
 		if kind == types.QValueKindNumeric {
-			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
-			if err != nil {
-				return "", err
-			}
+			colType = getClickHouseTypeForNumericColumn(settings, column.TypeModifier)
 		} else if kind == types.QValueKindArrayNumeric {
-			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
-			if err != nil {
-				return "", err
-			}
-			colType = fmt.Sprintf("Array(%s)", colType)
-		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
+			colType = fmt.Sprintf("Array(%s)", getClickHouseTypeForNumericColumn(settings, column.TypeModifier))
+		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(settings, dwhVersion) {
 			colType = "JSON"
 		} else if (kind == types.QValueKindTime || kind == types.QValueKindTimeTZ) &&
 			slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled) {
@@ -112,13 +99,11 @@ func ToDWHColumnType(
 	return colType, nil
 }
 
-func ShouldUseNativeJSONType(ctx context.Context, env map[string]string, chVersion *chproto.Version) bool {
+func ShouldUseNativeJSONType(settings *internal.Settings, chVersion *chproto.Version) bool {
 	if chVersion == nil {
 		return false
 	}
 	// JSON data type is marked as production ready in version ClickHouse 25.3
 	isJsonSupported := chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 3, Patch: 0}, *chVersion)
-	// Treat error the same as not enabled
-	isJsonEnabled, _ := internal.PeerDBEnableClickHouseJSON(ctx, env)
-	return isJsonSupported && isJsonEnabled
+	return isJsonSupported && settings.ClickHouseEnableJSON
 }

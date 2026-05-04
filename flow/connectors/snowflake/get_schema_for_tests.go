@@ -44,7 +44,6 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tm *pro
 // only used for testing atm. doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].
 func (c *SnowflakeConnector) GetTableSchema(
 	ctx context.Context,
-	_env map[string]string,
 	_version uint32,
 	_system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,

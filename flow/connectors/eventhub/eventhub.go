@@ -23,6 +23,7 @@ import (
 
 type EventHubConnector struct {
 	*metadataStore.PostgresMetadata
+	Settings   *internal.Settings
 	config     *protos.EventHubGroupConfig
 	creds      *azidentity.DefaultAzureCredential
 	hubManager *EventHubManager
@@ -32,6 +33,7 @@ type EventHubConnector struct {
 // NewEventHubConnector creates a new EventHubConnector.
 func NewEventHubConnector(
 	ctx context.Context,
+	settings *internal.Settings,
 	config *protos.EventHubGroupConfig,
 ) (*EventHubConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
@@ -50,6 +52,7 @@ func NewEventHubConnector(
 
 	return &EventHubConnector{
 		PostgresMetadata: pgMetadata,
+		Settings:         settings,
 		config:           config,
 		creds:            defaultAzureCreds,
 		hubManager:       hubManager,
@@ -175,7 +178,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+	flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, c.Settings.Env)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get flush timeout: %w", err)
 	}
@@ -370,7 +373,7 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}, nil
 }
 
-func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
+func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context,
 	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil

@@ -15,6 +15,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -57,7 +58,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	stagingTable := fmt.Sprintf("%s_%s_staging", rawTableName, strconv.FormatInt(syncBatchID, 10))
-	numRecords, err := s.writeToStage(ctx, req.Env, strconv.FormatInt(syncBatchID, 10), rawTableName, avroSchema,
+	numRecords, err := s.writeToStage(ctx, s.connector.Settings, strconv.FormatInt(syncBatchID, 10), rawTableName, avroSchema,
 		&datasetTable{
 			project: s.connector.projectID,
 			dataset: s.connector.datasetID,
@@ -99,7 +100,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		slog.String("dstTableName", rawTableName))
 
 	if err := s.connector.ReplayTableSchemaDeltas(
-		ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil,
+		ctx, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil,
 	); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -141,7 +142,7 @@ func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softD
 
 func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	flowJobName string,
 	dstTableName string,
 	partition *protos.QRepPartition,
@@ -170,7 +171,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		table: fmt.Sprintf("%s_%s_staging", dstDatasetTable.table,
 			strings.ReplaceAll(partition.PartitionId, "-", "_")),
 	}
-	numRecords, err := s.writeToStage(ctx, env, partition.PartitionId, flowJobName, avroSchema,
+	numRecords, err := s.writeToStage(ctx, settings, partition.PartitionId, flowJobName, avroSchema,
 		stagingDatasetTable, stream, flowJobName)
 	if err != nil {
 		return -1, fmt.Errorf("failed to push to avro stage: %w", err)
@@ -352,7 +353,7 @@ func GetAvroField(bqField *bigquery.FieldSchema) (*avro.Field, error) {
 
 func (s *QRepAvroSyncMethod) writeToStage(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	syncID string,
 	objectFolder string,
 	avroSchema *model.QRecordAvroSchemaDefinition,
@@ -372,7 +373,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		obj := bucket.Object(avroFilePath)
 		w := obj.NewWriter(ctx)
 
-		numRecords, err := ocfWriter.WriteOCF(ctx, env, w, nil, nil)
+		numRecords, err := ocfWriter.WriteOCF(ctx, settings, w, nil, nil)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to Avro file on GCS: %w", err)
 		}
@@ -394,7 +395,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 
 		avroFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, syncID)
 		s.connector.logger.Info("writing records to local file", idLog)
-		avroFile, err = ocfWriter.WriteRecordsToAvroFile(ctx, env, avroFilePath)
+		avroFile, err = ocfWriter.WriteRecordsToAvroFile(ctx, settings, avroFilePath)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to local Avro file: %w", err)
 		}

@@ -11,7 +11,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func (c *BigQueryConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -148,20 +147,14 @@ func (c *BigQueryConnector) GetTablesInSchema(ctx context.Context, schema string
 
 func (c *BigQueryConnector) GetTableSchema(
 	ctx context.Context,
-	env map[string]string,
 	version uint32,
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMappings))
 
-	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
-	if err != nil {
-		return nil, err
-	}
-
 	for _, tm := range tableMappings {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, nullableEnabled)
+		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, c.Settings.Nullable)
 		if err != nil {
 			c.logger.Error("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err

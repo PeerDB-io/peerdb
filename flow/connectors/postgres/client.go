@@ -527,7 +527,6 @@ func (c *PostgresConnector) createSlotAndPublication(
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
 	skipSnapshotExport bool,
-	env map[string]string,
 ) (model.SetupReplicationResult, error) {
 	// iterate through source tables and create publication,
 	// expecting tablenames to be schema qualified
@@ -547,7 +546,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 	// create slot only after we succeeded in creating publication.
 	if !s.SlotExists {
-		conn, err := c.CreateReplConn(ctx, env)
+		conn, err := c.CreateReplConn(ctx)
 		if err != nil {
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error acquiring connection: %w", err)
 		}
@@ -570,7 +569,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 
 		var optionsString string
-		if failoverEnabled, err := internal.PeerDBPostgresEnableFailoverSlots(ctx, env); err != nil {
+		if failoverEnabled, err := internal.PeerDBPostgresEnableFailoverSlots(ctx, c.Settings.Env); err != nil {
 			conn.Close(ctx)
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error checking dynamic config for failover slots: %w", err)
 		} else if failoverEnabled {

@@ -72,7 +72,7 @@ func NewPeerDBOCFWriter(
 
 func (p *peerDBOCFWriter) WriteOCF(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	w io.Writer,
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
@@ -86,7 +86,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	}
 	defer ocfWriter.Close()
 
-	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter, typeConversions, numericTruncator)
+	numRows, err := p.writeRecordsToOCFWriter(ctx, settings, ocfWriter, typeConversions, numericTruncator)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
 	}
@@ -95,7 +95,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 
 func (p *peerDBOCFWriter) WriteRecordsToS3(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	bucketName string,
 	key string,
 	s3Creds AWSCredentialsProvider,
@@ -124,10 +124,10 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			}
 			w.Close()
 		}()
-		numRows, writeOcfError = p.WriteOCF(ctx, env, w, typeConversions, numericTruncator)
+		numRows, writeOcfError = p.WriteOCF(ctx, settings, w, typeConversions, numericTruncator)
 	}()
 
-	partSize, err := internal.PeerDBS3PartSize(ctx, env)
+	partSize, err := internal.PeerDBS3PartSize(ctx, settings.Env)
 	if err != nil {
 		return AvroFile{}, fmt.Errorf("could not get s3 part size config: %w", err)
 	}
@@ -166,7 +166,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[string]string, filePath string) (AvroFile, error) {
+func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, settings *internal.Settings, filePath string) (AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return AvroFile{}, fmt.Errorf("failed to create temporary Avro file: %w", err)
@@ -183,7 +183,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 	shutdown := common.Interval(ctx, time.Minute, func() { printFileStats("writing to temporary Avro file") })
 	defer shutdown()
 
-	numRecords, err := p.WriteOCF(ctx, env, file, nil, nil)
+	numRecords, err := p.WriteOCF(ctx, settings, file, nil, nil)
 	if err != nil {
 		return AvroFile{}, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}
@@ -207,7 +207,7 @@ func (p *peerDBOCFWriter) getAvroFieldNamesFromSchema() ([]string, error) {
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	ocfWriter *ocf.Encoder,
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
@@ -218,12 +218,9 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	if err != nil {
 		return 0, fmt.Errorf("failed to get Avro field names from schema: %w", err)
 	}
-	avroConverter, err := model.NewQRecordAvroConverter(
-		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,
+	avroConverter := model.NewQRecordAvroConverter(
+		settings, p.avroSchema, p.targetDWH, avroFieldNames, logger,
 	)
-	if err != nil {
-		return 0, err
-	}
 
 	// Create null mismatch tracker if in nullable lax mode
 	avroConverter.NullMismatchTracker = model.NewNullMismatchTracker(p.stream.SchemaDebug())
@@ -243,17 +240,14 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	})
 	defer shutdown()
 
-	format, err := internal.PeerDBBinaryFormat(ctx, env)
-	if err != nil {
-		return 0, err
-	}
+	format := settings.ClickHouseBinaryFormat
 
 	calcSize := p.sizeTracker != nil
 	for qrecord := range p.stream.Records {
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err
 		} else {
-			avroMap, size, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, numericTruncator, format, calcSize)
+			avroMap, size, err := avroConverter.Convert(ctx, settings, qrecord, typeConversions, numericTruncator, format, calcSize)
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)

@@ -38,7 +38,6 @@ type ChangeEvent struct {
 
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
-	_ map[string]string,
 	internalVersion uint32,
 	_ protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
@@ -216,7 +215,7 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	converter, err := NewBsonConverter(ctx, req.Env)
+	converter, err := NewBsonConverter(ctx, c.Settings)
 	if err != nil {
 		return fmt.Errorf("failed to create converter: %w", err)
 	}
@@ -495,7 +494,7 @@ func (c *MongoConnector) EnsurePullability(ctx context.Context, req *protos.Ensu
 	return nil, nil
 }
 
-func (c *MongoConnector) ExportTxSnapshot(context.Context, string, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *MongoConnector) ExportTxSnapshot(context.Context, string) (*protos.ExportTxSnapshotOutput, any, error) {
 	return nil, nil, nil
 }
 
@@ -503,7 +502,7 @@ func (c *MongoConnector) FinishExport(any) error {
 	return nil
 }
 
-func (c *MongoConnector) SetupReplConn(context.Context, map[string]string) error {
+func (c *MongoConnector) SetupReplConn(context.Context) error {
 	return nil
 }
 

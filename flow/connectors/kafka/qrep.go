@@ -34,7 +34,7 @@ func (c *KafkaConnector) SyncQRepRecords(
 	}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, nil, queueErr)
+	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, nil, queueErr)
 	if err != nil {
 		return 0, nil, err
 	}

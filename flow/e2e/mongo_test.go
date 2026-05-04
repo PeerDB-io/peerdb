@@ -835,7 +835,7 @@ func (s MongoClickhouseSuite) Test_Json_Disabled() {
 	EnvWaitForCount(env, s, "cdc", dstTable, "_id,doc", 2)
 
 	peer := s.Peer()
-	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(t.Context(), internal.NewSettings(nil), peer.GetClickhouseConfig())
 	require.NoError(t, err)
 	defer ch.Close()
 

@@ -126,8 +126,8 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 	// compressed hypertables cannot do ctid scans, so disable for them
 	// NOTE: it appears that the hypercore "TAM" may give us access to ctid scans, but that's to be removed in Timescale 2.22
 	rows, err := c.conn.Query(ctx, `SELECT DISTINCT hypertable_schema, hypertable_name
-		FROM timescaledb_information.chunks
-		WHERE is_compressed='t';`)
+	FROM timescaledb_information.chunks
+	WHERE is_compressed='t';`)
 	if err != nil {
 		return nil, fmt.Errorf("query compressed hypertables: %w", err)
 	}
@@ -224,15 +224,11 @@ func (c *PostgresConnector) getPartitions(
 
 	isCTIDWatermarkCol := config.WatermarkColumn == ctidColumnName
 	hasPartitionOverride := config.NumPartitionsOverride > 0 // backwards-compatibility with old behavior
-	hasCTIDOverride, err := internal.PeerDBPostgresApplyCtidBlockPartitioning(ctx, config.Env)
-	if err != nil {
-		c.logger.Warn("failed to get CTID partitioning config", slog.Any("error", err))
-	}
 
 	var partitionFunc PartitioningFunc
 	var partitionFuncName string
 	switch {
-	case isCTIDWatermarkCol && (hasCTIDOverride || hasPartitionOverride):
+	case isCTIDWatermarkCol && (c.Settings.PostgresApplyCtidBlockPartitioning || hasPartitionOverride):
 		partitionFunc = CTIDBlockPartitioningFunc
 		partitionFuncName = "CTIDBlockPartitioningFunc"
 	case hasPartitionOverride:
@@ -371,6 +367,7 @@ func corePullQRepRecords(
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
 	selectedColumns := "*"
+	var err error
 	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
 		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
 		if err != nil {
@@ -393,7 +390,7 @@ func corePullQRepRecords(
 
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.SnapshotName,
+		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, c.Settings, config.Version, config.SnapshotName,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
@@ -466,7 +463,7 @@ func corePullQRepRecords(
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, c.Settings, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -496,7 +493,7 @@ func pullChildTableRanges(
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, c.Settings, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -826,7 +823,7 @@ func pullXminRecordStream(
 		queryArgs = []any{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
-	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.SnapshotName,
+	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, c.Settings, config.Version, config.SnapshotName,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to create query executor: %w", err)

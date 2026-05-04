@@ -37,7 +37,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	numRecords := atomic.Int64{}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, &topiccache, publish, queueErr)
+	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
 		return 0, nil, err
 	}

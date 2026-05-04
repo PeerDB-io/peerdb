@@ -211,7 +211,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
+	tableSchema, err := c.getTableSchemaForTable(ctx,
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q,
 		config.Version)
 	if err != nil {

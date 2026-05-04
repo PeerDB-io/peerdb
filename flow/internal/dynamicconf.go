@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -309,7 +310,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Set Postgres application_name to have mirror name as suffix for each mirror",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
@@ -463,6 +464,24 @@ const (
 	BinaryFormatHex
 )
 
+func (b *BinaryFormat) SetDynConf(s string) error {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "raw":
+		*b = BinaryFormatRaw
+	case "hex":
+		*b = BinaryFormatHex
+	case "base64":
+		*b = BinaryFormatBase64
+	default:
+		return fmt.Errorf("unknown binary format %s", s)
+	}
+	return nil
+}
+
+type DynSetter interface {
+	SetDynConf(string) error
+}
+
 func dynLookup(ctx context.Context, env map[string]string, key string) (string, error) {
 	if val, ok := env[key]; ok {
 		return val, nil
@@ -487,20 +506,11 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 	}
 	if !value.Valid {
 		if val, ok := os.LookupEnv(key); ok {
-			if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
-				env[key] = val
-			}
 			return val, nil
 		}
 		if setting != nil {
-			if env != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
-				env[key] = setting.DefaultValue
-			}
 			return setting.DefaultValue, nil
 		}
-	}
-	if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
-		env[key] = value.String
 	}
 	return value.String, nil
 }
@@ -581,28 +591,8 @@ func PeerDBOpenConnectionsAlertThreshold(ctx context.Context, env map[string]str
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD")
 }
 
-// PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS, for creating target tables with
-// partitioning by _PEERDB_SYNCED_AT column
-// If true, the target tables will be partitioned by _PEERDB_SYNCED_AT column
-// If false, the target tables will not be partitioned
-func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS")
-}
-
-func PeerDBBigQueryToastMergeChunking(ctx context.Context, env map[string]string) (uint32, error) {
-	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING")
-}
-
 func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
-}
-
-func PeerDBNormalizeBufferHours(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_BUFFER_HOURS")
-}
-
-func PeerDBGroupNormalize(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_GROUP_NORMALIZE")
 }
 
 func PeerDBQueueFlushTimeoutSeconds(ctx context.Context, env map[string]string) (time.Duration, error) {
@@ -637,39 +627,6 @@ func PeerDBWALHeartbeatQuery(ctx context.Context, env map[string]string) (string
 	return dynLookup(ctx, env, "PEERDB_WAL_HEARTBEAT_QUERY")
 }
 
-func PeerDBReconnectAfterBatches(ctx context.Context, env map[string]string) (int32, error) {
-	return dynamicConfSigned[int32](ctx, env, "PEERDB_RECONNECT_AFTER_BATCHES")
-}
-
-func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_FULL_REFRESH_OVERWRITE_MODE")
-}
-
-func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
-}
-
-func PeerDBAvroNullableLax(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_AVRO_NULLABLE_LAX")
-}
-
-func PeerDBBinaryFormat(ctx context.Context, env map[string]string) (BinaryFormat, error) {
-	format, err := dynLookup(ctx, env, "PEERDB_CLICKHOUSE_BINARY_FORMAT")
-	if err != nil {
-		return 0, err
-	}
-	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "raw":
-		return BinaryFormatRaw, nil
-	case "hex":
-		return BinaryFormatHex, nil
-	case "base64":
-		return BinaryFormatBase64, nil
-	default:
-		return 0, fmt.Errorf("unknown binary format %s", format)
-	}
-}
-
 func PeerDBEnableClickHousePrimaryUpdate(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE")
 }
@@ -682,36 +639,12 @@ func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]strin
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE")
 }
 
-func PeerDBEnableClickHouseNumericAsString(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING")
-}
-
-func PeerDBEnableClickHouseJSON(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_JSON")
-}
-
-func PeerDBClickHouseClientName(ctx context.Context, env map[string]string) (string, error) {
-	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_CLIENT_NAME")
-}
-
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
 
-func PeerDBSnowflakeSkipCompression(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_SKIP_COMPRESSION")
-}
-
-func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_AUTO_COMPRESS")
-}
-
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
-}
-
-func PeerDBS3UuidPrefix(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_S3_UUID_PREFIX")
 }
 
 func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
@@ -720,12 +653,6 @@ func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error)
 
 func PeerDBS3BytesPerAvroFile(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_BYTES_PER_AVRO_FILE")
-}
-
-// Kafka has topic auto create as an option, auto.create.topics.enable
-// But non-dedicated cluster maybe can't set config, may want peerdb to create topic. Similar for PubSub
-func PeerDBQueueForceTopicCreation(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_QUEUE_FORCE_TOPIC_CREATION")
 }
 
 // PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES, 0 disables normalize gap alerting entirely
@@ -745,58 +672,140 @@ func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool shared.Catalog
 	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", new(strconv.FormatBool(enabled)))
 }
 
-func PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS")
-}
-
-func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[string]string) (uint64, error) {
-	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION")
-}
-
-func PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_ALLOW_NON_EMPTY_TABLES")
-}
-
-func PeerDBSkipSnapshotExport(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_SKIP_SNAPSHOT_EXPORT")
-}
-
-func PeerDBSourceSchemaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN")
-}
-
-func PeerDBOriginMetaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN")
-}
-
 func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES")
-}
-
-func PeerDBForceInternalVersion(ctx context.Context, env map[string]string) (uint32, error) {
-	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_FORCE_INTERNAL_VERSION")
 }
 
 func PeerDBPostgresEnableFailoverSlots(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_ENABLE_FAILOVER_SLOTS")
 }
 
-func PeerDBPostgresWalSenderTimeout(ctx context.Context, env map[string]string) (string, error) {
-	return dynLookup(ctx, env, "PEERDB_POSTGRES_WAL_SENDER_TIMEOUT")
-}
-
 func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED")
 }
 
-func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
-}
-
-func PeerDBMongoDBParallelSnapshotting(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_PARALLEL_SNAPSHOTTING")
-}
-
 func PeerDBMongoDBDirectBsonConverter(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_DIRECT_BSON_CONVERTER")
+}
+
+type Settings struct {
+	Env                                      map[string]string
+	PostgresWalSenderTimeout                 string       `dyn:"PEERDB_POSTGRES_WAL_SENDER_TIMEOUT"`
+	ClickHouseClientName                     string       `dyn:"PEERDB_CLICKHOUSE_CLIENT_NAME"`
+	NormalizeBufferHours                     int64        `dyn:"PEERDB_NORMALIZE_BUFFER_HOURS"`
+	GroupNormalize                           int64        `dyn:"PEERDB_GROUP_NORMALIZE"`
+	ClickHouseInitialLoadPartsPerPartition   uint64       `dyn:"PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION"`
+	PKMEmptyBatchThrottleThresholdSeconds    int64        `dyn:"PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS"`
+	ClickHouseBinaryFormat                   BinaryFormat `dyn:"PEERDB_CLICKHOUSE_BINARY_FORMAT"`
+	BigQueryToastMergeChunking               uint32       `dyn:"PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING"`
+	ReconnectAfterBatches                    int32        `dyn:"PEERDB_RECONNECT_AFTER_BATCHES"`
+	ForceInternalVersion                     uint32       `dyn:"PEERDB_FORCE_INTERNAL_VERSION"`
+	AvroNullableLax                          bool         `dyn:"PEERDB_AVRO_NULLABLE_LAX"`
+	SnowflakeAutoCompress                    bool         `dyn:"PEERDB_SNOWFLAKE_AUTO_COMPRESS"`
+	QueueForceTopicCreation                  bool         `dyn:"PEERDB_QUEUE_FORCE_TOPIC_CREATION"`
+	ClickHouseUnboundedNumericAsString       bool         `dyn:"PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING"`
+	ClickHouseEnableJSON                     bool         `dyn:"PEERDB_CLICKHOUSE_ENABLE_JSON"`
+	S3UuidPrefix                             bool         `dyn:"PEERDB_S3_UUID_PREFIX"`
+	SnowflakeSkipCompression                 bool         `dyn:"PEERDB_SNOWFLAKE_SKIP_COMPRESSION"`
+	BigQueryEnableSyncedAtPartitioning       bool         `dyn:"PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS"`
+	ClickHouseInitialLoadAllowNonEmptyTables bool         `dyn:"PEERDB_CLICKHOUSE_INITIAL_LOAD_ALLOW_NON_EMPTY_TABLES"`
+	SkipSnapshotExport                       bool         `dyn:"PEERDB_SKIP_SNAPSHOT_EXPORT"`
+	SourceSchemaAsDestinationColumn          bool         `dyn:"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN"`
+	OriginMetadataAsDestinationColumn        bool         `dyn:"PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN"`
+	Nullable                                 bool         `dyn:"PEERDB_NULLABLE"`
+	FullRefreshOverwriteMode                 bool         `dyn:"PEERDB_FULL_REFRESH_OVERWRITE_MODE"`
+	PostgresApplyCtidBlockPartitioning       bool         `dyn:"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE"`
+	MongoDBParallelSnapshotting              bool         `dyn:"PEERDB_MONGODB_PARALLEL_SNAPSHOTTING"`
+	ApplicationNamePerMirrorName             bool         `dyn:"PEERDB_APPLICATION_NAME_PER_MIRROR_NAME"`
+}
+
+var SettingsType = reflect.TypeFor[Settings]()
+
+// NewSettings builds Settings without consulting catalog, intended for tests
+func NewSettings(env map[string]string) *Settings {
+	s := &Settings{Env: env}
+	if err := s.fillSettings(nil); err != nil {
+		panic(err)
+	}
+	return s
+}
+
+func LoadSettings(ctx context.Context, env map[string]string) (*Settings, error) {
+	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to get catalog connection pool: %w", err)
+	}
+	rows, err := conn.Query(ctx, "SELECT config_name, config_value FROM dynamic_settings")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query dynamic settings: %w", err)
+	}
+	catalog := make(map[string]string, SettingsType.NumField())
+	var name, value string
+	if _, err := pgx.ForEachRow(rows, []any{&name, &value}, func() error {
+		catalog[name] = value
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to load dynamic settings: %w", err)
+	}
+
+	s := &Settings{Env: env}
+	err = s.fillSettings(catalog)
+	return s, err
+}
+
+func (s *Settings) fillSettings(catalog map[string]string) error {
+	rv := reflect.ValueOf(s).Elem()
+	var errs []error
+	for field := range SettingsType.Fields() {
+		name := field.Tag.Get("dyn")
+		if name == "" {
+			continue
+		}
+		var raw string
+		if v, ok := s.Env[name]; ok {
+			raw = v
+		} else if v, ok := catalog[name]; ok {
+			raw = v
+		} else if v, ok := os.LookupEnv(name); ok {
+			raw = v
+		} else {
+			raw = DynamicSettings[DynamicIndex[name]].DefaultValue
+		}
+		if err := assignField(rv.FieldByIndex(field.Index), raw); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func assignField(field reflect.Value, raw string) error {
+	if setter, ok := field.Addr().Interface().(DynSetter); ok {
+		return setter.SetDynConf(raw)
+	}
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(raw)
+	case reflect.Bool:
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return err
+		}
+		field.SetBool(v)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v, err := strconv.ParseInt(raw, 10, field.Type().Bits())
+		if err != nil {
+			return err
+		}
+		field.SetInt(v)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v, err := strconv.ParseUint(raw, 10, field.Type().Bits())
+		if err != nil {
+			return err
+		}
+		field.SetUint(v)
+	default:
+		return fmt.Errorf("unsupported kind %v", field.Kind())
+	}
+	return nil
 }

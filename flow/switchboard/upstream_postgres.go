@@ -14,6 +14,7 @@ import (
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 // wrapPgError converts a PostgreSQL error to an UpstreamError
@@ -63,7 +64,11 @@ type PostgresUpstream struct {
 func NewPostgresUpstream(
 	ctx context.Context, config *protos.PostgresConfig, queryTimeout time.Duration, readOnly bool,
 ) (*PostgresUpstream, error) {
-	conn, err := connpostgres.NewPostgresConnector(ctx, nil, config)
+	settings, err := internal.LoadSettings(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := connpostgres.NewPostgresConnector(ctx, settings, config)
 	if err != nil {
 		return nil, err
 	}

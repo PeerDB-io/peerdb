@@ -34,14 +34,13 @@ import (
 
 func (c *MySqlConnector) GetTableSchema(
 	ctx context.Context,
-	env map[string]string,
 	version uint32,
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMappings))
 	for _, tm := range tableMappings {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
+		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, version)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -55,17 +54,11 @@ func (c *MySqlConnector) GetTableSchema(
 
 func (c *MySqlConnector) getTableSchemaForTable(
 	ctx context.Context,
-	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 	mirrorVersion uint32,
 ) (*protos.TableSchema, error) {
 	qualifiedTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
-	if err != nil {
-		return nil, err
-	}
-
-	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +151,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		PrimaryKeyColumns:     primary,
 		IsReplicaIdentityFull: false,
 		System:                system,
-		NullableEnabled:       nullableEnabled,
+		NullableEnabled:       c.Settings.Nullable,
 		Columns:               columns,
 	}, nil
 }
@@ -169,7 +162,7 @@ func (c *MySqlConnector) EnsurePullability(
 	return nil, nil
 }
 
-func (c *MySqlConnector) ExportTxSnapshot(context.Context, string, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *MySqlConnector) ExportTxSnapshot(context.Context, string) (*protos.ExportTxSnapshotOutput, any, error) {
 	// https://dev.mysql.com/doc/refman/8.4/en/replication-howto-masterstatus.html
 	return nil, nil, nil
 }
@@ -215,7 +208,7 @@ func (c *MySqlConnector) SetupReplication(
 	return model.SetupReplicationResult{}, nil
 }
 
-func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error {
+func (c *MySqlConnector) SetupReplConn(context.Context) error {
 	// mysql code will spin up new connection for each normalize for now
 	return nil
 }
@@ -358,11 +351,6 @@ func (c *MySqlConnector) PullRecords(
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
 	defer req.RecordStream.Close()
-
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
-	if err != nil {
-		return err
-	}
 
 	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
@@ -608,7 +596,7 @@ func (c *MySqlConnector) PullRecords(
 							}
 							items.AddColumn(fd.Name, val)
 						}
-						if sourceSchemaAsDestinationColumn {
+						if c.Settings.SourceSchemaAsDestinationColumn {
 							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 
@@ -659,7 +647,7 @@ func (c *MySqlConnector) PullRecords(
 							}
 							newItems.AddColumn(fd.Name, val)
 						}
-						if sourceSchemaAsDestinationColumn {
+						if c.Settings.SourceSchemaAsDestinationColumn {
 							newItems.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 
@@ -697,7 +685,7 @@ func (c *MySqlConnector) PullRecords(
 							}
 							items.AddColumn(fd.Name, val)
 						}
-						if sourceSchemaAsDestinationColumn {
+						if c.Settings.SourceSchemaAsDestinationColumn {
 							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 

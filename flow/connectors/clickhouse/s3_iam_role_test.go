@@ -37,7 +37,7 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	t.Setenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", os.Getenv(bucketNameEnvVar))
 	ctx := t.Context()
 
-	conn, err := NewClickHouseConnector(ctx, nil,
+	conn, err := NewClickHouseConnector(ctx, internal.NewSettings(nil),
 		&protos.ClickhouseConfig{
 			Host:       internal.ClickHouseTestHost(),
 			Port:       internal.ClickHouseTestPort(),

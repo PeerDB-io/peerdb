@@ -18,6 +18,7 @@ import (
 
 type S3Connector struct {
 	*metadataStore.PostgresMetadata
+	Settings            *internal.Settings
 	logger              log.Logger
 	credentialsProvider utils.AWSCredentialsProvider
 	client              s3.Client
@@ -27,6 +28,7 @@ type S3Connector struct {
 
 func NewS3Connector(
 	ctx context.Context,
+	settings *internal.Settings,
 	config *protos.S3Config,
 ) (*S3Connector, error) {
 	logger := internal.LoggerFromCtx(ctx)
@@ -47,6 +49,7 @@ func NewS3Connector(
 	}
 	return &S3Connector{
 		PostgresMetadata:    pgMetadata,
+		Settings:            settings,
 		client:              *s3Client,
 		credentialsProvider: provider,
 		logger:              logger,
@@ -89,7 +92,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                req.FlowJobName,
 		DestinationTableIdentifier: "raw_table_" + req.FlowJobName,
-		Env:                        req.Env,
+		Env:                        c.Settings.Env,
 		Version:                    req.Version,
 	}
 	partition := &protos.QRepPartition{
@@ -116,7 +119,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	}, nil
 }
 
-func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
+func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context,
 	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
 ) error {
 	return nil

@@ -36,7 +36,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 	ctx, cancelCtx := context.WithTimeout(ctx, validatePeerDeadline)
 	defer cancelCtx()
 
-	conn, err := connectors.GetConnector(ctx, nil, req.Peer)
+	conn, err := connectors.GetConnectorWithEnv(ctx, nil, req.Peer)
 	if err != nil {
 		displayErr := fmt.Errorf("%s peer %s was invalidated: %w", req.Peer.Type, req.Peer.Name, err)
 		return &protos.ValidatePeerResponse{

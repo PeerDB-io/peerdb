@@ -31,6 +31,7 @@ import (
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
+	Settings      *internal.Settings
 	database      clickhouse.Conn
 	logger        log.Logger
 	Config        *protos.ClickhouseConfig
@@ -40,11 +41,11 @@ type ClickHouseConnector struct {
 
 func NewClickHouseConnector(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	config *protos.ClickhouseConfig,
 ) (*ClickHouseConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	database, err := Connect(ctx, env, config)
+	database, err := Connect(ctx, settings, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)
 	}
@@ -82,7 +83,7 @@ func NewClickHouseConnector(
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
+		awsBucketName, err := internal.PeerDBClickHouseAWSS3BucketName(ctx, settings.Env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
 		}
@@ -105,6 +106,7 @@ func NewClickHouseConnector(
 	connector := &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
+		Settings:         settings,
 		Config:           config,
 		logger:           logger,
 		credsProvider: &utils.ClickHouseS3Credentials{
@@ -232,7 +234,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	return nil
 }
 
-func Connect(ctx context.Context, env map[string]string, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
+func Connect(ctx context.Context, settings *internal.Settings, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
@@ -258,7 +260,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		}
 	}
 
-	settings := clickhouse.Settings{
+	chSettings := clickhouse.Settings{
 		// See: https://clickhouse.com/docs/en/cloud/reference/shared-merge-tree#consistency
 		"select_sequential_consistency": uint64(1),
 		// broken downstream views should not interrupt ingestion
@@ -268,19 +270,14 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		// to handle JSON like "{"key": []}"
 		"input_format_json_infer_incomplete_types_as_strings": uint64(1),
 	}
-	if maxInsertThreads, err := internal.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
+	if maxInsertThreads, err := internal.PeerDBClickHouseMaxInsertThreads(ctx, settings.Env); err != nil {
 		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
 	} else if maxInsertThreads != 0 {
-		settings["max_insert_threads"] = maxInsertThreads
+		chSettings["max_insert_threads"] = maxInsertThreads
 	}
 	if config.Cluster != "" {
-		settings["insert_distributed_sync"] = uint64(1)
+		chSettings["insert_distributed_sync"] = uint64(1)
 	}
-	clientName, err := internal.PeerDBClickHouseClientName(ctx, env)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load ClickHouse client name: %w", err)
-	}
-
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{shared.JoinHostPort(config.Host, config.Port)},
 		Auth: clickhouse.Auth{
@@ -295,10 +292,10 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 				Name    string
 				Version string
 			}{
-				{Name: clientName},
+				{Name: settings.ClickHouseClientName},
 			},
 		},
-		Settings:    settings,
+		Settings:    chSettings,
 		DialTimeout: 3600 * time.Second,
 		ReadTimeout: 3600 * time.Second,
 	})
@@ -520,7 +517,6 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 
 func (c *ClickHouseConnector) GetTableSchema(
 	ctx context.Context,
-	_env map[string]string,
 	_version uint32,
 	_system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,

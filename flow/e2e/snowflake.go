@@ -14,6 +14,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -95,6 +96,7 @@ func SetupSnowflakeSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 
 	connector, err := connsnowflake.NewSnowflakeConnector(
 		t.Context(),
+		internal.NewSettings(nil),
 		sfHelper.Config,
 	)
 	require.NoError(t, err)

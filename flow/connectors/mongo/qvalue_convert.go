@@ -25,8 +25,8 @@ type BsonToQValueConverter interface {
 	QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error)
 }
 
-func NewBsonConverter(ctx context.Context, env map[string]string) (BsonToQValueConverter, error) {
-	direct, err := internal.PeerDBMongoDBDirectBsonConverter(ctx, env)
+func NewBsonConverter(ctx context.Context, settings *internal.Settings) (BsonToQValueConverter, error) {
+	direct, err := internal.PeerDBMongoDBDirectBsonConverter(ctx, settings.Env)
 	if err != nil {
 		return nil, err
 	}

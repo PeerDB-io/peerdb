@@ -53,8 +53,7 @@ func ConvertToAvroCompatibleName(columnName string) string {
 // For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
 func GetAvroSchemaFromQValueKind(
-	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	kind types.QValueKind,
 	targetDWH protos.DBType,
 	precision int16,
@@ -88,16 +87,12 @@ func GetAvroSchemaFromQValueKind(
 	case types.QValueKindBoolean:
 		return avro.NewPrimitiveSchema(avro.Boolean, nil), nil
 	case types.QValueKindBytes:
-		format, err := internal.PeerDBBinaryFormat(ctx, env)
-		if err != nil {
-			return nil, err
-		}
-		if targetDWH == protos.DBType_CLICKHOUSE && format != internal.BinaryFormatRaw {
+		if targetDWH == protos.DBType_CLICKHOUSE && settings.ClickHouseBinaryFormat != internal.BinaryFormatRaw {
 			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
 		return avro.NewPrimitiveSchema(avro.Bytes, nil), nil
 	case types.QValueKindNumeric:
-		return getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
+		return getAvroNumericSchema(settings, targetDWH, precision, scale), nil
 	case types.QValueKindInt256:
 		return avro.NewFixedSchema("int256", "", 32, nil)
 	case types.QValueKindUInt256:
@@ -144,11 +139,7 @@ func GetAvroSchemaFromQValueKind(
 	case types.QValueKindArrayString, types.QValueKindArrayEnum:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 	case types.QValueKindArrayNumeric:
-		numericSchema, err := getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
-		if err != nil {
-			return nil, err
-		}
-		return avro.NewArraySchema(numericSchema), nil
+		return avro.NewArraySchema(getAvroNumericSchema(settings, targetDWH, precision, scale)), nil
 	case types.QValueKindInvalid:
 		// lets attempt to do invalid as a string
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
@@ -162,22 +153,17 @@ func NullableAvroSchema(schema avro.Schema) (avro.Schema, error) {
 }
 
 func getAvroNumericSchema(
-	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	targetDWH protos.DBType,
 	precision int16,
 	scale int16,
-) (avro.Schema, error) {
-	asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
-	if err != nil {
-		return nil, err
-	}
-	destinationType := GetNumericDestinationType(precision, scale, targetDWH, asString)
+) avro.Schema {
+	destinationType := GetNumericDestinationType(precision, scale, targetDWH, settings.ClickHouseUnboundedNumericAsString)
 	if destinationType.IsString {
-		return avro.NewPrimitiveSchema(avro.String, nil), nil
+		return avro.NewPrimitiveSchema(avro.String, nil)
 	}
 	return avro.NewPrimitiveSchema(avro.Bytes,
-		avro.NewDecimalLogicalSchema(int(destinationType.Precision), int(destinationType.Scale))), nil
+		avro.NewDecimalLogicalSchema(int(destinationType.Precision), int(destinationType.Scale)))
 }
 
 type QValueAvroConverter struct {

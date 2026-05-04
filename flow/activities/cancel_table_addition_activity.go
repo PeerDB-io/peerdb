@@ -367,7 +367,11 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 			slog.String("flowName", flowJobName),
 			slog.String("publicationName", publicationName))
 
-		conn, connClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, sourcePeerName)
+		settings, err := internal.LoadSettings(ctx, nil)
+		if err != nil {
+			return err
+		}
+		conn, connClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, settings, a.CatalogPool, sourcePeerName)
 		if err != nil {
 			return fmt.Errorf("failed to get connector for peer %s: %w", sourcePeerName, err)
 		}

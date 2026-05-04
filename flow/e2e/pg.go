@@ -109,7 +109,7 @@ func SetupPostgres(t *testing.T, suffix string) (*PostgresSource, error) {
 	t.Helper()
 
 	connector, err := connpostgres.NewPostgresConnector(t.Context(),
-		nil, internal.GetAncillaryPostgresConfigFromEnv())
+		internal.NewSettings(nil), internal.GetAncillaryPostgresConfigFromEnv())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
@@ -196,7 +196,8 @@ func (s *PostgresSource) Exec(ctx context.Context, sql string, args ...any) erro
 }
 
 func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, nil, shared.InternalVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(
+		ctx, internal.NewSettings(nil), shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +210,8 @@ func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table strin
 
 // to avoid fetching rows from "child" tables ala Postgres table inheritance
 func (s *PostgresSource) GetRowsOnly(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, nil, shared.InternalVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(
+		ctx, internal.NewSettings(nil), shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +248,8 @@ func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableI
 }
 
 func (s *PostgresSource) Query(ctx context.Context, query string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, nil, shared.InternalVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(
+		ctx, internal.NewSettings(nil), shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +311,7 @@ func SetupPostgresWithToxiproxy(t *testing.T, suffix string, port uint32) (*Post
 	// Don't set RequireTls - let it use the default from env
 
 	// Rest is same as SetupPostgres
-	connector, err := connpostgres.NewPostgresConnector(t.Context(), nil, config)
+	connector, err := connpostgres.NewPostgresConnector(t.Context(), internal.NewSettings(nil), config)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}

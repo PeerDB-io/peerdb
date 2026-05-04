@@ -53,6 +53,7 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 
 type BigQueryConnector struct {
 	*metadataStore.PostgresMetadata
+	Settings      *internal.Settings
 	logger        log.Logger
 	bqConfig      *protos.BigqueryConfig
 	credentials   *auth.Credentials
@@ -63,7 +64,7 @@ type BigQueryConnector struct {
 	projectID     string
 }
 
-func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
+func NewBigQueryConnector(ctx context.Context, settings *internal.Settings, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
 	datasetID := config.GetDatasetId()
@@ -125,6 +126,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 
 	return &BigQueryConnector{
 		credentials:      creds,
+		Settings:         settings,
 		bqConfig:         config,
 		client:           client,
 		datasetID:        datasetID,
@@ -235,7 +237,6 @@ func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable 
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
-	env map[string]string,
 	flowJobName string,
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
@@ -426,11 +427,8 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 // NormalizeRecords normalizes raw table to destination table,
 // one batch at a time from the previous normalized batch to the currently synced batch.
 func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
-	unchangedToastMergeChunking, err := internal.PeerDBBigQueryToastMergeChunking(ctx, req.Env)
-	if err != nil {
-		c.logger.Warn("failed to load PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING, continuing with 8", slog.Any("error", err))
-		unchangedToastMergeChunking = 8
-	} else if unchangedToastMergeChunking == 0 {
+	unchangedToastMergeChunking := c.Settings.BigQueryToastMergeChunking
+	if unchangedToastMergeChunking == 0 {
 		unchangedToastMergeChunking = 8
 	}
 
@@ -738,12 +736,8 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
-	timePartitionEnabled, err := internal.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, config.Env)
-	if err != nil {
-		return false, fmt.Errorf("failed to get dynamic setting for BigQuery time partitioning: %w", err)
-	}
 	var timePartitioning *bigquery.TimePartitioning
-	if timePartitionEnabled && config.SyncedAtColName != "" {
+	if c.Settings.BigQueryEnableSyncedAtPartitioning && config.SyncedAtColName != "" {
 		timePartitioning = &bigquery.TimePartitioning{
 			Type:  bigquery.DayPartitioningType,
 			Field: config.SyncedAtColName,

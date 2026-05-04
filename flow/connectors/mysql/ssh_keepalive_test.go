@@ -45,7 +45,7 @@ func setupMySQLConnectorWithSSHProxy(ctx context.Context, t *testing.T, proxyNam
 
 	mysqlHost, mysqlPort, mysqlRootPass := resolveMySQL(t)
 
-	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
+	connector, err := NewMySqlConnector(ctx, internal.NewSettings(nil), &protos.MySqlConfig{
 		Host:     mysqlHost,
 		Port:     mysqlPort,
 		User:     "root",
@@ -83,7 +83,7 @@ func setupMySQLConnectorWithMySQLProxy(
 	sshPort, err := strconv.ParseUint(sshPortStr, 10, 32)
 	require.NoError(t, err)
 
-	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
+	connector, err := NewMySqlConnector(ctx, internal.NewSettings(nil), &protos.MySqlConfig{
 		Host:     utils.MySQLProxyHost,
 		Port:     uint32(proxyPort),
 		User:     "root",

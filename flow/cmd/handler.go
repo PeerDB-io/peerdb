@@ -63,10 +63,10 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 
 func (h *FlowRequestHandler) determineFlags(
 	ctx context.Context,
-	env map[string]string,
+	settings *internal.Settings,
 	destPeerName string,
 ) ([]string, error) {
-	conn, connClose, err := connectors.GetByNameAs[connectors.GetFlagsConnector](ctx, env, h.pool, destPeerName)
+	conn, connClose, err := connectors.GetByNameAs[connectors.GetFlagsConnector](ctx, settings, h.pool, destPeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			return nil, nil
@@ -162,12 +162,12 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if cfg == nil {
 		return nil, NewInvalidArgumentApiError(fmt.Errorf("connection configs cannot be nil"))
 	}
-	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, cfg.Env); err != nil {
+	settings, err := internal.LoadSettings(ctx, cfg.Env)
+	if err != nil {
 		return nil, NewInternalApiError(err)
-	} else {
-		cfg.Version = internalVersion
 	}
-	if flags, err := h.determineFlags(ctx, cfg.Env, cfg.DestinationName); err != nil {
+	cfg.Version = settings.ForceInternalVersion
+	if flags, err := h.determineFlags(ctx, settings, cfg.DestinationName); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
 		cfg.Flags = flags
@@ -206,7 +206,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	// Use idempotent validation that skips mirror existence check
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
-	if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
+	if _, err := h.validateCDCMirrorImpl(ctx, settings, connectionConfigsCore, true); err != nil {
 		slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 	}
@@ -249,12 +249,12 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, APIError) {
 	cfg := req.QrepConfig
-	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, cfg.Env); err != nil {
+	settings, err := internal.LoadSettings(ctx, cfg.Env)
+	if err != nil {
 		return nil, NewInternalApiError(err)
-	} else {
-		cfg.Version = internalVersion
 	}
-	if flags, err := h.determineFlags(ctx, cfg.Env, cfg.DestinationName); err != nil {
+	cfg.Version = settings.ForceInternalVersion
+	if flags, err := h.determineFlags(ctx, settings, cfg.DestinationName); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
 		cfg.Flags = flags
