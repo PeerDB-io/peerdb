@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Docker Go Debug",
+      "name": "Tilt Debug: Flow Worker",
       "type": "go",
       "request": "attach",
       "mode": "remote",
@@ -16,7 +16,43 @@
           "to": "/root/flow"
         }
       ],
-      "port": 40000,
+      "port": 4001,
+      "host": "127.0.0.1"
+    },
+    {
+      "name": "Tilt Debug: Flow Snapshot Worker",
+      "type": "go",
+      "request": "attach",
+      "mode": "remote",
+      "remotePath": "/root",
+      "debugAdapter": "dlv-dap",
+      "hideSystemGoroutines": true,
+      "showGlobalVariables": true,
+      "substitutePath": [
+        {
+          "from": "${workspaceFolder}/flow",
+          "to": "/root/flow"
+        }
+      ],
+      "port": 4002,
+      "host": "127.0.0.1"
+    },
+    {
+      "name": "Tilt Debug: Flow API",
+      "type": "go",
+      "request": "attach",
+      "mode": "remote",
+      "remotePath": "/root",
+      "debugAdapter": "dlv-dap",
+      "hideSystemGoroutines": true,
+      "showGlobalVariables": true,
+      "substitutePath": [
+        {
+          "from": "${workspaceFolder}/flow",
+          "to": "/root/flow"
+        }
+      ],
+      "port": 4003,
       "host": "127.0.0.1"
     }
   ]

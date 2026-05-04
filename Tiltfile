@@ -8,7 +8,7 @@ flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
 
 docker_build('flow-api', '.',
     dockerfile='stacks/flow.Dockerfile',
-    target='flow-api',
+    target='flow-api-debug' if os.getenv('DOCKER_GO_DEBUG_FLOW_API') == '1' else 'flow-api',
     only=['flow/', 'stacks/flow.Dockerfile'],
     ignore=flow_ignore,
     build_args={'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
@@ -16,16 +16,17 @@ docker_build('flow-api', '.',
 
 docker_build('flow-worker', '.',
     dockerfile='stacks/flow.Dockerfile',
-    target='flow-worker-debug',
+    target='flow-worker-debug' if os.getenv('DOCKER_GO_DEBUG_FLOW_WORKER') == '1' else 'flow-worker',
     only=['flow/', 'stacks/flow.Dockerfile'],
-    build_args={'DEBUG_BUILD':'1'},
+    build_args={'DEBUG_BUILD': os.getenv('DOCKER_GO_DEBUG_FLOW_WORKER','')},
     ignore=flow_ignore,
 )
 
 docker_build('flow-snapshot-worker', '.',
     dockerfile='stacks/flow.Dockerfile',
-    target='flow-snapshot-worker',
+    target='flow-snapshot-worker-debug' if os.getenv('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER') == '1' else 'flow-snapshot-worker',
     only=['flow/', 'stacks/flow.Dockerfile'],
+    build_args={'DEBUG_BUILD': os.getenv('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER','')},
     ignore=flow_ignore,
 )
 

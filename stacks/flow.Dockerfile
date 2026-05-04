@@ -37,6 +37,14 @@ RUN apk add --no-cache ca-certificates geos && \
 USER peerdb
 WORKDIR /home/peerdb
 COPY --from=builder --chown=peerdb /root/peer-flow .
+ENTRYPOINT [ "/home/peerdb/peer-flow" ]
+
+# Debug Image with Delve installed and the binary built with debug flags
+FROM flow-base AS flow-base-debug
+USER root
+COPY --from=builder /go/bin/dlv /usr/local/bin/dlv
+EXPOSE 40000
+ENTRYPOINT ["dlv", "--headless", "--continue", "--accept-multiclient", "--listen=:40000", "--api-version=2", "exec", "/home/peerdb/peer-flow", "--"]
 
 FROM flow-base AS flow-api
 
@@ -44,7 +52,15 @@ ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
 EXPOSE 8112 8113
-ENTRYPOINT ["./peer-flow", "api", "--port", "8112", "--gateway-port", "8113"]
+CMD ["api", "--port", "8112", "--gateway-port", "8113"]
+
+FROM flow-base-debug AS flow-api-debug
+
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+
+EXPOSE 8112 8113
+CMD ["api", "--port", "8112", "--gateway-port", "8113"]
 
 FROM flow-base AS flow-worker
 
@@ -54,28 +70,31 @@ ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
-ENTRYPOINT ["./peer-flow", "worker"]
+CMD ["worker"]
+
+FROM flow-base-debug AS flow-worker-debug
+ENV OTEL_METRIC_EXPORT_INTERVAL=10000
+ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+CMD ["./peer-flow", "--", "worker"]
+
 
 FROM flow-base AS flow-snapshot-worker
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-ENTRYPOINT ["./peer-flow", "snapshot-worker"]
+CMD ["snapshot-worker"]
 
+FROM flow-base-debug AS flow-snapshot-worker-debug
 
-FROM flow-base AS flow-worker-debug
-ENV OTEL_METRIC_EXPORT_INTERVAL=10000
-ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-USER root
-COPY --from=builder /go/bin/dlv /usr/local/bin/dlv
-USER peerdb
-EXPOSE 40000
-ENTRYPOINT ["dlv", "--headless", "--continue", "--accept-multiclient", "--listen=:40000", "--api-version=2", "exec", "./peer-flow", "--", "worker"]
+CMD ["snapshot-worker"]
+
 
 FROM flow-base AS flow-maintenance
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-ENTRYPOINT ["./peer-flow", "maintenance"]
+CMD ["maintenance"]

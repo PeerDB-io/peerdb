@@ -129,6 +129,7 @@ services:
       - 8112:8112
       - 8113:8113
       - 5732:5732
+      - 4003:40000
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
       PEERDB_ALLOWED_TARGETS:
@@ -148,6 +149,8 @@ services:
       context: .
       dockerfile: stacks/flow.Dockerfile
       target: flow-snapshot-worker
+    ports:
+      - 4002:40000
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     depends_on:
@@ -162,7 +165,12 @@ services:
       dockerfile: stacks/flow.Dockerfile
       target: flow-worker
     ports:
-      - 40000:40000
+      - 4001:40000
+    # The below options were mentioned to be required, but it works without them, so leaving them commented out for now. If you run into issues with Delve, try uncommenting these.
+    # security_opt:
+    #   - "seccomp:unconfined"  # Required for Delve
+    # cap_add:
+    #   - SYS_PTRACE         # Required for Delve
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     extra_hosts:
