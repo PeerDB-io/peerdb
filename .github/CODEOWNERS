@@ -1,0 +1,8 @@
+* @db-integrations
+
+flow/connectors/postgres/postgres_destination.go     @ch-postgres
+flow/connectors/postgres/qrep_destination.go         @ch-postgres
+flow/connectors/postgres/normalize_stmt_generator.go @ch-postgres
+flow/connectors/postgres/sink_pg.go                  @ch-postgres
+flow/model/pg_items.go                               @ch-postgres
+flow/pkg/postgres/dest_validation.go                 @ch-postgres
