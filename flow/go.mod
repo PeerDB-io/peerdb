@@ -308,3 +308,56 @@ replace github.com/tikv/client-go/v2 => github.com/PeerDB-io/tikv-client-go/v2 v
 replace github.com/tikv/pd/client => github.com/tikv/pd/client v0.0.0-20251229071808-6173d50c004c // PINNED(DBI-444): the underlying dependency changed an interface
 
 replace github.com/PeerDB-io/peerdb/flow/pkg => ./pkg
+
+// Block MVS from raising require minima above the pinned versions in the require block — append new releases here until unpinned.
+exclude (
+	cloud.google.com/go/bigquery v1.73.0
+	cloud.google.com/go/bigquery v1.73.1
+	cloud.google.com/go/bigquery v1.74.0
+	cloud.google.com/go/bigquery v1.75.0
+	cloud.google.com/go/bigquery v1.76.0
+	cloud.google.com/go/pubsub/v2 v2.4.0
+	cloud.google.com/go/pubsub/v2 v2.5.0
+	cloud.google.com/go/pubsub/v2 v2.5.1
+	cloud.google.com/go/pubsub/v2 v2.6.0
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.21.1
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.0
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.1
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.2
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.3
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.4
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.5
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.6
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.7
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.8
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.9
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.10
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.11
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.12
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.13
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.14
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.15
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.16
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.17
+	google.golang.org/api v0.258.0
+	google.golang.org/api v0.259.0
+	google.golang.org/api v0.260.0
+	google.golang.org/api v0.261.0
+	google.golang.org/api v0.262.0
+	google.golang.org/api v0.263.0
+	google.golang.org/api v0.264.0
+	google.golang.org/api v0.265.0
+	google.golang.org/api v0.266.0
+	google.golang.org/api v0.267.0
+	google.golang.org/api v0.268.0
+	google.golang.org/api v0.269.0
+	google.golang.org/api v0.270.0
+	google.golang.org/api v0.271.0
+	google.golang.org/api v0.272.0
+	google.golang.org/api v0.273.0
+	google.golang.org/api v0.273.1
+	google.golang.org/api v0.274.0
+	google.golang.org/api v0.275.0
+	google.golang.org/api v0.276.0
+	google.golang.org/api v0.277.0
+)
