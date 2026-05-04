@@ -1,5 +1,29 @@
 * @db-integrations
 
+flow/connectors/bigquery/      @eng
+flow/connectors/elasticsearch/ @eng
+flow/connectors/eventhub/      @eng
+flow/connectors/kafka/         @eng
+flow/connectors/pubsub/        @eng
+flow/connectors/s3/            @eng
+flow/connectors/snowflake/     @eng
+
+ui/components/PeerForms/BigqueryConfig.tsx           @eng
+ui/components/PeerForms/SnowflakeForm.tsx            @eng
+ui/components/PeerForms/S3Form.tsx                   @eng
+ui/components/PeerForms/ElasticsearchConfigForm.tsx  @eng
+ui/components/PeerForms/Eventhubs/                   @eng
+ui/components/PeerForms/KafkaConfig.tsx              @eng
+ui/components/PeerForms/PubSubConfig.tsx             @eng
+ui/app/peers/create/[peerType]/helpers/bq.ts         @eng
+ui/app/peers/create/[peerType]/helpers/sf.ts         @eng
+ui/app/peers/create/[peerType]/helpers/s3.ts         @eng
+ui/app/peers/create/[peerType]/helpers/es.ts         @eng
+ui/app/peers/create/[peerType]/helpers/eh.ts         @eng
+ui/app/peers/create/[peerType]/helpers/ka.ts         @eng
+ui/app/peers/create/[peerType]/helpers/ps.ts         @eng
+ui/app/mirrors/create/cdc/eventhubsCallout.tsx       @eng
+
 flow/connectors/postgres/postgres_destination.go     @ch-postgres
 flow/connectors/postgres/qrep_destination.go         @ch-postgres
 flow/connectors/postgres/normalize_stmt_generator.go @ch-postgres
