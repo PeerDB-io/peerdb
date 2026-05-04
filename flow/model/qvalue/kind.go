@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -39,7 +40,7 @@ func GetNumericDestinationType(
 }
 
 func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, typeModifier int32) (string, error) {
-	precision, scale := datatypes.ParseNumericTypmod(typeModifier)
+	precision, scale := common.ParseNumericTypmod(typeModifier)
 	asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 	if err != nil {
 		return "", err

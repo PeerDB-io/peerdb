@@ -25,19 +25,6 @@ var integerRank = map[string]int{
 	"int8": 3,
 }
 
-// This is to reverse what make_numeric_typmod of Postgres does:
-// https://github.com/postgres/postgres/blob/21912e3c0262e2cfe64856e028799d6927862563/src/backend/utils/adt/numeric.c#L897
-func ParseNumericTypmod(typmod int32) (int16, int16) {
-	if typmod == -1 {
-		return 0, 0
-	}
-	const varhdrsz = int32(4)
-	offsetMod := typmod - varhdrsz
-	precision := int16((offsetMod >> 16) & 0x7FFF)
-	scale := int16(offsetMod & 0x7FFF)
-	return precision, scale
-}
-
 // CheckSchemaExists returns an error if the given schema does not exist in the database.
 func CheckSchemaExists(ctx context.Context, conn *pgx.Conn, schema string) error {
 	var exists bool
@@ -201,8 +188,8 @@ func CheckColumnTypeCompatibility(
 		// Either side unbounded (typmod == -1) → always compatible.
 		// Both constrained: destination must be at least as wide (superset).
 		if srcTypeMod != -1 && dstTypeMod != -1 && srcTypeMod != dstTypeMod {
-			srcPrec, srcScale := ParseNumericTypmod(srcTypeMod)
-			dstPrec, dstScale := ParseNumericTypmod(dstTypeMod)
+			srcPrec, srcScale := common.ParseNumericTypmod(srcTypeMod)
+			dstPrec, dstScale := common.ParseNumericTypmod(dstTypeMod)
 			if dstPrec >= srcPrec && dstScale >= srcScale {
 				return nil
 			}
