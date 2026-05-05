@@ -22,6 +22,7 @@ var pinnedVersions = map[string]string{
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager": "v1.21.0",
 	"google.golang.org/api":                           "v0.257.0",
 	"github.com/tikv/pd/client":                       "v0.0.0-20251229071808-6173d50c004c",
+	"github.com/jackc/pgx/v5":                         "v5.9.1",
 }
 
 func main() {
