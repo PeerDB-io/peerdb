@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	cloud.google.com/go/bigquery v1.72.0
 	cloud.google.com/go/pubsub/v2 v2.3.0
-	github.com/snowflakedb/gosnowflake v1.18.1
+	github.com/snowflakedb/gosnowflake/v2 v2.0.1
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	google.golang.org/api v0.257.0 // Note: 0.258.0 replaces WithCredentialsJSON with something that needs more digging to integrate
 )

@@ -7,10 +7,11 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/jwx-go/jwkfetch/v4"
 	"github.com/lestrrat-go/httprc/v3"
-	"github.com/lestrrat-go/jwx/v3/jwk"
-	"github.com/lestrrat-go/jwx/v3/jws"
-	"github.com/lestrrat-go/jwx/v3/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jws"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -117,13 +118,12 @@ func validateRequestToken(authHeader string, claims map[string]string, ip ...ide
 	}
 
 	for key, value := range claims {
-		var tokenValue string
-		if err := token.Get(key, &tokenValue); err != nil || tokenValue != value {
+		tokenValue, err := jwt.Get[string](token, key)
+		if err != nil || tokenValue != value {
 			if err != nil {
 				return nil, fmt.Errorf("token claim %s mismatch: %w", key, err)
-			} else {
-				return nil, fmt.Errorf("token claim %s mismatch", key)
 			}
+			return nil, fmt.Errorf("token claim %s mismatch", key)
 		}
 	}
 
@@ -211,7 +211,7 @@ func openIdIdentityProvider(ctx context.Context, cfg AuthenticationConfig) (*ide
 		return nil, err
 	}
 
-	cache, err := jwk.NewCache(context.Background(), httprc.NewClient())
+	cache, err := jwkfetch.NewCache(context.Background(), httprc.NewClient())
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize JWK cache: %w", err)
 	}
