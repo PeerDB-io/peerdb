@@ -993,3 +993,14 @@ func TestClickHouseStdExceptionObjectStorageIOErrorShouldBeRecoverable(t *testin
 		Code:   strconv.Itoa(int(chproto.ErrStdException)),
 	}, errInfo)
 }
+
+func TestMySQLGeometryLinearRingNotClosedShouldBeUnsupportedDatatype(t *testing.T) {
+	err := fmt.Errorf("failed to parse geometry WKB: %w",
+		fmt.Errorf("IllegalArgumentException: %s", MySQLGeometryLinearRingNotClosedError))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	assert.Equal(t, ErrorUnsupportedDatatype, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+	}, errInfo)
+}

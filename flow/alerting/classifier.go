@@ -42,6 +42,10 @@ const (
 	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
+
+	// MySQLGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the geom
+	// library when a LinearRing's points do not close.
+	MySQLGeometryLinearRingNotClosedError = "Points of LinearRing do not form a closed linestring"
 )
 
 var (
@@ -1098,6 +1102,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: ErrorSourceMySQL,
 				Code:   "UNKNOWN",
 			}
+		}
+	}
+
+	if strings.Contains(err.Error(), MySQLGeometryLinearRingNotClosedError) {
+		return ErrorUnsupportedDatatype, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
 		}
 	}
 
