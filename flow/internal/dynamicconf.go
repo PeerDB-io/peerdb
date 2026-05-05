@@ -722,10 +722,6 @@ func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bo
 	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_AUTO_COMPRESS")
 }
 
-func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
-	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
-}
-
 func PeerDBClickHouseStagingProvider(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_PROVIDER")
 }
