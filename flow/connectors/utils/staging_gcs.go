@@ -26,7 +26,7 @@ type GCSStagingStore struct {
 	fullPath string
 }
 
-func NewGCSStagingStore(ctx context.Context, bucketPath string) (*GCSStagingStore, error) {
+func NewGCSStagingStore(ctx context.Context, bucketPath string) (StagingStore, error) {
 	// bucketPath is "gcs://bucket/prefix" or just "bucket/prefix"
 	path := strings.TrimPrefix(bucketPath, "gcs://")
 	path = strings.TrimPrefix(path, "gs://")

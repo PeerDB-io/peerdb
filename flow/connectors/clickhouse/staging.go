@@ -7,9 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-
 	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"

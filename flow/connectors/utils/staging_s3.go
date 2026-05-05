@@ -24,7 +24,7 @@ type S3StagingStore struct {
 	fullPath string // original "s3://bucket/prefix" for logging
 }
 
-func NewS3StagingStore(bucketPath string, creds AWSCredentialsProvider) (*S3StagingStore, error) {
+func NewS3StagingStore(bucketPath string, creds AWSCredentialsProvider) (StagingStore, error) {
 	s3o, err := NewS3BucketAndPrefix(bucketPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse S3 bucket path: %w", err)
