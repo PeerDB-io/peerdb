@@ -434,6 +434,12 @@ export function chSchema(hostDomains: string[]) {
       })
       .optional()
       .transform((e) => (e === '' ? undefined : e)),
+    tlsCertificateDirectory: z
+      .string({
+        error: () => 'TLS Certificate Directory must be a string',
+      })
+      .optional()
+      .transform((e) => (e === '' ? undefined : e)),
     tlsHost: z.string(),
   });
 }

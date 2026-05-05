@@ -2,11 +2,11 @@
 set -xeu
 
 # check if buf is installed
-if ! command -v buf &> /dev/null
+if ! command -v buf > /dev/null 2>&1
 then
     echo "buf could not be found"
     echo "Please install buf: https://buf.build/docs/installation"
-    exit
+    exit 1
 fi
 
 buf generate protos
