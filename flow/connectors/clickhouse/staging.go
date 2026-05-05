@@ -81,21 +81,13 @@ func createS3StagingStore(
 	}
 
 	if awsBucketPath == "" {
+		if unifiedBucketName == "" {
+			return nil, nil, errors.New("PeerDB ClickHouse Bucket Name not set")
+		}
 		deploymentUID := internal.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
-		// Prefer unified bucket name, fall back to legacy S3-specific env var.
-		awsBucketName := unifiedBucketName
-		if awsBucketName == "" {
-			awsBucketName, err = internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
-			}
-		}
-		if awsBucketName == "" {
-			return nil, nil, errors.New("PeerDB ClickHouse Bucket Name not set")
-		}
-		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
+		awsBucketPath = fmt.Sprintf("s3://%s/%s", unifiedBucketName, bucketPathSuffix)
 	}
 
 	// S3 with session tokens requires ClickHouse >= 24.3.1

@@ -731,7 +731,15 @@ func PeerDBClickHouseStagingProvider(ctx context.Context, env map[string]string)
 }
 
 func PeerDBClickHouseStagingBucketName(ctx context.Context, env map[string]string) (string, error) {
-	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
+	name, err := dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
+	if err != nil {
+		return "", err
+	}
+	if name != "" {
+		return name, nil
+	}
+	// Fall back to legacy S3-specific env var.
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 }
 
 func PeerDBS3UuidPrefix(ctx context.Context, env map[string]string) (bool, error) {
