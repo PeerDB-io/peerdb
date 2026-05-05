@@ -995,12 +995,23 @@ func TestClickHouseStdExceptionObjectStorageIOErrorShouldBeRecoverable(t *testin
 }
 
 func TestMySQLGeometryLinearRingNotClosedShouldBeUnsupportedDatatype(t *testing.T) {
-	err := fmt.Errorf("failed to parse geometry WKB: %w",
-		fmt.Errorf("IllegalArgumentException: %s", MySQLGeometryLinearRingNotClosedError))
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
+	geosErr := fmt.Errorf("IllegalArgumentException: Points of LinearRing do not form a closed linestring")
+	wrapped := fmt.Errorf("mysql error: %w", exceptions.NewMySQLGeometryParseError(geosErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrapped)
 	assert.Equal(t, ErrorUnsupportedDatatype, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+	}, errInfo)
+}
+
+func TestMySQLGeometryParseErrorUnknownShouldFallThrough(t *testing.T) {
+	geosErr := fmt.Errorf("ParseException: Unknown WKB type 99")
+	wrapped := fmt.Errorf("mysql error: %w", exceptions.NewMySQLGeometryParseError(geosErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrapped)
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
 	}, errInfo)
 }
