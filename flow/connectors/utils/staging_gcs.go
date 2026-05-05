@@ -27,7 +27,7 @@ type GCSStagingStore struct {
 }
 
 func NewGCSStagingStore(ctx context.Context, bucketPath string) (*GCSStagingStore, error) {
-	// bucketPath is "gcs://bucket/prefix" or just "bucket/prefix"
+	// bucketPath may use either "gs://" (standard GCS URI scheme) or "gcs://" prefix.
 	path := strings.TrimPrefix(bucketPath, "gcs://")
 	path = strings.TrimPrefix(path, "gs://")
 	bucket, prefix, _ := strings.Cut(path, "/")

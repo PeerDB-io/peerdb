@@ -25,18 +25,11 @@ func createStagingStore(
 	config *protos.ClickhouseConfig,
 	chVersion clickhouseproto.Version,
 ) (utils.StagingStore, *utils.ClickHouseS3Credentials, error) {
-	// If user provided explicit S3 config, always use S3 staging.
-	if config.S3 != nil || config.S3Path != "" || config.AccessKeyId != "" {
-		return createS3StagingStore(ctx, config, "", chVersion)
-	}
-
-	// Check environment-based staging provider config.
 	provider, err := internal.PeerDBClickHouseStagingProvider(ctx, env)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get staging provider: %w", err)
 	}
 
-	// Prefer unified PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME, fall back to provider-specific env vars.
 	bucketName, err := internal.PeerDBClickHouseStagingBucketName(ctx, env)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get staging bucket name: %w", err)
