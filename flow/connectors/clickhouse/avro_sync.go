@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -378,14 +379,28 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	}
 	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
 
-	avroFile, err := ocfWriter.WriteRecordsToStaging(
-		ctx, env, s.staging, s3AvroFileKey, typeConversions, numericTruncator,
-	)
-	if err != nil {
-		return utils.AvroFile{}, fmt.Errorf("failed to write records to S3: %w", err)
+	r, w := io.Pipe()
+	defer r.Close()
+
+	var writeOcfError error
+	var numRows int64
+	go func() {
+		defer w.Close()
+		numRows, writeOcfError = ocfWriter.WriteOCF(ctx, env, w, typeConversions, numericTruncator)
+	}()
+
+	if err := s.staging.Upload(ctx, env, s3AvroFileKey, r); err != nil {
+		return utils.AvroFile{}, fmt.Errorf("failed to upload to staging: %w", err)
+	}
+	if writeOcfError != nil {
+		return utils.AvroFile{}, writeOcfError
 	}
 
-	return avroFile, nil
+	return utils.AvroFile{
+		StorageLocation: utils.AvroS3Storage,
+		FilePath:        s3AvroFileKey,
+		NumRecords:      numRows,
+	}, nil
 }
 
 func (s *ClickHouseAvroSyncMethod) SyncQRepObjects(
