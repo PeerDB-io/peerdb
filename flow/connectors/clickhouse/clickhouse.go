@@ -256,8 +256,13 @@ func configureDirectoryTLS(tlsConfig *tls.Config, dir string) error {
 
 	// Load CA certificate upfront — RootCAs must be set before the TLS
 	// handshake so the server certificate can be verified.
+	// ca.crt is optional: when absent, the system CA pool is used instead.
 	caCertPEM, err := os.ReadFile(caPath)
-	if err == nil && len(caCertPEM) > 0 {
+	if errors.Is(err, os.ErrNotExist) {
+		// ca.crt is optional — use system CA pool
+	} else if err != nil {
+		return fmt.Errorf("failed to read CA certificate from %q: %w", caPath, err)
+	} else if len(caCertPEM) > 0 {
 		caPool := x509.NewCertPool()
 		if !caPool.AppendCertsFromPEM(caCertPEM) {
 			return fmt.Errorf("failed to parse CA certificate from %q", caPath)
