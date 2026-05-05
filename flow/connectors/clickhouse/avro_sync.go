@@ -378,7 +378,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	}
 	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
 
-	avroFile, err := ocfWriter.WriteRecordsToS3(
+	avroFile, err := ocfWriter.WriteRecordsToStaging(
 		ctx, env, s.staging, s3AvroFileKey, typeConversions, numericTruncator,
 	)
 	if err != nil {

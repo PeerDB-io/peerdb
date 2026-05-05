@@ -166,8 +166,8 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}, nil
 }
 
-// WriteRecordsToS3 serializes records as Avro OCF and uploads via the given StagingStore.
-func (p *peerDBOCFWriter) WriteRecordsToS3(
+// WriteRecordsToStaging serializes records as Avro OCF and uploads via the given StagingStore.
+func (p *peerDBOCFWriter) WriteRecordsToStaging(
 	ctx context.Context,
 	env map[string]string,
 	store StagingStore,
