@@ -27,7 +27,7 @@ func createStagingStore(
 ) (utils.StagingStore, *utils.ClickHouseS3Credentials, error) {
 	// If user provided explicit S3 config, always use S3 staging.
 	if config.S3 != nil || config.S3Path != "" || config.AccessKeyId != "" {
-		return createS3StagingStore(ctx, env, config, "", chVersion)
+		return createS3StagingStore(ctx, config, "", chVersion)
 	}
 
 	// Check environment-based staging provider config.
@@ -47,13 +47,12 @@ func createStagingStore(
 		store, err := createGCSStagingStore(ctx, bucketName)
 		return store, nil, err
 	default:
-		return createS3StagingStore(ctx, env, config, bucketName, chVersion)
+		return createS3StagingStore(ctx, config, bucketName, chVersion)
 	}
 }
 
 func createS3StagingStore(
 	ctx context.Context,
-	env map[string]string,
 	config *protos.ClickhouseConfig,
 	unifiedBucketName string,
 	chVersion clickhouseproto.Version,
