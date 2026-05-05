@@ -56,16 +56,17 @@ func NewClickHouseConnector(
 		return nil, err
 	}
 
-	staging, credsProvider, err := createStagingStore(ctx, env, config)
-	if err != nil {
-		return nil, err
-	}
-
 	clickHouseVersion, err := database.ServerVersion()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
-	connector := &ClickHouseConnector{
+
+	staging, credsProvider, err := createStagingStore(ctx, env, config, clickHouseVersion.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
 		Config:           config,
@@ -73,30 +74,7 @@ func NewClickHouseConnector(
 		credsProvider:    credsProvider,
 		staging:          staging,
 		chVersion:        &clickHouseVersion.Version,
-	}
-
-	// S3 with session tokens requires ClickHouse >= 24.3.1
-	// https://github.com/ClickHouse/ClickHouse/issues/61230
-	// credsProvider is nil when using non-S3 staging (e.g. GCS).
-	if credsProvider != nil {
-		credentials, err := credsProvider.Provider.Retrieve(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if credentials.AWS.SessionToken != "" {
-			if !clickhouseproto.CheckMinVersion(
-				clickhouseproto.Version{Major: 24, Minor: 3, Patch: 1},
-				clickHouseVersion.Version,
-			) {
-				return nil, fmt.Errorf(
-					"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
-					clickHouseVersion,
-					"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
-			}
-		}
-	}
-
-	return connector, nil
+	}, nil
 }
 
 func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainString string) error {
