@@ -26,7 +26,9 @@ ENV CGO_ENABLED=1
 RUN go generate
 ENV GOCACHE=/root/.cache/go-build
 RUN --mount=type=cache,target="/root/.cache/go-build" go build ${DEBUG_BUILD:+-gcflags} ${DEBUG_BUILD:+"all=-N -l"} -o /root/peer-flow
-RUN --mount=type=cache,target="/root/.cache/go-build" go install github.com/go-delve/delve/cmd/dlv@latest
+RUN --mount=type=cache,target="/root/.cache/go-build" if [[ "$DEBUG_BUILD" = "1" ]]; then \
+    go install github.com/go-delve/delve/cmd/dlv@latest; \
+  fi
 
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS flow-base
 ENV TZ=UTC
