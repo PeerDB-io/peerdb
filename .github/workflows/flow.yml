@@ -60,7 +60,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.3.2@sha256:56282e41f1d9c8dc437e4c99d132cf9f154def73b6ea8a25ac969a28c2f529c6
+        image: elasticsearch:9.3.3@sha256:1d9ddbe28380c3305ef24c4364168030e4b8ce44834121f7c7dbdaedd2bb9cdf
         ports:
           - 9200:9200
         env:
@@ -87,7 +87,7 @@ jobs:
           - 49002:49002
           - 49003:49003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:742f577d4100f5ad3b38f270d722931bbe98b997444c13b1a2a838df12a9971e
+        image: linuxserver/openssh-server:latest@sha256:792bb9969a6751f9be2dcecdebd166f75c51187628f1be48ac9c9b3776561c16
         ports:
           - 2222:2222
         env:
