@@ -43,6 +43,7 @@ ENTRYPOINT [ "/home/peerdb/peer-flow" ]
 FROM flow-base AS flow-base-debug
 USER root
 COPY --from=builder /go/bin/dlv /usr/local/bin/dlv
+ENV TEMPORAL_DEBUG=1
 EXPOSE 40000
 ENTRYPOINT ["dlv", "--headless", "--continue", "--accept-multiclient", "--listen=:40000", "--api-version=2", "exec", "/home/peerdb/peer-flow", "--"]
 
