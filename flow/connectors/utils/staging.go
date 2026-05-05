@@ -5,6 +5,11 @@ import (
 	"io"
 )
 
+var (
+	_ StagingStore = (*S3StagingStore)(nil)
+	_ StagingStore = (*GCSStagingStore)(nil)
+)
+
 // StagingStore abstracts cloud storage used by PeerDB's ClickHouse connector
 // for staging Avro files. Files are written by PeerDB and read by ClickHouse
 // via table functions (s3(), url(), etc.).

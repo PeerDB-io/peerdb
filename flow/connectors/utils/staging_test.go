@@ -19,6 +19,8 @@ func TestNewS3StagingStore(t *testing.T) {
 
 	store, err := NewS3StagingStore("s3://my-bucket/some/prefix", creds)
 	require.NoError(t, err)
+	require.Equal(t, "my-bucket", store.Bucket())
+	require.Equal(t, "some/prefix", store.Prefix())
 	require.Equal(t, "some/prefix", store.KeyPrefix())
 	require.Equal(t, "s3://my-bucket/some/prefix", store.BucketPath())
 }
@@ -92,6 +94,6 @@ func TestNewS3StagingStoreNoBucket(t *testing.T) {
 
 	store, err := NewS3StagingStore("s3://bucket-only", creds)
 	require.NoError(t, err)
-	require.Equal(t, "s3://bucket-only", store.BucketPath())
-	require.Empty(t, store.KeyPrefix())
+	require.Equal(t, "bucket-only", store.Bucket())
+	require.Empty(t, store.Prefix())
 }
