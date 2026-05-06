@@ -53,7 +53,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
       - ./volumes/postgresql.conf:/etc/postgresql.conf
       - ./volumes/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     healthcheck:
