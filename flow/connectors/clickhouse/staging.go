@@ -33,10 +33,12 @@ func createStagingStore(
 	}
 
 	switch strings.ToLower(provider) {
+	case "s3", "":
+		return newS3StagingStoreFromConfig(ctx, config, bucketName, chVersion)
 	case "gcs":
 		return newGCSStagingStore(ctx, bucketName)
 	default:
-		return newS3StagingStoreFromConfig(ctx, config, bucketName, chVersion)
+		return nil, fmt.Errorf("unsupported staging provider %q (expected s3 or gcs)", provider)
 	}
 }
 
