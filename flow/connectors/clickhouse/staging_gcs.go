@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -108,7 +109,7 @@ func (g *gcsStagingStore) DeletePrefix(ctx context.Context, prefix string) error
 }
 
 func (g *gcsStagingStore) Validate(ctx context.Context) error {
-	testKey := g.prefix + "/_peerdb_check_" + time.Now().Format("20060102150405")
+	testKey := strings.TrimPrefix(g.prefix+"/_peerdb_check_"+uuid.NewString(), "/")
 	obj := g.client.Bucket(g.bucket).Object(testKey)
 
 	w := obj.NewWriter(ctx)

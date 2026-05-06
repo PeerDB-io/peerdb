@@ -726,18 +726,11 @@ func PeerDBClickHouseStagingProvider(ctx context.Context, env map[string]string)
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_PROVIDER")
 }
 
-// PeerDBClickHouseStagingBucketName returns the staging bucket name, preferring
-// PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME and falling back to the legacy
-// PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME if empty.
 func PeerDBClickHouseStagingBucketName(ctx context.Context, env map[string]string) (string, error) {
-	name, err := dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
-	if err != nil {
-		return "", err
-	}
-	if name != "" {
-		return name, nil
-	}
-	// Fall back to legacy S3-specific env var.
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
+}
+
+func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 }
 

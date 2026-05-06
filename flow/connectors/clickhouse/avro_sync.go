@@ -38,21 +38,21 @@ func NewClickHouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, avroFilePath string) (string, error) {
+func (s *ClickHouseAvroSyncMethod) stagingTableFunctionBuilder(ctx context.Context, avroFilePath string) (string, error) {
 	return s.staging.TableFunctionExpr(ctx, avroFilePath, "Avro")
 }
 
 func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile utils.AvroFile) error {
-	s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
+	stagingTableFunction, err := s.stagingTableFunctionBuilder(ctx, avroFile.FilePath)
 	if err != nil {
-		s.logger.Error("failed to build S3 table function",
+		s.logger.Error("failed to build staging table function",
 			slog.String("avroFilePath", avroFile.FilePath),
 			slog.Any("error", err))
-		return fmt.Errorf("failed to build S3 table function: %w", err)
+		return fmt.Errorf("failed to build staging table function: %w", err)
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM %s",
-		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), s3TableFunction)
+		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), stagingTableFunction)
 	return s.exec(ctx, query)
 }
 
@@ -116,7 +116,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	numericTruncator := model.NewSnapshotTableNumericTruncator(dstTableName, schema.Fields)
 
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
-	avroFiles, totalRecords, err := s.pushDataToS3ForSnapshot(ctx, config, dstTableName, schema,
+	avroFiles, totalRecords, err := s.pushDataToStagingForSnapshot(ctx, config, dstTableName, schema,
 		columnNameAvroFieldMap, partition, stream, destTypeConversions, numericTruncator)
 	if err != nil {
 		s.logger.Error("failed to push data to S3",
@@ -125,7 +125,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, nil, err
 	}
 
-	if err := s.pushS3DataToClickHouseForSnapshot(
+	if err := s.pushStagingDataToClickHouseForSnapshot(
 		ctx, avroFiles, schema, columnNameAvroFieldMap, config); err != nil {
 		s.logger.Error("failed to push data to ClickHouse",
 			slog.String("dstTable", dstTableName),
@@ -142,7 +142,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	return totalRecords, warnings, nil
 }
 
-func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
+func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	dstTableName string,
@@ -237,7 +237,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3ForSnapshot(
 	return avroFiles, totalRecords, nil
 }
 
-func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
+func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 	ctx context.Context,
 	avroFiles []utils.AvroFile,
 	schema types.QRecordSchema,
@@ -277,24 +277,24 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouseForSnapshot(
 
 		for i := range numParts {
 			// Get fresh credentials for each part
-			s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
+			stagingTableFunction, err := s.stagingTableFunctionBuilder(ctx, avroFile.FilePath)
 			if err != nil {
-				s.logger.Error("failed to build S3 table function",
+				s.logger.Error("failed to build staging table function",
 					slog.String("avroFilePath", avroFile.FilePath),
 					slog.Any("error", err),
 					slog.Uint64("part", i),
 					slog.Uint64("numParts", numParts),
 					slog.Int("chunkIdx", chunkIdx),
 				)
-				return fmt.Errorf("failed to build S3 table function: %w", err)
+				return fmt.Errorf("failed to build staging table function: %w", err)
 			}
 
 			var query string
 			if numParts > 1 {
 				query, err = buildInsertFromTableFunctionQueryWithPartitioning(
-					ctx, insertConfig, s3TableFunction, i, numParts, chSettings)
+					ctx, insertConfig, stagingTableFunction, i, numParts, chSettings)
 			} else {
-				query, err = buildInsertFromTableFunctionQuery(ctx, insertConfig, s3TableFunction, chSettings)
+				query, err = buildInsertFromTableFunctionQuery(ctx, insertConfig, stagingTableFunction, chSettings)
 			}
 			if err != nil {
 				s.logger.Error("failed to build insert query",
@@ -371,13 +371,13 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 		return utils.AvroFile{}, err
 	}
 
-	var s3AvroFileKey string
+	var stagingAvroFileKey string
 	if s3UuidPrefix {
-		s3AvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", prefix, uuid.NewString(), flowJobName, identifierForFile)
+		stagingAvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", prefix, uuid.NewString(), flowJobName, identifierForFile)
 	} else {
-		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", prefix, flowJobName, identifierForFile)
+		stagingAvroFileKey = fmt.Sprintf("%s/%s/%s.avro", prefix, flowJobName, identifierForFile)
 	}
-	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
+	stagingAvroFileKey = strings.TrimLeft(stagingAvroFileKey, "/")
 
 	r, w := io.Pipe()
 	defer r.Close()
@@ -385,11 +385,16 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	var writeOcfError error
 	var numRows int64
 	go func() {
-		defer w.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				writeOcfError = fmt.Errorf("panic occurred during WriteOCF: %v", r)
+			}
+			w.Close()
+		}()
 		numRows, writeOcfError = ocfWriter.WriteOCF(ctx, env, w, typeConversions, numericTruncator)
 	}()
 
-	if err := s.staging.Upload(ctx, env, s3AvroFileKey, r); err != nil {
+	if err := s.staging.Upload(ctx, env, stagingAvroFileKey, r); err != nil {
 		return utils.AvroFile{}, fmt.Errorf("failed to upload to staging: %w", err)
 	}
 	if writeOcfError != nil {
@@ -398,7 +403,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 
 	return utils.AvroFile{
 		StorageLocation: utils.AvroS3Storage,
-		FilePath:        s3AvroFileKey,
+		FilePath:        stagingAvroFileKey,
 		NumRecords:      numRows,
 	}, nil
 }
