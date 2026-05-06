@@ -30,11 +30,11 @@ import (
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
-	database      clickhouse.Conn
-	logger        log.Logger
-	Config  *protos.ClickhouseConfig
-	staging StagingStore
-	chVersion     *clickhouseproto.Version
+	database  clickhouse.Conn
+	logger    log.Logger
+	Config    *protos.ClickhouseConfig
+	staging   StagingStore
+	chVersion *clickhouseproto.Version
 }
 
 func NewClickHouseConnector(
