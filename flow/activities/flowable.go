@@ -2144,6 +2144,10 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 	return nil
 }
 
+func (a *FlowableActivity) PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {
+	return internal.PeerDBPGAutomatedSchemaDump(ctx, env)
+}
+
 func (a *FlowableActivity) RunPgDumpSchema(
 	ctx context.Context,
 	input *protos.RunPgDumpSchemaInput,

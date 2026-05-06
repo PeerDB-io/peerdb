@@ -178,7 +178,7 @@ func (s *SetupFlowExecution) createRawTable(
 // fetchTableSchemaAndSetupNormalizedTables fetches the table schema for the source table and
 // sets up the normalized tables on the destination peer.
 func (s *SetupFlowExecution) setupNormalizedTables(
-	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigsCore,
+	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigsCore, skipCreateTables bool,
 ) error {
 	s.Info("fetching table schema for peer flow")
 
@@ -217,9 +217,13 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		Flags:             flowConnectionConfigs.Flags,
 	}
 
-	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
-		s.Error("failed to create normalized tables", slog.Any("error", err))
-		return fmt.Errorf("failed to create normalized tables: %w", err)
+	if !skipCreateTables {
+		if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
+			s.Error("failed to create normalized tables", slog.Any("error", err))
+			return fmt.Errorf("failed to create normalized tables: %w", err)
+		}
+	} else {
+		s.Info("skipping normalized table creation, pg_dump already created tables")
 	}
 
 	s.Info("finished setting up normalized tables for peer flow")
@@ -256,6 +260,21 @@ func (s *SetupFlowExecution) runPgDumpSchema(
 	return nil
 }
 
+// getPGAutomatedSchemaDump checks the PEERDB_PG_AUTOMATED_SCHEMA_DUMP env flag via an activity.
+func (s *SetupFlowExecution) getPGAutomatedSchemaDump(ctx workflow.Context, env map[string]string) bool {
+	checkCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var enabled bool
+	future := workflow.ExecuteActivity(checkCtx, flowable.PeerDBPGAutomatedSchemaDump, env)
+	if err := future.Get(checkCtx, &enabled); err != nil {
+		s.Warn("failed to check PEERDB_PG_AUTOMATED_SCHEMA_DUMP, defaulting to false", slog.Any("error", err))
+		return false
+	}
+	return enabled
+}
+
 // executeSetupFlow executes the setup flow.
 func (s *SetupFlowExecution) executeSetupFlow(
 	ctx workflow.Context,
@@ -281,15 +300,20 @@ func (s *SetupFlowExecution) executeSetupFlow(
 		}
 	}
 
-	// for PG type system (PG-to-PG mirrors), run pg_dump schema migration before setting up normalized tables
+	// for PG type system (PG-to-PG mirrors), run pg_dump schema migration if enabled
+	enablePgSchemaDump := false
 	if config.System == protos.TypeSystem_PG {
-		if err := s.runPgDumpSchema(ctx, config); err != nil {
-			return nil, fmt.Errorf("failed to run pg_dump schema migration: %w", err)
+		enablePgSchemaDump = s.getPGAutomatedSchemaDump(ctx, config.Env)
+		if enablePgSchemaDump {
+			if err := s.runPgDumpSchema(ctx, config); err != nil {
+				return nil, fmt.Errorf("failed to run pg_dump schema migration: %w", err)
+			}
 		}
 	}
 
-	// then fetch the table schema and setup the normalized tables
-	if err := s.setupNormalizedTables(ctx, config); err != nil {
+	// fetch table schema (always needed for catalog) and setup normalized tables
+	// if pg_dump already created tables, skip CreateNormalizedTable but still fetch schema
+	if err := s.setupNormalizedTables(ctx, config, enablePgSchemaDump); err != nil {
 		return nil, fmt.Errorf("failed to fetch table schema and setup normalized tables: %w", err)
 	}
 

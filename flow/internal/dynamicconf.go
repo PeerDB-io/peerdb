@@ -800,3 +800,7 @@ func PeerDBMongoDBParallelSnapshotting(ctx context.Context, env map[string]strin
 func PeerDBMongoDBDirectBsonConverter(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_DIRECT_BSON_CONVERTER")
 }
+
+func PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_PG_AUTOMATED_SCHEMA_DUMP")
+}
