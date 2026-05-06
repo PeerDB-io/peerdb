@@ -21,7 +21,6 @@ import (
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -33,9 +32,8 @@ type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
 	database      clickhouse.Conn
 	logger        log.Logger
-	Config        *protos.ClickhouseConfig
-	credsProvider *utils.ClickHouseS3Credentials
-	staging       StagingStore
+	Config  *protos.ClickhouseConfig
+	staging StagingStore
 	chVersion     *clickhouseproto.Version
 }
 
@@ -61,7 +59,7 @@ func NewClickHouseConnector(
 		return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
 
-	staging, credsProvider, err := createStagingStore(ctx, env, config, clickHouseVersion.Version)
+	staging, err := createStagingStore(ctx, env, config, clickHouseVersion.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +69,6 @@ func NewClickHouseConnector(
 		PostgresMetadata: pgMetadata,
 		Config:           config,
 		logger:           logger,
-		credsProvider:    credsProvider,
 		staging:          staging,
 		chVersion:        &clickHouseVersion.Version,
 	}, nil

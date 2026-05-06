@@ -16,29 +16,25 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-// createStagingStore builds a StagingStore and (for S3) the legacy ClickHouseS3Credentials.
-// The credsProvider return is non-nil only for S3 and is kept for backward compatibility
-// with the session-token version check in createS3StagingStore.
 func createStagingStore(
 	ctx context.Context,
 	env map[string]string,
 	config *protos.ClickhouseConfig,
 	chVersion clickhouseproto.Version,
-) (StagingStore, *utils.ClickHouseS3Credentials, error) {
+) (StagingStore, error) {
 	provider, err := internal.PeerDBClickHouseStagingProvider(ctx, env)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get staging provider: %w", err)
+		return nil, fmt.Errorf("failed to get staging provider: %w", err)
 	}
 
 	bucketName, err := internal.PeerDBClickHouseStagingBucketName(ctx, env)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get staging bucket name: %w", err)
+		return nil, fmt.Errorf("failed to get staging bucket name: %w", err)
 	}
 
 	switch strings.ToLower(provider) {
 	case "gcs":
-		store, err := newGCSStagingStore(ctx, bucketName)
-		return store, nil, err
+		return newGCSStagingStore(ctx, bucketName)
 	default:
 		return newS3StagingStoreFromConfig(ctx, config, bucketName, chVersion)
 	}
@@ -49,7 +45,7 @@ func newS3StagingStoreFromConfig(
 	config *protos.ClickhouseConfig,
 	unifiedBucketName string,
 	chVersion clickhouseproto.Version,
-) (StagingStore, *utils.ClickHouseS3Credentials, error) {
+) (StagingStore, error) {
 	var awsConfig utils.PeerAWSCredentials
 	var awsBucketPath string
 	if config.S3 != nil {
@@ -69,12 +65,12 @@ func newS3StagingStoreFromConfig(
 
 	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", awsConfig)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if awsBucketPath == "" {
 		if unifiedBucketName == "" {
-			return nil, nil, errors.New("PeerDB ClickHouse Bucket Name not set")
+			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
 		}
 		deploymentUID := internal.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
@@ -86,31 +82,21 @@ func newS3StagingStoreFromConfig(
 	// https://github.com/ClickHouse/ClickHouse/issues/61230
 	credentials, err := credentialsProvider.Retrieve(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if credentials.AWS.SessionToken != "" {
 		if !clickhouseproto.CheckMinVersion(
 			clickhouseproto.Version{Major: 24, Minor: 3, Patch: 1},
 			chVersion,
 		) {
-			return nil, nil, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
 				chVersion,
 				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
 		}
 	}
 
-	creds := &utils.ClickHouseS3Credentials{
-		Provider:   credentialsProvider,
-		BucketPath: awsBucketPath,
-	}
-
-	store, err := newS3StagingStore(awsBucketPath, credentialsProvider)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return store, creds, nil
+	return newS3StagingStore(awsBucketPath, credentialsProvider)
 }
 
 func newGCSStagingStore(ctx context.Context, bucketName string) (StagingStore, error) {
