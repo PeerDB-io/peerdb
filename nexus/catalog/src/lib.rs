@@ -78,6 +78,7 @@ async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
         );
     }
     run_non_transactional_migrations(client).await?;
+    Ok(())
 }
 
 async fn run_non_transactional_migrations(client: &Client) -> anyhow::Result<()> {
@@ -90,6 +91,7 @@ async fn run_non_transactional_migrations(client: &Client) -> anyhow::Result<()>
             .await
             .with_context(|| format!("Failed to apply non-transactional migration: {stmt}"))?;
     }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
