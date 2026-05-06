@@ -78,6 +78,11 @@
       "matchPackageNames": ["github.com/tikv/pd/client"],
       "allowedVersions": "v0.0.0-20251229071808-6173d50c004c"
     },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/jackc/pgx/v5"],
+      "allowedVersions": "v5.9.1"
+    },
     // This package rule instruct renovate to require approval from
     // the dependency dashboard before proposing major upgrades.
     // This sets a default is approval mindset for automatic proposals.
