@@ -54,6 +54,20 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      catalog2:
+        image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
+        ports:
+          - 5437:5432
+        env:
+          PGUSER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       redpanda:
         image: redpandadata/redpanda@sha256:12ddbd8e5572210a48d39afecac44db61503ce1cbdae50ee9b1ff5998a8d91e1
         ports:
@@ -257,6 +271,17 @@ jobs:
           -c "ALTER SYSTEM SET max_connections=2048;" &&
           (cat ./nexus/catalog/migrations/V{?,??}__* | docker exec -i "${{ job.services.catalog.id }}" psql -U postgres) &&
           docker restart "${{ job.services.catalog.id }}"
+        env:
+          PGPASSWORD: postgres
+
+      - name: prepare secondary postgres for cross-cluster schema-dump tests
+        run: >
+          docker exec "${{ job.services.catalog2.id }}" psql -U postgres
+          -c "ALTER SYSTEM SET wal_level=logical;"
+          -c "ALTER SYSTEM SET max_replication_slots=192;"
+          -c "ALTER SYSTEM SET max_wal_senders=256;"
+          -c "ALTER SYSTEM SET max_connections=2048;" &&
+          docker restart "${{ job.services.catalog2.id }}"
         env:
           PGPASSWORD: postgres
 
@@ -500,6 +525,11 @@ jobs:
           PG_USER: postgres
           PG_PASSWORD: postgres
           PG_DATABASE: postgres
+          PG2_HOST: localhost
+          PG2_PORT: 5437
+          PG2_USER: postgres
+          PG2_PASSWORD: postgres
+          PG2_DATABASE: postgres
           PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
