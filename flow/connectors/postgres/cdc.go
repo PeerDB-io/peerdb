@@ -822,7 +822,9 @@ func PullCdcRecords[Items model.Items](
 								if latestRecord, found, err := cdcRecordsStorage.Get(tablePkeyVal); err != nil {
 									return err
 								} else if found {
-									r.Items = latestRecord.GetItems()
+									// use UpdateIfNotExists to copy columns from the stored record,
+									// which clones the map to avoid concurrent access with the sync goroutine
+									r.Items.UpdateIfNotExists(latestRecord.GetItems())
 									if updateRecord, ok := latestRecord.(*model.UpdateRecord[Items]); ok {
 										r.UnchangedToastColumns = updateRecord.UnchangedToastColumns
 										backfilled = true
