@@ -1,47 +1,47 @@
 # Default owner
-*                                                       @db-integrations
+*                                                       @PeerDB-io/db-integrations
 
 # Non-CH, non-PG destinations
-flow/connectors/bigquery/                               @eng
-flow/connectors/elasticsearch/                          @eng
-flow/connectors/eventhub/                               @eng
-flow/connectors/kafka/                                  @eng
-flow/connectors/pubsub/                                 @eng
-flow/connectors/s3/                                     @eng
-flow/connectors/snowflake/                              @eng
+flow/connectors/bigquery/                               @PeerDB-io/eng
+flow/connectors/elasticsearch/                          @PeerDB-io/eng
+flow/connectors/eventhub/                               @PeerDB-io/eng
+flow/connectors/kafka/                                  @PeerDB-io/eng
+flow/connectors/pubsub/                                 @PeerDB-io/eng
+flow/connectors/s3/                                     @PeerDB-io/eng
+flow/connectors/snowflake/                              @PeerDB-io/eng
 
-ui/components/PeerForms/BigqueryConfig.tsx              @eng
-ui/components/PeerForms/SnowflakeForm.tsx               @eng
-ui/components/PeerForms/S3Form.tsx                      @eng
-ui/components/PeerForms/ElasticsearchConfigForm.tsx     @eng
-ui/components/PeerForms/Eventhubs/                      @eng
-ui/components/PeerForms/KafkaConfig.tsx                 @eng
-ui/components/PeerForms/PubSubConfig.tsx                @eng
-ui/app/peers/create/[peerType]/helpers/bq.ts            @eng
-ui/app/peers/create/[peerType]/helpers/sf.ts            @eng
-ui/app/peers/create/[peerType]/helpers/s3.ts            @eng
-ui/app/peers/create/[peerType]/helpers/es.ts            @eng
-ui/app/peers/create/[peerType]/helpers/eh.ts            @eng
-ui/app/peers/create/[peerType]/helpers/ka.ts            @eng
-ui/app/peers/create/[peerType]/helpers/ps.ts            @eng
-ui/app/mirrors/create/cdc/eventhubsCallout.tsx          @eng
+ui/components/PeerForms/BigqueryConfig.tsx              @PeerDB-io/eng
+ui/components/PeerForms/SnowflakeForm.tsx               @PeerDB-io/eng
+ui/components/PeerForms/S3Form.tsx                      @PeerDB-io/eng
+ui/components/PeerForms/ElasticsearchConfigForm.tsx     @PeerDB-io/eng
+ui/components/PeerForms/Eventhubs/                      @PeerDB-io/eng
+ui/components/PeerForms/KafkaConfig.tsx                 @PeerDB-io/eng
+ui/components/PeerForms/PubSubConfig.tsx                @PeerDB-io/eng
+ui/app/peers/create/[peerType]/helpers/bq.ts            @PeerDB-io/eng
+ui/app/peers/create/[peerType]/helpers/sf.ts            @PeerDB-io/eng
+ui/app/peers/create/[peerType]/helpers/s3.ts            @PeerDB-io/eng
+ui/app/peers/create/[peerType]/helpers/es.ts            @PeerDB-io/eng
+ui/app/peers/create/[peerType]/helpers/eh.ts            @PeerDB-io/eng
+ui/app/peers/create/[peerType]/helpers/ka.ts            @PeerDB-io/eng
+ui/app/peers/create/[peerType]/helpers/ps.ts            @PeerDB-io/eng
+ui/app/mirrors/create/cdc/eventhubsCallout.tsx          @PeerDB-io/eng
 
-flow/e2e/bigquery.go                                    @eng
-flow/e2e/bigquery_qrep_test.go                          @eng
-flow/e2e/bigquery_test.go                               @eng
-flow/e2e/elasticsearch*.go                              @eng
-flow/e2e/eventhub*.go                                   @eng
-flow/e2e/kafka*.go                                      @eng
-flow/e2e/pubsub*.go                                     @eng
-flow/e2e/s3_*.go                                        @eng
-flow/e2e/snowflake*.go                                  @eng
+flow/e2e/bigquery.go                                    @PeerDB-io/eng
+flow/e2e/bigquery_qrep_test.go                          @PeerDB-io/eng
+flow/e2e/bigquery_test.go                               @PeerDB-io/eng
+flow/e2e/elasticsearch*.go                              @PeerDB-io/eng
+flow/e2e/eventhub*.go                                   @PeerDB-io/eng
+flow/e2e/kafka*.go                                      @PeerDB-io/eng
+flow/e2e/pubsub*.go                                     @PeerDB-io/eng
+flow/e2e/s3_*.go                                        @PeerDB-io/eng
+flow/e2e/snowflake*.go                                  @PeerDB-io/eng
 
 # PG destination
-flow/connectors/postgres/postgres_destination.go        @ch-postgres
-flow/connectors/postgres/qrep_destination.go            @ch-postgres
-flow/connectors/postgres/normalize_stmt_generator.go    @ch-postgres
-flow/connectors/postgres/sink_pg.go                     @ch-postgres
-flow/model/pg_items.go                                  @ch-postgres
-flow/pkg/postgres/dest_validation.go                    @ch-postgres
+flow/connectors/postgres/postgres_destination.go        @PeerDB-io/ch-postgres
+flow/connectors/postgres/qrep_destination.go            @PeerDB-io/ch-postgres
+flow/connectors/postgres/normalize_stmt_generator.go    @PeerDB-io/ch-postgres
+flow/connectors/postgres/sink_pg.go                     @PeerDB-io/ch-postgres
+flow/model/pg_items.go                                  @PeerDB-io/ch-postgres
+flow/pkg/postgres/dest_validation.go                    @PeerDB-io/ch-postgres
 
-flow/e2e/postgres*.go                                   @ch-postgres
+flow/e2e/postgres*.go                                   @PeerDB-io/ch-postgres
