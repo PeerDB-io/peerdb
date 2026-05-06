@@ -15,7 +15,7 @@ import (
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 )
 
-const gcsSignedURLExpiry = 15 * time.Minute
+const gcsSignedURLExpiry = 1 * time.Hour
 
 // gcsStagingStore implements StagingStore for Google Cloud Storage using
 // native GCS SDK and signed URLs for ClickHouse reads.
