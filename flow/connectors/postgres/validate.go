@@ -278,6 +278,10 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 		return nil // no need to validate schema for resync, as we will create or replace the tables
 	}
 
+	if cfg.System == protos.TypeSystem_PG && cfg.Env["PEERDB_PG_AUTOMATED_SCHEMA_DUMP"] == "true" {
+		return nil // pg_dump will create the schema and tables on the destination
+	}
+
 	// Validate that all source columns exist in destination tables
 	checkedSchemas := make(map[string]struct{})
 	for _, tableMapping := range cfg.TableMappings {
