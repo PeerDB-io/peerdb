@@ -125,6 +125,27 @@ services:
       timeout: 10s
       retries: 5
 
+  postgres2:
+    container_name: peerdb-postgres2
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    volumes:
+      - postgres2_data:/var/lib/postgresql/data
+    ports:
+      - "${PG2_PORT}:5432"
+    environment:
+      PGUSER: ${PG2_USER}
+      POSTGRES_PASSWORD: ${PG2_PASSWORD}
+      POSTGRES_DB: ${PG2_DATABASE}
+      POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "pg_isready"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
   dozzle:
     container_name: dozzle-compose-monitor
     image: amir20/dozzle:latest
@@ -185,6 +206,7 @@ services:
 
 volumes:
   postgres_data:
+  postgres2_data:
   clickhouse_data:
   mongo_data:
   mysql_gtid_data:
