@@ -35,7 +35,7 @@ type ClickHouseConnector struct {
 	logger        log.Logger
 	Config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
-	staging       utils.StagingStore
+	staging       StagingStore
 	chVersion     *clickhouseproto.Version
 }
 

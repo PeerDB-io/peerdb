@@ -24,7 +24,7 @@ func createStagingStore(
 	env map[string]string,
 	config *protos.ClickhouseConfig,
 	chVersion clickhouseproto.Version,
-) (utils.StagingStore, *utils.ClickHouseS3Credentials, error) {
+) (StagingStore, *utils.ClickHouseS3Credentials, error) {
 	provider, err := internal.PeerDBClickHouseStagingProvider(ctx, env)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get staging provider: %w", err)
@@ -37,19 +37,19 @@ func createStagingStore(
 
 	switch strings.ToLower(provider) {
 	case "gcs":
-		store, err := createGCSStagingStore(ctx, bucketName)
+		store, err := newGCSStagingStore(ctx, bucketName)
 		return store, nil, err
 	default:
-		return createS3StagingStore(ctx, config, bucketName, chVersion)
+		return newS3StagingStoreFromConfig(ctx, config, bucketName, chVersion)
 	}
 }
 
-func createS3StagingStore(
+func newS3StagingStoreFromConfig(
 	ctx context.Context,
 	config *protos.ClickhouseConfig,
 	unifiedBucketName string,
 	chVersion clickhouseproto.Version,
-) (utils.StagingStore, *utils.ClickHouseS3Credentials, error) {
+) (StagingStore, *utils.ClickHouseS3Credentials, error) {
 	var awsConfig utils.PeerAWSCredentials
 	var awsBucketPath string
 	if config.S3 != nil {
@@ -105,7 +105,7 @@ func createS3StagingStore(
 		BucketPath: awsBucketPath,
 	}
 
-	store, err := utils.NewS3StagingStore(awsBucketPath, credentialsProvider)
+	store, err := newS3StagingStore(awsBucketPath, credentialsProvider)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -113,10 +113,7 @@ func createS3StagingStore(
 	return store, creds, nil
 }
 
-func createGCSStagingStore(
-	ctx context.Context,
-	bucketName string,
-) (utils.StagingStore, error) {
+func newGCSStagingStore(ctx context.Context, bucketName string) (StagingStore, error) {
 	if bucketName == "" {
 		return nil, errors.New("PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME must be set when staging provider is gcs")
 	}
@@ -126,5 +123,5 @@ func createGCSStagingStore(
 	bucketPath := fmt.Sprintf("gs://%s/%s/%s",
 		bucketName, url.PathEscape(deploymentUID), url.PathEscape(flowName))
 
-	return utils.NewGCSStagingStore(ctx, bucketPath)
+	return newGCSStagingStoreFromPath(ctx, bucketPath)
 }

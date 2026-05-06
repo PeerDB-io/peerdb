@@ -1,18 +1,13 @@
-package utils
+package connclickhouse
 
 import (
 	"context"
 	"io"
 )
 
-var (
-	_ StagingStore = (*S3StagingStore)(nil)
-	_ StagingStore = (*GCSStagingStore)(nil)
-)
-
-// StagingStore abstracts cloud storage used by PeerDB's ClickHouse connector
-// for staging Avro files. Files are written by PeerDB and read by ClickHouse
-// via table functions (s3(), url(), etc.).
+// StagingStore abstracts cloud storage used for staging Avro files.
+// Files are written by PeerDB and read by ClickHouse via table functions
+// (s3(), url(), etc.).
 type StagingStore interface {
 	// Upload streams data from body to the given key in the staging bucket.
 	Upload(ctx context.Context, env map[string]string, key string, body io.Reader) error

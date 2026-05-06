@@ -1,4 +1,4 @@
-package utils
+package connclickhouse
 
 import (
 	"context"
@@ -17,16 +17,16 @@ import (
 
 const gcsSignedURLExpiry = 15 * time.Minute
 
-// GCSStagingStore implements StagingStore for Google Cloud Storage using
+// gcsStagingStore implements StagingStore for Google Cloud Storage using
 // native GCS SDK and signed URLs for ClickHouse reads.
-type GCSStagingStore struct {
+type gcsStagingStore struct {
 	client   *storage.Client
 	bucket   string
 	prefix   string
 	fullPath string
 }
 
-func NewGCSStagingStore(ctx context.Context, bucketPath string) (*GCSStagingStore, error) {
+func newGCSStagingStoreFromPath(ctx context.Context, bucketPath string) (*gcsStagingStore, error) {
 	// bucketPath may use either "gs://" (standard GCS URI scheme) or "gcs://" prefix.
 	path := strings.TrimPrefix(bucketPath, "gcs://")
 	path = strings.TrimPrefix(path, "gs://")
@@ -39,7 +39,7 @@ func NewGCSStagingStore(ctx context.Context, bucketPath string) (*GCSStagingStor
 		return nil, fmt.Errorf("failed to create GCS client: %w", err)
 	}
 
-	return &GCSStagingStore{
+	return &gcsStagingStore{
 		client:   client,
 		bucket:   bucket,
 		prefix:   prefix,
@@ -47,13 +47,11 @@ func NewGCSStagingStore(ctx context.Context, bucketPath string) (*GCSStagingStor
 	}, nil
 }
 
-func (g *GCSStagingStore) Upload(ctx context.Context, env map[string]string, key string, body io.Reader) error {
+func (g *gcsStagingStore) Upload(ctx context.Context, env map[string]string, key string, body io.Reader) error {
 	logger := internal.LoggerFromCtx(ctx)
 
 	obj := g.client.Bucket(g.bucket).Object(key)
 	w := obj.NewWriter(ctx)
-	// GCS supports up to 5 TiB objects; the client handles chunked uploads internally.
-	// Default chunk size is 16 MiB which is fine for most staging files.
 
 	if _, err := io.Copy(w, body); err != nil {
 		w.Close()
@@ -67,9 +65,7 @@ func (g *GCSStagingStore) Upload(ctx context.Context, env map[string]string, key
 	return nil
 }
 
-func (g *GCSStagingStore) TableFunctionExpr(ctx context.Context, key string, format string) (string, error) {
-	// Generate a signed URL that ClickHouse can use to read the staged file.
-	// Uses Application Default Credentials for signing.
+func (g *gcsStagingStore) TableFunctionExpr(ctx context.Context, key string, format string) (string, error) {
 	signedURL, err := g.client.Bucket(g.bucket).SignedURL(key, &storage.SignedURLOptions{
 		Method:  "GET",
 		Expires: time.Now().Add(gcsSignedURLExpiry),
@@ -87,7 +83,7 @@ func (g *GCSStagingStore) TableFunctionExpr(ctx context.Context, key string, for
 	return expr.String(), nil
 }
 
-func (g *GCSStagingStore) DeletePrefix(ctx context.Context, prefix string) error {
+func (g *gcsStagingStore) DeletePrefix(ctx context.Context, prefix string) error {
 	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Deleting objects from GCS",
 		slog.String("bucket", g.bucket), slog.String("prefix", prefix))
@@ -111,7 +107,7 @@ func (g *GCSStagingStore) DeletePrefix(ctx context.Context, prefix string) error
 	return nil
 }
 
-func (g *GCSStagingStore) Validate(ctx context.Context) error {
+func (g *gcsStagingStore) Validate(ctx context.Context) error {
 	testKey := g.prefix + "/_peerdb_check_" + time.Now().Format("20060102150405")
 	obj := g.client.Bucket(g.bucket).Object(testKey)
 
@@ -131,20 +127,10 @@ func (g *GCSStagingStore) Validate(ctx context.Context) error {
 	return nil
 }
 
-func (g *GCSStagingStore) BucketPath() string {
+func (g *gcsStagingStore) BucketPath() string {
 	return g.fullPath
 }
 
-func (g *GCSStagingStore) KeyPrefix() string {
-	return g.prefix
-}
-
-// Bucket returns the bucket name.
-func (g *GCSStagingStore) Bucket() string {
-	return g.bucket
-}
-
-// Prefix returns the key prefix.
-func (g *GCSStagingStore) Prefix() string {
+func (g *gcsStagingStore) KeyPrefix() string {
 	return g.prefix
 }

@@ -1,4 +1,4 @@
-package utils
+package connclickhouse
 
 import (
 	"context"
@@ -12,24 +12,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 )
 
-// S3StagingStore implements StagingStore for AWS S3 (and S3-compatible services).
-type S3StagingStore struct {
-	creds    AWSCredentialsProvider
+// s3StagingStore implements StagingStore for AWS S3 (and S3-compatible services).
+type s3StagingStore struct {
+	creds    utils.AWSCredentialsProvider
 	bucket   string
 	prefix   string
 	fullPath string // original "s3://bucket/prefix" for logging
 }
 
-func NewS3StagingStore(bucketPath string, creds AWSCredentialsProvider) (*S3StagingStore, error) {
-	s3o, err := NewS3BucketAndPrefix(bucketPath)
+func newS3StagingStore(bucketPath string, creds utils.AWSCredentialsProvider) (*s3StagingStore, error) {
+	s3o, err := utils.NewS3BucketAndPrefix(bucketPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse S3 bucket path: %w", err)
 	}
-	return &S3StagingStore{
+	return &s3StagingStore{
 		bucket:   s3o.Bucket,
 		prefix:   s3o.Prefix,
 		fullPath: bucketPath,
@@ -37,10 +38,10 @@ func NewS3StagingStore(bucketPath string, creds AWSCredentialsProvider) (*S3Stag
 	}, nil
 }
 
-func (s *S3StagingStore) Upload(ctx context.Context, env map[string]string, key string, body io.Reader) error {
+func (s *s3StagingStore) Upload(ctx context.Context, env map[string]string, key string, body io.Reader) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	s3svc, err := CreateS3Client(ctx, s.creds)
+	s3svc, err := utils.CreateS3Client(ctx, s.creds)
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
@@ -73,10 +74,10 @@ func (s *S3StagingStore) Upload(ctx context.Context, env map[string]string, key 
 	return nil
 }
 
-func (s *S3StagingStore) TableFunctionExpr(ctx context.Context, key string, format string) (string, error) {
+func (s *s3StagingStore) TableFunctionExpr(ctx context.Context, key string, format string) (string, error) {
 	endpoint := s.creds.GetEndpointURL()
 	region := s.creds.GetRegion()
-	fileURL := FileURLForS3Service(endpoint, region, s.bucket, key)
+	fileURL := utils.FileURLForS3Service(endpoint, region, s.bucket, key)
 
 	creds, err := s.creds.Retrieve(ctx)
 	if err != nil {
@@ -106,10 +107,10 @@ func (s *S3StagingStore) TableFunctionExpr(ctx context.Context, key string, form
 	return expr.String(), nil
 }
 
-func (s *S3StagingStore) DeletePrefix(ctx context.Context, prefix string) error {
+func (s *s3StagingStore) DeletePrefix(ctx context.Context, prefix string) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	s3svc, err := CreateS3Client(ctx, s.creds)
+	s3svc, err := utils.CreateS3Client(ctx, s.creds)
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
@@ -142,35 +143,18 @@ func (s *S3StagingStore) DeletePrefix(ctx context.Context, prefix string) error 
 	return nil
 }
 
-func (s *S3StagingStore) Validate(ctx context.Context) error {
-	s3Client, err := CreateS3Client(ctx, s.creds)
+func (s *s3StagingStore) Validate(ctx context.Context) error {
+	s3Client, err := utils.CreateS3Client(ctx, s.creds)
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	return PutAndRemoveS3(ctx, s3Client, s.bucket, s.prefix)
+	return utils.PutAndRemoveS3(ctx, s3Client, s.bucket, s.prefix)
 }
 
-func (s *S3StagingStore) BucketPath() string {
+func (s *s3StagingStore) BucketPath() string {
 	return s.fullPath
 }
 
-func (s *S3StagingStore) KeyPrefix() string {
-	return s.prefix
-}
-
-// CredentialsProvider returns the underlying AWS credentials provider.
-// This is needed for backward compatibility (e.g., ClickHouse version checks
-// that inspect whether credentials use session tokens).
-func (s *S3StagingStore) CredentialsProvider() AWSCredentialsProvider {
-	return s.creds
-}
-
-// Bucket returns the bucket name.
-func (s *S3StagingStore) Bucket() string {
-	return s.bucket
-}
-
-// Prefix returns the key prefix within the bucket.
-func (s *S3StagingStore) Prefix() string {
+func (s *s3StagingStore) KeyPrefix() string {
 	return s.prefix
 }
