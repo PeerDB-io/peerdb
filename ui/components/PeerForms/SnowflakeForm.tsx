@@ -4,7 +4,9 @@ import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
-import { RowWithTextField } from '@/lib/Layout';
+
+import { RowWithSwitch, RowWithTextField } from '@/lib/Layout';
+import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { handleFieldChange } from './common';
@@ -18,7 +20,38 @@ export default function SnowflakeForm(props: ConfigProps) {
   return (
     <>
       {props.settings.map((setting, id) => {
-        return (
+        return setting.type === 'switch' ? (
+          <RowWithSwitch
+            key={id}
+            label={
+              <Label>
+                {setting.label}{' '}
+                {!setting.optional && (
+                  <Tooltip
+                    style={{ width: '100%' }}
+                    content='This is a required field.'
+                  >
+                    <Label colorName='lowContrast' colorSet='destructive'>
+                      *
+                    </Label>
+                  </Tooltip>
+                )}
+              </Label>
+            }
+            action={
+              <div>
+                <Switch
+                  onCheckedChange={(val: boolean) =>
+                    setting.stateHandler(val, props.setter)
+                  }
+                />
+                {setting.tips && (
+                  <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
+                )}
+              </div>
+            }
+          />
+        ) : (
           <RowWithTextField
             key={id}
             label={

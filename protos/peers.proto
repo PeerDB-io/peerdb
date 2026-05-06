@@ -29,6 +29,19 @@ message SnowflakeConfig {
   optional string password = 10 [(peerdb_redacted) = true];
   // defaults to _PEERDB_INTERNAL
   optional string metadata_schema = 11;
+  // When true, CDC records are streamed to the raw staging table via the Snowpipe
+  // Streaming REST API instead of the Avro/S3 COPY INTO path. Requires keypair auth.
+  bool enable_streaming = 12;
+  reserved 13;
+  reserved "streaming_max_channels";
+  // Maximum Snowpipe Streaming API requests per second. Defaults to 10.
+  // Lower this if the Snowflake account quota is below the default.
+  optional int32 streaming_rate_limit_per_second = 14;
+  // Maximum bytes per Snowpipe Streaming chunk. Defaults to 4194304 (4MB — Snowflake hard limit).
+  optional int32 streaming_max_chunk_bytes = 15;
+  // Maximum seconds to wait for Snowflake to confirm row ingestion per flush.
+  // Defaults to 120s. Increase for slow accounts or very large batches.
+  optional int32 streaming_ingest_timeout_seconds = 16;
 }
 
 message GcpServiceAccount {

@@ -65,6 +65,15 @@ export const snowflakeSetting: PeerSetting[] = [
     tips: 'This is needed only if the private key you provided is encrypted.',
     helpfulLink: 'https://docs.snowflake.com/en/user-guide/key-pair-auth',
   },
+  {
+    label: 'Enable Snowpipe Streaming',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, enableStreaming: value as boolean })),
+    type: 'switch',
+    optional: true,
+    tips: 'When enabled, CDC records are streamed to the raw staging table via the Snowpipe Streaming REST API, then merged into the destination table via the standard normalize step. Eliminates the Avro→S3→COPY staging hop, reducing CDC latency from minutes to seconds. Requires keypair auth.',
+    helpfulLink: 'https://docs.snowflake.com/en/user-guide/snowpipe-streaming',
+  },
 ];
 
 export const blankSnowflakeSetting: SnowflakeConfig = {
@@ -76,4 +85,5 @@ export const blankSnowflakeSetting: SnowflakeConfig = {
   role: '',
   queryTimeout: 30,
   s3Integration: '',
+  enableStreaming: false,
 };

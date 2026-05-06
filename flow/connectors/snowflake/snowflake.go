@@ -28,7 +28,8 @@ import (
 )
 
 const (
-	rawTablePrefix    = "_PEERDB_RAW"
+	rawTablePrefix          = "_PEERDB_RAW"
+	streamingRawTablePrefix = "_PEERDB_STREAMING"
 	createSchemaSQL   = "CREATE TRANSIENT SCHEMA IF NOT EXISTS %s"
 	createRawTableSQL = `CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_UID STRING NOT NULL,
 		_PEERDB_TIMESTAMP INT NOT NULL,_PEERDB_DESTINATION_TABLE_NAME STRING NOT NULL,_PEERDB_DATA STRING NOT NULL,
@@ -74,9 +75,10 @@ const (
 type SnowflakeConnector struct {
 	*metadataStore.PostgresMetadata
 	*sql.DB
-	logger    log.Logger
-	config    *protos.SnowflakeConfig
-	rawSchema string
+	logger           log.Logger
+	config           *protos.SnowflakeConfig
+	rawSchema        string
+	streamingManager *StreamingChannelManager
 }
 
 func NewSnowflakeConnector(
@@ -130,13 +132,31 @@ func NewSnowflakeConnector(
 		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
 	}
 
-	return &SnowflakeConnector{
+	connector := &SnowflakeConnector{
 		PostgresMetadata: pgMetadata,
 		DB:               database,
 		rawSchema:        rawSchema,
 		logger:           logger,
 		config:           snowflakeProtoConfig,
-	}, nil
+	}
+
+	if snowflakeProtoConfig.EnableStreaming {
+		rateLimitPerSec := DefaultRateLimitPerSecond
+		if snowflakeProtoConfig.StreamingRateLimitPerSecond != nil {
+			rateLimitPerSec = int(*snowflakeProtoConfig.StreamingRateLimitPerSecond)
+		}
+		maxChunkBytes := DefaultMaxChunkBytes
+		if snowflakeProtoConfig.StreamingMaxChunkBytes != nil {
+			maxChunkBytes = int(*snowflakeProtoConfig.StreamingMaxChunkBytes)
+		}
+		ingestTimeoutSec := DefaultIngestTimeoutSeconds
+		if snowflakeProtoConfig.StreamingIngestTimeoutSeconds != nil {
+			ingestTimeoutSec = int(*snowflakeProtoConfig.StreamingIngestTimeoutSeconds)
+		}
+		connector.streamingManager = NewStreamingChannelManager(&snowflakeConfig, logger, rateLimitPerSec, maxChunkBytes, ingestTimeoutSec)
+	}
+
+	return connector, nil
 }
 
 // creating this to capture array results from snowflake.
@@ -213,6 +233,9 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 
 func (c *SnowflakeConnector) Close() error {
 	if c != nil {
+		if c.streamingManager != nil {
+			c.streamingManager.Close()
+		}
 		return c.DB.Close()
 	}
 	return nil
@@ -229,7 +252,7 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 	batchId int64,
 	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
-	rawTableIdentifier := getRawTableIdentifier(flowJobName)
+	rawTableIdentifier := c.rawTableName(flowJobName)
 
 	rows, err := c.QueryContext(ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.rawSchema,
 		rawTableIdentifier, batchId))
@@ -262,7 +285,7 @@ func (c *SnowflakeConnector) getTableNameToUnchangedCols(
 	flowJobName string,
 	batchId int64,
 ) (map[string][]string, error) {
-	rawTableIdentifier := getRawTableIdentifier(flowJobName)
+	rawTableIdentifier := c.rawTableName(flowJobName)
 
 	rows, err := c.QueryContext(ctx, fmt.Sprintf(getTableNameToUnchangedColsSQL, c.rawSchema,
 		rawTableIdentifier, batchId))
@@ -401,10 +424,17 @@ func (c *SnowflakeConnector) withMirrorNameQueryTag(ctx context.Context, mirrorN
 func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, req.FlowJobName)
 
-	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	c.logger.Info("pushing records to Snowflake table " + rawTableIdentifier)
+	var res *model.SyncResponse
+	var err error
 
-	res, err := c.syncRecordsViaAvro(ctx, req, rawTableIdentifier, req.SyncBatchID)
+	if c.streamingManager != nil {
+		c.logger.Info("pushing records via Snowpipe Streaming")
+		res, err = c.syncRecordsViaStreaming(ctx, req, req.SyncBatchID)
+	} else {
+		rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
+		c.logger.Info("pushing records to Snowflake table " + rawTableIdentifier)
+		res, err = c.syncRecordsViaAvro(ctx, req, rawTableIdentifier, req.SyncBatchID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -466,6 +496,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 // NormalizeRecords normalizes raw table to destination table.
 func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, req.FlowJobName)
+
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
 		return model.NormalizeResponse{}, err
@@ -530,7 +561,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	g.SetLimit(int(mergeParallelism))
 
 	mergeGen := &mergeStmtGenerator{
-		rawTableName:             getRawTableIdentifier(flowName),
+		rawTableName:             c.rawTableName(flowName),
 		mergeBatchId:             batchId,
 		tableSchemaMapping:       tableToSchema,
 		unchangedToastColumnsMap: tableNameToUnchangedToastCols,
@@ -593,16 +624,19 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 	}
 	// there is no easy way to check if a table has the same schema in Snowflake,
 	// so just executing the CREATE TABLE IF NOT EXISTS blindly.
-	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
+	rawTableIdentifier := c.rawTableName(req.FlowJobName)
 
 	if _, err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, c.rawSchema, rawTableIdentifier)); err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
 
-	stage := c.getStageNameForJob(req.FlowJobName)
-	if err := c.createStage(ctx, stage, &protos.QRepConfig{}); err != nil {
-		return nil, err
+	// Streaming path uses Snowpipe instead of a stage — skip stage creation.
+	if c.streamingManager == nil {
+		stage := c.getStageNameForJob(req.FlowJobName)
+		if err := c.createStage(ctx, stage, &protos.QRepConfig{}); err != nil {
+			return nil, err
+		}
 	}
 
 	return &protos.CreateRawTableOutput{
@@ -613,16 +647,23 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	ctx = c.withMirrorNameQueryTag(ctx, jobName)
 
+	// Streaming path: close the channel manager before cleaning up shared resources.
+	if c.streamingManager != nil {
+		c.streamingManager.Close()
+	}
+
 	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
 		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
 	} else if schemaExists {
-		// delete raw table if exists
-		rawTableIdentifier := getRawTableIdentifier(jobName)
+		rawTableIdentifier := c.rawTableName(jobName)
 		if _, err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier)); err != nil {
 			return fmt.Errorf("[snowflake] unable to drop raw table: %w", err)
 		}
-		if err := c.dropStage(ctx, "", jobName); err != nil {
-			return err
+		// Streaming path uses Snowpipe instead of a stage — skip stage cleanup.
+		if c.streamingManager == nil {
+			if err := c.dropStage(ctx, "", jobName); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -714,6 +755,19 @@ func generateCreateTableSQLForNormalizedTable(
 
 func getRawTableIdentifier(jobName string) string {
 	return rawTablePrefix + "_" + shared.ReplaceIllegalCharactersWithUnderscores(jobName)
+}
+
+func getStreamingRawTableIdentifier(jobName string) string {
+	return streamingRawTablePrefix + "_" + shared.ReplaceIllegalCharactersWithUnderscores(jobName)
+}
+
+// rawTableName returns the correct raw table identifier for this connector's sync mode.
+// Streaming mirrors write to _PEERDB_STREAMING_{job}; non-streaming mirrors use _PEERDB_RAW_{job}.
+func (c *SnowflakeConnector) rawTableName(flowName string) string {
+	if c.streamingManager != nil {
+		return getStreamingRawTableIdentifier(flowName)
+	}
+	return getRawTableIdentifier(flowName)
 }
 
 func (c *SnowflakeConnector) RenameTables(
@@ -865,6 +919,11 @@ func (c *SnowflakeConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
 	req *protos.RemoveTablesFromRawTableInput,
 ) error {
+	// Streaming path: no raw table entries to remove
+	if c.streamingManager != nil {
+		return nil
+	}
+
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	for _, tableName := range req.DestinationTableNames {
 		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s.%s WHERE _PEERDB_DESTINATION_TABLE_NAME = '%s'"+
