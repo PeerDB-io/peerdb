@@ -5,6 +5,8 @@ import (
 	"io"
 )
 
+const stagingFormat = "Avro"
+
 // StagingStore abstracts cloud storage used for staging Avro files.
 // Files are written by PeerDB and read by ClickHouse via table functions
 // (s3(), url(), etc.).
