@@ -236,6 +236,37 @@ func (s *SetupFlowExecution) createNormalizedTables(
 		s.Error("failed to create normalized tables", slog.Any("error", err))
 		return fmt.Errorf("failed to create normalized tables: %w", err)
 	}
+
+	return nil
+}
+
+// runPgDumpSchema runs pg_dump --schema-only on the source and pipes the output
+// into psql on the destination, streaming the schema directly.
+// This is only used for PG type system (PG-to-PG mirrors).
+func (s *SetupFlowExecution) runPgDumpSchema(
+	ctx workflow.Context,
+	config *protos.FlowConnectionConfigsCore,
+) error {
+	s.Info("running pg_dump schema migration from source to destination")
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
+	})
+
+	input := &protos.RunPgDumpSchemaInput{
+		SourceName:      config.SourceName,
+		DestinationName: config.DestinationName,
+		FlowName:        config.FlowJobName,
+		Env:             config.Env,
+	}
+
+	if err := workflow.ExecuteActivity(ctx, flowable.RunPgDumpSchema, input).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to run pg_dump schema migration: %w", err)
+	}
+
 	return nil
 }
 
@@ -261,6 +292,13 @@ func (s *SetupFlowExecution) executeSetupFlow(
 		// then create the raw table
 		if err := s.createRawTable(ctx, config); err != nil {
 			return nil, fmt.Errorf("failed to create raw table: %w", err)
+		}
+	}
+
+	// for PG type system (PG-to-PG mirrors), run pg_dump schema migration before setting up normalized tables
+	if config.System == protos.TypeSystem_PG {
+		if err := s.runPgDumpSchema(ctx, config); err != nil {
+			return nil, fmt.Errorf("failed to run pg_dump schema migration: %w", err)
 		}
 	}
 
