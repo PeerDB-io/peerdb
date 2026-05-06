@@ -8,22 +8,28 @@
     {
       "groupName": "{{manager}} dependencies",
       "groupSlug": "{{manager}}",
-      "separateMajorMinor": false,
+      "separateMajorMinor": true,
+      // This is the default but is later disabled by a higher priority package rule
+      // for major updates.
       "automerge": true,
       "matchPackageNames": [
         "*"
       ]
     },
+    // Enable `go mod tidy` post step in gomod updates. Note that this step is always skipped for
+    // majors per Renovate design.
     {
       "matchManagers": ["gomod"],
       "postUpdateOptions": ["gomodTidy"]
     },
+    // React updates.
     {
       "matchPackageNames": ["next", "react", "react-*", "@types/react", "@types/react-*", "eslint", "eslint-config-next"],
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["major"],
       "enabled": false
     },
+    // Docker compose updates
     {
       "matchPackageNames": ["ghcr.io/peerdb-io/**"],
       "matchManagers": ["docker-compose"],
@@ -31,6 +37,10 @@
       "matchFileNames": ["docker-compose.yml"],
       "enabled": false
     },
+    // Disable updates on generated and dependencies without explicit versions in their life cycles.
+    // Disabled updates means that Renovate will not proactively propose changes for these dependencies
+    // but its reliance on go MVS might generate update PRs with updates on these if transitively required.
+    // For pinned versions, this requires `exclude` rules in `go.mod` files.
     {
       "matchManagers": ["gomod"],
       "matchPackageNames": [
@@ -41,6 +51,8 @@
       ],
       "enabled": false
     },
+    // Explicit versions exclusions for pinned go dependencies, as in the previous rule, this doesn't
+    // prevent updates if transitively required but it prevents proactive updates.
     {
       "matchManagers": ["gomod"],
       "matchPackageNames": ["cloud.google.com/go/bigquery"],
@@ -65,6 +77,16 @@
       "matchManagers": ["gomod"],
       "matchPackageNames": ["github.com/tikv/pd/client"],
       "allowedVersions": "v0.0.0-20251229071808-6173d50c004c"
+    },
+    // This package rule instruct renovate to require approval from
+    // the dependency dashboard before proposing major upgrades.
+    // This sets a default is approval mindset for automatic proposals.
+    {
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true,
+      "automerge": false
     }
   ],
   "vulnerabilityAlerts": {
