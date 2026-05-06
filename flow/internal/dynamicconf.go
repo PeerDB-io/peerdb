@@ -175,6 +175,22 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_STAGING_PROVIDER",
+		Description:      "Cloud storage provider for ClickHouse staging: s3 (default) or gcs",
+		DefaultValue:     "s3",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME",
+		Description:      "Staging bucket name for ClickHouse mirrors (provider-agnostic, preferred over legacy env vars)",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_S3_UUID_PREFIX",
 		Description:      "Use random UUID as prefix instead of flow name, can help partitioning on non-AWS based s3 providers",
 		DefaultValue:     "false",
@@ -704,6 +720,14 @@ func PeerDBSnowflakeSkipCompression(ctx context.Context, env map[string]string) 
 
 func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_AUTO_COMPRESS")
+}
+
+func PeerDBClickHouseStagingProvider(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_PROVIDER")
+}
+
+func PeerDBClickHouseStagingBucketName(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
 }
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
