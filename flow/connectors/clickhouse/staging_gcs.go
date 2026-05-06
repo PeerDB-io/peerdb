@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peerdb/flow/internal"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/shared"
-
 	"cloud.google.com/go/storage"
 	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
+
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const gcsSignedURLExpiry = 1 * time.Hour

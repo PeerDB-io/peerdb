@@ -10,16 +10,16 @@ import (
 	"strings"
 	"time"
 
+	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-
-	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // s3StagingStore implements StagingStore for AWS S3 (and S3-compatible services).
