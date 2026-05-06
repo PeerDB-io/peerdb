@@ -14,18 +14,18 @@ import (
 	"strings"
 	"time"
 
-	chproto "github.com/ClickHouse/ch-go/proto"
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
-	"go.temporal.io/sdk/log"
-
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
+
+	chproto "github.com/ClickHouse/ch-go/proto"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+	"go.temporal.io/sdk/log"
 )
 
 type ClickHouseConnector struct {

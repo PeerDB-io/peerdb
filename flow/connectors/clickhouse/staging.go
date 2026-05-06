@@ -49,6 +49,7 @@ func createStagingStore(
 	}
 }
 
+//nolint:iface // factory function intentionally returns interface
 func newS3StagingStoreFromConfig(
 	ctx context.Context,
 	config *protos.ClickhouseConfig,
@@ -108,6 +109,7 @@ func newS3StagingStoreFromConfig(
 	return newS3StagingStore(awsBucketPath, credentialsProvider)
 }
 
+//nolint:iface // factory function intentionally returns interface
 func newGCSStagingStore(ctx context.Context, bucketName string) (StagingStore, error) {
 	if bucketName == "" {
 		return nil, errors.New("PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME must be set when staging provider is gcs")
