@@ -38,12 +38,8 @@ func NewClickHouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickHouseAvroSyncMethod) stagingTableFunctionBuilder(ctx context.Context, avroFilePath string) (string, error) {
-	return s.staging.TableFunctionExpr(ctx, avroFilePath, "Avro")
-}
-
 func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile utils.AvroFile) error {
-	stagingTableFunction, err := s.stagingTableFunctionBuilder(ctx, avroFile.FilePath)
+	stagingTableFunction, err := s.staging.TableFunctionExpr(ctx, avroFile.FilePath, "Avro")
 	if err != nil {
 		s.logger.Error("failed to build staging table function",
 			slog.String("avroFilePath", avroFile.FilePath),
@@ -277,7 +273,7 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 
 		for i := range numParts {
 			// Get fresh credentials for each part
-			stagingTableFunction, err := s.stagingTableFunctionBuilder(ctx, avroFile.FilePath)
+			stagingTableFunction, err := s.staging.TableFunctionExpr(ctx, avroFile.FilePath, "Avro")
 			if err != nil {
 				s.logger.Error("failed to build staging table function",
 					slog.String("avroFilePath", avroFile.FilePath),
