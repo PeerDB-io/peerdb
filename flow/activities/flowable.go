@@ -2143,3 +2143,61 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 
 	return nil
 }
+
+func (a *FlowableActivity) RunPgDumpSchema(
+	ctx context.Context,
+	input *protos.RunPgDumpSchemaInput,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	ctx = context.WithValue(ctx, shared.FlowNameKey, input.FlowName)
+
+	srcPeer, err := connectors.LoadPeer(ctx, a.CatalogPool, input.SourceName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("failed to load source peer: %w", err))
+	}
+
+	dstPeer, err := connectors.LoadPeer(ctx, a.CatalogPool, input.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("failed to load destination peer: %w", err))
+	}
+
+	srcPgConfig, ok := srcPeer.Config.(*protos.Peer_PostgresConfig)
+	if !ok {
+		return a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("source peer %s is not a PostgreSQL peer", input.SourceName))
+	}
+
+	dstPgConfig, ok := dstPeer.Config.(*protos.Peer_PostgresConfig)
+	if !ok {
+		return a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("destination peer %s is not a PostgreSQL peer", input.DestinationName))
+	}
+
+	// skip schema migration for peers using SSH tunnels
+	if srcPgConfig.PostgresConfig.SshConfig != nil {
+		logger.Info("skipping pg_dump schema migration: source peer uses SSH tunnel")
+		return nil
+	}
+	if dstPgConfig.PostgresConfig.SshConfig != nil {
+		logger.Info("skipping pg_dump schema migration: destination peer uses SSH tunnel")
+		return nil
+	}
+
+	// skip schema migration for non-password auth (e.g. IAM)
+	if srcPgConfig.PostgresConfig.AuthType != protos.PostgresAuthType_POSTGRES_PASSWORD {
+		logger.Info("skipping pg_dump schema migration: source peer uses non-password auth")
+		return nil
+	}
+	if dstPgConfig.PostgresConfig.AuthType != protos.PostgresAuthType_POSTGRES_PASSWORD {
+		logger.Info("skipping pg_dump schema migration: destination peer uses non-password auth")
+		return nil
+	}
+
+	logger.Info("running pg_dump schema migration from source to destination",
+		slog.String("source", input.SourceName), slog.String("destination", input.DestinationName))
+
+	if err := connpostgres.RunPgDumpSchema(ctx, srcPgConfig.PostgresConfig, dstPgConfig.PostgresConfig); err != nil {
+		return a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("pg_dump schema migration failed: %w", err))
+	}
+
+	logger.Info("pg_dump schema migration completed successfully")
+	return nil
+}

@@ -26,7 +26,7 @@ RUN --mount=type=cache,target="/root/.cache/go-build" go build -o /root/peer-flo
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS flow-base
 ENV TZ=UTC
 ADD --checksum=sha256:e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem
-RUN apk add --no-cache ca-certificates geos && \
+RUN apk add --no-cache ca-certificates geos postgresql-client && \
   update-ca-certificates && \
   adduser -s /bin/sh -D peerdb
 USER peerdb
