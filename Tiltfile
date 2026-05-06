@@ -113,6 +113,13 @@ local_resource(
     resource_deps=['postgres']
 )
 
+local_resource(
+    'provision-postgres2',
+    cmd='./local_provision_scripts/postgres.sh peerdb-postgres2',
+    labels=['Ancillary-DB-Provisioning'],
+    resource_deps=['postgres2']
+)
+
 # This is not defined as a resource as we need the file to be present
 # when `docker_compose` loads the configuration (next line).
 local('./generate-test-environment.sh')
@@ -148,6 +155,10 @@ dc_resource('mariadb', labels=['Ancillary-DB'], links=[
 
 dc_resource('postgres', labels=['Ancillary-DB'], links=[
     link('http://localhost:5432', 'PostgreSQL'),
+], auto_init=False)
+
+dc_resource('postgres2', labels=['Ancillary-DB'], links=[
+    link('http://localhost:5437', 'PostgreSQL (secondary)'),
 ], auto_init=False)
 
 local_resource(
