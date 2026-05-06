@@ -1,12 +1,29 @@
 name: peerdb-quickstart-dev
 
+# Public facing ports for services to prevent conflicts.
+# Overridable using environment variables for flexibility when using multiple tilt environments
+x-ports:
+  - &peerdb-catalog-port      ${PEERDB_CATALOG_PORT:-9901}:5432
+  - &peerdb-nexus-port        ${PEERDB_NEXUS_PORT:-9900}:9900
+  - &peerdb-switchboard-port  ${PEERDB_SWITCHBOARD_PORT:-5732}:5732
+  - &peerdb-ui-port           ${PEERBD_UI_PORT:-3030}:3000
+  - &temporal-port            ${TEMPORAL_PORT:-7233}:7233
+  - &temporal-ui-port         ${TEMPORAL_UI_PORT:-8085}:8080
+  - &flow-api-grpc-port            ${FLOW_API_PORT:-8112}:8112
+  - &flow-api-http-port       ${FLOW_API_HTTP_PORT:-8113}:8113
+  - &flow-worker-debug-port   ${DOCKER_GO_DEBUG_PORT_FLOW_WORKER:-4001}:40000
+  - &flow-snapshot-worker-debug-port ${DOCKER_GO_DEBUG_PORT_FLOW_SNAPSHOT_WORKER:-4002}:40000
+  - &flow-api-debug-port      ${DOCKER_GO_DEBUG_PORT_FLOW_API:-4003}:40000
+  - &minio-port               ${MINIO_PORT:-9001}:9000
+  - &minio-console-port       ${MINIO_CONSOLE_PORT:-9002}:36987
+
 x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: _peerdb_minioadmin
   MINIO_ROOT_USER: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
   MINIO_ROOT_PASSWORD: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
-  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
+  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:${MINIO_PORT:-9001}
   PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdb
 
 x-catalog-config: &catalog-config
@@ -44,7 +61,7 @@ services:
     image: postgres:18-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
     command: -c config_file=/etc/postgresql.conf
     ports:
-      - 9901:5432
+      - *peerdb-catalog-port
     environment:
       PGUSER: postgres
       POSTGRES_PASSWORD: postgres
@@ -53,7 +70,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
       - ./volumes/postgresql.conf:/etc/postgresql.conf
       - ./volumes/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     healthcheck:
@@ -77,7 +94,7 @@ services:
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     image: temporalio/auto-setup:1.29@sha256:d33d1402e8b895329e27a0d0e7cc2f034e0aa70f0dab6aa95b306d7ae2716f67
     ports:
-      - 7233:7233
+      - *temporal-port
     volumes:
       - ./volumes/temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
@@ -114,7 +131,7 @@ services:
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
     image: temporalio/ui:2.49.1@sha256:a066bdf5c4de689cabaf80cc357871f1db5e6d750a6bcfc42e877b913e31ef24
     ports:
-      - 8085:8080
+      - *temporal-ui-port
 
   flow-api:
     container_name: flow_api
@@ -126,9 +143,10 @@ services:
       args:
         PEERDB_VERSION_SHA_SHORT: ${PEERDB_VERSION_SHA_SHORT:-}
     ports:
-      - 8112:8112
-      - 8113:8113
-      - 5732:5732
+      - *flow-api-grpc-port
+      - *flow-api-http-port
+      - *peerdb-switchboard-port
+      - *flow-api-debug-port
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
       PEERDB_ALLOWED_TARGETS:
@@ -148,6 +166,8 @@ services:
       context: .
       dockerfile: stacks/flow.Dockerfile
       target: flow-snapshot-worker
+    ports:
+      - *flow-snapshot-worker-debug-port
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     depends_on:
@@ -161,6 +181,13 @@ services:
       context: .
       dockerfile: stacks/flow.Dockerfile
       target: flow-worker
+    ports:
+      - *flow-worker-debug-port
+    # The below options were mentioned to be required, but it works without them, so leaving them commented out for now. If you run into issues with Delve, try uncommenting these.
+    # security_opt:
+    #   - "seccomp:unconfined"  # Required for Delve
+    # cap_add:
+    #   - SYS_PTRACE         # Required for Delve
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     extra_hosts:
@@ -186,7 +213,7 @@ services:
       RUST_LOG: info
       RUST_BACKTRACE: 1
     ports:
-      - 9900:9900
+      - *peerdb-nexus-port
     depends_on:
       catalog:
         condition: service_healthy
@@ -199,7 +226,7 @@ services:
       dockerfile: stacks/peerdb-ui.Dockerfile
       target: dev
     ports:
-      - 3030:3000
+      - *peerdb-ui-port
     volumes:
       # Mount local ui/ directory for hot reload
       - ./ui:/app
@@ -229,8 +256,8 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "9001:9000"
-      - "9002:36987"
+      - *minio-port
+      - *minio-console-port
     environment:
       <<: *minio-config
     entrypoint: >
@@ -248,4 +275,4 @@ volumes:
 
 networks:
   default:
-    name: peerdb_network
+    name: peerdb_network_${DEFAULT_TILT_PORT:-default}

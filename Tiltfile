@@ -2,29 +2,46 @@ update_settings(max_parallel_updates=10)
 
 allow_k8s_contexts(k8s_context()) # to unblock local() in local set-ups with a Kubernetes context configured, like Docker Desktop
 
-docker_compose('./docker-compose-dev.yml')
+def resolve_env(var_name, default=None):
+    for line in str(read_file('.env')).splitlines():
+        if line.startswith(var_name + '='):
+            return line.strip().split('=', 1)[1]
+    return default
+
+docker_compose('./docker-compose-dev.yml', project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
+
+peerbd_ui_port = resolve_env('PEERBD_UI_PORT', '3030')
+temporal_port = resolve_env('TEMPORAL_PORT', '7233')
+temporal_ui_port = resolve_env('TEMPORAL_UI_PORT', '8085')
+flow_api_grpc_port = resolve_env('FLOW_API_PORT', '8112')
+flow_api_http_port = resolve_env('FLOW_API_HTTP_PORT', '8113')
+docker_go_debug_port_flow_worker = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_WORKER', '4001')
+docker_go_debug_port_flow_snapshot_worker = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_SNAPSHOT_WORKER', '4002')
+docker_go_debug_port_flow_api = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_API', '4003')
 
 flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
 
 docker_build('flow-api', '.',
     dockerfile='stacks/flow.Dockerfile',
-    target='flow-api',
+    target='flow-api-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_API') in ('1', 'true') else 'flow-api',
     only=['flow/', 'stacks/flow.Dockerfile'],
     ignore=flow_ignore,
-    build_args={'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
+    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_API',''),'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
 )
 
 docker_build('flow-worker', '.',
     dockerfile='stacks/flow.Dockerfile',
-    target='flow-worker',
+    target='flow-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER') in ('1', 'true') else 'flow-worker',
     only=['flow/', 'stacks/flow.Dockerfile'],
+    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER','')},
     ignore=flow_ignore,
 )
 
 docker_build('flow-snapshot-worker', '.',
     dockerfile='stacks/flow.Dockerfile',
-    target='flow-snapshot-worker',
+    target='flow-snapshot-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER') in ('1', 'true') else 'flow-snapshot-worker',
     only=['flow/', 'stacks/flow.Dockerfile'],
+    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER','')},
     ignore=flow_ignore,
 )
 
@@ -51,14 +68,14 @@ local_resource(
 )
 
 dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
-    link('http://localhost:3030', 'PeerDB UI'),
+    link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
 ])
 dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
-    link('http://localhost:8112', 'Flow API gRPC'),
-    link('http://localhost:8113', 'Flow API HTTP'),
+    link('http://localhost:' + str(flow_api_grpc_port), 'Flow API gRPC'),
+    link('http://localhost:' + str(flow_api_http_port), 'Flow API HTTP'),
 ])
 dc_resource('temporal-ui', labels=['PeerDB'], links=[
-    link('http://localhost:8085', 'Temporal UI'),
+    link('http://localhost:' + str(temporal_ui_port), 'Temporal UI'),
 ])
 dc_resource('catalog', labels=['PeerDB'])
 dc_resource('temporal', labels=['PeerDB'])
@@ -224,13 +241,6 @@ def connector_test(connector, extra_deps=[], vars_overrides={}):
     )
 
 # These are overrides to provide different MySQL flavors with the same test definitions.
-
-def resolve_env(var_name):
-    for line in str(read_file('.env')).splitlines():
-        if line.startswith(var_name + '='):
-            return line.strip().split('=', 1)[1]
-    return None
-
 mysql_gtid_vars = {
     'CI_MYSQL_PORT': resolve_env('CI_MYSQL_GTID_PORT'),
     'CI_MYSQL_VERSION': resolve_env('CI_MYSQL_GTID_VERSION'),
