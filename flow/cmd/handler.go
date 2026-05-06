@@ -423,6 +423,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
 	req *protos.FlowStateChangeRequest,
 ) (*protos.FlowStateChangeResponse, APIError) {
+	// Flow-API
 	logs := slog.String(string(shared.FlowNameKey), req.FlowJobName)
 	slog.InfoContext(ctx, "FlowStateChange called", logs, slog.Any("req", req))
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
@@ -505,6 +506,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 
 				config.Resync = true
 				config.DoInitialSnapshot = true
+				// Override Snapshot Parameters
+				overrideSnapshotParametersInResync(req, config)
+
 				// validate mirror first because once the mirror is dropped, there's no going back
 				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 					ConnectionConfigs: config,
@@ -549,6 +553,21 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}
 
 	return &protos.FlowStateChangeResponse{}, nil
+}
+
+func overrideSnapshotParametersInResync(req *protos.FlowStateChangeRequest, configs *protos.FlowConnectionConfigs) {
+	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
+		cdcConfigUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate()
+		if cdcConfigUpdate.SnapshotMaxParallelWorkers > 0 {
+			configs.SnapshotMaxParallelWorkers = cdcConfigUpdate.SnapshotMaxParallelWorkers
+		}
+		if cdcConfigUpdate.SnapshotNumTablesInParallel > 0 {
+			configs.SnapshotNumTablesInParallel = cdcConfigUpdate.SnapshotNumTablesInParallel
+		}
+		if cdcConfigUpdate.SnapshotNumRowsPerPartition > 0 {
+			configs.SnapshotNumRowsPerPartition = cdcConfigUpdate.SnapshotNumRowsPerPartition
+		}
+	}
 }
 
 func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowID, runID string) error {

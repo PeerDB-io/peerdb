@@ -192,6 +192,9 @@ func handleFlowSignalStateChange(
 			// we should ContinueAsNew after the first signal in the selector, but just in case
 			cfg.Resync = true
 			cfg.DoInitialSnapshot = true
+			// This is just for in-memory
+			// Override Snapshot Parameters if request in State Change request
+			overrideSnapshotParametersInState(val, state)
 			state.DropFlowInput = &protos.DropFlowInput{
 				// to be filled in just before ContinueAsNew
 				FlowJobName:           cfg.FlowJobName,
@@ -202,6 +205,21 @@ func handleFlowSignalStateChange(
 			}
 		case protos.FlowStatus_STATUS_PAUSED:
 			logger.Info("pause requested while busy, ignoring for now", slog.String("operation", op))
+		}
+	}
+}
+
+func overrideSnapshotParametersInState(req *protos.FlowStateChangeRequest, state *cdc_state.CDCFlowWorkflowState) {
+	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
+		cdcConfigUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate()
+		if cdcConfigUpdate.SnapshotMaxParallelWorkers > 0 {
+			state.SnapshotMaxParallelWorkers = cdcConfigUpdate.SnapshotMaxParallelWorkers
+		}
+		if cdcConfigUpdate.SnapshotNumTablesInParallel > 0 {
+			state.SnapshotNumTablesInParallel = cdcConfigUpdate.SnapshotNumTablesInParallel
+		}
+		if cdcConfigUpdate.SnapshotNumRowsPerPartition > 0 {
+			state.SnapshotNumRowsPerPartition = cdcConfigUpdate.SnapshotNumRowsPerPartition
 		}
 	}
 }
@@ -494,6 +512,8 @@ func CDCFlowWorkflow(
 				state.ActiveSignal = model.ResyncSignal
 				cfg.Resync = true
 				cfg.DoInitialSnapshot = true
+				// Update State with snapshot parameters
+				overrideSnapshotParametersInState(val, state)
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           resyncCfg.FlowJobName,
@@ -627,6 +647,9 @@ func CDCFlowWorkflow(
 				cfg.TableMappings = originalTableMappings
 				// this is the only place where we can have a resync during a resync
 				// so we need to NOT sync the tableMappings to catalog to preserve original names
+
+				// We still override the snapshot parameters (when resync with updated values)
+				overrideSnapshotParametersInState(val, state)
 				uploadConfigToCatalog(ctx, cfg)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           cfg.FlowJobName,
@@ -863,6 +886,7 @@ func CDCFlowWorkflow(
 			state.ActiveSignal = model.ResyncSignal
 			cfg.Resync = true
 			cfg.DoInitialSnapshot = true
+			overrideSnapshotParametersInState(val, state)
 			resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 			state.DropFlowInput = &protos.DropFlowInput{
 				FlowJobName:           resyncCfg.FlowJobName,

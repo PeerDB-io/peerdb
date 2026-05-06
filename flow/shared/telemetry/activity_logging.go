@@ -93,6 +93,16 @@ func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, upda
 		changes = append(changes, fmt.Sprintf("tables removed: %v", removedTables))
 	}
 
+	if update.SnapshotMaxParallelWorkers > 0 {
+		changes = append(changes, fmt.Sprintf("snapshotMaxParallelWorkers: %v", update.SnapshotMaxParallelWorkers))
+	}
+	if update.SnapshotNumTablesInParallel > 0 {
+		changes = append(changes, fmt.Sprintf("snapshotNumTablesInParallel: %v", update.SnapshotNumTablesInParallel))
+	}
+	if update.SnapshotNumRowsPerPartition > 0 {
+		changes = append(changes, fmt.Sprintf("snapshotNumRowsPerPartition: %v", update.SnapshotNumRowsPerPartition))
+	}
+
 	logActivity(ctx, ActionStartFlowConfigUpdate,
 		slog.String("flowName", flowName),
 		slog.String("activityDetails", strings.Join(changes, ", ")))
