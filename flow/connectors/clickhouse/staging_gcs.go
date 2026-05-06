@@ -2,18 +2,21 @@ package connclickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 
 	"cloud.google.com/go/storage"
 	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
-
-	"github.com/PeerDB-io/peerdb/flow/internal"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 )
 
 const gcsSignedURLExpiry = 1 * time.Hour
@@ -27,7 +30,17 @@ type gcsStagingStore struct {
 	fullPath string
 }
 
-func newGCSStagingStoreFromPath(ctx context.Context, bucketPath string) (*gcsStagingStore, error) {
+//nolint:iface // factory function intentionally returns interface
+func newGCSStagingStore(ctx context.Context, bucketName string) (StagingStore, error) {
+	if bucketName == "" {
+		return nil, errors.New("PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME must be set when staging provider is gcs")
+	}
+
+	deploymentUID := internal.PeerDBDeploymentUID()
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+	bucketPath := fmt.Sprintf("gs://%s/%s/%s",
+		bucketName, url.PathEscape(deploymentUID), url.PathEscape(flowName))
+
 	// bucketPath may use either "gs://" (standard GCS URI scheme) or "gcs://" prefix.
 	path := strings.TrimPrefix(bucketPath, "gcs://")
 	path = strings.TrimPrefix(path, "gs://")

@@ -2,19 +2,24 @@ package connclickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+
+	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	"github.com/PeerDB-io/peerdb/flow/internal"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 )
 
 // s3StagingStore implements StagingStore for AWS S3 (and S3-compatible services).
@@ -25,16 +30,73 @@ type s3StagingStore struct {
 	fullPath string // original "s3://bucket/prefix" for logging
 }
 
-func newS3StagingStore(bucketPath string, creds utils.AWSCredentialsProvider) (*s3StagingStore, error) {
-	s3o, err := utils.NewS3BucketAndPrefix(bucketPath)
+//nolint:iface // factory function intentionally returns interface
+func newS3StagingStore(
+	ctx context.Context,
+	config *protos.ClickhouseConfig,
+	unifiedBucketName string,
+	chVersion clickhouseproto.Version,
+) (StagingStore, error) {
+	var awsConfig utils.PeerAWSCredentials
+	var awsBucketPath string
+	if config.S3 != nil {
+		awsConfig = utils.NewPeerAWSCredentials(config.S3)
+		awsBucketPath = config.S3.Url
+	} else {
+		awsConfig = utils.PeerAWSCredentials{
+			Credentials: aws.Credentials{
+				AccessKeyID:     config.AccessKeyId,
+				SecretAccessKey: config.SecretAccessKey,
+			},
+			EndpointUrl: config.Endpoint,
+			Region:      config.Region,
+		}
+		awsBucketPath = config.S3Path
+	}
+
+	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", awsConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if awsBucketPath == "" {
+		if unifiedBucketName == "" {
+			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
+		}
+		deploymentUID := internal.PeerDBDeploymentUID()
+		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
+		awsBucketPath = fmt.Sprintf("s3://%s/%s", unifiedBucketName, bucketPathSuffix)
+	}
+
+	// S3 with session tokens requires ClickHouse >= 24.3.1
+	// https://github.com/ClickHouse/ClickHouse/issues/61230
+	credentials, err := credentialsProvider.Retrieve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if credentials.AWS.SessionToken != "" {
+		if !clickhouseproto.CheckMinVersion(
+			clickhouseproto.Version{Major: 24, Minor: 3, Patch: 1},
+			chVersion,
+		) {
+			return nil, fmt.Errorf(
+				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
+				chVersion,
+				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
+		}
+	}
+
+	s3o, err := utils.NewS3BucketAndPrefix(awsBucketPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse S3 bucket path: %w", err)
 	}
+
 	return &s3StagingStore{
 		bucket:   s3o.Bucket,
 		prefix:   s3o.Prefix,
-		fullPath: bucketPath,
-		creds:    creds,
+		fullPath: awsBucketPath,
+		creds:    credentialsProvider,
 	}, nil
 }
 
