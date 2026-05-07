@@ -60,11 +60,6 @@ func NewPeerAWSCredentials(s3 *protos.S3Config) PeerAWSCredentials {
 	}
 }
 
-type ClickHouseS3Credentials struct {
-	Provider   AWSCredentialsProvider
-	BucketPath string
-}
-
 type AWSCredentials struct {
 	EndpointUrl *string
 	AWS         aws.Credentials

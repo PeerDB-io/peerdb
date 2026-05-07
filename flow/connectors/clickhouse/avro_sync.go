@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -383,7 +384,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				writeOcfError = fmt.Errorf("panic occurred during WriteOCF: %v", r)
+				writeOcfError = fmt.Errorf("panic occurred during WriteOCF: %v\n%s", r, debug.Stack())
 			}
 			w.Close()
 		}()
