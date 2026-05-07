@@ -583,6 +583,7 @@ enum DynconfTarget {
   SNOWFLAKE = 2;
   CLICKHOUSE = 3;
   QUEUES = 4;
+  POSTGRES = 5;
 }
 
 message DropFlowActivityInput {

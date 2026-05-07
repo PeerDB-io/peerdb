@@ -443,6 +443,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_PG_AUTOMATED_SCHEMA_DUMP",
+		Description:      "For PG-to-PG mirrors, run pg_dump --schema-only from source into psql on destination during setup so destination schema/tables/indexes match the source.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_POSTGRES,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
