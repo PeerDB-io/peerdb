@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
@@ -93,63 +92,13 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
+
 	if err := ValidateClickHouseHost(ctx, c.Config.Host, allowedDomains); err != nil {
 		return err
 	}
-	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
-	validateDummyTableNameRenamed := validateDummyTableName + "_renamed"
-	// create a table
-	if err := c.exec(ctx,
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
-	); err != nil {
-		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
-	}
-	defer func() {
-		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		for _, table := range []string{validateDummyTableName, validateDummyTableNameRenamed} {
-			for attempt := range 3 {
-				if attempt > 0 {
-					time.Sleep(time.Duration(attempt) * 2 * time.Second)
-				}
-				err := c.exec(dropCtx, "DROP TABLE IF EXISTS "+table)
-				if err == nil {
-					break
-				}
-				if chException, ok := errors.AsType[*clickhouse.Exception](err); ok &&
-					chproto.Error(chException.Code) == chproto.ErrUnfinished {
-					c.logger.Warn("validation drop table blocked by in-flight DDL, retrying",
-						slog.String("table", table), slog.Int("attempt", attempt+1))
-					continue
-				}
-				c.logger.Error("validation failed to drop table", slog.String("table", table), slog.Any("error", err))
-				break
-			}
-		}
-	}()
 
-	// add a column
-	if err := c.exec(ctx,
-		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
-	); err != nil {
-		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
-	}
-
-	// rename the table
-	if err := c.exec(ctx,
-		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableNameRenamed),
-	); err != nil {
-		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
-	}
-
-	// insert a row
-	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableNameRenamed)); err != nil {
-		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableNameRenamed, err)
-	}
-
-	// drop the table
-	if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableNameRenamed); err != nil {
-		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableNameRenamed, err)
+	if err := peerdb_clickhouse.ValidateClickHousePeer(ctx, c.logger, c.Config.Host, c.database); err != nil {
+		return err
 	}
 
 	// validate staging storage

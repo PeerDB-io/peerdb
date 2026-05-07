@@ -8,10 +8,14 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
-	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+	chproto "github.com/ClickHouse/ch-go/proto"
+	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
+	chvproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func CheckNotSystemDatabase(database string) error {
@@ -95,6 +99,90 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 	return nil
 }
 
+func ValidateClickHousePeer(ctx context.Context, logger log.Logger, peerName string, conn clickhouse.Conn) error {
+	// Remove this, for debugging purposes only
+	if result := QueryRow(ctx, logger, conn, "SELECT user()"); result == nil {
+		logger.Error("failed to execute SELECT user() for validation")
+	} else {
+		var user string
+		result.Scan(&user)
+		logger.Info("pfcoperez >> current user", slog.String("user", user))
+	}
+
+	if result, err := Query(ctx, logger, conn, "SHOW GRANTS"); err != nil {
+		logger.Error("failed to execute SHOW GRANTS for validation", slog.Any("error", err))
+	} else {
+		for result.Next() {
+			var grant string
+			if err := result.Scan(&grant); err != nil {
+				logger.Error("failed to scan SHOW GRANTS result", slog.Any("error", err))
+				continue
+			}
+			logger.Info("pfcoperez >> SHOW GRANTS row", slog.String("grant", grant))
+		}
+	}
+	// End of block to remove
+
+	validateDummyTableName := "peerdb_validation_" + common.RandomString(4)
+	validateDummyTableNameRenamed := validateDummyTableName + "_renamed"
+	// create a table
+	if err := Exec(ctx, logger, conn,
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
+	); err != nil {
+		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
+	}
+	logger.Info("pfcoperez >> VALIDATED CREATION with table name", slog.String("table", validateDummyTableName))
+	defer func() {
+		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		for _, table := range []string{validateDummyTableName, validateDummyTableNameRenamed} {
+			for attempt := range 3 {
+				if attempt > 0 {
+					time.Sleep(time.Duration(attempt) * 2 * time.Second)
+				}
+				err := Exec(dropCtx, logger, conn, "DROP TABLE IF EXISTS "+table)
+				if err == nil {
+					break
+				}
+				var chException *clickhouse.Exception
+				if errors.As(err, &chException) && chproto.Error(chException.Code) == chproto.ErrUnfinished {
+					logger.Warn("validation drop table blocked by in-flight DDL, retrying",
+						slog.String("table", table), slog.Int("attempt", attempt+1))
+					continue
+				}
+				logger.Error("validation failed to drop table", slog.String("table", table), slog.Any("error", err))
+				break
+			}
+		}
+	}()
+
+	// add a column
+	if err := Exec(ctx, logger, conn,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
+	); err != nil {
+		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
+	}
+
+	// rename the table
+	if err := Exec(ctx, logger, conn,
+		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableNameRenamed),
+	); err != nil {
+		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
+	}
+
+	// insert a row
+	if err := Exec(ctx, logger, conn, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableNameRenamed)); err != nil {
+		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableNameRenamed, err)
+	}
+
+	// drop the table
+	if err := Exec(ctx, logger, conn, "DROP TABLE IF EXISTS "+validateDummyTableNameRenamed); err != nil {
+		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableNameRenamed, err)
+	}
+
+	return nil
+}
+
 type ClickHouseColumn struct {
 	Name        string
 	Type        string
@@ -148,7 +236,7 @@ func storeColumnInfoForTable(ctx context.Context, logger log.Logger, conn clickh
 }
 
 func ValidateOrderingKeys(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
-	chVersion *chproto.Version, sourceTable string,
+	chVersion *chvproto.Version, sourceTable string,
 	hasPrimaryKeys bool, sortingKeys []string, engine string,
 ) error {
 	if hasPrimaryKeys || len(sortingKeys) > 0 {
@@ -157,7 +245,7 @@ func ValidateOrderingKeys(ctx context.Context, logger log.Logger, conn clickhous
 	if engine == EngineNull || engine == EngineMergeTree {
 		return nil
 	}
-	if chVersion == nil || !chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 12, Patch: 0}, *chVersion) {
+	if chVersion == nil || !chvproto.CheckMinVersion(chvproto.Version{Major: 25, Minor: 12, Patch: 0}, *chVersion) {
 		return nil
 	}
 	var settingVal string
