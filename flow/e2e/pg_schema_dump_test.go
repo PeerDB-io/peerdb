@@ -220,13 +220,13 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 	EnvWaitFor(s.t, env, 3*time.Minute, "initial load parent", func() bool {
 		var count int64
 		err := dstConn.QueryRow(s.t.Context(),
-			"SELECT COUNT(*) FROM " + dstParent).Scan(&count)
+			"SELECT COUNT(*) FROM "+dstParent).Scan(&count)
 		return err == nil && count == 5
 	})
 	EnvWaitFor(s.t, env, 3*time.Minute, "initial load child", func() bool {
 		var count int64
 		err := dstConn.QueryRow(s.t.Context(),
-			"SELECT COUNT(*) FROM " + dstChild).Scan(&count)
+			"SELECT COUNT(*) FROM "+dstChild).Scan(&count)
 		return err == nil && count == 10
 	})
 
@@ -306,29 +306,29 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 	EnvWaitFor(s.t, env, 3*time.Minute, "cdc parent rows", func() bool {
 		var count int64
 		err := dstConn.QueryRow(s.t.Context(),
-			"SELECT COUNT(*) FROM " + dstParent).Scan(&count)
+			"SELECT COUNT(*) FROM "+dstParent).Scan(&count)
 		return err == nil && count == 8
 	})
 	EnvWaitFor(s.t, env, 3*time.Minute, "cdc child rows", func() bool {
 		var count int64
 		err := dstConn.QueryRow(s.t.Context(),
-			"SELECT COUNT(*) FROM " + dstChild).Scan(&count)
+			"SELECT COUNT(*) FROM "+dstChild).Scan(&count)
 		return err == nil && count == 15
 	})
 
 	// verify data integrity: compare actual row content
 	// query source and destination and compare
 	var srcParentCount, dstParentCount int64
-	err = srcConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM " + srcParent).Scan(&srcParentCount)
+	err = srcConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM "+srcParent).Scan(&srcParentCount)
 	require.NoError(s.t, err)
-	err = dstConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM " + dstParent).Scan(&dstParentCount)
+	err = dstConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM "+dstParent).Scan(&dstParentCount)
 	require.NoError(s.t, err)
 	require.Equal(s.t, srcParentCount, dstParentCount, "parent table row counts should match")
 
 	var srcChildCount, dstChildCount int64
-	err = srcConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM " + srcChild).Scan(&srcChildCount)
+	err = srcConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM "+srcChild).Scan(&srcChildCount)
 	require.NoError(s.t, err)
-	err = dstConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM " + dstChild).Scan(&dstChildCount)
+	err = dstConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM "+dstChild).Scan(&dstChildCount)
 	require.NoError(s.t, err)
 	require.Equal(s.t, srcChildCount, dstChildCount, "child table row counts should match")
 
@@ -437,7 +437,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_No_Owner_No_Privileges() {
 	EnvWaitFor(s.t, env, 3*time.Minute, "initial load owned_tbl", func() bool {
 		var count int64
 		err := dstConn.QueryRow(s.t.Context(),
-			"SELECT COUNT(*) FROM " + qualified).Scan(&count)
+			"SELECT COUNT(*) FROM "+qualified).Scan(&count)
 		return err == nil && count == 5
 	})
 
@@ -452,7 +452,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_No_Owner_No_Privileges() {
 	EnvWaitFor(s.t, env, 3*time.Minute, "cdc owned_tbl", func() bool {
 		var count int64
 		err := dstConn.QueryRow(s.t.Context(),
-			"SELECT COUNT(*) FROM " + qualified).Scan(&count)
+			"SELECT COUNT(*) FROM "+qualified).Scan(&count)
 		return err == nil && count == 10
 	})
 
