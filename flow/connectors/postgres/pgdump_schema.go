@@ -12,16 +12,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
-// RunPgDumpSchema first migrates roles via pg_dumpall --roles-only, then streams
-// a schema-only pg_dump from source directly into psql on the destination,
-// piping stdout into stdin without intermediate files.
+// RunPgDumpSchema streams a schema-only pg_dump from source directly into psql
+// on the destination, piping stdout into stdin without intermediate files.
 func RunPgDumpSchema(ctx context.Context, srcConfig *protos.PostgresConfig, dstConfig *protos.PostgresConfig) error {
-	// Step 1: migrate roles from source to destination
-	if err := pipeCommand(ctx, srcConfig, dstConfig, "pg_dumpall", buildPgDumpAllArgs(srcConfig)); err != nil {
-		return fmt.Errorf("pg_dumpall roles migration failed: %w", err)
-	}
-
-	// Step 2: migrate schema from source to destination
 	if err := pipeCommand(ctx, srcConfig, dstConfig, "pg_dump", buildPgDumpArgs(srcConfig)); err != nil {
 		return fmt.Errorf("pg_dump schema migration failed: %w", err)
 	}
@@ -88,23 +81,6 @@ func pipeCommand(
 	return nil
 }
 
-func buildPgDumpAllArgs(config *protos.PostgresConfig) []string {
-	port := config.Port
-	if port == 0 {
-		port = 5432
-	}
-
-	args := []string{
-		"--roles-only",
-		"-h", config.Host,
-		"-p", strconv.FormatUint(uint64(port), 10),
-	}
-	if config.User != "" {
-		args = append(args, "-U", config.User)
-	}
-	return args
-}
-
 func buildPgDumpArgs(config *protos.PostgresConfig) []string {
 	port := config.Port
 	if port == 0 {
@@ -113,6 +89,8 @@ func buildPgDumpArgs(config *protos.PostgresConfig) []string {
 
 	args := []string{
 		"--schema-only",
+		"--no-owner",
+		"--no-privileges",
 		"-h", config.Host,
 		"-p", strconv.FormatUint(uint64(port), 10),
 		"-d", config.Database,

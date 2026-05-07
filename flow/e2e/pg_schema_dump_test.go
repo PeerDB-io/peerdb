@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
@@ -283,54 +282,135 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Test_PG_Schema_Dump_Role_Migration verifies that pg_dumpall --roles-only
-// propagates a role from a source PG cluster to a separate destination PG
-// cluster. Roles are global objects per cluster, so this requires two clusters
-// (peerdb-postgres + peerdb-postgres2).
-func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_Role_Migration() {
-	srcCfg := internal.GetAncillaryPostgresConfigFromEnv()
+// Test_PG_Schema_Dump_No_Owner_No_Privileges verifies that the schema dump does
+// not emit owner or grant statements that reference roles. We create a role on
+// the source, give it ownership and grants on a table, then dump into a
+// secondary cluster where that role does NOT exist. With --no-owner and
+// --no-privileges the dump must succeed; without them it would fail on
+// ALTER TABLE ... OWNER TO <missing_role> / GRANT ... TO <missing_role>.
+//
+// Also verifies initial load + CDC into the dumped table on the destination
+// cluster, so we know the table is usable end-to-end.
+func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_No_Owner_No_Privileges() {
 	dstCfg := internal.GetSecondaryPostgresConfigFromEnv()
 
-	roleName := "peerdb_test_role_" + s.suffix
+	srcSchema := "e2e_test_" + s.suffix
+	roleName := "peerdb_owner_role_" + s.suffix
+	tableName := "owned_tbl"
+	qualified := fmt.Sprintf("%s.%s", srcSchema, tableName)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
+	// destination connection (for assertions + role-absence sanity)
 	dstConnStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
 		dstCfg.Host, dstCfg.Port, dstCfg.User, dstCfg.Password, dstCfg.Database)
-	dstConn, err := pgx.Connect(ctx, dstConnStr)
+	dstConn, err := pgx.Connect(s.t.Context(), dstConnStr)
 	require.NoError(s.t, err, "failed to connect to secondary postgres on %s:%d (is the postgres2 tilt resource running?)", dstCfg.Host, dstCfg.Port)
-	defer dstConn.Close(ctx)
+	s.t.Cleanup(func() { dstConn.Close(s.t.Context()) })
 
-	// sanity: role must not pre-exist on destination
-	var preExists bool
-	require.NoError(s.t, dstConn.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)", roleName).Scan(&preExists))
-	require.False(s.t, preExists, "role %s unexpectedly exists on destination before test", roleName)
+	// sanity: role must not exist on destination
+	var roleExistsOnDst bool
+	require.NoError(s.t, dstConn.QueryRow(s.t.Context(),
+		"SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)", roleName).Scan(&roleExistsOnDst))
+	require.False(s.t, roleExistsOnDst, "role %s unexpectedly exists on destination", roleName)
 
-	// create role on source
+	// create role + owned/granted table on source with seed rows
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD 'pw'", roleName))
 	require.NoError(s.t, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		"CREATE TABLE %s (id SERIAL PRIMARY KEY, val TEXT)", qualified))
+	require.NoError(s.t, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s OWNER TO %s", qualified, roleName))
+	require.NoError(s.t, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("GRANT SELECT, INSERT ON %s TO %s", qualified, roleName))
+	require.NoError(s.t, err)
+
+	for i := 1; i <= 5; i++ {
+		_, err = s.Conn().Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s (val) VALUES ($1)", qualified),
+			fmt.Sprintf("snap_%d", i))
+		require.NoError(s.t, err)
+	}
+
 	s.t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
+		_, _ = s.Conn().Exec(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s", qualified))
 		_, _ = s.Conn().Exec(cleanupCtx, "DROP ROLE IF EXISTS "+roleName)
 
 		dropConn, err := pgx.Connect(cleanupCtx, dstConnStr)
 		if err != nil {
-			s.t.Logf("failed to connect to destination for role cleanup: %v", err)
+			s.t.Logf("failed to connect to destination for cleanup: %v", err)
 			return
 		}
 		defer dropConn.Close(cleanupCtx)
-		if _, err := dropConn.Exec(cleanupCtx, "DROP ROLE IF EXISTS "+roleName); err != nil {
-			s.t.Logf("failed to drop destination role %s: %v", roleName, err)
-		}
+		_, _ = dropConn.Exec(cleanupCtx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", srcSchema))
 	})
 
-	require.NoError(s.t, connpostgres.RunPgDumpSchema(ctx, srcCfg, dstCfg))
+	// register destination peer pointing at postgres2
+	dstPeerName := "pgdump_noowner_dst_" + s.suffix
+	CreatePeer(s.t, &protos.Peer{
+		Name:   dstPeerName,
+		Type:   protos.DBType_POSTGRES,
+		Config: &protos.Peer_PostgresConfig{PostgresConfig: dstCfg},
+	})
 
-	var postExists bool
-	require.NoError(s.t, dstConn.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)", roleName).Scan(&postExists))
-	require.True(s.t, postExists, "role %s should have been migrated to destination cluster", roleName)
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix("test_pgdump_noowner"),
+		DestinationName: dstPeerName,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      qualified,
+			DestinationTableIdentifier: qualified,
+		}},
+		SourceName:        GeneratePostgresPeer(s.t).Name,
+		MaxBatchSize:      100,
+		DoInitialSnapshot: true,
+		System:            protos.TypeSystem_PG,
+		Env: map[string]string{
+			"PEERDB_PG_AUTOMATED_SCHEMA_DUMP": "true",
+		},
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, config)
+	SetupCDCFlowStatusQuery(s.t, env, config)
+
+	// initial load: pg_dump must succeed despite missing owner/grantee role,
+	// then snapshot copies the 5 seed rows.
+	EnvWaitFor(s.t, env, 3*time.Minute, "initial load owned_tbl", func() bool {
+		var count int64
+		err := dstConn.QueryRow(s.t.Context(),
+			fmt.Sprintf("SELECT COUNT(*) FROM %s", qualified)).Scan(&count)
+		return err == nil && count == 5
+	})
+
+	// CDC: insert more rows on source and wait for them on dst
+	for i := 6; i <= 10; i++ {
+		_, err = s.Conn().Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s (val) VALUES ($1)", qualified),
+			fmt.Sprintf("cdc_%d", i))
+		EnvNoError(s.t, env, err)
+	}
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "cdc owned_tbl", func() bool {
+		var count int64
+		err := dstConn.QueryRow(s.t.Context(),
+			fmt.Sprintf("SELECT COUNT(*) FROM %s", qualified)).Scan(&count)
+		return err == nil && count == 10
+	})
+
+	// owner on dst should be the connecting user, not the (missing) source role
+	var dstOwner string
+	require.NoError(s.t, dstConn.QueryRow(s.t.Context(),
+		"SELECT tableowner FROM pg_tables WHERE schemaname=$1 AND tablename=$2",
+		srcSchema, tableName).Scan(&dstOwner))
+	require.NotEqual(s.t, roleName, dstOwner, "destination table should not be owned by the source-only role")
+
+	// no grants should reference the missing role on dst
+	var grantCount int
+	require.NoError(s.t, dstConn.QueryRow(s.t.Context(),
+		"SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema=$1 AND table_name=$2 AND grantee=$3",
+		srcSchema, tableName, roleName).Scan(&grantCount))
+	require.Zero(s.t, grantCount, "no privileges should be granted to the source-only role on destination")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
