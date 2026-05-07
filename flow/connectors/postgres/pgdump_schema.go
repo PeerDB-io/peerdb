@@ -40,8 +40,8 @@ func pipeCommand(
 	psqlCmd.Env = append(os.Environ(), "PGPASSWORD="+dstConfig.Password)
 
 	// handle TLS env vars
-	appendTLSEnv(srcCmd, srcConfig)
-	appendTLSEnv(psqlCmd, dstConfig)
+	appendTLSEnv(ctx, srcCmd, srcConfig)
+	appendTLSEnv(ctx, psqlCmd, dstConfig)
 
 	// pipe source command stdout -> psql stdin
 	pipe, err := srcCmd.StdoutPipe()
@@ -118,7 +118,7 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 	return args
 }
 
-func appendTLSEnv(cmd *exec.Cmd, config *protos.PostgresConfig) {
+func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig) {
 	if config.RequireTls {
 		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
 
@@ -126,11 +126,11 @@ func appendTLSEnv(cmd *exec.Cmd, config *protos.PostgresConfig) {
 			// write root CA to a temp file
 			tmpFile, err := os.CreateTemp("", "peerdb-root-ca-*.pem")
 			if err != nil {
-				slog.Warn("failed to create temp file for root CA, skipping sslrootcert", slog.Any("error", err))
+				slog.WarnContext(ctx, "failed to create temp file for root CA, skipping sslrootcert", slog.Any("error", err))
 				return
 			}
 			if _, err := tmpFile.WriteString(*config.RootCa); err != nil {
-				slog.Warn("failed to write root CA to temp file", slog.Any("error", err))
+				slog.WarnContext(ctx, "failed to write root CA to temp file", slog.Any("error", err))
 				tmpFile.Close()
 				os.Remove(tmpFile.Name())
 				return
