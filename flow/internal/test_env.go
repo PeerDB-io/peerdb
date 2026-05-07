@@ -30,6 +30,16 @@ func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
 	}
 }
 
+func GetSecondaryPostgresConfigFromEnv() *protos.PostgresConfig {
+	return &protos.PostgresConfig{
+		Host:     GetEnvString("PG2_HOST", "localhost"),
+		Port:     uint32(getEnvUint[uint16]("PG2_PORT", 5437)),
+		User:     GetEnvString("PG2_USER", "postgres"),
+		Password: GetEnvString("PG2_PASSWORD", "postgres"),
+		Database: GetEnvString("PG2_DATABASE", "postgres"),
+	}
+}
+
 func PostgresToxiproxyUpstreamHostWithFallback(fallback string) string {
 	return GetEnvString("TOXIPROXY_POSTGRES_HOST", fallback)
 }
