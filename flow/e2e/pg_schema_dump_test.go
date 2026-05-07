@@ -31,9 +31,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 			return
 		}
 		defer dropConn.Close(ctx)
-		_, _ = dropConn.Exec(ctx, fmt.Sprintf(
-			"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='%s' AND pid <> pg_backend_pid()", dstDBName))
-		if _, err := dropConn.Exec(ctx, "DROP DATABASE IF EXISTS "+dstDBName); err != nil {
+		if _, err := dropConn.Exec(ctx, "DROP DATABASE IF EXISTS "+dstDBName+" WITH (FORCE)"); err != nil {
 			s.t.Logf("failed to drop destination database %s: %v", dstDBName, err)
 		}
 	})
