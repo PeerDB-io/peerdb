@@ -21,6 +21,9 @@ import (
 const (
 	KmsKeyIDEnvVar    = "PEERDB_KMS_KEY_ID"
 	KmsProviderEnvVar = "PEERDB_KMS_PROVIDER"
+
+	KmsProviderAWS = "aws"
+	KmsProviderGCP = "gcp"
 )
 
 // getEnvUint returns the value of the environment variable with the given name
@@ -74,12 +77,14 @@ func decryptWithKms(ctx context.Context, data []byte) ([]byte, error) {
 		return data, nil
 	}
 
-	provider := GetEnvString(KmsProviderEnvVar, "aws")
+	provider := GetEnvString(KmsProviderEnvVar, KmsProviderAWS)
 	switch provider {
-	case "gcp":
+	case KmsProviderAWS, "":
+		return decryptWithAwsKms(ctx, data, keyID)
+	case KmsProviderGCP:
 		return decryptWithGcpKms(ctx, data, keyID)
 	default:
-		return decryptWithAwsKms(ctx, data, keyID)
+		return nil, fmt.Errorf("unsupported KMS provider %q (expected %q or %q)", provider, KmsProviderAWS, KmsProviderGCP)
 	}
 }
 
