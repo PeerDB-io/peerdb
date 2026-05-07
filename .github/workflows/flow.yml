@@ -54,6 +54,20 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      catalog2:
+        image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
+        ports:
+          - 5437:5432
+        env:
+          PGUSER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       redpanda:
         image: redpandadata/redpanda@sha256:12ddbd8e5572210a48d39afecac44db61503ce1cbdae50ee9b1ff5998a8d91e1
         ports:
@@ -111,11 +125,23 @@ jobs:
           go-version: '1.26.2'
           cache-dependency-path: flow/go.sum
 
-      - name: install lib-geos
+      - name: install lib-geos and pg_dump
         run: |
           # No need to update man pages on package install
           sudo apt-get remove --purge man-db
-          sudo apt-get install libgeos-dev
+          # Add PGDG apt repo for latest PostgreSQL client packages
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y libgeos-dev
+          # pg_dump must be >= the server major version; install v18 so it
+          # can dump PG 16, 17, and 18 (backward compatible).
+          sudo apt-get install -y postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> $GITHUB_PATH
 
       - name: install retry tool
         run: |
@@ -272,6 +298,17 @@ jobs:
           -c "ALTER SYSTEM SET max_connections=2048;" &&
           (cat ./nexus/catalog/migrations/V{?,??}__* | docker exec -i "${{ job.services.catalog.id }}" psql -U postgres) &&
           docker restart "${{ job.services.catalog.id }}"
+        env:
+          PGPASSWORD: postgres
+
+      - name: prepare secondary postgres for cross-cluster schema-dump tests
+        run: >
+          docker exec "${{ job.services.catalog2.id }}" psql -U postgres
+          -c "ALTER SYSTEM SET wal_level=logical;"
+          -c "ALTER SYSTEM SET max_replication_slots=192;"
+          -c "ALTER SYSTEM SET max_wal_senders=256;"
+          -c "ALTER SYSTEM SET max_connections=2048;" &&
+          docker restart "${{ job.services.catalog2.id }}"
         env:
           PGPASSWORD: postgres
 
@@ -561,6 +598,11 @@ jobs:
           PG_USER: postgres
           PG_PASSWORD: postgres
           PG_DATABASE: postgres
+          PG2_HOST: localhost
+          PG2_PORT: 5437
+          PG2_USER: postgres
+          PG2_PASSWORD: postgres
+          PG2_DATABASE: postgres
           PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
