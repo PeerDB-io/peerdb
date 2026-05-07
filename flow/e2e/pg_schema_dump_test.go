@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,8 +13,66 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
+// setupDedicatedPgDumpSource creates a fresh database on the primary PG instance
+// to serve as the source for schema-dump tests. pg_dump dumps a whole database,
+// so sharing the source DB with other parallel tests caused the dump to include
+// every concurrent test's e2e_test_<suffix> schema, blowing past the workflow
+// SETUP timeout. A dedicated source DB keeps the dump scoped to this test.
+//
+// Returns a connection to the new DB, the registered source peer name, and the
+// schema name to use within it. All resources are cleaned up via t.Cleanup.
+func setupDedicatedPgDumpSource(t *testing.T, suffix string) (*pgx.Conn, string, string) {
+	t.Helper()
+
+	srcCfg := internal.GetAncillaryPostgresConfigFromEnv()
+	srcDBName := "e2e_pgdump_src_" + suffix
+	srcSchema := "e2e_test_" + suffix
+
+	bootstrapStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+		srcCfg.Host, srcCfg.Port, srcCfg.User, srcCfg.Password, srcCfg.Database)
+	bootstrap, err := pgx.Connect(t.Context(), bootstrapStr)
+	require.NoError(t, err)
+	_, err = bootstrap.Exec(t.Context(), "CREATE DATABASE "+srcDBName)
+	require.NoError(t, err)
+	bootstrap.Close(t.Context())
+
+	srcConnStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+		srcCfg.Host, srcCfg.Port, srcCfg.User, srcCfg.Password, srcDBName)
+	srcConn, err := pgx.Connect(t.Context(), srcConnStr)
+	require.NoError(t, err)
+	_, err = srcConn.Exec(t.Context(), "CREATE SCHEMA "+srcSchema)
+	require.NoError(t, err)
+
+	srcPeerCfg := internal.GetAncillaryPostgresConfigFromEnv()
+	srcPeerCfg.Database = srcDBName
+	srcPeerName := "pgdump_src_" + suffix
+	CreatePeer(t, &protos.Peer{
+		Name:   srcPeerName,
+		Type:   protos.DBType_POSTGRES,
+		Config: &protos.Peer_PostgresConfig{PostgresConfig: srcPeerCfg},
+	})
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		srcConn.Close(ctx)
+		dropConn, err := pgx.Connect(ctx, bootstrapStr)
+		if err != nil {
+			t.Logf("failed to connect for source DB cleanup: %v", err)
+			return
+		}
+		defer dropConn.Close(ctx)
+		if _, err := dropConn.Exec(ctx, "DROP DATABASE IF EXISTS "+srcDBName+" WITH (FORCE)"); err != nil {
+			t.Logf("failed to drop source database %s: %v", srcDBName, err)
+		}
+	})
+
+	return srcConn, srcPeerName, srcSchema
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
-	srcSchema := "e2e_test_" + s.suffix
+	srcConn, srcPeerName, srcSchema := setupDedicatedPgDumpSource(s.t, s.suffix)
+
 	dstDBName := "e2e_pgdump_" + s.suffix
 
 	// create destination database on the same PG instance
@@ -44,9 +103,6 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 	require.NoError(s.t, err)
 	s.t.Cleanup(func() { dstConn.Close(s.t.Context()) })
 
-	// create the source schema in the destination database (pg_dump will create it, but we need it for the peer)
-	// Actually, pg_dump --schema-only will create the schema, so we don't need to pre-create it.
-
 	// create a destination peer pointing to the new database
 	dstPeerCfg := internal.GetAncillaryPostgresConfigFromEnv()
 	dstPeerCfg.Database = dstDBName
@@ -63,13 +119,13 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 	// --- set up rich schema on source ---
 
 	// create custom enum type in the source schema
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+	_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(
 		"CREATE TYPE %s.color AS ENUM ('red', 'green', 'blue')", srcSchema))
 	require.NoError(s.t, err)
 
 	// create parent table with various column types
 	parentTable := srcSchema + ".parent_tbl"
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -81,13 +137,13 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 	require.NoError(s.t, err)
 
 	// create unique index on parent
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+	_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(
 		"CREATE UNIQUE INDEX idx_parent_name ON %s (name)", parentTable))
 	require.NoError(s.t, err)
 
 	// create child table with foreign key referencing parent
 	childTable := srcSchema + ".child_tbl"
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL PRIMARY KEY,
 			parent_id INT NOT NULL REFERENCES %s(id),
@@ -97,13 +153,13 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 	require.NoError(s.t, err)
 
 	// create btree index on child
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+	_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(
 		"CREATE INDEX idx_child_parent ON %s (parent_id)", childTable))
 	require.NoError(s.t, err)
 
 	// insert initial data for snapshot
 	for i := 1; i <= 5; i++ {
-		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(
 			"INSERT INTO %s (name, color, score, metadata) VALUES ($1, $2, $3, $4)",
 			parentTable),
 			fmt.Sprintf("item_%d", i),
@@ -115,7 +171,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 	}
 
 	for i := 1; i <= 10; i++ {
-		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(
 			"INSERT INTO %s (parent_id, value, tags) VALUES ($1, $2, $3)",
 			childTable),
 			(i%5)+1,
@@ -145,7 +201,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 				DestinationTableIdentifier: dstChild,
 			},
 		},
-		SourceName:        GeneratePostgresPeer(s.t).Name,
+		SourceName:        srcPeerName,
 		MaxBatchSize:      100,
 		DoInitialSnapshot: true,
 		System:            protos.TypeSystem_PG,
@@ -223,7 +279,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 
 	// insert more parent rows
 	for i := 6; i <= 8; i++ {
-		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(
 			"INSERT INTO %s (name, color, score, metadata) VALUES ($1, $2, $3, $4)",
 			parentTable),
 			fmt.Sprintf("item_%d", i),
@@ -236,7 +292,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 
 	// insert more child rows
 	for i := 11; i <= 15; i++ {
-		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(
 			"INSERT INTO %s (parent_id, value, tags) VALUES ($1, $2, $3)",
 			childTable),
 			(i%5)+1,
@@ -263,14 +319,14 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 	// verify data integrity: compare actual row content
 	// query source and destination and compare
 	var srcParentCount, dstParentCount int64
-	err = s.Conn().QueryRow(s.t.Context(), fmt.Sprintf("SELECT COUNT(*) FROM %s", srcParent)).Scan(&srcParentCount)
+	err = srcConn.QueryRow(s.t.Context(), fmt.Sprintf("SELECT COUNT(*) FROM %s", srcParent)).Scan(&srcParentCount)
 	require.NoError(s.t, err)
 	err = dstConn.QueryRow(s.t.Context(), fmt.Sprintf("SELECT COUNT(*) FROM %s", dstParent)).Scan(&dstParentCount)
 	require.NoError(s.t, err)
 	require.Equal(s.t, srcParentCount, dstParentCount, "parent table row counts should match")
 
 	var srcChildCount, dstChildCount int64
-	err = s.Conn().QueryRow(s.t.Context(), fmt.Sprintf("SELECT COUNT(*) FROM %s", srcChild)).Scan(&srcChildCount)
+	err = srcConn.QueryRow(s.t.Context(), fmt.Sprintf("SELECT COUNT(*) FROM %s", srcChild)).Scan(&srcChildCount)
 	require.NoError(s.t, err)
 	err = dstConn.QueryRow(s.t.Context(), fmt.Sprintf("SELECT COUNT(*) FROM %s", dstChild)).Scan(&dstChildCount)
 	require.NoError(s.t, err)
@@ -290,9 +346,10 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 // Also verifies initial load + CDC into the dumped table on the destination
 // cluster, so we know the table is usable end-to-end.
 func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_No_Owner_No_Privileges() {
+	srcConn, srcPeerName, srcSchema := setupDedicatedPgDumpSource(s.t, s.suffix)
+
 	dstCfg := internal.GetSecondaryPostgresConfigFromEnv()
 
-	srcSchema := "e2e_test_" + s.suffix
 	roleName := "peerdb_owner_role_" + s.suffix
 	tableName := "owned_tbl"
 	qualified := fmt.Sprintf("%s.%s", srcSchema, tableName)
@@ -310,28 +367,31 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_No_Owner_No_Privileges() {
 		"SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)", roleName).Scan(&roleExistsOnDst))
 	require.False(s.t, roleExistsOnDst, "role %s unexpectedly exists on destination", roleName)
 
-	// create role + owned/granted table on source with seed rows
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD 'pw'", roleName))
+	// create role + owned/granted table on source with seed rows.
+	// the role is cluster-wide; the table lives in the dedicated source DB
+	// and will go away when that DB is dropped during cleanup.
+	_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD 'pw'", roleName))
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+	_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf(
 		"CREATE TABLE %s (id SERIAL PRIMARY KEY, val TEXT)", qualified))
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s OWNER TO %s", qualified, roleName))
+	_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s OWNER TO %s", qualified, roleName))
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("GRANT SELECT, INSERT ON %s TO %s", qualified, roleName))
+	_, err = srcConn.Exec(s.t.Context(), fmt.Sprintf("GRANT SELECT, INSERT ON %s TO %s", qualified, roleName))
 	require.NoError(s.t, err)
 
 	for i := 1; i <= 5; i++ {
-		_, err = s.Conn().Exec(s.t.Context(),
+		_, err = srcConn.Exec(s.t.Context(),
 			fmt.Sprintf("INSERT INTO %s (val) VALUES ($1)", qualified),
 			fmt.Sprintf("snap_%d", i))
 		require.NoError(s.t, err)
 	}
 
+	// role is cluster-wide so it outlives the dedicated source DB; drop it
+	// against the shared source connection after the source DB is gone.
 	s.t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		_, _ = s.Conn().Exec(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s", qualified))
 		_, _ = s.Conn().Exec(cleanupCtx, "DROP ROLE IF EXISTS "+roleName)
 
 		dropConn, err := pgx.Connect(cleanupCtx, dstConnStr)
@@ -358,7 +418,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_No_Owner_No_Privileges() {
 			SourceTableIdentifier:      qualified,
 			DestinationTableIdentifier: qualified,
 		}},
-		SourceName:        GeneratePostgresPeer(s.t).Name,
+		SourceName:        srcPeerName,
 		MaxBatchSize:      100,
 		DoInitialSnapshot: true,
 		System:            protos.TypeSystem_PG,
@@ -382,7 +442,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_No_Owner_No_Privileges() {
 
 	// CDC: insert more rows on source and wait for them on dst
 	for i := 6; i <= 10; i++ {
-		_, err = s.Conn().Exec(s.t.Context(),
+		_, err = srcConn.Exec(s.t.Context(),
 			fmt.Sprintf("INSERT INTO %s (val) VALUES ($1)", qualified),
 			fmt.Sprintf("cdc_%d", i))
 		EnvNoError(s.t, env, err)
