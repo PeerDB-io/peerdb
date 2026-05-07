@@ -87,13 +87,13 @@ func RollbackTx(tx pgx.Tx, logger log.Logger) {
 }
 
 func IsSQLStateError(err error, sqlStates ...string) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && slices.Contains(sqlStates, pgErr.Code)
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && slices.Contains(sqlStates, pgErr.Code)
 }
 
 func IsSQLStateErrorSubstring(err error, sqlState string, substring string) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == sqlState && strings.Contains(pgErr.Error(), substring)
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && pgErr.Code == sqlState && strings.Contains(pgErr.Error(), substring)
 }
 
 type CatalogPool struct {

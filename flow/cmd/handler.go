@@ -182,9 +182,8 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 
 	workflowID := getWorkflowID(cfg.FlowJobName)
-	var errNotFound *serviceerror.NotFound
 	desc, err := h.temporalClient.DescribeWorkflow(ctx, workflowID, "")
-	if err != nil && !errors.As(err, &errNotFound) {
+	if _, ok := errors.AsType[*serviceerror.NotFound](err); err != nil && !ok {
 		return nil, NewInternalApiError(fmt.Errorf("failed to query the workflow execution: %w", err))
 	} else if err == nil {
 		// If workflow is actively running, handle based on AttachToExisting
@@ -436,8 +435,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		slog.ErrorContext(ctx, "[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
-		var errNotFound *exceptions.NotFoundError
-		if errors.As(err, &errNotFound) {
+		if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 			return nil, NewNotFoundApiError(fmt.Errorf("flow %s not found", req.FlowJobName))
 		}
 		return nil, NewInternalApiError(fmt.Errorf("unable to get workflowID: %w", err))

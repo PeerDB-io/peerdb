@@ -36,8 +36,7 @@ func (c *BigQueryConnector) storageDownScopedToken(ctx context.Context, bucketNa
 }
 
 func (c *BigQueryConnector) isApiErrorWithStatusCode(err error, code int) bool {
-	var apiErr *googleapi.Error
-	if errors.As(err, &apiErr) && apiErr.Code == code {
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok && apiErr.Code == code {
 		return true
 	}
 	return false

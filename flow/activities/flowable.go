@@ -866,13 +866,11 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		var dnsErr *net.DNSError
-		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		if dnsErr, ok := errors.AsType[*net.DNSError](err); ok && dnsErr.IsNotFound {
 			a.Alerter.LogFlowWarning(ctx, req.FlowJobName, fmt.Errorf("[DropFlowDestination] hostname not found, skipping: %w", err))
 			return nil
 		} else {
-			var notFound *exceptions.NotFoundError
-			if errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 				logger := internal.LoggerFromCtx(ctx)
 				logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
 				return nil

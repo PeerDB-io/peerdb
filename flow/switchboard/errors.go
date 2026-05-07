@@ -12,10 +12,9 @@ import (
 // Expects errors to be wrapped as UpstreamError by upstream implementations
 // If timeout is 0, uses the default from env var
 func writeErrorResponse(w io.Writer, err error, timeout time.Duration) error {
-	var upstreamErr *UpstreamError
 	var resp *pgproto3.ErrorResponse
 
-	if errors.As(err, &upstreamErr) {
+	if upstreamErr, ok := errors.AsType[*UpstreamError](err); ok {
 		resp = upstreamErr.Resp
 	} else {
 		// Fallback for non-upstream errors

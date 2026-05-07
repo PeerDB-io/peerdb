@@ -250,13 +250,11 @@ func EnvWaitForCount(
 func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 	t.Helper()
 	EnvWaitForFinished(t, env, time.Minute)
-	var panicErr *temporal.PanicError
-	var canceledErr *temporal.CanceledError
 	if err := env.Error(t.Context()); err == nil {
 		t.Fatal("Expected workflow to be canceled, not completed")
-	} else if errors.As(err, &panicErr) {
+	} else if panicErr, ok := errors.AsType[*temporal.PanicError](err); ok {
 		t.Fatalf("Workflow panic: %s %s", panicErr.Error(), panicErr.StackTrace())
-	} else if !errors.As(err, &canceledErr) {
+	} else if _, ok := errors.AsType[*temporal.CanceledError](err); !ok {
 		t.Fatalf("Expected workflow to be canceled, not %v", err)
 	}
 }

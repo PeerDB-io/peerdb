@@ -330,8 +330,7 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		q := c.client.Query(exportSQL)
 		job, err := q.Run(ctx)
 		if err != nil {
-			var apiErr *googleapi.Error
-			if errors.As(err, &apiErr) {
+			if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 				if apiErr.Code == 403 {
 					_ = c.LogFlowInfo(ctx, flowName, fmt.Sprintf(
 						"Permission denied error when starting export job for table %s: %s",

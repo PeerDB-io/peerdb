@@ -221,8 +221,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
 			// don't log flow error for "replState changed" and "slot is already active"
-			var desyncErr *exceptions.ReplStateDesyncError
-			if !(errors.As(err, &desyncErr) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			_, isDesync := errors.AsType[*exceptions.ReplStateDesyncError](err)
+			if !(isDesync || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 				_ = a.Alerter.LogFlowError(ctx, flowName, err)
 			}
 			return nil, fmt.Errorf("failed in pull records when: %w", err)
@@ -313,8 +313,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		var desyncErr *exceptions.ReplStateDesyncError
-		if !(errors.As(err, &desyncErr) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+		_, isDesync := errors.AsType[*exceptions.ReplStateDesyncError](err)
+		if !(isDesync || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)

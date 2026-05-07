@@ -208,8 +208,7 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 	// AWS RDS/Aurora has its own binlog retention setting that we need to check, minimum 24h
 	// check RDS/Aurora binlog retention setting
 	if rs, err := conn.Execute("SELECT value FROM mysql.rds_configuration WHERE name='binlog retention hours'"); err != nil {
-		var mErr *mysql.MyError
-		if errors.As(err, &mErr) && (mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR) {
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && (mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR) {
 			// Table doesn't exist, which means this is not RDS/Aurora
 			logger.Warn("mysql.rds_configuration table does not exist, skipping Aurora/RDS binlog retention check",
 				slog.Any("error", err))
@@ -236,8 +235,7 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 // check if the server is a Vitess server, currently only works for initial load only
 func IsVitess(conn *client.Conn) (bool, error) {
 	if _, err := conn.Execute("SHOW VITESS_TABLETS"); err != nil {
-		var mErr *mysql.MyError
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_PARSE_ERROR {
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_PARSE_ERROR {
 			return false, nil // not a Vitess server
 		}
 		return false, fmt.Errorf("failed to check if Vitess: %w", err)

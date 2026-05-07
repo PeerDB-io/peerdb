@@ -48,8 +48,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !sourceOk {
 				sourceTries += 1
 				var dropSourceFuture workflow.Future
-				var applicationError *temporal.ApplicationError
-				if sourceTries < 50 && (!errors.As(sourceError, &applicationError) || !applicationError.NonRetryable()) {
+				applicationError, ok := errors.AsType[*temporal.ApplicationError](sourceError)
+				if sourceTries < 50 && (!ok || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(sourceTries*sourceTries)*time.Second)
 					selector.AddFuture(sleep, sleepSource)
 				} else {
@@ -85,8 +85,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !destinationOk {
 				destinationTries += 1
 				var dropDestinationFuture workflow.Future
-				var applicationError *temporal.ApplicationError
-				if destinationTries < 50 && (!errors.As(destinationError, &applicationError) || !applicationError.NonRetryable()) {
+				applicationError, ok := errors.AsType[*temporal.ApplicationError](destinationError)
+				if destinationTries < 50 && (!ok || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(destinationTries*destinationTries)*time.Second)
 					selector.AddFuture(sleep, sleepDestination)
 				} else {

@@ -116,8 +116,8 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 				if err == nil {
 					break
 				}
-				var chException *clickhouse.Exception
-				if errors.As(err, &chException) && chproto.Error(chException.Code) == chproto.ErrUnfinished {
+				if chException, ok := errors.AsType[*clickhouse.Exception](err); ok &&
+					chproto.Error(chException.Code) == chproto.ErrUnfinished {
 					c.logger.Warn("validation drop table blocked by in-flight DDL, retrying",
 						slog.String("table", table), slog.Int("attempt", attempt+1))
 					continue
