@@ -124,34 +124,6 @@ func ValidateClickHousePeer(
 	conn clickhouse.Conn,
 	stagingValidator StagingValidator,
 ) error {
-	// Validate ClickHouse host domain
-	if err := ValidateClickHouseHost(ctx, peerName, allowedDomains); err != nil {
-		return err
-	}
-
-	// Remove this, for debugging purposes only
-	if result := QueryRow(ctx, logger, conn, "SELECT user()"); result == nil {
-		logger.Error("failed to execute SELECT user() for validation")
-	} else {
-		var user string
-		_ = result.Scan(&user)
-		logger.Info("pfcoperez >> current user", slog.String("user", user))
-	}
-
-	if result, err := Query(ctx, logger, conn, "SHOW GRANTS"); err != nil {
-		logger.Error("failed to execute SHOW GRANTS for validation", slog.Any("error", err))
-	} else {
-		for result.Next() {
-			var grant string
-			if err := result.Scan(&grant); err != nil {
-				logger.Error("failed to scan SHOW GRANTS result", slog.Any("error", err))
-				continue
-			}
-			logger.Info("pfcoperez >> SHOW GRANTS row", slog.String("grant", grant))
-		}
-	}
-	// End of block to remove
-
 	validateDummyTableName := "peerdb_validation_" + common.RandomString(4)
 	validateDummyTableNameRenamed := validateDummyTableName + "_renamed"
 	// create a table
@@ -160,7 +132,6 @@ func ValidateClickHousePeer(
 	); err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
-	logger.Info("pfcoperez >> VALIDATED CREATION with table name", slog.String("table", validateDummyTableName))
 	defer func() {
 		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
