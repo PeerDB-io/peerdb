@@ -193,6 +193,7 @@ impl NexusBackend {
             }),
             allow_update: false,
             disable_validation: false,
+            disable_connector_validation: false,
         };
 
         let create_response = flow_handler
