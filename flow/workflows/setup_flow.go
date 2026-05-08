@@ -247,10 +247,13 @@ func (s *SetupFlowExecution) createNormalizedTables(
 // runPgDumpSchema runs pg_dump --schema-only on the source and pipes the output
 // into psql on the destination, streaming the schema directly.
 // This is only used for PG type system (PG-to-PG mirrors).
+// Returns true only if the dump activity actually ran (it skips for SSH tunnel
+// or non-password auth peers); callers must use this to decide whether the
+// destination tables were created.
 func (s *SetupFlowExecution) runPgDumpSchema(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigsCore,
-) error {
+) (bool, error) {
 	s.Info("running pg_dump schema migration from source to destination")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -267,11 +270,12 @@ func (s *SetupFlowExecution) runPgDumpSchema(
 		Env:             config.Env,
 	}
 
-	if err := workflow.ExecuteActivity(ctx, flowable.RunPgDumpSchema, input).Get(ctx, nil); err != nil {
-		return fmt.Errorf("failed to run pg_dump schema migration: %w", err)
+	var ran bool
+	if err := workflow.ExecuteActivity(ctx, flowable.RunPgDumpSchema, input).Get(ctx, &ran); err != nil {
+		return false, fmt.Errorf("failed to run pg_dump schema migration: %w", err)
 	}
 
-	return nil
+	return ran, nil
 }
 
 // getPGAutomatedSchemaDump checks the PEERDB_PG_AUTOMATED_SCHEMA_DUMP env flag via an activity.
@@ -314,22 +318,24 @@ func (s *SetupFlowExecution) executeSetupFlow(
 		}
 	}
 
-	// for PG type system (PG-to-PG mirrors), run pg_dump schema migration if enabled
-	enablePgSchemaDump := false
-	if config.System == protos.TypeSystem_PG {
-		enablePgSchemaDump = s.getPGAutomatedSchemaDump(ctx, config.Env)
-		if enablePgSchemaDump {
-			if err := s.runPgDumpSchema(ctx, config); err != nil {
-				return nil, fmt.Errorf("failed to run pg_dump schema migration: %w", err)
-			}
-		}
-	}
-
 	if err := s.setupTableSchema(ctx, config); err != nil {
 		return nil, fmt.Errorf("failed to fetch table schema: %w", err)
 	}
 
-	if err := s.createNormalizedTables(ctx, config); err != nil {
+	// pg_dump silently no-ops for SSH tunnel / non-password-auth peers, so we
+	// only skip CreateNormalizedTable when the activity reports it actually ran.
+	skipCreateTables := false
+	if config.System == protos.TypeSystem_PG && s.getPGAutomatedSchemaDump(ctx, config.Env) {
+		ran, err := s.runPgDumpSchema(ctx, config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to run pg_dump schema migration: %w", err)
+		}
+		skipCreateTables = ran
+	}
+
+	if skipCreateTables {
+		s.Info("skipping normalized table creation, pg_dump already created tables")
+	} else if err := s.createNormalizedTables(ctx, config); err != nil {
 		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
