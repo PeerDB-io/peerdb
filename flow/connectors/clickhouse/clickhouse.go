@@ -97,13 +97,8 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return err
 	}
 
-	if err := peerdb_clickhouse.ValidateClickHousePeer(ctx, c.logger, c.Config.Host, c.database); err != nil {
+	if err := peerdb_clickhouse.ValidateClickHousePeer(ctx, c.logger, c.Config.Host, c.database, c.staging.Validate); err != nil {
 		return err
-	}
-
-	// validate staging storage
-	if err := c.staging.Validate(ctx); err != nil {
-		return fmt.Errorf("failed to validate staging bucket: %w", err)
 	}
 
 	return nil

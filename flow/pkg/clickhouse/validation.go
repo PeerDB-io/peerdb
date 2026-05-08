@@ -99,7 +99,9 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 	return nil
 }
 
-func ValidateClickHousePeer(ctx context.Context, logger log.Logger, peerName string, conn clickhouse.Conn) error {
+type StagingValidator = func(ctx context.Context) error
+
+func ValidateClickHousePeer(ctx context.Context, logger log.Logger, peerName string, conn clickhouse.Conn, stagingValidator StagingValidator) error {
 	// Remove this, for debugging purposes only
 	if result := QueryRow(ctx, logger, conn, "SELECT user()"); result == nil {
 		logger.Error("failed to execute SELECT user() for validation")
@@ -180,6 +182,10 @@ func ValidateClickHousePeer(ctx context.Context, logger log.Logger, peerName str
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableNameRenamed, err)
 	}
 
+	// validate staging storage
+	if err := stagingValidator(ctx); err != nil {
+		return fmt.Errorf("failed to validate staging bucket: %w", err)
+	}
 	return nil
 }
 
