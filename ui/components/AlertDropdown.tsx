@@ -2,6 +2,7 @@ import { Button } from '@/lib/Button/Button';
 import { Icon } from '@/lib/Icon';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useState } from 'react';
+import { useTheme as useStyledTheme } from 'styled-components';
 import DropDialog from './DropDialog';
 
 export default function AlertDropdown({
@@ -13,6 +14,7 @@ export default function AlertDropdown({
   alertId: number;
   onEdit: () => void;
 }) {
+  const theme = useStyledTheme();
   const [open, setOpen] = useState(false);
   const handleToggle = () => {
     setOpen((prevOpen) => !prevOpen);
@@ -33,7 +35,8 @@ export default function AlertDropdown({
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           style={{
-            border: '1px solid rgba(0,0,0,0.1)',
+            backgroundColor: theme.colors.base.surface.normal,
+            border: `1px solid ${theme.colors.base.border.normal}`,
             borderRadius: '0.5rem',
           }}
         >

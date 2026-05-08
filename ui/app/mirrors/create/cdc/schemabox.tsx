@@ -27,6 +27,7 @@ import {
 } from 'react';
 import ReactSelect from 'react-select';
 import { BarLoader } from 'react-spinners/';
+import { useTheme as useStyledTheme } from 'styled-components';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
 import CustomColumnType from './customColumnType';
@@ -66,6 +67,7 @@ export default function SchemaBox({
   initialLoadOnly,
 }: SchemaBoxProps) {
   const selectTheme = useSelectTheme();
+  const styledTheme = useStyledTheme();
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
@@ -285,7 +287,7 @@ export default function SchemaBox({
   ]);
 
   return (
-    <div style={schemaBoxStyle}>
+    <div style={schemaBoxStyle(styledTheme)}>
       <div>
         <div style={{ ...expandableStyle, cursor: 'auto' }}>
           <div
@@ -332,7 +334,7 @@ export default function SchemaBox({
               searchedTables.map((row) => {
                 const columns = getTableColumns(row.source);
                 return (
-                  <div key={row.source} style={tableBoxStyle}>
+                  <div key={row.source} style={tableBoxStyle(styledTheme)}>
                     <div
                       className='ml-5'
                       style={{
@@ -345,7 +347,7 @@ export default function SchemaBox({
                         label={
                           <Tooltip
                             style={{
-                              ...tooltipStyle,
+                              ...tooltipStyle(styledTheme),
                               display: row.canMirror ? 'none' : 'block',
                             }}
                             content={

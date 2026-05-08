@@ -153,10 +153,4 @@ export const appThemeColors = {
       black: '#000000',
     },
   },
-  select: {
-    primary: '#30A46C',
-    primary25: 'rgba(48, 164, 108, 0.3)',
-    neutral0: '#FFFFFF', // menu background
-    neutral80: '#171717', // text color
-  },
 } as const;

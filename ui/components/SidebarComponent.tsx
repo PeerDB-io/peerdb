@@ -1,5 +1,6 @@
 'use client';
 
+import { useSelectTheme } from '@/app/styles/select';
 import { fetcher } from '@/app/utils/swr';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import Logout from '@/components/Logout';
@@ -20,6 +21,7 @@ import { Sidebar, SidebarItem } from '@/lib/Sidebar';
 import { MaterialSymbol } from 'material-symbols';
 import { SessionProvider } from 'next-auth/react';
 import Link from 'next/link';
+import ReactSelect from 'react-select';
 import useSWR from 'swr';
 
 const centerFlexStyle = {
@@ -35,9 +37,14 @@ type instanceInfoDisplay = {
   text: string;
 };
 
+const timezoneOptions = ['UTC', 'Local', 'Relative'].map((tz) => ({
+  value: tz,
+  label: tz,
+}));
+
 export default function SidebarComponent(props: { showLogout: boolean }) {
-  const timezones = ['UTC', 'Local', 'Relative'];
   const [zone, setZone] = useLocalStorage('timezone-ui', '');
+  const selectTheme = useSelectTheme();
 
   const {
     data: version,
@@ -146,23 +153,18 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
               <RowWithSelect
                 label={<Label>Timezone:</Label>}
                 action={
-                  <select
-                    style={{
-                      borderRadius: '0.5rem',
-                      padding: '0.2rem',
-                      backgroundColor: 'transparent',
-                      boxShadow: '0px 2px 4px rgba(0,0,0,0.1)',
-                    }}
-                    value={zone}
-                    id='timeselect'
-                    onChange={(e) => setZone(e.target.value)}
-                  >
-                    {timezones.map((tz, id) => (
-                      <option key={id} value={tz}>
-                        {tz}
-                      </option>
-                    ))}
-                  </select>
+                  <div style={{ minWidth: '8rem' }}>
+                    <ReactSelect
+                      inputId='timeselect'
+                      value={
+                        timezoneOptions.find((o) => o.value === zone) ?? null
+                      }
+                      onChange={(opt) => opt && setZone(opt.value)}
+                      options={timezoneOptions}
+                      theme={selectTheme}
+                      isSearchable={false}
+                    />
+                  </div>
                 }
               />
             </div>
