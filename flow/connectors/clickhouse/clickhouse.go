@@ -73,31 +73,14 @@ func NewClickHouseConnector(
 	}, nil
 }
 
-func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainString string) error {
-	allowedDomains := strings.Split(allowedDomainString, ",")
-	if len(allowedDomains) == 0 {
-		return nil
-	}
-	// check if chHost ends with one of the allowed domains
-	for _, domain := range allowedDomains {
-		if strings.HasSuffix(chHost, domain) {
-			return nil
-		}
-	}
-	return fmt.Errorf("invalid ClickHouse host domain: %s. Allowed domains: %s",
-		chHost, strings.Join(allowedDomains, ","))
-}
-
 // Performs some checks on the ClickHouse peer to ensure it will work for mirrors
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 
-	if err := ValidateClickHouseHost(ctx, c.Config.Host, allowedDomains); err != nil {
-		return err
-	}
-
-	if err := peerdb_clickhouse.ValidateClickHousePeer(ctx, c.logger, c.Config.Host, c.database, c.staging.Validate); err != nil {
+	if err := peerdb_clickhouse.ValidateClickHousePeer(
+		ctx, c.logger, allowedDomains, c.Config.Host, c.database, c.staging.Validate,
+	); err != nil {
 		return err
 	}
 

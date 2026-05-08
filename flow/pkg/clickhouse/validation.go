@@ -99,15 +99,42 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 	return nil
 }
 
+func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainString string) error {
+	allowedDomains := strings.Split(allowedDomainString, ",")
+	if len(allowedDomains) == 0 {
+		return nil
+	}
+	// check if chHost ends with one of the allowed domains
+	for _, domain := range allowedDomains {
+		if strings.HasSuffix(chHost, domain) {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid ClickHouse host domain: %s. Allowed domains: %s",
+		chHost, strings.Join(allowedDomains, ","))
+}
+
 type StagingValidator = func(ctx context.Context) error
 
-func ValidateClickHousePeer(ctx context.Context, logger log.Logger, peerName string, conn clickhouse.Conn, stagingValidator StagingValidator) error {
+func ValidateClickHousePeer(
+	ctx context.Context,
+	logger log.Logger,
+	allowedDomains string,
+	peerName string,
+	conn clickhouse.Conn,
+	stagingValidator StagingValidator,
+) error {
+	// Validate ClickHouse host domain
+	if err := ValidateClickHouseHost(ctx, peerName, allowedDomains); err != nil {
+		return err
+	}
+
 	// Remove this, for debugging purposes only
 	if result := QueryRow(ctx, logger, conn, "SELECT user()"); result == nil {
 		logger.Error("failed to execute SELECT user() for validation")
 	} else {
 		var user string
-		result.Scan(&user)
+		_ = result.Scan(&user)
 		logger.Info("pfcoperez >> current user", slog.String("user", user))
 	}
 
