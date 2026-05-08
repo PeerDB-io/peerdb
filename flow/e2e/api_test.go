@@ -1234,6 +1234,43 @@ func (s APITestSuite) TestMongoDBUserRolesValidation() {
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 }
 
+// TestClickHousePeerValidationBypass verifies that ValidatePeer with
+// DisableConnectorValidation=true skips the connector-side ValidateCheck.
+func (s APITestSuite) TestClickHousePeerValidationBypass() {
+	basePeer := s.ch.Peer()
+	peer, ok := proto.Clone(basePeer).(*protos.Peer)
+	require.True(s.t, ok, "expected proto.Clone to return *protos.Peer")
+	chCfg := peer.GetClickhouseConfig()
+	require.NotNil(s.t, chCfg)
+	require.NotNil(s.t, chCfg.S3, "expected S3 staging config on the test CH peer")
+
+	// Point staging at a bucket that doesn't exist on the test S3 server.
+	// The connector's staging smoke test PUTs fail with NoSuchBucket;
+	// ConnectionActive (a ClickHouse Ping) is unaffected.
+	chCfg.S3.Url = "s3://peerdb-bypass-nonexistent-" +
+		strings.ToLower(shared.RandomString(12)) + "/check"
+
+	// Without the bypass: Validation fails.
+	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
+	require.Error(s.t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(s.t, ok, "expected error to be gRPC status")
+	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
+	require.Contains(s.t, grpcStatus.Message(), "staging bucket")
+
+	// With the bypass: Connector side ValidateCheck is skipped, but
+	// ConnectionActive still runs and succeeds because the ClickHouse peer
+	// is reachable.
+	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
+		Peer:                       peer,
+		DisableConnectorValidation: proto.Bool(true),
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
+	require.Contains(s.t, response.Message, "(connector validation skipped)")
+}
+
 func (s APITestSuite) TestMySQLFlavorSwap() {
 	my, ok := s.source.(*MySqlSource)
 	if !ok {
