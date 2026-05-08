@@ -210,7 +210,7 @@ func (s *s3StagingStore) Validate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	return utils.PutAndRemoveS3(ctx, s3Client, s.bucket, s.prefix)
+	return peerdb_clickhouse.NewS3StagingValidator(s3Client, s.bucket, s.prefix)(ctx)
 }
 
 func (s *s3StagingStore) BucketPath() string {
