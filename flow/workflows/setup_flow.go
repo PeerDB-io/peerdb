@@ -175,9 +175,9 @@ func (s *SetupFlowExecution) createRawTable(
 	return nil
 }
 
-// fetchTableSchemaAndSetupNormalizedTables fetches the table schema for the source table and
-// sets up the normalized tables on the destination peer.
-func (s *SetupFlowExecution) setupNormalizedTables(
+// setupTableSchema fetches the table schema for the source tables and persists
+// it to the catalog so downstream activities can use it.
+func (s *SetupFlowExecution) setupTableSchema(
 	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigsCore,
 ) error {
 	s.Info("fetching table schema for peer flow")
@@ -203,8 +203,23 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		s.Error("failed to fetch schema for source tables", slog.Any("error", err))
 		return fmt.Errorf("failed to fetch schema for source tables: %w", err)
 	}
+	return nil
+}
 
+// createNormalizedTables creates the normalized tables on the destination peer.
+func (s *SetupFlowExecution) createNormalizedTables(
+	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigsCore,
+) error {
 	s.Info("setting up normalized tables on destination peer", slog.String("destination", flowConnectionConfigs.DestinationName))
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+		HeartbeatTimeout:    time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
+	})
+
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
 		PeerName:          flowConnectionConfigs.DestinationName,
 		TableMappings:     flowConnectionConfigs.TableMappings,
@@ -221,8 +236,6 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		s.Error("failed to create normalized tables", slog.Any("error", err))
 		return fmt.Errorf("failed to create normalized tables: %w", err)
 	}
-
-	s.Info("finished setting up normalized tables for peer flow")
 	return nil
 }
 
@@ -251,9 +264,12 @@ func (s *SetupFlowExecution) executeSetupFlow(
 		}
 	}
 
-	// then fetch the table schema and setup the normalized tables
-	if err := s.setupNormalizedTables(ctx, config); err != nil {
-		return nil, fmt.Errorf("failed to fetch table schema and setup normalized tables: %w", err)
+	if err := s.setupTableSchema(ctx, config); err != nil {
+		return nil, fmt.Errorf("failed to fetch table schema: %w", err)
+	}
+
+	if err := s.createNormalizedTables(ctx, config); err != nil {
+		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
 	return &protos.SetupFlowOutput{
