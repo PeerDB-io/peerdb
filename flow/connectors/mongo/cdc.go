@@ -36,6 +36,23 @@ type ChangeEvent struct {
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
+// ChangeStream is defined as an interface, allowing tests inject mock change stream.
+type ChangeStream interface {
+	Next(ctx context.Context) bool
+	ResumeToken() bson.Raw
+	Err() error
+	Close(ctx context.Context) error
+	Current() bson.Raw
+}
+
+type changeStreamWrapper struct {
+	*mongo.ChangeStream
+}
+
+func (w *changeStreamWrapper) Current() bson.Raw {
+	return w.ChangeStream.Current
+}
+
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
 	_ map[string]string,
@@ -87,8 +104,7 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to create changestream pipeline: %w", err)
 	}
-
-	changeStream, err := createChangeStream(c.client, ctx, pipeline, changeStreamOpts)
+	changeStream, err := c.createChangeStream(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
 	}
@@ -107,7 +123,7 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 			}
 		}
 	}
-	err = c.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
+	err = c.metadataStore.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
 		Text: base64.StdEncoding.EncodeToString(resumeToken),
 	})
 	if err != nil {
@@ -137,7 +153,12 @@ func (c *MongoConnector) PullRecords(
 
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
-		SetFullDocument(options.UpdateLookup)
+		SetFullDocument(options.UpdateLookup).
+		// batchSize=0 only affects the initial aggregate response, so Watch returns
+		// immediately without blocking on the initial cursor establishment. Subsequent
+		// getMore calls fall back to the server default (up to 16 MiB per batch).
+		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
+		SetBatchSize(0)
 
 	var resumeToken bson.Raw
 	var err error
@@ -157,7 +178,7 @@ func (c *MongoConnector) PullRecords(
 		return err
 	}
 
-	changeStream, err := createChangeStream(c.client, ctx, pipeline, changeStreamOpts)
+	changeStream, err := c.createChangeStream(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		if isResumeTokenNotFoundError(err) && resumeToken != nil {
 			timestamp, err := decodeTimestampFromResumeToken(resumeToken)
@@ -166,7 +187,7 @@ func (c *MongoConnector) PullRecords(
 			}
 			changeStreamOpts.SetStartAtOperationTime(&timestamp)
 			changeStreamOpts.SetResumeAfter(nil)
-			changeStream, err = createChangeStream(c.client, ctx, pipeline, changeStreamOpts)
+			changeStream, err = c.createChangeStream(ctx, pipeline, changeStreamOpts)
 			if err != nil {
 				return fmt.Errorf("failed to recreate change stream: %w", err)
 			}
@@ -207,12 +228,23 @@ func (c *MongoConnector) PullRecords(
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 	}()
 
-	checkpoint := func() {
-		if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
-			resumeTokenText := base64.StdEncoding.EncodeToString(resumeToken)
-			req.RecordStream.UpdateLatestCheckpointText(resumeTokenText)
-		} else {
+	checkpoint := func() string {
+		rt := changeStream.ResumeToken()
+		if rt == nil {
 			c.logger.Warn("change stream does not currently contain a resume token")
+			return ""
+		}
+		text := base64.StdEncoding.EncodeToString(rt)
+		req.RecordStream.UpdateLatestCheckpointText(text)
+		return text
+	}
+	checkpointToCatalog := func() {
+		text := checkpoint()
+		if text == "" {
+			return
+		}
+		if err := c.metadataStore.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: text}); err != nil {
+			c.logger.Error("failed to persist resume token", slog.String("resumeToken", text), slog.Any("error", err))
 		}
 	}
 
@@ -300,7 +332,7 @@ func (c *MongoConnector) PullRecords(
 			changeStreamOpts.SetStartAtOperationTime(nil)
 		}
 
-		changeStream, err = createChangeStream(c.client, ctx, pipeline, changeStreamOpts)
+		changeStream, err = c.createChangeStream(ctx, pipeline, changeStreamOpts)
 		if err != nil {
 			return err
 		}
@@ -317,11 +349,14 @@ func (c *MongoConnector) PullRecords(
 
 			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount > 0 {
+					// advance offset to the PostBatchResumeToken since the last change event's resume token may be quite old
+					checkpoint()
 					break
 				}
-				// update with PostBatchResumeToken on empty batch
-				// ref: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
-				checkpoint()
+				// when no events arrived in this batch, still advance offset to the PostBatchResumeToken.
+				// it's safe to persist to catalog since no records were handed off to the sync workflow,
+				// so there's no in-flight data we could skip past by advancing the offset.
+				checkpointToCatalog()
 				// DeadlineExceeded errors are deemed not recoverable/resumable, so we have to create a new change stream instance
 				if err := recreateChangeStream(false); err != nil {
 					return fmt.Errorf("failed to recreate change stream: %w", err)
@@ -342,12 +377,13 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("change stream error: %w", err)
 		}
 
-		changeEventSize := int64(len(changeStream.Current))
+		current := changeStream.Current()
+		changeEventSize := int64(len(current))
 		deltaBytesProcessed.Add(changeEventSize)
 		cumulativeBytesProcessed.Add(changeEventSize)
 
 		var changeEvent ChangeEvent
-		if err := bson.Unmarshal(changeStream.Current, &changeEvent); err != nil {
+		if err := bson.Unmarshal(current, &changeEvent); err != nil {
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 
@@ -463,20 +499,6 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 	)
 
 	return pipeline, nil
-}
-
-// createChangeStream calls client.Watch with a 5 minute context deadline
-// so the driver sends it as maxTimeMS over the wire. Otherwise, server-side
-// default maxTimeMS is used which can sometimes be too short.
-func createChangeStream(
-	client *mongo.Client,
-	parent context.Context,
-	pipeline mongo.Pipeline,
-	opts *options.ChangeStreamOptionsBuilder,
-) (*mongo.ChangeStream, error) {
-	watchCtx, cancel := context.WithTimeout(parent, 5*time.Minute)
-	defer cancel()
-	return client.Watch(watchCtx, pipeline, opts)
 }
 
 // This can happen if the resumeToken we are attempting to `ResumeAfter` refers to a table that has been

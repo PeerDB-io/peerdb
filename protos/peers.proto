@@ -186,6 +186,9 @@ message ClickhouseConfig{
   optional S3Config s3 = 16;
   string cluster = 17;
   bool replicated = 18;
+  // Directory path containing TLS certificate files (tls.crt, tls.key, and optionally ca.crt).
+  // Typically a Kubernetes Secret mounted as a volume. When set, takes precedence over inline cert fields.
+  optional string tls_certificate_directory = 19;
 }
 
 message SqlServerConfig {

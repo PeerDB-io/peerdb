@@ -36,7 +36,7 @@ require (
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
 	github.com/jackc/pglogrepl v0.0.0-20251213150135-2e8d0df862c1
-	github.com/jackc/pgx/v5 v5.9.1
+	github.com/jackc/pgx/v5 v5.9.1 // PINNED: v5.9.2 enables Postgres wire protocol v3.2 by default which changes macaddr[] decoding
 	github.com/joho/godotenv v1.5.1
 	github.com/json-iterator/go v1.1.12
 	github.com/lestrrat-go/httprc/v3 v3.0.5
@@ -50,7 +50,7 @@ require (
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20260331182218-500f1607530b
 	github.com/shopspring/decimal v1.4.0
 	github.com/slack-go/slack v0.20.0
-	github.com/snowflakedb/gosnowflake v1.19.0
+	github.com/snowflakedb/gosnowflake/v2 v2.0.2
 	github.com/stretchr/testify v1.11.1
 	github.com/twmb/franz-go v1.20.7
 	github.com/twmb/franz-go/pkg/kadm v1.17.2
@@ -249,7 +249,6 @@ require (
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.2.1 // indirect
-	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/tiancaiamao/gp v0.0.0-20230126082955-4f9e4f1ed9b5 // indirect
@@ -308,3 +307,57 @@ replace github.com/tikv/client-go/v2 => github.com/PeerDB-io/tikv-client-go/v2 v
 replace github.com/tikv/pd/client => github.com/tikv/pd/client v0.0.0-20251229071808-6173d50c004c // PINNED(DBI-444): the underlying dependency changed an interface
 
 replace github.com/PeerDB-io/peerdb/flow/pkg => ./pkg
+
+// Block MVS from raising require minima above the pinned versions in the require block — append new releases here until unpinned.
+exclude (
+	cloud.google.com/go/bigquery v1.73.0
+	cloud.google.com/go/bigquery v1.73.1
+	cloud.google.com/go/bigquery v1.74.0
+	cloud.google.com/go/bigquery v1.75.0
+	cloud.google.com/go/bigquery v1.76.0
+	cloud.google.com/go/pubsub/v2 v2.4.0
+	cloud.google.com/go/pubsub/v2 v2.5.0
+	cloud.google.com/go/pubsub/v2 v2.5.1
+	cloud.google.com/go/pubsub/v2 v2.6.0
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.21.1
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.0
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.1
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.2
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.3
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.4
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.5
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.6
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.7
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.8
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.9
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.10
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.11
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.12
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.13
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.14
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.15
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.16
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.17
+	github.com/jackc/pgx/v5 v5.9.2
+	google.golang.org/api v0.258.0
+	google.golang.org/api v0.259.0
+	google.golang.org/api v0.260.0
+	google.golang.org/api v0.261.0
+	google.golang.org/api v0.262.0
+	google.golang.org/api v0.263.0
+	google.golang.org/api v0.264.0
+	google.golang.org/api v0.265.0
+	google.golang.org/api v0.266.0
+	google.golang.org/api v0.267.0
+	google.golang.org/api v0.268.0
+	google.golang.org/api v0.269.0
+	google.golang.org/api v0.270.0
+	google.golang.org/api v0.271.0
+	google.golang.org/api v0.272.0
+	google.golang.org/api v0.273.0
+	google.golang.org/api v0.273.1
+	google.golang.org/api v0.274.0
+	google.golang.org/api v0.275.0
+	google.golang.org/api v0.276.0
+	google.golang.org/api v0.277.0
+)

@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
@@ -724,11 +726,26 @@ func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any)
 	return env.c.QueryWorkflow(ctx, env.GetID(), "", queryType, args...)
 }
 
+// catalogTestAccessPool is a pgxpool with application_name="catalog_test_access"
+// so test-side catalog reads are not collateral damage when other tests issue
+// pg_terminate_backend WHERE application_name='peerdb' (see api_test.go).
+var catalogTestAccessPool = sync.OnceValues(func() (*pgxpool.Pool, error) {
+	ctx := context.Background()
+	connStr := internal.GetCatalogConnectionStringFromEnv(ctx)
+	cfg, err := pgxpool.ParseConfig(connStr)
+	if err != nil {
+		return nil, err
+	}
+	cfg.ConnConfig.RuntimeParams["application_name"] = "catalog_test_access"
+	cfg.MaxConns = 3
+	return pgxpool.NewWithConfig(ctx, cfg)
+})
+
 func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
 	t.Helper()
-	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	pool, err := catalogTestAccessPool()
 	EnvNoError(t, env, err)
-	status, err := internal.GetWorkflowStatus(t.Context(), pool, env.GetID())
+	status, err := internal.GetWorkflowStatus(t.Context(), shared.CatalogPool{Pool: pool}, env.GetID())
 	EnvNoError(t, env, err)
 	return status
 }

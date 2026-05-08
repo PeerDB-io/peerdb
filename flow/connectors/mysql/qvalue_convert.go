@@ -137,7 +137,7 @@ func processGeometryData(data []byte) (types.QValueGeometry, error) {
 	}
 	g, err := geom.NewGeomFromWKB(data[4:])
 	if err != nil {
-		return types.QValueGeometry{}, fmt.Errorf("failed to parse geometry WKB: %w", err)
+		return types.QValueGeometry{}, exceptions.NewMySQLGeometryParseError(err)
 	}
 	return types.QValueGeometry{Val: g.ToWKT()}, nil
 }

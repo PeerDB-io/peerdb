@@ -17,7 +17,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/pubsub/v2"
 	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
-	"github.com/snowflakedb/gosnowflake"
+	"github.com/snowflakedb/gosnowflake/v2"
 	"github.com/youmark/pkcs8"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -178,15 +178,17 @@ func CleanupSF(ctx context.Context) {
 	}
 
 	snowflakeConfig := gosnowflake.Config{
-		Account:          config.AccountId,
-		User:             config.Username,
-		Authenticator:    gosnowflake.AuthTypeJwt,
-		PrivateKey:       privateKey,
-		Database:         config.Database,
-		Warehouse:        config.Warehouse,
-		Role:             config.Role,
-		RequestTimeout:   time.Minute,
-		DisableTelemetry: true,
+		Account:        config.AccountId,
+		User:           config.Username,
+		Authenticator:  gosnowflake.AuthTypeJwt,
+		PrivateKey:     privateKey,
+		Database:       config.Database,
+		Warehouse:      config.Warehouse,
+		Role:           config.Role,
+		RequestTimeout: time.Minute,
+		Params: map[string]*string{
+			"CLIENT_TELEMETRY_ENABLED": new("false"),
+		},
 	}
 
 	snowflakeConfigDSN, err := gosnowflake.DSN(&snowflakeConfig)

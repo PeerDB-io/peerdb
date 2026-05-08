@@ -42,6 +42,11 @@ const (
 	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
+
+	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
+	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
+	// once we already know the error came from MySQL geometry parsing.
+	mysqlGeometryLinearRingNotClosedError = "Points of LinearRing do not form a closed linestring"
 )
 
 var (
@@ -1098,6 +1103,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: ErrorSourceMySQL,
 				Code:   "UNKNOWN",
 			}
+		}
+	}
+
+	var mysqlGeometryParseError *exceptions.MySQLGeometryParseError
+	if errors.As(err, &mysqlGeometryParseError) &&
+		strings.Contains(mysqlGeometryParseError.Error(), mysqlGeometryLinearRingNotClosedError) {
+		return ErrorUnsupportedDatatype, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
 		}
 	}
 

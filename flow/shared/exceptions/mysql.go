@@ -67,6 +67,25 @@ func (e *MySQLUnsupportedDDLError) Error() string {
 		"Detected position-shifting DDL on table %s but binlog_row_metadata is not supported by this MySQL version.", e.TableName)
 }
 
+// MySQLGeometryParseError wraps go-geos WKB parse failures so they can be
+// classified as MySQL-source errors without string-matching at the alerting layer.
+// The underlying message comes from go-geos C code and is not unique to MySQL on its own.
+type MySQLGeometryParseError struct {
+	error
+}
+
+func NewMySQLGeometryParseError(err error) *MySQLGeometryParseError {
+	return &MySQLGeometryParseError{err}
+}
+
+func (e *MySQLGeometryParseError) Error() string {
+	return "failed to parse MySQL geometry WKB: " + e.error.Error()
+}
+
+func (e *MySQLGeometryParseError) Unwrap() error {
+	return e.error
+}
+
 type MySQLStreamingError struct {
 	error
 	Retryable bool

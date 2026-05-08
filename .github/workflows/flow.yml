@@ -54,13 +54,27 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      catalog2:
+        image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
+        ports:
+          - 5437:5432
+        env:
+          PGUSER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       redpanda:
         image: redpandadata/redpanda@sha256:12ddbd8e5572210a48d39afecac44db61503ce1cbdae50ee9b1ff5998a8d91e1
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.3.2@sha256:56282e41f1d9c8dc437e4c99d132cf9f154def73b6ea8a25ac969a28c2f529c6
+        image: elasticsearch:9.3.3@sha256:1d9ddbe28380c3305ef24c4364168030e4b8ce44834121f7c7dbdaedd2bb9cdf
         ports:
           - 9200:9200
         env:
@@ -87,7 +101,7 @@ jobs:
           - 49002:49002
           - 49003:49003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:742f577d4100f5ad3b38f270d722931bbe98b997444c13b1a2a838df12a9971e
+        image: linuxserver/openssh-server:latest@sha256:792bb9969a6751f9be2dcecdebd166f75c51187628f1be48ac9c9b3776561c16
         ports:
           - 2222:2222
         env:
@@ -111,11 +125,23 @@ jobs:
           go-version: '1.26.2'
           cache-dependency-path: flow/go.sum
 
-      - name: install lib-geos
+      - name: install lib-geos and pg_dump
         run: |
           # No need to update man pages on package install
           sudo apt-get remove --purge man-db
-          sudo apt-get install libgeos-dev
+          # Add PGDG apt repo for latest PostgreSQL client packages
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y libgeos-dev
+          # pg_dump must be >= the server major version; install v18 so it
+          # can dump PG 16, 17, and 18 (backward compatible).
+          sudo apt-get install -y postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> $GITHUB_PATH
 
       - name: install retry tool
         run: |
@@ -245,6 +271,21 @@ jobs:
           MINIO_ROOT_PASSWORD: miniosecret
           AWS_EC2_METADATA_DISABLED: true
 
+      - name: Generate ClickHouse TLS certificates
+        run: |
+          mkdir -p ch-certs
+          # CA
+          openssl genrsa -out ch-certs/ca.key 2048
+          openssl req -new -x509 -key ch-certs/ca.key -out ch-certs/ca.crt -days 3650 -subj "/CN=ClickHouse-CA"
+          # Server cert (CN=localhost, SAN for TLS 1.3)
+          openssl genrsa -out ch-certs/server.key 2048
+          openssl req -new -key ch-certs/server.key -out ch-certs/server.csr -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+          openssl x509 -req -days 3650 -in ch-certs/server.csr -CA ch-certs/ca.crt -CAkey ch-certs/ca.key -CAcreateserial -out ch-certs/server.crt -copy_extensions copyall
+          # Client cert for mTLS (CN=peerdb-client), using cert-manager naming convention
+          openssl genrsa -out ch-certs/tls.key 2048
+          openssl req -new -key ch-certs/tls.key -out ch-certs/client.csr -subj "/CN=peerdb-client"
+          openssl x509 -req -days 3650 -in ch-certs/client.csr -CA ch-certs/ca.crt -CAkey ch-certs/ca.key -CAcreateserial -out ch-certs/tls.crt
+
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
           docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
@@ -257,6 +298,17 @@ jobs:
           -c "ALTER SYSTEM SET max_connections=2048;" &&
           (cat ./nexus/catalog/migrations/V{?,??}__* | docker exec -i "${{ job.services.catalog.id }}" psql -U postgres) &&
           docker restart "${{ job.services.catalog.id }}"
+        env:
+          PGPASSWORD: postgres
+
+      - name: prepare secondary postgres for cross-cluster schema-dump tests
+        run: >
+          docker exec "${{ job.services.catalog2.id }}" psql -U postgres
+          -c "ALTER SYSTEM SET wal_level=logical;"
+          -c "ALTER SYSTEM SET max_replication_slots=192;"
+          -c "ALTER SYSTEM SET max_wal_senders=256;"
+          -c "ALTER SYSTEM SET max_connections=2048;" &&
+          docker restart "${{ job.services.catalog2.id }}"
         env:
           PGPASSWORD: postgres
 
@@ -310,6 +362,17 @@ jobs:
                 <access_management>1</access_management>
                 <named_collection_control>1</named_collection_control>
               </default>
+              <peerdb_tls>
+                <ssl_certificates>
+                  <common_name>peerdb-client</common_name>
+                </ssl_certificates>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+              </peerdb_tls>
             </users>
             <logger><level>none</level></logger>
             <path>var/lib/clickhouse</path>
@@ -317,9 +380,21 @@ jobs:
             <user_files_path>var/lib/clickhouse/user_files</user_files_path>
             <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
             <tcp_port>9000</tcp_port>
+            <tcp_port_secure>9440</tcp_port_secure>
             <http_port remove="1"/>
             <postgresql_port remove="1"/>
             <mysql_port remove="1"/>
+            <openSSL>
+              <server>
+                <certificateFile>../ch-certs/server.crt</certificateFile>
+                <privateKeyFile>../ch-certs/server.key</privateKeyFile>
+                <caConfig>../ch-certs/ca.crt</caConfig>
+                <verificationMode>relaxed</verificationMode>
+                <cacheSessions>true</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+              </server>
+            </openSSL>
             <macros>
               <shard>1</shard>
               <replica>1</replica>
@@ -365,6 +440,17 @@ jobs:
                 <access_management>1</access_management>
                 <named_collection_control>1</named_collection_control>
               </default>
+              <peerdb_tls>
+                <ssl_certificates>
+                  <common_name>peerdb-client</common_name>
+                </ssl_certificates>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+              </peerdb_tls>
             </users>
             <logger><level>none</level></logger>
             <path>var/lib/clickhouse</path>
@@ -372,9 +458,21 @@ jobs:
             <user_files_path>var/lib/clickhouse/user_files</user_files_path>
             <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
             <tcp_port>9001</tcp_port>
+            <tcp_port_secure>9441</tcp_port_secure>
             <http_port remove="1"/>
             <postgresql_port remove="1"/>
             <mysql_port remove="1"/>
+            <openSSL>
+              <server>
+                <certificateFile>../ch-certs/server.crt</certificateFile>
+                <privateKeyFile>../ch-certs/server.key</privateKeyFile>
+                <caConfig>../ch-certs/ca.crt</caConfig>
+                <verificationMode>relaxed</verificationMode>
+                <cacheSessions>true</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+              </server>
+            </openSSL>
             <macros>
               <shard>2</shard>
               <replica>1</replica>
@@ -500,6 +598,11 @@ jobs:
           PG_USER: postgres
           PG_PASSWORD: postgres
           PG_DATABASE: postgres
+          PG2_HOST: localhost
+          PG2_PORT: 5437
+          PG2_USER: postgres
+          PG2_PASSWORD: postgres
+          PG2_DATABASE: postgres
           PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
@@ -535,6 +638,9 @@ jobs:
           FLOW_TESTS_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+          # ClickHouse TLS/mTLS test certificates
+          PEERDB_CLICKHOUSE_TLS_PORT: "9440"
+          PEERDB_CLICKHOUSE_TLS_CERT_DIR: ${{ github.workspace }}/ch-certs
 
       - name: Upload peer-flow logs and test results
         if: always()
