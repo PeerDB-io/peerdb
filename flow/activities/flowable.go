@@ -2170,7 +2170,8 @@ func (a *FlowableActivity) RunPgDumpSchema(
 
 	dstPgConfig, ok := dstPeer.Config.(*protos.Peer_PostgresConfig)
 	if !ok {
-		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("destination peer %s is not a PostgreSQL peer", input.DestinationName))
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName,
+			fmt.Errorf("destination peer %s is not a PostgreSQL peer", input.DestinationName))
 	}
 
 	// skip schema migration for peers using SSH tunnels
