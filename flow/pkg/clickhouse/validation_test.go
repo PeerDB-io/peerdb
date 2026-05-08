@@ -55,23 +55,23 @@ func (m *mockConn) Query(_ context.Context, _ string, _ ...any) (driver.Rows, er
 func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 	tests := []struct {
 		name                   string
+		wantErr                string
 		rows                   []tableRow
 		tables                 []string
 		initialSnapshotEnabled bool
 		checkForCloudSMT       bool
 		allowNonEmpty          bool
-		wantErr                string
 	}{
 		{
-			name:   "view rejected",
-			rows:   []tableRow{{name: "test_view", engine: "View", totalRows: 0}},
-			tables: []string{"test_view"},
+			name:    "view rejected",
+			rows:    []tableRow{{name: "test_view", engine: "View", totalRows: 0}},
+			tables:  []string{"test_view"},
 			wantErr: "destination table can not be a view",
 		},
 		{
-			name:   "materialized view rejected",
-			rows:   []tableRow{{name: "test_mv", engine: "MaterializedView", totalRows: 0}},
-			tables: []string{"test_mv"},
+			name:    "materialized view rejected",
+			rows:    []tableRow{{name: "test_mv", engine: "MaterializedView", totalRows: 0}},
+			tables:  []string{"test_mv"},
 			wantErr: "destination table can not be a view",
 		},
 		{

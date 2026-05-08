@@ -75,7 +75,6 @@ func NewClickHouseConnector(
 
 // Performs some checks on the ClickHouse peer to ensure it will work for mirrors
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
-	// validate clickhouse host
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 
 	if err := peerdb_clickhouse.ValidateClickHousePeer(

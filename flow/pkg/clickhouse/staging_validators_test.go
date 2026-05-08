@@ -80,7 +80,7 @@ func TestNewS3StagingValidator_PutFailure(t *testing.T) {
 	client := newFakeS3Client(t, server)
 	err := NewS3StagingValidator(client, "b", "p")(t.Context())
 	require.ErrorContains(t, err, "failed to write to bucket")
-	require.Greater(t, puts.Load(), int32(0), "PUT must have been attempted")
+	require.Positive(t, puts.Load(), "PUT must have been attempted")
 	require.Equal(t, int32(0), deletes.Load(), "DELETE must not run when PUT fails")
 }
 
@@ -100,7 +100,7 @@ func TestNewS3StagingValidator_DeleteFailure(t *testing.T) {
 	client := newFakeS3Client(t, server)
 	err := NewS3StagingValidator(client, "b", "p")(t.Context())
 	require.ErrorContains(t, err, "failed to delete from bucket")
-	require.Greater(t, deletes.Load(), int32(0), "DELETE must have been attempted")
+	require.Positive(t, deletes.Load(), "DELETE must have been attempted")
 }
 
 func TestNewS3StagingValidator_EmptyPrefix(t *testing.T) {
