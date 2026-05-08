@@ -220,6 +220,7 @@ export async function handleValidate(
 
   const validateReq: ValidatePeerRequest = {
     peer: constructPeer(name!, type, config),
+    disableConnectorValidation: false,
   };
   const valid: ValidatePeerResponse = await fetch('/api/v1/peers/validate', {
     method: 'POST',
@@ -258,6 +259,7 @@ export async function handleCreate(
     peer: constructPeer(name!, type, config),
     allowUpdate: true,
     disableValidation: false,
+    disableConnectorValidation: false,
   };
   const createdPeer: CreatePeerResponse = await fetch('/api/v1/peers/create', {
     method: 'POST',
