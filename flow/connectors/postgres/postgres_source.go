@@ -51,6 +51,9 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
+	// drop any stale env override so PeerDBPostgresWalSenderTimeout falls through
+	// to the catalog dynamic_settings value
+	delete(env, "PEERDB_POSTGRES_WAL_SENDER_TIMEOUT")
 	walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
