@@ -232,15 +232,10 @@ func (s *SetupFlowExecution) createNormalizedTables(
 		Flags:             flowConnectionConfigs.Flags,
 	}
 
-	if !skipCreateTables {
-		if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
-			s.Error("failed to create normalized tables", slog.Any("error", err))
-			return fmt.Errorf("failed to create normalized tables: %w", err)
-		}
-	} else {
-		s.Info("skipping normalized table creation, pg_dump already created tables")
+	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
+		s.Error("failed to create normalized tables", slog.Any("error", err))
+		return fmt.Errorf("failed to create normalized tables: %w", err)
 	}
-
 	return nil
 }
 
