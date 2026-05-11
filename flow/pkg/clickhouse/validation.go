@@ -120,12 +120,20 @@ func ValidateClickHousePeer(
 	ctx context.Context,
 	logger log.Logger,
 	allowedDomains string,
-	peerName string,
+	serviceHost string,
 	conn clickhouse.Conn,
 	stagingValidator StagingValidator,
 ) error {
+	// Hostname validation
+	if err := ValidateClickHouseHost(ctx, serviceHost, allowedDomains); err != nil {
+		return err
+	}
+
+	// Target service validation
+
 	validateDummyTableName := "peerdb_validation_" + common.RandomString(4)
 	validateDummyTableNameRenamed := validateDummyTableName + "_renamed"
+
 	// create a table
 	if err := Exec(ctx, logger, conn,
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
@@ -179,6 +187,8 @@ func ValidateClickHousePeer(
 	if err := Exec(ctx, logger, conn, "DROP TABLE IF EXISTS "+validateDummyTableNameRenamed); err != nil {
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableNameRenamed, err)
 	}
+
+	// Staging validation
 
 	// validate staging storage
 	if err := stagingValidator(ctx); err != nil {
