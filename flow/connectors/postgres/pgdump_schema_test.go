@@ -205,8 +205,13 @@ func TestRunPipeline_ContextCancel(t *testing.T) {
 	requireUnix(t)
 	ctx, cancel := context.WithCancel(t.Context())
 
-	// long-running src that ignores stdin
-	src := exec.CommandContext(ctx, "sh", "-c", "sleep 30")
+	// Use exec'd binaries directly (not `sh -c "..."`). When sh is run with
+	// a single argument, many shells fork a child for the command rather than
+	// exec-replacing themselves. That child inherits sh's stderr fd, and Go's
+	// exec.Wait blocks draining stderr until every fd holder closes it -- so
+	// CommandContext killing sh isn't enough; the child keeps stderr open and
+	// Wait hangs. Using a single-process command avoids the inheritance.
+	src := exec.CommandContext(ctx, "sleep", "30")
 	dst := exec.CommandContext(ctx, "cat")
 	dst.Stdout = &bytes.Buffer{}
 

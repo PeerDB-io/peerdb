@@ -152,6 +152,16 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 		"-h", config.Host,
 		"-p", strconv.FormatUint(uint64(port), 10),
 		"-d", config.Database,
+		// Wrap the entire dump in a single transaction so partial failures
+		// roll back cleanly (makes the activity safely retryable) and avoid
+		// per-statement autocommit overhead on high-latency links.
+		"--single-transaction",
+		// Without this, psql logs errors to stderr but exits 0, so a half-
+		// applied schema would be reported as success. ON_ERROR_STOP=1 makes
+		// psql exit non-zero on the first failed statement.
+		"-v", "ON_ERROR_STOP=1",
+		// Quiet informational chatter; errors still go to stderr.
+		"--quiet",
 	}
 	if config.User != "" {
 		args = append(args, "-U", config.User)
