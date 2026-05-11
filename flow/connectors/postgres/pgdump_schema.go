@@ -43,41 +43,82 @@ func pipeCommand(
 	appendTLSEnv(ctx, srcCmd, srcConfig)
 	appendTLSEnv(ctx, psqlCmd, dstConfig)
 
-	// pipe source command stdout -> psql stdin
-	pipe, err := srcCmd.StdoutPipe()
+	return runPipeline(srcCmd, psqlCmd, srcBinary, "psql")
+}
+
+// runPipeline wires srcCmd's stdout into dstCmd's stdin and waits for both.
+func runPipeline(srcCmd, dstCmd *exec.Cmd, srcName, dstName string) error {
+	pr, pw, err := os.Pipe()
 	if err != nil {
-		return fmt.Errorf("failed to create %s stdout pipe: %w", srcBinary, err)
+		return fmt.Errorf("create pipe: %w", err)
 	}
-	psqlCmd.Stdin = pipe
+	srcCmd.Stdout = pw
+	dstCmd.Stdin = pr
 
-	var srcStderr, psqlStderr bytes.Buffer
+	var srcStderr, dstStderr bytes.Buffer
 	srcCmd.Stderr = &srcStderr
-	psqlCmd.Stderr = &psqlStderr
+	dstCmd.Stderr = &dstStderr
 
-	// start psql first so it's ready to read
-	if err := psqlCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start psql: %w", err)
+	// Start dst first so it's ready to read.
+	if err := dstCmd.Start(); err != nil {
+		pr.Close()
+		pw.Close()
+		return fmt.Errorf("start %s: %w", dstName, err)
 	}
+	// dst now owns the read end in its child process.
+	pr.Close()
 
-	// then start source command which writes to the pipe
 	if err := srcCmd.Start(); err != nil {
-		// kill psql since source command failed to start
-		_ = psqlCmd.Process.Kill()
-		_ = psqlCmd.Wait()
-		return fmt.Errorf("failed to start %s: %w", srcBinary, err)
+		pw.Close()
+		_ = dstCmd.Process.Kill()
+		_ = dstCmd.Wait()
+		return fmt.Errorf("start %s: %w", srcName, err)
+	}
+	// src now owns the write end in its child process.
+	pw.Close()
+
+	srcDone := make(chan error, 1)
+	dstDone := make(chan error, 1)
+	go func() { srcDone <- srcCmd.Wait() }()
+	go func() { dstDone <- dstCmd.Wait() }()
+
+	var (
+		srcErr, dstErr       error
+		srcKilled, dstKilled bool
+	)
+	for range 2 {
+		select {
+		case err := <-srcDone:
+			srcErr = err
+			if err != nil && dstCmd.ProcessState == nil {
+				_ = dstCmd.Process.Kill()
+				dstKilled = true
+			}
+		case err := <-dstDone:
+			dstErr = err
+			if srcCmd.ProcessState == nil {
+				// dst exited (success or failure) while src is still running;
+				// kill src so it doesn't block on a pipe with no reader.
+				_ = srcCmd.Process.Kill()
+				srcKilled = true
+			}
+		}
 	}
 
-	// wait for source command to finish (closes the pipe, signaling EOF to psql)
-	srcErr := srcCmd.Wait()
-	psqlErr := psqlCmd.Wait()
-
+	// Report the original cause, not the side we killed in response.
+	if dstErr != nil && !dstKilled {
+		return fmt.Errorf("%s failed: %w\nstderr:\n%s", dstName, dstErr, dstStderr.String())
+	}
+	if srcErr != nil && !srcKilled {
+		return fmt.Errorf("%s failed: %w\nstderr:\n%s", srcName, srcErr, srcStderr.String())
+	}
+	// Fallback: both sides killed (e.g. ctx cancel) — surface whichever error we have.
 	if srcErr != nil {
-		return fmt.Errorf("%s failed: %w\nstderr: %s", srcBinary, srcErr, srcStderr.String())
+		return fmt.Errorf("%s failed: %w\nstderr:\n%s", srcName, srcErr, srcStderr.String())
 	}
-	if psqlErr != nil {
-		return fmt.Errorf("psql failed: %w\nstderr: %s", psqlErr, psqlStderr.String())
+	if dstErr != nil {
+		return fmt.Errorf("%s failed: %w\nstderr:\n%s", dstName, dstErr, dstStderr.String())
 	}
-
 	return nil
 }
 
