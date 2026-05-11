@@ -188,7 +188,8 @@ func TestRunPipeline_LargeStream(t *testing.T) {
 	ctx := t.Context()
 
 	const size = 2 * 1024 * 1024 // 2 MiB
-	src := exec.CommandContext(ctx, "sh", "-c", "yes a | head -c "+itoa(size))
+	// #nosec G204 -- test-only, constant arguments
+	src := exec.CommandContext(ctx, "sh", "-c", "yes a | head -c 2097152")
 	var out bytes.Buffer
 	dst := exec.CommandContext(ctx, "cat")
 	dst.Stdout = &out
@@ -237,19 +238,4 @@ func TestRunPipeline_ContextCancel(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("runPipeline did not return after context cancel")
 	}
-}
-
-// itoa avoids importing strconv just for one call site in tests.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }
