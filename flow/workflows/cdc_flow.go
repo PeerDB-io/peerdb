@@ -224,6 +224,21 @@ func overrideSnapshotParametersInState(req *protos.FlowStateChangeRequest, state
 	}
 }
 
+func overrideSnapshotParametersInConfig(req *protos.FlowStateChangeRequest, cfg *protos.FlowConnectionConfigsCore) {
+	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
+		cdcConfigUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate()
+		if cdcConfigUpdate.SnapshotMaxParallelWorkers > 0 {
+			cfg.SnapshotMaxParallelWorkers = cdcConfigUpdate.SnapshotMaxParallelWorkers
+		}
+		if cdcConfigUpdate.SnapshotNumTablesInParallel > 0 {
+			cfg.SnapshotNumTablesInParallel = cdcConfigUpdate.SnapshotNumTablesInParallel
+		}
+		if cdcConfigUpdate.SnapshotNumRowsPerPartition > 0 {
+			cfg.SnapshotNumRowsPerPartition = cdcConfigUpdate.SnapshotNumRowsPerPartition
+		}
+	}
+}
+
 func processTableAdditions(
 	ctx workflow.Context,
 	logger log.Logger,
@@ -649,7 +664,7 @@ func CDCFlowWorkflow(
 				// so we need to NOT sync the tableMappings to catalog to preserve original names
 
 				// We still override the snapshot parameters (when resync with updated values)
-				overrideSnapshotParametersInState(val, state)
+				overrideSnapshotParametersInConfig(val, cfg)
 				uploadConfigToCatalog(ctx, cfg)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           cfg.FlowJobName,
