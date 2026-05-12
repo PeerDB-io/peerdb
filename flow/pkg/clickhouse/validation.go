@@ -116,6 +116,10 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 
 type StagingValidator = func(ctx context.Context) error
 
+func NoStagingValidator(ctx context.Context) error {
+	return nil
+}
+
 func ValidateClickHousePeer(
 	ctx context.Context,
 	logger log.Logger,

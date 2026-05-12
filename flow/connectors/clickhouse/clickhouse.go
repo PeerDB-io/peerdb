@@ -77,8 +77,12 @@ func NewClickHouseConnector(
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 
+	// NOTE: We are skipping staging validation, there is no need to
+	// confirm infrastructre is working at this stage again.
+	// To enable it back, just replace `peerdb_clickhouse.NoStagingValidator`
+	// with `c.staging.Validate`.
 	if err := peerdb_clickhouse.ValidateClickHousePeer(
-		ctx, c.logger, allowedDomains, c.Config.Host, c.database, c.staging.Validate,
+		ctx, c.logger, allowedDomains, c.Config.Host, c.database, peerdb_clickhouse.NoStagingValidator,
 	); err != nil {
 		return err
 	}
