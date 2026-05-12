@@ -27,13 +27,14 @@ export async function getCurrentIdleTimeout(mirrorName: string) {
 export async function changeFlowState(
   mirrorName: string,
   flowState: FlowStatus,
-  dropStats?: boolean
+  dropStats?: boolean,
+  skipDestDrop?: boolean
 ): Promise<Response> {
   const req: FlowStateChangeRequest = {
     flowJobName: mirrorName,
     requestedFlowState: flowState,
     dropMirrorStats: dropStats ?? false,
-    skipDestinationDrop: false,
+    skipDestinationDrop: skipDestDrop ?? false,
   };
   const res = await fetch('/api/v1/mirrors/state_change', {
     method: 'POST',
