@@ -3025,8 +3025,9 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 		)).Scan(&partitionKey, &sortingKey),
 	)
 	require.NoError(s.t, ch.Close())
-	require.Equal(s.t, "num", partitionKey)
-	require.Equal(s.t, "val", sortingKey)
+	// ClickHouse 26.5+ preserves the parens around single-column PARTITION BY / ORDER BY in system.tables; older versions unwrap them.
+	require.Contains(s.t, []string{"num", "(num)"}, partitionKey)
+	require.Contains(s.t, []string{"val", "(val)"}, sortingKey)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
