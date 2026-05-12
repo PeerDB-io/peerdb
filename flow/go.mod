@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go v0.123.0
 	cloud.google.com/go/bigquery v1.72.0 // PINNED: v1.73.0+ requires google.golang.org/api v0.259.0
 	cloud.google.com/go/pubsub/v2 v2.3.0 // PINNED: v2.4.0+ requires google.golang.org/api v0.259.0
-	cloud.google.com/go/storage v1.62.1
+	cloud.google.com/go/storage v1.59.2 // PINNED: v1.60.0+ requires google.golang.org/api v0.265.0+
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2 v2.0.2
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0
@@ -97,13 +97,13 @@ require (
 require github.com/quasilyte/go-ruleguard/dsl v0.3.23
 
 require (
-	cloud.google.com/go/kms v1.26.0 // PINNED: v1.26.0+ requires google.golang.org/api v0.265.0
+	cloud.google.com/go/kms v1.24.0 // PINNED: v1.26.0+ requires google.golang.org/api v0.265.0
 	cloud.google.com/go/longrunning v0.9.0 // indirect
 )
 
 require (
 	cel.dev/expr v0.25.1 // indirect
-	cloud.google.com/go/auth v0.20.0
+	cloud.google.com/go/auth v0.18.2 // PINNED: v0.19.0+ requires google.golang.org/api v0.267.0+
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.7.0 // indirect
@@ -311,15 +311,25 @@ replace github.com/PeerDB-io/peerdb/flow/pkg => ./pkg
 
 // Block MVS from raising require minima above the pinned versions in the require block — append new releases here until unpinned.
 exclude (
+	cloud.google.com/go/auth v0.19.0
+	cloud.google.com/go/auth v0.20.0
 	cloud.google.com/go/bigquery v1.73.0
 	cloud.google.com/go/bigquery v1.73.1
 	cloud.google.com/go/bigquery v1.74.0
 	cloud.google.com/go/bigquery v1.75.0
 	cloud.google.com/go/bigquery v1.76.0
+	cloud.google.com/go/kms v1.26.0
 	cloud.google.com/go/pubsub/v2 v2.4.0
 	cloud.google.com/go/pubsub/v2 v2.5.0
 	cloud.google.com/go/pubsub/v2 v2.5.1
 	cloud.google.com/go/pubsub/v2 v2.6.0
+	cloud.google.com/go/storage v1.60.0
+	cloud.google.com/go/storage v1.61.0
+	cloud.google.com/go/storage v1.61.1
+	cloud.google.com/go/storage v1.61.2
+	cloud.google.com/go/storage v1.61.3
+	cloud.google.com/go/storage v1.62.0
+	cloud.google.com/go/storage v1.62.1
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.21.1
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.0
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.1

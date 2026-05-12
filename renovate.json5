@@ -55,6 +55,11 @@
     // prevent updates if transitively required but it prevents proactive updates.
     {
       "matchManagers": ["gomod"],
+      "matchPackageNames": ["cloud.google.com/go/auth"],
+      "allowedVersions": "v0.18.2"
+    },
+    {
+      "matchManagers": ["gomod"],
       "matchPackageNames": ["cloud.google.com/go/bigquery"],
       "allowedVersions": "v1.72.0"
     },
@@ -62,6 +67,11 @@
       "matchManagers": ["gomod"],
       "matchPackageNames": ["cloud.google.com/go/pubsub/v2"],
       "allowedVersions": "v2.3.0"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["cloud.google.com/go/storage"],
+      "allowedVersions": "v1.59.2"
     },
     {
       "matchManagers": ["gomod"],

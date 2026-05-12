@@ -17,9 +17,11 @@ import (
 // To update a pinned dependency, change both go.mod, this map AND
 // the Renovate package rules in renovate.json that skips automated updates for that dependency.
 var pinnedVersions = map[string]string{
+	"cloud.google.com/go/auth":                        "v0.18.2",
 	"cloud.google.com/go/bigquery":                    "v1.72.0",
 	"cloud.google.com/go/kms":                         "v1.24.0",
 	"cloud.google.com/go/pubsub/v2":                   "v2.3.0",
+	"cloud.google.com/go/storage":                     "v1.59.2",
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager": "v1.21.0",
 	"google.golang.org/api":                           "v0.257.0",
 	"github.com/tikv/pd/client":                       "v0.0.0-20251229071808-6173d50c004c",
