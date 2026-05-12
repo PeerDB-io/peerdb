@@ -97,8 +97,8 @@ require (
 require github.com/quasilyte/go-ruleguard/dsl v0.3.23
 
 require (
-	cloud.google.com/go/kms v1.24.0 // PINNED: v1.26.0+ requires google.golang.org/api v0.265.0
-	cloud.google.com/go/longrunning v0.7.0 // indirect
+	cloud.google.com/go/kms v1.26.0 // PINNED: v1.26.0+ requires google.golang.org/api v0.265.0
+	cloud.google.com/go/longrunning v0.8.0 // indirect
 )
 
 require (

@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -95,7 +96,7 @@ func setupTestSchema(t *testing.T) (string, *pgx.Conn, string) {
 	}
 	t.Cleanup(func() { conn.Close(t.Context()) })
 
-	schemaName := "test_" + strings.ToLower(shared.RandomString(8))
+	schemaName := "test_" + strings.ToLower(common.RandomString(8))
 
 	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
 	if err != nil {
@@ -350,7 +351,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 
 	// Use a mixed-case schema name as well to verify OID-based lookups work
 	// for both schema and table identifiers (to_regclass lowercases unquoted identifiers).
-	schemaName := "Test_" + shared.RandomString(8)
+	schemaName := "Test_" + common.RandomString(8)
 	schemaNameDDL := `"` + schemaName + `"`
 	_, err := conn.Exec(t.Context(), `CREATE SCHEMA `+schemaNameDDL)
 	require.NoError(t, err)
@@ -616,7 +617,7 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 
 	// Use a mixed-case schema name as well to verify OID-based lookups work
 	// for both schema and table identifiers (to_regclass lowercases unquoted identifiers).
-	schemaName := "Test_" + shared.RandomString(8)
+	schemaName := "Test_" + common.RandomString(8)
 	schemaNameDDL := `"` + schemaName + `"`
 	_, err := conn.Exec(t.Context(), `CREATE SCHEMA `+schemaNameDDL)
 	require.NoError(t, err)

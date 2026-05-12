@@ -138,7 +138,7 @@ func syncQRepRecords(
 		}
 	} else {
 		// Step 2.1: Create a temp staging table
-		stagingTableName := "_peerdb_staging_" + shared.RandomString(8)
+		stagingTableName := "_peerdb_staging_" + common.RandomString(8)
 		stagingTableIdentifier := pgx.Identifier{stagingTableName}
 		dstTableIdentifier := pgx.Identifier{dstTable.Namespace, dstTable.Table}
 

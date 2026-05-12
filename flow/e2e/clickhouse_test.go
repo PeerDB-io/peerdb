@@ -27,6 +27,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -38,7 +39,7 @@ var testData embed.FS
 func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgch_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgch_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	}))
@@ -47,7 +48,7 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mych_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
 		return source, suffix, err
 	}))
@@ -56,7 +57,7 @@ func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgchcl_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgchcl_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	}))
@@ -65,7 +66,7 @@ func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mychcl_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychcl_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
 		return source, suffix, err
 	}))

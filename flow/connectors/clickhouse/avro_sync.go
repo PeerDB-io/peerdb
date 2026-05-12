@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -74,7 +75,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 		return 0, err
 	}
 
-	batchIdentifierForFile := fmt.Sprintf("%s_%d", shared.RandomString(16), syncBatchID)
+	batchIdentifierForFile := fmt.Sprintf("%s_%d", common.RandomString(16), syncBatchID)
 	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil, nil)
 	if err != nil {
 		return 0, err

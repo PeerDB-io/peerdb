@@ -14,7 +14,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type KafkaSuite struct {
@@ -69,7 +69,7 @@ func (s KafkaSuite) Teardown(ctx context.Context) {
 func SetupKafkaSuite(t *testing.T) KafkaSuite {
 	t.Helper()
 
-	suffix := "ka_" + strings.ToLower(shared.RandomString(8))
+	suffix := "ka_" + strings.ToLower(common.RandomString(8))
 	conn, err := SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 

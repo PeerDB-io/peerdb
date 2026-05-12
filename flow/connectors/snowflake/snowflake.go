@@ -166,7 +166,7 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	}
 	schemaName := c.rawSchema
 
-	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
+	dummyTable := "PEERDB_DUMMY_TABLE_" + common.RandomString(4)
 
 	// In a transaction, create a table, insert a row into the table and then drop the table
 	// If any of these steps fail, the transaction will be rolled back

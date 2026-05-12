@@ -20,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -91,7 +90,7 @@ func SetupBigQueryClickhouseSuite(t *testing.T) BigQueryClickhouseSuite {
 	t.Helper()
 	return BigQueryClickhouseSuite{SetupClickHouseSuite(t, false, func(t *testing.T) (*bigQuerySource, string, error) {
 		t.Helper()
-		suffix := "bqch_" + strings.ToLower(shared.RandomString(8))
+		suffix := "bqch_" + strings.ToLower(common.RandomString(8))
 		source, err := setupBigQuerySource(t)
 		return source, suffix, err
 	})(t)}
