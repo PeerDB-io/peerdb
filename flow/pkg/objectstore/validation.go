@@ -1,4 +1,4 @@
-package clickhouse
+package objectstore
 
 import (
 	"context"
@@ -16,6 +16,12 @@ import (
 // during a staging-bucket smoke test. Kept short and unambiguous so it's easy
 // to spot in bucket listings if a test object is ever leaked.
 const stagingCheckObjectPrefix = "_peerdb_check_"
+
+type StagingValidator = func(ctx context.Context) error
+
+func NoStagingValidator(ctx context.Context) error {
+	return nil
+}
 
 // NewS3StagingValidator returns a StagingValidator that smoke-tests an S3
 // bucket by writing a small object under prefix and then deleting it. Callers

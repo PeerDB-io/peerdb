@@ -15,6 +15,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/objectstore"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -121,7 +122,7 @@ func (g *gcsStagingStore) DeletePrefix(ctx context.Context, prefix string) error
 }
 
 func (g *gcsStagingStore) Validate(ctx context.Context) error {
-	return peerdb_clickhouse.NewGCSStagingValidator(g.client, g.bucket, g.prefix)(ctx)
+	return objectstore.NewGCSStagingValidator(g.client, g.bucket, g.prefix)(ctx)
 }
 
 func (g *gcsStagingStore) BucketPath() string {

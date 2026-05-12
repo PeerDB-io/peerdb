@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/objectstore"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -210,7 +211,7 @@ func (s *s3StagingStore) Validate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	return peerdb_clickhouse.NewS3StagingValidator(s3Client, s.bucket, s.prefix)(ctx)
+	return objectstore.NewS3StagingValidator(s3Client, s.bucket, s.prefix)(ctx)
 }
 
 func (s *s3StagingStore) BucketPath() string {

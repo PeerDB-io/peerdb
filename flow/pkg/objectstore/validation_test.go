@@ -1,4 +1,4 @@
-package clickhouse
+package objectstore
 
 import (
 	"net/http"
