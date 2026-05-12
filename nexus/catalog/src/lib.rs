@@ -151,20 +151,6 @@ async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
             migration.version()
         );
     }
-    run_non_transactional_migrations(client).await?;
-    Ok(())
-}
-
-async fn run_non_transactional_migrations(client: &Client) -> anyhow::Result<()> {
-    const STATEMENTS: &[&str] = &[
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cdc_batches_flow_name_batch_id_open ON peerdb_stats.cdc_batches (flow_name, batch_id) WHERE end_time IS NULL",
-    ];
-    for stmt in STATEMENTS {
-        client
-            .batch_execute(stmt)
-            .await
-            .with_context(|| format!("Failed to apply non-transactional migration: {stmt}"))?;
-    }
     Ok(())
 }
 

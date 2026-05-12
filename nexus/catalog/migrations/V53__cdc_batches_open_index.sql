@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS idx_cdc_batches_flow_name_batch_id_open ON peerdb_stats.cdc_batches (flow_name, batch_id) WHERE end_time IS NULL;

@@ -831,6 +831,7 @@ dependencies = [
  "postgres-connection",
  "pt",
  "refinery",
+ "reqwest",
  "serde_json",
  "sqlparser",
  "tokio",
