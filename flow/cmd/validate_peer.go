@@ -46,9 +46,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 	}
 	defer conn.Close()
 
-	shouldSkipConnectorValidation := req.DisableConnectorValidation != nil && *req.DisableConnectorValidation
-
-	if validationConn, ok := conn.(connectors.ValidationConnector); !shouldSkipConnectorValidation && ok {
+	if validationConn, ok := conn.(connectors.ValidationConnector); ok {
 		if validErr := validationConn.ValidateCheck(ctx); validErr != nil {
 			displayErr := fmt.Errorf("failed to validate peer %s: %w", req.Peer.Name, validErr)
 			return &protos.ValidatePeerResponse{
@@ -58,10 +56,6 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}
 	}
 
-	// While connector validations might be skipped in function of the request (because some of these validations
-	// might have happened upstream in the API flows), basic connectivity checks remain.
-	// A failure to ping the peer database at this point is still a system fault.
-
 	if connErr := conn.ConnectionActive(ctx); connErr != nil {
 		displayErr := fmt.Errorf("failed to establish active connection to %s peer %s: %w", req.Peer.Type, req.Peer.Name, connErr)
 		return &protos.ValidatePeerResponse{
@@ -70,14 +64,9 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, NewFailedPreconditionApiError(displayErr)
 	}
 
-	validationMsg := fmt.Sprintf("%s peer %s is valid", req.Peer.Type, req.Peer.Name)
-
-	if shouldSkipConnectorValidation {
-		validationMsg += " (connector validation skipped)"
-	}
-
 	return &protos.ValidatePeerResponse{
-		Status:  protos.ValidatePeerStatus_VALID,
-		Message: validationMsg,
+		Status: protos.ValidatePeerStatus_VALID,
+		Message: fmt.Sprintf("%s peer %s is valid",
+			req.Peer.Type, req.Peer.Name),
 	}, nil
 }
