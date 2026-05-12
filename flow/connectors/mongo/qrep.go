@@ -153,7 +153,7 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	defer cursor.Close(ctx)
 
-	converter := NewBsonConverter()
+	converter := NewDirectBsonConverter()
 	for cursor.Next(ctx) {
 		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable)
 		if err != nil {

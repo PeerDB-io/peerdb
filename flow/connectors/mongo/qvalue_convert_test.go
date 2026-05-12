@@ -630,7 +630,7 @@ func TestMarshalDocument(t *testing.T) {
 		},
 	}
 
-	converter := NewBsonConverter()
+	converter := NewDirectBsonConverter()
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
 			inputRaw, err := bson.Marshal(test.input)
@@ -656,7 +656,7 @@ func TestMarshalId(t *testing.T) {
 		require.NoError(t, err)
 		return bson.Raw(raw).Lookup("_id")
 	}
-	converter := NewBsonConverter()
+	converter := NewDirectBsonConverter()
 
 	objectId, err := bson.ObjectIDFromHex("6893edbecb1f9508891bbb84")
 	require.NoError(t, err)
@@ -695,7 +695,7 @@ func TestMarshalId(t *testing.T) {
 // Tests that floats of all magnitudes are marshaled into a reasonable length and have a signifier
 // that they're not integers
 func TestMarshalFloatLengths(t *testing.T) {
-	converter := NewBsonConverter()
+	converter := NewDirectBsonConverter()
 	maxExponent := 309
 	require.Equal(t, math.Inf(1), math.Pow10(maxExponent), "exponent range should cover +Inf")   //nolint:testifylint
 	require.Equal(t, math.Inf(-1), -math.Pow10(maxExponent), "exponent range should cover -Inf") //nolint:testifylint
@@ -744,7 +744,7 @@ func TestMarshalFloatLengths(t *testing.T) {
 }
 
 func TestQValuesFromBsonRawInvalidIds(t *testing.T) {
-	converter := NewBsonConverter()
+	converter := NewDirectBsonConverter()
 
 	t.Run("null _id is rejected", func(t *testing.T) {
 		raw, err := bson.Marshal(bson.D{{Key: "_id", Value: nil}})

@@ -248,7 +248,7 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	converter := NewBsonConverter()
+	converter := NewDirectBsonConverter()
 	addRecordItems := func(documentKey bson.Raw, fullDocument bson.Raw, items *model.RecordItems, tableName string) error {
 		if len(documentKey) > 0 {
 			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)

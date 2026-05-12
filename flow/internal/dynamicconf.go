@@ -799,4 +799,3 @@ func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]st
 func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
 }
-

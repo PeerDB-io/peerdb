@@ -17,25 +17,25 @@ import (
 )
 
 type BsonToQValueConverter interface {
-	// QValueStringFromId QValueStringFromId converts a raw _id value to a QValueString.
+	// QValueStringFromId converts a raw _id value to a QValueString.
 	QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error)
 	// QValueJSONFromDocument converts a raw BSON document to a QValueJSON.
 	QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error)
-}
-
-func NewBsonConverter() BsonToQValueConverter {
-	return &DirectBsonConverter{
-		// technically we write JSON directly via raw stream methods and do not use jsoniter's
-		// config-driven serialization specified here, but this config is applied consistent with our
-		// custom serialization so specifying it here for consistency
-		stream: jsoniter.NewStream(jsoniter.ConfigCompatibleWithStandardLibrary, nil, 512),
-	}
 }
 
 // DirectBsonConverter converts BSON directly to JSON string without intermediate deserialization,
 // it uses jsoniter.Stream to build JSON output incrementally into a reusable buffer (to avoid allocation)
 type DirectBsonConverter struct {
 	stream *jsoniter.Stream
+}
+
+func NewDirectBsonConverter() *DirectBsonConverter {
+	return &DirectBsonConverter{
+		// technically we write JSON directly via raw stream methods and do not use jsoniter's
+		// config-driven serialization specified here, but this config is applied consistent with our
+		// custom serialization so specifying it here for consistency
+		stream: jsoniter.NewStream(jsoniter.ConfigCompatibleWithStandardLibrary, nil, 512),
+	}
 }
 
 func (c *DirectBsonConverter) QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error) {
