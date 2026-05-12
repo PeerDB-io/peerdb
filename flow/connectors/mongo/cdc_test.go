@@ -143,7 +143,6 @@ func TestChangeStreamIdleConnectionAdvancesOffset(t *testing.T) {
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,
-		Env:                    map[string]string{"PEERDB_MONGODB_DIRECT_BSON_CONVERTER": "true"},
 	}
 	drainMongoCDCRecordsAsync(t, req.RecordStream)
 
