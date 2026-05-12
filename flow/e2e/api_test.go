@@ -1263,7 +1263,7 @@ func (s APITestSuite) TestClickHousePeerValidationBypass() {
 	// is reachable.
 	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer:                       peer,
-		DisableConnectorValidation: true,
+		DisableConnectorValidation: proto.Bool(true),
 	})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)

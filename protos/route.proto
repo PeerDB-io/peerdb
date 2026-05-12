@@ -68,7 +68,7 @@ message DeleteScriptResponse {}
 
 message ValidatePeerRequest {
   peerdb_peers.Peer peer = 1;
-  bool disable_connector_validation = 2;
+  optional bool disable_connector_validation = 2;
 }
 
 message CreatePeerRequest {
@@ -76,7 +76,7 @@ message CreatePeerRequest {
   bool allow_update = 2;
   bool disable_validation = 3;
   // Only disable connector validation, keep payload and connectivity checks.
-  bool disable_connector_validation = 4;
+  optional bool disable_connector_validation = 4;
 }
 
 message DropPeerRequest { string peer_name = 1; }

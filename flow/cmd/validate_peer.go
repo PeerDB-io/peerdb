@@ -46,7 +46,9 @@ func (h *FlowRequestHandler) ValidatePeer(
 	}
 	defer conn.Close()
 
-	if validationConn, ok := conn.(connectors.ValidationConnector); !req.DisableConnectorValidation && ok {
+	shouldSkipConnectorValidation := req.DisableConnectorValidation != nil && *req.DisableConnectorValidation
+
+	if validationConn, ok := conn.(connectors.ValidationConnector); !shouldSkipConnectorValidation && ok {
 		if validErr := validationConn.ValidateCheck(ctx); validErr != nil {
 			displayErr := fmt.Errorf("failed to validate peer %s: %w", req.Peer.Name, validErr)
 			return &protos.ValidatePeerResponse{
@@ -70,7 +72,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 
 	validationMsg := fmt.Sprintf("%s peer %s is valid", req.Peer.Type, req.Peer.Name)
 
-	if req.DisableConnectorValidation {
+	if shouldSkipConnectorValidation {
 		validationMsg += " (connector validation skipped)"
 	}
 
