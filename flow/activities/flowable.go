@@ -2196,11 +2196,17 @@ func (a *FlowableActivity) RunPgDumpSchema(
 
 	logger.Info("running pg_dump schema migration from source to destination",
 		slog.String("source", input.SourceName), slog.String("destination", input.DestinationName))
+	a.Alerter.LogFlowInfo(ctx, input.FlowName,
+		fmt.Sprintf("starting pg_dump schema migration from %s to %s", input.SourceName, input.DestinationName))
 
+	start := time.Now()
 	if err := connpostgres.RunPgDumpSchema(ctx, srcPgConfig.PostgresConfig, dstPgConfig.PostgresConfig); err != nil {
 		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("pg_dump schema migration failed: %w", err))
 	}
 
-	logger.Info("pg_dump schema migration completed successfully")
+	elapsed := time.Since(start).Round(time.Millisecond)
+	logger.Info("pg_dump schema migration completed successfully", slog.Duration("elapsed", elapsed))
+	a.Alerter.LogFlowInfo(ctx, input.FlowName,
+		fmt.Sprintf("pg_dump schema migration completed successfully in %s", elapsed))
 	return true, nil
 }

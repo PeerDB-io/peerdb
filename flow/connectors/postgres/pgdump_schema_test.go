@@ -28,7 +28,7 @@ func TestRunPipeline_HappyPath(t *testing.T) {
 	dst := exec.CommandContext(ctx, "cat")
 	dst.Stdout = &dstOut
 
-	if err := runPipeline(src, dst, "src", "dst"); err != nil {
+	if err := runPipeline(ctx, src, dst, "src", "dst", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got := dstOut.String(); got != "hello world" {
@@ -42,7 +42,7 @@ func TestRunPipeline_SrcStartFails(t *testing.T) {
 	src := exec.CommandContext(ctx, "/nonexistent/peerdb-test-binary")
 	dst := exec.CommandContext(ctx, "cat")
 
-	err := runPipeline(src, dst, "src", "dst")
+	err := runPipeline(ctx, src, dst, "src", "dst", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -61,7 +61,7 @@ func TestRunPipeline_DstStartFails(t *testing.T) {
 	src := exec.CommandContext(ctx, "echo", "hi")
 	dst := exec.CommandContext(ctx, "/nonexistent/peerdb-test-binary")
 
-	err := runPipeline(src, dst, "src", "dst")
+	err := runPipeline(ctx, src, dst, "src", "dst", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -83,7 +83,7 @@ func TestRunPipeline_SrcExitsNonZero(t *testing.T) {
 	dst := exec.CommandContext(ctx, "cat")
 	dst.Stdout = &bytes.Buffer{}
 
-	err := runPipeline(src, dst, "src", "dst")
+	err := runPipeline(ctx, src, dst, "src", "dst", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -100,7 +100,7 @@ func TestRunPipeline_DstExitsNonZero(t *testing.T) {
 	// exit 3 immediately, ignoring stdin
 	dst := exec.CommandContext(ctx, "sh", "-c", "exit 3")
 
-	err := runPipeline(src, dst, "src", "dst")
+	err := runPipeline(ctx, src, dst, "src", "dst", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -129,7 +129,7 @@ func TestRunPipeline_SrcFailsWhileDstSlow(t *testing.T) {
 
 	start := time.Now()
 	done := make(chan error, 1)
-	go func() { done <- runPipeline(src, dst, "src", "dst") }()
+	go func() { done <- runPipeline(ctx, src, dst, "src", "dst", nil) }()
 
 	select {
 	case err := <-done:
@@ -162,7 +162,7 @@ func TestRunPipeline_DstExitsWhileSrcWriting(t *testing.T) {
 
 	start := time.Now()
 	done := make(chan error, 1)
-	go func() { done <- runPipeline(src, dst, "src", "dst") }()
+	go func() { done <- runPipeline(ctx, src, dst, "src", "dst", nil) }()
 
 	select {
 	case err := <-done:
@@ -194,7 +194,7 @@ func TestRunPipeline_LargeStream(t *testing.T) {
 	dst := exec.CommandContext(ctx, "cat")
 	dst.Stdout = &out
 
-	if err := runPipeline(src, dst, "src", "dst"); err != nil {
+	if err := runPipeline(ctx, src, dst, "src", "dst", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if out.Len() != size {
@@ -217,7 +217,7 @@ func TestRunPipeline_ContextCancel(t *testing.T) {
 	dst.Stdout = &bytes.Buffer{}
 
 	done := make(chan error, 1)
-	go func() { done <- runPipeline(src, dst, "src", "dst") }()
+	go func() { done <- runPipeline(ctx, src, dst, "src", "dst", nil) }()
 
 	// give them a moment to start
 	time.Sleep(100 * time.Millisecond)
@@ -237,5 +237,34 @@ func TestRunPipeline_ContextCancel(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("runPipeline did not return after context cancel")
+	}
+}
+
+// TestRunPipeline_FilterStripsLines verifies the filter goroutine drops
+// matching lines and forwards the rest. Covers SET transaction_timeout (PG17+)
+// and \restrict / \unrestrict psql meta-commands (pg_dump 17.6+).
+func TestRunPipeline_FilterStripsLines(t *testing.T) {
+	requireUnix(t)
+	ctx := t.Context()
+
+	input := "SELECT 1;\n" +
+		"SET transaction_timeout = 0;\n" +
+		"\\restrict abc123\n" +
+		"CREATE TABLE t(id int);\n" +
+		"\\unrestrict abc123\n" +
+		"SELECT 2;\n"
+	src := exec.CommandContext(ctx, "printf", "%s", input)
+	var out bytes.Buffer
+	dst := exec.CommandContext(ctx, "cat")
+	dst.Stdout = &out
+
+	if err := runPipeline(ctx, src, dst, "src", "dst", filterIncompatibleLines); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := out.String()
+	want := "SELECT 1;\nCREATE TABLE t(id int);\nSELECT 2;\n"
+	if got != want {
+		t.Fatalf("filtered output = %q, want %q", got, want)
 	}
 }

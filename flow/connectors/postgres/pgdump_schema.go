@@ -1,16 +1,30 @@
 package connpostgres
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
+
+// pg_dump from newer Postgres versions emits statements that older
+// destinations don't recognize:
+//   - SET transaction_timeout = 0;        (PG17+ session GUC)
+//   - \restrict / \unrestrict <token>     (pg_dump 17.6+ psql meta-commands
+//     that gate replay against an unrelated psql session; older psql treats
+//     them as unknown backslash commands and aborts under ON_ERROR_STOP)
+//
+// These are session/replay housekeeping and safe to drop on the wire so we
+// keep ON_ERROR_STOP=1 for genuine DDL failures while remaining cross-version.
+var incompatibleLineRE = regexp.MustCompile(`^(SET\s+transaction_timeout\s*=|\\(?:un)?restrict(\s|$))`)
 
 // RunPgDumpSchema streams a schema-only pg_dump from source directly into psql
 // on the destination, piping stdout into stdin without intermediate files.
@@ -43,17 +57,74 @@ func pipeCommand(
 	appendTLSEnv(ctx, srcCmd, srcConfig)
 	appendTLSEnv(ctx, psqlCmd, dstConfig)
 
-	return runPipeline(srcCmd, psqlCmd, srcBinary, "psql")
+	return runPipeline(ctx, srcCmd, psqlCmd, srcBinary, "psql", filterIncompatibleLines)
 }
 
-// runPipeline wires srcCmd's stdout into dstCmd's stdin and waits for both.
-func runPipeline(srcCmd, dstCmd *exec.Cmd, srcName, dstName string) error {
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		return fmt.Errorf("create pipe: %w", err)
+// filterIncompatibleLines copies r->w line by line, dropping statements that
+// are valid in newer pg_dump output but rejected by older psql/destinations.
+func filterIncompatibleLines(ctx context.Context, r io.Reader, w io.Writer) error {
+	br := bufio.NewReaderSize(r, 64*1024)
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 {
+			if !incompatibleLineRE.Match(line) {
+				if _, werr := w.Write(line); werr != nil {
+					return werr
+				}
+			} else {
+				slog.DebugContext(ctx, "dropping incompatible line from pg_dump stream",
+					slog.String("line", string(bytes.TrimRight(line, "\n"))))
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
 	}
-	srcCmd.Stdout = pw
-	dstCmd.Stdin = pr
+}
+
+// runPipeline wires srcCmd's stdout into dstCmd's stdin (optionally through a
+// filter goroutine) and waits for both processes.
+//
+// Pipe topology:
+//
+//	without filter:  src.stdout -> srcW |--pipe--| srcR -> dst.stdin
+//	with filter:     src.stdout -> srcW |--pipe--| srcR -> filter -> dstW |--pipe--| dstR -> dst.stdin
+//
+// File descriptor ownership matters here -- if the parent keeps a write end
+// open after the child consumer dies, the producer can hang forever on a
+// blocked write. We close each fd as soon as the child or filter goroutine
+// owns it.
+func runPipeline(
+	ctx context.Context,
+	srcCmd, dstCmd *exec.Cmd,
+	srcName, dstName string,
+	filter func(context.Context, io.Reader, io.Writer) error,
+) error {
+	srcR, srcW, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("create src pipe: %w", err)
+	}
+	srcCmd.Stdout = srcW
+
+	var (
+		dstR, dstW *os.File
+		filterDone chan error
+	)
+	if filter == nil {
+		dstCmd.Stdin = srcR
+	} else {
+		dstR, dstW, err = os.Pipe()
+		if err != nil {
+			srcR.Close()
+			srcW.Close()
+			return fmt.Errorf("create dst pipe: %w", err)
+		}
+		dstCmd.Stdin = dstR
+		filterDone = make(chan error, 1)
+	}
 
 	var srcStderr, dstStderr bytes.Buffer
 	srcCmd.Stderr = &srcStderr
@@ -61,21 +132,48 @@ func runPipeline(srcCmd, dstCmd *exec.Cmd, srcName, dstName string) error {
 
 	// Start dst first so it's ready to read.
 	if err := dstCmd.Start(); err != nil {
-		pr.Close()
-		pw.Close()
+		srcR.Close()
+		srcW.Close()
+		if dstW != nil {
+			dstR.Close()
+			dstW.Close()
+		}
 		return fmt.Errorf("start %s: %w", dstName, err)
 	}
-	// dst now owns the read end in its child process.
-	pr.Close()
+	// dst owns its stdin fd in its child; close our copy.
+	if filter == nil {
+		srcR.Close()
+	} else {
+		dstR.Close()
+	}
 
 	if err := srcCmd.Start(); err != nil {
-		pw.Close()
+		srcW.Close()
+		if dstW != nil {
+			// filter never started; close its writer so dst sees EOF.
+			dstW.Close()
+			// and the read side we still hold if filter==nil path wasn't taken.
+			if filter != nil {
+				srcR.Close()
+			}
+		}
 		_ = dstCmd.Process.Kill()
 		_ = dstCmd.Wait()
 		return fmt.Errorf("start %s: %w", srcName, err)
 	}
-	// src now owns the write end in its child process.
-	pw.Close()
+	// src owns its stdout fd in its child; close our copy.
+	srcW.Close()
+
+	// Run the filter goroutine if configured. It bridges srcR -> dstW.
+	if filter != nil {
+		go func() {
+			err := filter(ctx, srcR, dstW)
+			// Always close both ends so the producer/consumer unblock.
+			srcR.Close()
+			dstW.Close()
+			filterDone <- err
+		}()
+	}
 
 	srcDone := make(chan error, 1)
 	dstDone := make(chan error, 1)
@@ -105,12 +203,22 @@ func runPipeline(srcCmd, dstCmd *exec.Cmd, srcName, dstName string) error {
 		}
 	}
 
+	// Wait for the filter to finish so we surface any I/O error and so the
+	// goroutine doesn't outlive this function.
+	var filterErr error
+	if filterDone != nil {
+		filterErr = <-filterDone
+	}
+
 	// Report the original cause, not the side we killed in response.
 	if dstErr != nil && !dstKilled {
 		return fmt.Errorf("%s failed: %w\nstderr:\n%s", dstName, dstErr, dstStderr.String())
 	}
 	if srcErr != nil && !srcKilled {
 		return fmt.Errorf("%s failed: %w\nstderr:\n%s", srcName, srcErr, srcStderr.String())
+	}
+	if filterErr != nil {
+		return fmt.Errorf("filter failed: %w", filterErr)
 	}
 	// Fallback: both sides killed (e.g. ctx cancel) — surface whichever error we have.
 	if srcErr != nil {
