@@ -106,6 +106,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 	lastOffset int64,
 	pgVersion shared.PGVersion,
 	useV2Protocol bool,
+	env map[string]string,
 ) error {
 	if c.replState != nil && (c.replState.Offset != lastOffset ||
 		c.replState.Slot != slotName ||
@@ -131,6 +132,20 @@ func (c *PostgresConnector) MaybeStartReplication(
 
 		c.replLock.Lock()
 		defer c.replLock.Unlock()
+
+		// Apply walsender-scoped GUC overrides before START_REPLICATION enters
+		// CopyBoth mode (after which the connection won't accept SQL).
+		if debugStream, err := internal.PeerDBPgDebugLogicalReplicationStreaming(ctx, env); err != nil {
+			return fmt.Errorf("error reading debug_logical_replication_streaming setting: %w", err)
+		} else if debugStream != "" {
+			c.logger.Warn("forcing debug_logical_replication_streaming on replication connection",
+				slog.String("value", debugStream))
+			if _, err := c.replConn.Exec(ctx,
+				"SET debug_logical_replication_streaming = "+utils.QuoteLiteral(debugStream)); err != nil {
+				return fmt.Errorf("failed to set debug_logical_replication_streaming: %w", err)
+			}
+		}
+
 		if err := pglogrepl.StartReplication(
 			ctx, c.replConn.PgConn(), common.QuoteIdentifier(slotName), startLSN, replicationOpts); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
@@ -205,7 +220,7 @@ func pullCore[Items model.Items](
 	var cdc *PostgresCDCSource
 	defer func() {
 		if cdc != nil && cdc.useV2Protocol {
-			req.RecordStream.SetV2(true, cdc.GetAndResetCommittedXIDs())
+			req.RecordStream.SetCommittedXIDs(cdc.GetAndResetCommittedXIDs())
 		}
 		req.RecordStream.Close()
 		if c.replState != nil {
@@ -255,8 +270,13 @@ func pullCore[Items model.Items](
 		c.logger.Warn("CDC v2 WAL sink requires PostgreSQL >= 14, falling back to v1")
 		useV2Protocol = false
 	}
+	// Set v2 active on the stream before pull starts: the sync goroutine reads
+	// it concurrently and routes records based on this flag.
+	req.RecordStream.SetV2Active(useV2Protocol)
 
-	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion, useV2Protocol); err != nil {
+	if err := c.MaybeStartReplication(
+		ctx, slotName, publicationName, req.LastOffset.ID, pgVersion, useV2Protocol, req.Env,
+	); err != nil {
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}

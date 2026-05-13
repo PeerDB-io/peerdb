@@ -428,6 +428,18 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		// Test/debug only. When set to "immediate" PG streams every change
+		// regardless of logical_decoding_work_mem (PG14+, PGC_USERSET, used
+		// by PG's own logical-replication test suite). Applied via SET on
+		// the per-flow replication connection so blast radius is one slot.
+		Name:             "PEERDB_PG_DEBUG_LOGICAL_REPLICATION_STREAMING",
+		Description:      "Override debug_logical_replication_streaming on the replication connection (buffered | immediate)",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_POSTGRES_ENABLE_FAILOVER_SLOTS",
 		Description:      "Create slots with failover enabled when possible",
 		DefaultValue:     "false",
@@ -815,6 +827,10 @@ func PeerDBForceInternalVersion(ctx context.Context, env map[string]string) (uin
 
 func PeerDBCDCV2Enabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CDC_V2_ENABLED")
+}
+
+func PeerDBPgDebugLogicalReplicationStreaming(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_PG_DEBUG_LOGICAL_REPLICATION_STREAMING")
 }
 
 func PeerDBPostgresEnableFailoverSlots(ctx context.Context, env map[string]string) (bool, error) {

@@ -3566,15 +3566,19 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 // with streaming 'on'. On the destination it routes records into a separate
 // _peerdb_wal_<flow> sink table (instead of the v1 _peerdb_raw_<flow>) and
 // makes the normalize step filter by committed XIDs read from catalog table
-// cdc_v2_committed_xids. Asserts both the row equality and that the v2 pipeline
-// actually fired (WAL sink table populated with non-zero XIDs, v1 raw table
-// unused, XID metadata cleaned up after normalize).
+// cdc_v2_committed_xids.
 //
-// The streamed-transaction path (StreamStart/Commit + InsertMessageV2 carrying
-// its own Xid) requires the walsender's logical_decoding_work_mem to be small
-// enough to spill before commit, which can't be configured per-test without
-// disturbing the shared parallel suite. The XID-stamping logic that path
-// depends on is covered by unit test TestBaseRecordV2.
+// Asserts:
+//   - row equality across initial, single insert, multi-statement tx, and delete
+//     (all non-streamed: small enough to fit under logical_decoding_work_mem).
+//   - WAL sink table populated with non-zero _peerdb_txid (v2 sink fired).
+//   - v1 raw table unused.
+//   - cdc_v2_committed_xids cleaned up post-normalize.
+//   - Streamed-transaction path: forced via
+//     PEERDB_PG_DEBUG_LOGICAL_REPLICATION_STREAMING=immediate (PG14+, scoped to
+//     this slot's walsender — does not leak to parallel v1 tests). With this
+//     GUC PG streams every change rather than waiting for the in-progress
+//     transaction to exceed logical_decoding_work_mem.
 func (s ClickHouseSuite) Test_CDC_V2_Protocol() {
 	pgSource, ok := s.source.(*PostgresSource)
 	if !ok {
@@ -3604,7 +3608,12 @@ func (s ClickHouseSuite) Test_CDC_V2_Protocol() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_CDC_V2_ENABLED": "true"}
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_CDC_V2_ENABLED": "true",
+		// Force streaming for every change so a moderate-sized transaction
+		// (below logical_decoding_work_mem) still exercises StreamStart/Commit.
+		"PEERDB_PG_DEBUG_LOGICAL_REPLICATION_STREAMING": "immediate",
+	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3624,6 +3633,19 @@ func (s ClickHouseSuite) Test_CDC_V2_Protocol() {
 	require.NoError(s.t, pgSource.Exec(s.t.Context(),
 		fmt.Sprintf(`DELETE FROM %s WHERE "key"='tx1'`, srcFullName)))
 	EnvWaitForEqualTablesWithNames(env, s, "v2 delete", srcTableName, dstTableName, `id,"key",val`)
+
+	// Verify streaming actually happened. With debug_logical_replication_streaming
+	// = 'immediate', every change above streams via StreamStart/InsertMessageV2/
+	// StreamCommit rather than buffered Begin/Commit. Walsender accounts these
+	// in pg_stat_replication_slots.stream_txns.
+	slotName := "peerflow_slot_" + flowJobName
+	var streamTxns int64
+	require.NoError(s.t, pgSource.PostgresConnector.Conn().QueryRow(s.t.Context(),
+		"SELECT stream_txns FROM pg_stat_replication_slots WHERE slot_name = $1",
+		slotName,
+	).Scan(&streamTxns))
+	require.Positive(s.t, streamTxns,
+		"expected at least one streamed transaction with debug_logical_replication_streaming=immediate; got %d", streamTxns)
 
 	// Verify the v2 pipeline actually fired rather than silently falling back to v1.
 	flowSlug := shared.ReplaceIllegalCharactersWithUnderscores(flowJobName)
