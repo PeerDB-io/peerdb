@@ -534,7 +534,16 @@ func PullCdcRecords[Items model.Items](
 	var latestServerWALEnd, lastXLogDataServerWALEnd atomic.Int64
 	defer func() {
 		if totalRecords == 0 {
-			records.SignalAsEmpty()
+			// In v2 mode a batch may carry only a StreamCommit/Commit (no DML records)
+			// when a transaction's commit lands in a different batch than its inserts.
+			// Treat such batches as non-empty so the activity still calls SyncRecords
+			// and persists the committed XIDs; otherwise the prior batch's records
+			// in the WAL sink would never be marked committed and never normalize.
+			if p.useV2Protocol && len(p.committedXIDs) > 0 {
+				records.SignalAsNotEmpty()
+			} else {
+				records.SignalAsEmpty()
+			}
 		}
 		logger.Info("[finished] PullRecords",
 			slog.Int64("records", totalRecords),
@@ -637,8 +646,14 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if p.useV2Protocol {
-			// In v2 mode, batch boundaries are not gated on transaction commit.
-			// Transactions can span batches; we return when batch is full or deadline reached.
+			// In v2 mode batch boundaries are not gated on whole-transaction commit;
+			// huge transactions may span batches. But we still avoid returning while
+			// a streamed transaction is in flight (StreamStart seen, no StreamCommit/
+			// Abort yet) so its commit XID is recorded alongside its inserts whenever
+			// possible. Without this guard a small streamed txn whose Commit arrives
+			// shortly after StreamStop could be split across two batches, leaving the
+			// records orphaned in the WAL sink with no committedXID to normalize.
+			inProgressStreams := p.inStream || len(p.activeStreams) > 0
 			if totalRecords >= int64(req.MaxBatchSize) {
 				logger.Info("v2: batch filled, returning currently accumulated records",
 					slog.Int64("records", totalRecords),
@@ -647,14 +662,15 @@ func PullCdcRecords[Items model.Items](
 				return nil
 			}
 			if time.Now().After(nextStandbyMessageDeadline) {
-				if totalRecords != 0 {
+				if totalRecords != 0 && !inProgressStreams {
 					logger.Info("v2: standby deadline reached, returning records",
 						slog.Int64("records", totalRecords),
 						slog.Int64("bytes", totalFetchedBytes.Load()),
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					return nil
 				}
-				logger.Info("standby deadline reached, no records accumulated, continuing to wait")
+				logger.Info("standby deadline reached, no records accumulated or streams in flight, continuing to wait",
+					slog.Bool("inProgressStreams", inProgressStreams))
 				nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 			}
 		} else {
