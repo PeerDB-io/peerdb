@@ -2,11 +2,12 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 
-	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
@@ -15,12 +16,17 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+//nolint:govet // test fixture keeps related search settings grouped for readability.
 type elasticsearchSuite struct {
+	searchAddrs []string
+	searchURL   string
+	searchUser  string
+	searchPass  string
+	suffix      string
+	backend     string
 	t           *testing.T
 	conn        *connpostgres.PostgresConnector
-	esClient    *elasticsearch.TypedClient
-	suffix      string
-	esAddresses []string
+	searchAuth  protos.ElasticsearchAuthType
 }
 
 func (s elasticsearchSuite) T() *testing.T {
@@ -41,26 +47,44 @@ func (s elasticsearchSuite) Suffix() string {
 
 func SetupElasticSuite(t *testing.T) elasticsearchSuite {
 	t.Helper()
+	return setupSearchSuite(t, "elasticsearch", "es", "ELASTICSEARCH_TEST_ADDRESS")
+}
 
-	suffix := "es_" + strings.ToLower(shared.RandomString(8))
+func SetupOpenSearchSuite(t *testing.T) elasticsearchSuite {
+	t.Helper()
+	return setupSearchSuite(t, "opensearch", "os", "OPENSEARCH_TEST_ADDRESS")
+}
+
+func setupSearchSuite(t *testing.T, backend string, prefix string, addressEnv string) elasticsearchSuite {
+	t.Helper()
+
+	suffix := prefix + "_" + strings.ToLower(shared.RandomString(8))
 	conn, err := SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
-	esAddresses := strings.Split(internal.GetEnvString("ELASTICSEARCH_TEST_ADDRESS", ""), ",")
 
-	esClient, err := elasticsearch.NewTypedClient(elasticsearch.Config{
-		Addresses: esAddresses,
-		Transport: &http.Transport{
-			MaxIdleConnsPerHost: 4,
-		},
-	})
-	require.NoError(t, err, "failed to setup elasticsearch")
+	addressCSV := internal.GetEnvString(addressEnv, "")
+	require.NotEmpty(t, addressCSV, "expected %s to be set", addressEnv)
+	searchAddrs := strings.Split(addressCSV, ",")
+
+	usernameEnv := strings.ToUpper(backend) + "_TEST_USERNAME"
+	passwordEnv := strings.ToUpper(backend) + "_TEST_PASSWORD"
+	searchUser := internal.GetEnvString(usernameEnv, "")
+	searchPass := internal.GetEnvString(passwordEnv, "")
+	searchAuth := protos.ElasticsearchAuthType_NONE
+	if searchUser != "" || searchPass != "" {
+		searchAuth = protos.ElasticsearchAuthType_BASIC
+	}
 
 	return elasticsearchSuite{
 		t:           t,
 		conn:        conn.PostgresConnector,
-		esClient:    esClient,
-		esAddresses: esAddresses,
 		suffix:      suffix,
+		backend:     backend,
+		searchURL:   strings.TrimRight(searchAddrs[0], "/"),
+		searchAuth:  searchAuth,
+		searchUser:  searchUser,
+		searchPass:  searchPass,
+		searchAddrs: searchAddrs,
 	}
 }
 
@@ -69,14 +93,20 @@ func (s elasticsearchSuite) Teardown(ctx context.Context) {
 }
 
 func (s elasticsearchSuite) Peer() *protos.Peer {
+	config := &protos.ElasticsearchConfig{
+		Addresses: s.searchAddrs,
+		AuthType:  s.searchAuth,
+	}
+	if s.searchAuth == protos.ElasticsearchAuthType_BASIC {
+		config.Username = &s.searchUser
+		config.Password = &s.searchPass
+	}
+
 	ret := &protos.Peer{
-		Name: AddSuffix(s, "elasticsearch"),
+		Name: AddSuffix(s, s.backend),
 		Type: protos.DBType_ELASTICSEARCH,
 		Config: &protos.Peer_ElasticsearchConfig{
-			ElasticsearchConfig: &protos.ElasticsearchConfig{
-				Addresses: s.esAddresses,
-				AuthType:  protos.ElasticsearchAuthType_NONE,
-			},
+			ElasticsearchConfig: config,
 		},
 	}
 	CreatePeer(s.t, ret)
@@ -84,13 +114,43 @@ func (s elasticsearchSuite) Peer() *protos.Peer {
 }
 
 func (s elasticsearchSuite) countDocumentsInIndex(index string) int64 {
-	res, err := s.esClient.Count().Index(index).Do(s.t.Context())
-	// index may not exist yet, don't error out for that
-	// search can occasionally fail, retry for that
-	if err != nil && (strings.Contains(err.Error(), "index_not_found_exception") ||
-		strings.Contains(err.Error(), "search_phase_execution_exception")) {
+	status, payload := s.performSearchRequest(s.t.Context(), http.MethodPost, "/"+index+"/_count", nil)
+	if status == http.StatusNotFound ||
+		strings.Contains(string(payload), "index_not_found_exception") ||
+		strings.Contains(string(payload), "search_phase_execution_exception") {
 		return -1
 	}
-	require.NoError(s.t, err, "failed to get count of documents in index")
-	return res.Count
+
+	require.Lessf(s.t, status, http.StatusMultipleChoices,
+		"failed to get count of documents in index %s: %s", index, string(payload))
+
+	var response struct {
+		Count int64 `json:"count"`
+	}
+	require.NoError(s.t, json.Unmarshal(payload, &response), "failed to decode count response")
+	return response.Count
+}
+
+func (s elasticsearchSuite) performSearchRequest(
+	ctx context.Context,
+	method string,
+	path string,
+	body io.Reader,
+) (int, []byte) {
+	req, err := http.NewRequestWithContext(ctx, method, s.searchURL+path, body)
+	require.NoError(s.t, err, "failed to create %s request for %s", method, path)
+	if s.searchAuth == protos.ElasticsearchAuthType_BASIC {
+		req.SetBasicAuth(s.searchUser, s.searchPass)
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{MaxIdleConnsPerHost: 4},
+	}
+	resp, err := client.Do(req)
+	require.NoError(s.t, err, "failed to perform %s request for %s", method, path)
+	defer resp.Body.Close()
+
+	payload, err := io.ReadAll(resp.Body)
+	require.NoError(s.t, err, "failed to read %s response for %s", method, path)
+	return resp.StatusCode, payload
 }

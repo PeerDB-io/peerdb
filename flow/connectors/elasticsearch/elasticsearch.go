@@ -3,19 +3,15 @@ package connelasticsearch
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
-	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/esutil"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -28,8 +24,8 @@ import (
 )
 
 const (
-	actionIndex  = "index"
-	actionDelete = "delete"
+	actionIndex searchAction = iota + 1
+	actionDelete
 )
 
 type tableUpsertCol struct {
@@ -38,32 +34,18 @@ type tableUpsertCol struct {
 }
 
 type ElasticsearchConnector struct {
+	client searchClient
+	logger log.Logger
 	*metadataStore.PostgresMetadata
-	client                   *elasticsearch.Client
-	logger                   log.Logger
 	hushWarnUpsertColMissing map[tableUpsertCol]struct{}
 }
 
 func NewElasticsearchConnector(ctx context.Context,
 	config *protos.ElasticsearchConfig,
 ) (*ElasticsearchConnector, error) {
-	esCfg := &elasticsearch.Config{
-		Addresses: config.Addresses,
-		Transport: &http.Transport{
-			MaxIdleConnsPerHost: 4,
-			TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS13},
-		},
-	}
-	if config.AuthType == protos.ElasticsearchAuthType_BASIC {
-		esCfg.Username = *config.Username
-		esCfg.Password = *config.Password
-	} else if config.AuthType == protos.ElasticsearchAuthType_APIKEY {
-		esCfg.APIKey = *config.ApiKey
-	}
-
-	esClient, err := elasticsearch.NewClient(*esCfg)
+	client, err := newSearchClient(ctx, config)
 	if err != nil {
-		return nil, fmt.Errorf("error creating elasticsearch connector: %w", err)
+		return nil, err
 	}
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
@@ -71,17 +53,16 @@ func NewElasticsearchConnector(ctx context.Context,
 	}
 
 	return &ElasticsearchConnector{
-		PostgresMetadata:         pgMetadata,
-		client:                   esClient,
+		client:                   client,
 		logger:                   internal.LoggerFromCtx(ctx),
+		PostgresMetadata:         pgMetadata,
 		hushWarnUpsertColMissing: make(map[tableUpsertCol]struct{}),
 	}, nil
 }
 
 func (esc *ElasticsearchConnector) ConnectionActive(ctx context.Context) error {
-	err := esc.client.DiscoverNodes()
-	if err != nil {
-		return fmt.Errorf("failed to check if elasticsearch peer is active: %w", err)
+	if err := esc.client.DiscoverNodes(); err != nil {
+		return fmt.Errorf("failed to check if %s peer is active: %w", esc.client.Backend(), err)
 	}
 	return nil
 }
@@ -89,6 +70,10 @@ func (esc *ElasticsearchConnector) ConnectionActive(ctx context.Context) error {
 func (esc *ElasticsearchConnector) Close() error {
 	// stateless connector
 	return nil
+}
+
+func (esc *ElasticsearchConnector) logPrefix() string {
+	return esc.client.Backend().logPrefix()
 }
 
 // ES is queue-like, no raw table staging needed
@@ -106,18 +91,18 @@ func (esc *ElasticsearchConnector) ReplayTableSchemaDeltas(ctx context.Context, 
 }
 
 func recordItemsProcessor(items model.RecordItems) ([]byte, error) {
-	qRecordJsonMap := make(map[string]any)
+	qRecordJSONMap := make(map[string]any)
 
 	for key, val := range items.ColToVal {
 		if r, ok := val.(types.QValueJSON); ok { // JSON is stored as a string, fix that
-			qRecordJsonMap[key] = json.RawMessage(
+			qRecordJSONMap[key] = json.RawMessage(
 				shared.UnsafeFastStringToReadOnlyBytes(r.Val))
 		} else {
-			qRecordJsonMap[key] = val.Value()
+			qRecordJSONMap[key] = val.Value()
 		}
 	}
 
-	return json.Marshal(qRecordJsonMap)
+	return json.Marshal(qRecordJSONMap)
 }
 
 func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
@@ -127,20 +112,17 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	var lastSeenLSN atomic.Int64
 	var numRecords int64
 
-	// no I don't like this either
-	esBulkIndexerCache := make(map[string]esutil.BulkIndexer)
+	bulkIndexerCache := make(map[string]searchBulkIndexer)
 	bulkIndexersHaveShutdown := false
-	// true if we saw errors while closing
 	cacheCloser := func() bool {
 		closeHasErrors := false
 		if !bulkIndexersHaveShutdown {
-			for esBulkIndexer := range maps.Values(esBulkIndexerCache) {
-				err := esBulkIndexer.Close(context.Background())
-				if err != nil {
-					esc.logger.Error("[elasticsearch] failed to close bulk indexer", slog.Any("error", err))
+			for bulkIndexer := range maps.Values(bulkIndexerCache) {
+				if err := bulkIndexer.Close(context.Background()); err != nil {
+					esc.logger.Error(esc.logPrefix()+" failed to close bulk indexer", slog.Any("error", err))
 					closeHasErrors = true
 				}
-				numRecords += int64(esBulkIndexer.Stats().NumFlushed)
+				numRecords += int64(bulkIndexer.NumFlushed())
 			}
 			bulkIndexersHaveShutdown = true
 		}
@@ -152,7 +134,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	go func() {
 		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 		if err != nil {
-			esc.logger.Warn("[elasticsearch] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
+			esc.logger.Warn(esc.logPrefix()+" failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return
 		}
 		ticker := time.NewTicker(flushTimeout)
@@ -168,10 +150,10 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 				lastSeen := lastSeenLSN.Load()
 				if lastSeen > req.ConsumedOffset.Load() {
 					if err := esc.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeen}); err != nil {
-						esc.logger.Warn("[elasticsearch] SetLastOffset error", slog.Any("error", err))
+						esc.logger.Warn(esc.logPrefix()+" SetLastOffset error", slog.Any("error", err))
 					} else {
 						shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
-						esc.logger.Info("[elasticsearch] updated last offset",
+						esc.logger.Info(esc.logPrefix()+" updated last offset",
 							slog.Int64("lastOffset", lastSeen))
 					}
 				}
@@ -179,7 +161,6 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 		}
 	}()
 
-	var docId string
 	var bulkIndexFatalError error
 	var bulkIndexErrors []error
 	var bulkIndexOnFailureMutex sync.Mutex
@@ -197,101 +178,80 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 		case *model.InsertRecord[model.RecordItems], *model.UpdateRecord[model.RecordItems]:
 			bodyBytes, err = recordItemsProcessor(record.GetItems())
 			if err != nil {
-				esc.logger.Error("[elasticsearch] failed to json.Marshal record", slog.Any("error", err))
-				return nil, fmt.Errorf("[elasticsearch] failed to json.Marshal record: %w", err)
+				esc.logger.Error(esc.logPrefix()+" failed to json.Marshal record", slog.Any("error", err))
+				return nil, fmt.Errorf("%s failed to json.Marshal record: %w", esc.logPrefix(), err)
 			}
 		case *model.DeleteRecord[model.RecordItems]:
 			action = actionDelete
-			// no need to supply the document since we are deleting
 			bodyBytes = nil
 		}
 
-		bulkIndexer, ok := esBulkIndexerCache[record.GetDestinationTableName()]
+		bulkIndexer, ok := bulkIndexerCache[record.GetDestinationTableName()]
 		if !ok {
-			bulkIndexer, err = esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
-				Index:  record.GetDestinationTableName(),
-				Client: esc.client,
-				// can't really ascertain how many tables present to provide a reasonable value
-				NumWorkers:    1,
-				FlushInterval: 10 * time.Second,
-			})
+			bulkIndexer, err = esc.client.NewBulkIndexer(record.GetDestinationTableName())
 			if err != nil {
-				esc.logger.Error("[elasticsearch] failed to initialize bulk indexer", slog.Any("error", err))
-				return nil, fmt.Errorf("[elasticsearch] failed to initialize bulk indexer: %w", err)
+				esc.logger.Error(esc.logPrefix()+" failed to initialize bulk indexer", slog.Any("error", err))
+				return nil, fmt.Errorf("%s failed to initialize bulk indexer: %w", esc.logPrefix(), err)
 			}
-			esBulkIndexerCache[record.GetDestinationTableName()] = bulkIndexer
+			bulkIndexerCache[record.GetDestinationTableName()] = bulkIndexer
 		}
 
+		var docID string
 		if len(req.TableNameSchemaMapping[record.GetDestinationTableName()].PrimaryKeyColumns) == 1 {
 			qValue, err := record.GetItems().GetValueByColName(
 				req.TableNameSchemaMapping[record.GetDestinationTableName()].PrimaryKeyColumns[0])
 			if err != nil {
-				esc.logger.Error("[elasticsearch] failed to process record", slog.Any("error", err))
-				return nil, fmt.Errorf("[elasticsearch] failed to process record: %w", err)
+				esc.logger.Error(esc.logPrefix()+" failed to process record", slog.Any("error", err))
+				return nil, fmt.Errorf("%s failed to process record: %w", esc.logPrefix(), err)
 			}
-			docId = fmt.Sprint(qValue.Value())
+			docID = fmt.Sprint(qValue.Value())
 		} else {
-			tablePkey, err := model.RecToTablePKey(req.TableNameSchemaMapping, record)
+			tablePKey, err := model.RecToTablePKey(req.TableNameSchemaMapping, record)
 			if err != nil {
-				esc.logger.Error("[elasticsearch] failed to process record", slog.Any("error", err))
-				return nil, fmt.Errorf("[elasticsearch] failed to process record: %w", err)
+				esc.logger.Error(esc.logPrefix()+" failed to process record", slog.Any("error", err))
+				return nil, fmt.Errorf("%s failed to process record: %w", esc.logPrefix(), err)
 			}
-			docId = base64.RawURLEncoding.EncodeToString(tablePkey.PkeyColVal[:])
+			docID = base64.RawURLEncoding.EncodeToString(tablePKey.PkeyColVal[:])
 		}
 
-		if err := bulkIndexer.Add(ctx, esutil.BulkIndexerItem{
+		if err := bulkIndexer.Add(ctx, searchBulkIndexerItem{
 			Action:     action,
-			DocumentID: docId,
+			DocumentID: docID,
 			Body:       bytes.NewReader(bodyBytes),
-
-			OnSuccess: func(_ context.Context, _ esutil.BulkIndexerItem, _ esutil.BulkIndexerResponseItem) {
+			OnSuccess: func() {
 				shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
 				record.PopulateCountMap(tableNameRowsMapping)
 			},
-			// OnFailure is called for each failed operation, log and let parent handle
-			OnFailure: func(ctx context.Context, item esutil.BulkIndexerItem,
-				res esutil.BulkIndexerResponseItem, err error,
-			) {
-				// attempt to delete a record that wasn't present, possible from no initial load
-				if item.Action == actionDelete && res.Status == 404 {
+			OnFailure: func(failure searchBulkIndexerFailure) {
+				if action == actionDelete && failure.Status == 404 {
 					return
 				}
 				bulkIndexOnFailureMutex.Lock()
 				defer bulkIndexOnFailureMutex.Unlock()
-				if err != nil {
-					bulkIndexErrors = append(bulkIndexErrors, err)
-				} else {
-					causeString := ""
-					if res.Error.Cause.Type != "" || res.Error.Cause.Reason != "" {
-						causeString = fmt.Sprintf("(caused by type:%s reason:%s)", res.Error.Cause.Type, res.Error.Cause.Reason)
-					}
-					cbErr := fmt.Errorf("id:%s action:%s type:%s reason:%s %s", item.DocumentID, item.Action, res.Error.Type,
-						res.Error.Reason, causeString)
-					bulkIndexErrors = append(bulkIndexErrors, cbErr)
-					if res.Error.Type == "illegal_argument_exception" {
-						bulkIndexFatalError = cbErr
-					}
+				cbErr := searchFailureToError(docID, failure)
+				bulkIndexErrors = append(bulkIndexErrors, cbErr)
+				if failure.ErrorType == "illegal_argument_exception" {
+					bulkIndexFatalError = cbErr
 				}
 			},
 		}); err != nil {
-			esc.logger.Error("[elasticsearch] failed to add record to bulk indexer", slog.Any("error", err))
-			return nil, fmt.Errorf("[elasticsearch] failed to add record to bulk indexer: %w", err)
+			esc.logger.Error(esc.logPrefix()+" failed to add record to bulk indexer", slog.Any("error", err))
+			return nil, fmt.Errorf("%s failed to add record to bulk indexer: %w", esc.logPrefix(), err)
 		}
 		if bulkIndexFatalError != nil {
-			esc.logger.Error("[elasticsearch] fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
-			return nil, fmt.Errorf("[elasticsearch] fatal error while indexing record: %w", bulkIndexFatalError)
+			esc.logger.Error(esc.logPrefix()+" fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
+			return nil, fmt.Errorf("%s fatal error while indexing record: %w", esc.logPrefix(), bulkIndexFatalError)
 		}
 	}
-	// "Receive on a closed channel yields the zero value after all elements in the channel are received."
 	close(flushLoopDone)
 
 	if cacheCloser() {
-		esc.logger.Error("[elasticsearch] failed to close bulk indexer(s)")
-		return nil, fmt.Errorf("[elasticsearch] failed to close bulk indexer(s)")
+		esc.logger.Error(esc.logPrefix() + " failed to close bulk indexer(s)")
+		return nil, fmt.Errorf("%s failed to close bulk indexer(s)", esc.logPrefix())
 	}
 	if len(bulkIndexErrors) > 0 {
 		for _, err := range bulkIndexErrors {
-			esc.logger.Error("[elasticsearch] failed to index record", slog.Any("err", err))
+			esc.logger.Error(esc.logPrefix()+" failed to index record", slog.Any("err", err))
 		}
 	}
 
