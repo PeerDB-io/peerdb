@@ -70,6 +70,9 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	connConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
 	connConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	connConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
+	// Required for QueryExecModeSimpleProtocol, which is set in some places while querying;
+	// pgx refuses simple protocol when the server reports standard_conforming_strings=off.
+	connConfig.Config.RuntimeParams["standard_conforming_strings"] = "on"
 
 	tunnel, err := utils.NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {

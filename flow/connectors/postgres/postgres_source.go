@@ -49,6 +49,9 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
+	// Required for QueryExecModeSimpleProtocol below; pgx refuses simple
+	// protocol when the server reports standard_conforming_strings=off.
+	replConfig.Config.RuntimeParams["standard_conforming_strings"] = "on"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
