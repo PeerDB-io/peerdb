@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 
+	"cloud.google.com/go/storage"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -23,6 +24,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/api/googleapi"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -1013,5 +1015,54 @@ func TestMySQLGeometryParseErrorUnknownShouldFallThrough(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "UNKNOWN",
+	}, errInfo)
+}
+
+func TestGoogleAPIAuthAndAccessErrorsShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{401, 403, 404} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			t.Parallel()
+
+			apiErr := &googleapi.Error{Code: code, Message: "boom"}
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", apiErr))
+			assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   strconv.Itoa(code),
+			}, errInfo)
+		})
+	}
+}
+
+// Mirrors the cloud.google.com/go/storage wrapping of 404 from `formatBucketError`:
+//
+//	return fmt.Errorf("%w: %w", ErrBucketNotExist, err)
+//
+// `it.Next()` on a missing staging bucket surfaces this exact shape at
+// connectors/bigquery/source.go:59.
+func TestGCSBucketNotExistShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 404, Message: "Not Found"}
+	wrapped := fmt.Errorf("%w: %w", storage.ErrBucketNotExist, apiErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", wrapped))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "404",
+	}, errInfo)
+}
+
+func TestGoogleAPIUnclassifiedCodeShouldBeOther(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 500, Message: "internal"}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", apiErr))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "500",
 	}, errInfo)
 }

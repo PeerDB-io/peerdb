@@ -23,6 +23,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
+	"google.golang.org/api/googleapi"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -81,6 +82,7 @@ const (
 	ErrorSourcePostgres        ErrorSource = "postgres"
 	ErrorSourceMySQL           ErrorSource = "mysql"
 	ErrorSourceMongoDB         ErrorSource = "mongodb"
+	ErrorSourceBigQuery        ErrorSource = "bigquery"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -870,6 +872,20 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 		return ErrorRetryRecoverable, mongoErrorInfo
+	}
+
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+		bqErrorInfo := ErrorInfo{
+			Source: ErrorSourceBigQuery,
+			Code:   strconv.Itoa(apiErr.Code),
+		}
+		switch apiErr.Code {
+		case 401, // Unauthorized
+			403, // Forbidden
+			404: // Not Found (e.g. missing dataset/table/staging bucket)
+			return ErrorNotifyConnectivity, bqErrorInfo
+		}
+		return ErrorOther, bqErrorInfo
 	}
 
 	if chException, ok := errors.AsType[*clickhouse.Exception](err); ok {
