@@ -15,9 +15,9 @@ temporal_port = resolve_env('TEMPORAL_PORT', '7233')
 temporal_ui_port = resolve_env('TEMPORAL_UI_PORT', '8085')
 flow_api_grpc_port = resolve_env('FLOW_API_PORT', '8112')
 flow_api_http_port = resolve_env('FLOW_API_HTTP_PORT', '8113')
-docker_go_debug_port_flow_worker = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_WORKER', '4001')
-docker_go_debug_port_flow_snapshot_worker = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_SNAPSHOT_WORKER', '4002')
-docker_go_debug_port_flow_api = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_API', '4003')
+docker_go_debug_port_flow_worker = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_WORKER', '14001')
+docker_go_debug_port_flow_snapshot_worker = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_SNAPSHOT_WORKER', '14002')
+docker_go_debug_port_flow_api = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_API', '14003')
 
 flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
 
