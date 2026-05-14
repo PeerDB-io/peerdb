@@ -69,7 +69,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:12ddbd8e5572210a48d39afecac44db61503ce1cbdae50ee9b1ff5998a8d91e1
+        image: redpandadata/redpanda@sha256:70e28c21d23e222efbe45eb862b65792507c1928675d52ed1aa72ac642ef12da
         ports:
           - 9092:9092
           - 9644:9644
@@ -82,7 +82,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.150.1@sha256:a516c26968aa1feb5e5fc0562e3338ea13755cb4f373603226bcc4e276374ad0
+        image: otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
         ports:
           - 4317:4317
       toxiproxy:
@@ -101,7 +101,7 @@ jobs:
           - 49002:49002
           - 49003:49003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:792bb9969a6751f9be2dcecdebd166f75c51187628f1be48ac9c9b3776561c16
+        image: linuxserver/openssh-server:latest@sha256:29d4e3f887596c4c2fc609f4e07040b08890a238178da400ffa2a602b55245bc
         ports:
           - 2222:2222
         env:
@@ -179,7 +179,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
