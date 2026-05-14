@@ -2642,10 +2642,28 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE nulltarget"))
 	require.NoError(s.t, ch.Close())
+	// TODO: Revert this block after future CH behaviour is clarified.
+	// Work around CH 26.5+ behavior: EXCHANGE TABLES and CREATE OR REPLACE on a source table
+	// orphan its dependent materialized views.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), `TRUNCATE TABLE `+srcFullName))
+	// end of workaround block
+
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.Resync = true
 	env = ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// TODO: Revert this block after future CH behaviour is clarified.
+	// Work around CH 26.5+ behavior: EXCHANGE TABLES and CREATE OR REPLACE on a source table
+	// orphan its dependent materialized views.
+	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	require.NoError(s.t, err)
+	require.NoError(s.t, ch.Exec(s.t.Context(), `DROP VIEW IF EXISTS nullmv`))
+	require.NoError(s.t, ch.Exec(s.t.Context(),
+		`create materialized view nullmv to nulltarget as select id, "key", _peerdb_is_deleted from test_nullengine`))
+	require.NoError(s.t, ch.Close())
+	// end of workaround block
+
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, "nulltarget", "id,\"key\"")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),

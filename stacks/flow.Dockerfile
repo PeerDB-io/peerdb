@@ -55,7 +55,7 @@ ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
 EXPOSE 8112 8113
-CMD ["api", "--port", "8112", "--gateway-port", "8113"]
+ENTRYPOINT [ "/home/peerdb/peer-flow", "api", "--port", "8112", "--gateway-port", "8113"]
 
 FROM flow-base-debug AS flow-api-debug
 
@@ -77,7 +77,7 @@ ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
-CMD ["worker"]
+ENTRYPOINT [ "/home/peerdb/peer-flow", "worker"]
 
 FROM flow-base-debug AS flow-worker-debug
 ENV OTEL_METRIC_EXPORT_INTERVAL=10000
@@ -91,7 +91,7 @@ FROM flow-base AS flow-snapshot-worker
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-CMD ["snapshot-worker"]
+ENTRYPOINT [ "/home/peerdb/peer-flow", "snapshot-worker"]
 
 FROM flow-base-debug AS flow-snapshot-worker-debug
 
@@ -104,4 +104,4 @@ FROM flow-base AS flow-maintenance
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-CMD ["maintenance"]
+ENTRYPOINT [ "/home/peerdb/peer-flow", "maintenance"]
