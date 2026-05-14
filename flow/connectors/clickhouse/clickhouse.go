@@ -23,7 +23,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/pkg/objectstore"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -78,12 +77,8 @@ func NewClickHouseConnector(
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 
-	// NOTE: We are skipping staging validation, there is no need to
-	// confirm infrastructure is working at this stage again.
-	// To enable it back, just replace `objectstore.NoStagingValidator`
-	// with `c.staging.Validate`.
 	if err := peerdb_clickhouse.ValidateClickHousePeer(
-		ctx, c.logger, allowedDomains, c.Config.Host, c.database, objectstore.NoStagingValidator,
+		ctx, c.logger, allowedDomains, c.Config.Host, c.database, c.staging.Validate,
 	); err != nil {
 		return err
 	}
