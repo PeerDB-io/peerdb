@@ -209,33 +209,22 @@ func handleFlowSignalStateChange(
 	}
 }
 
-func overrideSnapshotParametersInState(req *protos.FlowStateChangeRequest, state *cdc_state.CDCFlowWorkflowState) {
-	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
-		cdcConfigUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate()
-		if cdcConfigUpdate.SnapshotMaxParallelWorkers > 0 {
-			state.SnapshotMaxParallelWorkers = cdcConfigUpdate.SnapshotMaxParallelWorkers
-		}
-		if cdcConfigUpdate.SnapshotNumTablesInParallel > 0 {
-			state.SnapshotNumTablesInParallel = cdcConfigUpdate.SnapshotNumTablesInParallel
-		}
-		if cdcConfigUpdate.SnapshotNumRowsPerPartition > 0 {
-			state.SnapshotNumRowsPerPartition = cdcConfigUpdate.SnapshotNumRowsPerPartition
-		}
+func overrideSnapshotParametersInState(req *protos.FlowStateChangeRequest, s *cdc_state.CDCFlowWorkflowState) {
+	u := req.GetFlowConfigUpdate().GetCdcFlowConfigUpdate()
+	if u == nil {
+		return
 	}
-}
-
-func overrideSnapshotParametersInConfig(req *protos.FlowStateChangeRequest, cfg *protos.FlowConnectionConfigsCore) {
-	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
-		cdcConfigUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate()
-		if cdcConfigUpdate.SnapshotMaxParallelWorkers > 0 {
-			cfg.SnapshotMaxParallelWorkers = cdcConfigUpdate.SnapshotMaxParallelWorkers
-		}
-		if cdcConfigUpdate.SnapshotNumTablesInParallel > 0 {
-			cfg.SnapshotNumTablesInParallel = cdcConfigUpdate.SnapshotNumTablesInParallel
-		}
-		if cdcConfigUpdate.SnapshotNumRowsPerPartition > 0 {
-			cfg.SnapshotNumRowsPerPartition = cdcConfigUpdate.SnapshotNumRowsPerPartition
-		}
+	if u.SnapshotMaxParallelWorkers > 0 {
+		s.SnapshotMaxParallelWorkers = u.SnapshotMaxParallelWorkers
+	}
+	if u.SnapshotNumTablesInParallel > 0 {
+		s.SnapshotNumTablesInParallel = u.SnapshotNumTablesInParallel
+	}
+	if u.SnapshotNumRowsPerPartition > 0 {
+		s.SnapshotNumRowsPerPartition = u.SnapshotNumRowsPerPartition
+	}
+	if u.SnapshotNumPartitionsOverride > 0 {
+		s.SnapshotNumPartitionsOverride = u.SnapshotNumPartitionsOverride
 	}
 }
 
@@ -664,7 +653,8 @@ func CDCFlowWorkflow(
 				// so we need to NOT sync the tableMappings to catalog to preserve original names
 
 				// We still override the snapshot parameters (when resync with updated values)
-				overrideSnapshotParametersInConfig(val, cfg)
+				overrideSnapshotParametersInState(val, state)
+				syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				uploadConfigToCatalog(ctx, cfg)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           cfg.FlowJobName,

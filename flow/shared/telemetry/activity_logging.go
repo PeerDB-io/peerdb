@@ -93,6 +93,15 @@ func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, upda
 		changes = append(changes, fmt.Sprintf("tables removed: %v", removedTables))
 	}
 
+	if update.BatchSize > 0 {
+		changes = append(changes, fmt.Sprintf("batchSize: %v", update.BatchSize))
+	}
+	if update.IdleTimeout > 0 {
+		changes = append(changes, fmt.Sprintf("idleTimeout: %v", update.IdleTimeout))
+	}
+	if update.SnapshotNumPartitionsOverride > 0 {
+		changes = append(changes, fmt.Sprintf("snapshotNumPartitionsOverride: %v", update.SnapshotNumPartitionsOverride))
+	}
 	if update.SnapshotMaxParallelWorkers > 0 {
 		changes = append(changes, fmt.Sprintf("snapshotMaxParallelWorkers: %v", update.SnapshotMaxParallelWorkers))
 	}

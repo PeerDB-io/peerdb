@@ -422,7 +422,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
 	req *protos.FlowStateChangeRequest,
 ) (*protos.FlowStateChangeResponse, APIError) {
-	// Flow-API
 	logs := slog.String(string(shared.FlowNameKey), req.FlowJobName)
 	slog.InfoContext(ctx, "FlowStateChange called", logs, slog.Any("req", req))
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
@@ -554,16 +553,15 @@ func (h *FlowRequestHandler) FlowStateChange(
 }
 
 func overrideSnapshotParametersInResync(req *protos.FlowStateChangeRequest, configs *protos.FlowConnectionConfigs) {
-	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
-		cdcConfigUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate()
-		if cdcConfigUpdate.SnapshotMaxParallelWorkers > 0 {
-			configs.SnapshotMaxParallelWorkers = cdcConfigUpdate.SnapshotMaxParallelWorkers
+	if u := req.GetFlowConfigUpdate().GetCdcFlowConfigUpdate(); u != nil {
+		if u.SnapshotMaxParallelWorkers > 0 {
+			configs.SnapshotMaxParallelWorkers = u.SnapshotMaxParallelWorkers
 		}
-		if cdcConfigUpdate.SnapshotNumTablesInParallel > 0 {
-			configs.SnapshotNumTablesInParallel = cdcConfigUpdate.SnapshotNumTablesInParallel
+		if u.SnapshotNumTablesInParallel > 0 {
+			configs.SnapshotNumTablesInParallel = u.SnapshotNumTablesInParallel
 		}
-		if cdcConfigUpdate.SnapshotNumRowsPerPartition > 0 {
-			configs.SnapshotNumRowsPerPartition = cdcConfigUpdate.SnapshotNumRowsPerPartition
+		if u.SnapshotNumRowsPerPartition > 0 {
+			configs.SnapshotNumRowsPerPartition = u.SnapshotNumRowsPerPartition
 		}
 	}
 }
