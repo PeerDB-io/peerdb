@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"cloud.google.com/go/bigquery"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -874,16 +875,21 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorRetryRecoverable, mongoErrorInfo
 	}
 
-	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+	if _, ok := errors.AsType[*exceptions.BigQueryError](err); ok {
 		bqErrorInfo := ErrorInfo{
 			Source: ErrorSourceBigQuery,
-			Code:   strconv.Itoa(apiErr.Code),
+			Code:   "UNKNOWN",
 		}
-		switch apiErr.Code {
-		case 401, // Unauthorized
-			403, // Forbidden
-			404: // Not Found (e.g. missing dataset/table/staging bucket)
-			return ErrorNotifyConnectivity, bqErrorInfo
+		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+			bqErrorInfo.Code = strconv.Itoa(apiErr.Code)
+			switch apiErr.Code {
+			case 401, // Unauthorized
+				403, // Forbidden
+				404: // Not Found (e.g. missing dataset/table/staging bucket)
+				return ErrorNotifyConnectivity, bqErrorInfo
+			}
+		} else if bqErr, ok := errors.AsType[*bigquery.Error](err); ok && bqErr.Reason != "" {
+			bqErrorInfo.Code = bqErr.Reason
 		}
 		return ErrorOther, bqErrorInfo
 	}

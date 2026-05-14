@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 
+	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -1018,7 +1019,7 @@ func TestMySQLGeometryParseErrorUnknownShouldFallThrough(t *testing.T) {
 	}, errInfo)
 }
 
-func TestGoogleAPIAuthAndAccessErrorsShouldBeConnectivity(t *testing.T) {
+func TestBigQueryAuthAndAccessErrorsShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
 	for _, code := range []int{401, 403, 404} {
@@ -1026,7 +1027,8 @@ func TestGoogleAPIAuthAndAccessErrorsShouldBeConnectivity(t *testing.T) {
 			t.Parallel()
 
 			apiErr := &googleapi.Error{Code: code, Message: "boom"}
-			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", apiErr))
+			err := exceptions.NewBigQueryError(apiErr)
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", err))
 			assert.Equal(t, ErrorNotifyConnectivity, errorClass)
 			assert.Equal(t, ErrorInfo{
 				Source: ErrorSourceBigQuery,
@@ -1041,13 +1043,14 @@ func TestGoogleAPIAuthAndAccessErrorsShouldBeConnectivity(t *testing.T) {
 //	return fmt.Errorf("%w: %w", ErrBucketNotExist, err)
 //
 // `it.Next()` on a missing staging bucket surfaces this exact shape at
-// connectors/bigquery/source.go:59.
-func TestGCSBucketNotExistShouldBeConnectivity(t *testing.T) {
+// connectors/bigquery/source.go:59 (then wrapped in BigQueryError there).
+func TestBigQueryGCSBucketNotExistShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
 	apiErr := &googleapi.Error{Code: 404, Message: "Not Found"}
-	wrapped := fmt.Errorf("%w: %w", storage.ErrBucketNotExist, apiErr)
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", wrapped))
+	storageWrapped := fmt.Errorf("%w: %w", storage.ErrBucketNotExist, apiErr)
+	err := exceptions.NewBigQueryError(storageWrapped)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", err))
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceBigQuery,
@@ -1055,14 +1058,58 @@ func TestGCSBucketNotExistShouldBeConnectivity(t *testing.T) {
 	}, errInfo)
 }
 
-func TestGoogleAPIUnclassifiedCodeShouldBeOther(t *testing.T) {
+func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {
 	t.Parallel()
 
 	apiErr := &googleapi.Error{Code: 500, Message: "internal"}
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", apiErr))
+	err := exceptions.NewBigQueryError(apiErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
 	assert.Equal(t, ErrorOther, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceBigQuery,
 		Code:   "500",
+	}, errInfo)
+}
+
+func TestBigQueryErrorWithoutGoogleAPIShouldBeOther(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewBigQueryError(fmt.Errorf("opaque failure"))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("bq op failed: %w", err))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "UNKNOWN",
+	}, errInfo)
+}
+
+// bigquery.Error (with a Reason like "invalidQuery", "accessDenied") is what
+// surfaces from job-level failures e.g. status.Err() on Job.Wait. We surface
+// the Reason as the code for diagnostic clarity even though we don't classify
+// individual Reasons yet.
+func TestBigQueryJobErrorWithReasonShouldUseReasonAsCode(t *testing.T) {
+	t.Parallel()
+
+	jobErr := &bigquery.Error{Reason: "invalidQuery", Message: "bad SQL", Location: "query"}
+	err := exceptions.NewBigQueryError(jobErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job completed with error: %w", err))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "invalidQuery",
+	}, errInfo)
+}
+
+// Unwrapped *googleapi.Error from outside the BigQuery connector must NOT be
+// attributed to BigQuery — only errors explicitly wrapped in BigQueryError are.
+func TestUnwrappedGoogleAPIErrorShouldNotBeBigQuery(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 403, Message: "forbidden"}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("some other gcp call: %w", apiErr))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
 	}, errInfo)
 }
