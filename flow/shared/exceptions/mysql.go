@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
@@ -119,4 +120,20 @@ func (e *MySQLStreamingError) Error() string {
 
 func (e *MySQLStreamingError) Unwrap() error {
 	return e.error
+}
+
+// MySQLStaleConnectionError indicates that no events (rows or heartbeats) have arrived
+// from the MySQL master in longer than the configured staleness window.
+type MySQLStaleConnectionError struct {
+	Since           time.Duration
+	HeartbeatPeriod time.Duration
+}
+
+func NewMySQLStaleConnectionError(since, heartbeatPeriod time.Duration) *MySQLStaleConnectionError {
+	return &MySQLStaleConnectionError{Since: since, HeartbeatPeriod: heartbeatPeriod}
+}
+
+func (e *MySQLStaleConnectionError) Error() string {
+	return fmt.Sprintf("MySQL connection is stale: no events received in %v (heartbeat=%v)",
+		e.Since, e.HeartbeatPeriod)
 }

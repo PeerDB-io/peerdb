@@ -32,6 +32,15 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+const (
+	defaultBinlogHeartbeatPeriod = 30 * time.Second
+	binlogStalenessMultiplier    = 3
+)
+
+func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
+	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
+}
+
 func (c *MySqlConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
@@ -264,6 +273,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		UseDecimal:       true,
 		ParseTime:        true,
 		TLSConfig:        tlsConfig,
+		HeartbeatPeriod:  c.binlogHeartbeatPeriod,
 	}), nil
 }
 
@@ -413,7 +423,7 @@ func (c *MySqlConnector) PullRecords(
 	})
 	defer shutdown()
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, c.binlogStalenessThreshold())
 	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
 	defer func() {
 		cancelTimeout()
@@ -441,6 +451,7 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
 	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
 		var event *replication.BinlogEvent
@@ -456,6 +467,10 @@ func (c *MySqlConnector) PullRecords(
 				return ctxErr
 			} else if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount == 0 {
+					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
+						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
+					}
+
 					// progress offset while no records read to avoid falling behind when all tables inactive
 					if updatedOffset != "" {
 						c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
@@ -468,7 +483,7 @@ func (c *MySqlConnector) PullRecords(
 
 					// reset timer for next offset update
 					cancelTimeout()
-					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, c.binlogStalenessThreshold())
 				} else if inTx {
 					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 						slog.Uint64("records", uint64(recordCount)),
@@ -490,6 +505,8 @@ func (c *MySqlConnector) PullRecords(
 			}
 			return exceptions.NewMySQLStreamingError(err)
 		}
+
+		lastEventAt = time.Now()
 
 		allFetchedBytes.Add(int64(len(event.RawData)))
 
