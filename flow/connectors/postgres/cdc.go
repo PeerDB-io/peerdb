@@ -22,6 +22,7 @@ import (
 	"github.com/pgvector/pgvector-go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/log"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -524,6 +525,11 @@ func PullCdcRecords[Items model.Items](
 		if totalRecords == 0 {
 			records.SignalAsEmpty()
 		}
+		trace.SpanFromContext(ctx).SetAttributes(
+			attribute.Int64(otel_metrics.RowsInBatchKey, totalRecords),
+			attribute.Int64(otel_metrics.BytesPulledKey, totalFetchedBytes.Load()),
+			attribute.Int64(otel_metrics.LastCheckpointIDKey, int64(clientXLogPos)),
+		)
 		logger.Info("[finished] PullRecords",
 			slog.Int64("records", totalRecords),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
