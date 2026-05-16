@@ -16,11 +16,7 @@ import useSWR from 'swr';
 import { fetcher } from '../utils/swr';
 
 export default function Peers() {
-  const {
-    data: peers,
-    error,
-    isLoading,
-  } = useSWR('/api/v1/peers/list', fetcher);
+  const { data: peers, isLoading } = useSWR('/api/v1/peers/list', fetcher);
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start'>
@@ -43,7 +39,8 @@ export default function Peers() {
           </div>
         )}
         {!isLoading &&
-          (peers && peers.items.length == 0 ? (
+          peers &&
+          (peers.items.length == 0 ? (
             <div
               style={{
                 display: 'flex',

@@ -5,7 +5,7 @@ import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Label } from '@/lib/Label';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import { BarLoader, DotLoader } from 'react-spinners';
 
 type ResyncDialogProps = {
@@ -15,7 +15,7 @@ type ResyncDialogProps = {
 const resyncDocLink = 'https://docs.peerdb.io/features/resync-mirror';
 
 export default function ResyncDialog({ mirrorName }: ResyncDialogProps) {
-  const [syncing, setSyncing] = useState(false);
+  const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{
     msg: string;
     color: 'positive' | 'destructive' | 'base';
@@ -24,35 +24,32 @@ export default function ResyncDialog({ mirrorName }: ResyncDialogProps) {
     color: 'base',
   });
 
-  const handleResync = async () => {
-    setSyncing(true);
-    setMsg({
-      msg: 'Requesting a resync. You can close this dialog and check the status',
-      color: 'base',
-    });
-    const resyncResponse = await fetch('/api/v1/mirrors/state_change', {
-      method: 'POST',
-      body: JSON.stringify({
-        flowJobName: mirrorName,
-        requestedFlowState: FlowStatus.STATUS_RESYNC,
-        dropMirrorStats: true,
-      } as FlowStateChangeRequest),
-    });
-    if (resyncResponse.ok) {
+  const handleResync = () =>
+    start(async () => {
       setMsg({
-        msg: 'Resync has been initiated. You may reload this window to see the progress.',
-        color: 'positive',
+        msg: 'Requesting a resync. You can close this dialog and check the status',
+        color: 'base',
       });
-      setSyncing(false);
-    } else {
-      const resyncRes = await resyncResponse.json();
-      setMsg({
-        msg: `Unable to resync mirror ${mirrorName}. ${resyncRes.message ?? ''}`,
-        color: 'destructive',
+      const res = await fetch('/api/v1/mirrors/state_change', {
+        method: 'POST',
+        body: JSON.stringify({
+          flowJobName: mirrorName,
+          requestedFlowState: FlowStatus.STATUS_RESYNC,
+          dropMirrorStats: true,
+        } as FlowStateChangeRequest),
       });
-      setSyncing(false);
-    }
-  };
+      if (res.ok) {
+        setMsg({
+          msg: 'Resync has been initiated. You may reload this window to see the progress.',
+          color: 'positive',
+        });
+      } else {
+        setMsg({
+          msg: `Unable to resync mirror ${mirrorName}. ${(await res.json()).message ?? ''}`,
+          color: 'destructive',
+        });
+      }
+    });
 
   return (
     <Dialog
@@ -91,7 +88,7 @@ export default function ResyncDialog({ mirrorName }: ResyncDialogProps) {
           </Label>
         </Label>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          {syncing && <DotLoader size={15} />}
+          {pending && <DotLoader size={15} />}
           <Label
             as='label'
             style={{ marginTop: '0.3rem' }}
@@ -108,14 +105,14 @@ export default function ResyncDialog({ mirrorName }: ResyncDialogProps) {
             </Button>
           </DialogClose>
           <Button
-            disabled={syncing}
+            disabled={pending}
             onClick={handleResync}
             variant='normalSolid'
             style={{
               marginLeft: '1rem',
             }}
           >
-            {syncing ? <BarLoader /> : 'Resync'}
+            {pending ? <BarLoader /> : 'Resync'}
           </Button>
         </div>
       </div>
