@@ -1,5 +1,6 @@
 'use client';
 import { getMirrorState } from '@/app/mirrors/[mirrorId]/handlers';
+import CancelTableAdditionButton from '@/components/CancelTableAdditionButton';
 import EditButton from '@/components/EditButton';
 import ResyncDialog from '@/components/ResyncDialog';
 import { FlowStatus } from '@/grpc_generated/flow';
@@ -80,6 +81,10 @@ export default function MirrorActions({
             )}
             <EditButton toLink={editLink} disabled={isNotPaused} />
             {canResync && <ResyncDialog mirrorName={mirrorName} />}
+            {(mirrorStatus === FlowStatus.STATUS_SETUP ||
+              mirrorStatus === FlowStatus.STATUS_SNAPSHOT) && (
+              <CancelTableAdditionButton mirrorName={mirrorName} />
+            )}
           </div>
         )}
       </div>
