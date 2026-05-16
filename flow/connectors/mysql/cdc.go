@@ -17,6 +17,8 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -390,6 +392,14 @@ func (c *MySqlConnector) PullRecords(
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
+		}
+		span := trace.SpanFromContext(ctx)
+		span.SetAttributes(
+			attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
+			attribute.Int64(otel_metrics.BytesPulledKey, totalFetchedBytes.Load()),
+		)
+		if updatedOffset != "" {
+			span.SetAttributes(attribute.String(otel_metrics.GtidKey, updatedOffset))
 		}
 		c.logger.Info("[mysql] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),

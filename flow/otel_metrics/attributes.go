@@ -37,6 +37,15 @@ const (
 	BackendStateKey            = "backendState"
 	WalStatusKey               = "walStatus"
 	PendingRestartKey          = "pendingRestart"
+	RowsInBatchKey             = "rowsInBatch"
+	BytesPulledKey             = "bytesPulled"
+	TableCountKey              = "tableCount"
+	LastCheckpointIDKey        = "lastCheckpoint.ID"
+	LastCheckpointTextKey      = "lastCheckpoint.Text"
+	StartBatchIDKey            = "startBatchID"
+	EndBatchIDKey              = "endBatchID"
+	ResumeTokenKey             = "resumeToken"
+	GtidKey                    = "gtid"
 )
 
 const (
