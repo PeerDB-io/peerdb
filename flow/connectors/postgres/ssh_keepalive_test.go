@@ -44,7 +44,7 @@ func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName 
 	err = connector.ConnectionActive(ctx)
 	require.NoError(t, err, "Initial connection should work")
 
-	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
+	keepaliveChan := connector.ssh.Watch()
 
 	return connector, utils.SSHKeepaliveTestConfig{
 		SSHProxy:      sshProxy,
