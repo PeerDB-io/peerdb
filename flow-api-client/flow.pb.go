@@ -380,6 +380,7 @@ const (
 	DynconfTarget_SNOWFLAKE  DynconfTarget = 2
 	DynconfTarget_CLICKHOUSE DynconfTarget = 3
 	DynconfTarget_QUEUES     DynconfTarget = 4
+	DynconfTarget_POSTGRES   DynconfTarget = 5
 )
 
 // Enum value maps for DynconfTarget.
@@ -390,6 +391,7 @@ var (
 		2: "SNOWFLAKE",
 		3: "CLICKHOUSE",
 		4: "QUEUES",
+		5: "POSTGRES",
 	}
 	DynconfTarget_value = map[string]int32{
 		"ALL":        0,
@@ -397,6 +399,7 @@ var (
 		"SNOWFLAKE":  2,
 		"CLICKHOUSE": 3,
 		"QUEUES":     4,
+		"POSTGRES":   5,
 	}
 )
 
@@ -5315,6 +5318,74 @@ func (x *GetFlowInfoToCancelFromCatalogOutput) GetSourcePeerType() DBType {
 	return DBType_BIGQUERY
 }
 
+type RunPgDumpSchemaInput struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SourceName      string                 `protobuf:"bytes,1,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"`
+	DestinationName string                 `protobuf:"bytes,2,opt,name=destination_name,json=destinationName,proto3" json:"destination_name,omitempty"`
+	FlowName        string                 `protobuf:"bytes,3,opt,name=flow_name,json=flowName,proto3" json:"flow_name,omitempty"`
+	Env             map[string]string      `protobuf:"bytes,4,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RunPgDumpSchemaInput) Reset() {
+	*x = RunPgDumpSchemaInput{}
+	mi := &file_flow_proto_msgTypes[69]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunPgDumpSchemaInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunPgDumpSchemaInput) ProtoMessage() {}
+
+func (x *RunPgDumpSchemaInput) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[69]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunPgDumpSchemaInput.ProtoReflect.Descriptor instead.
+func (*RunPgDumpSchemaInput) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{69}
+}
+
+func (x *RunPgDumpSchemaInput) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
+	}
+	return ""
+}
+
+func (x *RunPgDumpSchemaInput) GetDestinationName() string {
+	if x != nil {
+		return x.DestinationName
+	}
+	return ""
+}
+
+func (x *RunPgDumpSchemaInput) GetFlowName() string {
+	if x != nil {
+		return x.FlowName
+	}
+	return ""
+}
+
+func (x *RunPgDumpSchemaInput) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
 var file_flow_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.EnumValueOptions)(nil),
@@ -5768,7 +5839,16 @@ const file_flow_proto_rawDesc = "" +
 	"\x17flow_connection_configs\x18\x01 \x01(\v2&.peerdb_flow.FlowConnectionConfigsCoreR\x15flowConnectionConfigs\x12\x1f\n" +
 	"\vworkflow_id\x18\x02 \x01(\tR\n" +
 	"workflowId\x12>\n" +
-	"\x10source_peer_type\x18\x03 \x01(\x0e2\x14.peerdb_peers.DBTypeR\x0esourcePeerType*\xd8\x01\n" +
+	"\x10source_peer_type\x18\x03 \x01(\x0e2\x14.peerdb_peers.DBTypeR\x0esourcePeerType\"\xf5\x01\n" +
+	"\x14RunPgDumpSchemaInput\x12\x1f\n" +
+	"\vsource_name\x18\x01 \x01(\tR\n" +
+	"sourceName\x12)\n" +
+	"\x10destination_name\x18\x02 \x01(\tR\x0fdestinationName\x12\x1b\n" +
+	"\tflow_name\x18\x03 \x01(\tR\bflowName\x12<\n" +
+	"\x03env\x18\x04 \x03(\v2*.peerdb_flow.RunPgDumpSchemaInput.EnvEntryR\x03env\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xd8\x01\n" +
 	"\vTableEngine\x12\"\n" +
 	"\x1eCH_ENGINE_REPLACING_MERGE_TREE\x10\x00\x12\x18\n" +
 	"\x14CH_ENGINE_MERGE_TREE\x10\x01\x12\x12\n" +
@@ -5811,7 +5891,7 @@ const file_flow_proto_rawDesc = "" +
 	"\x14APPLY_MODE_IMMEDIATE\x10\x01\x12\x1b\n" +
 	"\x17APPLY_MODE_AFTER_RESUME\x10\x02\x12\x16\n" +
 	"\x12APPLY_MODE_RESTART\x10\x03\x12\x19\n" +
-	"\x15APPLY_MODE_NEW_MIRROR\x10\x04*Q\n" +
+	"\x15APPLY_MODE_NEW_MIRROR\x10\x04*_\n" +
 	"\rDynconfTarget\x12\a\n" +
 	"\x03ALL\x10\x00\x12\f\n" +
 	"\bBIGQUERY\x10\x01\x12\r\n" +
@@ -5819,7 +5899,8 @@ const file_flow_proto_rawDesc = "" +
 	"\n" +
 	"CLICKHOUSE\x10\x03\x12\n" +
 	"\n" +
-	"\x06QUEUES\x10\x04*b\n" +
+	"\x06QUEUES\x10\x04\x12\f\n" +
+	"\bPOSTGRES\x10\x05*b\n" +
 	"\rFlowOperation\x12\x1a\n" +
 	"\x16FLOW_OPERATION_UNKNOWN\x10\x00\x12\x17\n" +
 	"\x13FLOW_OPERATION_SYNC\x10\x01\x12\x1c\n" +
@@ -5843,7 +5924,7 @@ func file_flow_proto_rawDescGZIP() []byte {
 }
 
 var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 86)
+var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 88)
 var file_flow_proto_goTypes = []any{
 	(TableEngine)(0),                              // 0: peerdb_flow.TableEngine
 	(QRepWriteType)(0),                            // 1: peerdb_flow.QRepWriteType
@@ -5922,56 +6003,58 @@ var file_flow_proto_goTypes = []any{
 	(*GetDefaultPartitionKeyForTablesInput)(nil),  // 74: peerdb_flow.GetDefaultPartitionKeyForTablesInput
 	(*GetDefaultPartitionKeyForTablesOutput)(nil), // 75: peerdb_flow.GetDefaultPartitionKeyForTablesOutput
 	(*GetFlowInfoToCancelFromCatalogOutput)(nil),  // 76: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput
-	nil,                                   // 77: peerdb_flow.SetupInput.EnvEntry
-	nil,                                   // 78: peerdb_flow.FlowConnectionConfigs.EnvEntry
-	nil,                                   // 79: peerdb_flow.FlowConnectionConfigsCore.EnvEntry
-	nil,                                   // 80: peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
-	nil,                                   // 81: peerdb_flow.SyncFlowOptions.SrcTableIdNameMappingEntry
-	nil,                                   // 82: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
-	nil,                                   // 83: peerdb_flow.SetupReplicationInput.TableNameMappingEntry
-	nil,                                   // 84: peerdb_flow.SetupReplicationInput.EnvEntry
-	nil,                                   // 85: peerdb_flow.CreateRawTableInput.TableNameMappingEntry
-	nil,                                   // 86: peerdb_flow.SetupTableSchemaBatchInput.EnvEntry
-	nil,                                   // 87: peerdb_flow.SetupNormalizedTableBatchInput.EnvEntry
-	nil,                                   // 88: peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
-	nil,                                   // 89: peerdb_flow.QRepConfig.EnvEntry
-	nil,                                   // 90: peerdb_flow.CDCFlowConfigUpdate.UpdatedEnvEntry
-	nil,                                   // 91: peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
-	nil,                                   // 92: peerdb_flow.FlowContextMetadata.TagsEntry
-	nil,                                   // 93: peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntry
-	(*timestamppb.Timestamp)(nil),         // 94: google.protobuf.Timestamp
-	(DBType)(0),                           // 95: peerdb_peers.DBType
-	(DatabaseVariant)(0),                  // 96: peerdb_peers.DatabaseVariant
-	(*descriptorpb.EnumValueOptions)(nil), // 97: google.protobuf.EnumValueOptions
+	(*RunPgDumpSchemaInput)(nil),                  // 77: peerdb_flow.RunPgDumpSchemaInput
+	nil,                                           // 78: peerdb_flow.SetupInput.EnvEntry
+	nil,                                           // 79: peerdb_flow.FlowConnectionConfigs.EnvEntry
+	nil,                                           // 80: peerdb_flow.FlowConnectionConfigsCore.EnvEntry
+	nil,                                           // 81: peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
+	nil,                                           // 82: peerdb_flow.SyncFlowOptions.SrcTableIdNameMappingEntry
+	nil,                                           // 83: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
+	nil,                                           // 84: peerdb_flow.SetupReplicationInput.TableNameMappingEntry
+	nil,                                           // 85: peerdb_flow.SetupReplicationInput.EnvEntry
+	nil,                                           // 86: peerdb_flow.CreateRawTableInput.TableNameMappingEntry
+	nil,                                           // 87: peerdb_flow.SetupTableSchemaBatchInput.EnvEntry
+	nil,                                           // 88: peerdb_flow.SetupNormalizedTableBatchInput.EnvEntry
+	nil,                                           // 89: peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
+	nil,                                           // 90: peerdb_flow.QRepConfig.EnvEntry
+	nil,                                           // 91: peerdb_flow.CDCFlowConfigUpdate.UpdatedEnvEntry
+	nil,                                           // 92: peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
+	nil,                                           // 93: peerdb_flow.FlowContextMetadata.TagsEntry
+	nil,                                           // 94: peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntry
+	nil,                                           // 95: peerdb_flow.RunPgDumpSchemaInput.EnvEntry
+	(*timestamppb.Timestamp)(nil),                 // 96: google.protobuf.Timestamp
+	(DBType)(0),                                   // 97: peerdb_peers.DBType
+	(DatabaseVariant)(0),                          // 98: peerdb_peers.DatabaseVariant
+	(*descriptorpb.EnumValueOptions)(nil),         // 99: google.protobuf.EnumValueOptions
 }
 var file_flow_proto_depIdxs = []int32{
 	10, // 0: peerdb_flow.TableMapping.columns:type_name -> peerdb_flow.ColumnSetting
 	0,  // 1: peerdb_flow.TableMapping.engine:type_name -> peerdb_flow.TableEngine
-	77, // 2: peerdb_flow.SetupInput.env:type_name -> peerdb_flow.SetupInput.EnvEntry
+	78, // 2: peerdb_flow.SetupInput.env:type_name -> peerdb_flow.SetupInput.EnvEntry
 	11, // 3: peerdb_flow.FlowConnectionConfigs.table_mappings:type_name -> peerdb_flow.TableMapping
 	2,  // 4: peerdb_flow.FlowConnectionConfigs.system:type_name -> peerdb_flow.TypeSystem
-	78, // 5: peerdb_flow.FlowConnectionConfigs.env:type_name -> peerdb_flow.FlowConnectionConfigs.EnvEntry
+	79, // 5: peerdb_flow.FlowConnectionConfigs.env:type_name -> peerdb_flow.FlowConnectionConfigs.EnvEntry
 	11, // 6: peerdb_flow.FlowConnectionConfigsCore.table_mappings:type_name -> peerdb_flow.TableMapping
 	2,  // 7: peerdb_flow.FlowConnectionConfigsCore.system:type_name -> peerdb_flow.TypeSystem
-	79, // 8: peerdb_flow.FlowConnectionConfigsCore.env:type_name -> peerdb_flow.FlowConnectionConfigsCore.EnvEntry
+	80, // 8: peerdb_flow.FlowConnectionConfigsCore.env:type_name -> peerdb_flow.FlowConnectionConfigsCore.EnvEntry
 	15, // 9: peerdb_flow.RenameTablesInput.rename_table_options:type_name -> peerdb_flow.RenameTableOption
-	80, // 10: peerdb_flow.CreateTablesFromExistingInput.new_to_existing_table_mapping:type_name -> peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
-	81, // 11: peerdb_flow.SyncFlowOptions.src_table_id_name_mapping:type_name -> peerdb_flow.SyncFlowOptions.SrcTableIdNameMappingEntry
+	81, // 10: peerdb_flow.CreateTablesFromExistingInput.new_to_existing_table_mapping:type_name -> peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
+	82, // 11: peerdb_flow.SyncFlowOptions.src_table_id_name_mapping:type_name -> peerdb_flow.SyncFlowOptions.SrcTableIdNameMappingEntry
 	11, // 12: peerdb_flow.SyncFlowOptions.table_mappings:type_name -> peerdb_flow.TableMapping
-	82, // 13: peerdb_flow.EnsurePullabilityBatchOutput.table_identifier_mapping:type_name -> peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
-	83, // 14: peerdb_flow.SetupReplicationInput.table_name_mapping:type_name -> peerdb_flow.SetupReplicationInput.TableNameMappingEntry
-	84, // 15: peerdb_flow.SetupReplicationInput.env:type_name -> peerdb_flow.SetupReplicationInput.EnvEntry
-	85, // 16: peerdb_flow.CreateRawTableInput.table_name_mapping:type_name -> peerdb_flow.CreateRawTableInput.TableNameMappingEntry
+	83, // 13: peerdb_flow.EnsurePullabilityBatchOutput.table_identifier_mapping:type_name -> peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
+	84, // 14: peerdb_flow.SetupReplicationInput.table_name_mapping:type_name -> peerdb_flow.SetupReplicationInput.TableNameMappingEntry
+	85, // 15: peerdb_flow.SetupReplicationInput.env:type_name -> peerdb_flow.SetupReplicationInput.EnvEntry
+	86, // 16: peerdb_flow.CreateRawTableInput.table_name_mapping:type_name -> peerdb_flow.CreateRawTableInput.TableNameMappingEntry
 	2,  // 17: peerdb_flow.TableSchema.system:type_name -> peerdb_flow.TypeSystem
 	30, // 18: peerdb_flow.TableSchema.columns:type_name -> peerdb_flow.FieldDescription
-	86, // 19: peerdb_flow.SetupTableSchemaBatchInput.env:type_name -> peerdb_flow.SetupTableSchemaBatchInput.EnvEntry
+	87, // 19: peerdb_flow.SetupTableSchemaBatchInput.env:type_name -> peerdb_flow.SetupTableSchemaBatchInput.EnvEntry
 	2,  // 20: peerdb_flow.SetupTableSchemaBatchInput.system:type_name -> peerdb_flow.TypeSystem
 	11, // 21: peerdb_flow.SetupTableSchemaBatchInput.table_mappings:type_name -> peerdb_flow.TableMapping
-	87, // 22: peerdb_flow.SetupNormalizedTableBatchInput.env:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.EnvEntry
+	88, // 22: peerdb_flow.SetupNormalizedTableBatchInput.env:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.EnvEntry
 	11, // 23: peerdb_flow.SetupNormalizedTableBatchInput.table_mappings:type_name -> peerdb_flow.TableMapping
-	88, // 24: peerdb_flow.SetupNormalizedTableBatchOutput.table_exists_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
-	94, // 25: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
-	94, // 26: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
+	89, // 24: peerdb_flow.SetupNormalizedTableBatchOutput.table_exists_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
+	96, // 25: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
+	96, // 26: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
 	37, // 27: peerdb_flow.TIDPartitionRange.start:type_name -> peerdb_flow.TID
 	37, // 28: peerdb_flow.TIDPartitionRange.end:type_name -> peerdb_flow.TID
 	35, // 29: peerdb_flow.PartitionRange.int_range:type_name -> peerdb_flow.IntPartitionRange
@@ -5983,9 +6066,9 @@ var file_flow_proto_depIdxs = []int32{
 	1,  // 35: peerdb_flow.QRepWriteMode.write_type:type_name -> peerdb_flow.QRepWriteType
 	43, // 36: peerdb_flow.QRepConfig.write_mode:type_name -> peerdb_flow.QRepWriteMode
 	2,  // 37: peerdb_flow.QRepConfig.system:type_name -> peerdb_flow.TypeSystem
-	89, // 38: peerdb_flow.QRepConfig.env:type_name -> peerdb_flow.QRepConfig.EnvEntry
+	90, // 38: peerdb_flow.QRepConfig.env:type_name -> peerdb_flow.QRepConfig.EnvEntry
 	10, // 39: peerdb_flow.QRepConfig.columns:type_name -> peerdb_flow.ColumnSetting
-	95, // 40: peerdb_flow.QRepConfig.source_type:type_name -> peerdb_peers.DBType
+	97, // 40: peerdb_flow.QRepConfig.source_type:type_name -> peerdb_peers.DBType
 	42, // 41: peerdb_flow.QRepPartition.range:type_name -> peerdb_flow.PartitionRange
 	45, // 42: peerdb_flow.QRepPartition.child_table_ranges:type_name -> peerdb_flow.ChildTableRange
 	46, // 43: peerdb_flow.QRepPartitionBatch.partitions:type_name -> peerdb_flow.QRepPartition
@@ -5997,34 +6080,35 @@ var file_flow_proto_depIdxs = []int32{
 	3,  // 49: peerdb_flow.QRepFlowState.current_flow_status:type_name -> peerdb_flow.FlowStatus
 	11, // 50: peerdb_flow.CDCFlowConfigUpdate.additional_tables:type_name -> peerdb_flow.TableMapping
 	11, // 51: peerdb_flow.CDCFlowConfigUpdate.removed_tables:type_name -> peerdb_flow.TableMapping
-	90, // 52: peerdb_flow.CDCFlowConfigUpdate.updated_env:type_name -> peerdb_flow.CDCFlowConfigUpdate.UpdatedEnvEntry
+	91, // 52: peerdb_flow.CDCFlowConfigUpdate.updated_env:type_name -> peerdb_flow.CDCFlowConfigUpdate.UpdatedEnvEntry
 	54, // 53: peerdb_flow.FlowConfigUpdate.cdc_flow_config_update:type_name -> peerdb_flow.CDCFlowConfigUpdate
 	55, // 54: peerdb_flow.FlowConfigUpdate.qrep_flow_config_update:type_name -> peerdb_flow.QRepFlowConfigUpdate
-	91, // 55: peerdb_flow.SetupFlowOutput.src_table_id_name_mapping:type_name -> peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
+	92, // 55: peerdb_flow.SetupFlowOutput.src_table_id_name_mapping:type_name -> peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
 	11, // 56: peerdb_flow.AddTablesToPublicationInput.additional_tables:type_name -> peerdb_flow.TableMapping
 	11, // 57: peerdb_flow.RemoveTablesFromPublicationInput.tables_to_remove:type_name -> peerdb_flow.TableMapping
-	94, // 58: peerdb_flow.MaintenanceMirror.mirror_created_at:type_name -> google.protobuf.Timestamp
-	94, // 59: peerdb_flow.MaintenanceMirror.mirror_updated_at:type_name -> google.protobuf.Timestamp
+	96, // 58: peerdb_flow.MaintenanceMirror.mirror_created_at:type_name -> google.protobuf.Timestamp
+	96, // 59: peerdb_flow.MaintenanceMirror.mirror_updated_at:type_name -> google.protobuf.Timestamp
 	68, // 60: peerdb_flow.MaintenanceMirrors.mirrors:type_name -> peerdb_flow.MaintenanceMirror
-	95, // 61: peerdb_flow.PeerContextMetadata.type:type_name -> peerdb_peers.DBType
-	96, // 62: peerdb_flow.PeerContextMetadata.variant:type_name -> peerdb_peers.DatabaseVariant
+	97, // 61: peerdb_flow.PeerContextMetadata.type:type_name -> peerdb_peers.DBType
+	98, // 62: peerdb_flow.PeerContextMetadata.variant:type_name -> peerdb_peers.DatabaseVariant
 	3,  // 63: peerdb_flow.FlowContextMetadataInput.status:type_name -> peerdb_flow.FlowStatus
 	70, // 64: peerdb_flow.FlowContextMetadata.source:type_name -> peerdb_flow.PeerContextMetadata
 	70, // 65: peerdb_flow.FlowContextMetadata.destination:type_name -> peerdb_flow.PeerContextMetadata
 	3,  // 66: peerdb_flow.FlowContextMetadata.status:type_name -> peerdb_flow.FlowStatus
-	92, // 67: peerdb_flow.FlowContextMetadata.tags:type_name -> peerdb_flow.FlowContextMetadata.TagsEntry
+	93, // 67: peerdb_flow.FlowContextMetadata.tags:type_name -> peerdb_flow.FlowContextMetadata.TagsEntry
 	7,  // 68: peerdb_flow.AdditionalContextMetadata.operation:type_name -> peerdb_flow.FlowOperation
 	11, // 69: peerdb_flow.GetDefaultPartitionKeyForTablesInput.table_mappings:type_name -> peerdb_flow.TableMapping
-	93, // 70: peerdb_flow.GetDefaultPartitionKeyForTablesOutput.table_default_partition_key_mapping:type_name -> peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntry
+	94, // 70: peerdb_flow.GetDefaultPartitionKeyForTablesOutput.table_default_partition_key_mapping:type_name -> peerdb_flow.GetDefaultPartitionKeyForTablesOutput.TableDefaultPartitionKeyMappingEntry
 	14, // 71: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigsCore
-	95, // 72: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput.source_peer_type:type_name -> peerdb_peers.DBType
-	23, // 73: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.PostgresTableIdentifier
-	97, // 74: peerdb_flow.peerdb_maintenance_wait:extendee -> google.protobuf.EnumValueOptions
-	75, // [75:75] is the sub-list for method output_type
-	75, // [75:75] is the sub-list for method input_type
-	75, // [75:75] is the sub-list for extension type_name
-	74, // [74:75] is the sub-list for extension extendee
-	0,  // [0:74] is the sub-list for field type_name
+	97, // 72: peerdb_flow.GetFlowInfoToCancelFromCatalogOutput.source_peer_type:type_name -> peerdb_peers.DBType
+	95, // 73: peerdb_flow.RunPgDumpSchemaInput.env:type_name -> peerdb_flow.RunPgDumpSchemaInput.EnvEntry
+	23, // 74: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.PostgresTableIdentifier
+	99, // 75: peerdb_flow.peerdb_maintenance_wait:extendee -> google.protobuf.EnumValueOptions
+	76, // [76:76] is the sub-list for method output_type
+	76, // [76:76] is the sub-list for method input_type
+	76, // [76:76] is the sub-list for extension type_name
+	75, // [75:76] is the sub-list for extension extendee
+	0,  // [0:75] is the sub-list for field type_name
 }
 
 func init() { file_flow_proto_init() }
@@ -6051,7 +6135,7 @@ func file_flow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_flow_proto_rawDesc), len(file_flow_proto_rawDesc)),
 			NumEnums:      8,
-			NumMessages:   86,
+			NumMessages:   88,
 			NumExtensions: 1,
 			NumServices:   0,
 		},
