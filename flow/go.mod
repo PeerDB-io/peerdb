@@ -4,9 +4,9 @@ go 1.26.0
 
 require (
 	cloud.google.com/go v0.123.0
-	cloud.google.com/go/bigquery v1.72.0 // PINNED: v1.73.0+ requires google.golang.org/api v0.259.0
-	cloud.google.com/go/pubsub/v2 v2.3.0 // PINNED: v2.4.0+ requires google.golang.org/api v0.259.0
-	cloud.google.com/go/storage v1.59.2 // PINNED: v1.60.0+ requires google.golang.org/api v0.265.0+
+	cloud.google.com/go/bigquery v1.74.0
+	cloud.google.com/go/pubsub/v2 v2.3.0
+	cloud.google.com/go/storage v1.62.1
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2 v2.0.2
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0
@@ -23,14 +23,14 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.6.23
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.21.0 // PINNED(DBI-500): v1.22.0 deprecates NewUploader in favor of feature/s3/transfermanager
 	github.com/aws/aws-sdk-go-v2/service/kms v1.51.1
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.100.1
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.101.0
 	github.com/aws/aws-sdk-go-v2/service/ses v1.34.24
 	github.com/aws/aws-sdk-go-v2/service/sns v1.39.17
 	github.com/aws/aws-sdk-go-v2/service/sts v1.42.1
 	github.com/aws/smithy-go v1.25.1
 	github.com/cockroachdb/pebble/v2 v2.1.4
 	github.com/elastic/go-elasticsearch/v8 v8.19.5
-	github.com/go-mysql-org/go-mysql v1.14.1-0.20260408074128-d0b04ca1a7f0
+	github.com/go-mysql-org/go-mysql v1.15.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/hamba/avro/v2 v2.31.0
@@ -47,7 +47,7 @@ require (
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/pingcap/errors v0.11.5-0.20260508054701-306e305bcf41
 	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
-	github.com/pingcap/tidb/pkg/parser v0.0.0-20260331182218-500f1607530b
+	github.com/pingcap/tidb/pkg/parser v0.0.0-20260504140133-511dba1dbe17
 	github.com/shopspring/decimal v1.4.0
 	github.com/slack-go/slack v0.23.0
 	github.com/snowflakedb/gosnowflake/v2 v2.0.2
@@ -78,7 +78,7 @@ require (
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90
 	golang.org/x/mod v0.35.0
 	golang.org/x/sync v0.20.0
-	google.golang.org/api v0.257.0 // PINNED(DBI-443): v0.258.0 deprecates WithCredentialsJSON, migrate to WithAuthCredentialsJSON
+	google.golang.org/api v0.279.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478
 	google.golang.org/grpc v1.81.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
@@ -97,13 +97,13 @@ require (
 require github.com/quasilyte/go-ruleguard/dsl v0.3.23
 
 require (
-	cloud.google.com/go/kms v1.24.0 // PINNED: v1.26.0+ requires google.golang.org/api v0.265.0
+	cloud.google.com/go/kms v1.26.0
 	cloud.google.com/go/longrunning v0.9.0 // indirect
 )
 
 require (
 	cel.dev/expr v0.25.1 // indirect
-	cloud.google.com/go/auth v0.18.2 // PINNED: v0.19.0+ requires google.golang.org/api v0.267.0+
+	cloud.google.com/go/auth v0.20.0
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.7.0 // indirect
@@ -201,8 +201,8 @@ require (
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
-	github.com/googleapis/gax-go/v2 v2.21.0 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.15 // indirect
+	github.com/googleapis/gax-go/v2 v2.22.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
@@ -211,7 +211,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
@@ -231,9 +231,9 @@ require (
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/paulmach/orb v0.13.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
-	github.com/pingcap/failpoint v0.0.0-20251231045439-91d91e123837 // indirect
+	github.com/pingcap/failpoint v0.0.0-20260406204437-bbc9d102c19e // indirect
 	github.com/pingcap/kvproto v0.0.0-20260331120830-0d407c8b3f6e // indirect
-	github.com/pingcap/log v1.1.1-0.20241212030209-7e3ff8601a2a // indirect
+	github.com/pingcap/log v1.1.1-0.20260227082333-572e590d08f1 // indirect
 	github.com/pingcap/sysutil v1.0.1-0.20240311050922-ae81ee01f3a5 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -276,7 +276,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.1 // indirect
+	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/net v0.53.0 // indirect
@@ -288,7 +288,7 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260427160629-7cedc36a6bc4
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
@@ -311,25 +311,6 @@ replace github.com/PeerDB-io/peerdb/flow/pkg => ./pkg
 
 // Block MVS from raising require minima above the pinned versions in the require block — append new releases here until unpinned.
 exclude (
-	cloud.google.com/go/auth v0.19.0
-	cloud.google.com/go/auth v0.20.0
-	cloud.google.com/go/bigquery v1.73.0
-	cloud.google.com/go/bigquery v1.73.1
-	cloud.google.com/go/bigquery v1.74.0
-	cloud.google.com/go/bigquery v1.75.0
-	cloud.google.com/go/bigquery v1.76.0
-	cloud.google.com/go/kms v1.26.0
-	cloud.google.com/go/pubsub/v2 v2.4.0
-	cloud.google.com/go/pubsub/v2 v2.5.0
-	cloud.google.com/go/pubsub/v2 v2.5.1
-	cloud.google.com/go/pubsub/v2 v2.6.0
-	cloud.google.com/go/storage v1.60.0
-	cloud.google.com/go/storage v1.61.0
-	cloud.google.com/go/storage v1.61.1
-	cloud.google.com/go/storage v1.61.2
-	cloud.google.com/go/storage v1.61.3
-	cloud.google.com/go/storage v1.62.0
-	cloud.google.com/go/storage v1.62.1
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.21.1
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.0
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.1
@@ -350,25 +331,4 @@ exclude (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.16
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.17
 	github.com/jackc/pgx/v5 v5.9.2
-	google.golang.org/api v0.258.0
-	google.golang.org/api v0.259.0
-	google.golang.org/api v0.260.0
-	google.golang.org/api v0.261.0
-	google.golang.org/api v0.262.0
-	google.golang.org/api v0.263.0
-	google.golang.org/api v0.264.0
-	google.golang.org/api v0.265.0
-	google.golang.org/api v0.266.0
-	google.golang.org/api v0.267.0
-	google.golang.org/api v0.268.0
-	google.golang.org/api v0.269.0
-	google.golang.org/api v0.270.0
-	google.golang.org/api v0.271.0
-	google.golang.org/api v0.272.0
-	google.golang.org/api v0.273.0
-	google.golang.org/api v0.273.1
-	google.golang.org/api v0.274.0
-	google.golang.org/api v0.275.0
-	google.golang.org/api v0.276.0
-	google.golang.org/api v0.277.0
 )

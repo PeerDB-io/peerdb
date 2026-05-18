@@ -318,12 +318,10 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	return syncer, stream, gset, mysql.Position{}, nil
 }
 
-// closeSyncerWithTimeout closes the syncer with a 10s timeout and, on timeout,
-// force-closes the SSH tunnel if SSH tunnel exists. go-mysql's BinlogSyncer.close()
-// can hang indefinitely when its two unblock mechanisms fail (SetReadDeadline fails
-// for ssh tunnel, and killing a connection that has already been reaped by the server
-// but is not propagated to the client). This can lead to syncer.Close() stuck indefinitely.
-// TODO: better to fix properly upstream
+// closeSyncerWithTimeout is a safety net around syncer.Close(). go-mysql v1.15.0
+// (https://github.com/go-mysql-org/go-mysql/commit/069f15d92122ca74c563d94cfc8de77a3799bbf6)
+// fixed the bug that led to BinlogSyncer.Close hang, so this timeout should no
+// longer fire. Keeping it around a bit longer before removing to ensure no regression.
 func (c *MySqlConnector) closeSyncerWithTimeout(syncer *replication.BinlogSyncer, timeout time.Duration) {
 	done := make(chan struct{})
 	go func() {

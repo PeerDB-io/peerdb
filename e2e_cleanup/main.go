@@ -93,7 +93,7 @@ func CleanupBQ(ctx context.Context) {
 	client, err := bigquery.NewClient(
 		ctx,
 		config["project_id"],
-		option.WithCredentialsJSON(config_json),
+		option.WithAuthCredentialsJSON(option.ServiceAccount, config_json),
 	)
 	if err != nil {
 		panic(err)
@@ -123,7 +123,10 @@ func CleanupBQ(ctx context.Context) {
 	}
 
 	// now pubsub too, lack metadata to avoid deleting currently running tests
-	psclient, err := pubsub.NewClient(ctx, config["project_id"], option.WithCredentialsJSON(config_json))
+	psclient, err := pubsub.NewClient(
+		ctx,
+		config["project_id"],
+		option.WithAuthCredentialsJSON(option.ServiceAccount, config_json))
 	if err != nil {
 		panic(err)
 	}
