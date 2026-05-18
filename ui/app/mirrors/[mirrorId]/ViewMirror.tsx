@@ -53,6 +53,7 @@ export default function ViewMirror({
           <Header variant='title2'>{mirrorId}</Header>
           <MirrorActions
             mirrorName={mirrorId}
+            mirrorStatus={mirrorState.currentFlowState}
             editLink={`/mirrors/${mirrorId}/edit`}
             canResync={canResync}
             isNotPaused={isNotPaused}

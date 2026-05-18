@@ -35,11 +35,9 @@ export async function changeFlowState(
     dropMirrorStats: dropStats ?? false,
     skipDestinationDrop: false,
   };
-  const res = await fetch('/api/v1/mirrors/state_change', {
+  return fetch('/api/v1/mirrors/state_change', {
     method: 'POST',
     body: JSON.stringify(req),
     cache: 'no-store',
   });
-  window.location.reload();
-  return res;
 }

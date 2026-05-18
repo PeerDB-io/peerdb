@@ -1,48 +1,61 @@
 'use client';
 import { changeFlowState } from '@/app/mirrors/[mirrorId]/handlers';
+import { notifyErr } from '@/app/utils/notify';
 import { FlowStatus } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label/Label';
+import { useRouter } from 'next/navigation';
+import { useTransition } from 'react';
 
 type PauseOrResumeButtonProps = {
   mirrorName: string;
   mirrorStatus: FlowStatus;
 };
 
-function PauseOrResumeButton({
+export default function PauseOrResumeButton({
   mirrorStatus,
   mirrorName,
 }: PauseOrResumeButtonProps) {
-  if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_RUNNING]) {
+  const [pending, start] = useTransition();
+  const { refresh } = useRouter();
+
+  const transition = (target: FlowStatus) =>
+    start(async () => {
+      const res = await changeFlowState(mirrorName, target);
+      if (!res.ok) {
+        notifyErr((await res.json()).message || res.statusText);
+        return;
+      }
+      refresh();
+    });
+
+  const status = mirrorStatus.toString();
+  if (status === FlowStatus[FlowStatus.STATUS_RUNNING]) {
     return (
       <Button
         variant='normalBorderless'
         style={{ width: '100%', justifyContent: 'left' }}
-        onClick={() => changeFlowState(mirrorName, FlowStatus.STATUS_PAUSED)}
+        disabled={pending}
+        onClick={() => transition(FlowStatus.STATUS_PAUSED)}
       >
         <Label>Pause mirror</Label>
       </Button>
     );
-  } else if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_PAUSED]) {
+  } else if (status === FlowStatus[FlowStatus.STATUS_PAUSED]) {
     return (
       <Button
         style={{ width: '100%', justifyContent: 'left' }}
-        onClick={() => changeFlowState(mirrorName, FlowStatus.STATUS_RUNNING)}
+        disabled={pending}
+        onClick={() => transition(FlowStatus.STATUS_RUNNING)}
       >
         <Label>Resume mirror</Label>
       </Button>
     );
   } else {
     return (
-      <Button
-        className='IconButton'
-        aria-label='Pause (disabled)'
-        disabled={true}
-      >
+      <Button className='IconButton' aria-label='Pause (disabled)' disabled>
         <Label>Pause mirror</Label>
       </Button>
     );
   }
 }
-
-export default PauseOrResumeButton;

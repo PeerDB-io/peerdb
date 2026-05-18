@@ -46,6 +46,7 @@ async function handleDropMirror(
   }
 
   setMsg('Request to drop mirror sent successfully.');
+  window.location.reload();
 
   return true;
 }
