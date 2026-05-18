@@ -172,6 +172,9 @@ var (
 	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
 		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
 	}
+	ErrorNotifyInvalidEnumValue = ErrorClass{
+		Class: "NOTIFY_INVALID_ENUM_VALUE", action: NotifyUser,
+	}
 	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
 		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
 	}
@@ -650,6 +653,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 			if strings.Contains(pgErr.Message, "synchronized_standby_slots") {
 				return ErrorNotifyInvalidSynchronizedStandbySlots, pgErrorInfo
+			}
+
+		case pgerrcode.InvalidTextRepresentation:
+			// e.g. `invalid input value for enum pr_status: "closed"` when source
+			// has an enum label that the destination's enum type is missing.
+			if strings.Contains(pgErr.Message, "invalid input value for enum") {
+				return ErrorNotifyInvalidEnumValue, pgErrorInfo
 			}
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?

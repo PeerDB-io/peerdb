@@ -338,6 +338,21 @@ func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresInvalidEnumValueOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InvalidTextRepresentation,
+		Message:  `invalid input value for enum worker_status: "merged"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.workers: %w", err))
+	assert.Equal(t, ErrorNotifyInvalidEnumValue, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InvalidTextRepresentation,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
