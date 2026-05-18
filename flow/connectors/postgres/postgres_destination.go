@@ -329,7 +329,6 @@ func (c *PostgresConnector) normalizeBatch(
 			if _, err := tx.Exec(ctx, setSessionReplicaRoleSQL); err != nil {
 				return 0, fmt.Errorf("failed to set session_replication_role to replica: %w", err)
 			}
-			c.logger.Info("set session_replication_role to replica for PG type system normalize")
 			break
 		}
 	}
