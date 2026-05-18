@@ -655,7 +655,6 @@ func CDCFlowWorkflow(
 				// We still override the snapshot parameters (when resync with updated values)
 				overrideSnapshotParametersInState(val, state)
 				syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				uploadConfigToCatalog(ctx, cfg)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           cfg.FlowJobName,
 					FlowConnectionConfigs: cfg,
