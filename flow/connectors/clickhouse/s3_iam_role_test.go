@@ -35,6 +35,8 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	}
 	internal.SetupFlowAWSCredentialsFromEnv(t)
 	t.Setenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", os.Getenv(bucketNameEnvVar))
+	// Fixture rows have _peerdb_timestamp values from 2025; neuter the raw-table TTL so it doesn't evict them.
+	t.Setenv("PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS", "36500")
 	ctx := t.Context()
 
 	conn, err := NewClickHouseConnector(ctx, nil,

@@ -313,6 +313,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS",
+		Description:      "Days to retain rows in the ClickHouse _peerdb_raw table before TTL eviction. Applies to newly created raw tables",
+		DefaultValue:     "90",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES",
 		Description:      "Duration in minutes since last normalize to start alerting, 0 disables all alerting entirely",
 		DefaultValue:     "240",
@@ -691,6 +699,10 @@ func PeerDBEnableClickHouseJSON(ctx context.Context, env map[string]string) (boo
 
 func PeerDBClickHouseClientName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_CLIENT_NAME")
+}
+
+func PeerDBClickHouseRawTableTTLDays(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS")
 }
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
