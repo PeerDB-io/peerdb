@@ -488,7 +488,7 @@ func PullCdcRecords[Items model.Items](
 	}
 
 	// This value controls for how long the main message loop is blocked waiting for new messages from Postgres.
-	var messageWaitPeriod time.Duration = min(req.IdleTimeout, walSenderTimeout/2)
+	messageWaitPeriod := min(req.IdleTimeout, walSenderTimeout/2)
 
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
