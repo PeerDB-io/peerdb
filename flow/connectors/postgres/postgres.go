@@ -129,24 +129,24 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		rdsAuth:                rdsAuth,
 	}
 
-	tunnel.StartKeepalive(context.Background(), func() {
-		connector.logger.Info("SSH keepalive failed, closing connections")
-		bgCtx := context.Background()
-		timeout, cancel := context.WithTimeout(bgCtx, 5*time.Second)
-		defer cancel()
-		if err := connector.conn.Close(timeout); err != nil {
-			connector.logger.Error("Failed to close Postgres connection on SSH keepalive failure",
-				slog.Any("error", err))
-		}
-		if connector.replConn != nil {
-			timeout2, cancel2 := context.WithTimeout(bgCtx, 5*time.Second)
-			defer cancel2()
-			if err := connector.replConn.Close(timeout2); err != nil {
-				connector.logger.Error("Failed to close Postgres replication connection on SSH keepalive failure",
-					slog.Any("error", err))
+	if tunnel != nil {
+		go func() {
+			sshErr := <-tunnel.Watch()
+			connector.logger.Warn("SSH tunnel closed, closing Postgres connections", slog.Any("error", sshErr))
+			timeout, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if err := connector.conn.Close(timeout); err != nil {
+				connector.logger.Error("failed to close Postgres connection", slog.Any("error", err))
 			}
-		}
-	})
+			if connector.replConn != nil {
+				replTimeout, replCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer replCancel()
+				if err := connector.replConn.Close(replTimeout); err != nil {
+					connector.logger.Error("failed to close Postgres replication connection", slog.Any("error", err))
+				}
+			}
+		}()
+	}
 
 	return connector, nil
 }
