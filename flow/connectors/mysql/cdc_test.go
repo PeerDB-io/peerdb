@@ -50,16 +50,6 @@ func createTestDB(t *testing.T, ctx context.Context, c *MySqlConnector, dbName s
 	})
 }
 
-func assertSchema(t *testing.T, schema *protos.TableSchema, pk []string, cols ...string) {
-	t.Helper()
-	require.NotNil(t, schema)
-	require.Equal(t, pk, schema.PrimaryKeyColumns)
-	require.Len(t, schema.Columns, len(cols))
-	for i, name := range cols {
-		require.Equal(t, name, schema.Columns[i].Name)
-	}
-}
-
 func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -88,6 +78,16 @@ func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	assertSchema := func(schema *protos.TableSchema, pk []string, cols ...string) {
+		t.Helper()
+		require.NotNil(t, schema)
+		require.Equal(t, pk, schema.PrimaryKeyColumns)
+		require.Len(t, schema.Columns, len(cols))
+		for i, name := range cols {
+			require.Equal(t, name, schema.Columns[i].Name)
+		}
+	}
+
 	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ll TEXT)", llTable))
 	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, lu TEXT)", luTable))
 	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ul TEXT)", ulTable))
@@ -101,8 +101,8 @@ func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 			{SourceTableIdentifier: uuTable},
 		})
 	require.NoError(t, err)
-	assertSchema(t, schemas[llTable], []string{"id"}, "id", "ll")
-	assertSchema(t, schemas[luTable], []string{"id"}, "id", "lu")
-	assertSchema(t, schemas[ulTable], []string{"id"}, "id", "ul")
-	assertSchema(t, schemas[uuTable], []string{"id"}, "id", "uu")
+	assertSchema(schemas[llTable], []string{"id"}, "id", "ll")
+	assertSchema(schemas[luTable], []string{"id"}, "id", "lu")
+	assertSchema(schemas[ulTable], []string{"id"}, "id", "ul")
+	assertSchema(schemas[uuTable], []string{"id"}, "id", "uu")
 }
