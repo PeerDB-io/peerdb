@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/pgvector/pgvector-go"
+	"github.com/pingcap/tidb/pkg/parser/duration"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
@@ -479,6 +480,16 @@ func PullCdcRecords[Items model.Items](
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
+	walSenderTimeout, err := duration.ParseDuration(
+		p.PostgresConnector.conn.Config().RuntimeParams["wal_sender_timeout"],
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get WAL sender timeout: %w", err)
+	}
+
+	// This value controls for how long the main message loop is blocked waiting for new messages from Postgres.
+	var messageWaitPeriod time.Duration = min(req.IdleTimeout, walSenderTimeout/2)
+
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {
@@ -562,7 +573,7 @@ func PullCdcRecords[Items model.Items](
 	defer shutdown()
 
 	var standByLastLogged time.Time
-	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
+	nextStandbyMessageDeadline := time.Now().Add(messageWaitPeriod)
 	pkmRequiresResponse := false
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
@@ -579,7 +590,7 @@ func PullCdcRecords[Items model.Items](
 
 		if totalRecords == 1 {
 			records.SignalAsNotEmpty()
-			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
+			nextStandbyMessageDeadline = time.Now().Add(messageWaitPeriod)
 			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
 		if totalRecords%50000 == 0 {
@@ -667,16 +678,14 @@ func PullCdcRecords[Items model.Items](
 			} else {
 				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
 			}
-			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
+			nextStandbyMessageDeadline = time.Now().Add(messageWaitPeriod)
 		}
 
 		var receiveCtx context.Context
 		var cancel context.CancelFunc
-		if totalRecords == 0 {
-			receiveCtx, cancel = context.WithCancel(ctx)
-		} else {
-			receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
-		}
+
+		receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
+
 		rawMsg, err := func() (pgproto3.BackendMessage, error) {
 			replLock.Lock()
 			defer replLock.Unlock()
@@ -689,13 +698,17 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if err != nil && p.commitLock == nil {
-			if pgconn.Timeout(err) {
+			if totalRecords != 0 && pgconn.Timeout(err) {
 				logger.Info("Stand-by deadline reached, returning currently accumulated records",
 					slog.Int64("records", totalRecords),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()),
 					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 				return nil
+			} else if pgconn.Timeout(err) {
+				if err := p.ReplPing(ctx); err != nil {
+					return fmt.Errorf("ReplPing failed: %w", err)
+				}
 			} else {
 				return fmt.Errorf("ReceiveMessage failed: %w", err)
 			}
