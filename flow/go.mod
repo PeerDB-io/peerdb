@@ -28,8 +28,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sns v1.39.17
 	github.com/aws/aws-sdk-go-v2/service/sts v1.42.1
 	github.com/aws/smithy-go v1.25.1
-	github.com/cockroachdb/pebble/v2 v2.1.4
-	github.com/elastic/go-elasticsearch/v8 v8.19.5
+	github.com/cockroachdb/pebble/v2 v2.1.5
+	github.com/elastic/go-elasticsearch/v8 v8.19.6
 	github.com/go-mysql-org/go-mysql v1.15.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
@@ -40,7 +40,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/json-iterator/go v1.1.12
 	github.com/lestrrat-go/httprc/v3 v3.0.5
-	github.com/lestrrat-go/jwx/v3 v3.1.0
+	github.com/lestrrat-go/jwx/v3 v3.1.1
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee
 	github.com/nickbruun/pgsplit v0.0.0-20240103043353-43e6c2dddfad
 	github.com/orcaman/concurrent-map/v2 v2.0.1
@@ -49,14 +49,14 @@ require (
 	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20260504140133-511dba1dbe17
 	github.com/shopspring/decimal v1.4.0
-	github.com/slack-go/slack v0.23.0
+	github.com/slack-go/slack v0.23.1
 	github.com/snowflakedb/gosnowflake/v2 v2.0.2
 	github.com/stretchr/testify v1.11.1
 	github.com/twmb/franz-go v1.21.1
 	github.com/twmb/franz-go/pkg/kadm v1.18.0
 	github.com/twmb/franz-go/plugin/kslog v1.0.0
-	github.com/twpayne/go-geos v0.20.3
-	github.com/urfave/cli/v3 v3.8.0
+	github.com/twpayne/go-geos v0.20.4
+	github.com/urfave/cli/v3 v3.9.0
 	github.com/xdg-go/scram v1.2.0
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	github.com/yuin/gopher-lua v1.1.2
@@ -74,9 +74,9 @@ require (
 	go.temporal.io/sdk v1.43.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.7.0
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/crypto v0.50.0
-	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90
-	golang.org/x/mod v0.35.0
+	golang.org/x/crypto v0.51.0
+	golang.org/x/exp v0.0.0-20260508232706-74f9aab9d74a
+	golang.org/x/mod v0.36.0
 	golang.org/x/sync v0.20.0
 	google.golang.org/api v0.279.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478
@@ -86,7 +86,7 @@ require (
 	k8s.io/client-go v0.35.3 // Note: v0.* are newer than v1.*
 )
 
-require golang.org/x/tools v0.44.0
+require golang.org/x/tools v0.45.0
 
 require (
 	github.com/Shopify/toxiproxy/v2 v2.12.0
@@ -97,7 +97,7 @@ require (
 require github.com/quasilyte/go-ruleguard/dsl v0.3.23
 
 require (
-	cloud.google.com/go/kms v1.26.0
+	cloud.google.com/go/kms v1.31.0
 	cloud.google.com/go/longrunning v0.9.0 // indirect
 )
 
@@ -279,12 +279,12 @@ require (
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260409153401-be6f6cb8b1fa // indirect
-	golang.org/x/term v0.42.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260508192327-42602be52be6 // indirect
+	golang.org/x/term v0.43.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
