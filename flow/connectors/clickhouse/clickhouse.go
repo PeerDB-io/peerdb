@@ -77,13 +77,9 @@ func NewClickHouseConnector(
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 
-	if err := peerdb_clickhouse.ValidateClickHousePeer(
+	return peerdb_clickhouse.ValidateClickHousePeer(
 		ctx, c.logger, allowedDomains, c.Config.Host, c.database, c.staging.Validate,
-	); err != nil {
-		return err
-	}
-
-	return nil
+	)
 }
 
 // configureDirectoryTLS configures the tls.Config by loading certificate files
