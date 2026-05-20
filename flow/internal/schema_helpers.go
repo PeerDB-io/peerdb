@@ -12,14 +12,27 @@ import (
 
 func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
 	additionalTableMappings []*protos.TableMapping,
+	checkDestination bool,
 ) bool {
 	currentSrcTables := make(map[string]struct{}, len(currentTableMappings))
+	var currentDstTables map[string]struct{}
+	if checkDestination {
+		currentDstTables = make(map[string]struct{}, len(currentTableMappings))
+	}
 	for _, currentTableMapping := range currentTableMappings {
 		currentSrcTables[currentTableMapping.SourceTableIdentifier] = struct{}{}
+		if checkDestination {
+			currentDstTables[currentTableMapping.DestinationTableIdentifier] = struct{}{}
+		}
 	}
 	for _, additionalTableMapping := range additionalTableMappings {
 		if _, exists := currentSrcTables[additionalTableMapping.SourceTableIdentifier]; exists {
 			return true
+		}
+		if checkDestination {
+			if _, exists := currentDstTables[additionalTableMapping.DestinationTableIdentifier]; exists {
+				return true
+			}
 		}
 	}
 	return false

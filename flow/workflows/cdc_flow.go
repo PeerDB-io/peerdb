@@ -218,7 +218,10 @@ func processTableAdditions(
 		syncStateToConfigProtoInCatalog(ctx, cfg, state)
 		return nil
 	}
-	if internal.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
+	checkDestinationOverlap := !getClickHouseInitialLoadAllowNonEmptyTables(ctx, logger, cfg.Env)
+	if internal.AdditionalTablesHasOverlap(
+		state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables, checkDestinationOverlap,
+	) {
 		logger.Warn("duplicate source/destination tables found in additionalTables")
 		syncStateToConfigProtoInCatalog(ctx, cfg, state)
 		return nil
