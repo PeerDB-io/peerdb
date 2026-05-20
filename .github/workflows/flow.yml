@@ -74,7 +74,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.3.3@sha256:1d9ddbe28380c3305ef24c4364168030e4b8ce44834121f7c7dbdaedd2bb9cdf
+        image: elasticsearch:9.4.0@sha256:8aad7ee59774021886ffd26ffbcee623aa13a377ea734f73454307df7e340705
         ports:
           - 9200:9200
         env:
@@ -82,7 +82,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
+        image: otel/opentelemetry-collector-contrib:0.152.0@sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
         ports:
           - 4317:4317
       toxiproxy:
@@ -652,13 +652,13 @@ jobs:
 
       - name: Upload test results to Codecov
         if: success() || failure()
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
         with:
           report_type: test_results
           files: logs/test-results.xml
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Ingest tests results for analysis
