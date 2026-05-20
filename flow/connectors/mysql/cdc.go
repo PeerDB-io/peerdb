@@ -70,14 +70,32 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
+	pkSeqRs, err := c.Execute(ctx, fmt.Sprintf(`
+		select column_name, seq_in_index
+		from information_schema.statistics
+		where table_schema = '%s' and table_name = '%s' and index_name = 'PRIMARY'`,
+		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
+	if err != nil {
+		return nil, err
+	}
+	pkSeqMap := make(map[string]int64, pkSeqRs.RowNumber())
+	for idx := range pkSeqRs.RowNumber() {
+		name, err := pkSeqRs.GetString(idx, 0)
+		if err != nil {
+			return nil, err
+		}
+		seq, err := pkSeqRs.GetInt(idx, 1)
+		if err != nil {
+			return nil, err
+		}
+		pkSeqMap[name] = seq
+	}
+
 	rs, err := c.Execute(ctx, fmt.Sprintf(`
-		select c.column_name, c.column_type, c.is_nullable, c.numeric_precision, c.numeric_scale, s.seq_in_index
-		from information_schema.columns c
-		left join information_schema.statistics s
-			on c.table_schema = s.table_schema and c.table_name = s.table_name
-			and c.column_name = s.column_name and s.index_name = 'PRIMARY'
-		where c.table_schema = '%s' and c.table_name = '%s'
-		order by c.ordinal_position`,
+		select column_name, column_type, is_nullable, numeric_precision, numeric_scale
+		from information_schema.columns
+		where table_schema = '%s' and table_name = '%s'
+		order by ordinal_position`,
 		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
 	if err != nil {
 		return nil, err
@@ -132,15 +150,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		}
 		columns = append(columns, column)
 
-		seqIsNull, err := rs.IsNull(idx, 5)
-		if err != nil {
-			return nil, err
-		}
-		if !seqIsNull {
-			seq, err := rs.GetInt(idx, 5)
-			if err != nil {
-				return nil, err
-			}
+		if seq, ok := pkSeqMap[columnName]; ok {
 			primaryEntries = append(primaryEntries, pkEntry{name: columnName, seqInIndex: seq})
 		}
 	}
