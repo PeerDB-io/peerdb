@@ -913,7 +913,21 @@ func processMessage[Items model.Items](
 	logger := internal.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing logical message: %w", err)
+		var msgType byte
+		if len(xld.WALData) > 0 {
+			msgType = xld.WALData[0]
+		}
+		// cap hex dump to keep logs sane on large messages
+		hexCap := min(len(xld.WALData), 256)
+		logger.Error("failed to parse logical replication message",
+			slog.Any("error", err),
+			slog.String("msgType", string(msgType)),
+			slog.Int("msgTypeByte", int(msgType)),
+			slog.Int("walDataLen", len(xld.WALData)),
+			slog.String("walStart", xld.WALStart.String()),
+			slog.String("serverWALEnd", xld.ServerWALEnd.String()),
+			slog.String("walDataHexPrefix", fmt.Sprintf("%x", xld.WALData[:hexCap])))
+		return nil, fmt.Errorf("error parsing logical message (msgType=%q): %w", msgType, err)
 	}
 	customTypeMapping, err := p.fetchCustomTypeMapping(ctx)
 	if err != nil {
