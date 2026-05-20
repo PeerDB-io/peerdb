@@ -185,7 +185,7 @@ func (s *SetupFlowExecution) setupTableSchema(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    GetSetupFlowHeartbeatTimeout(ctx),
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
@@ -215,7 +215,7 @@ func (s *SetupFlowExecution) createNormalizedTables(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    GetSetupFlowHeartbeatTimeout(ctx),
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
