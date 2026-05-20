@@ -20,7 +20,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/pgvector/pgvector-go"
-	"github.com/pingcap/tidb/pkg/parser/duration"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
@@ -480,16 +479,6 @@ func PullCdcRecords[Items model.Items](
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	walSenderTimeout, err := duration.ParseDuration(
-		p.PostgresConnector.conn.Config().RuntimeParams["wal_sender_timeout"],
-	)
-	if err != nil {
-		return fmt.Errorf("failed to get WAL sender timeout: %w", err)
-	}
-
-	// This value controls for how long the main message loop is blocked waiting for new messages from Postgres.
-	messageWaitPeriod := min(req.IdleTimeout, walSenderTimeout/2)
-
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {
@@ -502,6 +491,26 @@ func PullCdcRecords[Items model.Items](
 		}
 		return nil
 	}
+
+	// determine message wait period in function of idle and wal_sender timeouts
+	var walSenderTimeout time.Duration
+	if walSenderTimeoutStr, err := internal.PeerDBPostgresWalSenderTimeout(ctx, req.Env); err != nil {
+		return fmt.Errorf("could't get wal_sender_timeout parameter: %w", err)
+	} else {
+		if walSenderTimeout, err = time.ParseDuration(walSenderTimeoutStr); err != nil {
+			return fmt.Errorf("failed to parse wal_sender_timeout value: %w", err)
+		} else if walSenderTimeout <= 0 {
+			return fmt.Errorf("invalid wal_sender_timeout value: %s", walSenderTimeout)
+		}
+	}
+	// this value controls for how long the main message loop is blocked waiting for new messages from Postgres.
+	messageWaitPeriod := min(req.IdleTimeout, walSenderTimeout/2)
+
+	logger.Debug("Message wait period determined",
+		slog.Duration("messageWaitPeriod", messageWaitPeriod),
+		slog.Duration("wal_sender_timeout", walSenderTimeout),
+		slog.Duration("req.IdleTimeout", req.IdleTimeout),
+	)
 
 	records := req.RecordStream
 	var totalRecords int64
