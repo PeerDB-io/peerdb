@@ -17,12 +17,17 @@ type CDCStream[T Items] struct {
 	lastCheckpointText string
 	// Schema changes from slot
 	SchemaDeltas []*protos.TableSchemaDelta
+	// CDC v2: XIDs whose commit was fully observed in this batch.
+	// Set by source after PullRecords drains, before Close; read by sync.
+	committedXIDs []int64
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID  int64
 	lastCheckpointSet bool
 	needsNormalize    bool
-	empty             bool
-	emptySet          bool
+	// CDC v2 protocol was actually used on the source side for this batch
+	v2Active bool
+	empty    bool
+	emptySet bool
 }
 
 type CdcCheckpoint struct {
@@ -128,4 +133,31 @@ func (r *CDCStream[T]) AddSchemaDelta(
 
 func (r *CDCStream[T]) NeedsNormalize() bool {
 	return r.needsNormalize
+}
+
+// SetV2Active is called by the source at the start of pull, before any DML
+// records arrive. The sync path needs to know v2 mode before it picks an avro
+// destination table, which happens concurrently with pull — leaving this to
+// the post-pull defer races against the sync goroutine and routes records to
+// the v1 raw table while normalize reads from the v2 WAL sink.
+func (r *CDCStream[T]) SetV2Active(active bool) {
+	r.v2Active = active
+}
+
+// SetCommittedXIDs is called by the source after pull drains. Receiving any
+// committed XID forces a normalize pass even with zero DML records in this
+// batch: prior batches' WAL sink rows still need promotion.
+func (r *CDCStream[T]) SetCommittedXIDs(committedXIDs []int64) {
+	r.committedXIDs = committedXIDs
+	if r.v2Active && len(committedXIDs) > 0 {
+		r.needsNormalize = true
+	}
+}
+
+func (r *CDCStream[T]) V2Active() bool {
+	return r.v2Active
+}
+
+func (r *CDCStream[T]) CommittedXIDs() []int64 {
+	return r.committedXIDs
 }
