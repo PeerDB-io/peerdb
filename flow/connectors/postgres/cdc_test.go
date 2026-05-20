@@ -3,10 +3,11 @@ package connpostgres
 import (
 	"testing"
 
-	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/jackc/pglogrepl"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 )
 
 func newTestCDCSource(t *testing.T) *PostgresCDCSource {
