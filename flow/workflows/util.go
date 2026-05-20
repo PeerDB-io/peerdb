@@ -40,6 +40,18 @@ func GetFlowMetadataContext(
 	return workflow.WithValue(ctx, internal.FlowMetadataKey, metadata), nil
 }
 
+func GetSetupFlowHeartbeatTimeout(ctx workflow.Context) time.Duration {
+	return time.Duration(GetSideEffect(ctx, func(workflow.Context) int {
+		return internal.PeerDBSetupFlowHeartbeatTimeoutSeconds()
+	})) * time.Second
+}
+
+func GetSetupFlowWorkflowTaskTimeout(ctx workflow.Context) time.Duration {
+	return time.Duration(GetSideEffect(ctx, func(workflow.Context) int {
+		return internal.PeerDBSetupFlowWorkflowTaskTimeoutSeconds()
+	})) * time.Second
+}
+
 func ShouldWorkflowContinueAsNew(ctx workflow.Context) bool {
 	info := workflow.GetInfo(ctx)
 	return info.GetContinueAsNewSuggested() &&

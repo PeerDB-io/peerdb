@@ -639,8 +639,9 @@ func CDCFlowWorkflow(
 		})
 
 		childSetupFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        setupFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			WorkflowID:          setupFlowID,
+			ParentClosePolicy:   enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			WorkflowTaskTimeout: GetSetupFlowWorkflowTaskTimeout(ctx),
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
