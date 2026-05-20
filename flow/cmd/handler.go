@@ -551,20 +551,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 	return &protos.FlowStateChangeResponse{}, nil
 }
 
-func overrideSnapshotParametersInResync(req *protos.FlowStateChangeRequest, configs *protos.FlowConnectionConfigs) {
-	if u := req.GetFlowConfigUpdate().GetCdcFlowConfigUpdate(); u != nil {
-		if u.SnapshotMaxParallelWorkers > 0 {
-			configs.SnapshotMaxParallelWorkers = u.SnapshotMaxParallelWorkers
-		}
-		if u.SnapshotNumTablesInParallel > 0 {
-			configs.SnapshotNumTablesInParallel = u.SnapshotNumTablesInParallel
-		}
-		if u.SnapshotNumRowsPerPartition > 0 {
-			configs.SnapshotNumRowsPerPartition = u.SnapshotNumRowsPerPartition
-		}
-	}
-}
-
 func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowID, runID string) error {
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
