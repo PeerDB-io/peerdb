@@ -133,6 +133,17 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 	return model.SetupReplicationResult{}, nil
 }
 
+func decodeEvent(
+	rawEvent bson.Raw,
+	changeEvent *ChangeEvent,
+) error {
+	// TODO: Protect against `null` `fullDocument`
+	if err := bson.Unmarshal(rawEvent, changeEvent); err != nil {
+		return fmt.Errorf("failed to decode change stream document: %w", err)
+	}
+	return nil
+}
+
 func (c *MongoConnector) PullRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
@@ -380,8 +391,8 @@ func (c *MongoConnector) PullRecords(
 		cumulativeBytesProcessed.Add(changeEventSize)
 
 		var changeEvent ChangeEvent
-		if err := bson.Unmarshal(current, &changeEvent); err != nil {
-			return fmt.Errorf("failed to decode change stream document: %w", err)
+		if err := decodeEvent(current, &changeEvent); err != nil {
+			return err
 		}
 
 		clusterTime := time.Unix(int64(changeEvent.ClusterTime.T), 0)

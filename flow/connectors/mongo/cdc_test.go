@@ -177,3 +177,104 @@ func TestResumeTokenHelpersRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, toBsonTs(ts), bsonTs)
 }
+
+func TestDecodeEvent(t *testing.T) {
+	id := bson.NewObjectID()
+	insertTs := time.Now().UTC()
+	deleteTs := time.Now().Add(time.Second).UTC()
+
+	mustMarshal := func(v any) bson.Raw {
+		t.Helper()
+		raw, err := bson.Marshal(v)
+		require.NoError(t, err)
+		return raw
+	}
+
+	deleteRaw := mustMarshal(bson.D{
+		{Key: "ns", Value: bson.D{
+			{Key: "db", Value: "db"},
+			{Key: "coll", Value: "coll"},
+		}},
+		{Key: "operationType", Value: "delete"},
+		{Key: "documentKey", Value: bson.D{{Key: "_id", Value: id}}},
+		{Key: "clusterTime", Value: toBsonTs(deleteTs)},
+	})
+
+	deleteWithNullFullDocRaw := mustMarshal(bson.D{
+		{Key: "ns", Value: bson.D{
+			{Key: "db", Value: "db"},
+			{Key: "coll", Value: "coll"},
+		}},
+		{Key: "operationType", Value: "delete"},
+		{Key: "documentKey", Value: bson.D{{Key: "_id", Value: id}}},
+		{Key: "fullDocument", Value: nil},
+		{Key: "clusterTime", Value: toBsonTs(deleteTs)},
+	})
+
+	cases := []struct {
+		name    string
+		raw     bson.Raw
+		want    ChangeEvent
+		wantErr string
+	}{
+		{
+			name: "insert populates every field",
+			raw:  newInsertChangeEvent(id, insertTs),
+			want: ChangeEvent{
+				Ns:            Namespace{Db: "db", Coll: "coll"},
+				OperationType: "insert",
+				DocumentKey:   mustMarshal(bson.D{{Key: "_id", Value: id}}),
+				FullDocument: mustMarshal(bson.D{
+					{Key: "_id", Value: id},
+					{Key: "val", Value: "test"},
+				}),
+				ClusterTime: toBsonTs(insertTs),
+			},
+		},
+		{
+			name: "delete omits fullDocument",
+			raw:  deleteRaw,
+			want: ChangeEvent{
+				Ns:            Namespace{Db: "db", Coll: "coll"},
+				OperationType: "delete",
+				DocumentKey:   mustMarshal(bson.D{{Key: "_id", Value: id}}),
+				FullDocument:  nil,
+				ClusterTime:   toBsonTs(deleteTs),
+			},
+		},
+		{ // Behaviour before go.mongodb.org/mongo-driver/v2 v2.6.0
+			name: "delete with null fullDocument decodes as a delete with an empty fullDocument",
+			raw:  deleteWithNullFullDocRaw,
+			want: ChangeEvent{
+				Ns:            Namespace{Db: "db", Coll: "coll"},
+				OperationType: "delete",
+				DocumentKey:   mustMarshal(bson.D{{Key: "_id", Value: id}}),
+				FullDocument:  bson.Raw{},
+				ClusterTime:   toBsonTs(deleteTs),
+			},
+		},
+		{
+			name: "empty document decodes to zero value",
+			raw:  mustMarshal(bson.D{}),
+			want: ChangeEvent{},
+		},
+		{
+			name:    "invalid bson returns wrapped error",
+			raw:     bson.Raw{0x05, 0x00, 0x00, 0x00, 0xff},
+			wantErr: "failed to decode change stream document",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got ChangeEvent
+			err := decodeEvent(tc.raw, &got)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
