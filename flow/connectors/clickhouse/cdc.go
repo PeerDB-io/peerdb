@@ -77,7 +77,12 @@ func (c *ClickHouseConnector) CreateWALSinkTable(ctx context.Context, flowJobNam
 		walTableName += "_shard"
 	}
 
-	createWALTableSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = %s ORDER BY (_peerdb_txid, _peerdb_lsn)`
+	ttlDays, err := internal.PeerDBClickHouseRawTableTTLDays(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to load WAL sink TTL days: %w", err)
+	}
+	createWALTableSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = %s ORDER BY (_peerdb_txid, _peerdb_lsn)` +
+		` TTL fromUnixTimestamp64Nano(_peerdb_timestamp) + INTERVAL ` + strconv.FormatUint(uint64(ttlDays), 10) + ` DAY`
 	if err := c.execWithLogging(ctx,
 		fmt.Sprintf(createWALTableSQL, peerdb_clickhouse.QuoteIdentifier(walTableName), onCluster, walSinkColumns, engine),
 	); err != nil {

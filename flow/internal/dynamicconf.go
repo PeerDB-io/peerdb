@@ -314,7 +314,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name:             "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS",
-		Description:      "Days to retain rows in the ClickHouse _peerdb_raw table before TTL eviction. Applies to newly created raw tables",
+		Description:      "Days to retain rows in the ClickHouse _peerdb_raw and _peerdb_wal tables before TTL eviction. Applies to newly created tables",
 		DefaultValue:     "90",
 		ValueType:        protos.DynconfValueType_UINT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
