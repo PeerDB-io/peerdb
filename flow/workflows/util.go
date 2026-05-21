@@ -59,3 +59,17 @@ func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, e
 	}
 	return fullRefreshEnabled
 }
+
+func getClickHouseInitialLoadAllowNonEmptyTables(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
+	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var allow bool
+	future := workflow.ExecuteActivity(checkCtx, flowable.PeerDBClickHouseInitialLoadAllowNonEmptyTables, env)
+	if err := future.Get(checkCtx, &allow); err != nil {
+		logger.Warn("Failed to check ClickHouse initial load allow non-empty tables", slog.Any("error", err))
+		return false
+	}
+	return allow
+}
