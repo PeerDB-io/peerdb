@@ -13,15 +13,13 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 	"go.temporal.io/sdk/log"
 
-	metadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 )
@@ -50,46 +48,27 @@ var protoToReadPref = map[protos.ReadPreference]*readpref.ReadPref{
 	protos.ReadPreference_PREFERENCE_UNKNOWN:  readpref.SecondaryPreferred(),
 }
 
-type metadataStore interface {
-	GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error)
-	SetLastOffset(ctx context.Context, jobName string, offset model.CdcCheckpoint) error
-}
-
-type createChangeStreamFunc func(
-	ctx context.Context, pipeline mongo.Pipeline, opts ...options.Lister[options.ChangeStreamOptions],
-) (ChangeStream, error)
-
 type MongoConnector struct {
-	logger             log.Logger
-	metadataStore      metadataStore
-	config             *protos.MongoConfig
-	client             *mongo.Client
-	ssh                *utils.SSHTunnel
-	createChangeStream createChangeStreamFunc
-	totalBytesRead     atomic.Int64
-	deltaBytesRead     atomic.Int64
+	logger log.Logger
+	*metadataStore.PostgresMetadata
+	config         *protos.MongoConfig
+	client         *mongo.Client
+	ssh            *utils.SSHTunnel
+	totalBytesRead atomic.Int64
+	deltaBytesRead atomic.Int64
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	pgMetadata, err := metadata.NewPostgresMetadata(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	mc := &MongoConnector{
-		metadataStore: pgMetadata,
-		config:        config,
-		logger:        logger,
-	}
-	mc.createChangeStream = func(
-		ctx context.Context, pipeline mongo.Pipeline, opts ...options.Lister[options.ChangeStreamOptions],
-	) (ChangeStream, error) {
-		cs, err := mc.client.Watch(ctx, pipeline, opts...)
-		if err != nil {
-			return nil, err
-		}
-		return &changeStreamWrapper{ChangeStream: cs}, nil
+		PostgresMetadata: pgMetadata,
+		config:           config,
+		logger:           logger,
 	}
 
 	sshTunnel, err := utils.NewSSHTunnel(ctx, config.SshConfig)
@@ -219,7 +198,7 @@ func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context,
 		return 0, fmt.Errorf("failed to get replica set status: %w", err)
 	}
 
-	lastOffset, err := c.metadataStore.GetLastOffset(ctx, flowJobName)
+	lastOffset, err := c.GetLastOffset(ctx, flowJobName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get last offset: %w", err)
 	}
