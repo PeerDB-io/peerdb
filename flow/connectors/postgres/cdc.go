@@ -492,6 +492,26 @@ func PullCdcRecords[Items model.Items](
 		return nil
 	}
 
+	// determine message wait period in function of idle and wal_sender timeouts
+	var walSenderTimeout time.Duration
+	if walSenderTimeoutStr, err := internal.PeerDBPostgresWalSenderTimeout(ctx, req.Env); err != nil {
+		return fmt.Errorf("could't get wal_sender_timeout parameter: %w", err)
+	} else {
+		if walSenderTimeout, err = time.ParseDuration(walSenderTimeoutStr); err != nil {
+			return fmt.Errorf("failed to parse wal_sender_timeout value: %w", err)
+		} else if walSenderTimeout <= 0 {
+			return fmt.Errorf("invalid wal_sender_timeout value: %s", walSenderTimeout)
+		}
+	}
+	// this value controls for how long the main message loop is blocked waiting for new messages from Postgres.
+	messageWaitPeriod := min(req.IdleTimeout, walSenderTimeout/2)
+
+	logger.Debug("Message wait period determined",
+		slog.Duration("messageWaitPeriod", messageWaitPeriod),
+		slog.Duration("wal_sender_timeout", walSenderTimeout),
+		slog.Duration("req.IdleTimeout", req.IdleTimeout),
+	)
+
 	records := req.RecordStream
 	var totalRecords int64
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
@@ -562,7 +582,7 @@ func PullCdcRecords[Items model.Items](
 	defer shutdown()
 
 	var standByLastLogged time.Time
-	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
+	nextStandbyMessageDeadline := time.Now().Add(messageWaitPeriod)
 	pkmRequiresResponse := false
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
@@ -579,7 +599,7 @@ func PullCdcRecords[Items model.Items](
 
 		if totalRecords == 1 {
 			records.SignalAsNotEmpty()
-			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
+			nextStandbyMessageDeadline = time.Now().Add(messageWaitPeriod)
 			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
 		if totalRecords%50000 == 0 {
@@ -667,16 +687,14 @@ func PullCdcRecords[Items model.Items](
 			} else {
 				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
 			}
-			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
+			nextStandbyMessageDeadline = time.Now().Add(messageWaitPeriod)
 		}
 
 		var receiveCtx context.Context
 		var cancel context.CancelFunc
-		if totalRecords == 0 {
-			receiveCtx, cancel = context.WithCancel(ctx)
-		} else {
-			receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
-		}
+
+		receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
+
 		rawMsg, err := func() (pgproto3.BackendMessage, error) {
 			replLock.Lock()
 			defer replLock.Unlock()
@@ -689,13 +707,17 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if err != nil && p.commitLock == nil {
-			if pgconn.Timeout(err) {
+			if totalRecords != 0 && pgconn.Timeout(err) {
 				logger.Info("Stand-by deadline reached, returning currently accumulated records",
 					slog.Int64("records", totalRecords),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()),
 					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 				return nil
+			} else if pgconn.Timeout(err) {
+				if err := p.ReplPing(ctx); err != nil {
+					return fmt.Errorf("ReplPing failed: %w", err)
+				}
 			} else {
 				return fmt.Errorf("ReceiveMessage failed: %w", err)
 			}

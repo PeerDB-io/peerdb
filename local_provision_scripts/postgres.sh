@@ -26,7 +26,23 @@ esac
 
 echo "install pgvector extension"
 if ! $DOCKER exec "$CONTAINER" test -d /tmp/pgvector; then
-  $DOCKER exec "$CONTAINER" apk add --no-cache build-base git
+  OS=$($DOCKER exec "$CONTAINER" cat /etc/os-release | grep '^NAME=' | awk -F '"' '{print $2}')
+  case "$OS" in
+    "Alpine Linux")
+      echo "Installing build dependencies for Alpine Linux"
+      $DOCKER exec "$CONTAINER" apk add --no-cache build-base git
+      ;;
+    "Ubuntu")
+      echo "Installing build dependencies for Ubuntu"
+      $DOCKER exec "$CONTAINER" whoami
+      $DOCKER exec "$CONTAINER" apt update
+      $DOCKER exec "$CONTAINER" apt install -y build-essential git
+      ;;
+    *)
+      echo "Unsupported OS: $OS"
+      exit 1
+      ;;
+  esac
   $DOCKER exec "$CONTAINER" git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector
   $DOCKER exec "$CONTAINER" sh -c 'cd /tmp/pgvector && make with_llvm=no && make with_llvm=no install'
 fi

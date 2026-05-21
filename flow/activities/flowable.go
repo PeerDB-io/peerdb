@@ -413,12 +413,6 @@ func (a *FlowableActivity) SyncFlow(
 		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
-	group.Go(func() error {
-		if err := a.maintainReplConn(groupCtx, config.FlowJobName, srcConn, syncDone); err != nil {
-			return a.Alerter.LogFlowError(groupCtx, config.FlowJobName, err)
-		}
-		return nil
-	})
 
 	for groupCtx.Err() == nil {
 		syncNum := currentSyncFlowNum.Add(1)
