@@ -211,11 +211,16 @@ func TestDecodeEvent(t *testing.T) {
 		{Key: "clusterTime", Value: toBsonTs(deleteTs)},
 	})
 
+	fullDocument := mustMarshal(bson.D{
+		{Key: "_id", Value: id},
+		{Key: "val", Value: "test"},
+	})
+
 	cases := []struct {
 		name    string
+		wantErr string
 		raw     bson.Raw
 		want    ChangeEvent
-		wantErr string
 	}{
 		{
 			name: "insert populates every field",
@@ -224,11 +229,8 @@ func TestDecodeEvent(t *testing.T) {
 				Ns:            Namespace{Db: "db", Coll: "coll"},
 				OperationType: "insert",
 				DocumentKey:   mustMarshal(bson.D{{Key: "_id", Value: id}}),
-				FullDocument: mustMarshal(bson.D{
-					{Key: "_id", Value: id},
-					{Key: "val", Value: "test"},
-				}),
-				ClusterTime: toBsonTs(insertTs),
+				FullDocument:  &fullDocument,
+				ClusterTime:   toBsonTs(insertTs),
 			},
 		},
 		{
@@ -249,7 +251,7 @@ func TestDecodeEvent(t *testing.T) {
 				Ns:            Namespace{Db: "db", Coll: "coll"},
 				OperationType: "delete",
 				DocumentKey:   mustMarshal(bson.D{{Key: "_id", Value: id}}),
-				FullDocument:  bson.Raw{},
+				FullDocument:  nil,
 				ClusterTime:   toBsonTs(deleteTs),
 			},
 		},

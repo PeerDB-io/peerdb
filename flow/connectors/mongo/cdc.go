@@ -29,10 +29,10 @@ type Namespace struct {
 }
 
 type ChangeEvent struct {
+	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
 	Ns            Namespace      `bson:"ns"`
 	OperationType string         `bson:"operationType"`
 	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
-	FullDocument  bson.Raw       `bson:"fullDocument,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
@@ -133,11 +133,11 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 	return model.SetupReplicationResult{}, nil
 }
 
+// This function implements raw events decoding logic into typed `ChangeEvent` values.
 func decodeEvent(
 	rawEvent bson.Raw,
 	changeEvent *ChangeEvent,
 ) error {
-	// TODO: Protect against `null` `fullDocument`
 	if err := bson.Unmarshal(rawEvent, changeEvent); err != nil {
 		return fmt.Errorf("failed to decode change stream document: %w", err)
 	}
@@ -260,7 +260,7 @@ func (c *MongoConnector) PullRecords(
 	}
 
 	converter := NewDirectBsonConverter()
-	addRecordItems := func(documentKey bson.Raw, fullDocument bson.Raw, items *model.RecordItems, tableName string) error {
+	addRecordItems := func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
 		if len(documentKey) > 0 {
 			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
 			if rv.IsZero() || rv.Type == bson.TypeNull {
@@ -275,8 +275,8 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("document key is nil")
 		}
 
-		if len(fullDocument) > 0 {
-			qValue, err := converter.QValueJSONFromDocument(fullDocument)
+		if maybeFullDocument != nil && len(*maybeFullDocument) > 0 {
+			qValue, err := converter.QValueJSONFromDocument(*maybeFullDocument)
 			if err != nil {
 				return fmt.Errorf("failed to convert document: %w", err)
 			}
