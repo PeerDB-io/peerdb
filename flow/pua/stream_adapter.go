@@ -56,7 +56,9 @@ func AttachToCdcStream(
 	}
 
 	go func() {
-		if stream.WaitAndCheckEmpty() {
+		isEmpty := stream.WaitAndCheckEmpty()
+		outstream.SetV2Active(stream.V2Active())
+		if isEmpty {
 			outstream.SignalAsEmpty()
 			<-stream.GetRecords() // needed because empty signal comes before Close
 		} else {
@@ -76,6 +78,7 @@ func AttachToCdcStream(
 			}
 		}
 		outstream.SchemaDeltas = stream.SchemaDeltas
+		outstream.SetCommittedXIDs(stream.CommittedXIDs())
 		lastCP := stream.GetLastCheckpoint()
 		outstream.UpdateLatestCheckpointID(lastCP.ID)
 		outstream.UpdateLatestCheckpointText(lastCP.Text)
