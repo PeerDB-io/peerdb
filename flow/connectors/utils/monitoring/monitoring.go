@@ -232,9 +232,6 @@ func AddCDCBatchTablesForFlow(
 		return fmt.Errorf("error while committing transaction for inserting and updating statistics: %w", err)
 	}
 
-	otelManager.Metrics.SyncedTablesPerBatchGauge.Record(ctx, syncedTablesCount, metric.WithAttributeSet(attribute.NewSet(
-		attribute.Int64(otel_metrics.BatchIdKey, batchID))))
-
 	for destinationTableName, operations := range tableNameOperations {
 		for _, opAndCount := range operations {
 			otelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, int64(opAndCount.count), metric.WithAttributeSet(attribute.NewSet(
