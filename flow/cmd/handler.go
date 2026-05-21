@@ -503,7 +503,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 
 				config.Resync = true
 				config.DoInitialSnapshot = true
+
 				// validate mirror first because once the mirror is dropped, there's no going back
+				// Note: We do not validate snapshot parameters (SnapshotNumRowsPerPartition, etc)
 				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 					ConnectionConfigs: config,
 				}); err != nil {
