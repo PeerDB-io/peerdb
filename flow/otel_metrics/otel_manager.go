@@ -64,7 +64,6 @@ const (
 	RecordsSyncedPerTableGaugeName       = "records_synced_per_table"
 	RecordsSyncedPerTableCounterName     = "records_synced_per_table_counter"
 	SyncedTablesGaugeName                = "synced_tables"
-	SyncedTablesPerBatchGaugeName        = "synced_tables_per_batch"
 	InstanceStatusGaugeName              = "instance_status"
 	MaintenanceStatusGaugeName           = "maintenance_status"
 	FlowStatusGaugeName                  = "flow_status"
@@ -120,7 +119,6 @@ type Metrics struct {
 	RecordsSyncedPerTableGauge       metric.Int64Gauge
 	RecordsSyncedPerTableCounter     metric.Int64Counter
 	SyncedTablesGauge                metric.Int64Gauge
-	SyncedTablesPerBatchGauge        metric.Int64Gauge
 	InstanceStatusGauge              metric.Int64Gauge
 	MaintenanceStatusGauge           metric.Int64Gauge
 	FlowStatusGauge                  metric.Int64Gauge
@@ -492,12 +490,6 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if om.Metrics.SyncedTablesGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SyncedTablesGaugeName),
 		metric.WithDescription("Number of tables synced"),
-	); err != nil {
-		return err
-	}
-
-	if om.Metrics.SyncedTablesPerBatchGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SyncedTablesPerBatchGaugeName),
-		metric.WithDescription("Number of tables synced for every Sync batch"),
 	); err != nil {
 		return err
 	}
