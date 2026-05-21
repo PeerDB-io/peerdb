@@ -184,7 +184,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
-	fq := fmt.Sprintf("%s.%s", strings.ToUpper(schemaTable.Namespace), strings.ToUpper(schemaTable.Table))
+	fq := snowflakeSchemaTableNormalize(schemaTable)
 
 	channel := make(chan string, 1)
 	ctxWithOpt := gosnowflake.WithQueryIDChan(ctx, channel)
