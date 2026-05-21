@@ -29,7 +29,7 @@ rust_decimal = { version = "1", default-features = false, features = [
 ] }
 ssh2 = "0.9"
 parser = { path = "./parser" }
-sqlparser = { version = "0.61", features = ["visitor"] }
+sqlparser = { version = "0.62", features = ["visitor"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
-pgwire = { version = "0.36", default-features = false, features = ["server-api-aws-lc-rs", "pg-type-chrono"] }
+pgwire = { version = "0.40", default-features = false, features = ["server-api-aws-lc-rs", "pg-type-chrono"] }

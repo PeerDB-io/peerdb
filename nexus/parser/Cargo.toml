@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-sqlparser = "0.61"
+sqlparser = "0.62"
 
 [features]
 default = []
