@@ -12,7 +12,7 @@ import (
 // (commitLock from Begin, wrapper Xid zero so we fall back to it).
 func TestBaseRecordV2(t *testing.T) {
 	t.Run("streaming uses wrapper Xid", func(t *testing.T) {
-		p := &PostgresCDCSource{}
+		p := &PostgresCDCSource{cdcV2State: newCDCV2State()}
 		rec := p.baseRecordV2(pglogrepl.LSN(0xdeadbeef), 12345)
 		require.Equal(t, int64(0xdeadbeef), rec.CheckpointID)
 		require.Equal(t, uint64(12345), rec.TransactionID)
@@ -21,7 +21,7 @@ func TestBaseRecordV2(t *testing.T) {
 
 	t.Run("non-streaming falls back to commitLock Xid", func(t *testing.T) {
 		p := &PostgresCDCSource{
-			commitLock: &pglogrepl.BeginMessage{Xid: 67890},
+			cdcV2State: &cdcV2State{commitLock: &pglogrepl.BeginMessage{Xid: 67890}},
 		}
 		rec := p.baseRecordV2(pglogrepl.LSN(42), 0)
 		require.Equal(t, int64(42), rec.CheckpointID)
@@ -32,7 +32,7 @@ func TestBaseRecordV2(t *testing.T) {
 		// shouldn't happen in practice (StreamStartMessageV2 implies no Begin in flight),
 		// but the precedence matters: wrapper carries the streaming subtransaction XID.
 		p := &PostgresCDCSource{
-			commitLock: &pglogrepl.BeginMessage{Xid: 67890},
+			cdcV2State: &cdcV2State{commitLock: &pglogrepl.BeginMessage{Xid: 67890}},
 		}
 		rec := p.baseRecordV2(pglogrepl.LSN(42), 12345)
 		require.Equal(t, uint64(12345), rec.TransactionID)

@@ -300,6 +300,7 @@ func pullCore[Items model.Items](
 		TableNameMapping:                         req.TableNameMapping,
 		TableNameSchemaMapping:                   req.TableNameSchemaMapping,
 		RelationMessageMapping:                   c.relationMessageMapping,
+		CDCV2State:                               c.cdcV2State,
 		FlowJobName:                              req.FlowJobName,
 		Slot:                                     slotName,
 		Publication:                              publicationName,

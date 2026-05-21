@@ -41,6 +41,46 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+// cdcV2State is in-flight v2 protocol state that must survive a batch boundary
+// mid-transaction. The PostgresCDCSource is recreated per pull, but the
+// underlying replication connection (and the WAL stream from it) persists
+// across pulls on the same PostgresConnector — so any state that tracks
+// "where am I in PG's wire-protocol framing" or "what have I buffered for an
+// uncommitted XID" must live on the connector, not the per-pull source. v2's
+// batch boundary is decoupled from commit (§4.1.2), so batches can split a
+// transaction; PG only sends each RelationMessage once per session, never
+// re-emits Begin/StreamStart on the open stream, and parsing stream-framed
+// messages requires inStream to match. Losing any of these across batches
+// causes silent mis-parse, missing XIDs, or lost schema deltas.
+type cdcV2State struct {
+	// Begin message for the current non-streamed v2 transaction. Carries the
+	// XID and CommitTime used by baseRecordV2 to stamp DML records. Cleared
+	// on CommitMessage. Streaming transactions don't use this — they have no
+	// surrounding Begin/Commit.
+	commitLock *pglogrepl.BeginMessage
+	// Top-level XID -> sub-XIDs tracked for the transaction. See §6.4.
+	activeStreams map[uint32][]uint32
+	// Per-XID buffer of schema deltas seen inside in-flight transactions.
+	// Flushed to batch on Commit/StreamCommit, dropped on StreamAbort. Keyed
+	// by the XID the RelationMessage arrived under: msg.Xid when inStream,
+	// commitLock.Xid otherwise. DML decoding still uses the eagerly-updated
+	// relationMessageMapping; only destination apply of the delta is deferred.
+	// See §4.5.
+	pendingRelations map[uint32][]*protos.TableSchemaDelta
+	// True between StreamStartV2 and StreamStopV2. Passed to ParseV2 to tell
+	// it whether to read the wrapper XID prefix from the message body. If
+	// this flips back to false across a batch boundary while PG is still
+	// streaming, the next message is mis-parsed.
+	inStream bool
+}
+
+func newCDCV2State() *cdcV2State {
+	return &cdcV2State{
+		activeStreams:    make(map[uint32][]uint32),
+		pendingRelations: make(map[uint32][]*protos.TableSchemaDelta),
+	}
+}
+
 //nolint:govet // fieldalignment: fields grouped by purpose for readability
 type PostgresCDCSource struct {
 	*PostgresConnector
@@ -51,7 +91,11 @@ type PostgresCDCSource struct {
 	relationMessageMapping model.RelationMessageMapping
 	slot                   string
 	publication            string
-	commitLock             *pglogrepl.BeginMessage
+
+	// In-flight v2 state held on the connector so it survives a batch boundary
+	// mid-transaction. Embedded so we can keep writing p.inStream, p.commitLock,
+	// etc. without sprinkling .v2state. everywhere.
+	*cdcV2State
 
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
@@ -69,12 +113,11 @@ type PostgresCDCSource struct {
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
 
-	// v2 protocol state
+	// v2 protocol config flag (static for this pull)
 	useV2Protocol bool
-	inStream      bool
-	// tracks XID -> list of sub-XIDs seen during streaming for that transaction
-	activeStreams map[uint32][]uint32
-	// set of committed XIDs (top-level + sub-XIDs) in current batch
+
+	// committedXIDs is drained into the CDCStream at end of pull, so a fresh
+	// per-pull map is correct here — no need to lift onto the connector.
 	committedXIDs map[uint32]struct{}
 }
 
@@ -85,6 +128,7 @@ type PostgresCDCConfig struct {
 	TableNameMapping                         map[string]model.NameAndExclude
 	TableNameSchemaMapping                   map[string]*protos.TableSchema
 	RelationMessageMapping                   model.RelationMessageMapping
+	CDCV2State                               *cdcV2State
 	FlowJobName                              string
 	Slot                                     string
 	Publication                              string
@@ -135,7 +179,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		relationMessageMapping:                   cdcConfig.RelationMessageMapping,
 		slot:                                     cdcConfig.Slot,
 		publication:                              cdcConfig.Publication,
-		commitLock:                               nil,
+		cdcV2State:                               cdcConfig.CDCV2State,
 		childToParentRelIDMapping:                childToParentRelIDMap,
 		idToRelKindMap:                           idToRelKindMap,
 		publishViaPartitionRoot:                  publishViaPartitionRoot,
@@ -149,7 +193,6 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
 		useV2Protocol:                            cdcConfig.UseV2Protocol,
-		activeStreams:                            make(map[uint32][]uint32),
 		committedXIDs:                            make(map[uint32]struct{}),
 	}, nil
 }
@@ -1162,12 +1205,19 @@ func processMessageV2[Items model.Items](
 		logger.Debug("StreamCommitMessageV2",
 			slog.Uint64("XID", uint64(msg.Xid)),
 			slog.Any("CommitLSN", msg.CommitLSN))
-		// Mark top-level XID as committed
+		// Mark top-level XID as committed, then flush any schema deltas
+		// buffered under it. Sub-XIDs (tracked or not) are flushed below.
 		p.committedXIDs[msg.Xid] = struct{}{}
+		if err := flushPendingRelations(ctx, p, batch, msg.Xid); err != nil {
+			return nil, err
+		}
 		// Mark all sub-XIDs for this transaction as committed
 		if subXIDs, ok := p.activeStreams[msg.Xid]; ok {
 			for _, subXID := range subXIDs {
 				p.committedXIDs[subXID] = struct{}{}
+				if err := flushPendingRelations(ctx, p, batch, subXID); err != nil {
+					return nil, err
+				}
 			}
 			delete(p.activeStreams, msg.Xid)
 		}
@@ -1181,8 +1231,18 @@ func processMessageV2[Items model.Items](
 			slog.Uint64("SubXID", uint64(msg.SubXid)))
 		// If SubXid != Xid, only the subtransaction is aborted
 		if msg.SubXid == msg.Xid {
+			// Whole transaction aborted: discard pending schema deltas under
+			// the parent XID and every tracked sub-XID.
+			delete(p.pendingRelations, msg.Xid)
+			if subXIDs, ok := p.activeStreams[msg.Xid]; ok {
+				for _, subXID := range subXIDs {
+					delete(p.pendingRelations, subXID)
+				}
+			}
 			delete(p.activeStreams, msg.Xid)
 		} else {
+			// Sub-XID aborted: discard only that sub-XID's pending deltas.
+			delete(p.pendingRelations, msg.SubXid)
 			// Remove the specific sub-XID from tracking
 			if subXIDs, ok := p.activeStreams[msg.Xid]; ok {
 				filtered := subXIDs[:0]
@@ -1206,9 +1266,13 @@ func processMessageV2[Items model.Items](
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
 		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
-		// Mark the non-streaming transaction as committed
+		// Mark the non-streaming transaction as committed and flush any schema
+		// deltas buffered under its XID.
 		if p.commitLock != nil {
 			p.committedXIDs[p.commitLock.Xid] = struct{}{}
+			if err := flushPendingRelations(ctx, p, batch, p.commitLock.Xid); err != nil {
+				return nil, err
+			}
 		}
 		p.commitLock = nil
 
@@ -1223,7 +1287,10 @@ func processMessageV2[Items model.Items](
 		return processDeleteMessageV2(p, xld.WALStart, msg, processor, customTypeMapping)
 
 	case *pglogrepl.RelationMessageV2:
-		// Schema changes applied eagerly regardless of transaction commit status
+		// Defer destination apply until the transaction commits: a relation
+		// message inside an aborted (sub)transaction must not alter the dest
+		// schema. The in-memory relationMessageMapping is still updated eagerly
+		// inside computeRelationDelta so DMLs in the same transaction can decode.
 		rmsg := &msg.RelationMessage
 		originalRelID := rmsg.RelationID
 		var parentRelKind byte
@@ -1240,10 +1307,32 @@ func processMessageV2[Items model.Items](
 		logger.Info("processing RelationMessageV2",
 			slog.Any("LSN", currentClientXlogPos),
 			slog.Uint64("RelationID", uint64(rmsg.RelationID)),
+			slog.Uint64("WrapperXID", uint64(msg.Xid)),
 			slog.String("Namespace", rmsg.Namespace),
 			slog.String("RelationName", rmsg.RelationName),
 			slog.Any("Columns", rmsg.Columns))
-		return processRelationMessage[Items](ctx, p, currentClientXlogPos, rmsg)
+		delta, err := computeRelationDelta(ctx, p, rmsg)
+		if err != nil || delta == nil {
+			return nil, err
+		}
+		// Streaming: msg.Xid carries the streaming (sub)XID. Non-streaming v2:
+		// msg.Xid is 0, fall back to the surrounding Begin's XID via commitLock.
+		xid := msg.Xid
+		if xid == 0 && p.commitLock != nil {
+			xid = p.commitLock.Xid
+		}
+		if xid == 0 {
+			// No transaction frame to attach to (shouldn't happen with PG v2);
+			// apply eagerly rather than silently dropping the delta.
+			logger.Warn("RelationMessageV2 outside any transaction frame, applying eagerly",
+				slog.Uint64("RelationID", uint64(rmsg.RelationID)))
+			return &model.RelationRecord[Items]{
+				BaseRecord:       p.baseRecord(currentClientXlogPos),
+				TableSchemaDelta: delta,
+			}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, delta)
+		}
+		p.pendingRelations[xid] = append(p.pendingRelations[xid], delta)
+		return nil, nil
 
 	case *pglogrepl.LogicalDecodingMessageV2:
 		logger.Debug("LogicalDecodingMessageV2",
@@ -1462,13 +1551,16 @@ func processDeleteMessageV2[Items model.Items](
 	return processDeleteMessage(p, lsn, &msg.DeleteMessage, p.baseRecordV2(lsn, msg.Xid), processor, customTypeMapping)
 }
 
-// processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
-func processRelationMessage[Items model.Items](
+// computeRelationDelta computes the schema delta for a RelationMessage and
+// eagerly updates relationMessageMapping (needed so DMLs in the same transaction
+// decode correctly). Returns nil delta when there are no actionable AddedColumns.
+// Callers decide when to apply the delta to destination — v1 emits immediately,
+// v2 buffers per-XID and flushes on commit.
+func computeRelationDelta(
 	ctx context.Context,
 	p *PostgresCDCSource,
-	lsn pglogrepl.LSN,
 	currRel *pglogrepl.RelationMessage,
-) (model.Record[Items], error) {
+) (*protos.TableSchemaDelta, error) {
 	// not present in tables to sync, return immediately
 	currRelName, ok := p.srcTableIDNameMapping[currRel.RelationID]
 	if !ok {
@@ -1621,14 +1713,54 @@ func processRelationMessage[Items model.Items](
 	}
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
-	// only log audit if there is actionable delta
-	if len(schemaDelta.AddedColumns) > 0 {
-		return &model.RelationRecord[Items]{
-			BaseRecord:       p.baseRecord(lsn),
-			TableSchemaDelta: schemaDelta,
-		}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
+	if len(schemaDelta.AddedColumns) == 0 {
+		return nil, nil
 	}
-	return nil, nil
+	return schemaDelta, nil
+}
+
+// processRelationMessage emits a TableSchemaDelta synchronously (v1 / non-deferred path).
+func processRelationMessage[Items model.Items](
+	ctx context.Context,
+	p *PostgresCDCSource,
+	lsn pglogrepl.LSN,
+	currRel *pglogrepl.RelationMessage,
+) (model.Record[Items], error) {
+	delta, err := computeRelationDelta(ctx, p, currRel)
+	if err != nil || delta == nil {
+		return nil, err
+	}
+	return &model.RelationRecord[Items]{
+		BaseRecord:       p.baseRecord(lsn),
+		TableSchemaDelta: delta,
+	}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, delta)
+}
+
+// flushPendingRelations applies all schema deltas buffered under xid into batch
+// and emits the audit log. Called on Commit / StreamCommit for the newly
+// committed XID (and each of its sub-XIDs).
+func flushPendingRelations[Items model.Items](
+	ctx context.Context,
+	p *PostgresCDCSource,
+	batch *model.CDCStream[Items],
+	xid uint32,
+) error {
+	deltas := p.pendingRelations[xid]
+	if len(deltas) == 0 {
+		return nil
+	}
+	delete(p.pendingRelations, xid)
+	for _, delta := range deltas {
+		p.logger.Info("applying deferred schema delta on commit",
+			slog.String("table", delta.SrcTableName),
+			slog.Uint64("xid", uint64(xid)),
+			slog.Any("addedColumns", delta.AddedColumns))
+		batch.AddSchemaDelta(p.tableNameMapping, delta)
+		if err := monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, delta); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // getParentRelIDIfPartitioned checks if the relation ID is a child table
