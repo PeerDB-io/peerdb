@@ -718,8 +718,8 @@ go.etcd.io/etcd/client/pkg/v3 v3.6.9 h1:T8nuk8Lz64C+Hzb0coBFLMSlVSQZBpAtFk46swdM
 go.etcd.io/etcd/client/pkg/v3 v3.6.9/go.mod h1:WEy3PpwbbEBVRdh1NVJYsuUe/8eyI21PNJRazeD8z/Y=
 go.etcd.io/etcd/client/v3 v3.6.9 h1:3X555hQXmhRr27O37wls53g68CpUiPOiHXrZfz2Al+o=
 go.etcd.io/etcd/client/v3 v3.6.9/go.mod h1:KO7H1HLYh1qaljuVZJQwBFk1lRce6pJzt+C81GEnrlM=
-go.mongodb.org/mongo-driver/v2 v2.5.0 h1:yXUhImUjjAInNcpTcAlPHiT7bIXhshCTL3jVBkF3xaE=
-go.mongodb.org/mongo-driver/v2 v2.5.0/go.mod h1:yOI9kBsufol30iFsl1slpdq1I0eHPzybRWdyYUs8K/0=
+go.mongodb.org/mongo-driver/v2 v2.6.0 h1:b9sJOYrkmt4l8bY43ZenFBcPlhYIjaOfYHLtbB/5qi8=
+go.mongodb.org/mongo-driver/v2 v2.6.0/go.mod h1:yOI9kBsufol30iFsl1slpdq1I0eHPzybRWdyYUs8K/0=
 go.opencensus.io v0.24.0 h1:y73uSU6J157QMP2kn2r30vwW1A2W2WFwSCGnAVxeaD0=
 go.opencensus.io v0.24.0/go.mod h1:vNK8G9p7aAivkbmorf4v+7Hgx+Zs0yY+0fOtgBfjQKo=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
