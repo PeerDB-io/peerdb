@@ -29,10 +29,10 @@ type Namespace struct {
 }
 
 type ChangeEvent struct {
-	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
 	Ns            Namespace      `bson:"ns"`
 	OperationType string         `bson:"operationType"`
 	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
+	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
