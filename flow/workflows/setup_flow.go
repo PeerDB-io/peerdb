@@ -276,13 +276,13 @@ func (s *SetupFlowExecution) runPgDumpSchema(
 
 // isTableAdditionChild reports whether this SetupFlow was launched as part of a
 // table-addition child CDC flow. Such workflows are spawned with a parent
-// workflow ID prefixed by "additional-cdc-flow-".
+// workflow ID prefixed by additionalTablesCDCFlowPrefix.
 func isTableAdditionChild(ctx workflow.Context) bool {
 	parent := workflow.GetInfo(ctx).ParentWorkflowExecution
 	if parent == nil {
 		return false
 	}
-	return strings.HasPrefix(parent.ID, "additional-cdc-flow-")
+	return strings.HasPrefix(parent.ID, additionalTablesCDCFlowPrefix+"-")
 }
 
 // getPGAutomatedSchemaDump checks the PEERDB_PG_AUTOMATED_SCHEMA_DUMP env flag via an activity.
@@ -332,7 +332,7 @@ func (s *SetupFlowExecution) executeSetupFlow(
 	// pg_dump silently no-ops for SSH tunnel / non-password-auth peers, so we
 	// only skip CreateNormalizedTable when the activity reports it actually ran.
 	// Skip pg_dump for resync (tables get _resync suffix and are swapped) and for
-	// table-addition child workflows (parent workflow ID prefix "additional-cdc-flow-").
+	// table-addition child workflows.
 	skipCreateTables := false
 	if config.System == protos.TypeSystem_PG && !config.Resync && !isTableAdditionChild(ctx) &&
 		s.getPGAutomatedSchemaDump(ctx, config.Env) {
