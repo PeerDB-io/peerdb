@@ -245,7 +245,7 @@ func TestDecodeEvent(t *testing.T) {
 			},
 		},
 		{ // Behaviour before go.mongodb.org/mongo-driver/v2 v2.6.0
-			name: "delete with null fullDocument decodes as a delete with an empty fullDocument",
+			name: "delete with null fullDocument decodes as a delete with nil fullDocument",
 			raw:  deleteWithNullFullDocRaw,
 			want: ChangeEvent{
 				Ns:            Namespace{Db: "db", Coll: "coll"},
