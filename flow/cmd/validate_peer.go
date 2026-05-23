@@ -7,6 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func (h *FlowRequestHandler) ValidatePeer(
@@ -30,7 +31,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 	validatePeerDeadline := 15 * time.Second
 	if req.Peer.Type == protos.DBType_CLICKHOUSE {
 		// if instance is overloaded, DDL can take longer than 15s to execute
-		validatePeerDeadline = 1 * time.Minute
+		validatePeerDeadline = time.Second * time.Duration(internal.PeerDBSetupFlowWorkflowTaskTimeoutSeconds())
 	}
 
 	ctx, cancelCtx := context.WithTimeout(ctx, validatePeerDeadline)
