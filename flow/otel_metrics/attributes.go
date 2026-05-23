@@ -13,7 +13,6 @@ const (
 	PeerDBVersionKey           = "peerDBVersion"
 	DeploymentVersionKey       = "deploymentVersion"
 	WorkflowTypeKey            = "workflowType"
-	BatchIdKey                 = "batchId"
 	SourcePeerType             = "sourcePeerType"
 	sourcePeerHostname         = "sourcePeerHostname"
 	SourcePeerVariant          = "sourcePeerVariant"

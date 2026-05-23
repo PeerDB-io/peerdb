@@ -449,9 +449,7 @@ func (a *FlowableActivity) SyncFlow(
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
-			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
-			)))
+			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced)
 			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 		}
 		if reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches {
@@ -2073,6 +2071,12 @@ func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context,
 
 func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
+}
+
+func (a *FlowableActivity) PeerDBClickHouseInitialLoadAllowNonEmptyTables(
+	ctx context.Context, env map[string]string,
+) (bool, error) {
+	return internal.PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx, env)
 }
 
 func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos.FlowStatus) error {

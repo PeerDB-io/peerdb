@@ -29,15 +29,16 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config         *protos.MySqlConfig
-	ssh            *utils.SSHTunnel
-	conn           atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts       atomic.Pointer[chan context.Context]
-	logger         log.Logger
-	rdsAuth        *utils.RDSAuth
-	serverVersion  string
-	totalBytesRead atomic.Int64
-	deltaBytesRead atomic.Int64
+	config                *protos.MySqlConfig
+	ssh                   *utils.SSHTunnel
+	conn                  atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts              atomic.Pointer[chan context.Context]
+	logger                log.Logger
+	rdsAuth               *utils.RDSAuth
+	serverVersion         string
+	binlogHeartbeatPeriod time.Duration
+	totalBytesRead        atomic.Int64
+	deltaBytesRead        atomic.Int64
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -62,12 +63,13 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	}
 	contexts := make(chan context.Context)
 	c := &MySqlConnector{
-		PostgresMetadata: pgMetadata,
-		config:           config,
-		ssh:              ssh,
-		conn:             atomic.Pointer[client.Conn]{},
-		logger:           logger,
-		rdsAuth:          rdsAuth,
+		PostgresMetadata:      pgMetadata,
+		config:                config,
+		ssh:                   ssh,
+		conn:                  atomic.Pointer[client.Conn]{},
+		logger:                logger,
+		rdsAuth:               rdsAuth,
+		binlogHeartbeatPeriod: defaultBinlogHeartbeatPeriod,
 	}
 	c.contexts.Store(&contexts)
 	go func() { //nolint:gosec // G118: long-lived goroutine, not request-scoped

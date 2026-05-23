@@ -32,6 +32,15 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+const (
+	defaultBinlogHeartbeatPeriod = time.Minute
+	binlogStalenessMultiplier    = 3
+)
+
+func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
+	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
+}
+
 func (c *MySqlConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
@@ -264,6 +273,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		UseDecimal:       true,
 		ParseTime:        true,
 		TLSConfig:        tlsConfig,
+		HeartbeatPeriod:  c.binlogHeartbeatPeriod,
 	}), nil
 }
 
@@ -411,11 +421,15 @@ func (c *MySqlConnector) PullRecords(
 	})
 	defer shutdown()
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, c.binlogStalenessThreshold())
 	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
 	defer func() {
 		cancelTimeout()
 	}()
+	resetTimeout := func(d time.Duration) {
+		cancelTimeout()
+		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, d)
+	}
 
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
 		recordCount += 1
@@ -424,8 +438,7 @@ func (c *MySqlConnector) PullRecords(
 		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
-			cancelTimeout()
-			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+			resetTimeout(req.IdleTimeout)
 		}
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mysql] PullRecords streaming",
@@ -439,6 +452,7 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
 	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
 		var event *replication.BinlogEvent
@@ -450,44 +464,47 @@ func (c *MySqlConnector) PullRecords(
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
-				//nolint:govet // cancelTimeout called by defer, spurious lint
 				return ctxErr
-			} else if errors.Is(err, context.DeadlineExceeded) {
-				if recordCount == 0 {
-					// progress offset while no records read to avoid falling behind when all tables inactive
-					if updatedOffset != "" {
-						c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
-						if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
-							c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
-						} else {
-							updatedOffset = ""
-						}
+			}
+
+			if errors.Is(err, context.DeadlineExceeded) {
+				if recordCount == 0 || inTx {
+					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
+						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
 					}
 
-					// reset timer for next offset update
-					cancelTimeout()
-					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
-				} else if inTx {
-					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
-						slog.Uint64("records", uint64(recordCount)),
-						slog.Int64("bytes", totalFetchedBytes.Load()),
-						slog.Int("channelLen", req.RecordStream.ChannelLen()),
-						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
-					// reset timeoutCtx to a low value and wait for inTx to become false
-					cancelTimeout()
-					//nolint:govet // cancelTimeout called by defer, spurious lint
-					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Minute)
-					overtime = true
-				} else {
-					return nil
+					if recordCount == 0 {
+						// progress offset while no records read to avoid falling behind when all tables inactive
+						if updatedOffset != "" {
+							c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
+							if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
+								c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
+							} else {
+								updatedOffset = ""
+							}
+						}
+						resetTimeout(c.binlogStalenessThreshold())
+					} else {
+						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
+							slog.Uint64("records", uint64(recordCount)),
+							slog.Int64("bytes", totalFetchedBytes.Load()),
+							slog.Int("channelLen", req.RecordStream.ChannelLen()),
+							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+						resetTimeout(time.Minute)
+						overtime = true
+					}
+
+					continue
 				}
 
-				continue
-			} else {
-				c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
+				return nil
 			}
+
+			c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
 			return exceptions.NewMySQLStreamingError(err)
 		}
+
+		lastEventAt = time.Now()
 
 		allFetchedBytes.Add(int64(len(event.RawData)))
 
