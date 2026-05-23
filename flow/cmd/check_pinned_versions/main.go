@@ -14,13 +14,12 @@ import (
 // accidentally upgraded. Each entry maps a module path to the exact version
 // that should appear in go.mod.
 //
-// To update a pinned dependency, change both go.mod AND this map.
+// To update a pinned dependency, change both go.mod, this map AND
+// the Renovate package rules in renovate.json that skips automated updates for that dependency.
 var pinnedVersions = map[string]string{
-	"cloud.google.com/go/bigquery":                    "v1.72.0",
-	"cloud.google.com/go/pubsub/v2":                   "v2.3.0",
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager": "v1.21.0",
-	"google.golang.org/api":                           "v0.257.0",
 	"github.com/tikv/pd/client":                       "v0.0.0-20251229071808-6173d50c004c",
+	"github.com/jackc/pgx/v5":                         "v5.9.1",
 }
 
 func main() {

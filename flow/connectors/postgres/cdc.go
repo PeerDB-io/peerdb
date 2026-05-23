@@ -914,7 +914,11 @@ func processMessage[Items model.Items](
 	logger := internal.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing logical message: %w", err)
+		var msgType string
+		if len(xld.WALData) > 0 {
+			msgType = string(xld.WALData[0])
+		}
+		return nil, fmt.Errorf("error parsing logical message (msgType=%q, walStart=%s): %w", msgType, xld.WALStart.String(), err)
 	}
 	customTypeMapping, err := p.fetchCustomTypeMapping(ctx)
 	if err != nil {

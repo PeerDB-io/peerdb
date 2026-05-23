@@ -218,7 +218,10 @@ func processTableAdditions(
 		syncStateToConfigProtoInCatalog(ctx, cfg, state)
 		return nil
 	}
-	if internal.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
+	checkDestinationOverlap := !getClickHouseInitialLoadAllowNonEmptyTables(ctx, logger, cfg.Env)
+	if internal.AdditionalTablesHasOverlap(
+		state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables, checkDestinationOverlap,
+	) {
 		logger.Warn("duplicate source/destination tables found in additionalTables")
 		syncStateToConfigProtoInCatalog(ctx, cfg, state)
 		return nil
@@ -639,8 +642,9 @@ func CDCFlowWorkflow(
 		})
 
 		childSetupFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        setupFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			WorkflowID:          setupFlowID,
+			ParentClosePolicy:   enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			WorkflowTaskTimeout: GetSetupFlowWorkflowTaskTimeout(ctx),
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
@@ -814,8 +818,7 @@ func CDCFlowWorkflow(
 			}
 			state.LastError = now
 			var sleepFor time.Duration
-			var panicErr *temporal.PanicError
-			if errors.As(err, &panicErr) {
+			if panicErr, ok := errors.AsType[*temporal.PanicError](err); ok {
 				// linear backoff starting at 10 minutes, up to 55 minutes in steps of 5 minutes
 				sleepFor = time.Duration(10+min(state.ErrorCount, 9)*5) * time.Minute
 				logger.Error(

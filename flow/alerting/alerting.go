@@ -497,29 +497,23 @@ func (a *Alerter) recordFlowErrorInternal(
 		if errors.Is(err, net.ErrClosed) || strings.HasSuffix(err.Error(), "use of closed network connection") {
 			tags = append(tags, string(shared.ErrTypeClosed))
 		}
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 			tags = append(tags, "pgcode:"+pgErr.Code)
 		}
-		var myErr *mysql.MyError
-		if errors.As(err, &myErr) {
+		if myErr, ok := errors.AsType[*mysql.MyError](err); ok {
 			tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
 		}
-		var mongoErr *driver.Error
-		if errors.As(err, &mongoErr) {
+		if mongoErr, ok := errors.AsType[*driver.Error](err); ok {
 			tags = append(tags, fmt.Sprintf("mongocode:%d", mongoErr.Code))
 		}
-		var chErr *clickhouse.Exception
-		if errors.As(err, &chErr) {
+		if chErr, ok := errors.AsType[*clickhouse.Exception](err); ok {
 			tags = append(tags, fmt.Sprintf("chcode:%d", chErr.Code))
 		}
-		var netErr *net.OpError
-		if errors.As(err, &netErr) {
+		if _, ok := errors.AsType[*net.OpError](err); ok {
 			tags = append(tags, string(shared.ErrTypeNet))
 		}
 		// For SSH connection errors, we currently tag them as "err:Net"
-		var sshErr *ssh.OpenChannelError
-		if errors.As(err, &sshErr) {
+		if _, ok := errors.AsType[*ssh.OpenChannelError](err); ok {
 			tags = append(tags, string(shared.ErrTypeNet))
 		}
 		tags = append(tags, "errorClass:"+errClass.String(), "errorAction:"+errClass.ErrorAction().String())

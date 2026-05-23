@@ -213,7 +213,7 @@ func testApi[TSource SuiteSource](
 	e2eshared.RunSuite(t, func(t *testing.T) APITestSuite {
 		t.Helper()
 
-		suffix := "api_" + strings.ToLower(shared.RandomString(8))
+		suffix := "api_" + strings.ToLower(common.RandomString(8))
 		pg, err := SetupPostgres(t, suffix)
 		require.NoError(t, err)
 		source, err := setup(t, suffix)

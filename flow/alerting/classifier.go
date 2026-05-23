@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"cloud.google.com/go/bigquery"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -23,6 +24,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
+	"google.golang.org/api/googleapi"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -42,6 +44,11 @@ const (
 	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
+
+	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
+	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
+	// once we already know the error came from MySQL geometry parsing.
+	mysqlGeometryLinearRingNotClosedError = "Points of LinearRing do not form a closed linestring"
 )
 
 var (
@@ -76,6 +83,7 @@ const (
 	ErrorSourcePostgres        ErrorSource = "postgres"
 	ErrorSourceMySQL           ErrorSource = "mysql"
 	ErrorSourceMongoDB         ErrorSource = "mongodb"
+	ErrorSourceBigQuery        ErrorSource = "bigquery"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -163,6 +171,9 @@ var (
 	}
 	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
 		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
+	}
+	ErrorNotifyInvalidEnumValue = ErrorClass{
+		Class: "NOTIFY_INVALID_ENUM_VALUE", action: NotifyUser,
 	}
 	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
 		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
@@ -257,19 +268,20 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 
 func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var pgErr *pgconn.PgError
-	var pgWalErr *exceptions.PostgresWalError
-	if errors.As(err, &pgWalErr) {
+	if pgWalErr, ok := errors.AsType[*exceptions.PostgresWalError](err); ok {
 		pgErr = pgconn.ErrorResponseToPgError(pgWalErr.UnderlyingError())
 	}
 	var pgErrorInfo ErrorInfo
-	if pgErr != nil || errors.As(err, &pgErr) {
+	if pgErrFromErr, ok := errors.AsType[*pgconn.PgError](err); pgErr != nil || ok {
+		if pgErr == nil {
+			pgErr = pgErrFromErr
+		}
 		pgErrorInfo = ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   pgErr.Code,
 		}
 
-		var catalogErr *exceptions.CatalogError
-		if errors.As(err, &catalogErr) {
+		if _, ok := errors.AsType[*exceptions.CatalogError](err); ok {
 			errorClass := ErrorInternal
 			if pgErr != nil {
 				return errorClass, pgErrorInfo
@@ -280,8 +292,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		}
 
-		var dropFlowErr *exceptions.DropFlowError
-		if errors.As(err, &dropFlowErr) {
+		if _, ok := errors.AsType[*exceptions.DropFlowError](err); ok {
 			errorClass := ErrorDropFlow
 			if pgErr != nil {
 				return errorClass, pgErrorInfo
@@ -293,8 +304,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		}
 
-		var peerDBErr *exceptions.PostgresSetupError
-		if errors.As(err, &peerDBErr) {
+		if _, ok := errors.AsType[*exceptions.PostgresSetupError](err); ok {
 			errorClass := ErrorNotifyConnectivity
 			if pgErr != nil {
 				return errorClass, pgErrorInfo
@@ -338,64 +348,56 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var replicaIdentityNothingErr *exceptions.ReplicaIdentityNothingError
-	if errors.As(err, &replicaIdentityNothingErr) {
+	if _, ok := errors.AsType[*exceptions.ReplicaIdentityNothingError](err); ok {
 		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "REPLICA_IDENTITY_NOTHING",
 		}
 	}
 
-	var tablesNotInPubErr *exceptions.TablesNotInPublicationError
-	if errors.As(err, &tablesNotInPubErr) {
+	if _, ok := errors.AsType[*exceptions.TablesNotInPublicationError](err); ok {
 		return ErrorNotifyTablesNotInPublication, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "TABLES_NOT_IN_PUBLICATION",
 		}
 	}
 
-	var missingPrimaryKeyErr *exceptions.MissingPrimaryKeyError
-	if errors.As(err, &missingPrimaryKeyErr) {
+	if _, ok := errors.AsType[*exceptions.MissingPrimaryKeyError](err); ok {
 		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "MISSING_PRIMARY_KEY",
 		}
 	}
 
-	var logicalMessageProcessingErr *exceptions.PostgresLogicalMessageProcessingError
-	if errors.As(err, &logicalMessageProcessingErr) {
+	if _, ok := errors.AsType[*exceptions.PostgresLogicalMessageProcessingError](err); ok {
 		return ErrorNotifyPostgresLogicalMessageProcessing, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "LOGICAL_MESSAGE_PROCESSING_ERROR",
 		}
 	}
 
-	var publicationMissingErr *exceptions.PublicationMissingError
-	if errors.As(err, &publicationMissingErr) {
+	if _, ok := errors.AsType[*exceptions.PublicationMissingError](err); ok {
 		return ErrorNotifyPublicationMissing, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "irrecoverable_publication_missing",
 		}
 	}
 
-	var slotMissingErr *exceptions.SlotMissingError
-	if errors.As(err, &slotMissingErr) {
+	if _, ok := errors.AsType[*exceptions.SlotMissingError](err); ok {
 		return ErrorNotifyReplicationSlotMissing, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "irrecoverable_slot_missing",
 		}
 	}
 
-	var replStateDesyncErr *exceptions.ReplStateDesyncError
-	if errors.As(err, &replStateDesyncErr) {
+	if _, ok := errors.AsType[*exceptions.ReplStateDesyncError](err); ok {
 		return ErrorOther, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "desync",
 		}
 	}
 
-	var peerCreateError *exceptions.PeerCreateError
-	if errors.As(err, &peerCreateError) {
+	if peerCreateError, ok := errors.AsType[*exceptions.PeerCreateError](err); ok {
 		if errors.Is(peerCreateError, context.DeadlineExceeded) {
 			return ErrorNotifyConnectivity, ErrorInfo{
 				Source: ErrorSourceOther,
@@ -425,48 +427,42 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var netErr *net.OpError
-	if errors.As(err, &netErr) {
+	if netErr, ok := errors.AsType[*net.OpError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   netErr.Err.Error(),
 		}
 	}
 
-	var sshOpenChanErr *ssh.OpenChannelError
-	if errors.As(err, &sshOpenChanErr) {
+	if sshOpenChanErr, ok := errors.AsType[*ssh.OpenChannelError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceSSH,
 			Code:   sshOpenChanErr.Reason.String(),
 		}
 	}
 
-	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
-	if errors.As(err, &sshTunnelSetupErr) {
+	if _, ok := errors.AsType[*exceptions.SSHTunnelSetupError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceSSH,
 			Code:   "UNKNOWN",
 		}
 	}
 
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "net.DNSError",
 		}
 	}
 
-	var tlsCertVerificationError *tls.CertificateVerificationError
-	if errors.As(err, &tlsCertVerificationError) {
+	if _, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "tls.CertificateVerificationError",
 		}
 	}
 
-	var temporalErr *temporal.ApplicationError
-	if errors.As(err, &temporalErr) {
+	if temporalErr, ok := errors.AsType[*temporal.ApplicationError](err); ok {
 		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
 		case exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot:
 			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
@@ -497,8 +493,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var pgConnErr *pgconn.ConnectError
-	if errors.As(err, &pgConnErr) {
+	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "UNKNOWN",
@@ -660,6 +655,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyInvalidSynchronizedStandbySlots, pgErrorInfo
 			}
 
+		case pgerrcode.InvalidTextRepresentation:
+			// e.g. `invalid input value for enum pr_status: "closed"` when source
+			// has an enum label that the destination's enum type is missing.
+			if strings.Contains(pgErr.Message, "invalid input value for enum") {
+				return ErrorNotifyInvalidEnumValue, pgErrorInfo
+			}
+
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?
 			pgerrcode.ConnectionException,
 			pgerrcode.ConnectionDoesNotExist,
@@ -694,8 +696,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var myErr *mysql.MyError
-	if errors.As(err, &myErr) {
+	if myErr, ok := errors.AsType[*mysql.MyError](err); ok {
 		// https://mariadb.com/docs/server/reference/error-codes/mariadb-error-code-reference
 		// Error code < 1000 indicates OS-level errors being passed through MySQL's error reporting system
 		myErrorInfo := ErrorInfo{
@@ -756,8 +757,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var mongoCmdErr mongo.CommandError
-	if errors.As(err, &mongoCmdErr) {
+	if mongoCmdErr, ok := errors.AsType[mongo.CommandError](err); ok {
 		mongoErrorInfo := ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   strconv.Itoa(int(mongoCmdErr.Code)),
@@ -812,32 +812,28 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var mongoMarshalErr mongo.MarshalError
-	if errors.As(err, &mongoMarshalErr) {
+	if _, ok := errors.AsType[mongo.MarshalError](err); ok {
 		return ErrorOther, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "MARSHAL_ERROR",
 		}
 	}
 
-	var mongoEncryptError mongo.MongocryptError
-	if errors.As(err, &mongoEncryptError) {
+	if _, ok := errors.AsType[mongo.MongocryptError](err); ok {
 		return ErrorOther, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "MONGOCRYPT_ERROR",
 		}
 	}
 
-	var mongoServerError topology.ServerSelectionError
-	if errors.As(err, &mongoServerError) {
+	if _, ok := errors.AsType[topology.ServerSelectionError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "SERVER_SELECTION_ERROR",
 		}
 	}
 
-	var mongoConnError topology.ConnectionError
-	if errors.As(err, &mongoConnError) {
+	if _, ok := errors.AsType[topology.ConnectionError](err); ok {
 		if strings.Contains(err.Error(), MongoIncompleteReadOfMessageHeader) {
 			return ErrorRetryRecoverable, ErrorInfo{
 				Source: ErrorSourceMongoDB,
@@ -850,8 +846,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var mongoWaitQueueError topology.WaitQueueTimeoutError
-	if errors.As(err, &mongoWaitQueueError) {
+	if _, ok := errors.AsType[topology.WaitQueueTimeoutError](err); ok {
 		return ErrorRetryRecoverable, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "WAIT_QUEUE_TIMEOUT_ERROR",
@@ -890,8 +885,26 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorRetryRecoverable, mongoErrorInfo
 	}
 
-	var chException *clickhouse.Exception
-	if errors.As(err, &chException) {
+	if _, ok := errors.AsType[*exceptions.BigQueryError](err); ok {
+		bqErrorInfo := ErrorInfo{
+			Source: ErrorSourceBigQuery,
+			Code:   "UNKNOWN",
+		}
+		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+			bqErrorInfo.Code = strconv.Itoa(apiErr.Code)
+			switch apiErr.Code {
+			case 401, // Unauthorized
+				403, // Forbidden
+				404: // Not Found (e.g. missing dataset/table/staging bucket)
+				return ErrorNotifyConnectivity, bqErrorInfo
+			}
+		} else if bqErr, ok := errors.AsType[*bigquery.Error](err); ok && bqErr.Reason != "" {
+			bqErrorInfo.Code = bqErr.Reason
+		}
+		return ErrorOther, bqErrorInfo
+	}
+
+	if chException, ok := errors.AsType[*clickhouse.Exception](err); ok {
 		chErrorInfo := ErrorInfo{
 			Source: ErrorSourceClickHouse,
 			Code:   strconv.Itoa(int(chException.Code)),
@@ -902,14 +915,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// "Too large string for FixedString column: (at row 10195)"
 			// The only one created by us is FixedString(1) for PG QChar so assuming the user did it for a string and it didn't work
 			chproto.ErrTooLargeStringSize:
-			var viewErr *peerdb_clickhouse.ViewError
-			if errors.As(err, &viewErr) {
+			if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrIncorrectData:
-			var viewErr *peerdb_clickhouse.ViewError
-			if errors.As(err, &viewErr) {
+			if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 		case chproto.ErrMemoryLimitExceeded:
@@ -973,8 +984,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrUnknownElementOfEnum,
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
-			var qrepSyncError *exceptions.ClickHouseQRepSyncError
-			if errors.As(err, &qrepSyncError) {
+			if _, ok := errors.AsType[*exceptions.ClickHouseQRepSyncError](err); ok {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
@@ -1017,13 +1027,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		}
 		// a catch-all for MV or view errors
-		var viewErr *peerdb_clickhouse.ViewError
-		if errors.As(err, &viewErr) {
+		if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		// a catch-all for normalization errors, which typically indicate a bad MV or view
-		var normalizationErr *exceptions.NormalizationError
-		if errors.As(err, &normalizationErr) {
+		if _, ok := errors.AsType[*exceptions.NormalizationError](err); ok {
 			logger := internal.LoggerFromCtx(ctx)
 			logger.Warn("Assuming a normalization error is bad MV or view", slog.Any("error", err))
 			return ErrorNotifyMVOrView, chErrorInfo
@@ -1031,8 +1039,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorOther, chErrorInfo
 	}
 
-	var numericOutOfRangeError *exceptions.NumericOutOfRangeError
-	if errors.As(err, &numericOutOfRangeError) {
+	if numericOutOfRangeError, ok := errors.AsType[*exceptions.NumericOutOfRangeError](err); ok {
 		return ErrorLossyConversion, ErrorInfo{
 			Source: "typeConversion",
 			Code:   "NUMERIC_OUT_OF_RANGE",
@@ -1043,8 +1050,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var numericTruncatedError *exceptions.NumericTruncatedError
-	if errors.As(err, &numericTruncatedError) {
+	if numericTruncatedError, ok := errors.AsType[*exceptions.NumericTruncatedError](err); ok {
 		return ErrorLossyConversion, ErrorInfo{
 			Source: "typeConversion",
 			Code:   "NUMERIC_TRUNCATED",
@@ -1055,8 +1061,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var incompatibleColumnTypeError *exceptions.MySQLIncompatibleColumnTypeError
-	if errors.As(err, &incompatibleColumnTypeError) {
+	if incompatibleColumnTypeError, ok := errors.AsType[*exceptions.MySQLIncompatibleColumnTypeError](err); ok {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
@@ -1067,16 +1072,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var unsupportedBinlogRowMetadataError *exceptions.MySQLUnsupportedBinlogRowMetadataError
-	if errors.As(err, &unsupportedBinlogRowMetadataError) {
+	if _, ok := errors.AsType[*exceptions.MySQLUnsupportedBinlogRowMetadataError](err); ok {
 		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   "UNSUPPORTED_BINLOG_ROW_METADATA",
 		}
 	}
 
-	var unsupportedDDLError *exceptions.MySQLUnsupportedDDLError
-	if errors.As(err, &unsupportedDDLError) {
+	if unsupportedDDLError, ok := errors.AsType[*exceptions.MySQLUnsupportedDDLError](err); ok {
 		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
@@ -1086,8 +1089,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var mysqlStreamingError *exceptions.MySQLStreamingError
-	if errors.As(err, &mysqlStreamingError) {
+	if mysqlStreamingError, ok := errors.AsType[*exceptions.MySQLStreamingError](err); ok {
 		if mysqlStreamingError.Retryable {
 			return ErrorRetryRecoverable, ErrorInfo{
 				Source: ErrorSourceMySQL,
@@ -1101,8 +1103,22 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var postgresPrimaryKeyModifiedError *exceptions.PrimaryKeyModifiedError
-	if errors.As(err, &postgresPrimaryKeyModifiedError) {
+	if _, ok := errors.AsType[*exceptions.MySQLStaleConnectionError](err); ok {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "CONNECTION_STALE",
+		}
+	}
+
+	if mysqlGeometryParseError, ok := errors.AsType[*exceptions.MySQLGeometryParseError](err); ok &&
+		strings.Contains(mysqlGeometryParseError.Error(), mysqlGeometryLinearRingNotClosedError) {
+		return ErrorUnsupportedDatatype, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+		}
+	}
+
+	if postgresPrimaryKeyModifiedError, ok := errors.AsType[*exceptions.PrimaryKeyModifiedError](err); ok {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
@@ -1113,8 +1129,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var postgresReplicaIdentityIndexError *exceptions.ReplicaIdentityIndexError
-	if errors.As(err, &postgresReplicaIdentityIndexError) {
+	if postgresReplicaIdentityIndexError, ok := errors.AsType[*exceptions.ReplicaIdentityIndexError](err); ok {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
@@ -1125,8 +1140,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var mongoInvalidIdValueError *exceptions.MongoInvalidIdValueError
-	if errors.As(err, &mongoInvalidIdValueError) {
+	if mongoInvalidIdValueError, ok := errors.AsType[*exceptions.MongoInvalidIdValueError](err); ok {
 		return ErrorNotifyInvalidSortKey, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "INVALID_SORT_KEY",

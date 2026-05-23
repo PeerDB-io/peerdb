@@ -3,13 +3,13 @@ import { useSelectTheme } from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { TimeAggregateType } from '@/grpc_generated/route';
 import { useTheme } from '@/lib/AppTheme';
+import { BarLoader } from '@/lib/BarLoader';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Chart as ChartJS, ChartOptions } from 'chart.js';
 import { useEffect, useRef, useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
-import { BarLoader } from 'react-spinners';
 import useSWR from 'swr';
 
 const CdcSyncingLoader = () => {

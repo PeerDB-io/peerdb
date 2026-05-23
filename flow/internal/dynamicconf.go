@@ -175,6 +175,22 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_STAGING_PROVIDER",
+		Description:      "Cloud storage provider for ClickHouse staging: s3 (default) or gcs",
+		DefaultValue:     "s3",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME",
+		Description:      "Staging bucket name for ClickHouse mirrors (provider-agnostic, preferred over legacy env vars)",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_S3_UUID_PREFIX",
 		Description:      "Use random UUID as prefix instead of flow name, can help partitioning on non-AWS based s3 providers",
 		DefaultValue:     "false",
@@ -294,6 +310,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "peerdb",
 		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS",
+		Description:      "Days to retain rows in the ClickHouse _peerdb_raw table before TTL eviction. Applies to newly created raw tables",
+		DefaultValue:     "90",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
@@ -428,21 +452,13 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_MONGODB_PARALLEL_SNAPSHOTTING",
-		Description:      "Enable parallel partitioning for MongoDB initial snapshot",
-		DefaultValue:     "true",
+		Name: "PEERDB_PG_AUTOMATED_SCHEMA_DUMP",
+		Description: "For PG-to-PG mirrors, run pg_dump --schema-only from source into psql on destination " +
+			"during setup so destination schema/tables/indexes match the source.",
+		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
-		TargetForSetting: protos.DynconfTarget_ALL,
-	},
-	{
-		Name: "PEERDB_MONGODB_DIRECT_BSON_CONVERTER",
-		Description: "Use direct BSON-to-JSON converter for MongoDB (faster, no intermediate deserialization). " +
-			"Set to false to fall back to legacy converter.",
-		DefaultValue:     "true",
-		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_ALL,
+		TargetForSetting: protos.DynconfTarget_POSTGRES,
 	},
 }
 
@@ -694,6 +710,10 @@ func PeerDBClickHouseClientName(ctx context.Context, env map[string]string) (str
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_CLIENT_NAME")
 }
 
+func PeerDBClickHouseRawTableTTLDays(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS")
+}
+
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
@@ -704,6 +724,14 @@ func PeerDBSnowflakeSkipCompression(ctx context.Context, env map[string]string) 
 
 func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_AUTO_COMPRESS")
+}
+
+func PeerDBClickHouseStagingProvider(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_PROVIDER")
+}
+
+func PeerDBClickHouseStagingBucketName(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
 }
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
@@ -793,10 +821,6 @@ func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[strin
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
 }
 
-func PeerDBMongoDBParallelSnapshotting(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_PARALLEL_SNAPSHOTTING")
-}
-
-func PeerDBMongoDBDirectBsonConverter(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_DIRECT_BSON_CONVERTER")
+func PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_PG_AUTOMATED_SCHEMA_DUMP")
 }

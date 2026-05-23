@@ -203,8 +203,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 	mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 	if err != nil {
 		logger.WarnContext(ctx, "Error getting mirror status", slog.Any("error", err))
-		var notFoundErr *serviceerror.NotFound
-		if errors.As(err, &notFoundErr) && workflowNotFoundMessageRe.MatchString(notFoundErr.Message) {
+		if notFoundErr, ok := errors.AsType[*serviceerror.NotFound](err); ok && workflowNotFoundMessageRe.MatchString(notFoundErr.Message) {
 			logger.WarnContext(ctx, "Received a workflow not found error, checking if the workflow is missing and if it is older than 90 days",
 				"error", err, "temporalCertAuth", internal.PeerDBTemporalEnableCertAuth())
 			// This is max temporal retention period, but this is mirror update time, not deletion time, so it is not accurate
@@ -249,8 +248,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 	if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal); err != nil {
 		logger.ErrorContext(ctx, "Error signaling mirror to pause for maintenance", slog.Any("error", err))
 		// Is the CDC flow missing?
-		var notFoundErr *serviceerror.NotFound
-		if errors.As(err, &notFoundErr) && notFoundErr.Message == "workflow execution already completed" {
+		if notFoundErr, ok := errors.AsType[*serviceerror.NotFound](err); ok && notFoundErr.Message == "workflow execution already completed" {
 			logger.InfoContext(ctx, "Workflow execution already completed, checking for existing DropFlow")
 			// Check if we are actively trying to drop the mirror
 			response, wErr := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{

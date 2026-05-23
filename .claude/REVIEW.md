@@ -1,0 +1,1 @@
+- High severity: Changes should not include addition of outputs through stdout, stderr or logs that might contain PII or Secret information. Play special attention to printing passwords and access tokens.

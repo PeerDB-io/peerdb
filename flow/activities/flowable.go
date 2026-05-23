@@ -449,9 +449,7 @@ func (a *FlowableActivity) SyncFlow(
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
-			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
-			)))
+			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced)
 			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 		}
 		if reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches {
@@ -866,13 +864,11 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		var dnsErr *net.DNSError
-		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		if dnsErr, ok := errors.AsType[*net.DNSError](err); ok && dnsErr.IsNotFound {
 			a.Alerter.LogFlowWarning(ctx, req.FlowJobName, fmt.Errorf("[DropFlowDestination] hostname not found, skipping: %w", err))
 			return nil
 		} else {
-			var notFound *exceptions.NotFoundError
-			if errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 				logger := internal.LoggerFromCtx(ctx)
 				logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
 				return nil
@@ -2077,6 +2073,12 @@ func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, e
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
 }
 
+func (a *FlowableActivity) PeerDBClickHouseInitialLoadAllowNonEmptyTables(
+	ctx context.Context, env map[string]string,
+) (bool, error) {
+	return internal.PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx, env)
+}
+
 func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos.FlowStatus) error {
 	_, isActive := activeFlowStatuses[status]
 	a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
@@ -2142,4 +2144,73 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 	}
 
 	return nil
+}
+
+func (a *FlowableActivity) PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {
+	return internal.PeerDBPGAutomatedSchemaDump(ctx, env)
+}
+
+func (a *FlowableActivity) RunPgDumpSchema(
+	ctx context.Context,
+	input *protos.RunPgDumpSchemaInput,
+) (bool, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	ctx = context.WithValue(ctx, shared.FlowNameKey, input.FlowName)
+
+	srcPeer, err := connectors.LoadPeer(ctx, a.CatalogPool, input.SourceName)
+	if err != nil {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("failed to load source peer: %w", err))
+	}
+
+	dstPeer, err := connectors.LoadPeer(ctx, a.CatalogPool, input.DestinationName)
+	if err != nil {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("failed to load destination peer: %w", err))
+	}
+
+	srcPgConfig, ok := srcPeer.Config.(*protos.Peer_PostgresConfig)
+	if !ok {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("source peer %s is not a PostgreSQL peer", input.SourceName))
+	}
+
+	dstPgConfig, ok := dstPeer.Config.(*protos.Peer_PostgresConfig)
+	if !ok {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName,
+			fmt.Errorf("destination peer %s is not a PostgreSQL peer", input.DestinationName))
+	}
+
+	// skip schema migration for peers using SSH tunnels
+	if srcPgConfig.PostgresConfig.SshConfig != nil {
+		logger.Info("skipping pg_dump schema migration: source peer uses SSH tunnel")
+		return false, nil
+	}
+	if dstPgConfig.PostgresConfig.SshConfig != nil {
+		logger.Info("skipping pg_dump schema migration: destination peer uses SSH tunnel")
+		return false, nil
+	}
+
+	// skip schema migration for non-password auth (e.g. IAM)
+	if srcPgConfig.PostgresConfig.AuthType != protos.PostgresAuthType_POSTGRES_PASSWORD {
+		logger.Info("skipping pg_dump schema migration: source peer uses non-password auth")
+		return false, nil
+	}
+	if dstPgConfig.PostgresConfig.AuthType != protos.PostgresAuthType_POSTGRES_PASSWORD {
+		logger.Info("skipping pg_dump schema migration: destination peer uses non-password auth")
+		return false, nil
+	}
+
+	logger.Info("running pg_dump schema migration from source to destination",
+		slog.String("source", input.SourceName), slog.String("destination", input.DestinationName))
+	a.Alerter.LogFlowInfo(ctx, input.FlowName,
+		fmt.Sprintf("starting pg_dump schema migration from %s to %s", input.SourceName, input.DestinationName))
+
+	start := time.Now()
+	if err := connpostgres.RunPgDumpSchema(ctx, srcPgConfig.PostgresConfig, dstPgConfig.PostgresConfig); err != nil {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("pg_dump schema migration failed: %w", err))
+	}
+
+	elapsed := time.Since(start).Round(time.Millisecond)
+	logger.Info("pg_dump schema migration completed successfully", slog.Duration("elapsed", elapsed))
+	a.Alerter.LogFlowInfo(ctx, input.FlowName,
+		fmt.Sprintf("pg_dump schema migration completed successfully in %s", elapsed))
+	return true, nil
 }

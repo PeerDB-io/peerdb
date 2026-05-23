@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/hamba/avro/v2/ocf"
-	_ "github.com/snowflakedb/gosnowflake"
+	_ "github.com/snowflakedb/gosnowflake/v2"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -57,7 +58,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 		return 0, err
 	}
 
-	partitionID := shared.RandomString(16)
+	partitionID := common.RandomString(16)
 	avroFile, err := s.writeToAvroFile(ctx, env, stream, avroSchema, partitionID, flowJobName)
 	if err != nil {
 		return 0, err

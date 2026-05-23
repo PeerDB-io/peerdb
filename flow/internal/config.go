@@ -191,6 +191,18 @@ func PeerDBMaintenanceModeWaitAlertSeconds() int {
 	return getEnvConvert("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600, strconv.Atoi)
 }
 
+// PEERDB_SETUP_FLOW_HEARTBEAT_TIMEOUT_SECONDS overrides heartbeat timeout for SetupTableSchema
+// and CreateNormalizedTable activities. Raise when destination DDLs are slow
+func PeerDBSetupFlowHeartbeatTimeoutSeconds() int {
+	return getEnvConvert("PEERDB_SETUP_FLOW_HEARTBEAT_TIMEOUT_SECONDS", 60, strconv.Atoi)
+}
+
+// PEERDB_SETUP_FLOW_WORKFLOW_TASK_TIMEOUT_SECONDS overrides WorkflowTaskTimeout for SetupFlow child
+// workflow. Raise for mirrors with many tables where default 60s causes context deadline exceeded
+func PeerDBSetupFlowWorkflowTaskTimeoutSeconds() int {
+	return getEnvConvert("PEERDB_SETUP_FLOW_WORKFLOW_TASK_TIMEOUT_SECONDS", 60, strconv.Atoi)
+}
+
 // PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED is whether to send error alerts to the telemetry sender
 func PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx context.Context) bool {
 	enabled, err := strconv.ParseBool(GetEnvString("PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED", "false"))

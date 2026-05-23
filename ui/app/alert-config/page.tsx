@@ -9,6 +9,7 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import Image from 'next/image';
 import { useState } from 'react';
 import { PulseLoader } from 'react-spinners';
+import { useTheme as useStyledTheme } from 'styled-components';
 import useSWR from 'swr';
 import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
@@ -32,6 +33,7 @@ function ServiceIcon({
 }
 
 export default function AlertConfigPage() {
+  const styledTheme = useStyledTheme();
   const {
     data: alerts,
     isLoading,
@@ -97,7 +99,13 @@ export default function AlertConfigPage() {
               send alerts.
             </Label>
           </div>
-          <div style={{ ...tableStyle, marginTop: '2rem', maxHeight: '25em' }}>
+          <div
+            style={{
+              ...tableStyle(styledTheme),
+              marginTop: '2rem',
+              maxHeight: '25em',
+            }}
+          >
             <Table>
               {alerts?.configs?.length ? (
                 alerts.configs.map((alertConfig: AlertConfig, index) => (

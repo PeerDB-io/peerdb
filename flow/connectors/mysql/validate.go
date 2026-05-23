@@ -160,9 +160,8 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 func (c *MySqlConnector) validateFlavor(conn *client.Conn) error {
 	// MariaDB specific setting, introduced in MariaDB 10.0.3
 	if rs, err := conn.Execute("SELECT @@gtid_strict_mode"); err != nil {
-		var mErr *mysql.MyError
 		// seems to be MySQL
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 			if c.config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 				return fmt.Errorf("server appears to be MySQL but MariaDB source has been selected")
 			}

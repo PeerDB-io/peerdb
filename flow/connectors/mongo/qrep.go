@@ -13,7 +13,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -37,15 +36,6 @@ func (c *MongoConnector) GetQRepPartitions(
 
 	if config.WatermarkColumn != DefaultDocumentKeyColumnName {
 		c.logger.Warn("unexpected watermark column, falling back to full table partition")
-		return fullTablePartition, nil
-	}
-
-	parallelSnapshotting, err := internal.PeerDBMongoDBParallelSnapshotting(ctx, config.Env)
-	if err != nil {
-		c.logger.Warn("failed to get parallel snapshotting config", slog.Any("error", err))
-	}
-	if !parallelSnapshotting {
-		c.logger.Info("parallel snapshotting disabled, falling back to full table partition")
 		return fullTablePartition, nil
 	}
 
@@ -163,10 +153,7 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	defer cursor.Close(ctx)
 
-	converter, err := NewBsonConverter(ctx, config.Env)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to create bson converter: %w", err)
-	}
+	converter := NewDirectBsonConverter()
 	for cursor.Next(ctx) {
 		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable)
 		if err != nil {

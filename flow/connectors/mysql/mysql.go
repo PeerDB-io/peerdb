@@ -29,15 +29,16 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config         *protos.MySqlConfig
-	ssh            *utils.SSHTunnel
-	conn           atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts       atomic.Pointer[chan context.Context]
-	logger         log.Logger
-	rdsAuth        *utils.RDSAuth
-	serverVersion  string
-	totalBytesRead atomic.Int64
-	deltaBytesRead atomic.Int64
+	config                *protos.MySqlConfig
+	ssh                   *utils.SSHTunnel
+	conn                  atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts              atomic.Pointer[chan context.Context]
+	logger                log.Logger
+	rdsAuth               *utils.RDSAuth
+	serverVersion         string
+	binlogHeartbeatPeriod time.Duration
+	totalBytesRead        atomic.Int64
+	deltaBytesRead        atomic.Int64
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -62,12 +63,13 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	}
 	contexts := make(chan context.Context)
 	c := &MySqlConnector{
-		PostgresMetadata: pgMetadata,
-		config:           config,
-		ssh:              ssh,
-		conn:             atomic.Pointer[client.Conn]{},
-		logger:           logger,
-		rdsAuth:          rdsAuth,
+		PostgresMetadata:      pgMetadata,
+		config:                config,
+		ssh:                   ssh,
+		conn:                  atomic.Pointer[client.Conn]{},
+		logger:                logger,
+		rdsAuth:               rdsAuth,
+		binlogHeartbeatPeriod: defaultBinlogHeartbeatPeriod,
 	}
 	c.contexts.Store(&contexts)
 	go func() { //nolint:gosec // G118: long-lived goroutine, not request-scoped
@@ -233,8 +235,7 @@ func (c *MySqlConnector) setSessionSettings() error {
 
 	// set session timezone to UTC (use numeric offset to avoid tz table dependency)
 	if _, err := conn.Execute("SET SESSION time_zone = '+00:00';"); err != nil {
-		var mErr *mysql.MyError
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 			c.logger.Warn("session time_zone is not supported by the MySQL server, ignoring", slog.Any("error", err))
 		} else {
 			return fmt.Errorf("failed to set session time_zone to '+00:00': %w", err)
@@ -250,8 +251,7 @@ func (c *MySqlConnector) setSessionSettings() error {
 	case mysql.MySQLFlavor:
 		// set max_execution_time to unlimited
 		if _, err := conn.Execute("SET SESSION max_execution_time=0;"); err != nil {
-			var mErr *mysql.MyError
-			if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 				// max_execution_time is not supported, ignore the error
 				c.logger.Warn("max_execution_time is not supported by the MySQL server, ignoring", slog.Any("error", err))
 			} else {
@@ -261,8 +261,7 @@ func (c *MySqlConnector) setSessionSettings() error {
 	case mysql.MariaDBFlavor:
 		// set max_statement_time to unlimited
 		if _, err := conn.Execute("SET SESSION max_statement_time=0;"); err != nil {
-			var mErr *mysql.MyError
-			if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 				// max_statement_time is not supported, ignore the error
 				c.logger.Warn("max_statement_time is not supported by the MariaDB server, ignoring", slog.Any("error", err))
 			} else {
@@ -477,13 +476,12 @@ func (c *MySqlConnector) StatActivity(
 		fmt.Sprintf("SELECT ID,COMMAND,STATE,TIME,INFO FROM performance_schema.processlist WHERE USER='%s'", mysql.Escape(c.config.User)))
 	if err != nil {
 		// 42S02 is ER_NO_SUCH_TABLE
-		var myErr *mysql.MyError
-		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+		if myErr, ok := errors.AsType[*mysql.MyError](err); ok && myErr.Code == 1146 && myErr.State == "42S02" {
 			// mariadb
 			rs, err = c.Execute(ctx,
 				fmt.Sprintf("SELECT PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
 					" FROM performance_schema.threads WHERE USER='%s'", mysql.Escape(c.config.User)))
-			if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+			if myErr, ok := errors.AsType[*mysql.MyError](err); ok && myErr.Code == 1146 && myErr.State == "42S02" {
 				rs, err = c.Execute(ctx,
 					fmt.Sprintf("SELECT ID,COMMAND,STATE,TIME,INFO FROM information_schema.processlist WHERE USER='%s'",
 						mysql.Escape(c.config.User)))

@@ -254,7 +254,6 @@ export async function handleCreateCDC(
   rows: TableMapRow[],
   config: CDCConfig,
   destinationType: DBType,
-  setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback
 ) {
   const err = CDCCheck(flowJobName, rows, config, destinationType);
@@ -263,7 +262,6 @@ export async function handleCreateCDC(
     return;
   }
 
-  setLoading(true);
   const res = await fetch('/api/v1/flows/cdc/create', {
     method: 'POST',
     body: JSON.stringify({
@@ -271,12 +269,9 @@ export async function handleCreateCDC(
     } as CreateCDCFlowRequest),
   });
   if (!res.ok) {
-    // don't know why but if order is reversed the error message is not shown
-    setLoading(false);
     notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;
   }
-  setLoading(false);
   notifyErr('CDC Mirror created successfully', true);
   route();
 }
@@ -295,7 +290,6 @@ export async function handleCreateQRep(
   query: string,
   config: QRepConfig,
   destinationType: DBType,
-  setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
   xmin?: boolean
 ) {
@@ -359,7 +353,6 @@ export async function handleCreateQRep(
     return;
   }
 
-  setLoading(true);
   const res = await fetch('/api/v1/flows/qrep/create', {
     method: 'POST',
     body: JSON.stringify({
@@ -367,11 +360,9 @@ export async function handleCreateQRep(
     } as CreateQRepFlowRequest),
   });
   if (!res.ok) {
-    setLoading(false);
     notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;
   }
-  setLoading(false);
   notifyErr('Query Replication Mirror created successfully');
   route();
 }
@@ -518,14 +509,11 @@ export async function handleValidateCDC(
   flowJobName: string,
   rows: TableMapRow[],
   config: CDCConfig,
-  destinationType: DBType,
-  setLoading: Dispatch<SetStateAction<boolean>>
+  destinationType: DBType
 ) {
-  setLoading(true);
   const err = CDCCheck(flowJobName, rows, config, destinationType);
   if (err) {
     notifyErr(err);
-    setLoading(false);
     return;
   }
   const statusRes = await fetch('/api/v1/mirrors/cdc/validate', {
@@ -540,7 +528,6 @@ export async function handleValidateCDC(
     const errRes = await statusRes.json();
     notifyErr('CDC Mirror is invalid: ' + errRes.message);
   }
-  setLoading(false);
 }
 
 export async function fetchPublications(peerName: string) {

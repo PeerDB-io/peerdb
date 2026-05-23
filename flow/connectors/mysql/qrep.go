@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -281,7 +282,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 
 		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
-			return 0, 0, err
+			return 0, 0, exceptions.NewMySQLStreamingError(err)
 		}
 	} else {
 		var rangeStart string
@@ -329,7 +330,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 
 		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
-			return 0, 0, err
+			return 0, 0, exceptions.NewMySQLStreamingError(err)
 		}
 	}
 

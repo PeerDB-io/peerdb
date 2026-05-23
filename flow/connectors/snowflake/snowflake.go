@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/snowflakedb/gosnowflake"
+	"github.com/snowflakedb/gosnowflake/v2"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
 
@@ -90,20 +90,19 @@ func NewSnowflakeConnector(
 		return nil, err
 	}
 
-	additionalParams := make(map[string]*string)
-	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = new("true")
-
 	snowflakeConfig := gosnowflake.Config{
-		Account:          snowflakeProtoConfig.AccountId,
-		User:             snowflakeProtoConfig.Username,
-		Authenticator:    gosnowflake.AuthTypeJwt,
-		PrivateKey:       PrivateKeyRSA,
-		Database:         snowflakeProtoConfig.Database,
-		Warehouse:        snowflakeProtoConfig.Warehouse,
-		Role:             snowflakeProtoConfig.Role,
-		RequestTimeout:   time.Duration(snowflakeProtoConfig.QueryTimeout),
-		DisableTelemetry: true,
-		Params:           additionalParams,
+		Account:        snowflakeProtoConfig.AccountId,
+		User:           snowflakeProtoConfig.Username,
+		Authenticator:  gosnowflake.AuthTypeJwt,
+		PrivateKey:     PrivateKeyRSA,
+		Database:       snowflakeProtoConfig.Database,
+		Warehouse:      snowflakeProtoConfig.Warehouse,
+		Role:           snowflakeProtoConfig.Role,
+		RequestTimeout: time.Duration(snowflakeProtoConfig.QueryTimeout),
+		Params: map[string]*string{
+			"CLIENT_SESSION_KEEP_ALIVE": new("true"),
+			"CLIENT_TELEMETRY_ENABLED":  new("false"),
+		},
 	}
 
 	snowflakeConfigDSN, err := gosnowflake.DSN(&snowflakeConfig)
@@ -167,7 +166,7 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	}
 	schemaName := c.rawSchema
 
-	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
+	dummyTable := "PEERDB_DUMMY_TABLE_" + common.RandomString(4)
 
 	// In a transaction, create a table, insert a row into the table and then drop the table
 	// If any of these steps fail, the transaction will be rolled back

@@ -1,7 +1,6 @@
 package connmongo
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -13,80 +12,30 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
 
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type BsonToQValueConverter interface {
-	// QValueStringFromId QValueStringFromId converts a raw _id value to a QValueString.
+	// QValueStringFromId converts a raw _id value to a QValueString.
 	QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error)
 	// QValueJSONFromDocument converts a raw BSON document to a QValueJSON.
 	QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error)
-}
-
-func NewBsonConverter(ctx context.Context, env map[string]string) (BsonToQValueConverter, error) {
-	direct, err := internal.PeerDBMongoDBDirectBsonConverter(ctx, env)
-	if err != nil {
-		return nil, err
-	}
-
-	if !direct {
-		return &LegacyBsonConverter{
-			api: CreateExtendedJSONMarshaler(),
-		}, nil
-	}
-
-	return &DirectBsonConverter{
-		// technically we write JSON directly via raw stream methods and do not use jsoniter's
-		// config-driven serialization specified here, but this config is applied consistent with our
-		// custom serialization (and used by LegacyBsonConverter) so specifying it here for consistency
-		stream: jsoniter.NewStream(jsoniter.ConfigCompatibleWithStandardLibrary, nil, 512),
-	}, nil
-}
-
-// LegacyBsonConverter converts BSON to JSON by first deserializing BSON to bson.D,
-// and then serialize to JSON string via json-iterator.
-type LegacyBsonConverter struct {
-	api jsoniter.API
-}
-
-func (c *LegacyBsonConverter) QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error) {
-	var d bson.D
-	if err := bson.Unmarshal(raw, &d); err != nil {
-		return types.QValueJSON{}, fmt.Errorf("failed to unmarshal document: %w", err)
-	}
-	jsonb, err := c.api.Marshal(d)
-	if err != nil {
-		return types.QValueJSON{}, fmt.Errorf("failed to marshal document: %w", err)
-	}
-	return types.QValueJSON{Val: string(jsonb)}, nil
-}
-
-func (c *LegacyBsonConverter) QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error) {
-	if version >= shared.InternalVersion_MongoDBIdWithoutRedundantQuotes {
-		switch id.Type {
-		case bson.TypeObjectID:
-			return types.QValueString{Val: id.ObjectID().Hex()}, nil
-		case bson.TypeString:
-			return types.QValueString{Val: id.StringValue()}, nil
-		}
-	}
-	var val any
-	if err := id.Unmarshal(&val); err != nil {
-		return types.QValueString{}, fmt.Errorf("failed to unmarshal %s: %w", DefaultDocumentKeyColumnName, err)
-	}
-	jsonb, err := c.api.Marshal(val)
-	if err != nil {
-		return types.QValueString{}, fmt.Errorf("failed to marshal %s: %w", DefaultDocumentKeyColumnName, err)
-	}
-	return types.QValueString{Val: string(jsonb)}, nil
 }
 
 // DirectBsonConverter converts BSON directly to JSON string without intermediate deserialization,
 // it uses jsoniter.Stream to build JSON output incrementally into a reusable buffer (to avoid allocation)
 type DirectBsonConverter struct {
 	stream *jsoniter.Stream
+}
+
+func NewDirectBsonConverter() *DirectBsonConverter {
+	return &DirectBsonConverter{
+		// technically we write JSON directly via raw stream methods and do not use jsoniter's
+		// config-driven serialization specified here, but this config is applied consistent with our
+		// custom serialization so specifying it here for consistency
+		stream: jsoniter.NewStream(jsoniter.ConfigCompatibleWithStandardLibrary, nil, 512),
+	}
 }
 
 func (c *DirectBsonConverter) QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error) {
@@ -276,8 +225,15 @@ func rawValueToJSON(v bsoncore.Value, stream *jsoniter.Stream) error {
 	return nil
 }
 
-// writeFloat64JSON matches the encoding behavior of encodeCustom + writeFloat64WithExplicitDecimal:
-// NaN/Inf → quoted strings, integer-valued floats → explicit ".0", others → standard notation
+// Assume (and test) that values outside of these limits will come out in scientific notation
+// and will be parsed as floats either way
+var (
+	floatLimit    = math.Pow10(21)
+	floatNegLimit = -floatLimit
+)
+
+// writeFloat64JSON encodes NaN/Inf as quoted strings, integer-valued floats with an explicit
+// ".0" suffix (to hint ClickHouse to parse as float), and other values in standard notation.
 func writeFloat64JSON(stream *jsoniter.Stream, v float64) {
 	if math.IsNaN(v) {
 		stream.WriteRaw(`"NaN"`)

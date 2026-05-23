@@ -27,6 +27,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -38,7 +39,7 @@ var testData embed.FS
 func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgch_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgch_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	}))
@@ -47,7 +48,7 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mych_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
 		return source, suffix, err
 	}))
@@ -56,7 +57,7 @@ func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgchcl_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgchcl_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	}))
@@ -65,7 +66,7 @@ func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mychcl_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychcl_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
 		return source, suffix, err
 	}))
@@ -2642,10 +2643,28 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE nulltarget"))
 	require.NoError(s.t, ch.Close())
+	// TODO: Revert this block after future CH behaviour is clarified.
+	// Work around CH 26.5+ behavior: EXCHANGE TABLES and CREATE OR REPLACE on a source table
+	// orphan its dependent materialized views.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), `TRUNCATE TABLE `+srcFullName))
+	// end of workaround block
+
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.Resync = true
 	env = ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// TODO: Revert this block after future CH behaviour is clarified.
+	// Work around CH 26.5+ behavior: EXCHANGE TABLES and CREATE OR REPLACE on a source table
+	// orphan its dependent materialized views.
+	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	require.NoError(s.t, err)
+	require.NoError(s.t, ch.Exec(s.t.Context(), `DROP VIEW IF EXISTS nullmv`))
+	require.NoError(s.t, ch.Exec(s.t.Context(),
+		`create materialized view nullmv to nulltarget as select id, "key", _peerdb_is_deleted from test_nullengine`))
+	require.NoError(s.t, ch.Close())
+	// end of workaround block
+
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, "nulltarget", "id,\"key\"")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -3025,8 +3044,9 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 		)).Scan(&partitionKey, &sortingKey),
 	)
 	require.NoError(s.t, ch.Close())
-	require.Equal(s.t, "num", partitionKey)
-	require.Equal(s.t, "val", sortingKey)
+	// ClickHouse 26.5+ preserves the parens around single-column PARTITION BY / ORDER BY in system.tables; older versions unwrap them.
+	require.Contains(s.t, []string{"num", "(num)"}, partitionKey)
+	require.Contains(s.t, []string{"val", "(val)"}, sortingKey)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

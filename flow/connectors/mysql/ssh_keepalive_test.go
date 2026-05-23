@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 const (
@@ -26,6 +27,7 @@ const (
 	toxiproxyCDCHangProxyPort           = 42004
 	toxiproxyCDCCloseHangProxyPort      = 42005
 	toxiproxyCloseSyncerWithTimeoutPort = 42006
+	toxiproxyBinlogStalenessPort        = 42007
 )
 
 func resolveMySQL(t *testing.T) (string, uint32, string) {
@@ -341,5 +343,55 @@ func TestMySQLCloseSyncerWithTimeout(t *testing.T) {
 		require.Less(t, elapsed, syncerCloseTimeout+time.Second)
 	case <-time.After(10 * time.Second):
 		t.Fatal("closeSyncerWithTimeout did not return on timeout")
+	}
+}
+
+// TestMySQLBinlogStalenessThreshold verifies that when bytes stop flowing from MySQL, PullRecords
+// returns MySQLStaleConnectionError once time.Since(lastEventAt) exceeds the staleness threshold.
+func TestMySQLBinlogStalenessThreshold(t *testing.T) {
+	t.Parallel()
+	if internal.MySQLTestVersionIsMaria() {
+		t.Skip("Skipping for MariaDB")
+	}
+
+	ctx := t.Context()
+	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(ctx, t, "my-binlog-staleness-test", toxiproxyBinlogStalenessPort)
+	defer connector.Close()
+
+	// use a short staleness threshold (3x heartbeat period) to make test faster
+	connector.binlogHeartbeatPeriod = 1 * time.Second
+
+	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_binlog_staleness")
+
+	pullDone := concurrency.NewLatch[error]()
+	go func() {
+		pullDone.Set(connector.PullRecords(ctx, shared.CatalogPool{}, otelManager, req))
+	}()
+	go func() {
+		for range req.RecordStream.GetRecords() {
+		}
+	}()
+
+	// Let CDC streaming + heartbeats establish
+	time.Sleep(2 * time.Second)
+
+	t.Log("Adding latency toxic to silence the bastion <-> MySQL link")
+	_, err := mysqlProxy.AddToxic("staleness-latency", "latency", "", 1.0, toxiproxy.Attributes{
+		"latency": 120000,
+	})
+	require.NoError(t, err)
+
+	select {
+	case <-pullDone.Chan():
+		pullErr := pullDone.Wait()
+		require.Error(t, pullErr)
+		var staleErr *exceptions.MySQLStaleConnectionError
+		require.ErrorAs(t, pullErr, &staleErr)
+		require.GreaterOrEqual(t, staleErr.Since, connector.binlogStalenessThreshold())
+		require.Equal(t, connector.binlogHeartbeatPeriod, staleErr.HeartbeatPeriod)
+		t.Logf("PullRecords returned staleness error after %v (heartbeat=%v)",
+			staleErr.Since, staleErr.HeartbeatPeriod)
+	case <-time.After(30 * time.Second):
+		t.Fatal("PullRecords did not return MySQLStaleConnectionError within staleness budget")
 	}
 }

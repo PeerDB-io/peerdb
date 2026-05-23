@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -36,7 +37,7 @@ func SetupMongoClickhouseSuite(t *testing.T) MongoClickhouseSuite {
 	t.Helper()
 	return MongoClickhouseSuite{SetupClickHouseSuite(t, false, func(t *testing.T) (*MongoSource, string, error) {
 		t.Helper()
-		suffix := "mongoch_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mongoch_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMongo(t, suffix)
 		return source, suffix, err
 	})(t)}

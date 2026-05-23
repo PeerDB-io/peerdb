@@ -583,6 +583,7 @@ enum DynconfTarget {
   SNOWFLAKE = 2;
   CLICKHOUSE = 3;
   QUEUES = 4;
+  POSTGRES = 5;
 }
 
 message DropFlowActivityInput {
@@ -670,4 +671,11 @@ message GetFlowInfoToCancelFromCatalogOutput {
   FlowConnectionConfigsCore flow_connection_configs = 1;
   string workflow_id = 2;
   peerdb_peers.DBType source_peer_type = 3;
+}
+
+message RunPgDumpSchemaInput {
+  string source_name = 1;
+  string destination_name = 2;
+  string flow_name = 3;
+  map<string, string> env = 4;
 }

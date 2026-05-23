@@ -3,10 +3,12 @@ import { SlotInfo } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useEffect, useState } from 'react';
+import { useTheme as useStyledTheme } from 'styled-components';
 import { getSlotData, SlotNameDisplay } from './helpers';
 import { tableStyleMaxHeight } from './style';
 
 export default function SlotTable({ peerName }: { peerName: string }) {
+  const styledTheme = useStyledTheme();
   const [data, setData] = useState<SlotInfo[]>([]);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function SlotTable({ peerName }: { peerName: string }) {
       >
         Replication Slot Information
       </Label>
-      <div style={tableStyleMaxHeight}>
+      <div style={tableStyleMaxHeight(styledTheme)}>
         <Table
           header={
             <TableRow>

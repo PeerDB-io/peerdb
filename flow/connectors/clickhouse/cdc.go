@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
@@ -70,7 +71,12 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		rawTableName += "_shard"
 	}
 
-	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)`
+	ttlDays, err := internal.PeerDBClickHouseRawTableTTLDays(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load raw table TTL days: %w", err)
+	}
+	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)` +
+		` TTL fromUnixTimestamp64Nano(_peerdb_timestamp) + INTERVAL ` + strconv.FormatUint(uint64(ttlDays), 10) + ` DAY`
 	if err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, rawColumns, engine),
 	); err != nil {
@@ -97,7 +103,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 
 func (c *ClickHouseConnector) avroSyncMethod(flowJobName string, env map[string]string, version uint32) *ClickHouseAvroSyncMethod {
 	qrepConfig := &protos.QRepConfig{
-		StagingPath:                c.credsProvider.BucketPath,
+		StagingPath:                c.staging.BucketPath(),
 		FlowJobName:                flowJobName,
 		DestinationTableIdentifier: c.GetRawTableName(flowJobName),
 		Env:                        env,

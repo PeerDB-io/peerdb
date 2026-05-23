@@ -11,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
@@ -56,7 +57,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	it := bucket.Objects(ctx, &storage.Query{Prefix: stagingPath.QueryPrefix()})
 	_, err = it.Next()
 	if err != nil && !errors.Is(err, iterator.Done) {
-		return fmt.Errorf("failed to access staging bucket: %w", err)
+		return fmt.Errorf("failed to access staging bucket: %w", exceptions.NewBigQueryError(err))
 	}
 
 	return nil

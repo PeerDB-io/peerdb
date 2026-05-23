@@ -55,23 +55,25 @@ func (m *mockConn) Query(_ context.Context, _ string, _ ...any) (driver.Rows, er
 func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 	tests := []struct {
 		name                   string
+		wantErr                string
+		host                   string
+		allowedDomains         string
 		rows                   []tableRow
 		tables                 []string
 		initialSnapshotEnabled bool
 		checkForCloudSMT       bool
 		allowNonEmpty          bool
-		wantErr                string
 	}{
 		{
-			name:   "view rejected",
-			rows:   []tableRow{{name: "test_view", engine: "View", totalRows: 0}},
-			tables: []string{"test_view"},
+			name:    "view rejected",
+			rows:    []tableRow{{name: "test_view", engine: "View", totalRows: 0}},
+			tables:  []string{"test_view"},
 			wantErr: "destination table can not be a view",
 		},
 		{
-			name:   "materialized view rejected",
-			rows:   []tableRow{{name: "test_mv", engine: "MaterializedView", totalRows: 0}},
-			tables: []string{"test_mv"},
+			name:    "materialized view rejected",
+			rows:    []tableRow{{name: "test_mv", engine: "MaterializedView", totalRows: 0}},
+			tables:  []string{"test_mv"},
 			wantErr: "destination table can not be a view",
 		},
 		{
@@ -110,10 +112,43 @@ func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 			name:   "empty table list passes",
 			tables: nil,
 		},
+		{
+			name:           "host matches allowed domain",
+			host:           "myservice.clickhouse.cloud",
+			allowedDomains: "clickhouse.cloud",
+			rows:           []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
+			tables:         []string{"test_table"},
+		},
+		{
+			name:           "host matches one of multiple allowed domains",
+			host:           "myservice.example.com",
+			allowedDomains: "clickhouse.cloud,example.com",
+			rows:           []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
+			tables:         []string{"test_table"},
+		},
+		{
+			name:           "host does not match allowed domain",
+			host:           "myservice.evil.com",
+			allowedDomains: "clickhouse.cloud",
+			wantErr:        "invalid ClickHouse host domain",
+		},
+		{
+			name:           "empty allowed domains permits any host",
+			host:           "anything.example.com",
+			allowedDomains: "",
+			rows:           []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
+			tables:         []string{"test_table"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.host != "" || tt.allowedDomains != "" {
+				if err := ValidateClickHouseHost(context.Background(), tt.host, tt.allowedDomains); err != nil {
+					require.ErrorContains(t, err, tt.wantErr)
+					return
+				}
+			}
 			conn := &mockConn{rows: &mockRows{rows: tt.rows}}
 			err := CheckIfTablesEmptyAndEngine(
 				context.Background(), nopLogger{}, conn,

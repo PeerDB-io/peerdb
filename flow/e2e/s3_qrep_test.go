@@ -12,7 +12,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type PeerFlowE2ETestSuiteS3 struct {
@@ -73,7 +73,7 @@ func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int)
 func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
 
-	suffix := "s3_" + strings.ToLower(shared.RandomString(8))
+	suffix := "s3_" + strings.ToLower(common.RandomString(8))
 	conn, err := SetupPostgres(t, suffix)
 	if err != nil || conn == nil {
 		require.Fail(t, "failed to setup postgres", err)

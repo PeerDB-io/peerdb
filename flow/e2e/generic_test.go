@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -35,7 +36,7 @@ func TestGenericBQ(t *testing.T) {
 func TestGenericCH_PG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgchg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgchg_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	})))
@@ -44,7 +45,7 @@ func TestGenericCH_PG(t *testing.T) {
 func TestGenericCH_MySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mychg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychg_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
 		return source, suffix, err
 	})))
@@ -53,7 +54,7 @@ func TestGenericCH_MySQL(t *testing.T) {
 func TestGenericChCluster_PG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgchclg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgchclg_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	})))
@@ -62,7 +63,7 @@ func TestGenericChCluster_PG(t *testing.T) {
 func TestGenericChCluster_MySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mychclg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychclg_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
 		return source, suffix, err
 	})))
@@ -1139,8 +1140,8 @@ func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
 	srcTable := "test_custom_slot_cdc"
 	dstTable := "test_custom_slot_cdc_dst"
 	srcSchemaTable := AttachSchema(s, srcTable)
-	customSlotName := "112_custom_slot_" + strings.ToLower(shared.RandomString(8))
-	customPubName := "112_custom_pub_" + strings.ToLower(shared.RandomString(8))
+	customSlotName := "112_custom_slot_" + strings.ToLower(common.RandomString(8))
+	customPubName := "112_custom_pub_" + strings.ToLower(common.RandomString(8))
 
 	// Create table and insert initial data
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`

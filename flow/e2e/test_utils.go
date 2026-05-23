@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
@@ -250,13 +252,11 @@ func EnvWaitForCount(
 func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 	t.Helper()
 	EnvWaitForFinished(t, env, time.Minute)
-	var panicErr *temporal.PanicError
-	var canceledErr *temporal.CanceledError
 	if err := env.Error(t.Context()); err == nil {
 		t.Fatal("Expected workflow to be canceled, not completed")
-	} else if errors.As(err, &panicErr) {
+	} else if panicErr, ok := errors.AsType[*temporal.PanicError](err); ok {
 		t.Fatalf("Workflow panic: %s %s", panicErr.Error(), panicErr.StackTrace())
-	} else if !errors.As(err, &canceledErr) {
+	} else if _, ok := errors.AsType[*temporal.CanceledError](err); !ok {
 		t.Fatalf("Expected workflow to be canceled, not %v", err)
 	}
 }
@@ -724,11 +724,26 @@ func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any)
 	return env.c.QueryWorkflow(ctx, env.GetID(), "", queryType, args...)
 }
 
+// catalogTestAccessPool is a pgxpool with application_name="catalog_test_access"
+// so test-side catalog reads are not collateral damage when other tests issue
+// pg_terminate_backend WHERE application_name='peerdb' (see api_test.go).
+var catalogTestAccessPool = sync.OnceValues(func() (*pgxpool.Pool, error) {
+	ctx := context.Background()
+	connStr := internal.GetCatalogConnectionStringFromEnv(ctx)
+	cfg, err := pgxpool.ParseConfig(connStr)
+	if err != nil {
+		return nil, err
+	}
+	cfg.ConnConfig.RuntimeParams["application_name"] = "catalog_test_access"
+	cfg.MaxConns = 3
+	return pgxpool.NewWithConfig(ctx, cfg)
+})
+
 func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
 	t.Helper()
-	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	pool, err := catalogTestAccessPool()
 	EnvNoError(t, env, err)
-	status, err := internal.GetWorkflowStatus(t.Context(), pool, env.GetID())
+	status, err := internal.GetWorkflowStatus(t.Context(), shared.CatalogPool{Pool: pool}, env.GetID())
 	EnvNoError(t, env, err)
 	return status
 }

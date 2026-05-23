@@ -154,8 +154,7 @@ func (s *Session) Handle(ctx context.Context, server *Server) error {
 	newConn, backend, startup, err := acceptStartup(s.clientConn)
 	if err != nil {
 		// Check if it's a cancel request - return as-is to be handled by server
-		var cancelErr *CancelRequestError
-		if errors.As(err, &cancelErr) {
+		if cancelErr, ok := errors.AsType[*CancelRequestError](err); ok {
 			s.logger.InfoContext(ctx, "Cancel request during startup",
 				slog.Uint64("pid", uint64(cancelErr.ProcessID)),
 				slog.String("secret", hex.EncodeToString(cancelErr.SecretKey)))

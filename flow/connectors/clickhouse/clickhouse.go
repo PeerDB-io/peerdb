@@ -8,20 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
-	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -31,11 +29,11 @@ import (
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
-	database      clickhouse.Conn
-	logger        log.Logger
-	Config        *protos.ClickhouseConfig
-	credsProvider *utils.ClickHouseS3Credentials
-	chVersion     *clickhouseproto.Version
+	database  clickhouse.Conn
+	logger    log.Logger
+	Config    *protos.ClickhouseConfig
+	staging   StagingStore
+	chVersion *clickhouseproto.Version
 }
 
 func NewClickHouseConnector(
@@ -55,207 +53,146 @@ func NewClickHouseConnector(
 		return nil, err
 	}
 
-	var awsConfig utils.PeerAWSCredentials
-	var awsBucketPath string
-	if config.S3 != nil {
-		awsConfig = utils.NewPeerAWSCredentials(config.S3)
-		awsBucketPath = config.S3.Url
-	} else {
-		awsConfig = utils.PeerAWSCredentials{
-			Credentials: aws.Credentials{
-				AccessKeyID:     config.AccessKeyId,
-				SecretAccessKey: config.SecretAccessKey,
-			},
-			EndpointUrl: config.Endpoint,
-			Region:      config.Region,
-		}
-		awsBucketPath = config.S3Path
-	}
-
-	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", awsConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	if awsBucketPath == "" {
-		deploymentUID := internal.PeerDBDeploymentUID()
-		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
-		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
-		}
-		if awsBucketName == "" {
-			return nil, fmt.Errorf("PeerDB ClickHouse Bucket Name not set")
-		}
-
-		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
-	}
-
-	credentials, err := credentialsProvider.Retrieve(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	clickHouseVersion, err := database.ServerVersion()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
-	connector := &ClickHouseConnector{
+
+	staging, err := createStagingStore(ctx, env, config, clickHouseVersion.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
 		Config:           config,
 		logger:           logger,
-		credsProvider: &utils.ClickHouseS3Credentials{
-			Provider:   credentialsProvider,
-			BucketPath: awsBucketPath,
-		},
-		chVersion: &clickHouseVersion.Version,
-	}
-
-	if credentials.AWS.SessionToken != "" {
-		// 24.3.1 is minimum version of ClickHouse that actually supports session token
-		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		if !clickhouseproto.CheckMinVersion(
-			clickhouseproto.Version{Major: 24, Minor: 3, Patch: 1},
-			clickHouseVersion.Version,
-		) {
-			return nil, fmt.Errorf(
-				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
-				clickHouseVersion,
-				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
-		}
-	}
-
-	return connector, nil
-}
-
-func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
-	// for validation purposes
-	s3Client, err := utils.CreateS3Client(ctx, creds.Provider)
-	if err != nil {
-		return fmt.Errorf("failed to create S3 client: %w", err)
-	}
-
-	object, err := utils.NewS3BucketAndPrefix(creds.BucketPath)
-	if err != nil {
-		return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
-	}
-
-	return utils.PutAndRemoveS3(ctx, s3Client, object.Bucket, object.Prefix)
-}
-
-func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainString string) error {
-	allowedDomains := strings.Split(allowedDomainString, ",")
-	if len(allowedDomains) == 0 {
-		return nil
-	}
-	// check if chHost ends with one of the allowed domains
-	for _, domain := range allowedDomains {
-		if strings.HasSuffix(chHost, domain) {
-			return nil
-		}
-	}
-	return fmt.Errorf("invalid ClickHouse host domain: %s. Allowed domains: %s",
-		chHost, strings.Join(allowedDomains, ","))
+		staging:          staging,
+		chVersion:        &clickHouseVersion.Version,
+	}, nil
 }
 
 // Performs some checks on the ClickHouse peer to ensure it will work for mirrors
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
-	// validate clickhouse host
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
-	if err := ValidateClickHouseHost(ctx, c.Config.Host, allowedDomains); err != nil {
-		return err
+
+	return peerdb_clickhouse.ValidateClickHousePeer(
+		ctx, c.logger, allowedDomains, c.Config.Host, c.database, c.staging.Validate,
+	)
+}
+
+// configureDirectoryTLS configures the tls.Config by loading certificate files
+// from a directory. It expects tls.crt and tls.key files, and optionally ca.crt.
+// This is typically used when a Kubernetes Secret is mounted as a volume.
+//
+// Client certificates are loaded via GetClientCertificate so that every TLS
+// handshake re-reads the files from disk, automatically picking up rotated
+// certificates (e.g. renewed by cert-manager) without requiring a reconnect.
+func configureDirectoryTLS(tlsConfig *tls.Config, dir string) error {
+	certPath := filepath.Join(dir, "tls.crt")
+	keyPath := filepath.Join(dir, "tls.key")
+	caPath := filepath.Join(dir, "ca.crt")
+
+	// Verify that the required files are readable at configuration time
+	if _, err := os.ReadFile(certPath); err != nil {
+		return fmt.Errorf("failed to read TLS certificate from %q: %w", certPath, err)
 	}
-	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
-	validateDummyTableNameRenamed := validateDummyTableName + "_renamed"
-	// create a table
-	if err := c.exec(ctx,
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
-	); err != nil {
-		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
+	if _, err := os.ReadFile(keyPath); err != nil {
+		return fmt.Errorf("failed to read TLS private key from %q: %w", keyPath, err)
 	}
-	defer func() {
-		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		for _, table := range []string{validateDummyTableName, validateDummyTableNameRenamed} {
-			for attempt := range 3 {
-				if attempt > 0 {
-					time.Sleep(time.Duration(attempt) * 2 * time.Second)
-				}
-				err := c.exec(dropCtx, "DROP TABLE IF EXISTS "+table)
-				if err == nil {
-					break
-				}
-				var chException *clickhouse.Exception
-				if errors.As(err, &chException) && chproto.Error(chException.Code) == chproto.ErrUnfinished {
-					c.logger.Warn("validation drop table blocked by in-flight DDL, retrying",
-						slog.String("table", table), slog.Int("attempt", attempt+1))
-					continue
-				}
-				c.logger.Error("validation failed to drop table", slog.String("table", table), slog.Any("error", err))
-				break
-			}
+
+	// Load CA certificate upfront — RootCAs must be set before the TLS
+	// handshake so the server certificate can be verified.
+	// ca.crt is optional: when absent, the system CA pool is used instead.
+	caCertPEM, err := os.ReadFile(caPath)
+	if errors.Is(err, os.ErrNotExist) {
+		// ca.crt is optional — use system CA pool
+	} else if err != nil {
+		return fmt.Errorf("failed to read CA certificate from %q: %w", caPath, err)
+	} else if len(caCertPEM) > 0 {
+		caPool := x509.NewCertPool()
+		if !caPool.AppendCertsFromPEM(caCertPEM) {
+			return fmt.Errorf("failed to parse CA certificate from %q", caPath)
 		}
-	}()
-
-	// add a column
-	if err := c.exec(ctx,
-		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
-	); err != nil {
-		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
+		tlsConfig.RootCAs = caPool
 	}
 
-	// rename the table
-	if err := c.exec(ctx,
-		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableNameRenamed),
-	); err != nil {
-		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
-	}
-
-	// insert a row
-	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableNameRenamed)); err != nil {
-		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableNameRenamed, err)
-	}
-
-	// drop the table
-	if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableNameRenamed); err != nil {
-		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableNameRenamed, err)
-	}
-
-	// validate s3 stage
-	if err := ValidateS3(ctx, c.credsProvider); err != nil {
-		return fmt.Errorf("failed to validate S3 bucket: %w", err)
+	// Use GetClientCertificate so the cert/key are re-read on every TLS
+	// handshake, ensuring rotated certificates are picked up immediately.
+	tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		certPEM, err := os.ReadFile(certPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TLS certificate from %q: %w", certPath, err)
+		}
+		keyPEM, err := os.ReadFile(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TLS private key from %q: %w", keyPath, err)
+		}
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse TLS certificate from directory %q: %w", dir, err)
+		}
+		return &cert, nil
 	}
 
 	return nil
 }
 
+// configureInlineTLS configures the tls.Config using inline certificate/key
+// PEM values from the ClickHouse peer config.
+func configureInlineTLS(tlsConfig *tls.Config, config *protos.ClickhouseConfig) error {
+	if config.Certificate != nil || config.PrivateKey != nil {
+		if config.Certificate == nil || config.PrivateKey == nil {
+			return errors.New("both certificate and private key must be provided if using certificate-based authentication")
+		}
+		cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+		if err != nil {
+			return fmt.Errorf("failed to parse provided certificate: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+	if config.RootCa != nil {
+		caPool := x509.NewCertPool()
+		if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
+			return errors.New("failed to parse provided root CA")
+		}
+		tlsConfig.RootCAs = caPool
+	}
+	return nil
+}
+
+// buildTLSConfig builds the TLS configuration for a ClickHouse connection.
+// When a TLS certificate directory is configured, it loads certificates from the directory.
+// Otherwise, inline certificates are used.
+func buildTLSConfig(config *protos.ClickhouseConfig) (*tls.Config, error) {
+	if config.DisableTls {
+		return nil, nil
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		ServerName: config.TlsHost,
+	}
+	certDir := config.GetTlsCertificateDirectory()
+
+	if certDir != "" {
+		if err := configureDirectoryTLS(tlsConfig, certDir); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := configureInlineTLS(tlsConfig, config); err != nil {
+			return nil, err
+		}
+	}
+
+	return tlsConfig, nil
+}
+
 func Connect(ctx context.Context, env map[string]string, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
-	var tlsSetting *tls.Config
-	if !config.DisableTls {
-		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
-		if config.Certificate != nil || config.PrivateKey != nil {
-			if config.Certificate == nil || config.PrivateKey == nil {
-				return nil, fmt.Errorf("both certificate and private key must be provided if using certificate-based authentication")
-			}
-			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
-			}
-			tlsSetting.Certificates = []tls.Certificate{cert}
-		}
-		if config.RootCa != nil {
-			caPool := x509.NewCertPool()
-			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-				return nil, fmt.Errorf("failed to parse provided root CA")
-			}
-			tlsSetting.RootCAs = caPool
-		}
-		if config.TlsHost != "" {
-			tlsSetting.ServerName = config.TlsHost
-		}
+	tlsSetting, err := buildTLSConfig(config)
+	if err != nil {
+		return nil, err
 	}
 
 	settings := clickhouse.Settings{

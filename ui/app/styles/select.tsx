@@ -4,47 +4,36 @@ import { useTheme } from '@/lib/AppTheme/ThemeContext';
 import { useMemo } from 'react';
 import { Theme } from 'react-select';
 
-// Hook version for components that need reactive theme updates
 export function useSelectTheme() {
   const { theme: appTheme } = useTheme();
 
   return useMemo(() => {
     return (theme: Theme) => {
-      const colors = appTheme === 'dark' ? appThemeColorsDark : appThemeColors;
+      const c = appTheme === 'dark' ? appThemeColorsDark : appThemeColors;
 
       return {
         ...theme,
         colors: {
           ...theme.colors,
-          primary: colors.select.primary,
-          primary25: colors.select.primary25,
-          neutral0: colors.select.neutral0,
-          neutral80: colors.select.neutral80,
+          primary: c.accent.fill.normal,
+          primary75: c.accent.fill.hovered,
+          primary50: c.accent.surface.hovered,
+          primary25: c.accent.surface.normal,
+          danger: c.destructive.fill.normal,
+          dangerLight: c.destructive.surface.normal,
+          neutral0: c.base.background.normal,
+          neutral5: c.base.surface.normal,
+          neutral10: c.base.border.subtle,
+          neutral20: c.base.border.normal,
+          neutral30: c.base.border.hovered,
+          neutral40: c.base.fill.normal,
+          neutral50: c.base.text.lowContrast,
+          neutral60: c.base.fill.hovered,
+          neutral70: c.base.text.lowContrast,
+          neutral80: c.base.text.highContrast,
+          neutral90: c.base.text.highContrast,
         },
       };
     };
   }, [appTheme]);
 }
-
-// Static function for backward compatibility
-// Checks DOM at render time
-function SelectTheme(theme: Theme) {
-  const isDark =
-    typeof window !== 'undefined' &&
-    document.documentElement.classList.contains('dark');
-
-  const colors = isDark ? appThemeColorsDark : appThemeColors;
-
-  return {
-    ...theme,
-    colors: {
-      ...theme.colors,
-      primary: colors.select.primary,
-      primary25: colors.select.primary25,
-      neutral0: colors.select.neutral0,
-      neutral80: colors.select.neutral80,
-    },
-  };
-}
-
-export default SelectTheme;

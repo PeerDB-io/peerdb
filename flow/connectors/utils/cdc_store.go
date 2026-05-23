@@ -18,6 +18,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -60,7 +61,7 @@ func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, 
 		pebbleDB:                  nil,
 		numRecords:                atomic.Int32{},
 		flowJobName:               flowJobName,
-		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
+		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, common.RandomString(8)),
 		numRecordsSwitchThreshold: int(numRecordsSwitchThreshold),
 		memThresholdBytes: func() uint64 {
 			maxMemBytes := internal.PeerDBFlowWorkerMaxMemBytes()

@@ -214,7 +214,7 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context, en
 }
 
 func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Context, srcTableNames []string) error {
-	pubName := "_peerdb_tmp_test_publication_" + shared.RandomString(5)
+	pubName := "_peerdb_tmp_test_publication_" + common.RandomString(5)
 	if err := c.CreatePublication(ctx, srcTableNames, pubName); err != nil {
 		return err
 	}
@@ -276,6 +276,10 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 ) error {
 	if cfg.Resync {
 		return nil // no need to validate schema for resync, as we will create or replace the tables
+	}
+
+	if cfg.System == protos.TypeSystem_PG && cfg.Env["PEERDB_PG_AUTOMATED_SCHEMA_DUMP"] == "true" {
+		return nil // pg_dump will create the schema and tables on the destination
 	}
 
 	// Validate that all source columns exist in destination tables

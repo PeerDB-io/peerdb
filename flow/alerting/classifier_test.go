@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 
+	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/storage"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -23,6 +25,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/api/googleapi"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -332,6 +335,21 @@ func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.InvalidParameterValue,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresInvalidEnumValueOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InvalidTextRepresentation,
+		Message:  `invalid input value for enum worker_status: "merged"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.workers: %w", err))
+	assert.Equal(t, ErrorNotifyInvalidEnumValue, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InvalidTextRepresentation,
 	}, errInfo, "Unexpected error info")
 }
 
@@ -991,5 +1009,122 @@ func TestClickHouseStdExceptionObjectStorageIOErrorShouldBeRecoverable(t *testin
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   strconv.Itoa(int(chproto.ErrStdException)),
+	}, errInfo)
+}
+
+func TestMySQLGeometryLinearRingNotClosedShouldBeUnsupportedDatatype(t *testing.T) {
+	geosErr := fmt.Errorf("IllegalArgumentException: Points of LinearRing do not form a closed linestring")
+	wrapped := fmt.Errorf("mysql error: %w", exceptions.NewMySQLGeometryParseError(geosErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrapped)
+	assert.Equal(t, ErrorUnsupportedDatatype, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+	}, errInfo)
+}
+
+func TestMySQLGeometryParseErrorUnknownShouldFallThrough(t *testing.T) {
+	geosErr := fmt.Errorf("ParseException: Unknown WKB type 99")
+	wrapped := fmt.Errorf("mysql error: %w", exceptions.NewMySQLGeometryParseError(geosErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrapped)
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
+	}, errInfo)
+}
+
+func TestBigQueryAuthAndAccessErrorsShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{401, 403, 404} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			t.Parallel()
+
+			apiErr := &googleapi.Error{Code: code, Message: "boom"}
+			err := exceptions.NewBigQueryError(apiErr)
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", err))
+			assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   strconv.Itoa(code),
+			}, errInfo)
+		})
+	}
+}
+
+// Mirrors the cloud.google.com/go/storage wrapping of 404 from `formatBucketError`:
+//
+//	return fmt.Errorf("%w: %w", ErrBucketNotExist, err)
+//
+// `it.Next()` on a missing staging bucket surfaces this exact shape at
+// connectors/bigquery/source.go:59 (then wrapped in BigQueryError there).
+func TestBigQueryGCSBucketNotExistShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 404, Message: "Not Found"}
+	storageWrapped := fmt.Errorf("%w: %w", storage.ErrBucketNotExist, apiErr)
+	err := exceptions.NewBigQueryError(storageWrapped)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "404",
+	}, errInfo)
+}
+
+func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 500, Message: "internal"}
+	err := exceptions.NewBigQueryError(apiErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "500",
+	}, errInfo)
+}
+
+func TestBigQueryErrorWithoutGoogleAPIShouldBeOther(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewBigQueryError(fmt.Errorf("opaque failure"))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("bq op failed: %w", err))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "UNKNOWN",
+	}, errInfo)
+}
+
+// bigquery.Error (with a Reason like "invalidQuery", "accessDenied") is what
+// surfaces from job-level failures e.g. status.Err() on Job.Wait. We surface
+// the Reason as the code for diagnostic clarity even though we don't classify
+// individual Reasons yet.
+func TestBigQueryJobErrorWithReasonShouldUseReasonAsCode(t *testing.T) {
+	t.Parallel()
+
+	jobErr := &bigquery.Error{Reason: "invalidQuery", Message: "bad SQL", Location: "query"}
+	err := exceptions.NewBigQueryError(jobErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job completed with error: %w", err))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "invalidQuery",
+	}, errInfo)
+}
+
+// Unwrapped *googleapi.Error from outside the BigQuery connector must NOT be
+// attributed to BigQuery — only errors explicitly wrapped in BigQueryError are.
+func TestUnwrappedGoogleAPIErrorShouldNotBeBigQuery(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 403, Message: "forbidden"}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("some other gcp call: %w", apiErr))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
 	}, errInfo)
 }

@@ -32,6 +32,15 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+const (
+	defaultBinlogHeartbeatPeriod = time.Minute
+	binlogStalenessMultiplier    = 3
+)
+
+func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
+	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
+}
+
 func (c *MySqlConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
@@ -70,14 +79,32 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
+	pkSeqRs, err := c.Execute(ctx, fmt.Sprintf(`
+		select column_name, seq_in_index
+		from information_schema.statistics
+		where table_schema = '%s' and table_name = '%s' and index_name = 'PRIMARY'`,
+		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
+	if err != nil {
+		return nil, err
+	}
+	pkSeqMap := make(map[string]int64, pkSeqRs.RowNumber())
+	for idx := range pkSeqRs.RowNumber() {
+		name, err := pkSeqRs.GetString(idx, 0)
+		if err != nil {
+			return nil, err
+		}
+		seq, err := pkSeqRs.GetInt(idx, 1)
+		if err != nil {
+			return nil, err
+		}
+		pkSeqMap[name] = seq
+	}
+
 	rs, err := c.Execute(ctx, fmt.Sprintf(`
-		select c.column_name, c.column_type, c.is_nullable, c.numeric_precision, c.numeric_scale, s.seq_in_index
-		from information_schema.columns c
-		left join information_schema.statistics s
-			on c.table_schema = s.table_schema and c.table_name = s.table_name
-			and c.column_name = s.column_name and s.index_name = 'PRIMARY'
-		where c.table_schema = '%s' and c.table_name = '%s'
-		order by c.ordinal_position`,
+		select column_name, column_type, is_nullable, numeric_precision, numeric_scale
+		from information_schema.columns
+		where table_schema = '%s' and table_name = '%s'
+		order by ordinal_position`,
 		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
 	if err != nil {
 		return nil, err
@@ -132,15 +159,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		}
 		columns = append(columns, column)
 
-		seqIsNull, err := rs.IsNull(idx, 5)
-		if err != nil {
-			return nil, err
-		}
-		if !seqIsNull {
-			seq, err := rs.GetInt(idx, 5)
-			if err != nil {
-				return nil, err
-			}
+		if seq, ok := pkSeqMap[columnName]; ok {
 			primaryEntries = append(primaryEntries, pkEntry{name: columnName, seqInIndex: seq})
 		}
 	}
@@ -264,6 +283,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		UseDecimal:       true,
 		ParseTime:        true,
 		TLSConfig:        tlsConfig,
+		HeartbeatPeriod:  c.binlogHeartbeatPeriod,
 	}), nil
 }
 
@@ -318,12 +338,10 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	return syncer, stream, gset, mysql.Position{}, nil
 }
 
-// closeSyncerWithTimeout closes the syncer with a 10s timeout and, on timeout,
-// force-closes the SSH tunnel if SSH tunnel exists. go-mysql's BinlogSyncer.close()
-// can hang indefinitely when its two unblock mechanisms fail (SetReadDeadline fails
-// for ssh tunnel, and killing a connection that has already been reaped by the server
-// but is not propagated to the client). This can lead to syncer.Close() stuck indefinitely.
-// TODO: better to fix properly upstream
+// closeSyncerWithTimeout is a safety net around syncer.Close(). go-mysql v1.15.0
+// (https://github.com/go-mysql-org/go-mysql/commit/069f15d92122ca74c563d94cfc8de77a3799bbf6)
+// fixed the bug that led to BinlogSyncer.Close hang, so this timeout should no
+// longer fire. Keeping it around a bit longer before removing to ensure no regression.
 func (c *MySqlConnector) closeSyncerWithTimeout(syncer *replication.BinlogSyncer, timeout time.Duration) {
 	done := make(chan struct{})
 	go func() {
@@ -413,11 +431,15 @@ func (c *MySqlConnector) PullRecords(
 	})
 	defer shutdown()
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, c.binlogStalenessThreshold())
 	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
 	defer func() {
 		cancelTimeout()
 	}()
+	resetTimeout := func(d time.Duration) {
+		cancelTimeout()
+		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, d)
+	}
 
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
 		recordCount += 1
@@ -426,8 +448,7 @@ func (c *MySqlConnector) PullRecords(
 		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
-			cancelTimeout()
-			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+			resetTimeout(req.IdleTimeout)
 		}
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mysql] PullRecords streaming",
@@ -441,6 +462,7 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
 	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
 		var event *replication.BinlogEvent
@@ -452,44 +474,47 @@ func (c *MySqlConnector) PullRecords(
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
-				//nolint:govet // cancelTimeout called by defer, spurious lint
 				return ctxErr
-			} else if errors.Is(err, context.DeadlineExceeded) {
-				if recordCount == 0 {
-					// progress offset while no records read to avoid falling behind when all tables inactive
-					if updatedOffset != "" {
-						c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
-						if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
-							c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
-						} else {
-							updatedOffset = ""
-						}
+			}
+
+			if errors.Is(err, context.DeadlineExceeded) {
+				if recordCount == 0 || inTx {
+					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
+						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
 					}
 
-					// reset timer for next offset update
-					cancelTimeout()
-					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
-				} else if inTx {
-					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
-						slog.Uint64("records", uint64(recordCount)),
-						slog.Int64("bytes", totalFetchedBytes.Load()),
-						slog.Int("channelLen", req.RecordStream.ChannelLen()),
-						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
-					// reset timeoutCtx to a low value and wait for inTx to become false
-					cancelTimeout()
-					//nolint:govet // cancelTimeout called by defer, spurious lint
-					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Minute)
-					overtime = true
-				} else {
-					return nil
+					if recordCount == 0 {
+						// progress offset while no records read to avoid falling behind when all tables inactive
+						if updatedOffset != "" {
+							c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
+							if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
+								c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
+							} else {
+								updatedOffset = ""
+							}
+						}
+						resetTimeout(c.binlogStalenessThreshold())
+					} else {
+						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
+							slog.Uint64("records", uint64(recordCount)),
+							slog.Int64("bytes", totalFetchedBytes.Load()),
+							slog.Int("channelLen", req.RecordStream.ChannelLen()),
+							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+						resetTimeout(time.Minute)
+						overtime = true
+					}
+
+					continue
 				}
 
-				continue
-			} else {
-				c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
+				return nil
 			}
+
+			c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
 			return exceptions.NewMySQLStreamingError(err)
 		}
+
+		lastEventAt = time.Now()
 
 		allFetchedBytes.Add(int64(len(event.RawData)))
 

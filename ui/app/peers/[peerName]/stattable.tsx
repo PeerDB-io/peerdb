@@ -7,10 +7,12 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useEffect, useMemo, useState } from 'react';
+import { useTheme as useStyledTheme } from 'styled-components';
 import { DurationDisplay, getStatData } from './helpers';
 import { tableStyleMaxHeight } from './style';
 
 export default function StatTable({ peerName }: { peerName: string }) {
+  const styledTheme = useStyledTheme();
   const [search, setSearch] = useState('');
   const [data, setData] = useState<StatInfo[]>([]);
   const filteredData = useMemo(() => {
@@ -49,7 +51,7 @@ export default function StatTable({ peerName }: { peerName: string }) {
       >
         Stat Activity Information
       </Label>
-      <div style={tableStyleMaxHeight}>
+      <div style={tableStyleMaxHeight(styledTheme)}>
         <Table
           header={
             <TableRow>

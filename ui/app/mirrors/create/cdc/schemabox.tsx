@@ -10,6 +10,7 @@ import {
 } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { ColumnsItem } from '@/grpc_generated/route';
+import { BarLoader } from '@/lib/BarLoader';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -21,12 +22,11 @@ import {
   Dispatch,
   SetStateAction,
   useCallback,
-  useEffect,
   useMemo,
   useState,
 } from 'react';
 import ReactSelect from 'react-select';
-import { BarLoader } from 'react-spinners/';
+import { useTheme as useStyledTheme } from 'styled-components';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
 import CustomColumnType from './customColumnType';
@@ -66,6 +66,7 @@ export default function SchemaBox({
   initialLoadOnly,
 }: SchemaBoxProps) {
   const selectTheme = useSelectTheme();
+  const styledTheme = useStyledTheme();
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
@@ -196,16 +197,6 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const handleSchemaClick = (schemaName: string) => {
-    if (!schemaIsExpanded(schemaName)) {
-      setExpandedSchemas((curr) => [...curr, schemaName]);
-    } else {
-      setExpandedSchemas((curr) =>
-        curr.filter((expandedSchema) => expandedSchema != schemaName)
-      );
-    }
-  };
-
   const fetchTablesForSchema = useCallback(
     async (schemaName: string) => {
       setTablesLoading(true);
@@ -265,6 +256,19 @@ export default function SchemaBox({
     ]
   );
 
+  const handleSchemaClick = (schemaName: string) => {
+    if (!schemaIsExpanded(schemaName)) {
+      setExpandedSchemas((curr) => [...curr, schemaName]);
+      if (!fetchedSchemas.has(schemaName)) {
+        fetchTablesForSchema(schemaName);
+      }
+    } else {
+      setExpandedSchemas((curr) =>
+        curr.filter((expandedSchema) => expandedSchema != schemaName)
+      );
+    }
+  };
+
   const engineOptions = [
     { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
     { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
@@ -272,20 +276,8 @@ export default function SchemaBox({
     { value: 'CH_ENGINE_NULL', label: 'Null' },
   ];
 
-  useEffect(() => {
-    if (schemaIsExpanded(schema) && !fetchedSchemas.has(schema)) {
-      fetchTablesForSchema(schema);
-    }
-  }, [
-    schema,
-    fetchTablesForSchema,
-    schemaIsExpanded,
-    fetchedSchemas,
-    initialLoadOnly,
-  ]);
-
   return (
-    <div style={schemaBoxStyle}>
+    <div style={schemaBoxStyle(styledTheme)}>
       <div>
         <div style={{ ...expandableStyle, cursor: 'auto' }}>
           <div
@@ -332,7 +324,7 @@ export default function SchemaBox({
               searchedTables.map((row) => {
                 const columns = getTableColumns(row.source);
                 return (
-                  <div key={row.source} style={tableBoxStyle}>
+                  <div key={row.source} style={tableBoxStyle(styledTheme)}>
                     <div
                       className='ml-5'
                       style={{
@@ -345,7 +337,7 @@ export default function SchemaBox({
                         label={
                           <Tooltip
                             style={{
-                              ...tooltipStyle,
+                              ...tooltipStyle(styledTheme),
                               display: row.canMirror ? 'none' : 'block',
                             }}
                             content={
@@ -594,7 +586,9 @@ export default function SchemaBox({
                 );
               })
             ) : tablesLoading ? (
-              <BarLoader />
+              <div style={{ padding: '0.5rem 0', width: '40%' }}>
+                <BarLoader width='100%' />
+              </div>
             ) : (
               <Label
                 as='label'
