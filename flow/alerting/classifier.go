@@ -1103,6 +1103,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if _, ok := errors.AsType[*exceptions.MySQLStaleConnectionError](err); ok {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "CONNECTION_STALE",
+		}
+	}
+
 	if mysqlGeometryParseError, ok := errors.AsType[*exceptions.MySQLGeometryParseError](err); ok &&
 		strings.Contains(mysqlGeometryParseError.Error(), mysqlGeometryLinearRingNotClosedError) {
 		return ErrorUnsupportedDatatype, ErrorInfo{
