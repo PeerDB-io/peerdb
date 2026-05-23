@@ -52,7 +52,10 @@ export default function useLocalStorage<T>(
       };
 
       window.addEventListener('storage', handleStorageChange);
-      window.addEventListener(localStorageChangeEvent, handleLocalStorageChange);
+      window.addEventListener(
+        localStorageChangeEvent,
+        handleLocalStorageChange
+      );
 
       return () => {
         window.removeEventListener('storage', handleStorageChange);
@@ -74,11 +77,7 @@ export default function useLocalStorage<T>(
     [stableDefaultValue]
   );
 
-  const value = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getServerSnapshot
-  );
+  const value = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const setValue = useCallback<Dispatch<SetStateAction<T>>>(
     (nextValue) => {

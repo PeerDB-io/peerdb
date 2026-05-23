@@ -38,9 +38,7 @@ export default function LogsView() {
         <div style={{ width: 'fit-content' }}>
           <ReactSelect
             isClearable={true}
-            value={
-              mirrorName ? { value: mirrorName, label: mirrorName } : null
-            }
+            value={mirrorName ? { value: mirrorName, label: mirrorName } : null}
             options={mirrors.names.map((mirror) => ({
               value: mirror,
               label: mirror,

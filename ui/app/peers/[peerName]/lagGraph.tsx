@@ -235,9 +235,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
           }
           onChange={(val, _) => val && handleChange(val.value)}
           value={
-            selectedSlot
-              ? { value: selectedSlot, label: selectedSlot }
-              : null
+            selectedSlot ? { value: selectedSlot, label: selectedSlot } : null
           }
           theme={selectTheme}
         />
