@@ -673,7 +673,7 @@ func (a *FlowableActivity) startNormalize(
 		normalizeResponses.Update(batchID)
 		return monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID)
 	} else if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get normalize connector: %w", err))
+		return fmt.Errorf("failed to get normalize connector: %w", err)
 	}
 	defer dstClose(ctx)
 
@@ -696,8 +696,7 @@ func (a *FlowableActivity) startNormalize(
 			Flags:                  config.Flags,
 		})
 		if err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName,
-				exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+			return exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err))
 		}
 		if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
 			if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
