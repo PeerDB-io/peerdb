@@ -31,8 +31,8 @@ type Namespace struct {
 type ChangeEvent struct {
 	Ns            Namespace      `bson:"ns"`
 	OperationType string         `bson:"operationType"`
-	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
 	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
+	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
