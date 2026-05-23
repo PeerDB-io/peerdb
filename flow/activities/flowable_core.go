@@ -12,7 +12,9 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
@@ -136,6 +138,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := internal.LoggerFromCtx(ctx)
 
+	ctx, batchSpan := a.OtelManager.Tracer.Start(ctx, "cdc.batch", trace.WithAttributes(
+		attribute.String(otel_metrics.FlowNameKey, flowName),
+	))
+	defer batchSpan.End()
+
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
@@ -193,11 +200,42 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, err
 	}
 
+	syncBatchID, err := func() (int64, error) {
+		// special case pg-pg replication, where batch ID is stored on destination instead of catalog
+		if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
+			dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
+			if err != nil {
+				if !errors.Is(err, errors.ErrUnsupported) {
+					return 0, fmt.Errorf("failed to get destination connector to get last sync batch ID: %w", err)
+				}
+				// else fallthrough to loading from catalog
+			} else {
+				defer dstPgClose(ctx)
+				return dstPgConn.GetLastSyncBatchID(ctx, flowName)
+			}
+		}
+		pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+		return pgMetadata.GetLastSyncBatchID(ctx, flowName)
+	}()
+	if err != nil {
+		batchSpan.RecordError(err)
+		batchSpan.SetStatus(codes.Error, err.Error())
+		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
+	}
+	syncBatchID += 1
+	batchSpan.SetAttributes(attribute.Int64(otel_metrics.BatchIdKey, syncBatchID))
+
 	startTime := time.Now()
 	syncState.Store(new("syncing"))
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		return pull(srcConn, errCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
+		pullCtx, pullSpan := a.OtelManager.Tracer.Start(errCtx, "cdc.pull", trace.WithAttributes(
+			attribute.String(otel_metrics.FlowNameKey, flowName),
+			attribute.Int(otel_metrics.TableCountKey, len(options.TableMappings)),
+			attribute.Int64(otel_metrics.BatchIdKey, syncBatchID),
+		))
+		defer pullSpan.End()
+		err := pull(srcConn, pullCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
 			FlowJobName:                 flowName,
 			SrcTableIDNameMapping:       options.SrcTableIdNameMapping,
 			TableNameMapping:            tblNameMapping,
@@ -212,6 +250,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			Env:                         config.Env,
 			InternalVersion:             config.Version,
 		})
+		if err != nil {
+			pullSpan.RecordError(err)
+			pullSpan.SetStatus(codes.Error, err.Error())
+		}
+		return err
 	})
 
 	hasRecords := !recordBatchSync.WaitAndCheckEmpty()
@@ -247,46 +290,35 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
-		syncBatchID, err := func() (int64, error) {
-			// special case pg-pg replication, where batch ID is stored on destination instead of catalog
-			if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
-				dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
-				if err != nil {
-					if !errors.Is(err, errors.ErrUnsupported) {
-						return 0, fmt.Errorf("failed to get destination connector to get last sync batch ID: %w", err)
-					}
-					// else fallthrough to loading from catalog
-				} else {
-					defer dstPgClose(ctx)
-					return dstPgConn.GetLastSyncBatchID(errCtx, flowName)
-				}
-			}
-			pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
-			return pgMetadata.GetLastSyncBatchID(errCtx, flowName)
-		}()
-		if err != nil {
-			return err
-		}
-		syncBatchID += 1
+		syncCtx, syncSpan := a.OtelManager.Tracer.Start(errCtx, "cdc.sync", trace.WithAttributes(
+			attribute.String(otel_metrics.FlowNameKey, flowName),
+			attribute.Int(otel_metrics.TableCountKey, len(options.TableMappings)),
+			attribute.Int64(otel_metrics.BatchIdKey, syncBatchID),
+		))
+		defer syncSpan.End()
 		syncingBatchID.Store(syncBatchID)
 		logger.Info("begin pulling records for batch", slog.Int64("syncBatchID", syncBatchID))
 
-		if err := monitoring.AddCDCBatchForFlow(errCtx, a.CatalogPool, flowName, monitoring.CDCBatchInfo{
+		if err := monitoring.AddCDCBatchForFlow(syncCtx, a.CatalogPool, flowName, monitoring.CDCBatchInfo{
 			BatchID:     syncBatchID,
 			RowsInBatch: 0,
 			BatchEndlSN: 0,
 			StartTime:   startTime,
 		}); err != nil {
+			syncSpan.RecordError(err)
+			syncSpan.SetStatus(codes.Error, err.Error())
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 
-		dstConn, dstClose, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+		dstConn, dstClose, err := connectors.GetByNameAs[TSync](syncCtx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
+			syncSpan.RecordError(err)
+			syncSpan.SetStatus(codes.Error, err.Error())
 			return fmt.Errorf("failed to get destination connector: %w", err)
 		}
 		defer dstClose(ctx)
 
-		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
+		res, err = sync(dstConn, syncCtx, &model.SyncRecordsRequest[Items]{
 			SyncBatchID:            syncBatchID,
 			Records:                recordBatchSync,
 			ConsumedOffset:         &consumedOffset,
@@ -300,8 +332,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			Flags:                  config.Flags,
 		})
 		if err != nil {
+			syncSpan.RecordError(err)
+			syncSpan.SetStatus(codes.Error, err.Error())
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))
 		}
+		syncSpan.SetAttributes(attribute.Int64(otel_metrics.RowsInBatchKey, res.NumRecordsSynced))
 		for _, warning := range res.Warnings {
 			a.Alerter.LogFlowWarning(ctx, flowName, warning)
 		}
@@ -317,6 +352,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		if !(isDesync || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
+		batchSpan.RecordError(err)
+		batchSpan.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
 	}
 	syncState.Store(new("bookkeeping"))
@@ -324,6 +361,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
 	logger.Info("batch synced", slog.Any("checkpoint", lastCheckpoint))
+	batchSpan.SetAttributes(
+		attribute.Int64(otel_metrics.LastCheckpointIDKey, lastCheckpoint.ID),
+		attribute.String(otel_metrics.LastCheckpointTextKey, lastCheckpoint.Text),
+		attribute.Int64(otel_metrics.RowsInBatchKey, res.NumRecordsSynced),
+	)
+
 	if err := srcConn.UpdateReplStateLastOffset(ctx, lastCheckpoint); err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
 	}
@@ -684,17 +727,34 @@ func (a *FlowableActivity) startNormalize(
 
 	for {
 		logger.Info("normalizing batches", slog.Int64("syncBatchID", batchID))
-		res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
-			FlowJobName:            config.FlowJobName,
-			Env:                    config.Env,
-			TableNameSchemaMapping: tableNameSchemaMapping,
-			TableMappings:          config.TableMappings,
-			SoftDeleteColName:      config.SoftDeleteColName,
-			SyncedAtColName:        config.SyncedAtColName,
-			SyncBatchID:            batchID,
-			Version:                config.Version,
-			Flags:                  config.Flags,
-		})
+		res, err := func() (model.NormalizeResponse, error) {
+			normCtx, normSpan := a.OtelManager.Tracer.Start(ctx, "cdc.normalize", trace.WithAttributes(
+				attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+				attribute.Int64(otel_metrics.BatchIdKey, batchID),
+			))
+			defer normSpan.End()
+			res, err := dstConn.NormalizeRecords(normCtx, &model.NormalizeRecordsRequest{
+				FlowJobName:            config.FlowJobName,
+				Env:                    config.Env,
+				TableNameSchemaMapping: tableNameSchemaMapping,
+				TableMappings:          config.TableMappings,
+				SoftDeleteColName:      config.SoftDeleteColName,
+				SyncedAtColName:        config.SyncedAtColName,
+				SyncBatchID:            batchID,
+				Version:                config.Version,
+				Flags:                  config.Flags,
+			})
+			if err != nil {
+				normSpan.RecordError(err)
+				normSpan.SetStatus(codes.Error, err.Error())
+				return res, err
+			}
+			normSpan.SetAttributes(
+				attribute.Int64(otel_metrics.StartBatchIDKey, res.StartBatchID),
+				attribute.Int64(otel_metrics.EndBatchIDKey, res.EndBatchID),
+			)
+			return res, nil
+		}()
 		if err != nil {
 			return exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err))
 		}

@@ -9,7 +9,10 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
+
+const TracerName = "io.peerdb.flow"
 
 func SetupTracerProvider(ctx context.Context, serviceName string, enabled bool) (*sdktrace.TracerProvider, error) {
 	if !enabled {
@@ -37,4 +40,10 @@ func SetupTracerProvider(ctx context.Context, serviceName string, enabled bool) 
 
 	slog.InfoContext(ctx, "Tracer provider initialized", slog.String("service", serviceName))
 	return tp, nil
+}
+
+// Tracer returns the shared tracer. Safe whether or not SetupTracerProvider ran:
+// global default is a noop tracer
+func Tracer() trace.Tracer {
+	return otel.Tracer(TracerName)
 }

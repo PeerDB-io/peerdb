@@ -13,6 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -29,9 +31,9 @@ type Namespace struct {
 }
 
 type ChangeEvent struct {
+	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
 	Ns            Namespace      `bson:"ns"`
 	OperationType string         `bson:"operationType"`
-	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
 	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
@@ -214,6 +216,18 @@ func (c *MongoConnector) PullRecords(
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
+		}
+		span := trace.SpanFromContext(ctx)
+		span.SetAttributes(
+			attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
+			attribute.Int64(otel_metrics.BytesPulledKey, cumulativeBytesProcessed.Load()),
+		)
+		if rt := changeStream.ResumeToken(); rt != nil {
+			rtStr := base64.StdEncoding.EncodeToString(rt)
+			if len(rtStr) > 64 {
+				rtStr = rtStr[:64]
+			}
+			span.SetAttributes(attribute.String(otel_metrics.ResumeTokenKey, rtStr))
 		}
 		c.logger.Info("[mongo] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),

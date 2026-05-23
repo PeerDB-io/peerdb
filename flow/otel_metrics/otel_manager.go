@@ -16,6 +16,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
@@ -168,6 +169,7 @@ type OtelManager struct {
 	Metrics            Metrics
 	MetricsProvider    metric.MeterProvider
 	Meter              metric.Meter
+	Tracer             trace.Tracer
 	Float64GaugesCache map[string]metric.Float64Gauge
 	Int64GaugesCache   map[string]metric.Int64Gauge
 	Int64CountersCache map[string]metric.Int64Counter
@@ -184,6 +186,7 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 		Enabled:            enabled,
 		MetricsProvider:    metricsProvider,
 		Meter:              metricsProvider.Meter("io.peerdb." + serviceName),
+		Tracer:             Tracer(),
 		Float64GaugesCache: make(map[string]metric.Float64Gauge),
 		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		Int64CountersCache: make(map[string]metric.Int64Counter),
