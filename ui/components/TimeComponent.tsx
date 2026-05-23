@@ -1,22 +1,9 @@
 'use client';
+import useHydrated from '@/app/utils/useHydrated';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import moment from 'moment-timezone';
-import { useEffect, useState } from 'react';
-
-// Custom hook to handle hydration
-function useHydrated() {
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    // Defer the state update to avoid synchronous setState
-    const timer = setTimeout(() => setHydrated(true), 0);
-    return () => clearTimeout(timer);
-  }, []);
-
-  return hydrated;
-}
 
 export default function TimeLabel({
   timeVal,

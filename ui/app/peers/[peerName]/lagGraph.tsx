@@ -1,6 +1,7 @@
 'use client';
 import { useSelectTheme } from '@/app/styles/select';
 import { timeOptions } from '@/app/utils/graph';
+import useHydrated from '@/app/utils/useHydrated';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import {
   GetSlotLagHistoryResponse,
@@ -48,7 +49,7 @@ function stringifyTimeAggregateType(timeSince: TimeAggregateType): string {
 
 export default function LagGraph({ peerName }: LagGraphProps) {
   const [slotNames, setSlotNames] = useState<string[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const hydrated = useHydrated();
   const [lagPoints, setLagPoints] = useState<
     {
       time: string;
@@ -62,7 +63,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     `defaultSlot${peerName}`,
     ''
   );
-  const [selectedSlot, setSelectedSlot] = useState<string>(defaultSlot);
+  const selectedSlot = defaultSlot;
   const [loading, setLoading] = useState(false);
   const [timeSince, setTimeSince] = useState<TimeAggregateType>(
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
@@ -126,7 +127,6 @@ export default function LagGraph({ peerName }: LagGraphProps) {
 
   const handleChange = (val: string) => {
     setDefaultSlot(val);
-    setSelectedSlot(val);
   };
 
   const chartOptions: ChartOptions<'line'> = {
@@ -147,9 +147,9 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   };
 
   useEffect(() => {
-    const initializeComponent = async () => {
-      setMounted(true);
+    if (!hydrated) return;
 
+    const initializeComponent = async () => {
       try {
         await Promise.all([fetchSlotNames(), fetchLagPoints()]);
       } catch (error) {
@@ -158,7 +158,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     };
 
     initializeComponent();
-  }, [fetchLagPoints, fetchSlotNames]);
+  }, [fetchLagPoints, fetchSlotNames, hydrated]);
 
   // Create chart data based on showLsn toggle
   const chartData = {
@@ -198,7 +198,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
         ],
   };
 
-  if (!mounted) {
+  if (!hydrated) {
     return (
       <Label>
         <ProgressCircle variant='determinate_progress_circle' />
@@ -234,10 +234,10 @@ export default function LagGraph({ peerName }: LagGraphProps) {
                 }))
           }
           onChange={(val, _) => val && handleChange(val.value)}
-          defaultValue={
+          value={
             selectedSlot
               ? { value: selectedSlot, label: selectedSlot }
-              : undefined
+              : null
           }
           theme={selectTheme}
         />

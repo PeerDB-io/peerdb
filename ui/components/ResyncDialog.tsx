@@ -2,11 +2,12 @@
 import { FlowStatus } from '@/grpc_generated/flow';
 import { FlowStateChangeRequest } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
+import { BarLoader } from '@/lib/BarLoader';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Label } from '@/lib/Label';
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
-import { BarLoader, DotLoader } from 'react-spinners';
+import { DotLoader } from 'react-spinners';
 
 type ResyncDialogProps = {
   mirrorName: string;
