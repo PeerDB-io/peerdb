@@ -155,6 +155,7 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
                 action={
                   <div style={{ minWidth: '8rem' }}>
                     <ReactSelect
+                      instanceId='timeselect'
                       inputId='timeselect'
                       value={
                         timezoneOptions.find((o) => o.value === zone) ?? null
@@ -163,6 +164,7 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
                       options={timezoneOptions}
                       theme={selectTheme}
                       isSearchable={false}
+                      menuPlacement='top'
                     />
                   </div>
                 }

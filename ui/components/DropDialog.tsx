@@ -2,6 +2,7 @@
 import { changeFlowState } from '@/app/mirrors/[mirrorId]/handlers';
 import { DeleteScript } from '@/app/scripts/handlers';
 import { FlowStatus } from '@/grpc_generated/flow';
+import { BarLoader } from '@/lib/BarLoader';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
 import { Dialog, DialogClose } from '@/lib/Dialog';
@@ -9,7 +10,6 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { Dispatch, SetStateAction, useState } from 'react';
-import { BarLoader } from 'react-spinners';
 
 interface dropMirrorArgs {
   flowJobName: string;

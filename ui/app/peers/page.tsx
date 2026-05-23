@@ -12,11 +12,16 @@ export const dynamic = 'force-dynamic';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 
 import NewButton from '@/components/NewButton';
+import { ListPeersResponse } from '@/grpc_generated/route';
 import useSWR from 'swr';
 import { fetcher } from '../utils/swr';
 
 export default function Peers() {
-  const { data: peers, isLoading } = useSWR('/api/v1/peers/list', fetcher);
+  const { data: peers, isLoading } = useSWR<ListPeersResponse>(
+    '/api/v1/peers/list',
+    fetcher
+  );
+  const peerItems = peers?.items ?? [];
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start'>
@@ -40,7 +45,7 @@ export default function Peers() {
         )}
         {!isLoading &&
           peers &&
-          (peers.items.length == 0 ? (
+          (peerItems.length == 0 ? (
             <div
               style={{
                 display: 'flex',
@@ -92,7 +97,7 @@ export default function Peers() {
               </Button>
             </div>
           ) : (
-            <PeersTable peers={peers.items} />
+            <PeersTable peers={peerItems} />
           ))}
       </Panel>
     </LayoutMain>
