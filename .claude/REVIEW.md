@@ -1,1 +1,2 @@
 - High severity: Changes should not include addition of outputs through stdout, stderr or logs that might contain PII or Secret information. Play special attention to printing passwords and access tokens.
+- High severity: When changes are bumping dependencies (this is often the case when the PR author is `app/renovate`), check whether the version bump brings regressions. For this: Read the upstream release notes and commit log for the bumped range in the library repository. Highlight your findings in the PR review.
