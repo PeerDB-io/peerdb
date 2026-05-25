@@ -706,21 +706,14 @@ func PullCdcRecords[Items model.Items](
 			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
 		}
 
-		if err != nil && p.commitLock == nil {
-			if totalRecords != 0 && pgconn.Timeout(err) {
-				logger.Info("Stand-by deadline reached, returning currently accumulated records",
-					slog.Int64("records", totalRecords),
-					slog.Int64("bytes", totalFetchedBytes.Load()),
-					slog.Int("channelLen", records.ChannelLen()),
-					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
-				return nil
-			} else if pgconn.Timeout(err) {
-				if err := p.ReplPing(ctx); err != nil {
-					return fmt.Errorf("ReplPing failed: %w", err)
-				}
-			} else {
-				return fmt.Errorf("ReceiveMessage failed: %w", err)
+		if err != nil && pgconn.Timeout(err) {
+			// Send ping to make sure the connection is held alive.
+			if err := p.ReplPing(ctx); err != nil {
+				return fmt.Errorf("ReplPing failed: %w", err)
 			}
+			continue
+		} else if err != nil {
+			return fmt.Errorf("ReceiveMessage failed: %w", err)
 		}
 
 		switch msg := rawMsg.(type) {
