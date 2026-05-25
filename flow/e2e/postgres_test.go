@@ -273,6 +273,70 @@ func (s PeerFlowE2ETestSuitePG) Test_PgVector() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s PeerFlowE2ETestSuitePG) Test_NaN_Infinity_PG() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_nan_inf_pg")
+	dstTableName := s.attachSchemaSuffix("test_nan_inf_pg_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			f4 REAL,
+			f8 DOUBLE PRECISION,
+			n NUMERIC
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	// insert before mirror starts to test initial load
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (f4, f8, n) VALUES
+			('NaN'::real, 'NaN'::double precision, 'NaN'::numeric),
+			('Infinity'::real, 'Infinity'::double precision, NULL),
+			('-Infinity'::real, '-Infinity'::double precision, NULL);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_nan_inf_pg"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
+	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.DoInitialSnapshot = true
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// NaN != NaN in SQL so comparePGTables (EXCEPT-based) won't work;
+	// compare via ::text cast instead.
+	EnvWaitFor(s.t, env, 3*time.Minute, "initial load nan/inf", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,f4::text,f8::text,n::text") == nil
+	})
+
+	// insert more rows via CDC to test both paths
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (f4, f8, n) VALUES
+			('NaN'::real, 'Infinity'::double precision, 'NaN'::numeric),
+			('-Infinity'::real, 'NaN'::double precision, NULL);
+	`, srcTableName))
+	EnvNoError(s.t, env, err)
+	s.t.Log("Inserted CDC NaN and Infinity rows into the source table")
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "cdc nan/inf", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,f4::text,f8::text,n::text") == nil
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_Enums() {
 	tc := NewTemporalClient(s.t)
 
