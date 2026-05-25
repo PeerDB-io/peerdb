@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -469,6 +470,12 @@ func (p *PostgresCDCSource) decodeColumnData(
 	return types.QValueString{Val: string(data)}, nil
 }
 
+func clientSidePingPeriod(walSenderTimeout time.Duration) time.Duration {
+	return 3 * walSenderTimeout / 4
+}
+
+const NoWALSenderTimeoutSetting = "NONE"
+
 // PullCdcRecords pulls records from req's cdc stream
 func PullCdcRecords[Items model.Items](
 	ctx context.Context,
@@ -496,15 +503,27 @@ func PullCdcRecords[Items model.Items](
 	var walSenderTimeout time.Duration
 	if walSenderTimeoutStr, err := internal.PeerDBPostgresWalSenderTimeout(ctx, req.Env); err != nil {
 		return fmt.Errorf("could't get wal_sender_timeout parameter: %w", err)
-	} else {
+	} else if walSenderTimeoutStr != NoWALSenderTimeoutSetting {
+		// If no units are provided, milliseconds are assumed
+		if regexp.MustCompile(`^\d+$`).MatchString(walSenderTimeoutStr) {
+			walSenderTimeoutStr += "ms"
+		}
 		if walSenderTimeout, err = time.ParseDuration(walSenderTimeoutStr); err != nil {
 			return fmt.Errorf("failed to parse wal_sender_timeout value: %w", err)
-		} else if walSenderTimeout <= 0 {
+		}
+		if walSenderTimeout < 0 {
 			return fmt.Errorf("invalid wal_sender_timeout value: %s", walSenderTimeout)
 		}
 	}
 	// this value controls for how long the main message loop is blocked waiting for new messages from Postgres.
-	messageWaitPeriod := min(req.IdleTimeout, walSenderTimeout/2)
+	var messageWaitPeriod time.Duration
+	if walSenderTimeout <= 0 {
+		// If no WAL sender timeout is set
+		messageWaitPeriod = req.IdleTimeout
+	} else {
+		// If set, consider for ping interval
+		messageWaitPeriod = min(req.IdleTimeout, clientSidePingPeriod(walSenderTimeout))
+	}
 
 	logger.Debug("Message wait period determined",
 		slog.Duration("messageWaitPeriod", messageWaitPeriod),
