@@ -40,8 +40,11 @@ flow/e2e/snowflake*.go                                  @PeerDB-io/eng
 flow/connectors/postgres/postgres_destination.go        @PeerDB-io/ch-postgres
 flow/connectors/postgres/qrep_destination.go            @PeerDB-io/ch-postgres
 flow/connectors/postgres/normalize_stmt_generator.go    @PeerDB-io/ch-postgres
+flow/connectors/postgres/pgdump_schema.go               @PeerDB-io/ch-postgres
+flow/connectors/postgres/pgdump_schema_test.go          @PeerDB-io/ch-postgres
 flow/connectors/postgres/sink_pg.go                     @PeerDB-io/ch-postgres
 flow/model/pg_items.go                                  @PeerDB-io/ch-postgres
 flow/pkg/postgres/dest_validation.go                    @PeerDB-io/ch-postgres
 
+flow/e2e/pg_schema_dump_test.go                         @PeerDB-io/ch-postgres
 flow/e2e/postgres*.go                                   @PeerDB-io/ch-postgres

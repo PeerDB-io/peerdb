@@ -25,6 +25,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
+const additionalTablesCDCFlowPrefix = "additional-cdc-flow"
+
 func GetUUID(ctx workflow.Context) string {
 	return GetSideEffect(ctx, func(_ workflow.Context) string {
 		return uuid.NewString()
@@ -250,7 +252,11 @@ func processTableAdditions(
 		if addTablesFlowErr == nil {
 			logger.Info("additional tables added to publication")
 			additionalTablesUUID := GetUUID(ctx)
-			childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
+			childAdditionalTablesCDCFlowID := GetChildWorkflowID(
+				additionalTablesCDCFlowPrefix,
+				cfg.FlowJobName,
+				additionalTablesUUID,
+			)
 			additionalTablesCfg := proto.CloneOf(cfg)
 			additionalTablesCfg.DoInitialSnapshot = !flowConfigUpdate.SkipInitialSnapshotForTableAdditions
 			additionalTablesCfg.InitialSnapshotOnly = true
