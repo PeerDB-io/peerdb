@@ -85,17 +85,12 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSystem) {
+func (s PeerFlowE2ETestSuitePG) Test_Types_QValue() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_types_" + suffix)
-	dstTableName := s.attachSchemaSuffix("test_types_" + suffix + "_dst")
+	srcTableName := s.attachSchemaSuffix("test_types_q")
+	dstTableName := s.attachSchemaSuffix("test_types_q_dst")
 
-	pgOnlyCols := ""
-	if system == protos.TypeSystem_PG {
-		pgOnlyCols = `,c51 NUMERIC, c52 JSONB, c53 INTERVAL, c54 POINT,
-			c55 HSTORE, c56 BIGINT[], c57 NUMERIC[], c58 JSONB[]`
-	}
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BYTEA,c4 BOOLEAN,
 		c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
@@ -103,13 +98,12 @@ func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSyste
 		c29 SMALLINT,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ, c37 TIMETZ,
 		c40 UUID, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 UUID[],
-		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[], c50 SMALLINT[]
-		`+pgOnlyCols+`);
+		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[], c50 SMALLINT[]);
 	`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_types_" + suffix),
+		FlowJobName:      s.attachSuffix("test_types_q"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -118,22 +112,10 @@ func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSyste
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
-	flowConnConfig.System = system
+	flowConnConfig.System = protos.TypeSystem_Q
 
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	pgOnlyVals := ""
-	if system == protos.TypeSystem_PG {
-		pgOnlyVals = `,
-			123456789.987654321::NUMERIC,
-			'{"key": "value", "nested": {"inner": true}}'::JSONB,
-			'1 year 2 months 3 days 4 hours 5 minutes 6 seconds'::INTERVAL,
-			'(1.5, 2.5)'::POINT,
-			'"key1"=>"val1","key2"=>"val2"'::HSTORE,
-			ARRAY[1000000000000, 2000000000000]::BIGINT[],
-			ARRAY[1.23, 4.56]::NUMERIC[],
-			ARRAY['{"a":1}'::JSONB, '{"b":2}'::JSONB]`
-	}
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 			INSERT INTO %s SELECT 2,2,'\xdeadbeef',
 			true,'s','test','1.1.10.2'::cidr,
@@ -149,22 +131,17 @@ func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSyste
 			'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
 			'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
 			'{true, false}'::boolean[],
-			'{1,2}'::smallint[]
-			`+pgOnlyVals+`;
+			'{1,2}'::smallint[];
 			`, srcTableName))
 	EnvNoError(s.t, env, err)
 
 	s.t.Log("Inserted 1 row into the source table")
-	cols := []string{
+	allCols := strings.Join([]string{
 		"c1", "c2", "c4",
 		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
 		"c21", "c29", "c33", "c34", "c35",
 		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
-	}
-	if system == protos.TypeSystem_PG {
-		cols = append(cols, "c51", "c52", "c53", "c54::text", "c55", "c56", "c57", "c58")
-	}
-	allCols := strings.Join(cols, ",")
+	}, ",")
 	EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
 		err := s.comparePGTables(srcTableName, dstTableName, allCols)
 		if err != nil {
@@ -172,25 +149,97 @@ func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSyste
 		}
 		return err == nil
 	})
-	// Q type system converts timetz to UTC, PG type system preserves original offset
+	// Q type system converts timetz to UTC
 	var c36 string
 	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(), "select c36 from "+dstTableName).Scan(&c36))
-	if system == protos.TypeSystem_PG {
-		require.Equal(s.t, "09:25:00+03", c36)
-	} else {
-		require.Equal(s.t, "06:25:00+00", c36)
-	}
+	require.Equal(s.t, "06:25:00+00", c36)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Types_QValue() {
-	s.testTypes("q", protos.TypeSystem_Q)
-}
-
 func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
-	s.testTypes("pg", protos.TypeSystem_PG)
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_types_pg")
+	dstTableName := s.attachSchemaSuffix("test_types_pg_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BYTEA,c4 BOOLEAN,
+		c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
+		c14 INET,c15 INTEGER,c21 MACADDR,
+		c29 SMALLINT,c32 TEXT,
+		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ, c37 TIMETZ,
+		c40 UUID, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 UUID[],
+		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[], c50 SMALLINT[],
+		c51 NUMERIC, c52 JSONB, c53 INTERVAL, c54 POINT,
+		c55 HSTORE, c56 BIGINT[], c57 NUMERIC[], c58 JSONB[]);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_types_pg"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
+	flowConnConfig.System = protos.TypeSystem_PG
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+			INSERT INTO %s SELECT 2,2,'\xdeadbeef',
+			true,'s','test','1.1.10.2'::cidr,
+			CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
+			'08:00:2b:01:02:03'::macaddr,
+			1,'test',now(),now(),now()::time,'09:25:00+03'::timetz,'21:00:00 +00:00'::timetz,
+			'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,
+			ARRAY[10299301,2579827],
+			ARRAY[0.0003, 8902.0092],
+			ARRAY['hello','bye'],
+			ARRAY['66073c38-b8df-4bdb-bbca-1c97596b8940','cd76be3e-d20a-451b-8e60-015872d7f607']::uuid[],
+			'{2020-01-01, 2020-01-02}'::date[],
+			'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
+			'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
+			'{true, false}'::boolean[],
+			'{1,2}'::smallint[],
+			123456789.987654321::NUMERIC,
+			'{"key": "value", "nested": {"inner": true}}'::JSONB,
+			'1 year 2 months 3 days 4 hours 5 minutes 6 seconds'::INTERVAL,
+			'(1.5, 2.5)'::POINT,
+			'"key1"=>"val1","key2"=>"val2"'::HSTORE,
+			ARRAY[1000000000000, 2000000000000]::BIGINT[],
+			ARRAY[1.23, 4.56]::NUMERIC[],
+			ARRAY['{"a":1}'::JSONB, '{"b":2}'::JSONB];
+			`, srcTableName))
+	EnvNoError(s.t, env, err)
+
+	s.t.Log("Inserted 1 row into the source table")
+	allCols := strings.Join([]string{
+		"c1", "c2", "c4",
+		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
+		"c21", "c29", "c33", "c34", "c35",
+		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
+		"c51", "c52", "c53", "c54::text", "c55", "c56", "c57", "c58",
+	}, ",")
+	EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
+		err := s.comparePGTables(srcTableName, dstTableName, allCols)
+		if err != nil {
+			s.t.Log("mismatch", err)
+		}
+		return err == nil
+	})
+	// PG type system preserves original offset
+	var c36 string
+	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(), "select c36 from "+dstTableName).Scan(&c36))
+	require.Equal(s.t, "09:25:00+03", c36)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PgVector() {
