@@ -12,3 +12,8 @@ See `docs/` for detailed architecture and design documents:
 ## GitHub interactions
 
 - NEVER modify PR descriptions or titles. Always report actions and changes as PR comments instead.
+
+## Code reviews guidelines
+
+- If you are deciding whether or not perform a code review, take into account that we always want Renovate PRs to be reviewed. Never classify a Renovate PR as not needing review. This rule overrides any other rule.
+- For code reviews, read the instructions at the `.claude/REVIEW.md` file.
