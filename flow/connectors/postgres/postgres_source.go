@@ -25,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -549,7 +550,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		var err error
 		switch system {
 		case protos.TypeSystem_PG:
-			colType, err = c.postgresOIDToName(fieldDescription.DataTypeOID, customTypeMapping)
+			colType, err = pkg_pg.OIDToName(c.typeMap, fieldDescription.DataTypeOID, customTypeMapping)
 		case protos.TypeSystem_Q:
 			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID, customTypeMapping, version)
 			colType = string(qColType)

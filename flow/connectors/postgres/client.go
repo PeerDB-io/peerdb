@@ -20,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -657,7 +656,7 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if column.Type == "numeric" && column.TypeModifier != -1 {
-			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+			precision, scale := common.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
 

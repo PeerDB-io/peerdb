@@ -17,7 +17,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 )
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
@@ -511,7 +510,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 			}
 
 			if strings.EqualFold(columnType, "numeric") && addedColumn.TypeModifier != -1 {
-				precision, scale := numeric.ParseNumericTypmod(addedColumn.TypeModifier)
+				precision, scale := common.ParseNumericTypmod(addedColumn.TypeModifier)
 				columnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 			} else if schemaDelta.System == protos.TypeSystem_PG && addedColumn.TypeSchemaName != "" {
 				schemaQualifiedType := common.QualifiedTable{

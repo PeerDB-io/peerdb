@@ -18,8 +18,8 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -107,7 +107,7 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 		if col, ok := tableColumns[name]; ok {
 			qkind = types.QValueKind(col.Type)
 			if qkind == types.QValueKindNumeric {
-				precision, scale = datatypes.ParseNumericTypmod(col.TypeModifier)
+				precision, scale = common.ParseNumericTypmod(col.TypeModifier)
 			}
 		} else {
 			var err error

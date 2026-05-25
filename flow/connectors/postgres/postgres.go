@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -34,7 +35,7 @@ type ReplState struct {
 
 type PostgresConnector struct {
 	logger                 log.Logger
-	customTypeMapping      map[uint32]shared.CustomDataType
+	customTypeMapping      map[uint32]pkg_pg.CustomDataType
 	ssh                    *utils.SSHTunnel
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
@@ -166,9 +167,9 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 	return connConfig, nil
 }
 
-func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]shared.CustomDataType, error) {
+func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]pkg_pg.CustomDataType, error) {
 	if c.customTypeMapping == nil {
-		customTypeMapping, err := shared.GetCustomDataTypes(ctx, c.conn)
+		customTypeMapping, err := pkg_pg.GetCustomDataTypes(ctx, c.conn)
 		if err != nil {
 			return nil, err
 		}

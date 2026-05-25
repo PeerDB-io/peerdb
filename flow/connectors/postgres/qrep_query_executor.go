@@ -17,8 +17,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -108,7 +108,7 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping, qe.version)
 
 		if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
-			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
+			precision, scale := common.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = types.QField{
 				Name:      fd.Name,
 				Type:      ctype,

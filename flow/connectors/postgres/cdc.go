@@ -33,6 +33,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -200,7 +201,7 @@ type replProcessor[Items model.Items] interface {
 		p *PostgresCDCSource,
 		tuple *pglogrepl.TupleDataColumn,
 		col *pglogrepl.RelationMessageColumn,
-		customTypeMapping map[uint32]shared.CustomDataType,
+		customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	) error
 
 	AddStringColumn(items Items, name string, value string)
@@ -217,7 +218,7 @@ func (pgProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -252,7 +253,7 @@ func (qProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -292,7 +293,7 @@ func processTuple[Items model.Items](
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
 	nameAndExclude model.NameAndExclude,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	schemaName string,
 	baseRecord model.BaseRecord,
 ) (Items, map[string]struct{}, error) {
@@ -340,7 +341,7 @@ func processTuple[Items model.Items](
 }
 
 func (p *PostgresCDCSource) decodeColumnData(
-	data []byte, dataType uint32, typmod int32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType, version uint32,
+	data []byte, dataType uint32, typmod int32, formatCode int16, customTypeMapping map[uint32]pkg_pg.CustomDataType, version uint32,
 ) (types.QValue, error) {
 	var parsedData any
 	var err error
@@ -1006,7 +1007,7 @@ func processInsertMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -1048,7 +1049,7 @@ func processUpdateMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -1111,7 +1112,7 @@ func processDeleteMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -1198,7 +1199,7 @@ func processRelationMessage[Items model.Items](
 			}
 			currRelMap[column.Name] = string(qKind)
 		case protos.TypeSystem_PG:
-			typeName, err := p.postgresOIDToName(column.DataType, customTypeMapping)
+			typeName, err := pkg_pg.OIDToName(p.typeMap, column.DataType, customTypeMapping)
 			if err != nil {
 				return nil, err
 			}
