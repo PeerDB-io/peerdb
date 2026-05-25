@@ -91,6 +91,11 @@ func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSyste
 	srcTableName := s.attachSchemaSuffix("test_types_" + suffix)
 	dstTableName := s.attachSchemaSuffix("test_types_" + suffix + "_dst")
 
+	pgOnlyCols := ""
+	if system == protos.TypeSystem_PG {
+		pgOnlyCols = `,c51 NUMERIC, c52 JSONB, c53 INTERVAL, c54 POINT,
+			c55 HSTORE, c56 BIGINT[], c57 NUMERIC[], c58 JSONB[]`
+	}
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BYTEA,c4 BOOLEAN,
 		c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
@@ -98,7 +103,8 @@ func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSyste
 		c29 SMALLINT,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ, c37 TIMETZ,
 		c40 UUID, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 UUID[],
-		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[], c50 SMALLINT[]);
+		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[], c50 SMALLINT[]
+		`+pgOnlyCols+`);
 	`, srcTableName))
 	require.NoError(s.t, err)
 
@@ -116,6 +122,18 @@ func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSyste
 
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	pgOnlyVals := ""
+	if system == protos.TypeSystem_PG {
+		pgOnlyVals = `,
+			123456789.987654321::NUMERIC,
+			'{"key": "value", "nested": {"inner": true}}'::JSONB,
+			'1 year 2 months 3 days 4 hours 5 minutes 6 seconds'::INTERVAL,
+			'(1.5, 2.5)'::POINT,
+			'"key1"=>"val1","key2"=>"val2"'::HSTORE,
+			ARRAY[1000000000000, 2000000000000]::BIGINT[],
+			ARRAY[1.23, 4.56]::NUMERIC[],
+			ARRAY['{"a":1}'::JSONB, '{"b":2}'::JSONB]`
+	}
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 			INSERT INTO %s SELECT 2,2,'\xdeadbeef',
 			true,'s','test','1.1.10.2'::cidr,
@@ -131,17 +149,22 @@ func (s PeerFlowE2ETestSuitePG) testTypes(suffix string, system protos.TypeSyste
 			'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
 			'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
 			'{true, false}'::boolean[],
-			'{1,2}'::smallint[];
+			'{1,2}'::smallint[]
+			`+pgOnlyVals+`;
 			`, srcTableName))
 	EnvNoError(s.t, env, err)
 
 	s.t.Log("Inserted 1 row into the source table")
-	allCols := strings.Join([]string{
+	cols := []string{
 		"c1", "c2", "c4",
 		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
 		"c21", "c29", "c33", "c34", "c35",
 		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
-	}, ",")
+	}
+	if system == protos.TypeSystem_PG {
+		cols = append(cols, "c51", "c52", "c53", "c54::text", "c55", "c56", "c57", "c58")
+	}
+	allCols := strings.Join(cols, ",")
 	EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
 		err := s.comparePGTables(srcTableName, dstTableName, allCols)
 		if err != nil {
