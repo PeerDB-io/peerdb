@@ -44,15 +44,15 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee
 	github.com/nickbruun/pgsplit v0.0.0-20240103043353-43e6c2dddfad
 	github.com/orcaman/concurrent-map/v2 v2.0.1
-	github.com/pgvector/pgvector-go v0.3.0
-	github.com/pingcap/errors v0.11.5-0.20260508054701-306e305bcf41
+	github.com/pgvector/pgvector-go v0.4.0
+	github.com/pingcap/errors v0.11.5-0.20260523003111-3697ad564b43
 	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20260504140133-511dba1dbe17
 	github.com/shopspring/decimal v1.4.0
 	github.com/slack-go/slack v0.23.1
 	github.com/snowflakedb/gosnowflake/v2 v2.0.2
 	github.com/stretchr/testify v1.11.1
-	github.com/twmb/franz-go v1.21.1
+	github.com/twmb/franz-go v1.21.2
 	github.com/twmb/franz-go/pkg/kadm v1.18.0
 	github.com/twmb/franz-go/plugin/kslog v1.0.0
 	github.com/twpayne/go-geos v0.20.4
@@ -69,8 +69,8 @@ require (
 	go.opentelemetry.io/otel/metric v1.43.0
 	go.opentelemetry.io/otel/sdk v1.43.0
 	go.opentelemetry.io/otel/sdk/metric v1.43.0
-	go.opentelemetry.io/otel/trace v1.43.0 // indirect
-	go.temporal.io/api v1.62.11
+	go.opentelemetry.io/otel/trace v1.43.0
+	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.43.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.7.0
 	go.uber.org/automaxprocs v1.6.0
@@ -80,9 +80,9 @@ require (
 	golang.org/x/sync v0.20.0
 	google.golang.org/api v0.279.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478
-	google.golang.org/grpc v1.81.0
+	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
-	k8s.io/apimachinery v0.36.0
+	k8s.io/apimachinery v0.36.1
 	k8s.io/client-go v0.35.3 // Note: v0.* are newer than v1.*
 )
 
@@ -94,7 +94,10 @@ require (
 	github.com/gogo/googleapis v1.4.1
 )
 
-require github.com/quasilyte/go-ruleguard/dsl v0.3.23
+require (
+	github.com/pgvector/pgvector-go/pgx v0.4.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
+)
 
 require (
 	cloud.google.com/go/kms v1.31.0
