@@ -17,6 +17,7 @@ func loadRootCAFromEnv(envVar string) *string {
 	if path == "" {
 		return nil
 	}
+	// #nosec G703 -- This is test code
 	pem, err := os.ReadFile(path)
 	if err != nil {
 		panic(fmt.Sprintf("%s=%q: failed to read root CA: %v", envVar, path, err))
