@@ -31,6 +31,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: |
             --model claude-opus-4-6
+            --allowed-tools "Bash(gh:*),Bash(git fetch:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),WebFetch,WebSearch"
           prompt: |
             Review PR ${{ github.repository }}#${{ github.event.pull_request.number }}.
             You MUST FOLLOW the instructions at `.claude/REVIEW.md` always respecting the principles
