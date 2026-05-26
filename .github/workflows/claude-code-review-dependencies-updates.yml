@@ -10,7 +10,6 @@ jobs:
       !github.event.pull_request.draft &&
       github.event.pull_request.user.login == 'renovate[bot]' &&
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    environment: null
     runs-on: ubuntu-latest
     permissions:
       contents: read
