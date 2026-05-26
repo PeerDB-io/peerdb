@@ -93,6 +93,16 @@
       "matchPackageNames": ["github.com/jackc/pgx/v5"],
       "allowedVersions": "v5.9.1"
     },
+    // Pinned to v1.62.11: v1.62.12 introduces a proto registration for
+    // temporal.api.sdk.v1.ExternalStorageReference that conflicts at init time
+    // with the vendored copy in go.temporal.io/sdk v1.43.0
+    // (internal/temporalapi/sdk/v1). Revisit once a temporal sdk-go release
+    // ships that resolves the duplicate registration.
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.temporal.io/api"],
+      "allowedVersions": "v1.62.11"
+    },
     // This package rule instruct renovate to require approval from
     // the dependency dashboard before proposing major upgrades.
     // This sets a default is approval mindset for automatic proposals.
