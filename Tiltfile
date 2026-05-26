@@ -269,6 +269,7 @@ mariadb_vars = {
 
 # Postgres to ClickHouse generic tests
 e2e_test('postgres', 'TestGenericCH_PG', ['provision-postgres'])
+e2e_test('postgres-tls', 'TestGenericCH_PG', ['provision-postgres'], vars_overrides={'PG_REQUIRE_TLS': 'true', 'PG_ROOT_CA_PATH': '$(pwd)/../volumes/pg-tls/server.crt'})
 
 # MySQL GTID to ClickHouse generic tests
 e2e_test('mysql-gtid', 'TestGenericCH_MySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
