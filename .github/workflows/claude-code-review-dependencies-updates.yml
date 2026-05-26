@@ -3,8 +3,6 @@ name: Claude Code Review for dependencies updates
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-  pull_request_target:
-    types: [opened, synchronize, ready_for_review, reopened]
 
 jobs:
   claude-review:
