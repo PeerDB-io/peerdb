@@ -11,9 +11,9 @@ x-ports:
   - &temporal-ui-port         ${TEMPORAL_UI_PORT:-8085}:8080
   - &flow-api-grpc-port            ${FLOW_API_PORT:-8112}:8112
   - &flow-api-http-port       ${FLOW_API_HTTP_PORT:-8113}:8113
-  - &flow-worker-debug-port   ${DOCKER_GO_DEBUG_PORT_FLOW_WORKER:-4001}:40000
-  - &flow-snapshot-worker-debug-port ${DOCKER_GO_DEBUG_PORT_FLOW_SNAPSHOT_WORKER:-4002}:40000
-  - &flow-api-debug-port      ${DOCKER_GO_DEBUG_PORT_FLOW_API:-4003}:40000
+  - &flow-worker-debug-port   ${DOCKER_GO_DEBUG_PORT_FLOW_WORKER:-40001}:40000
+  - &flow-snapshot-worker-debug-port ${DOCKER_GO_DEBUG_PORT_FLOW_SNAPSHOT_WORKER:-40002}:40000
+  - &flow-api-debug-port      ${DOCKER_GO_DEBUG_PORT_FLOW_API:-40003}:40000
   - &minio-port               ${MINIO_PORT:-9001}:9000
   - &minio-console-port       ${MINIO_CONSOLE_PORT:-9002}:36987
 
