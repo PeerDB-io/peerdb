@@ -446,7 +446,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 		return nil, NewInternalApiError(err)
 	}
 
-	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
+	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil &&
+		// Don't allow config updates if the flow is already in a terminal state since it can lead to confusion where the config is updated but the flow is not reflecting those changes since it's already completed/failed
+		(currState != protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATING && currState != protos.FlowStatus_STATUS_FAILED && currState != protos.FlowStatus_STATUS_COMPLETED) {
 		if err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
 			h.temporalClient,
@@ -484,7 +486,8 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
 			if currState == protos.FlowStatus_STATUS_COMPLETED || currState == protos.FlowStatus_STATUS_FAILED {
-				changeErr = h.resyncByRecreatingFlow(ctx, req.FlowJobName, req.DropMirrorStats)
+				changeErr = h.resyncByRecreatingFlow(ctx, req.FlowJobName, req.DropMirrorStats,
+					req.FlowConfigUpdate.GetCdcFlowConfigUpdate())
 				if changeErr == nil {
 					telemetry.LogActivityResyncFlow(ctx, req.FlowJobName)
 					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resync signaled")
@@ -651,10 +654,29 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	return workflowID, nil
 }
 
+func applySnapshotConfigOverrides(config *protos.FlowConnectionConfigs, update *protos.CDCFlowConfigUpdate) {
+	if update == nil {
+		return
+	}
+	if update.SnapshotNumRowsPerPartition > 0 {
+		config.SnapshotNumRowsPerPartition = update.SnapshotNumRowsPerPartition
+	}
+	if update.SnapshotNumPartitionsOverride > 0 {
+		config.SnapshotNumPartitionsOverride = update.SnapshotNumPartitionsOverride
+	}
+	if update.SnapshotMaxParallelWorkers > 0 {
+		config.SnapshotMaxParallelWorkers = update.SnapshotMaxParallelWorkers
+	}
+	if update.SnapshotNumTablesInParallel > 0 {
+		config.SnapshotNumTablesInParallel = update.SnapshotNumTablesInParallel
+	}
+}
+
 func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	ctx context.Context,
 	flowName string,
 	dropStats bool,
+	cdcConfigUpdate *protos.CDCFlowConfigUpdate,
 ) error {
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
 		return fmt.Errorf("unable to get maintenance mode status: %w", err)
@@ -682,6 +704,7 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 
 	config.Resync = true
 	config.DoInitialSnapshot = true
+	applySnapshotConfigOverrides(config, cdcConfigUpdate)
 	// validate mirror first because once the mirror is dropped, there's no going back
 	if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
