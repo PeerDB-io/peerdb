@@ -1615,9 +1615,13 @@ func (s APITestSuite) TestResyncWithSnapshotConfigDuringSnapshot() {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
 			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		values := make([]string, 0, initialRowCount)
+		for i := 1; i <= initialRowCount; i++ {
+			values = append(values, fmt.Sprintf("(%d,'v%d')", i, i))
+		}
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) SELECT g, 'v'||g FROM generate_series(1,%d) g",
-				AttachSchema(s, tableName), initialRowCount)))
+			fmt.Sprintf("INSERT INTO %s(id, val) VALUES %s",
+				AttachSchema(s, tableName), strings.Join(values, ","))))
 		cols = "id,val"
 	case *MongoSource:
 		docs := make([]any, 0, initialRowCount)
