@@ -1,5 +1,21 @@
 name: peerdb-ancillary-services
 
+# Shared postgres entrypoint enabling TLS with test certs present in the repository
+x-postgres-entrypoint: &postgres-entrypoint
+  - sh
+  - -c
+  - |
+    set -e
+    SRC=/etc/postgresql/certs
+    DST=/run/pgssl
+    mkdir -p "$$DST"
+    install -m 644 -o postgres -g postgres "$$SRC/server.crt" "$$DST/server.crt"
+    install -m 600 -o postgres -g postgres "$$SRC/server.key" "$$DST/server.key"
+    exec docker-entrypoint.sh postgres \
+      -c ssl=on \
+      -c ssl_cert_file=$$DST/server.crt \
+      -c ssl_key_file=$$DST/server.key
+
 services:
   mongodb:
     container_name: peerdb-mongodb
@@ -110,6 +126,7 @@ services:
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./volumes/pg-tls:/etc/postgresql/certs:ro
     ports:
       - "${PG_PORT}:5432"
     environment:
@@ -117,6 +134,7 @@ services:
       POSTGRES_PASSWORD: ${PG_PASSWORD}
       POSTGRES_DB: ${PG_DATABASE}
       POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+    entrypoint: *postgres-entrypoint
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -131,6 +149,7 @@ services:
     restart: unless-stopped
     volumes:
       - postgres2_data:/var/lib/postgresql/data
+      - ./volumes/pg-tls:/etc/postgresql/certs:ro
     ports:
       - "${PG2_PORT}:5432"
     environment:
@@ -138,6 +157,7 @@ services:
       POSTGRES_PASSWORD: ${PG2_PASSWORD}
       POSTGRES_DB: ${PG2_DATABASE}
       POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+    entrypoint: *postgres-entrypoint
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

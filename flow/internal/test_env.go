@@ -12,6 +12,20 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
+func loadRootCAFromEnv(envVar string) *string {
+	path := os.Getenv(envVar)
+	if path == "" {
+		return nil
+	}
+	// #nosec G703 -- This is test code
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("%s=%q: failed to read root CA: %v", envVar, path, err))
+	}
+	s := string(pem)
+	return &s
+}
+
 func ClickHouseTestHost() string {
 	return GetEnvString("CI_CLICKHOUSE_HOST", "localhost")
 }
@@ -22,21 +36,25 @@ func ClickHouseTestPort() uint32 {
 
 func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
 	return &protos.PostgresConfig{
-		Host:     GetEnvString("PG_HOST", "localhost"),
-		Port:     uint32(getEnvUint[uint16]("PG_PORT", 5432)),
-		User:     GetEnvString("PG_USER", "postgres"),
-		Password: GetEnvString("PG_PASSWORD", "postgres"),
-		Database: GetEnvString("PG_DATABASE", "postgres"),
+		Host:       GetEnvString("PG_HOST", "localhost"),
+		Port:       uint32(getEnvUint[uint16]("PG_PORT", 5432)),
+		User:       GetEnvString("PG_USER", "postgres"),
+		Password:   GetEnvString("PG_PASSWORD", "postgres"),
+		Database:   GetEnvString("PG_DATABASE", "postgres"),
+		RequireTls: GetEnvBool("PG_REQUIRE_TLS", false),
+		RootCa:     loadRootCAFromEnv("PG_ROOT_CA_PATH"),
 	}
 }
 
 func GetSecondaryPostgresConfigFromEnv() *protos.PostgresConfig {
 	return &protos.PostgresConfig{
-		Host:     GetEnvString("PG2_HOST", "localhost"),
-		Port:     uint32(getEnvUint[uint16]("PG2_PORT", 5437)),
-		User:     GetEnvString("PG2_USER", "postgres"),
-		Password: GetEnvString("PG2_PASSWORD", "postgres"),
-		Database: GetEnvString("PG2_DATABASE", "postgres"),
+		Host:       GetEnvString("PG2_HOST", "localhost"),
+		Port:       uint32(getEnvUint[uint16]("PG2_PORT", 5437)),
+		User:       GetEnvString("PG2_USER", "postgres"),
+		Password:   GetEnvString("PG2_PASSWORD", "postgres"),
+		Database:   GetEnvString("PG2_DATABASE", "postgres"),
+		RequireTls: GetEnvBool("PG2_REQUIRE_TLS", false),
+		RootCa:     loadRootCAFromEnv("PG2_ROOT_CA_PATH"),
 	}
 }
 
