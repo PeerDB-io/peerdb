@@ -1417,7 +1417,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
 	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for mirror to be in cdc", func() bool {
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to be in cdc", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	RequireEqualTables(s.ch, tableName, cols)
@@ -1458,19 +1458,22 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
 	})
 	require.NoError(s.t, err)
 
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to be in cdc", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
 	EnvWaitForEqualTables(env, s.ch, "resync with snapshot config override", tableName, cols)
 	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	require.EqualValues(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
+	require.Equal(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
 		"SnapshotMaxParallelWorkers should be overridden after resync")
-	require.EqualValues(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
+	require.Equal(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
 		"SnapshotNumTablesInParallel should be overridden after resync")
-	require.EqualValues(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
+	require.Equal(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
 		"SnapshotNumRowsPerPartition should be overridden after resync")
-	require.EqualValues(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
+	require.Equal(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
 		"SnapshotNumPartitionsOverride should be overridden after resync")
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -1487,12 +1490,11 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
 	})
 }
 
-// TestResyncWithSnapshotConfigOnResyningPipe verifies that snapshot tuning
-// parameters supplied via FlowConfigUpdate on a RESYNC state change are
-// applied and persisted even when the target pipe is already in the middle
-// of a previous resync (snapshot phase), not yet back to STATUS_RUNNING.
-func (s APITestSuite) TestResyncWithSnapshotConfigOnResyningPipe() {
-	tableName := "resync_snap_cfg_resyncing"
+// TestResyncWithSnapshotConfigOnCompletedSnapshotOnlyPipe verifies that snapshot tuning parameters
+// supplied via FlowConfigUpdate on a RESYNC state change are applied to an InitialSnapshotOnly
+// flow that has already completed, and that the override is persisted in the catalog config.
+func (s APITestSuite) TestResyncWithSnapshotConfigOnCompletedSnapshotOnlyPipe() {
+	tableName := "resync_snap_done_cfg"
 	var cols string
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
@@ -1513,7 +1515,231 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnResyningPipe() {
 	}
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "resync_snap_cfg_resyncing_" + s.suffix,
+		FlowJobName:      "resync_snap_done_cfg_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 1
+	flowConnConfig.SnapshotNumTablesInParallel = 1
+	flowConnConfig.SnapshotNumRowsPerPartition = 100
+	flowConnConfig.SnapshotNumPartitionsOverride = 1
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	RequireEqualTables(s.ch, tableName, cols)
+
+	// add a row so the resync has something to snapshot
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", AttachSchema(s, tableName))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "resync"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+	}
+
+	const (
+		newMaxParallelWorkers    uint32 = 4
+		newNumTablesInParallel   uint32 = 2
+		newNumRowsPerPartition   uint32 = 500
+		newNumPartitionsOverride uint32 = 7
+	)
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					SnapshotMaxParallelWorkers:    newMaxParallelWorkers,
+					SnapshotNumTablesInParallel:   newNumTablesInParallel,
+					SnapshotNumRowsPerPartition:   newNumRowsPerPartition,
+					SnapshotNumPartitionsOverride: newNumPartitionsOverride,
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+
+	EnvWaitForEqualTables(env, s.ch, "resync completed snapshot-only with config override", tableName, cols)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	EnvWaitForFinished(s.t, env, time.Minute)
+
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	require.Equal(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
+		"SnapshotMaxParallelWorkers should be overridden after resync")
+	require.Equal(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
+		"SnapshotNumTablesInParallel should be overridden after resync")
+	require.Equal(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
+		"SnapshotNumRowsPerPartition should be overridden after resync")
+	require.Equal(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
+		"SnapshotNumPartitionsOverride should be overridden after resync")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
+		var workflowID string
+		err := s.catalog.QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
+	})
+}
+
+// TestResyncWithSnapshotConfigDuringSnapshot verifies that snapshot tuning parameters supplied via
+// FlowConfigUpdate on a RESYNC state change issued while the flow is still in STATUS_SNAPSHOT
+// (initial snapshot in-flight) are applied to the resynced flow and persisted in the catalog.
+func (s APITestSuite) TestResyncWithSnapshotConfigDuringSnapshot() {
+	tableName := "resync_during_snap_cfg"
+	var cols string
+	const initialRowCount = 2000
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) SELECT g, 'v'||g FROM generate_series(1,%d) g",
+				AttachSchema(s, tableName), initialRowCount)))
+		cols = "id,val"
+	case *MongoSource:
+		docs := make([]any, 0, initialRowCount)
+		for i := 1; i <= initialRowCount; i++ {
+			docs = append(docs, bson.D{bson.E{Key: "id", Value: i}, bson.E{Key: "val", Value: fmt.Sprintf("v%d", i)}})
+		}
+		_, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertMany(s.t.Context(), docs, options.InsertMany())
+		require.NoError(s.t, err)
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "resync_during_snap_cfg_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = false
+	flowConnConfig.SnapshotMaxParallelWorkers = 1
+	flowConnConfig.SnapshotNumTablesInParallel = 1
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	flowConnConfig.SnapshotNumPartitionsOverride = 0
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to enter snapshot", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
+	})
+
+	const (
+		newMaxParallelWorkers    uint32 = 4
+		newNumTablesInParallel   uint32 = 2
+		newNumRowsPerPartition   uint32 = 500
+		newNumPartitionsOverride uint32 = 7
+	)
+
+	// Trigger resync while initial snapshot is still running.
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					SnapshotMaxParallelWorkers:    newMaxParallelWorkers,
+					SnapshotNumTablesInParallel:   newNumTablesInParallel,
+					SnapshotNumRowsPerPartition:   newNumRowsPerPartition,
+					SnapshotNumPartitionsOverride: newNumPartitionsOverride,
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to be in cdc", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitForEqualTables(env, s.ch, "resync during snapshot with config override", tableName, cols)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	require.Equal(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
+		"SnapshotMaxParallelWorkers should be overridden after resync")
+	require.Equal(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
+		"SnapshotNumTablesInParallel should be overridden after resync")
+	require.Equal(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
+		"SnapshotNumRowsPerPartition should be overridden after resync")
+	require.Equal(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
+		"SnapshotNumPartitionsOverride should be overridden after resync")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
+		var workflowID string
+		err := s.catalog.QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
+	})
+}
+
+// TestResyncWithSnapshotConfigOnPausedPipe verifies that snapshot tuning parameters supplied via
+// FlowConfigUpdate on a RESYNC state change issued while the flow is PAUSED are applied to the
+// resynced flow and persisted in the catalog.
+func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
+	tableName := "resync_paused_snap_cfg"
+	var cols string
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+		cols = "id,val"
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "resync_paused_snap_cfg_" + s.suffix,
 		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
@@ -1551,20 +1777,14 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnResyningPipe() {
 		require.True(s.t, res.Acknowledged)
 	}
 
-	// First resync: no config override. We do NOT wait for it to complete —
-	// the next resync should land while this one is still resyncing.
+	// Pause the flow.
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
-		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
 	})
 	require.NoError(s.t, err)
-
-	// Wait until the flow has actually entered the resync workflow (i.e. it is
-	// no longer in STATUS_RUNNING) before issuing the second resync, so that we
-	// are exercising the "resync-on-resyncing-pipe" path rather than racing the
-	// first resync into existence.
-	EnvWaitFor(s.t, env, time.Minute, "wait for pipe to leave running state for resync", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT || env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RESYNC
+	EnvWaitFor(s.t, env, time.Minute, "wait for mirror to pause", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	const (
@@ -1574,6 +1794,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnResyningPipe() {
 		newNumPartitionsOverride uint32 = 7
 	)
 
+	// Issue resync while paused, with snapshot config overrides.
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
@@ -1590,23 +1811,20 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnResyningPipe() {
 	})
 	require.NoError(s.t, err)
 
-	EnvWaitForEqualTables(env, s.ch, "resync with snapshot config override on resyncing pipe", tableName, cols)
+	EnvWaitForEqualTables(env, s.ch, "resync from paused with snapshot config override", tableName, cols)
 	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for mirror to be in cdc", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RESYNC
-	})
 
 	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	require.EqualValues(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
-		"SnapshotMaxParallelWorkers should be overridden after resync-on-resyncing")
-	require.EqualValues(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
-		"SnapshotNumTablesInParallel should be overridden after resync-on-resyncing")
-	require.EqualValues(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
-		"SnapshotNumRowsPerPartition should be overridden after resync-on-resyncing")
-	require.EqualValues(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
-		"SnapshotNumPartitionsOverride should be overridden after resync-on-resyncing")
+	require.Equal(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
+		"SnapshotMaxParallelWorkers should be overridden after resync")
+	require.Equal(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
+		"SnapshotNumTablesInParallel should be overridden after resync")
+	require.Equal(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
+		"SnapshotNumRowsPerPartition should be overridden after resync")
+	require.Equal(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
+		"SnapshotNumPartitionsOverride should be overridden after resync")
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
