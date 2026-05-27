@@ -1371,12 +1371,12 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.Equal(s.t, "test", tagMap[common.PipeNameTag])
 }
 
-// TestResyncWithSnapshotConfigOverride verifies that snapshot tuning parameters
+// TestResyncWithSnapshotConfigOnRunningPipe verifies that snapshot tuning parameters
 // (max_parallel_workers, num_tables_in_parallel, num_rows_per_partition,
 // num_partitions_override) supplied via FlowConfigUpdate on a RESYNC state
 // change are applied to the resynced flow and persisted in the catalog config.
-func (s APITestSuite) TestResyncWithSnapshotConfigOverride() {
-	tableName := "resync_snap_cfg"
+func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
+	tableName := "resync_snap_run_cfg"
 	var cols string
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
@@ -1403,7 +1403,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOverride() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.InitialSnapshotOnly = false
 	flowConnConfig.SnapshotMaxParallelWorkers = 1
 	flowConnConfig.SnapshotNumTablesInParallel = 1
 	flowConnConfig.SnapshotNumRowsPerPartition = 100
@@ -1417,7 +1417,9 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOverride() {
 	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for mirror to be in cdc", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
 	RequireEqualTables(s.ch, tableName, cols)
 
 	// add a row so the resync has something to snapshot
@@ -1434,10 +1436,10 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOverride() {
 	}
 
 	const (
-		newMaxParallelWorkers      uint32 = 4
-		newNumTablesInParallel     uint32 = 2
-		newNumRowsPerPartition     uint32 = 500
-		newNumPartitionsOverride   uint32 = 7
+		newMaxParallelWorkers    uint32 = 4
+		newNumTablesInParallel   uint32 = 2
+		newNumRowsPerPartition   uint32 = 500
+		newNumPartitionsOverride uint32 = 7
 	)
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -1459,7 +1461,6 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOverride() {
 	EnvWaitForEqualTables(env, s.ch, "resync with snapshot config override", tableName, cols)
 	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	EnvWaitForFinished(s.t, env, time.Minute)
 
 	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
@@ -1471,6 +1472,19 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOverride() {
 		"SnapshotNumRowsPerPartition should be overridden after resync")
 	require.EqualValues(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
 		"SnapshotNumPartitionsOverride should be overridden after resync")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
+		var workflowID string
+		err := s.catalog.QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
+	})
 }
 
 func (s APITestSuite) TestResyncSourceTableMissing() {
