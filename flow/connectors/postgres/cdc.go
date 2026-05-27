@@ -601,7 +601,7 @@ func PullCdcRecords[Items model.Items](
 	defer shutdown()
 
 	var standByLastLogged time.Time
-	nextStandbyMessageDeadline := time.Now().Add(messageWaitPeriod)
+	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
 	pkmRequiresResponse := false
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
@@ -618,7 +618,7 @@ func PullCdcRecords[Items model.Items](
 
 		if totalRecords == 1 {
 			records.SignalAsNotEmpty()
-			nextStandbyMessageDeadline = time.Now().Add(messageWaitPeriod)
+			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
 		if totalRecords%50000 == 0 {
@@ -706,14 +706,17 @@ func PullCdcRecords[Items model.Items](
 			} else {
 				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
 			}
-			nextStandbyMessageDeadline = time.Now().Add(messageWaitPeriod)
+			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 		}
 
-		var receiveCtx context.Context
-		var cancel context.CancelFunc
-
-		receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
-
+		// Since we are interrupting the receive message call as soon as `messageWaitPeriod` is over
+		// to send a ping to Postgres, now()+messageWaitPeriod might overshoot `nextStandbyMessageDeadline`
+		// this check prevents that situation.
+		receiveDeadline := time.Now().Add(messageWaitPeriod)
+		if receiveDeadline.After(nextStandbyMessageDeadline) {
+			receiveDeadline = nextStandbyMessageDeadline
+		}
+		receiveCtx, cancel := context.WithDeadline(ctx, receiveDeadline)
 		rawMsg, err := func() (pgproto3.BackendMessage, error) {
 			replLock.Lock()
 			defer replLock.Unlock()
@@ -726,12 +729,21 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if err != nil && pgconn.Timeout(err) {
-			// Send ping to make sure the connection is held alive.
-			if err := p.ReplPing(ctx); err != nil {
-				return fmt.Errorf("ReplPing failed: %w", err)
+			// If we have hit timeout, either we just need to ping to keep the connection alive
+			// or we are actually hitting `nextStandbyMessageDeadline`.
+			if !time.Now().After(nextStandbyMessageDeadline) {
+				// The timeout is not hit, hence we just send a ping before moving on to read more packages.
+				if err := p.ReplPing(ctx); err != nil {
+					return fmt.Errorf("ReplPing failed: %w", err)
+				}
 			}
+			// After that, we let the condition checks at the beginging of the loop,
+			// specifically "if we are past the next standby deadline (?)" to
+			// handle having reached the standby deadline.
 			continue
-		} else if err != nil {
+		}
+
+		if err != nil {
 			return fmt.Errorf("ReceiveMessage failed: %w", err)
 		}
 
