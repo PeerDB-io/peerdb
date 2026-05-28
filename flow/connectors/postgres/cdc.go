@@ -732,7 +732,7 @@ func PullCdcRecords[Items model.Items](
 			// If we have hit timeout, either we just need to ping to keep the connection alive
 			// or we are actually hitting `nextRecordDeadline`.
 			if !time.Now().After(nextRecordDeadline) {
-				// The timeout is not hit, hence we just send a ping before moving on to read more packages.
+				// The timeout is not hit, hence we just send a ping before moving on to read more messages.
 				if err := p.ReplPing(ctx); err != nil {
 					return fmt.Errorf("ReplPing failed: %w", err)
 				}
