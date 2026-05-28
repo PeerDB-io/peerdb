@@ -100,6 +100,8 @@ func (c *BigQueryConnector) PullQRepObjects(
 		return 0, totalBytes, nil
 	}
 
+	// Partition ranges are inclusive on both ends, but GCS EndOffset is exclusive.
+	// We must explicitly fetch endOffSet below.
 	it := bucket.Objects(ctx, &storage.Query{
 		Prefix:      prefix,
 		Delimiter:   "/", // to avoid listing "folders"
@@ -129,6 +131,15 @@ func (c *BigQueryConnector) PullQRepObjects(
 		if err := processObject(attrs); err != nil {
 			return 0, totalBytes, err
 		}
+	}
+
+	endAttrs, err := bucket.Object(endOffset).Attrs(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get end object attrs for bucket %s with prefix %s and object %s: %w",
+			bucketName, prefix, endOffset, err)
+	}
+	if err := processObject(endAttrs); err != nil {
+		return 0, totalBytes, err
 	}
 
 	c.logger.Info("finished pulling downloadable objects",
