@@ -447,8 +447,12 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil &&
-		// Don't allow config updates if the flow is already in a terminal state since it can lead to confusion where the config is updated but the flow is not reflecting those changes since it's already completed/failed
-		(currState != protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATING && currState != protos.FlowStatus_STATUS_FAILED && currState != protos.FlowStatus_STATUS_COMPLETED) {
+		// Don't allow config updates if the flow is already in a terminal state since it can lead to confusion
+		//  where the config is updated but the flow is not reflecting those changes since it's already completed/failed
+		(currState != protos.FlowStatus_STATUS_TERMINATED &&
+			currState != protos.FlowStatus_STATUS_TERMINATING &&
+			currState != protos.FlowStatus_STATUS_FAILED &&
+			currState != protos.FlowStatus_STATUS_COMPLETED) {
 		if err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
 			h.temporalClient,
