@@ -319,7 +319,7 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 	stream, err := syncer.StartSync(pos)
 	if err != nil {
 		syncer.Close()
-		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLStreamingError(err)
+		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLExecuteError(err)
 	}
 	return syncer, stream, nil, pos, nil
 }
@@ -335,7 +335,7 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
 		syncer.Close()
-		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLStreamingError(err)
+		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLExecuteError(err)
 	}
 	return syncer, stream, gset, mysql.Position{}, nil
 }
@@ -521,7 +521,7 @@ func (c *MySqlConnector) PullRecords(
 			}
 
 			c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
-			return exceptions.NewMySQLStreamingError(err)
+			return exceptions.NewMySQLExecuteError(err)
 		}
 
 		lastEventAt = time.Now()

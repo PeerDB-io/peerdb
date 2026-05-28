@@ -302,20 +302,25 @@ func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (
 	var retryableErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return nil, err
+			return nil, exceptions.NewMySQLExecuteError(err)
 		}
 
 		if rs, err := conn.Execute(cmd, args...); err != nil {
-			if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+			if mysql.ErrorEqual(err, mysql.ErrBadConn) ||
+				exceptions.InvalidSequenceRe.MatchString(err.Error()) ||
+				exceptions.InvalidCompressedSequenceRe.MatchString(err.Error()) {
 				retryableErr = err
 				continue
 			}
-			return nil, err
+			return nil, exceptions.NewMySQLExecuteError(err)
 		} else {
 			return rs, nil
 		}
 	}
-	return nil, retryableErr
+	if retryableErr != nil {
+		return nil, exceptions.NewMySQLExecuteError(retryableErr)
+	}
+	return nil, nil
 }
 
 func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string, result *mysql.Result,
@@ -326,39 +331,48 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 	var retryableErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return err
+			return exceptions.NewMySQLExecuteError(err)
 		}
 
 		if len(args) == 0 {
 			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) ||
+					exceptions.InvalidSequenceRe.MatchString(err.Error()) ||
+					exceptions.InvalidCompressedSequenceRe.MatchString(err.Error()) {
 					retryableErr = err
 					continue
 				}
-				return err
+				return exceptions.NewMySQLExecuteError(err)
 			}
 		} else {
 			stmt, err := conn.Prepare(cmd)
 			if err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) ||
+					exceptions.InvalidSequenceRe.MatchString(err.Error()) ||
+					exceptions.InvalidCompressedSequenceRe.MatchString(err.Error()) {
 					retryableErr = err
 					continue
 				}
-				return err
+				return exceptions.NewMySQLExecuteError(err)
 			}
 			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
 			_ = stmt.Close()
 			if err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) ||
+					exceptions.InvalidSequenceRe.MatchString(err.Error()) ||
+					exceptions.InvalidCompressedSequenceRe.MatchString(err.Error()) {
 					retryableErr = err
 					continue
 				}
-				return err
+				return exceptions.NewMySQLExecuteError(err)
 			}
 		}
 		return nil
 	}
-	return retryableErr
+	if retryableErr != nil {
+		return exceptions.NewMySQLExecuteError(retryableErr)
+	}
+	return nil
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {

@@ -1089,17 +1089,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	if mysqlStreamingError, ok := errors.AsType[*exceptions.MySQLStreamingError](err); ok {
-		if mysqlStreamingError.Retryable {
-			return ErrorRetryRecoverable, ErrorInfo{
-				Source: ErrorSourceMySQL,
-				Code:   "STREAMING_TRANSIENT_ERROR",
-			}
-		} else {
-			return ErrorOther, ErrorInfo{
-				Source: ErrorSourceMySQL,
-				Code:   "UNKNOWN",
-			}
+	if mysqlExecuteError, ok := errors.AsType[*exceptions.MySQLExecuteError](err); ok {
+		errClass := ErrorOther
+		if mysqlExecuteError.Retryable {
+			errClass = ErrorRetryRecoverable
+		}
+		return errClass, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "EXECUTE_ERROR",
 		}
 	}
 

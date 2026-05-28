@@ -12,9 +12,14 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
-// InvalidSequenceRe go-mysql-org returns "invalid sequence X != Y" when the TCP packet sequence
-// is out of sync — always transient, safe to retry.
-var InvalidSequenceRe = regexp.MustCompile(`invalid sequence \d+ != \d+`)
+var (
+	// InvalidSequenceRe go-mysql-org returns "invalid sequence X != Y" when the TCP packet sequence
+	// is out of sync — always transient, safe to retry.
+	InvalidSequenceRe = regexp.MustCompile(`invalid sequence \d+ != \d+`)
+	// InvalidCompressedSequenceRe happens when the compressed packet header's sequence byte is out of sync. This is
+	// the compressed-protocol equivalent of the above error; also transient and safe to retry.
+	InvalidCompressedSequenceRe = regexp.MustCompile(`invalid compressed sequence \d+ != \d+`)
+)
 
 type MySQLIncompatibleColumnTypeError struct {
 	TableName  string
@@ -87,38 +92,38 @@ func (e *MySQLGeometryParseError) Unwrap() error {
 	return e.error
 }
 
-type MySQLStreamingError struct {
+type MySQLExecuteError struct {
 	error
 	Retryable bool
 }
 
-func NewMySQLStreamingError(err error) *MySQLStreamingError {
+func NewMySQLExecuteError(err error) *MySQLExecuteError {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return &MySQLStreamingError{err, true}
+		return &MySQLExecuteError{err, true}
 	}
 
 	if recordHeaderError, ok := errors.AsType[tls.RecordHeaderError](err); ok {
 		if recordHeaderError.Msg == "first record does not look like a TLS handshake" {
-			return &MySQLStreamingError{err, true}
+			return &MySQLExecuteError{err, true}
 		}
 	}
 
 	if strings.Contains(err.Error(), mysql.ErrBadConn.Error()) {
-		return &MySQLStreamingError{err, true}
+		return &MySQLExecuteError{err, true}
 	}
 
-	if InvalidSequenceRe.MatchString(err.Error()) {
-		return &MySQLStreamingError{err, true}
+	if InvalidSequenceRe.MatchString(err.Error()) || InvalidCompressedSequenceRe.MatchString(err.Error()) {
+		return &MySQLExecuteError{err, true}
 	}
 
-	return &MySQLStreamingError{err, false}
+	return &MySQLExecuteError{err, false}
 }
 
-func (e *MySQLStreamingError) Error() string {
-	return "MySQL streaming error: " + e.error.Error()
+func (e *MySQLExecuteError) Error() string {
+	return "MySQL execute error: " + e.error.Error()
 }
 
-func (e *MySQLStreamingError) Unwrap() error {
+func (e *MySQLExecuteError) Unwrap() error {
 	return e.error
 }
 
