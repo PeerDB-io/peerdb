@@ -678,26 +678,6 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 	return currentSnapshotXmin, nil
 }
 
-func (a *FlowableActivity) maintainReplConn(
-	ctx context.Context, flowName string, srcConn connectors.CDCPullConnectorCore, syncDone <-chan struct{},
-) error {
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if err := srcConn.ReplPing(ctx); err != nil {
-				return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
-			}
-		case <-syncDone:
-			return nil
-		case <-ctx.Done():
-			return nil
-		}
-	}
-}
-
 func (a *FlowableActivity) startNormalize(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
