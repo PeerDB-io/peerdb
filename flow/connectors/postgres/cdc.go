@@ -601,7 +601,7 @@ func PullCdcRecords[Items model.Items](
 	defer shutdown()
 
 	var standByLastLogged time.Time
-	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
+	nextRecordDeadline := time.Now().Add(req.IdleTimeout)
 	pkmRequiresResponse := false
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
@@ -618,8 +618,8 @@ func PullCdcRecords[Items model.Items](
 
 		if totalRecords == 1 {
 			records.SignalAsNotEmpty()
-			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
-			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
+			nextRecordDeadline = time.Now().Add(req.IdleTimeout)
+			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextRecordDeadline))
 		}
 		if totalRecords%50000 == 0 {
 			logger.Info("pulling records",
@@ -684,7 +684,7 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		// if we are past the next standby deadline (?)
-		if time.Now().After(nextStandbyMessageDeadline) {
+		if time.Now().After(nextRecordDeadline) {
 			if totalRecords != 0 {
 				logger.Info("standby deadline reached", slog.Int64("records", totalRecords))
 
@@ -706,15 +706,15 @@ func PullCdcRecords[Items model.Items](
 			} else {
 				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
 			}
-			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
+			nextRecordDeadline = time.Now().Add(req.IdleTimeout)
 		}
 
 		// Since we are interrupting the receive message call as soon as `messageWaitPeriod` is over
-		// to send a ping to Postgres, now()+messageWaitPeriod might overshoot `nextStandbyMessageDeadline`
+		// to send a ping to Postgres, now()+messageWaitPeriod might overshoot `nextRecordDeadline`
 		// this check prevents that situation.
 		receiveDeadline := time.Now().Add(messageWaitPeriod)
-		if receiveDeadline.After(nextStandbyMessageDeadline) {
-			receiveDeadline = nextStandbyMessageDeadline
+		if receiveDeadline.After(nextRecordDeadline) {
+			receiveDeadline = nextRecordDeadline
 		}
 		receiveCtx, cancel := context.WithDeadline(ctx, receiveDeadline)
 		rawMsg, err := func() (pgproto3.BackendMessage, error) {
@@ -730,8 +730,8 @@ func PullCdcRecords[Items model.Items](
 
 		if err != nil && pgconn.Timeout(err) {
 			// If we have hit timeout, either we just need to ping to keep the connection alive
-			// or we are actually hitting `nextStandbyMessageDeadline`.
-			if !time.Now().After(nextStandbyMessageDeadline) {
+			// or we are actually hitting `nextRecordDeadline`.
+			if !time.Now().After(nextRecordDeadline) {
 				// The timeout is not hit, hence we just send a ping before moving on to read more packages.
 				if err := p.ReplPing(ctx); err != nil {
 					return fmt.Errorf("ReplPing failed: %w", err)
