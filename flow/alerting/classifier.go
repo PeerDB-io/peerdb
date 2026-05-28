@@ -847,7 +847,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	}
 
 	if _, ok := errors.AsType[topology.WaitQueueTimeoutError](err); ok {
-		return ErrorRetryRecoverable, ErrorInfo{
+		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "WAIT_QUEUE_TIMEOUT_ERROR",
 		}
