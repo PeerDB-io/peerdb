@@ -5,7 +5,7 @@ import { Label } from '@/lib/Label/Label';
 import { TextField } from '@/lib/TextField';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Dispatch, SetStateAction, useState } from 'react';
+import { Dispatch, SetStateAction, useState, useTransition } from 'react';
 import ReactSelect from 'react-select';
 import { PulseLoader } from 'react-spinners';
 import { useSelectTheme } from '../styles/select';
@@ -167,9 +167,9 @@ export function NewConfig(alertProps: AlertConfigProps) {
     alertProps.alertForMirrors || []
   );
 
-  const [loading, setLoading] = useState(false);
+  const [loading, startTransition] = useTransition();
 
-  const handleAdd = async () => {
+  const handleAdd = () => {
     if (!serviceType) {
       notifyErr('Service type must be selected');
       return;
@@ -212,19 +212,19 @@ export function NewConfig(alertProps: AlertConfigProps) {
       },
     };
 
-    setLoading(true);
-    const createRes = await fetch('/api/v1/alerts/config', {
-      method: 'POST',
-      body: JSON.stringify(alertConfigProtoReq),
+    startTransition(async () => {
+      const createRes = await fetch('/api/v1/alerts/config', {
+        method: 'POST',
+        body: JSON.stringify(alertConfigProtoReq),
+      });
+
+      if (!createRes.ok) {
+        notifyErr('Something went wrong. Please try again');
+        return;
+      }
+
+      window.location.reload();
     });
-
-    setLoading(false);
-    if (!createRes.ok) {
-      notifyErr('Something went wrong. Please try again');
-      return;
-    }
-
-    window.location.reload();
   };
   const ServiceFields = getServiceFields(serviceType, config, setConfig);
   return (
