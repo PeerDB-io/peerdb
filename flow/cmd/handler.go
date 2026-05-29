@@ -658,24 +658,6 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	return workflowID, nil
 }
 
-func applySnapshotConfigOverrides(config *protos.FlowConnectionConfigs, update *protos.CDCFlowConfigUpdate) {
-	if update == nil {
-		return
-	}
-	if update.SnapshotNumRowsPerPartition > 0 {
-		config.SnapshotNumRowsPerPartition = update.SnapshotNumRowsPerPartition
-	}
-	if update.SnapshotNumPartitionsOverride > 0 {
-		config.SnapshotNumPartitionsOverride = update.SnapshotNumPartitionsOverride
-	}
-	if update.SnapshotMaxParallelWorkers > 0 {
-		config.SnapshotMaxParallelWorkers = update.SnapshotMaxParallelWorkers
-	}
-	if update.SnapshotNumTablesInParallel > 0 {
-		config.SnapshotNumTablesInParallel = update.SnapshotNumTablesInParallel
-	}
-}
-
 func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	ctx context.Context,
 	flowName string,
@@ -708,11 +690,16 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 
 	config.Resync = true
 	config.DoInitialSnapshot = true
-	applySnapshotConfigOverrides(config, cdcConfigUpdate)
 	// validate mirror first because once the mirror is dropped, there's no going back
-	if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
-		ConnectionConfigs: config,
-	}); err != nil {
+	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, config.Env); err != nil {
+		return NewInternalApiError(err)
+	} else {
+		config.Version = internalVersion
+	}
+	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
+	internal.ApplySnapshotConfigOverrides(configCore, cdcConfigUpdate)
+
+	if _, err := h.validateCDCMirrorImpl(ctx, configCore, false); err != nil {
 		return err
 	}
 
@@ -721,7 +708,6 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	}
 
 	workflowID := getWorkflowID(config.FlowJobName)
-	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
 	if _, err := h.createCDCFlow(ctx, configCore, workflowID); err != nil {
 		return err
 	}

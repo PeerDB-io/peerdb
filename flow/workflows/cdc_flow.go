@@ -653,11 +653,12 @@ func CDCFlowWorkflow(
 				// so we need to NOT sync the tableMappings to catalog to preserve original names
 
 				// We still override the snapshot parameters (when resync with updated values)
-				overrideSnapshotParametersInState(val, state)
-				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+				internal.ApplySnapshotConfigOverrides(cfg, val.GetFlowConfigUpdate().GetCdcFlowConfigUpdate())
+				uploadConfigToCatalog(ctx, cfg)
+
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           resyncCfg.FlowJobName,
-					FlowConnectionConfigs: resyncCfg,
+					FlowJobName:           cfg.FlowJobName,
+					FlowConnectionConfigs: cfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 					Resync:                true,
