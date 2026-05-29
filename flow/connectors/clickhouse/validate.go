@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -51,9 +50,14 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		return nil // no need to validate schema for resync, as we will create or replace the tables
 	}
 
-	peerDBColumns := []string{isDeletedColName, versionColName}
+	peerDBColumns := []string{versionColName}
+	if cfg.SoftDeleteColName != "" {
+		peerDBColumns = append(peerDBColumns, cfg.SoftDeleteColName)
+	} else {
+		peerDBColumns = append(peerDBColumns, isDeletedColName)
+	}
 	if cfg.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
+		peerDBColumns = append(peerDBColumns, cfg.SyncedAtColName)
 	}
 
 	// this is for handling column exclusion, processed schema does that in a step
