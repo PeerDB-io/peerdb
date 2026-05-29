@@ -62,3 +62,8 @@
 - Experiment 9 patch set:
   - Stop direct-canceling the long-running QRep workflow in `TestQRep`; after validating QRep data/status, request `STATUS_TERMINATING` through the API and wait for the catalog row to be removed, matching `TestDropQRep`.
   - Remove the unused extended cancellation helper so the rest of the suite keeps the original one-minute cancellation expectation.
+- Extra verification for commit `f70af4a5` on workflow run `26665715353`:
+  - Automatic attempt 1 was green across all three matrix jobs. Rerun 1 failed pg16 while pg17 and pg18 passed.
+  - The failed row was `TestRunPipeline_FilterStripsLines`: the source `printf` process was reported as `signal: killed` after the destination `cat` exited first.
+- Experiment 10 patch set:
+  - Make `TestRunPipeline_FilterStripsLines` use a destination shell that runs `cat` and then sleeps briefly. This keeps the destination process alive long enough for the tiny source process to exit normally, avoiding a cleanup-kill race while still testing the filter output.

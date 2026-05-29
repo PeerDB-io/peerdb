@@ -255,7 +255,7 @@ func TestRunPipeline_FilterStripsLines(t *testing.T) {
 		"SELECT 2;\n"
 	src := exec.CommandContext(ctx, "printf", "%s", input)
 	var out bytes.Buffer
-	dst := exec.CommandContext(ctx, "cat")
+	dst := exec.CommandContext(ctx, "sh", "-c", "cat; sleep 0.2")
 	dst.Stdout = &out
 
 	if err := runPipeline(ctx, src, dst, "src", "dst", filterIncompatibleLines); err != nil {
