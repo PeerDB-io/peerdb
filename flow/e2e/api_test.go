@@ -2568,14 +2568,15 @@ func (s APITestSuite) TestDropMissing() {
 	var peerId int32
 	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(), "select id from peers where name = $1", peer.Name).Scan(&peerId))
 
+	flowName := "test-drop-missing_" + s.suffix
 	_, err := s.catalog.Exec(s.t.Context(),
-		"insert into flows (name,source_peer,destination_peer,workflow_id,status) values ('test-drop-missing',$1,$1,'drop-missing-wf-id',$2)",
-		peerId, protos.FlowStatus_STATUS_COMPLETED,
+		"insert into flows (name,source_peer,destination_peer,workflow_id,status) values ($1,$2,$2,$3,$4)",
+		flowName, peerId, flowName+"-wf-id", protos.FlowStatus_STATUS_COMPLETED,
 	)
 	require.NoError(s.t, err)
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
-		FlowJobName:        "test-drop-missing",
+		FlowJobName:        flowName,
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)

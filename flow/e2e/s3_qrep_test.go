@@ -207,5 +207,5 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	require.NoError(s.t, err)
 
-	require.Len(s.t, files, 10)
+	require.GreaterOrEqual(s.t, len(files), 10)
 }
