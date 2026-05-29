@@ -189,16 +189,18 @@ func runPipeline(
 		case err := <-srcDone:
 			srcErr = err
 			if err != nil && dstCmd.ProcessState == nil {
-				_ = dstCmd.Process.Kill()
-				dstKilled = true
+				if killErr := dstCmd.Process.Kill(); killErr == nil {
+					dstKilled = true
+				}
 			}
 		case err := <-dstDone:
 			dstErr = err
 			if srcCmd.ProcessState == nil {
 				// dst exited (success or failure) while src is still running;
 				// kill src so it doesn't block on a pipe with no reader.
-				_ = srcCmd.Process.Kill()
-				srcKilled = true
+				if killErr := srcCmd.Process.Kill(); killErr == nil {
+					srcKilled = true
+				}
 			}
 		}
 	}
