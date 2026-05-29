@@ -56,3 +56,9 @@
 - Experiment 8 patch set:
   - Add `RequireEnvCanceledWithin` while preserving the existing one-minute default for the rest of the suite.
   - Use a three-minute cancellation wait for `TestQRep`, whose purpose is QRep status/data validation rather than cancellation latency.
+- Extra verification for commit `75408301` on workflow run `26664380809`:
+  - Automatic attempt 1 was green across all three matrix jobs. Rerun 1 failed pg16 while pg17 and pg18 passed.
+  - `TestApiPg/TestQRep` again passed its data/status assertions but timed out waiting for cancellation, this time after the targeted three-minute wait.
+- Experiment 9 patch set:
+  - Stop direct-canceling the long-running QRep workflow in `TestQRep`; after validating QRep data/status, request `STATUS_TERMINATING` through the API and wait for the catalog row to be removed, matching `TestDropQRep`.
+  - Remove the unused extended cancellation helper so the rest of the suite keeps the original one-minute cancellation expectation.

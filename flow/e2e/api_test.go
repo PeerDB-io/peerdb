@@ -2863,8 +2863,12 @@ func (s APITestSuite) TestQRep() {
 	}
 	require.Equal(s.t, int64(2), totalRowsSynced)
 
-	env.Cancel(s.t.Context())
-	RequireEnvCanceledWithin(s.t, env, 3*time.Minute)
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        qrepConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	s.waitForFlowDropped(env, qrepConfig.FlowJobName)
 }
 
 func (s APITestSuite) TestDropQRep() {
