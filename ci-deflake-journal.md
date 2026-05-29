@@ -50,3 +50,9 @@
   - For the new snapshot-config resync tests, wait for the Temporal run ID to change and for the resynced mirror to return to CDC `RUNNING` before sending the terminating state change.
   - Share a three-minute catalog-row cleanup wait for those tests' final drop assertion, matching the slower lifecycle windows used elsewhere in e2e.
   - Local verification: `go test ./e2e -run '^$'` and `go test ./cmd ./workflows -run '^$'` passed from the `flow/` module.
+- Extra verification for commit `56ddf146` on workflow run `26657913600`:
+  - Automatic attempt 1 and reruns 1-2 were green across all three matrix jobs. Rerun 3 failed pg17 while pg16 and pg18 passed.
+  - The failed row was `TestApiPg/TestQRep`. The data and status assertions passed, but `RequireEnvCanceled` timed out after its default one-minute wait for the non-initial-copy QRep workflow to process cancellation.
+- Experiment 8 patch set:
+  - Add `RequireEnvCanceledWithin` while preserving the existing one-minute default for the rest of the suite.
+  - Use a three-minute cancellation wait for `TestQRep`, whose purpose is QRep status/data validation rather than cancellation latency.

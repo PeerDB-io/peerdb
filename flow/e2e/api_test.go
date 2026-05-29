@@ -2864,7 +2864,7 @@ func (s APITestSuite) TestQRep() {
 	require.Equal(s.t, int64(2), totalRowsSynced)
 
 	env.Cancel(s.t.Context())
-	RequireEnvCanceled(s.t, env)
+	RequireEnvCanceledWithin(s.t, env, 3*time.Minute)
 }
 
 func (s APITestSuite) TestDropQRep() {
