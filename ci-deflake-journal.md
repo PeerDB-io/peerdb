@@ -17,3 +17,4 @@
 - Intermediate run for commit `43f7fa94` failed pg17 and pg18. Remaining signatures:
   - `Test_Types_CH` still hit the 1us `QValueTime` mismatch, so the next patch uses whole-second time/timestamp literals instead of fixed fractional microseconds.
   - `TestPostgresSSHKeepaliveLatency` panicked in `pgx.Conn.Close` while keepalive failure and test cleanup closed the same connection concurrently. The next patch serializes Postgres connector connection closing and skips already-closed connections.
+- Intermediate run for commit `9126e93c` still had the time mismatch and also hit `TestGenericBQ/Test_Simple_Flow` at `SetupCDCFlowStatusQuery` with `STATUS_SNAPSHOT` after 30s. The next patch doubles the helper's status and transient-query timeout thresholds to tolerate slow CI startup without masking later flow-completion assertions.

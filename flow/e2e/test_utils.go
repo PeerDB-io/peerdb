@@ -277,11 +277,11 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 		if err == nil {
 			if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
-			} else if counter > 30 {
+			} else if counter > 60 {
 				env.Cancel(t.Context())
 				t.Fatal("UNEXPECTED STATUS TIMEOUT", status)
 			}
-		} else if counter > 15 {
+		} else if counter > 30 {
 			env.Cancel(t.Context())
 			t.Fatal("UNEXPECTED STATUS QUERY TIMEOUT", err.Error())
 		} else if counter > 5 {
