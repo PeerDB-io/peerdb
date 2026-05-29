@@ -1100,17 +1100,6 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// add a child table after CDC is running to test if is picked up by the flow.
-	go func() {
-		time.Sleep(15 * time.Second)
-		_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %[1]s_child3() INHERITS (%[1]s);`, srcSchemaTable))
-		EnvNoError(t, env, err)
-		_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-04-01');
-		INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-05-01');`,
-			srcSchemaTable))
-		EnvNoError(t, env, err)
-		t.Log("Inserted 2 rows into child table created during CDC")
-	}()
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-01-01');
 	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2025-02-01');
@@ -1118,6 +1107,14 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 		srcSchemaTable))
 	EnvNoError(t, env, err)
 	t.Log("Inserted 3 rows into the source table during CDC")
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %[1]s_child3() INHERITS (%[1]s);`, srcSchemaTable))
+	EnvNoError(t, env, err)
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+	INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-04-01');
+	INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-05-01');`,
+		srcSchemaTable))
+	EnvNoError(t, env, err)
+	t.Log("Inserted 2 rows into child table created during CDC")
 
 	EnvWaitForEqualTablesWithNames(env, s,
 		"rows from parent and 3 child tables should be present", srcTable, dstTable, `id,name,created_at`)

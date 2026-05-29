@@ -29,3 +29,16 @@
   - Make `Test_Partitioned_Table_Without_Publish_Via_Partition_Root` create the post-CDC partition and insert its three rows serially after the initial ten inserts, preserving the dynamic-partition coverage while avoiding concurrent use of the same `pgx.Conn`.
   - Add retrying to `NewTemporalClient` for up to one minute, so transient Temporal dial pressure does not fail tests immediately.
   - Local verification: `go test ./e2e -run '^$'` passed.
+- Verification for final code commit `eb1aad7b`:
+  - Workflow run `26612678061`, attempts 1-10, completed green across all three matrix jobs each time.
+  - cidb rows: 30 matrix jobs, 0 failed jobs. Per matrix, each of `pg16-mymysql-gtid-mo6.0-chlts`, `pg17-mymysql-pos-mo7.0-chstable`, and `pg18-mymaria-mo8.0-chlatest` passed 10/10.
+  - This meets the requested lower bound of 30 matrix-job samples. Stopped rerunning after attempt 10 to avoid spending more CI time once the previous dominant signatures no longer reproduced.
+- Extra verification requested after the 30-job sample:
+  - Attempts 11-17 of workflow run `26612678061` were also green. Attempt 18 failed in pg16 with 3 failed rows while pg17 and pg18 passed.
+  - Failure signatures on attempt 18:
+    - `TestGenericBQ/Test_Inheritance_Table_With_Dynamic_Setting` timed out waiting for BigQuery to reflect rows from inherited child tables. This test had the same unsafe pattern as the earlier dynamic partition test: a delayed goroutine used the suite's shared `pgx.Conn` while the wait loop queried through the same connector, leading to intermittent `conn closed`/incomplete destination observations under load.
+    - `TestPostgresSSHKeepaliveLatency` failed before exercising keepalive behavior because toxiproxy returned `listen tcp 0.0.0.0:49002: bind: address already in use`.
+- Experiment 6 patch set:
+  - Serialize `Test_Inheritance_Table_With_Dynamic_Setting` child3 creation/inserts after CDC has started, removing concurrent use of the shared Postgres connector while preserving dynamic-child-table coverage.
+  - Make toxiproxy test proxy creation delete stale proxies with the same name or listen address before retrying creation. CI exposes a fixed toxiproxy port set, so cleaning stale listeners is safer than choosing arbitrary ports that may not be published.
+  - Local verification: `go test ./e2e -run '^$'` and `go test ./connectors/utils ./connectors/postgres -run '^$'` passed.

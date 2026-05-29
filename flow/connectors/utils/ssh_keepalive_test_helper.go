@@ -41,7 +41,8 @@ func CreateToxiproxyForward(
 	t *testing.T, client *toxiproxy.Client, name string, listenPort int, upstream string,
 ) *toxiproxy.Proxy {
 	t.Helper()
-	proxy, err := client.CreateProxy(name, "0.0.0.0:"+strconv.Itoa(listenPort), upstream)
+	listen := "0.0.0.0:" + strconv.Itoa(listenPort)
+	proxy, err := createToxiproxyForward(t, client, name, listen, upstream)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		if err := proxy.Delete(); err != nil {
@@ -49,6 +50,36 @@ func CreateToxiproxyForward(
 		}
 	})
 	return proxy
+}
+
+func createToxiproxyForward(
+	t *testing.T, client *toxiproxy.Client, name string, listen string, upstream string,
+) (*toxiproxy.Proxy, error) {
+	t.Helper()
+
+	var lastErr error
+	for range 3 {
+		proxies, err := client.Proxies()
+		if err != nil {
+			return nil, err
+		}
+		for _, proxy := range proxies {
+			if proxy.Name == name || proxy.Listen == listen {
+				if err := proxy.Delete(); err != nil {
+					t.Logf("Failed to delete stale toxiproxy proxy %q on %s: %v", proxy.Name, proxy.Listen, err)
+				}
+			}
+		}
+
+		proxy, err := client.CreateProxy(name, listen, upstream)
+		if err == nil {
+			return proxy, nil
+		}
+		lastErr = err
+		time.Sleep(time.Second)
+	}
+
+	return nil, lastErr
 }
 
 func CreateSSHProxy(t *testing.T, client *toxiproxy.Client, name string, port int) *toxiproxy.Proxy {
