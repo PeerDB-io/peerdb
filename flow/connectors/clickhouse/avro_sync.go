@@ -56,7 +56,6 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	ctx context.Context,
-	env map[string]string,
 	stream *model.QRecordStream,
 	flowJobName string,
 	syncBatchID int64,
@@ -70,13 +69,13 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	s.logger.Info("sync function called and schema acquired",
 		slog.String("dstTable", dstTableName))
 
-	avroSchema, err := s.getAvroSchema(ctx, env, dstTableName, schema, nil)
+	avroSchema, err := s.getAvroSchema(ctx, dstTableName, schema, nil)
 	if err != nil {
 		return 0, err
 	}
 
 	batchIdentifierForFile := fmt.Sprintf("%s_%d", common.RandomString(16), syncBatchID)
-	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil, nil)
+	avroFile, err := s.writeToAvroFile(ctx, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -151,7 +150,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 	destTypeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) ([]utils.AvroFile, int64, error) {
-	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
+	avroSchema, err := s.getAvroSchema(ctx, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -200,7 +199,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 			}
 
 			substream, sizeTracker := createChunkedSubstream(&done)
-			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, sizeTracker, avroSchema,
+			subFile, err := s.writeToAvroFile(ctx, substream, sizeTracker, avroSchema,
 				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
 				config.FlowJobName, destTypeConversions, numericTruncator,
 			)
@@ -217,7 +216,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 		}
 	} else {
 		avroFile, err := s.writeToAvroFile(
-			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName,
+			ctx, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName,
 			destTypeConversions, numericTruncator,
 		)
 		if err != nil {
@@ -248,16 +247,12 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 		columnNameMap:    columnNameAvroFieldMap,
 		excludedColumns:  config.Exclude,
 		config:           config,
+		settings:         s.Settings,
 		connector:        s.ClickHouseConnector,
 		logger:           s.logger,
 	}
 
-	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
-	if err != nil {
-		s.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
-		numParts = 1
-	}
-	numParts = max(numParts, 1)
+	numParts := max(s.Settings.ClickHouseInitialLoadPartsPerPartition, 1)
 
 	chSettings := clickhouse.NewCHSettings(s.chVersion)
 	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
@@ -338,12 +333,11 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 
 func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 	ctx context.Context,
-	env map[string]string,
 	dstTableName string,
 	schema types.QRecordSchema,
 	avroNameMap map[string]string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_CLICKHOUSE, avroNameMap)
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, s.Settings, dstTableName, schema, protos.DBType_CLICKHOUSE, avroNameMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -352,7 +346,6 @@ func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 
 func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	ctx context.Context,
-	env map[string]string,
 	stream *model.QRecordStream,
 	sizeTracker *model.QRecordAvroChunkSizeTracker,
 	avroSchema *model.QRecordAvroSchemaDefinition,
@@ -364,13 +357,8 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE, sizeTracker)
 	prefix := s.staging.KeyPrefix()
 
-	s3UuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, s.config.Env)
-	if err != nil {
-		return utils.AvroFile{}, err
-	}
-
 	var stagingAvroFileKey string
-	if s3UuidPrefix {
+	if s.Settings.S3UuidPrefix {
 		stagingAvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", prefix, uuid.NewString(), flowJobName, identifierForFile)
 	} else {
 		stagingAvroFileKey = fmt.Sprintf("%s/%s/%s.avro", prefix, flowJobName, identifierForFile)
@@ -389,10 +377,10 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 			}
 			w.Close()
 		}()
-		numRows, writeOcfError = ocfWriter.WriteOCF(ctx, env, w, typeConversions, numericTruncator)
+		numRows, writeOcfError = ocfWriter.WriteOCF(ctx, s.Settings, w, typeConversions, numericTruncator)
 	}()
 
-	if err := s.staging.Upload(ctx, env, stagingAvroFileKey, r); err != nil {
+	if err := s.staging.Upload(ctx, s.Settings.Env, stagingAvroFileKey, r); err != nil {
 		return utils.AvroFile{}, fmt.Errorf("failed to upload to staging: %w", err)
 	}
 	if writeOcfError != nil {

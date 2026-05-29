@@ -10,6 +10,7 @@ import (
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 // TestClickHouseTLSDirectory verifies that connclickhouse.Connect works
@@ -36,7 +37,7 @@ func TestClickHouseTLSDirectory(t *testing.T) {
 		TlsCertificateDirectory: proto.String(certDir),
 	}
 
-	conn, err := connclickhouse.Connect(t.Context(), nil, config)
+	conn, err := connclickhouse.Connect(t.Context(), internal.NewSettings(nil), config)
 	require.NoError(t, err, "failed to connect to ClickHouse")
 	defer conn.Close()
 

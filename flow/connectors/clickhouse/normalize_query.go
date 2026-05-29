@@ -18,7 +18,7 @@ import (
 )
 
 type NormalizeQueryGenerator struct {
-	env                             map[string]string
+	settings                        *internal.Settings
 	flags                           []string
 	tableNameSchemaMapping          map[string]*protos.TableSchema
 	chVersion                       *chproto.Version
@@ -44,7 +44,7 @@ func NewNormalizeQueryGenerator(
 	lastNormBatchID int64,
 	enablePrimaryUpdate bool,
 	sourceSchemaAsDestinationColumn bool,
-	env map[string]string,
+	settings *internal.Settings,
 	rawTableName string,
 	chVersion *chproto.Version,
 	cluster bool,
@@ -64,7 +64,7 @@ func NewNormalizeQueryGenerator(
 		lastNormBatchID:                 lastNormBatchID,
 		enablePrimaryUpdate:             enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn: sourceSchemaAsDestinationColumn,
-		env:                             env,
+		settings:                        settings,
 		rawTableName:                    rawTableName,
 		chVersion:                       chVersion,
 		cluster:                         cluster,
@@ -128,7 +128,8 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		if clickHouseType == "" {
 			var err error
 			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.flags,
+				ctx, colType, t.settings, protos.DBType_CLICKHOUSE, t.chVersion, column,
+				schema.NullableEnabled || columnNullableEnabled, t.flags,
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
@@ -222,11 +223,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		default:
 			projLen := projection.Len()
 			if colType == types.QValueKindBytes {
-				format, err := internal.PeerDBBinaryFormat(ctx, t.env)
-				if err != nil {
-					return "", err
-				}
-				switch format {
+				switch t.settings.ClickHouseBinaryFormat {
 				case internal.BinaryFormatRaw:
 					fmt.Fprintf(&projection,
 						"base64Decode(JSONExtractString(_peerdb_data, %s)) AS %s,",

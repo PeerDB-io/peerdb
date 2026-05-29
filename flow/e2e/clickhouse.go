@@ -115,7 +115,7 @@ type TestClickHouseColumn struct {
 
 // CreateRMTTable creates a ReplacingMergeTree table with the given name and columns.
 func (s ClickHouseSuite) CreateRMTTable(tableName string, columns []TestClickHouseColumn, orderingKey string) error {
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	if err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func (s ClickHouseSuite) CreateRMTTable(tableName string, columns []TestClickHou
 }
 
 func (s ClickHouseSuite) DropTable(tableName string) error {
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ func (s ClickHouseSuite) DropTable(tableName string) error {
 
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	peer := s.Peer()
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, peer.GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), peer.GetClickhouseConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +402,7 @@ func SetupClickHouseSuite[TSource SuiteSource](
 			cluster:  cluster,
 		}
 
-		ch, err := connclickhouse.Connect(t.Context(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
+		ch, err := connclickhouse.Connect(t.Context(), internal.NewSettings(nil), s.PeerForDatabase("default").GetClickhouseConfig())
 		require.NoError(t, err, "failed to connect to clickhouse")
 		if cluster {
 			err = ch.Exec(t.Context(), "CREATE DATABASE e2e_test_"+suffix+" ON CLUSTER cicluster")
@@ -411,7 +411,7 @@ func SetupClickHouseSuite[TSource SuiteSource](
 		}
 		require.NoError(t, err, "failed to create clickhouse database")
 
-		connector, err := connclickhouse.NewClickHouseConnector(t.Context(), nil, s.Peer().GetClickhouseConfig())
+		connector, err := connclickhouse.NewClickHouseConnector(t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 		require.NoError(t, err)
 		s.connector = connector
 

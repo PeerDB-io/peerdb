@@ -35,19 +35,17 @@ var FlagConstraints = map[string]flagConstraint{
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
-	if req.ConnectionConfigs != nil {
-		if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env); err != nil {
-			return nil, NewInternalApiError(err)
-		} else {
-			req.ConnectionConfigs.Version = internalVersion
-		}
+	settings, err := internal.LoadSettings(ctx, req.ConnectionConfigs.Env)
+	if err != nil {
+		return nil, NewInternalApiError(err)
 	}
+	req.ConnectionConfigs.Version = settings.ForceInternalVersion
 	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
-	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
+	return h.validateCDCMirrorImpl(ctx, settings, flowConnectionConfigsCore, false)
 }
 
 func (h *FlowRequestHandler) validateCDCMirrorImpl(
-	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, idempotent bool,
+	ctx context.Context, settings *internal.Settings, connectionConfigs *protos.FlowConnectionConfigsCore, idempotent bool,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, connectionConfigs.FlowJobName)
 	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
@@ -79,7 +77,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	if connectionConfigs.Resync {
-		if apiErr := h.checkFlagsCompatibility(ctx, connectionConfigs); apiErr != nil {
+		if apiErr := h.checkFlagsCompatibility(ctx, settings, connectionConfigs); apiErr != nil {
 			return nil, apiErr
 		}
 	}
@@ -103,7 +101,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.MirrorSourceValidationConnector](
-		ctx, connectionConfigs.Env, h.pool, connectionConfigs.SourceName,
+		ctx, settings, h.pool, connectionConfigs.SourceName,
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -131,7 +129,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
-		ctx, connectionConfigs.Env, h.pool, connectionConfigs.DestinationName,
+		ctx, settings, h.pool, connectionConfigs.DestinationName,
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -144,7 +142,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	var tableSchemaMap map[string]*protos.TableSchema
 	if !connectionConfigs.Resync {
 		var getTableSchemaError error
-		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, connectionConfigs.Env, connectionConfigs.Version,
+		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, connectionConfigs.Version,
 			connectionConfigs.System, connectionConfigs.TableMappings)
 		if getTableSchemaError != nil {
 			return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get source table schema: %w", getTableSchemaError))
@@ -172,9 +170,10 @@ func (h *FlowRequestHandler) checkIfMirrorNameExists(ctx context.Context, mirror
 // column types whose type mapping depends on that flag.
 func (h *FlowRequestHandler) checkFlagsCompatibility(
 	ctx context.Context,
+	settings *internal.Settings,
 	cfg *protos.FlowConnectionConfigsCore,
 ) APIError {
-	newFlags, err := h.determineFlags(ctx, cfg.Env, cfg.DestinationName)
+	newFlags, err := h.determineFlags(ctx, settings, cfg.DestinationName)
 	if err != nil {
 		return NewInternalApiError(fmt.Errorf("failed to determine destination flags: %w", err))
 	}

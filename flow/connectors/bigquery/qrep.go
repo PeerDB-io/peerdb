@@ -38,7 +38,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
-	result, err := avroSync.SyncQRepRecords(ctx, config.Env, config.FlowJobName, destTable, partition,
+	result, err := avroSync.SyncQRepRecords(ctx, c.Settings, config.FlowJobName, destTable, partition,
 		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName)
 	if err != nil {
 		return result, nil, err
@@ -87,7 +87,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	}
 
 	if err := c.ReplayTableSchemaDeltas(
-		ctx, config.Env, config.FlowJobName, nil, []*protos.TableSchemaDelta{tableSchemaDelta}, nil,
+		ctx, config.FlowJobName, nil, []*protos.TableSchemaDelta{tableSchemaDelta}, nil,
 	); err != nil {
 		return nil, fmt.Errorf("failed to add columns to destination table: %w", err)
 	}

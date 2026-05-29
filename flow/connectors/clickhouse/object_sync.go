@@ -238,6 +238,7 @@ func (c *ClickHouseConnector) insertFromURLBatch(
 		columnNameMap:             columnNameFieldMap,
 		excludedColumns:           config.Exclude,
 		config:                    config,
+		settings:                  c.Settings,
 		connector:                 c,
 		logger:                    c.logger,
 		fieldExpressionConverters: fieldExpressionConverters,

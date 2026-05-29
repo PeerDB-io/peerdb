@@ -6,6 +6,7 @@ import (
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 // ClickHouseMVManager manages materialized views for ClickHouse testing
@@ -34,7 +35,7 @@ func newClickHouseMVManager(
 // that will fail when data is inserted.
 // Source schema is assumed to correspond to (id UInt64, val String).
 func (m *ClickHouseMVManager) CreateBadMV(ctx context.Context) error {
-	ch, err := connclickhouse.Connect(ctx, nil, m.config)
+	ch, err := connclickhouse.Connect(ctx, internal.NewSettings(nil), m.config)
 	if err != nil {
 		return err
 	}
@@ -73,7 +74,7 @@ func (m *ClickHouseMVManager) CreateBadMV(ctx context.Context) error {
 
 // DropBadMV removes the materialized view and its target table
 func (m *ClickHouseMVManager) DropBadMV(ctx context.Context) error {
-	ch, err := connclickhouse.Connect(ctx, nil, m.config)
+	ch, err := connclickhouse.Connect(ctx, internal.NewSettings(nil), m.config)
 	if err != nil {
 		return err
 	}

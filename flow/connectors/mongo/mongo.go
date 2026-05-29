@@ -60,6 +60,7 @@ type createChangeStreamFunc func(
 ) (ChangeStream, error)
 
 type MongoConnector struct {
+	Settings           *internal.Settings
 	logger             log.Logger
 	metadataStore      metadataStore
 	config             *protos.MongoConfig
@@ -70,7 +71,7 @@ type MongoConnector struct {
 	deltaBytesRead     atomic.Int64
 }
 
-func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
+func NewMongoConnector(ctx context.Context, settings *internal.Settings, config *protos.MongoConfig) (*MongoConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	pgMetadata, err := metadata.NewPostgresMetadata(ctx)
 	if err != nil {
@@ -78,6 +79,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	}
 
 	mc := &MongoConnector{
+		Settings:      settings,
 		metadataStore: pgMetadata,
 		config:        config,
 		logger:        logger,

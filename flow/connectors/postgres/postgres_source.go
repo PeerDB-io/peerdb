@@ -35,7 +35,7 @@ type SlotCheckResult struct {
 	PublicationExists bool
 }
 
-func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]string) (*pgx.Conn, error) {
+func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
 	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	replConfig, err := ParseConfig(c.connStr, c.Config)
@@ -55,13 +55,9 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	replConfig.Config.RuntimeParams["standard_conforming_strings"] = "on"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
-	}
-	if !strings.EqualFold(walSenderTimeout, "NONE") {
-		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", walSenderTimeout))
-		replConfig.Config.RuntimeParams["wal_sender_timeout"] = walSenderTimeout
+	if !strings.EqualFold(c.Settings.PostgresWalSenderTimeout, "NONE") {
+		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", c.Settings.PostgresWalSenderTimeout))
+		replConfig.Config.RuntimeParams["wal_sender_timeout"] = c.Settings.PostgresWalSenderTimeout
 	} else {
 		c.logger.Info("not setting wal_sender_timeout")
 	}
@@ -74,8 +70,8 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	return conn, nil
 }
 
-func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]string) error {
-	conn, err := c.CreateReplConn(ctx, env)
+func (c *PostgresConnector) SetupReplConn(ctx context.Context) error {
+	conn, err := c.CreateReplConn(ctx)
 	if err != nil {
 		return err
 	}
@@ -237,17 +233,9 @@ func pullCore[Items model.Items](
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
-	handleInheritanceForNonPartitionedTables, err := internal.PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx, req.Env)
+	handleInheritanceForNonPartitionedTables, err := internal.PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx, c.Settings.Env)
 	if err != nil {
 		return fmt.Errorf("failed to get get setting for handleInheritanceForNonPartitionedTables: %w", err)
-	}
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
-	if err != nil {
-		return fmt.Errorf("failed to get get setting for sourceSchemaAsDestinationColumn: %w", err)
-	}
-	originMetaAsDestinationColumn, err := internal.PeerDBOriginMetaAsDestinationColumn(ctx, req.Env)
-	if err != nil {
-		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
 	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
@@ -261,8 +249,8 @@ func pullCore[Items model.Items](
 		Slot:                                     slotName,
 		Publication:                              publicationName,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
-		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
-		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
+		SourceSchemaAsDestinationColumn:          c.Settings.SourceSchemaAsDestinationColumn,
+		OriginMetaAsDestinationColumn:            c.Settings.OriginMetadataAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
 	})
 	if err != nil {
@@ -296,7 +284,6 @@ func (c *PostgresConnector) UpdateReplStateLastOffset(_ context.Context, lastOff
 
 func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
-	env map[string]string,
 	version uint32,
 	system protos.TypeSystem,
 	tableMapping []*protos.TableMapping,
@@ -304,7 +291,7 @@ func (c *PostgresConnector) GetTableSchema(
 	res := make(map[string]*protos.TableSchema, len(tableMapping))
 	typeSchemaNameMapping := make(map[uint32]string, len(tableMapping))
 	for _, tm := range tableMapping {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version, typeSchemaNameMapping)
+		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, version, typeSchemaNameMapping)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -451,7 +438,6 @@ func (c *PostgresConnector) GetSchemaNameOfColumnTypeByOID(ctx context.Context, 
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
-	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
 	version uint32,
@@ -481,10 +467,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 	}
 
-	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
-	if err != nil {
-		return nil, err
-	}
+	nullableEnabled := c.Settings.Nullable
 
 	var nullableCols map[string]struct{}
 	nullableCols, err = c.getNullableColumns(ctx, relID)
@@ -636,15 +619,11 @@ func (c *PostgresConnector) EnsurePullability(
 func (c *PostgresConnector) ExportTxSnapshot(
 	ctx context.Context,
 	_ string,
-	env map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
-	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, env)
-	if err != nil {
-		c.logger.Error("failed to check PEERDB_SKIP_SNAPSHOT_EXPORT, proceeding with export snapshot", slog.Any("error", err))
-	} else if skipSnapshotExport {
+	if c.Settings.SkipSnapshotExport {
 		return &protos.ExportTxSnapshotOutput{
 			SnapshotName: "",
-		}, nil, err
+		}, nil, nil
 	}
 
 	var snapshotName string
@@ -713,12 +692,6 @@ func (c *PostgresConnector) SetupReplication(
 		return model.SetupReplicationResult{}, err
 	}
 
-	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, req.Env)
-	if err != nil {
-		c.logger.Error("failed to check PEERDB_SKIP_SNAPSHOT_EXPORT, proceeding with export snapshot", slog.Any("error", err))
-		skipSnapshotExport = false
-	}
-
 	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
 	for k, v := range req.TableNameMapping {
 		tableNameMapping[k] = model.NameAndExclude{
@@ -728,7 +701,7 @@ func (c *PostgresConnector) SetupReplication(
 	}
 	// Create the replication slot and publication
 	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping,
-		req.DoInitialSnapshot, skipSnapshotExport, req.Env)
+		req.DoInitialSnapshot, c.Settings.SkipSnapshotExport)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {

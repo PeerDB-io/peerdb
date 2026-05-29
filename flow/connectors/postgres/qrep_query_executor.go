@@ -25,20 +25,20 @@ import (
 type QRepQueryExecutor struct {
 	*PostgresConnector
 	logger      log.Logger
-	env         map[string]string
+	settings    *internal.Settings
 	snapshot    string
 	flowJobName string
 	partitionID string
 	version     uint32
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, settings *internal.Settings, version uint32,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, settings, version, "", flowJobName, partitionID)
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, settings *internal.Settings, version uint32,
 	snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
@@ -47,7 +47,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, en
 	}
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
-		env:               env,
+		settings:          settings,
 		snapshot:          snapshot,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
@@ -71,10 +71,7 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 	tx pgx.Tx,
 	cursorName string,
 ) (types.QRecordSchema, *types.NullableSchemaDebug, error) {
-	laxMode, err := internal.PeerDBAvroNullableLax(ctx, qe.env)
-	if err != nil {
-		return types.QRecordSchema{}, nil, err
-	}
+	laxMode := qe.settings.AvroNullableLax
 
 	rows, err := tx.Query(ctx, "FETCH 0 FROM "+cursorName)
 	if err != nil {

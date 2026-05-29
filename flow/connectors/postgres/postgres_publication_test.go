@@ -44,7 +44,7 @@ func createTableInPublication(t *testing.T, conn *pgx.Conn, schema, table, pubNa
 
 func TestRemoveTablesFromPublication(t *testing.T) {
 	t.Parallel()
-	connector, err := NewPostgresConnector(t.Context(), nil, internal.GetCatalogPostgresConfigFromEnv(t.Context()))
+	connector, err := NewPostgresConnector(t.Context(), internal.NewSettings(nil), internal.GetCatalogPostgresConfigFromEnv(t.Context()))
 	require.NoError(t, err)
 	t.Cleanup(func() { connector.Close() })
 

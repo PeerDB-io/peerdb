@@ -41,6 +41,7 @@ type PostgresConnector struct {
 	replConn               *pgx.Conn
 	replState              *ReplState
 	Config                 *protos.PostgresConfig
+	Settings               *internal.Settings
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
@@ -51,14 +52,10 @@ type PostgresConnector struct {
 	pgVersion              shared.PGVersion
 }
 
-func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+func NewPostgresConnector(ctx context.Context, settings *internal.Settings, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
-	if err != nil {
-		logger.Error("Failed to get flow name from application name", slog.Any("error", err))
-	}
 	var flowName string
-	if flowNameInApplicationName {
+	if settings.ApplicationNamePerMirrorName {
 		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
 	}
 	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
@@ -115,6 +112,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	connector := &PostgresConnector{
 		logger:                 logger,
 		Config:                 pgConfig,
+		Settings:               settings,
 		ssh:                    tunnel,
 		conn:                   conn,
 		replConn:               nil,

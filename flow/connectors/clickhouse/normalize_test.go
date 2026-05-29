@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -253,7 +254,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 		lastNormBatchID,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
-		env,
+		internal.NewSettings(env),
 		rawTableName,
 		nil,
 		false,
@@ -308,7 +309,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		lastNormBatchID,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
-		env,
+		internal.NewSettings(env),
 		rawTableName,
 		nil,
 		false,
@@ -360,7 +361,7 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		lastNormBatchID,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
-		env,
+		internal.NewSettings(env),
 		rawTableName,
 		nil,
 		true,
@@ -489,10 +490,6 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
-			c := &ClickHouseConnector{
-				Config:    &protos.ClickhouseConfig{Database: "db"},
-				chVersion: tc.chVersion,
-			}
 			config := &protos.SetupNormalizedTableBatchInput{
 				Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
 				TableMappings: []*protos.TableMapping{
@@ -502,6 +499,11 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 					},
 				},
 				IsResync: tc.isResync,
+			}
+			c := &ClickHouseConnector{
+				Config:    &protos.ClickhouseConfig{Database: "db"},
+				chVersion: tc.chVersion,
+				Settings:  internal.NewSettings(config.Env),
 			}
 
 			result, err := c.generateCreateTableSQLForNormalizedTable(ctx, config, tableIdentifier, tableSchema, tc.chVersion, nil)

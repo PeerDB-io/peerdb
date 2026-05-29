@@ -22,6 +22,7 @@ import (
 type insertFromTableFunctionConfig struct {
 	columnNameMap             map[string]string
 	config                    *protos.QRepConfig
+	settings                  *internal.Settings
 	connector                 *ClickHouseConnector
 	logger                    log.Logger
 	destinationTable          string
@@ -47,7 +48,7 @@ func jsonFieldExpressionConverter(
 		return sourceFieldIdentifier, nil
 	}
 
-	if !qvalue.ShouldUseNativeJSONType(ctx, config.config.Env, config.connector.chVersion) {
+	if !qvalue.ShouldUseNativeJSONType(config.settings, config.connector.chVersion) {
 		return sourceFieldIdentifier, nil
 	}
 
@@ -96,10 +97,7 @@ func buildInsertFromTableFunctionQuery(
 	fieldExpressionConverters := defaultFieldExpressionConverters
 	fieldExpressionConverters = append(fieldExpressionConverters, config.fieldExpressionConverters...)
 
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.config.Env)
-	if err != nil {
-		return "", err
-	}
+	sourceSchemaAsDestinationColumn := config.settings.SourceSchemaAsDestinationColumn
 
 	selectedColumnNames := make([]string, 0, len(config.schema.Fields))
 	insertedColumnNames := make([]string, 0, len(config.schema.Fields))

@@ -503,13 +503,12 @@ func PullCdcRecords[Items model.Items](
 
 	// determine message wait period in function of idle and wal_sender timeouts
 	var walSenderTimeout time.Duration
-	if walSenderTimeoutStr, err := internal.PeerDBPostgresWalSenderTimeout(ctx, req.Env); err != nil {
-		return fmt.Errorf("could't get wal_sender_timeout parameter: %w", err)
-	} else if walSenderTimeoutStr != NoWALSenderTimeoutSetting {
+	if walSenderTimeoutStr := p.Settings.PostgresWalSenderTimeout; walSenderTimeoutStr != NoWALSenderTimeoutSetting {
 		// If no units are provided, milliseconds are assumed
 		if regexp.MustCompile(`^\d+$`).MatchString(walSenderTimeoutStr) {
 			walSenderTimeoutStr += "ms"
 		}
+		var err error
 		if walSenderTimeout, err = time.ParseDuration(walSenderTimeoutStr); err != nil {
 			return fmt.Errorf("failed to parse wal_sender_timeout value: %w", err)
 		}
@@ -547,13 +546,13 @@ func PullCdcRecords[Items model.Items](
 	}
 
 	// Remove exceptions.PrimaryKeyModifiedError and its classification when cdc store is removed
-	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, req.Env)
+	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, p.Settings.Env)
 	if err != nil {
 		return err
 	}
 	var cdcRecordsStorage *utils.CDCStore[Items]
 	if cdcStoreEnabled {
-		cdcRecordsStorage, err = utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
+		cdcRecordsStorage, err = utils.NewCDCStore[Items](ctx, p.Settings, p.flowJobName)
 		if err != nil {
 			return err
 		}
@@ -639,10 +638,6 @@ func PullCdcRecords[Items model.Items](
 		return nil
 	}
 
-	pkmEmptyBatchThrottleThresholdSeconds, err := internal.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
-	if err != nil {
-		logger.Error("failed to get PeerDBPKMEmptyBatchThrottleThresholdSeconds", slog.Any("error", err))
-	}
 	lastEmptyBatchPkmSentTime := time.Now()
 	for {
 		if pkmRequiresResponse {
@@ -773,8 +768,8 @@ func PullCdcRecords[Items model.Items](
 					clientXLogPos = pkm.ServerWALEnd
 				}
 
-				if pkm.ReplyRequested || (pkmEmptyBatchThrottleThresholdSeconds != -1 &&
-					time.Since(lastEmptyBatchPkmSentTime) >= time.Duration(pkmEmptyBatchThrottleThresholdSeconds)*time.Second) {
+				if pkm.ReplyRequested || (p.Settings.PKMEmptyBatchThrottleThresholdSeconds != -1 &&
+					time.Since(lastEmptyBatchPkmSentTime) >= time.Duration(p.Settings.PKMEmptyBatchThrottleThresholdSeconds)*time.Second) {
 					pkmRequiresResponse = true
 				}
 

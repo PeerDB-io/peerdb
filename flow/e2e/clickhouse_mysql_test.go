@@ -804,7 +804,8 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 			},
 		},
 	}
-	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	output, err := destinationSchemaConnector.GetTableSchema(
+		t.Context(), shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -839,7 +840,8 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	output, err = destinationSchemaConnector.GetTableSchema(
+		t.Context(), shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -925,7 +927,8 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 			},
 		},
 	}
-	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	output, err := destinationSchemaConnector.GetTableSchema(
+		t.Context(), shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -1043,7 +1046,8 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	output, err = destinationSchemaConnector.GetTableSchema(
+		t.Context(), shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -1093,7 +1097,7 @@ func (s ClickHouseSuite) Test_MySQL_NumToVarcharCoercion() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
 
 	var numCount, f32Count, f64Count uint64
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.QueryRow(s.t.Context(),
 		"SELECT count(distinct num), count(distinct f32), count(distinct f64) FROM "+clickhouse.QuoteIdentifier(dstTableName),

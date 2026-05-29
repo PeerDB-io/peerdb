@@ -14,6 +14,7 @@ import (
 
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/switchboard/mongodb"
 )
 
@@ -39,7 +40,11 @@ type MongoUpstream struct {
 
 // NewMongoUpstream creates a new MongoDB upstream connection
 func NewMongoUpstream(ctx context.Context, config *protos.MongoConfig, database string) (*MongoUpstream, error) {
-	conn, err := connmongo.NewMongoConnector(ctx, config)
+	settings, err := internal.LoadSettings(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := connmongo.NewMongoConnector(ctx, settings, config)
 	if err != nil {
 		return nil, err
 	}
