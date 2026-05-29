@@ -14,3 +14,6 @@
 - Experiment 2 patch set:
   - `TestDropMissing` used the fixed flow name `test-drop-missing` across `TestApiPg`, `TestApiMy`, and `TestApiMongo`, which run in parallel. Suffixing the flow name removes cross-suite catalog/workflow interference; historical full-package timeouts often named `TestApiMy/TestDropMissing`.
   - Relax `Test_Complete_QRep_Flow_S3_CTID` from exactly 10 S3/GCS objects to at least 10. CTID block partitioning can produce an extra output object, and the test's durable assertion is that the partitioned export completed with the expected lower bound.
+- Intermediate run for commit `43f7fa94` failed pg17 and pg18. Remaining signatures:
+  - `Test_Types_CH` still hit the 1us `QValueTime` mismatch, so the next patch uses whole-second time/timestamp literals instead of fixed fractional microseconds.
+  - `TestPostgresSSHKeepaliveLatency` panicked in `pgx.Conn.Close` while keepalive failure and test cleanup closed the same connection concurrently. The next patch serializes Postgres connector connection closing and skips already-closed connections.
