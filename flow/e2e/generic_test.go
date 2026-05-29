@@ -971,22 +971,6 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	env := ExecutePeerflow(t, tc, flowConnConfig)
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-	// add a partition to the source table after CDC is running to test if
-	// the partition is picked up by the flow.
-	go func() {
-		time.Sleep(15 * time.Second)
-		_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-		CREATE TABLE %[1]s_2024q4
-			PARTITION OF %[1]s
-			FOR VALUES FROM ('2024-10-01') TO ('2025-01-01');`, srcSchemaTable))
-		EnvNoError(t, env, err)
-		_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-10-01');
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-12-01');`,
-			srcSchemaTable))
-		EnvNoError(t, env, err)
-	}()
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testName := fmt.Sprintf("test_name_%d", i)
@@ -995,6 +979,19 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 				srcSchemaTable, max(1, i)), testName)
 		EnvNoError(t, env, err)
 	}
+	// add a partition to the source table after CDC is running to test if
+	// the partition is picked up by the flow.
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s_2024q4
+			PARTITION OF %[1]s
+			FOR VALUES FROM ('2024-10-01') TO ('2025-01-01');`, srcSchemaTable))
+	EnvNoError(t, env, err)
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-10-01');
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-12-01');`,
+		srcSchemaTable))
+	EnvNoError(t, env, err)
 	t.Log("Inserted 13 rows into the source table")
 
 	EnvWaitForEqualTablesWithNames(env, s, "normalizing 13 rows", srcTable, dstTable, `id,name,created_at`)

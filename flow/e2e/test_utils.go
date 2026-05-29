@@ -625,14 +625,26 @@ func NewTemporalClient(t *testing.T) client.Client {
 		),
 	))
 
-	tc, err := client.Dial(client.Options{
-		HostPort: "localhost:7233",
-		Logger:   logger,
-	})
-	if err != nil {
-		t.Fatalf("Failed to connect temporal client: %v", err)
+	var lastErr error
+	deadline := time.Now().Add(time.Minute)
+	for attempt := 1; ; attempt++ {
+		tc, err := client.Dial(client.Options{
+			HostPort: "localhost:7233",
+			Logger:   logger,
+		})
+		if err == nil {
+			return tc
+		}
+		lastErr = err
+		if ctxErr := t.Context().Err(); ctxErr != nil {
+			t.Fatalf("Failed to connect temporal client: %v", ctxErr)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Failed to connect temporal client after %d attempts: %v", attempt, lastErr)
+		}
+		t.Logf("Temporal client dial attempt %d failed: %v", attempt, err)
+		time.Sleep(time.Second)
 	}
-	return tc
 }
 
 func NewApiClient() (protos.FlowServiceClient, error) {

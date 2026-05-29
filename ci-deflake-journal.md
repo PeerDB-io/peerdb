@@ -18,3 +18,14 @@
   - `Test_Types_CH` still hit the 1us `QValueTime` mismatch, so the next patch uses whole-second time/timestamp literals instead of fixed fractional microseconds.
   - `TestPostgresSSHKeepaliveLatency` panicked in `pgx.Conn.Close` while keepalive failure and test cleanup closed the same connection concurrently. The next patch serializes Postgres connector connection closing and skips already-closed connections.
 - Intermediate run for commit `9126e93c` still had the time mismatch and also hit `TestGenericBQ/Test_Simple_Flow` at `SetupCDCFlowStatusQuery` with `STATUS_SNAPSHOT` after 30s. The next patch doubles the helper's status and transient-query timeout thresholds to tolerate slow CI startup without masking later flow-completion assertions.
+
+## 2026-05-29
+
+- Run `26611904532` for commit `a7a7a9d5` finished green across all three matrix jobs. That confirms the whole-second ClickHouse literals and serialized Postgres SSH cleanup fixed the failures seen in `26611243746` and `26611321628` for one full sample.
+- Run `26611975766` for commit `3cda734f` finished with pg17 and pg18 green, but pg16 failed 4 rows:
+  - `TestGenericBQ/Test_Partitioned_Table_Without_Publish_Via_Partition_Root` timed out normalizing rows. cidb showed the test's delayed partition goroutine racing the wait loop on the same `pgx.Conn`: `conn busy`, then `UNEXPECTED ERROR conn closed`.
+  - `TestPeerFlowE2ETestSuiteMySQL_CH_Cluster/Test_MySQL_Specific_Geometric_Types` failed to dial Temporal once with `context deadline exceeded`.
+- Experiment 5 patch set:
+  - Make `Test_Partitioned_Table_Without_Publish_Via_Partition_Root` create the post-CDC partition and insert its three rows serially after the initial ten inserts, preserving the dynamic-partition coverage while avoiding concurrent use of the same `pgx.Conn`.
+  - Add retrying to `NewTemporalClient` for up to one minute, so transient Temporal dial pressure does not fail tests immediately.
+  - Local verification: `go test ./e2e -run '^$'` passed.
