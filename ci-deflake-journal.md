@@ -42,3 +42,11 @@
   - Serialize `Test_Inheritance_Table_With_Dynamic_Setting` child3 creation/inserts after CDC has started, removing concurrent use of the shared Postgres connector while preserving dynamic-child-table coverage.
   - Make toxiproxy test proxy creation delete stale proxies with the same name or listen address before retrying creation. CI exposes a fixed toxiproxy port set, so cleaning stale listeners is safer than choosing arbitrary ports that may not be published.
   - Local verification: `go test ./e2e -run '^$'` and `go test ./connectors/utils ./connectors/postgres -run '^$'` passed.
+- Extra verification for commit `4a55dace` on workflow run `26653019694`:
+  - Attempts 1-4 were green across all three matrix jobs. Attempt 5 failed pg17 while pg16 and pg18 passed.
+  - The failed row was `TestApiMy/TestResyncWithSnapshotConfigOnRunningPipe`, which came from a newer `main` change exercised by the PR merge ref. The test signaled `TERMINATING` after row equality but before the resync continue-as-new cycle had definitely returned to `STATUS_RUNNING`; a terminating signal sent while the workflow is in `STATUS_RESYNC` can be accepted by Temporal but not consumed by the resync drop workflow, leaving the catalog row present until the test's one-minute drop wait timed out.
+- Experiment 7 patch set:
+  - Merge current `origin/main` into the branch so local code matches the PR merge ref being tested.
+  - For the new snapshot-config resync tests, wait for the Temporal run ID to change and for the resynced mirror to return to CDC `RUNNING` before sending the terminating state change.
+  - Share a three-minute catalog-row cleanup wait for those tests' final drop assertion, matching the slower lifecycle windows used elsewhere in e2e.
+  - Local verification: `go test ./e2e -run '^$'` and `go test ./cmd ./workflows -run '^$'` passed from the `flow/` module.

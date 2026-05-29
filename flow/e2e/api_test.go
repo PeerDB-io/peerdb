@@ -69,6 +69,29 @@ func (s APITestSuite) DestinationTable(table string) string {
 	return table
 }
 
+func (s APITestSuite) waitForResyncedMirrorRunning(env WorkflowRun, previousRunID string) {
+	s.t.Helper()
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for resync ContinueAsNew", func() bool {
+		return EnvGetRunID(s.t, env) != previousRunID
+	})
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for resynced mirror to be in cdc", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+}
+
+func (s APITestSuite) waitForFlowDropped(env WorkflowRun, flowJobName string) {
+	s.t.Helper()
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow dropped", func() bool {
+		var workflowID string
+		err := s.catalog.QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", flowJobName,
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
+	})
+}
+
 // checkMigrationCompleted checks if a migration has been completed for a given flow
 func (s APITestSuite) checkMigrationCompleted(
 	ctx context.Context,
@@ -1442,6 +1465,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
 		newNumPartitionsOverride uint32 = 7
 	)
 
+	runIDBeforeResync := EnvGetRunID(s.t, env)
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
@@ -1458,9 +1482,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
 	})
 	require.NoError(s.t, err)
 
-	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to be in cdc", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
-	})
+	s.waitForResyncedMirrorRunning(env, runIDBeforeResync)
 	EnvWaitForEqualTables(env, s.ch, "resync with snapshot config override", tableName, cols)
 	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
@@ -1481,13 +1503,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 // TestResyncWithSnapshotConfigOnCompletedSnapshotOnlyPipe verifies that snapshot tuning parameters
@@ -1595,13 +1611,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnCompletedSnapshotOnlyPipe() 
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 // TestResyncWithSnapshotConfigDuringSnapshot verifies that snapshot tuning parameters supplied via
@@ -1670,6 +1680,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigDuringSnapshot() {
 	)
 
 	// Trigger resync while initial snapshot is still running.
+	runIDBeforeResync := EnvGetRunID(s.t, env)
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
@@ -1686,9 +1697,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigDuringSnapshot() {
 	})
 	require.NoError(s.t, err)
 
-	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to be in cdc", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
-	})
+	s.waitForResyncedMirrorRunning(env, runIDBeforeResync)
 	EnvWaitForEqualTables(env, s.ch, "resync during snapshot with config override", tableName, cols)
 	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
@@ -1709,13 +1718,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigDuringSnapshot() {
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 // TestResyncWithSnapshotConfigOnPausedPipe verifies that snapshot tuning parameters supplied via
@@ -1799,6 +1802,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 	)
 
 	// Issue resync while paused, with snapshot config overrides.
+	runIDBeforeResync := EnvGetRunID(s.t, env)
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
@@ -1815,6 +1819,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 	})
 	require.NoError(s.t, err)
 
+	s.waitForResyncedMirrorRunning(env, runIDBeforeResync)
 	EnvWaitForEqualTables(env, s.ch, "resync from paused with snapshot config override", tableName, cols)
 	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
@@ -1835,13 +1840,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 func (s APITestSuite) TestResyncSourceTableMissing() {
