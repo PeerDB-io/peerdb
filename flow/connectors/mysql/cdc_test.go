@@ -18,7 +18,7 @@ func newTestConnector(t *testing.T, ctx context.Context) *MySqlConnector {
 	if internal.MySQLTestVersionIsMaria() {
 		flavor = protos.MySqlFlavor_MYSQL_MARIA
 	}
-	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
+	connector, err := NewMySqlConnector(ctx, internal.NewSettings(nil), &protos.MySqlConfig{
 		Host:       internal.MySQLTestHost(),
 		Port:       internal.MySQLTestPort(),
 		User:       "root",
@@ -93,7 +93,7 @@ func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ul TEXT)", ulTable))
 	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, uu TEXT)", uuTable))
 
-	schemas, err := connector.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+	schemas, err := connector.GetTableSchema(ctx, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{
 			{SourceTableIdentifier: llTable},
 			{SourceTableIdentifier: luTable},

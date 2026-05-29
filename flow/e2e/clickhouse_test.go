@@ -24,6 +24,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -516,7 +517,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
 	// now test weird names with rename based resync
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	onCluster := ""
 	if s.cluster {
@@ -534,7 +535,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	// now test weird names with exchange based resync
-	ch, err = connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err = connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE "+clickhouse.QuoteIdentifier(dstTableName)+onCluster))
 	require.NoError(s.t, ch.Close())
@@ -1378,7 +1379,7 @@ func (s ClickHouseSuite) Test_Time64() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,t,t_nullable,t_nullable_2")
 
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	defer ch.Close()
 	var dstTableSuffix string
@@ -1456,7 +1457,7 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
 
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	rows, err := ch.Query(s.t.Context(),
 		fmt.Sprintf("select id,t_null,t_notnull,d_null,d_notnull,n_null,n_notnull from %s order by id", dstTableName))
@@ -1540,7 +1541,7 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
 
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	rows, err := ch.Query(s.t.Context(),
 		fmt.Sprintf("select id,j_null,j_notnull,j_sqlnull,jb_null,jb_notnull,jb_sqlnull from %s order by id", dstTableName))
@@ -2209,7 +2210,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName1, dstTableName1, "id,\"key\"")
 
 	// Rename the table to simulate a push failure to ClickHouse
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	fakeDestination2 := "test_normalize_metadata_with_retry_dst_2_fake"
 	onCluster := ""
@@ -2604,7 +2605,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), chPeer)
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(s.t.Context(),
 		`create table nulltarget (id Int32, "key" String, _peerdb_is_deleted Int8) engine = ReplacingMergeTree() order by id`))
@@ -2623,7 +2624,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	EnvWaitForEqualTablesWithNames(env, s, "null insert after column added", srcTableName, "nulltarget", "id,\"key\"")
 
 	var count uint64
-	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	ch, err = connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), chPeer)
 	require.NoError(s.t, err)
 	row := ch.QueryRow(s.t.Context(),
 		fmt.Sprintf("select count(*) from system.columns where database = '%s' and table = 'test_nullengine'", chPeer.Database))
@@ -2639,7 +2640,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s DROP COLUMN val", srcFullName)))
 
-	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	ch, err = connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), chPeer)
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE nulltarget"))
 	require.NoError(s.t, ch.Close())
@@ -2653,7 +2654,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 		fmt.Sprintf(`insert into %s values (3,'cdcresync',1)`, srcFullName)))
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on insert after resync", srcTableName, "nulltarget", "id,\"key\"")
 
-	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	ch, err = connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), chPeer)
 	require.NoError(s.t, err)
 	row = ch.QueryRow(s.t.Context(),
 		fmt.Sprintf("select count(*) from system.columns where database = '%s' and table = 'test_nullengine'", chPeer.Database))
@@ -3012,7 +3013,7 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 	EnvWaitForEqualTablesWithNames(env, s, "table setup", srcTableName, dstTableName, "id")
 
 	var partitionKey, sortingKey string
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	var dstTableSuffix string
 	if s.cluster {
@@ -3065,7 +3066,7 @@ func (s ClickHouseSuite) Test_PartitionByExpr() {
 	EnvWaitForEqualTablesWithNames(env, s, "table setup", srcTableName, dstTableName, "id")
 
 	var partitionKey string
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	var dstTableSuffix string
 	if s.cluster {
@@ -3540,7 +3541,7 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, orderedPk)
 
 	var sortingKey string
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), internal.NewSettings(nil), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	var dstTableSuffix string
 	if s.cluster {

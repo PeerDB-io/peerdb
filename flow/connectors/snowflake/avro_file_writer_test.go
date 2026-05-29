@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -146,14 +147,15 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
+	avroSchema, err := model.GetAvroSchemaDefinition(
+		t.Context(), internal.NewSettings(nil), "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE, nil)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), internal.NewSettings(nil), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -173,14 +175,15 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
+	avroSchema, err := model.GetAvroSchemaDefinition(
+		t.Context(), internal.NewSettings(nil), "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE, nil)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), internal.NewSettings(nil), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -200,14 +203,15 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
+	avroSchema, err := model.GetAvroSchemaDefinition(
+		t.Context(), internal.NewSettings(nil), "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Deflate, protos.DBType_SNOWFLAKE, nil)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), internal.NewSettings(nil), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -226,14 +230,15 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 
 	records, schema := generateRecords(t, false, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
+	avroSchema, err := model.GetAvroSchemaDefinition(
+		t.Context(), internal.NewSettings(nil), "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE, nil)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), internal.NewSettings(nil), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -253,14 +258,15 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, true)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
+	avroSchema, err := model.GetAvroSchemaDefinition(
+		t.Context(), internal.NewSettings(nil), "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE, nil)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), internal.NewSettings(nil), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty

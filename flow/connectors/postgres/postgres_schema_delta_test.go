@@ -26,7 +26,7 @@ type PostgresSchemaDeltaTestSuite struct {
 func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(t.Context(), nil, internal.GetCatalogPostgresConfigFromEnv(t.Context()))
+	connector, err := NewPostgresConnector(t.Context(), internal.NewSettings(nil), internal.GetCatalogPostgresConfigFromEnv(t.Context()))
 	require.NoError(t, err)
 
 	setupTx, err := connector.conn.Begin(t.Context())
@@ -78,14 +78,15 @@ func (s PostgresSchemaDeltaTestSuite) testSimpleAddColumn(t *testing.T, system p
 		},
 	}, system)
 
-	require.NoError(t, s.connector.ReplayTableSchemaDeltas(t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
-		System:       system,
-	}}, nil))
+	require.NoError(t, s.connector.ReplayTableSchemaDeltas(
+		t.Context(), "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+			SrcTableName: tableName,
+			DstTableName: tableName,
+			AddedColumns: addedColumns,
+			System:       system,
+		}}, nil))
 
-	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
+	output, err := s.connector.GetTableSchema(t.Context(), shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(t, err)
 	require.NotEqual(t, 0, output[tableName].TableOid)
@@ -144,14 +145,15 @@ func (s PostgresSchemaDeltaTestSuite) testAddAllColumnTypes(t *testing.T, system
 		}
 	}
 
-	require.NoError(t, s.connector.ReplayTableSchemaDeltas(t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
-		System:       system,
-	}}, nil))
+	require.NoError(t, s.connector.ReplayTableSchemaDeltas(
+		t.Context(), "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+			SrcTableName: tableName,
+			DstTableName: tableName,
+			AddedColumns: addedColumns,
+			System:       system,
+		}}, nil))
 
-	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
+	output, err := s.connector.GetTableSchema(t.Context(), shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(t, err)
 	require.NotEqual(t, 0, output[tableName].TableOid)
@@ -188,14 +190,15 @@ func (s PostgresSchemaDeltaTestSuite) testAddTrickyColumnNames(t *testing.T, sys
 		}
 	}
 
-	require.NoError(t, s.connector.ReplayTableSchemaDeltas(t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
-		System:       system,
-	}}, nil))
+	require.NoError(t, s.connector.ReplayTableSchemaDeltas(
+		t.Context(), "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+			SrcTableName: tableName,
+			DstTableName: tableName,
+			AddedColumns: addedColumns,
+			System:       system,
+		}}, nil))
 
-	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
+	output, err := s.connector.GetTableSchema(t.Context(), shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(t, err)
 	require.NotEqual(t, 0, output[tableName].TableOid)
@@ -232,14 +235,15 @@ func (s PostgresSchemaDeltaTestSuite) testAddDropWhitespaceColumnNames(t *testin
 		}
 	}
 
-	require.NoError(t, s.connector.ReplayTableSchemaDeltas(t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: addedColumns,
-		System:       system,
-	}}, nil))
+	require.NoError(t, s.connector.ReplayTableSchemaDeltas(
+		t.Context(), "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
+			SrcTableName: tableName,
+			DstTableName: tableName,
+			AddedColumns: addedColumns,
+			System:       system,
+		}}, nil))
 
-	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
+	output, err := s.connector.GetTableSchema(t.Context(), shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(t, err)
 	require.NotEqual(t, 0, output[tableName].TableOid)

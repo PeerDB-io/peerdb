@@ -191,11 +191,13 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	c := &PostgresConnector{
-		conn:   conn,
-		logger: log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
+		conn:     conn,
+		Settings: internal.NewSettings(nil),
+		logger:   log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			c.Settings = internal.NewSettings(tc.config.Env)
 			got, err := c.GetQRepPartitions(t.Context(), tc.config, tc.last)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
@@ -248,11 +250,13 @@ func TestGetQRepPartitionsWithNulls(t *testing.T) {
 	}
 
 	c := &PostgresConnector{
-		conn:   conn,
-		logger: log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitionsWithNulls"))),
+		conn:     conn,
+		Settings: internal.NewSettings(nil),
+		logger:   log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitionsWithNulls"))),
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			c.Settings = internal.NewSettings(tc.config.Env)
 			got, err := c.GetQRepPartitions(t.Context(), tc.config, tc.last)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
@@ -312,10 +316,11 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 	}
 
 	c := &PostgresConnector{
-		connStr: connStr,
-		Config:  &protos.PostgresConfig{},
-		conn:    conn,
-		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testCTIDPartitioned"))),
+		connStr:  connStr,
+		Config:   &protos.PostgresConfig{},
+		conn:     conn,
+		Settings: internal.NewSettings(nil),
+		logger:   log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testCTIDPartitioned"))),
 	}
 	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, parentTable)
 	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
@@ -415,10 +420,11 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	}
 
 	c := &PostgresConnector{
-		connStr: connStr,
-		Config:  &protos.PostgresConfig{},
-		conn:    conn,
-		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testMultiLevel"))),
+		connStr:  connStr,
+		Config:   &protos.PostgresConfig{},
+		conn:     conn,
+		Settings: internal.NewSettings(nil),
+		logger:   log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testMultiLevel"))),
 	}
 	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, rootTableDDL)
 	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
@@ -476,10 +482,11 @@ func TestCTIDPartitioningOnEmptyPartitionedTable(t *testing.T) {
 	}
 
 	c := &PostgresConnector{
-		connStr: connStr,
-		Config:  &protos.PostgresConfig{},
-		conn:    conn,
-		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testEmptyPartitioned"))),
+		connStr:  connStr,
+		Config:   &protos.PostgresConfig{},
+		conn:     conn,
+		Settings: internal.NewSettings(nil),
+		logger:   log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testEmptyPartitioned"))),
 	}
 	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, parentTable)
 	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
@@ -533,10 +540,11 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 	}
 
 	c := &PostgresConnector{
-		connStr: connStr,
-		Config:  &protos.PostgresConfig{},
-		conn:    conn,
-		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGrouping"))),
+		connStr:  connStr,
+		Config:   &protos.PostgresConfig{},
+		conn:     conn,
+		Settings: internal.NewSettings(nil),
+		logger:   log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGrouping"))),
 	}
 	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, parentTable)
 	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
@@ -657,10 +665,11 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 	}
 
 	c := &PostgresConnector{
-		connStr: connStr,
-		Config:  &protos.PostgresConfig{},
-		conn:    conn,
-		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testInherited"))),
+		connStr:  connStr,
+		Config:   &protos.PostgresConfig{},
+		conn:     conn,
+		Settings: internal.NewSettings(nil),
+		logger:   log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testInherited"))),
 	}
 	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
 		FlowJobName:           "test_ctid_inherited",
@@ -720,10 +729,11 @@ func TestCTIDPartitioningOnMultiLevelInheritedTable(t *testing.T) {
 	}
 
 	c := &PostgresConnector{
-		connStr: connStr,
-		Config:  &protos.PostgresConfig{},
-		conn:    conn,
-		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testMultiLevelInherited"))),
+		connStr:  connStr,
+		Config:   &protos.PostgresConfig{},
+		conn:     conn,
+		Settings: internal.NewSettings(nil),
+		logger:   log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testMultiLevelInherited"))),
 	}
 	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
 		FlowJobName:           "test_ctid_multi_inherited",
@@ -764,10 +774,11 @@ func TestCTIDPartitioningOnEmptyInheritedTable(t *testing.T) {
 	}
 
 	c := &PostgresConnector{
-		connStr: connStr,
-		Config:  &protos.PostgresConfig{},
-		conn:    conn,
-		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testAllEmptyInherited"))),
+		connStr:  connStr,
+		Config:   &protos.PostgresConfig{},
+		conn:     conn,
+		Settings: internal.NewSettings(nil),
+		logger:   log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testAllEmptyInherited"))),
 	}
 	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
 		FlowJobName:           "test_ctid_all_empty_inherited",

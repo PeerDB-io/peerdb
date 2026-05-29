@@ -19,6 +19,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -93,7 +94,7 @@ func TestMongoDBAvroSizeComputation(t *testing.T) {
 			defer os.Remove(tmpfile.Name())
 			defer tmpfile.Close()
 
-			avroSchema, computedSize := writeAvroFileCompressed(t, schema, tc.numRecords, tmpfile.Name(), nil, genRecord)
+			avroSchema, computedSize := writeAvroFileCompressed(t, schema, tc.numRecords, tmpfile.Name(), internal.NewSettings(nil), genRecord)
 
 			t.Logf("Total computed size for %d records: %d bytes (%.2f MiB)",
 				tc.numRecords, computedSize, float64(computedSize)/(1024*1024))
@@ -126,7 +127,7 @@ func TestAvroSizeComputation(t *testing.T) {
 		precision  int16
 		scale      int16
 		numRecords int
-		env        map[string]string
+		settings   *internal.Settings
 		genValue   func() types.QValue
 	}
 
@@ -378,7 +379,7 @@ func TestAvroSizeComputation(t *testing.T) {
 			name:       "bytes_base64",
 			kind:       types.QValueKindBytes,
 			numRecords: 10_000,
-			env:        map[string]string{"PEERDB_CLICKHOUSE_BINARY_FORMAT": "base64"},
+			settings:   internal.NewSettings(map[string]string{"PEERDB_CLICKHOUSE_BINARY_FORMAT": "base64"}),
 			genValue: func() types.QValue {
 				return types.QValueBytes{Val: randomBytes(50 + rand.IntN(200))}
 			},
@@ -600,7 +601,11 @@ func TestAvroSizeComputation(t *testing.T) {
 				}
 				return vals
 			}
-			runSizeSubtest(t, tc.env, schema, tc.numRecords, tc.name, genRecord)
+			settings := tc.settings
+			if settings == nil {
+				settings = internal.NewSettings(nil)
+			}
+			runSizeSubtest(t, settings, schema, tc.numRecords, tc.name, genRecord)
 		})
 	}
 }
@@ -675,7 +680,7 @@ func TestAvroSizeComputationSpecial(t *testing.T) {
 			}
 			return vals
 		}
-		runSizeSubtest(t, nil, schema, 10_000, "nullable_mixed", genRecord)
+		runSizeSubtest(t, internal.NewSettings(nil), schema, 10_000, "nullable_mixed", genRecord)
 	})
 
 	t.Run("mixed_all_scalar", func(t *testing.T) {
@@ -717,7 +722,7 @@ func TestAvroSizeComputationSpecial(t *testing.T) {
 				types.QValueJSON{Val: smallJSON()},
 			}
 		}
-		runSizeSubtest(t, nil, schema, 10_000, "mixed_all_scalar", genRecord)
+		runSizeSubtest(t, internal.NewSettings(nil), schema, 10_000, "mixed_all_scalar", genRecord)
 	})
 }
 
@@ -812,7 +817,7 @@ func TestAllQValueKindsSizeCovered(t *testing.T) {
 
 func runSizeSubtest(
 	t *testing.T,
-	env map[string]string,
+	settings *internal.Settings,
 	schema types.QRecordSchema,
 	numRecords int,
 	name string,
@@ -825,7 +830,7 @@ func runSizeSubtest(
 	defer os.Remove(tmpfile.Name())
 	defer tmpfile.Close()
 
-	avroSchema, computedSize := writeAvroFileCompressed(t, schema, numRecords, tmpfile.Name(), env, genRecord)
+	avroSchema, computedSize := writeAvroFileCompressed(t, schema, numRecords, tmpfile.Name(), settings, genRecord)
 
 	t.Logf("Computed size for %d records: %d bytes (%.2f MiB)",
 		numRecords, computedSize, float64(computedSize)/(1024*1024))
@@ -846,14 +851,14 @@ func writeAvroFileCompressed(
 	schema types.QRecordSchema,
 	numRecords int,
 	filePath string,
-	env map[string]string,
+	settings *internal.Settings,
 	genRecord func() []types.QValue,
 ) (*QRecordAvroSchemaDefinition, int64) {
 	t.Helper()
 
 	avroSchema, err := GetAvroSchemaDefinition(
 		context.Background(),
-		env,
+		settings,
 		"avro_size_dst_table",
 		schema,
 		protos.DBType_CLICKHOUSE,
@@ -879,18 +884,15 @@ func writeAvroFileCompressed(
 		avroFieldNames[i] = field.Name()
 	}
 
-	avroConverter, err := NewQRecordAvroConverter(
-		context.Background(),
-		env,
+	avroConverter := NewQRecordAvroConverter(
+		settings,
 		avroSchema,
 		protos.DBType_CLICKHOUSE,
 		avroFieldNames,
-		nil,
+		log.NewStructuredLogger(nil),
 	)
-	require.NoError(t, err)
 
-	binaryFormat, err := internal.PeerDBBinaryFormat(context.Background(), env)
-	require.NoError(t, err)
+	binaryFormat := settings.ClickHouseBinaryFormat
 
 	bytes := int64(0)
 	for range numRecords {
@@ -898,7 +900,7 @@ func writeAvroFileCompressed(
 
 		avroMap, size, err := avroConverter.Convert(
 			context.Background(),
-			env,
+			settings,
 			record,
 			nil,
 			nil,

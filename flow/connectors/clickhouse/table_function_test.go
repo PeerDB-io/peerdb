@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -23,13 +24,15 @@ func TestBuildInsertFromTableFunctionQuery(t *testing.T) {
 		},
 	}
 
+	env := map[string]string{
+		"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false",
+	}
 	config := &insertFromTableFunctionConfig{
 		destinationTable: "t1",
 		schema:           schema,
+		settings:         internal.NewSettings(env),
 		config: &protos.QRepConfig{
-			Env: map[string]string{
-				"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false",
-			},
+			Env: env,
 		},
 	}
 

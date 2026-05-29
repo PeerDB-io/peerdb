@@ -39,7 +39,7 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	t.Setenv("PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS", "36500")
 	ctx := t.Context()
 
-	conn, err := NewClickHouseConnector(ctx, nil,
+	conn, err := NewClickHouseConnector(ctx, internal.NewSettings(nil),
 		&protos.ClickhouseConfig{
 			Host:       internal.ClickHouseTestHost(),
 			Port:       internal.ClickHouseTestPort(),

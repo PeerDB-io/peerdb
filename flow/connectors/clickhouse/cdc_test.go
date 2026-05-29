@@ -107,7 +107,7 @@ func TestCreateRawTableHasTTL(t *testing.T) {
 			t.Setenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", "dummy-bucket-for-ttl-test")
 
 			ctx := t.Context()
-			conn, err := NewClickHouseConnector(ctx, nil, &protos.ClickhouseConfig{
+			conn, err := NewClickHouseConnector(ctx, internal.NewSettings(nil), &protos.ClickhouseConfig{
 				Host:       internal.ClickHouseTestHost(),
 				Port:       internal.ClickHouseTestPort(),
 				Database:   "default",
