@@ -118,7 +118,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 	return nil
 }
 
-func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
+func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.FlowConnectionConfigsCore,
