@@ -86,3 +86,9 @@
 - Experiment 12 patch set:
   - Drain pending CDC state-change signals after setup, snapshot, resync rename, and the final status update before returning `ContinueAsNew`. This matches the QRep workflow's signal-flush pattern and closes the race where a terminate/resync signal lands with a completed setup/snapshot activity but is left on the old run.
   - Local verification: `go test ./workflows -run '^$'`, `go test ./cmd -run '^$'`, `go test ./e2e -run '^$'`, and `git diff --check` passed from the `flow/` module/repo root as appropriate.
+- Verification for commit `17272224` on workflow run `26674910019`:
+  - Automatic attempt 1 failed pg16 while pg17 and pg18 passed. cidb showed 199 pg16 failures because the e2e package hit the global 20-minute `go test` timeout after the peer-flow worker crashed.
+  - The first root error in `peer-flow-worker.log` was `fatal error: concurrent map read and map write` in `flow/internal/dynamicconf.go:483`, called from `PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables` during parallel Postgres CDC pulls.
+- Experiment 13 patch set:
+  - Serialize dynamic config env-cache reads/writes with a package-level RW mutex. This preserves caching of non-immediate dynamic settings while preventing parallel CDC goroutines from crashing the worker on the shared mirror env map.
+  - Local verification: `go test ./internal -run '^$'`, `go test ./connectors/postgres -run '^$'`, `go test ./workflows -run '^$'`, `go test ./e2e -run '^$'`, and `git diff --check` passed.

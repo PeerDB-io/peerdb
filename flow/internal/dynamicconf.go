@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -470,6 +471,8 @@ var DynamicIndex = func() map[string]int {
 	return defaults
 }()
 
+var dynamicConfEnvMu sync.RWMutex
+
 type BinaryFormat int
 
 const (
@@ -479,8 +482,33 @@ const (
 	BinaryFormatHex
 )
 
+func dynEnvLookup(env map[string]string, key string) (string, bool) {
+	if env == nil {
+		return "", false
+	}
+
+	dynamicConfEnvMu.RLock()
+	val, ok := env[key]
+	dynamicConfEnvMu.RUnlock()
+	return val, ok
+}
+
+func dynEnvStore(env map[string]string, key string, value string) {
+	if env == nil {
+		return
+	}
+
+	dynamicConfEnvMu.Lock()
+	env[key] = value
+	dynamicConfEnvMu.Unlock()
+}
+
+func dynSettingCacheable(setting *protos.DynamicSetting) bool {
+	return setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE
+}
+
 func dynLookup(ctx context.Context, env map[string]string, key string) (string, error) {
-	if val, ok := env[key]; ok {
+	if val, ok := dynEnvLookup(env, key); ok {
 		return val, nil
 	}
 
@@ -503,20 +531,20 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 	}
 	if !value.Valid {
 		if val, ok := os.LookupEnv(key); ok {
-			if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
-				env[key] = val
+			if dynSettingCacheable(setting) {
+				dynEnvStore(env, key, val)
 			}
 			return val, nil
 		}
 		if setting != nil {
-			if env != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
-				env[key] = setting.DefaultValue
+			if dynSettingCacheable(setting) {
+				dynEnvStore(env, key, setting.DefaultValue)
 			}
 			return setting.DefaultValue, nil
 		}
 	}
-	if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
-		env[key] = value.String
+	if dynSettingCacheable(setting) {
+		dynEnvStore(env, key, value.String)
 	}
 	return value.String, nil
 }
