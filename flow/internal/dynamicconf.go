@@ -72,6 +72,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED",
+		Description:      "Override PEERDB_CDC_STORE_ENABLED when destination is ClickHouse",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD",
 		Description:      "CDC: number of records beyond which records are written to disk instead",
 		DefaultValue:     "1000000",
@@ -633,8 +641,16 @@ func PeerDBQueueParallelism(ctx context.Context, env map[string]string) (int64, 
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_QUEUE_PARALLELISM")
 }
 
-func PeerDBCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_CDC_STORE_ENABLED")
+func PeerDBCDCStoreEnabledForDestination(ctx context.Context, env map[string]string, destinationType protos.DBType) (bool, error) {
+	enabled, err := dynamicConfBool(ctx, env, "PEERDB_CDC_STORE_ENABLED")
+	// We only consult PEERDB_CLICKHOUSE_CDC_STORE_ENABLED when `enabled` is true (i.e. PEERDB_CDC_STORE_ENABLED=true).
+	// Existing production mirrors set the global flag to false to mitigate OOMs before the ClickHouse-specific flag
+	// existed, and the new flag's default of true must not silently re-enable the store for them.
+	// TODO: once PEERDB_CLICKHOUSE_CDC_STORE_ENABLED default to false, we can remove this special "backward-compatible" handling
+	if err == nil && enabled && destinationType == protos.DBType_CLICKHOUSE {
+		return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED")
+	}
+	return enabled, err
 }
 
 func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context, env map[string]string) (int64, error) {

@@ -200,6 +200,15 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, err
 	}
 
+	dstPeerType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load destination peer type: %w", err)
+	}
+	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabledForDestination(ctx, config.Env, dstPeerType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve CDC store enabled: %w", err)
+	}
+
 	syncBatchID, err := func() (int64, error) {
 		// special case pg-pg replication, where batch ID is stored on destination instead of catalog
 		if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
@@ -249,6 +258,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
 			InternalVersion:             config.Version,
+			CDCStoreEnabled:             cdcStoreEnabled,
 		})
 		if err != nil {
 			pullSpan.RecordError(err)

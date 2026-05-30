@@ -90,6 +90,8 @@ type PullRecordsRequest[T Items] struct {
 	InternalVersion uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
+	// CDCStoreEnabled determines whether the CDC store should be enabled
+	CDCStoreEnabled bool
 }
 
 type ToJSONOptions struct {
