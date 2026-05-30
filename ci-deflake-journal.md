@@ -92,3 +92,10 @@
 - Experiment 13 patch set:
   - Serialize dynamic config env-cache reads/writes with a package-level RW mutex. This preserves caching of non-immediate dynamic settings while preventing parallel CDC goroutines from crashing the worker on the shared mirror env map.
   - Local verification: `go test ./internal -run '^$'`, `go test ./connectors/postgres -run '^$'`, `go test ./workflows -run '^$'`, `go test ./e2e -run '^$'`, and `git diff --check` passed.
+- Verification for commit `870e1b0a` on workflow run `26675463314`:
+  - Automatic attempt 1 failed pg17 while pg16 and pg18 passed. cidb showed the e2e package timing out after 20 minutes with `TestApiMongo/TestDropMissing` still running, plus many secondary setup/status timeouts after the worker stopped.
+  - Artifact logs showed the root error was a peer-flow worker panic in the scheduled `RecordSlotSizes` task: `recordSlotInformation` dereferenced `flowMetadata.Source` for a catalog row without a CDC config. `TestDropMissing` intentionally inserts such a `flows` row to verify missing-flow cleanup.
+- Experiment 14 patch set:
+  - Make `RecordSlotSizes` ignore catalog rows without a non-empty `config_proto`, skip any remaining incomplete CDC configs defensively, and use nil-safe metadata access before the Postgres-only slot path.
+  - This preserves the `TestDropMissing` cleanup coverage while preventing the background scheduler from crashing the worker on intentionally incomplete catalog rows.
+  - Local verification: `go test ./activities -run '^$'`, `go test ./workflows -run '^$'`, `go test ./cmd -run '^$'`, `go test ./e2e -run '^$'`, and `git diff --check` passed.

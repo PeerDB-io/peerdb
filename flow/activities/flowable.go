@@ -1055,9 +1055,14 @@ func (a *FlowableActivity) getRuntimeInfo(
 }
 
 type flowInformation struct {
+	name       string
 	config     *protos.FlowConnectionConfigsCore
 	updatedAt  time.Time
 	workflowID string
+}
+
+func (f flowInformation) hasCompleteCDCConfig() bool {
+	return f.config.GetFlowJobName() != "" && f.config.GetSourceName() != "" && f.config.GetDestinationName() != ""
 }
 
 type metricsFlowMetadata struct {
@@ -1365,7 +1370,9 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 	logger.Info("Querying for flows to emit slot metrics")
 	rows, err := a.CatalogPool.Query(ctx,
-		"SELECT DISTINCT ON (name) name, config_proto, workflow_id, updated_at FROM flows WHERE query_string IS NULL")
+		`SELECT DISTINCT ON (name) name, config_proto, workflow_id, updated_at
+		FROM flows
+		WHERE query_string IS NULL AND config_proto IS NOT NULL AND length(config_proto) > 0`)
 	if err != nil {
 		logger.Error("failed to query all flows", slog.Any("error", err))
 		return fmt.Errorf("failed to query all flows for metrics: %w", err)
@@ -1376,7 +1383,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		var configProto []byte
 		var workflowID string
 		var updatedAt time.Time
-		if err := rows.Scan(&flowName, &configProto, &workflowID, &updatedAt); err != nil {
+		if err := row.Scan(&flowName, &configProto, &workflowID, &updatedAt); err != nil {
 			return flowInformation{}, err
 		}
 
@@ -1386,6 +1393,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		}
 
 		return flowInformation{
+			name:       flowName,
 			config:     &config,
 			workflowID: workflowID,
 			updatedAt:  updatedAt,
@@ -1407,6 +1415,12 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	for _, info := range infos {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if !info.hasCompleteCDCConfig() {
+			logger.Warn("Skipping slot metrics for flow with incomplete CDC config",
+				slog.String("flowName", info.name),
+				slog.String("configFlowName", info.config.GetFlowJobName()))
+			continue
 		}
 		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		if err := a.recordSlotInformation(timeoutCtx, info, slotMetricGauges); err != nil {
@@ -1450,7 +1464,7 @@ func (a *FlowableActivity) recordSlotInformation(
 		return err
 	}
 
-	if flowMetadata.Source.Type != protos.DBType_POSTGRES {
+	if flowMetadata.GetSource().GetType() != protos.DBType_POSTGRES {
 		return nil
 	}
 
