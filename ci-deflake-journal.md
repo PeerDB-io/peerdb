@@ -79,3 +79,10 @@
   - Change the workflow's toxiproxy and openssh service ports from fixed host bindings to dynamically assigned host ports. This removes runner host-port collisions without skipping any tests or changing toxiproxy's container listen ports.
   - Pass the mapped host ports through env vars and update toxiproxy/SSH tests to connect through those host mappings while still creating toxiproxy proxies on the same fixed container ports.
   - Local verification: `go test ./internal ./connectors/utils ./connectors/postgres ./connectors/mysql -run '^$'`, `go test ./e2e -run '^$'`, `git diff --check`, and YAML parsing for `.github/workflows/flow.yml` passed.
+- Extra verification for commit `a018c491` on workflow run `26672145297`:
+  - Automatic attempt 1 and reruns 1-5 were green across all three matrix jobs.
+  - Rerun 6 failed pg17 while pg16 and pg18 passed. cidb showed only `TestApiMy/TestResyncWithSnapshotConfigOnRunningPipe`, timing out after three minutes waiting for the catalog row to be removed.
+  - Artifact logs showed the API accepted `STATUS_TERMINATING` for `resync_snap_cfg_api_phjbutel` at 04:29:33 while the catalog state was still `STATUS_RESYNC`. The worker finished the resync rename activity milliseconds later, continued as new into CDC `RUNNING`, and never logged the terminate signal handler. The new run then streamed until the test timeout canceled it.
+- Experiment 12 patch set:
+  - Drain pending CDC state-change signals after setup, snapshot, resync rename, and the final status update before returning `ContinueAsNew`. This matches the QRep workflow's signal-flush pattern and closes the race where a terminate/resync signal lands with a completed setup/snapshot activity but is left on the old run.
+  - Local verification: `go test ./workflows -run '^$'`, `go test ./cmd -run '^$'`, `go test ./e2e -run '^$'`, and `git diff --check` passed from the `flow/` module/repo root as appropriate.

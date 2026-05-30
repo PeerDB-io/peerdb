@@ -640,7 +640,7 @@ func CDCFlowWorkflow(
 
 		setupSnapshotSelector := workflow.NewNamedSelector(ctx, "Setup/Snapshot")
 		setupSnapshotSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-		flowSignalStateChangeChan.AddToSelector(setupSnapshotSelector, func(val *protos.FlowStateChangeRequest, _ bool) {
+		handleSetupSnapshotStateChange := func(val *protos.FlowStateChangeRequest, _ bool) {
 			switch val.RequestedFlowState {
 			case protos.FlowStatus_STATUS_PAUSED:
 				logger.Warn("pause requested during setup, ignoring")
@@ -673,7 +673,21 @@ func CDCFlowWorkflow(
 					Resync:                true,
 				}
 			}
-		})
+		}
+		flowSignalStateChangeChan.AddToSelector(setupSnapshotSelector, handleSetupSnapshotStateChange)
+		continueAfterSetupSnapshotSignal := func() (*cdc_state.CDCFlowWorkflowState, error, bool) {
+			for {
+				val, ok := flowSignalStateChangeChan.ReceiveAsync()
+				if !ok {
+					break
+				}
+				handleSetupSnapshotStateChange(val, true)
+			}
+			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput), true
+			}
+			return nil, nil, false
+		}
 
 		childSetupFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:          setupFlowID,
@@ -707,6 +721,9 @@ func CDCFlowWorkflow(
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute setup workflow: %w", setupFlowError)
 			}
+		}
+		if nextState, err, ok := continueAfterSetupSnapshotSignal(); ok {
+			return nextState, err
 		}
 
 		state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
@@ -751,6 +768,9 @@ func CDCFlowWorkflow(
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute snapshot workflow: %w", snapshotError)
 			}
+		}
+		if nextState, err, ok := continueAfterSetupSnapshotSignal(); ok {
+			return nextState, err
 		}
 
 		if cfg.Resync {
@@ -812,6 +832,9 @@ func CDCFlowWorkflow(
 					return state, renameTablesError
 				}
 			}
+			if nextState, err, ok := continueAfterSetupSnapshotSignal(); ok {
+				return nextState, err
+			}
 		}
 
 		// if initial_copy_only is opted for, we end the flow here.
@@ -821,6 +844,9 @@ func CDCFlowWorkflow(
 		} else {
 			logger.Info("executed setup flow and snapshot flow, start running")
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
+		}
+		if nextState, err, ok := continueAfterSetupSnapshotSignal(); ok {
+			return nextState, err
 		}
 		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
