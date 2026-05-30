@@ -11,15 +11,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 )
 
 const (
-	ToxiproxyAPIPort = "18474"
-	SSHServerPort    = "2222"
-	ToxiproxyHost    = "localhost"
-	SSHServerHost    = "openssh"
-	MySQLProxyHost   = "toxiproxy"
+	SSHServerPort  = "2222"
+	ToxiproxyHost  = "localhost"
+	SSHServerHost  = "openssh"
+	MySQLProxyHost = "toxiproxy"
 )
 
 // Callbacks avoid adding test-only methods to the connector interfaces in core.go.
@@ -31,10 +31,22 @@ type SSHKeepaliveTestConfig struct {
 
 func NewToxiproxyClient(t *testing.T) *toxiproxy.Client {
 	t.Helper()
-	client := toxiproxy.NewClient(ToxiproxyHost + ":" + ToxiproxyAPIPort)
+	adminPort := internal.ToxiproxyAPIPortWithFallback(18474)
+	client := toxiproxy.NewClient(ToxiproxyHost + ":" + strconv.FormatUint(uint64(adminPort), 10))
 	_, err := client.Version()
 	require.NoError(t, err, "Toxiproxy not available")
 	return client
+}
+
+func ToxiproxyHostPort(t *testing.T, containerPort int) int {
+	t.Helper()
+	require.Positive(t, containerPort)
+	return int(internal.ToxiproxyHostPortWithFallback(uint32(containerPort)))
+}
+
+func SSHServerHostPort(t *testing.T) int {
+	t.Helper()
+	return int(internal.SSHServerHostPortWithFallback(2222))
 }
 
 func CreateToxiproxyForward(

@@ -1329,7 +1329,7 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 
 	// Create peer for the proxy connection
 	proxyConfig := internal.GetAncillaryPostgresConfigFromEnv()
-	proxyConfig.Port = uint32(9904)
+	proxyConfig.Port = internal.ToxiproxyHostPortWithFallback(9904)
 	proxyPeer := &protos.Peer{
 		Name: "proxy_postgres_" + suffix,
 		Type: protos.DBType_POSTGRES,

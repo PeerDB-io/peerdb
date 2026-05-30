@@ -32,7 +32,7 @@ func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName 
 	pgConfig.Host = internal.PostgresToxiproxyUpstreamHostWithFallback(pgConfig.Host)
 	pgConfig.SshConfig = &protos.SSHConfig{
 		Host:     "localhost",
-		Port:     uint32(proxyPort),
+		Port:     uint32(utils.ToxiproxyHostPort(t, proxyPort)),
 		User:     "testuser",
 		Password: "testpass",
 	}

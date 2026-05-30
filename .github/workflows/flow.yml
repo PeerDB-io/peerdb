@@ -88,22 +88,22 @@ jobs:
       toxiproxy:
         image: ghcr.io/shopify/toxiproxy:2.12.0@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e
         ports:
-          - 18474:8474
-          - 9902:9902
-          - 9904:9904
-          - 9903:9903
-          - 42001:42001
-          - 42002:42002
-          - 42003:42003
-          - 42004:42004
-          - 42005:42005
-          - 49001:49001
-          - 49002:49002
-          - 49003:49003
+          - 8474/tcp
+          - 9902/tcp
+          - 9904/tcp
+          - 9903/tcp
+          - 42001/tcp
+          - 42002/tcp
+          - 42003/tcp
+          - 42004/tcp
+          - 42005/tcp
+          - 49001/tcp
+          - 49002/tcp
+          - 49003/tcp
       openssh:
         image: linuxserver/openssh-server:latest@sha256:5b8550a3b703eb4e5efb14a1f491370b7f765febfac5b0b2ed0321cdc74b1476
         ports:
-          - 2222:2222
+          - 2222/tcp
         env:
           PUID: 1000
           PGID: 1000
@@ -615,6 +615,19 @@ jobs:
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
           TOXIPROXY_POSTGRES_HOST: catalog
+          TOXIPROXY_API_PORT: ${{ job.services.toxiproxy.ports['8474'] }}
+          TOXIPROXY_PORT_9902: ${{ job.services.toxiproxy.ports['9902'] }}
+          TOXIPROXY_PORT_9903: ${{ job.services.toxiproxy.ports['9903'] }}
+          TOXIPROXY_PORT_9904: ${{ job.services.toxiproxy.ports['9904'] }}
+          TOXIPROXY_PORT_42001: ${{ job.services.toxiproxy.ports['42001'] }}
+          TOXIPROXY_PORT_42002: ${{ job.services.toxiproxy.ports['42002'] }}
+          TOXIPROXY_PORT_42003: ${{ job.services.toxiproxy.ports['42003'] }}
+          TOXIPROXY_PORT_42004: ${{ job.services.toxiproxy.ports['42004'] }}
+          TOXIPROXY_PORT_42005: ${{ job.services.toxiproxy.ports['42005'] }}
+          TOXIPROXY_PORT_49001: ${{ job.services.toxiproxy.ports['49001'] }}
+          TOXIPROXY_PORT_49002: ${{ job.services.toxiproxy.ports['49002'] }}
+          TOXIPROXY_PORT_49003: ${{ job.services.toxiproxy.ports['49003'] }}
+          SSH_SERVER_PORT: ${{ job.services.openssh.ports['2222'] }}
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc

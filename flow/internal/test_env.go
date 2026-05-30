@@ -62,6 +62,18 @@ func PostgresToxiproxyUpstreamHostWithFallback(fallback string) string {
 	return GetEnvString("TOXIPROXY_POSTGRES_HOST", fallback)
 }
 
+func ToxiproxyAPIPortWithFallback(fallback uint32) uint32 {
+	return uint32(getEnvUint[uint16]("TOXIPROXY_API_PORT", uint16(fallback)))
+}
+
+func ToxiproxyHostPortWithFallback(containerPort uint32) uint32 {
+	return uint32(getEnvUint[uint16](fmt.Sprintf("TOXIPROXY_PORT_%d", containerPort), uint16(containerPort)))
+}
+
+func SSHServerHostPortWithFallback(fallback uint32) uint32 {
+	return uint32(getEnvUint[uint16]("SSH_SERVER_PORT", uint16(fallback)))
+}
+
 func MySQLTestHostWithFallback(fallback string) string {
 	return GetEnvString("CI_MYSQL_HOST", fallback)
 }

@@ -271,14 +271,14 @@ func GetLogCount(ctx context.Context, catalog shared.CatalogPool, flowJobName, e
 var (
 	toxiClient    *tp.Client
 	toxiOnce      sync.Once
-	toxiAdminPort = 18474
+	toxiAdminPort = uint32(18474)
 )
 
 // InitToxiproxy initializes the Toxiproxy client (singleton pattern)
 func InitToxiproxy() error {
 	var err error
 	toxiOnce.Do(func() {
-		adminAddr := fmt.Sprintf("localhost:%d", toxiAdminPort)
+		adminAddr := fmt.Sprintf("localhost:%d", internal.ToxiproxyAPIPortWithFallback(toxiAdminPort))
 		toxiClient = tp.NewClient(adminAddr)
 		// Test connection
 		_, err = toxiClient.Proxies()
@@ -304,7 +304,7 @@ func SetupPostgresWithToxiproxy(t *testing.T, suffix string, port uint32) (*Post
 	// Create config pointing to proxy
 	config := internal.GetAncillaryPostgresConfigFromEnv()
 	config.Host = "localhost"
-	config.Port = port
+	config.Port = internal.ToxiproxyHostPortWithFallback(port)
 	// Don't set RequireTls - let it use the default from env
 
 	// Rest is same as SetupPostgres

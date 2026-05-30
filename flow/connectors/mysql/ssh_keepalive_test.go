@@ -55,7 +55,7 @@ func setupMySQLConnectorWithSSHProxy(ctx context.Context, t *testing.T, proxyNam
 		Database: "mysql",
 		SshConfig: &protos.SSHConfig{
 			Host:     "localhost",
-			Port:     uint32(proxyPort),
+			Port:     uint32(utils.ToxiproxyHostPort(t, proxyPort)),
 			User:     "testuser",
 			Password: "testpass",
 		},
@@ -81,10 +81,6 @@ func setupMySQLConnectorWithMySQLProxy(
 	upstream := mysqlHost + ":" + strconv.FormatUint(uint64(mysqlPort), 10)
 	mysqlProxy := utils.CreateToxiproxyForward(t, toxiproxyClient, proxyName, proxyPort, upstream)
 
-	sshPortStr := utils.SSHServerPort
-	sshPort, err := strconv.ParseUint(sshPortStr, 10, 32)
-	require.NoError(t, err)
-
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
 		Host:     utils.MySQLProxyHost,
 		Port:     uint32(proxyPort),
@@ -93,7 +89,7 @@ func setupMySQLConnectorWithMySQLProxy(
 		Database: "mysql",
 		SshConfig: &protos.SSHConfig{
 			Host:     "localhost",
-			Port:     uint32(sshPort),
+			Port:     uint32(utils.SSHServerHostPort(t)),
 			User:     "testuser",
 			Password: "testpass",
 		},

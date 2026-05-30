@@ -67,3 +67,15 @@
   - The failed row was `TestRunPipeline_FilterStripsLines`: the source `printf` process was reported as `signal: killed` after the destination `cat` exited first.
 - Experiment 10 patch set:
   - Make `TestRunPipeline_FilterStripsLines` use a destination shell that runs `cat` and then sleeps briefly. This keeps the destination process alive long enough for the tiny source process to exit normally, avoiding a cleanup-kill race while still testing the filter output.
+
+## 2026-05-30
+
+- Extra verification for commit `7f2a44fd` on workflow run `26666961986`:
+  - Attempts 1-2 were green across all three matrix jobs.
+  - Attempt 3 failed pg17 with broad `STATUS_SETUP` timeouts across unrelated tests while pg16 and pg18 passed; rerunning only the failed pg17 job as attempt 4 passed. Treated this as a runner/job startup stall rather than a single test regression.
+  - Attempts 5-8 were green across all three matrix jobs.
+  - Attempt 9 failed pg16 before checkout/tests; GitHub job steps showed `Initialize containers` failed because toxiproxy could not bind host port `49002` (`address already in use`). pg17 and pg18 completed green, and cidb had no pg16 rows because tests never ran.
+- Experiment 11 patch set:
+  - Change the workflow's toxiproxy and openssh service ports from fixed host bindings to dynamically assigned host ports. This removes runner host-port collisions without skipping any tests or changing toxiproxy's container listen ports.
+  - Pass the mapped host ports through env vars and update toxiproxy/SSH tests to connect through those host mappings while still creating toxiproxy proxies on the same fixed container ports.
+  - Local verification: `go test ./internal ./connectors/utils ./connectors/postgres ./connectors/mysql -run '^$'`, `go test ./e2e -run '^$'`, `git diff --check`, and YAML parsing for `.github/workflows/flow.yml` passed.

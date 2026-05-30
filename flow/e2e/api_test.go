@@ -2252,7 +2252,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "valid"))))
 
 	// Create peer for the proxy connection
-	proxyConfig.Port = uint32(9903)
+	proxyConfig.Port = internal.ToxiproxyHostPortWithFallback(9903)
 	proxyPeer := &protos.Peer{
 		Name: "proxy_postgres_" + suffix,
 		Type: protos.DBType_POSTGRES,
@@ -3150,7 +3150,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 
 	// Create peer for the proxy connection
 	proxyConfig := internal.GetAncillaryPostgresConfigFromEnv()
-	proxyConfig.Port = uint32(9902)
+	proxyConfig.Port = internal.ToxiproxyHostPortWithFallback(9902)
 	proxyPeer := &protos.Peer{
 		Name: "proxy_postgres_" + suffix,
 		Type: protos.DBType_POSTGRES,
