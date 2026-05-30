@@ -99,3 +99,10 @@
   - Make `RecordSlotSizes` ignore catalog rows without a non-empty `config_proto`, skip any remaining incomplete CDC configs defensively, and use nil-safe metadata access before the Postgres-only slot path.
   - This preserves the `TestDropMissing` cleanup coverage while preventing the background scheduler from crashing the worker on intentionally incomplete catalog rows.
   - Local verification: `go test ./activities -run '^$'`, `go test ./workflows -run '^$'`, `go test ./cmd -run '^$'`, `go test ./e2e -run '^$'`, and `git diff --check` passed.
+- Verification for commit `bd310fa0` on workflow run `26676087701`:
+  - Automatic attempt 1 failed pg18 while pg16 and pg17 passed. cidb showed four failed rows: `TestGenericPG/Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only`, `TestGenericChCluster_PG/Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only`, and their suite parents.
+  - Artifact logs showed both failing flows used pre-created custom logical slots and then started replication at `startLSN: 0`. Logical decoding failed before the flow consumed its own rows with `could not map filenumber ... to relation OID`, where the referenced relation belonged to an unrelated concurrent generic test in the shared `catalog` Postgres database.
+- Experiment 15 patch set:
+  - Let PeerDB create the custom numeric replication slot during CDC setup instead of pre-creating an idle slot before unrelated parallel tests emit/drop WAL.
+  - Keep the durable coverage: the slot name still starts with digits, the flow still runs CDC-only with initial rows inserted before CDC, and the test now inserts and waits for 15 post-CDC rows so pre-CDC rows are not counted.
+  - Local verification: `go test ./e2e -run '^$'` and `git diff --check` passed.
