@@ -14,7 +14,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] 
 ssh2.workspace = true
 tokio.workspace = true
 tokio-postgres = "0.7.2"
-tokio-postgres-rustls = "0.13"
+tokio-postgres-rustls = "0.14"
 tokio-util = { version = "0.7", features = ["compat"] }
 tokio-stream = "0.1"
 tracing.workspace = true
