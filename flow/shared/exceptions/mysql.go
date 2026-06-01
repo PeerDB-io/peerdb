@@ -12,14 +12,9 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
-var (
-	// InvalidSequenceRe go-mysql-org returns "invalid sequence X != Y" when the TCP packet sequence
-	// is out of sync — always transient, safe to retry.
-	InvalidSequenceRe = regexp.MustCompile(`invalid sequence \d+ != \d+`)
-	// InvalidCompressedSequenceRe happens when the compressed packet header's sequence byte is out of sync. This is
-	// the compressed-protocol equivalent of the above error; also transient and safe to retry.
-	InvalidCompressedSequenceRe = regexp.MustCompile(`invalid compressed sequence \d+ != \d+`)
-)
+// InvalidSequenceRe go-mysql-org returns "invalid sequence X != Y" (or "invalid compressed sequence X != Y"
+// for the compressed protocol) when the packet sequence byte is out of sync — always transient, safe to retry.
+var InvalidSequenceRe = regexp.MustCompile(`invalid (compressed )?sequence \d+ != \d+`)
 
 type MySQLIncompatibleColumnTypeError struct {
 	TableName  string
@@ -112,7 +107,7 @@ func NewMySQLExecuteError(err error) *MySQLExecuteError {
 		return &MySQLExecuteError{err, true}
 	}
 
-	if InvalidSequenceRe.MatchString(err.Error()) || InvalidCompressedSequenceRe.MatchString(err.Error()) {
+	if InvalidSequenceRe.MatchString(err.Error()) {
 		return &MySQLExecuteError{err, true}
 	}
 

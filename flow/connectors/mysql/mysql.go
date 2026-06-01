@@ -306,9 +306,7 @@ func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (
 		}
 
 		if rs, err := conn.Execute(cmd, args...); err != nil {
-			if mysql.ErrorEqual(err, mysql.ErrBadConn) ||
-				exceptions.InvalidSequenceRe.MatchString(err.Error()) ||
-				exceptions.InvalidCompressedSequenceRe.MatchString(err.Error()) {
+			if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
 				retryableErr = err
 				continue
 			}
@@ -336,9 +334,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 
 		if len(args) == 0 {
 			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) ||
-					exceptions.InvalidSequenceRe.MatchString(err.Error()) ||
-					exceptions.InvalidCompressedSequenceRe.MatchString(err.Error()) {
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
 					retryableErr = err
 					continue
 				}
@@ -347,9 +343,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 		} else {
 			stmt, err := conn.Prepare(cmd)
 			if err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) ||
-					exceptions.InvalidSequenceRe.MatchString(err.Error()) ||
-					exceptions.InvalidCompressedSequenceRe.MatchString(err.Error()) {
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
 					retryableErr = err
 					continue
 				}
@@ -358,9 +352,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
 			_ = stmt.Close()
 			if err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) ||
-					exceptions.InvalidSequenceRe.MatchString(err.Error()) ||
-					exceptions.InvalidCompressedSequenceRe.MatchString(err.Error()) {
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
 					retryableErr = err
 					continue
 				}
