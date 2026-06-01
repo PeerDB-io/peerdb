@@ -3556,9 +3556,6 @@ func (s APITestSuite) TestResetMirrorSequences() {
 	})
 	require.NoError(s.t, err)
 	require.True(s.t, resetResp.Ok)
-	require.NotEmpty(s.t, resetResp.ResetSequences)
-	require.Contains(s.t, resetResp.ResetSequences[0], "Reset")
-	require.Contains(s.t, resetResp.ResetSequences[0], "5")
 
 	// After reset: sequence should be at 5 (max id)
 	var seqValAfter int64
@@ -3573,6 +3570,58 @@ func (s APITestSuite) TestResetMirrorSequences() {
 		fmt.Sprintf("SELECT nextval(pg_get_serial_sequence('%s', 'id'))", dstTable)).Scan(&nextVal)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(6), nextVal)
+}
+
+func (s APITestSuite) TestResetMirrorSequences_EmptyTable() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	srcTable := AttachSchema(s, "seq_empty_src")
+	dstTable := AttachSchema(s, "seq_empty_dst")
+
+	// Create source table with a serial column but NO rows
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", srcTable)))
+
+	// Create destination table with same structure
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", dstTable))
+	require.NoError(s.t, err)
+
+	flowJobName := "reset_seq_empty_" + s.suffix
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     flowJobName,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTable,
+			DestinationTableIdentifier: dstTable,
+		}},
+		DoInitialSnapshot:   true,
+		InitialSnapshotOnly: true,
+		System:              protos.TypeSystem_PG,
+		IdleTimeoutSeconds:  15,
+		Version:             shared.InternalVersion_Latest,
+	}
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	// ResetMirrorSequences should succeed even with empty tables (no setval error)
+	resetResp, err := s.ResetMirrorSequences(s.t.Context(), &protos.ResetMirrorSequencesRequest{
+		FlowJobName: flowJobName,
+	})
+	require.NoError(s.t, err)
+	require.True(s.t, resetResp.Ok)
 }
 
 func (s APITestSuite) TestResetMirrorSequences_NonPgDestination() {

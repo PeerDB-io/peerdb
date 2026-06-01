@@ -535,7 +535,6 @@ message ResetMirrorSequencesRequest {
 message ResetMirrorSequencesResponse {
   bool ok = 1;
   string error_message = 2;
-  repeated string reset_sequences = 3;
 }
 
 service FlowService {
