@@ -3612,7 +3612,7 @@ func (s APITestSuite) TestResetMirrorSequences_NonPgDestination() {
 	grpcStatus, ok := status.FromError(err)
 	require.True(s.t, ok)
 	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
-	require.Contains(s.t, grpcStatus.Message(), "PostgreSQL to PostgreSQL")
+	require.Contains(s.t, grpcStatus.Message(), "only supported for PostgreSQL destinations")
 }
 
 func (s APITestSuite) TestSnapshotNullPartitionKey() {
