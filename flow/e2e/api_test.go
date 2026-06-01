@@ -3537,7 +3537,7 @@ func (s APITestSuite) TestResetMirrorSequences() {
 	// Verify data arrived
 	var rowCount int64
 	err = s.pg.Conn().QueryRow(s.t.Context(),
-		fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTable)).Scan(&rowCount)
+		"SELECT COUNT(*) FROM "+dstTable).Scan(&rowCount)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(5), rowCount)
 
