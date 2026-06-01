@@ -528,6 +528,16 @@ message CancelTableAdditionOutput {
   string run_id = 3;
 }
 
+message ResetMirrorSequencesRequest {
+  string flow_job_name = 1;
+}
+
+message ResetMirrorSequencesResponse {
+  bool ok = 1;
+  string error_message = 2;
+  repeated string reset_sequences = 3;
+}
+
 service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
@@ -816,6 +826,13 @@ service FlowService {
   rpc CancelTableAddition(CancelTableAdditionInput) returns (CancelTableAdditionOutput) {
     option (google.api.http) = {
       post : "/v1/flows/cdc/cancel_table_addition",
+      body : "*"
+    };
+  }
+
+  rpc ResetMirrorSequences(ResetMirrorSequencesRequest) returns (ResetMirrorSequencesResponse) {
+    option (google.api.http) = {
+      post : "/v1/mirrors/sequences/reset",
       body : "*"
     };
   }

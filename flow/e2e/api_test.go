@@ -3487,6 +3487,134 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s APITestSuite) TestResetMirrorSequences() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	srcTable := AttachSchema(s, "seq_src")
+	dstTable := AttachSchema(s, "seq_dst")
+
+	// Create source table with a serial column and insert rows
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", srcTable)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(val) VALUES ('a'),('b'),('c'),('d'),('e')", srcTable)))
+
+	// Create destination table with same structure (serial column)
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", dstTable))
+	require.NoError(s.t, err)
+
+	// Create PG-to-PG mirror with initial snapshot only
+	flowJobName := "reset_seq_" + s.suffix
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     flowJobName,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTable,
+			DestinationTableIdentifier: dstTable,
+		}},
+		DoInitialSnapshot:   true,
+		InitialSnapshotOnly: true,
+		System:              protos.TypeSystem_PG,
+		IdleTimeoutSeconds:  15,
+		Version:             shared.InternalVersion_Latest,
+	}
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	// Verify data arrived
+	var rowCount int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTable)).Scan(&rowCount)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(5), rowCount)
+
+	// Before reset: destination sequence has not been advanced by the snapshot (ids were copied
+	// explicitly), so it is not yet at the max id. pg_sequence_last_value is NULL until the
+	// sequence is first used, so coalesce to 0.
+	var seqValBefore int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT COALESCE(pg_sequence_last_value(pg_get_serial_sequence('%s', 'id')), 0)", dstTable)).Scan(&seqValBefore)
+	require.NoError(s.t, err)
+	require.NotEqual(s.t, int64(5), seqValBefore)
+
+	// Call ResetMirrorSequences
+	resetResp, err := s.ResetMirrorSequences(s.t.Context(), &protos.ResetMirrorSequencesRequest{
+		FlowJobName: flowJobName,
+	})
+	require.NoError(s.t, err)
+	require.True(s.t, resetResp.Ok)
+	require.NotEmpty(s.t, resetResp.ResetSequences)
+	require.Contains(s.t, resetResp.ResetSequences[0], "Reset")
+	require.Contains(s.t, resetResp.ResetSequences[0], "5")
+
+	// After reset: sequence should be at 5 (max id)
+	var seqValAfter int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT pg_sequence_last_value(pg_get_serial_sequence('%s', 'id'))", dstTable)).Scan(&seqValAfter)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(5), seqValAfter)
+
+	// nextval should return 6
+	var nextVal int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT nextval(pg_get_serial_sequence('%s', 'id'))", dstTable)).Scan(&nextVal)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(6), nextVal)
+}
+
+func (s APITestSuite) TestResetMirrorSequences_NonPgDestination() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	tableName := "seq_ch"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "reset_seq_ch_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	// ResetMirrorSequences should fail for non-PG destination
+	_, err = s.ResetMirrorSequences(s.t.Context(), &protos.ResetMirrorSequencesRequest{
+		FlowJobName: flowConnConfig.FlowJobName,
+	})
+	require.Error(s.t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
+	require.Contains(s.t, grpcStatus.Message(), "PostgreSQL to PostgreSQL")
+}
+
 func (s APITestSuite) TestSnapshotNullPartitionKey() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
