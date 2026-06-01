@@ -48,15 +48,13 @@ func (h *FlowRequestHandler) ResetMirrorSequences(
 		destTables = append(destTables, tm.DestinationTableIdentifier)
 	}
 
-	// Build a safe array literal from table names for inlining into a PL/pgSQL DO block.
-	// DO blocks don't accept parameterized arguments, so we escape single quotes manually.
 	quotedTables := make([]string, 0, len(destTables))
 	for _, t := range destTables {
 		quotedTables = append(quotedTables, "'"+strings.ReplaceAll(t, "'", "''")+"'")
 	}
 	arrayLiteral := "ARRAY[" + strings.Join(quotedTables, ",") + "]::text[]"
 
-	// Single PL/pgSQL block runs entirely server-side: discovers sequences on all tables,
+	// Discover sequences on all tables all server-side
 	// resets each to MAX(column).
 	doBlock := strings.Replace(`
 	DO $$
