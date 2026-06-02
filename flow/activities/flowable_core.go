@@ -130,6 +130,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncState *atomic.Pointer[string],
+	cdcStoreEnabled bool,
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, shared.CatalogPool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
@@ -198,15 +199,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, flowName)
 	if err != nil {
 		return nil, err
-	}
-
-	dstPeerType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load destination peer type: %w", err)
-	}
-	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabledForDestination(ctx, config.Env, dstPeerType)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve CDC store enabled: %w", err)
 	}
 
 	syncBatchID, err := func() (int64, error) {

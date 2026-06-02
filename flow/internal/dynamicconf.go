@@ -68,7 +68,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Controls whether to enable the store for recovering unchanged Postgres TOAST values within a CDC batch",
 		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
@@ -76,7 +76,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Override PEERDB_CDC_STORE_ENABLED when destination is ClickHouse",
 		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{

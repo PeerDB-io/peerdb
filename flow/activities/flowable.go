@@ -71,15 +71,11 @@ func getInitialNormalizeBatchID(
 	catalogPool shared.CatalogPool,
 	env map[string]string,
 	destinationName string,
+	destinationType protos.DBType,
 	flowName string,
 ) (int64, error) {
-	dstPeer, err := connectors.LoadPeer(ctx, catalogPool, destinationName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to load destination peer for normalize state: %w", err)
-	}
-
 	// Postgres keeps normalize progress in destination-local metadata.
-	if dstPeer.Type == protos.DBType_POSTGRES {
+	if destinationType == protos.DBType_POSTGRES {
 		dstPgConn, dstClose, err := connectors.GetPostgresConnectorByName(ctx, env, catalogPool, destinationName)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get postgres destination connector for normalize state: %w", err)
@@ -375,6 +371,16 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
+	}
+
+	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabledForDestination(ctx, config.Env, destinationType)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to resolve CDC store enabled: %w", err))
+	}
+
 	// syncDone will be closed by SyncFlow,
 	// whereas normalizeDone will be closed by normalizing goroutine
 	// Wait on normalizeDone at end to not interrupt final normalize
@@ -383,7 +389,7 @@ func (a *FlowableActivity) SyncFlow(
 	normResponses := concurrency.NewLastChan()
 
 	lastNormBatchID, err := getInitialNormalizeBatchID(
-		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, config.FlowJobName,
+		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
 	)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -401,7 +407,7 @@ func (a *FlowableActivity) SyncFlow(
 	// under normal steady operation where the batch hits idle timeout every time it will match the hours very closely
 	// effective hours will be longer if pull is idling, or there are waits on big transactions,
 	// or the sync interval is so small that start/stop overhead starts being visible
-	// will be shorter if the batches hit the size limit rather rather than idle timeout
+	// will be shorter if the batches hit the size limit rather than idle timeout
 	normBufferSize := normBufferHours * 3600 / int64(idleTimeout.Seconds())
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)
@@ -422,10 +428,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState, cdcStoreEnabled)
 		} else {
 			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState, cdcStoreEnabled)
 		}
 
 		if syncErr != nil {
@@ -478,6 +484,7 @@ func (a *FlowableActivity) syncRecords(
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
+	cdcStoreEnabled bool,
 ) (*model.SyncResponse, error) {
 	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
 	if config.Script != "" {
@@ -510,7 +517,7 @@ func (a *FlowableActivity) syncRecords(
 	}
 	return syncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
-		syncingBatchID, syncWaiting, adaptStream,
+		syncingBatchID, syncWaiting, cdcStoreEnabled, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
 }
@@ -526,10 +533,11 @@ func (a *FlowableActivity) syncPg(
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
+	cdcStoreEnabled bool,
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
-		syncingBatchID, syncWaiting, nil,
+		syncingBatchID, syncWaiting, cdcStoreEnabled, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
 }
