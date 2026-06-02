@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -57,7 +58,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		peerDBColumns = append(peerDBColumns, isDeletedColName)
 	}
 	if cfg.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, cfg.SyncedAtColName)
+		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
 	}
 
 	// this is for handling column exclusion, processed schema does that in a step
