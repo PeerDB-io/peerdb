@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	toxiproxyDownProxyPort    = 49001
-	toxiproxyLatencyProxyPort = 49002
-	toxiproxyResetProxyPort   = 49003
+	toxiproxyDownProxyPort    = 14001
+	toxiproxyLatencyProxyPort = 14002
+	toxiproxyResetProxyPort   = 14003
 )
 
 func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName string, proxyPort int,

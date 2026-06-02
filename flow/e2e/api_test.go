@@ -28,6 +28,7 @@ import (
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	pconv "github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -203,6 +204,18 @@ func (s APITestSuite) getCatalogTableSchemaForSourceTable(
 
 	var config protos.TableSchema
 	return &config, proto.Unmarshal(configBytes, &config)
+}
+
+func (s APITestSuite) waitForFlowDropped(env WorkflowRun, flowJobName string) {
+	s.t.Helper()
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow dropped", func() bool {
+		var workflowID string
+		err := s.catalog.QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", flowJobName,
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
+	})
 }
 
 func testApi[TSource SuiteSource](
@@ -1442,6 +1455,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
 		newNumPartitionsOverride uint32 = 7
 	)
 
+	runIDBeforeResync := EnvGetRunID(s.t, env)
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
@@ -1458,7 +1472,10 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
 	})
 	require.NoError(s.t, err)
 
-	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to be in cdc", func() bool {
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for resync ContinueAsNew", func() bool {
+		return EnvGetRunID(s.t, env) != runIDBeforeResync
+	})
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for resynced mirror to be in cdc", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	EnvWaitForEqualTables(env, s.ch, "resync with snapshot config override", tableName, cols)
@@ -1481,13 +1498,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 // TestResyncWithSnapshotConfigOnCompletedSnapshotOnlyPipe verifies that snapshot tuning parameters
@@ -1595,13 +1606,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnCompletedSnapshotOnlyPipe() 
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 // TestResyncWithSnapshotConfigDuringSnapshot verifies that snapshot tuning parameters supplied via
@@ -1709,13 +1714,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigDuringSnapshot() {
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 // TestResyncWithSnapshotConfigOnPausedPipe verifies that snapshot tuning parameters supplied via
@@ -1835,13 +1834,7 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 func (s APITestSuite) TestResyncSourceTableMissing() {
@@ -2221,13 +2214,7 @@ func (s APITestSuite) TestDropCompleted() {
 		).Scan(&workflowID)
 		return errors.Is(err, pgx.ErrNoRows)
 	})
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 // drop on completed mirror doesn't access peers, so should still drop immediately
@@ -2302,13 +2289,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 		).Scan(&workflowID)
 		return errors.Is(err, pgx.ErrNoRows)
 	})
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		err := s.catalog.QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID)
-		return errors.Is(err, pgx.ErrNoRows)
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 func (s APITestSuite) TestEditTablesBeforeResync() {
@@ -2864,8 +2845,12 @@ func (s APITestSuite) TestQRep() {
 	}
 	require.Equal(s.t, int64(2), totalRowsSynced)
 
-	env.Cancel(s.t.Context())
-	RequireEnvCanceled(s.t, env)
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        qrepConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	s.waitForFlowDropped(env, qrepConfig.FlowJobName)
 }
 
 func (s APITestSuite) TestDropQRep() {
@@ -3036,19 +3021,34 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Simulate a mirror whose Temporal workflow no longer exists (e.g. completed or failed
+// over 30 days ago and was already cleaned up).
 func (s APITestSuite) TestDropMissing() {
-	peer := s.source.GeneratePeer(s.t)
-	var peerId int32
-	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(), "select id from peers where name = $1", peer.Name).Scan(&peerId))
+	flowName := "test-drop-missing_" + s.suffix
 
-	_, err := s.catalog.Exec(s.t.Context(),
-		"insert into flows (name,source_peer,destination_peer,workflow_id,status) values ('test-drop-missing',$1,$1,'drop-missing-wf-id',$2)",
-		peerId, protos.FlowStatus_STATUS_COMPLETED,
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowName,
+		TableNameMapping: map[string]string{AttachSchema(s, "drop_missing"): "drop_missing"},
+		Destination:      s.ch.Peer().Name,
+	}
+	cfg := connectionGen.GenerateFlowConnectionConfigs(s)
+	cfgBytes, err := proto.Marshal(pconv.FlowConnectionConfigsToCore(cfg, 0))
+	require.NoError(s.t, err)
+
+	var sourcePeerID, destPeerID int32
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		"select id from peers where name = $1", cfg.SourceName).Scan(&sourcePeerID))
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		"select id from peers where name = $1", cfg.DestinationName).Scan(&destPeerID))
+
+	_, err = s.catalog.Exec(s.t.Context(),
+		"insert into flows (name,source_peer,destination_peer,workflow_id,config_proto,status) values ($1,$2,$3,$4,$5,$6)",
+		flowName, sourcePeerID, destPeerID, flowName+"-missing-wf-id", cfgBytes, protos.FlowStatus_STATUS_COMPLETED,
 	)
 	require.NoError(s.t, err)
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
-		FlowJobName:        "test-drop-missing",
+		FlowJobName:        flowName,
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
