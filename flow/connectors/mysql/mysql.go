@@ -72,24 +72,21 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		binlogHeartbeatPeriod: defaultBinlogHeartbeatPeriod,
 	}
 	c.contexts.Store(&contexts)
+	if ssh != nil {
+		go func() {
+			sshErr := <-ssh.Watch()
+			c.logger.Info("SSH tunnel closed, closing MySQL connection", slog.Any("error", sshErr))
+			if conn := c.conn.Swap(nil); conn != nil {
+				if err := conn.Close(); err != nil {
+					c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
+				}
+			}
+		}()
+	}
 	go func() { //nolint:gosec // G118: long-lived goroutine, not request-scoped
-		ctx := context.Background()
 		for {
 			var ok bool
 			select {
-			case <-ssh.GetKeepaliveChan(ctx):
-				c.logger.Info("SSH keepalive failed, closing connection")
-				ctx = context.Background()
-				// close the SSH client so that BinlogSyncer notices too
-				if err := ssh.Client.Close(); err != nil {
-					c.logger.Error("Failed to close SSH client", slog.Any("error", err))
-				}
-				if conn := c.conn.Swap(nil); conn != nil {
-					c.logger.Info("Closing connection due to SSH keepalive failure")
-					if err := conn.Close(); err != nil {
-						c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
-					}
-				}
 			case <-ctx.Done():
 				c.logger.Info("ctx canceled, closing connection")
 				ctx = context.Background()

@@ -18,11 +18,11 @@ func NewPostgresConnFromConfig(
 	connConfig *pgx.ConnConfig,
 	tlsHost string,
 	rdsAuth *utils.RDSAuth,
-	tunnel *utils.SSHTunnel,
+	ssh *utils.SSHTunnel,
 ) (*pgx.Conn, error) {
-	if tunnel != nil && tunnel.Client != nil {
+	if ssh != nil && ssh.Client != nil {
 		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := tunnel.Client.DialContext(ctx, network, addr)
+			conn, err := ssh.Client.DialContext(ctx, network, addr)
 			if err != nil {
 				return nil, err
 			}

@@ -112,7 +112,7 @@ func setupMySQLSSHKeepaliveHarness(ctx context.Context, t *testing.T, proxyName 
 	t.Helper()
 
 	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, proxyName, proxyPort)
-	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
+	keepaliveChan := connector.ssh.Watch()
 
 	return connector, utils.SSHKeepaliveTestConfig{
 		SSHProxy:      sshProxy,
@@ -200,7 +200,7 @@ func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
 	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-down-test", toxiproxyCDCHangProxyPort)
 	defer connector.Close()
 
-	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
+	keepaliveChan := connector.ssh.Watch()
 	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
 
 	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_ssh_cdc_hang")
@@ -254,7 +254,7 @@ func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
 	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-latency-test", toxiproxyCDCCloseHangProxyPort)
 	defer connector.Close()
 
-	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
+	keepaliveChan := connector.ssh.Watch()
 	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
 
 	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_ssh_cdc_close_hang")
