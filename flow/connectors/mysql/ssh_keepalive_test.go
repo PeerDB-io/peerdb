@@ -21,13 +21,13 @@ import (
 )
 
 const (
-	toxiproxyDownProxyPort              = 42001
-	toxiproxyLatencyProxyPort           = 42002
-	toxiproxyResetProxyPort             = 42003
-	toxiproxyCDCHangProxyPort           = 42004
-	toxiproxyCDCCloseHangProxyPort      = 42005
-	toxiproxyCloseSyncerWithTimeoutPort = 42006
-	toxiproxyBinlogStalenessPort        = 42007
+	toxiproxyDownProxyPort              = 12001
+	toxiproxyLatencyProxyPort           = 12002
+	toxiproxyResetProxyPort             = 12003
+	toxiproxyCDCHangProxyPort           = 12004
+	toxiproxyCDCCloseHangProxyPort      = 12005
+	toxiproxyCloseSyncerWithTimeoutPort = 12006
+	toxiproxyBinlogStalenessPort        = 12007
 )
 
 func resolveMySQL(t *testing.T) (string, uint32, string) {

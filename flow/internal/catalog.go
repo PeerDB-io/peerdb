@@ -47,7 +47,7 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (shared.CatalogPool, e
 }
 
 func GetCatalogConnectionStringFromEnv(ctx context.Context) string {
-	return GetPGConnectionString(GetCatalogPostgresConfigFromEnv(ctx), "")
+	return GetPGConnectionString(GetCatalogPostgresConfigFromEnv(ctx), "catalog_test_access")
 }
 
 func GetCatalogPostgresConfigFromEnv(ctx context.Context) *protos.PostgresConfig {
