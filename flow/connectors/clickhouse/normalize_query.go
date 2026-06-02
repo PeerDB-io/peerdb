@@ -28,7 +28,7 @@ type NormalizeQueryGenerator struct {
 	rawTableName                    string
 	tableMappings                   []*protos.TableMapping
 	flags                           []string
-	committedXIDs                   []int64
+	committedXIDs                   []uint32
 	lastNormBatchID                 int64
 	endBatchID                      int64
 	version                         uint32
@@ -58,7 +58,7 @@ func NewNormalizeQueryGenerator(
 	version uint32,
 	flags []string,
 	walSinkMode bool,
-	committedXIDs []int64,
+	committedXIDs []uint32,
 ) *NormalizeQueryGenerator {
 	isDeletedColumn := isDeletedColName
 	if configuredSoftDeleteColName != "" {
@@ -368,7 +368,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 func (t *NormalizeQueryGenerator) committedXIDsSQL() string {
 	parts := make([]string, len(t.committedXIDs))
 	for i, xid := range t.committedXIDs {
-		parts[i] = strconv.FormatInt(xid, 10)
+		parts[i] = strconv.FormatUint(uint64(xid), 10)
 	}
 	return strings.Join(parts, ",")
 }

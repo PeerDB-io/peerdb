@@ -1359,13 +1359,10 @@ func processMessageV2[Items model.Items](
 }
 
 // GetAndResetCommittedXIDs returns the current set of committed XIDs and resets it.
-// XIDs are widened to int64 at the boundary so downstream code (catalog,
-// connectors) can stay in a single integer type, while in-memory tracking
-// uses the native postgres uint32 representation.
-func (p *PostgresCDCSource) GetAndResetCommittedXIDs() []int64 {
-	xids := make([]int64, 0, len(p.committedXIDs))
+func (p *PostgresCDCSource) GetAndResetCommittedXIDs() []uint32 {
+	xids := make([]uint32, 0, len(p.committedXIDs))
 	for xid := range p.committedXIDs {
-		xids = append(xids, int64(xid))
+		xids = append(xids, xid)
 	}
 	clear(p.committedXIDs)
 	return xids

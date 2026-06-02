@@ -287,7 +287,7 @@ func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *proto
 }
 
 // SetCommittedXIDsForBatch stores the set of committed transaction IDs for a CDC v2 batch.
-func (p *PostgresMetadata) SetCommittedXIDsForBatch(ctx context.Context, flowName string, batchID int64, xids []int64) error {
+func (p *PostgresMetadata) SetCommittedXIDsForBatch(ctx context.Context, flowName string, batchID int64, xids []uint32) error {
 	if _, err := p.pool.Exec(ctx,
 		`INSERT INTO cdc_v2_committed_xids (flow_name, batch_id, committed_xids)
 		VALUES ($1, $2, $3)
@@ -305,7 +305,7 @@ func (p *PostgresMetadata) SetCommittedXIDsForBatch(ctx context.Context, flowNam
 // GetCommittedXIDsForBatches returns all committed XIDs for the given batch range.
 func (p *PostgresMetadata) GetCommittedXIDsForBatches(
 	ctx context.Context, flowName string, startBatchID int64, endBatchID int64,
-) ([]int64, error) {
+) ([]uint32, error) {
 	rows, err := p.pool.Query(ctx,
 		`SELECT committed_xids FROM cdc_v2_committed_xids
 		WHERE flow_name = $1 AND batch_id > $2 AND batch_id <= $3`,
@@ -316,9 +316,9 @@ func (p *PostgresMetadata) GetCommittedXIDsForBatches(
 	}
 	defer rows.Close()
 
-	var allXIDs []int64
+	var allXIDs []uint32
 	for rows.Next() {
-		var batchXIDs []int64
+		var batchXIDs []uint32
 		if err := rows.Scan(&batchXIDs); err != nil {
 			return nil, fmt.Errorf("failed to scan committed xids: %w", err)
 		}

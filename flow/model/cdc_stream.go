@@ -19,7 +19,7 @@ type CDCStream[T Items] struct {
 	SchemaDeltas []*protos.TableSchemaDelta
 	// CDC v2: XIDs whose commit was fully observed in this batch.
 	// Set by source after PullRecords drains, before Close; read by sync.
-	committedXIDs []int64
+	committedXIDs []uint32
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID  int64
 	lastCheckpointSet bool
@@ -147,7 +147,7 @@ func (r *CDCStream[T]) SetV2Active(active bool) {
 // SetCommittedXIDs is called by the source after pull drains. Receiving any
 // committed XID forces a normalize pass even with zero DML records in this
 // batch: prior batches' WAL sink rows still need promotion.
-func (r *CDCStream[T]) SetCommittedXIDs(committedXIDs []int64) {
+func (r *CDCStream[T]) SetCommittedXIDs(committedXIDs []uint32) {
 	r.committedXIDs = committedXIDs
 	if r.v2Active && len(committedXIDs) > 0 {
 		r.needsNormalize = true
@@ -158,6 +158,6 @@ func (r *CDCStream[T]) V2Active() bool {
 	return r.v2Active
 }
 
-func (r *CDCStream[T]) CommittedXIDs() []int64 {
+func (r *CDCStream[T]) CommittedXIDs() []uint32 {
 	return r.committedXIDs
 }

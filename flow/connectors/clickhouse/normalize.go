@@ -460,7 +460,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
-	var committedXIDs []int64
+	var committedXIDs []uint32
 	var destinationTableNames []string
 	if walSinkMode {
 		committedXIDs, err = c.GetCommittedXIDsForBatches(ctx, req.FlowJobName, lastNormBatchID, endBatchID)
@@ -710,7 +710,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 func (c *ClickHouseConnector) getDistinctTableNamesInWALSink(
 	ctx context.Context,
 	flowJobName string,
-	committedXIDs []int64,
+	committedXIDs []uint32,
 	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	if len(committedXIDs) == 0 {
@@ -720,7 +720,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInWALSink(
 	walTbl := c.GetWALSinkTableName(flowJobName)
 	xidParts := make([]string, len(committedXIDs))
 	for i, xid := range committedXIDs {
-		xidParts[i] = strconv.FormatInt(xid, 10)
+		xidParts[i] = strconv.FormatUint(uint64(xid), 10)
 	}
 	xidList := strings.Join(xidParts, ",")
 
@@ -754,7 +754,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInWALSink(
 // CleanupWALSink deletes rows for the given committed XIDs from the WAL sink
 // table. XID-based (not LSN-based) so in-progress streamed transactions whose
 // segments share an LSN range with committed transactions are preserved.
-func (c *ClickHouseConnector) CleanupWALSink(ctx context.Context, flowJobName string, committedXIDs []int64) error {
+func (c *ClickHouseConnector) CleanupWALSink(ctx context.Context, flowJobName string, committedXIDs []uint32) error {
 	if len(committedXIDs) == 0 {
 		return nil
 	}
@@ -766,7 +766,7 @@ func (c *ClickHouseConnector) CleanupWALSink(ctx context.Context, flowJobName st
 	}
 	xidParts := make([]string, len(committedXIDs))
 	for i, xid := range committedXIDs {
-		xidParts[i] = strconv.FormatInt(xid, 10)
+		xidParts[i] = strconv.FormatUint(uint64(xid), 10)
 	}
 	q := fmt.Sprintf("ALTER TABLE %s DELETE WHERE _peerdb_txid IN (%s)",
 		peerdb_clickhouse.QuoteIdentifier(walTbl), strings.Join(xidParts, ","))
