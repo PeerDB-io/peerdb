@@ -55,7 +55,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	if cfg.SoftDeleteColName != "" {
 		peerDBColumns = append(peerDBColumns, cfg.SoftDeleteColName)
 	} else {
-		peerDBColumns = append(peerDBColumns, isDeletedColName)
+		peerDBColumns = append(peerDBColumns, defaultIsDeletedColName)
 	}
 	if cfg.SyncedAtColName != "" {
 		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
