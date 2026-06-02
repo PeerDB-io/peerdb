@@ -111,7 +111,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 
 	conn, err := c.connect(ctx)
 	if err != nil {
-		return fmt.Errorf("unable to set connect: %w", err)
+		return fmt.Errorf("unable to connect: %w", err)
 	}
 
 	if isVitess, err := mysql_validation.IsVitess(conn); err != nil {
