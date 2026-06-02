@@ -76,8 +76,8 @@ func timeFieldExpressionConverter(
 	}
 
 	// QValueTime is stored as time-micro logical type in Avro, toTime64 accepts a
-	// fractional second, so conversion is necessary
-	return fmt.Sprintf("toTime64(%s / 1000000.0, 6)", sourceFieldIdentifier), nil
+	// fractional second, so conversion is necessary. Trip through Decimal64 to preserve precision.
+	return fmt.Sprintf("toTime64(toDecimal64(%s, 6) / 1000000, 6)", sourceFieldIdentifier), nil
 }
 
 var defaultFieldExpressionConverters = []fieldExpressionConverter{
