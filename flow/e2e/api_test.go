@@ -28,6 +28,7 @@ import (
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	pconv "github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -3020,15 +3021,29 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Simulate a mirror whose Temporal workflow no longer exists (e.g. completed or failed
+// over 30 days ago and was already cleaned up).
 func (s APITestSuite) TestDropMissing() {
-	peer := s.source.GeneratePeer(s.t)
-	var peerId int32
-	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(), "select id from peers where name = $1", peer.Name).Scan(&peerId))
-
 	flowName := "test-drop-missing_" + s.suffix
-	_, err := s.catalog.Exec(s.t.Context(),
-		"insert into flows (name,source_peer,destination_peer,workflow_id,status) values ($1,$2,$2,$3,$4)",
-		flowName, peerId, flowName+"-wf-id", protos.FlowStatus_STATUS_COMPLETED,
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowName,
+		TableNameMapping: map[string]string{AttachSchema(s, "drop_missing"): "drop_missing"},
+		Destination:      s.ch.Peer().Name,
+	}
+	cfg := connectionGen.GenerateFlowConnectionConfigs(s)
+	cfgBytes, err := proto.Marshal(pconv.FlowConnectionConfigsToCore(cfg, 0))
+	require.NoError(s.t, err)
+
+	var sourcePeerID, destPeerID int32
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		"select id from peers where name = $1", cfg.SourceName).Scan(&sourcePeerID))
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		"select id from peers where name = $1", cfg.DestinationName).Scan(&destPeerID))
+
+	_, err = s.catalog.Exec(s.t.Context(),
+		"insert into flows (name,source_peer,destination_peer,workflow_id,config_proto,status) values ($1,$2,$3,$4,$5,$6)",
+		flowName, sourcePeerID, destPeerID, flowName+"-missing-wf-id", cfgBytes, protos.FlowStatus_STATUS_COMPLETED,
 	)
 	require.NoError(s.t, err)
 
