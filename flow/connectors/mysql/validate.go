@@ -109,16 +109,21 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return fmt.Errorf("unable to establish replication connectivity: %w", err)
 	}
 
-	for conn, err := range c.withRetries(ctx) {
-		if err != nil {
-			return err
-		}
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to set connect: %w", err)
+	}
 
-		if isVitess, err := mysql_validation.IsVitess(conn); err != nil {
-			return err
-		} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
-			return fmt.Errorf("vitess is currently not supported for MySQL mirrors in CDC")
-		}
+	if isVitess, err := mysql_validation.IsVitess(conn); err != nil {
+		return err
+	} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
+		return fmt.Errorf("vitess is currently not supported for MySQL mirrors in CDC")
+	}
+	if err := mysql_validation.CheckRDSBinlogSettings(conn, c.logger); err != nil {
+		return fmt.Errorf("binlog configuration error: %w", err)
+	}
+	if err := mysql_validation.CheckLogReplicaUpdates(conn); err != nil {
+		return fmt.Errorf("binlog configuration error: %w", err)
 	}
 
 	requireRowMetadata := false
@@ -130,14 +135,6 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	}
 	if err := c.CheckBinlogSettings(ctx, requireRowMetadata); err != nil {
 		return fmt.Errorf("binlog configuration error: %w", err)
-	}
-	for conn, err := range c.withRetries(ctx) {
-		if err != nil {
-			return err
-		}
-		if err := mysql_validation.CheckRDSBinlogSettings(conn, c.logger); err != nil {
-			return fmt.Errorf("binlog configuration error: %w", err)
-		}
 	}
 
 	return nil

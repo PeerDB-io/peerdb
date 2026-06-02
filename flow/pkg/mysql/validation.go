@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -230,6 +231,57 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 	}
 
 	return nil
+}
+
+// CheckLogReplicaUpdates verifies that a source acting as a replica records replicated
+// events in its own binary log. Without this, rows applied to the replica through its own
+// upstream replication are not written to the replica's binlog, leaving gaps that surface
+// as errors when PeerDB reconnects and resumes from a binlog position/GTID.
+func CheckLogReplicaUpdates(conn *client.Conn) error {
+	isReplica, err := ServerIsReplica(conn)
+	if err != nil {
+		return fmt.Errorf("failed to determine whether source is a replica: %w", err)
+	}
+	if !isReplica {
+		return nil
+	}
+
+	rs, err := conn.Execute("SHOW VARIABLES WHERE Variable_name IN ('log_slave_updates', 'log_replica_updates')")
+	if err != nil {
+		return fmt.Errorf("failed to retrieve log_replica_updates setting: %w", err)
+	}
+	if len(rs.Values) == 0 {
+		// every MySQL/MariaDB exposes one of these variables, so a replica that reports
+		// neither is unexpected and we cannot confirm it records replicated events
+		return fmt.Errorf("could not read log_replica_updates/log_slave_updates on replica source")
+	}
+	for _, row := range rs.Values {
+		name := string(row[0].AsString())
+		value := string(row[1].AsString())
+		if !strings.EqualFold(value, "ON") && value != "1" {
+			return fmt.Errorf(
+				"%s must be enabled when replicating from a replica so replicated events are written to its binlog, currently %s",
+				name, value)
+		}
+	}
+
+	return nil
+}
+
+// ServerIsReplica reports whether the server is configured as a replica of an upstream primary.
+func ServerIsReplica(conn *client.Conn) (bool, error) {
+	rs, err := conn.Execute("SHOW REPLICA STATUS")
+	if err != nil {
+		// older MySQL (<8.0.22) and MariaDB (<10.5.1) don't recognize SHOW REPLICA STATUS
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_PARSE_ERROR {
+			if rs, err = conn.Execute("SHOW SLAVE STATUS"); err != nil {
+				return false, fmt.Errorf("failed to check replica status: %w", err)
+			}
+		} else {
+			return false, fmt.Errorf("failed to check replica status: %w", err)
+		}
+	}
+	return len(rs.Values) > 0, nil
 }
 
 // check if the server is a Vitess server, currently only works for initial load only
