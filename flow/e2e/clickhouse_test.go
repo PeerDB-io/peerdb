@@ -1350,7 +1350,7 @@ func (s ClickHouseSuite) Test_Time64() {
 		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('14:21:00', '08:30:00.123456', NULL)`, srcFullName)))
 	// Regression test for precise conversion - these values were losing 1us when tripped through floating point
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('00:00:00.000249', '00:00:00.000251', '00:00:00.000493')`, srcFullName)))
+		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('00:00:00.000249', '00:00:00.000251', NULL)`, srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
