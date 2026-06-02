@@ -24,6 +24,7 @@ import {
   useCallback,
   useMemo,
   useState,
+  useTransition,
 } from 'react';
 import ReactSelect from 'react-select';
 import { useTheme as useStyledTheme } from 'styled-components';
@@ -67,8 +68,8 @@ export default function SchemaBox({
 }: SchemaBoxProps) {
   const selectTheme = useSelectTheme();
   const styledTheme = useStyledTheme();
-  const [tablesLoading, setTablesLoading] = useState(false);
-  const [columnsLoading, setColumnsLoading] = useState(false);
+  const [tablesLoading, startTablesTransition] = useTransition();
+  const [columnsLoading, startColumnsTransition] = useTransition();
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
   const [fetchedSchemas, setFetchedSchemas] = useState<Set<string>>(new Set());
   const [tableQuery, setTableQuery] = useState<string>('');
@@ -150,14 +151,13 @@ export default function SchemaBox({
     (table: string) => {
       const [schemaName, tableName] = table.split('.');
 
-      fetchColumns(sourcePeer, schemaName, tableName, setColumnsLoading).then(
-        (res) => {
-          setTableColumns((prev) => [
-            ...prev,
-            { tableName: table, columns: res },
-          ]);
-        }
-      );
+      startColumnsTransition(async () => {
+        const res = await fetchColumns(sourcePeer, schemaName, tableName);
+        setTableColumns((prev) => [
+          ...prev,
+          { tableName: table, columns: res },
+        ]);
+      });
     },
     [sourcePeer, setTableColumns]
   );
@@ -198,52 +198,50 @@ export default function SchemaBox({
   };
 
   const fetchTablesForSchema = useCallback(
-    async (schemaName: string) => {
-      setTablesLoading(true);
+    (schemaName: string) => {
+      startTablesTransition(async () => {
+        try {
+          const newRows = await fetchTables(
+            sourcePeer,
+            schemaName,
+            defaultTargetSchema,
+            peerType,
+            initialLoadOnly
+          );
 
-      try {
-        const newRows = await fetchTables(
-          sourcePeer,
-          schemaName,
-          defaultTargetSchema,
-          peerType,
-          initialLoadOnly
-        );
-
-        if (alreadySelectedTables) {
-          for (const row of newRows) {
-            const existingRow = alreadySelectedTables.find(
-              (tableMap) => tableMap.sourceTableIdentifier === row.source
-            );
-            if (existingRow) {
-              row.selected = true;
-              row.editingDisabled = true;
-              row.engine = existingRow.engine;
-              row.partitionKey = existingRow.partitionKey;
-              row.shardingKey = existingRow.shardingKey;
-              row.policyName = existingRow.policyName;
-              row.partitionByExpr = existingRow.partitionByExpr;
-              row.exclude = new Set(existingRow.exclude ?? []);
-              row.destination = existingRow.destinationTableIdentifier;
-              addTableColumns(row.source);
+          if (alreadySelectedTables) {
+            for (const row of newRows) {
+              const existingRow = alreadySelectedTables.find(
+                (tableMap) => tableMap.sourceTableIdentifier === row.source
+              );
+              if (existingRow) {
+                row.selected = true;
+                row.editingDisabled = true;
+                row.engine = existingRow.engine;
+                row.partitionKey = existingRow.partitionKey;
+                row.shardingKey = existingRow.shardingKey;
+                row.policyName = existingRow.policyName;
+                row.partitionByExpr = existingRow.partitionByExpr;
+                row.exclude = new Set(existingRow.exclude ?? []);
+                row.destination = existingRow.destinationTableIdentifier;
+                addTableColumns(row.source);
+              }
             }
           }
+
+          setRows((oldRows) => {
+            const filteredRows = oldRows.filter(
+              (oldRow) => oldRow.schema !== schemaName
+            );
+            return [...filteredRows, ...newRows];
+          });
+
+          setFetchedSchemas((prev) => new Set(prev).add(schemaName));
+        } catch (error) {
+          // Handle error if needed
+          console.error('Error fetching tables:', error);
         }
-
-        setRows((oldRows) => {
-          const filteredRows = oldRows.filter(
-            (oldRow) => oldRow.schema !== schemaName
-          );
-          return [...filteredRows, ...newRows];
-        });
-
-        setFetchedSchemas((prev) => new Set(prev).add(schemaName));
-      } catch (error) {
-        // Handle error if needed
-        console.error('Error fetching tables:', error);
-      } finally {
-        setTablesLoading(false);
-      }
+      });
     },
     [
       sourcePeer,

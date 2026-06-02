@@ -9,7 +9,7 @@ import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
-import { Dispatch, SetStateAction, useState } from 'react';
+import { Dispatch, SetStateAction, useState, useTransition } from 'react';
 
 interface dropMirrorArgs {
   flowJobName: string;
@@ -29,26 +29,21 @@ interface deleteScriptArgs {
 
 async function handleDropMirror(
   dropArgs: dropMirrorArgs,
-  setLoading: Dispatch<SetStateAction<boolean>>,
   setMsg: Dispatch<SetStateAction<string>>,
   dropStats: boolean
 ) {
-  setLoading(true);
   const res = await changeFlowState(
     dropArgs.flowJobName,
     FlowStatus.STATUS_TERMINATING,
     dropStats
   );
-  setLoading(false);
   if (res.status !== 200) {
     setMsg(`Unable to start dropping mirror ${dropArgs.flowJobName}.`);
-    return false;
+    return;
   }
 
   setMsg('Request to drop mirror sent successfully.');
   window.location.reload();
-
-  return true;
 }
 
 export default function DropDialog({
@@ -58,52 +53,51 @@ export default function DropDialog({
   mode: 'PEER' | 'MIRROR' | 'ALERT' | 'SCRIPT';
   dropArgs: dropMirrorArgs | dropPeerArgs | deleteAlertArgs | deleteScriptArgs;
 }) {
-  const [loading, setLoading] = useState(false);
+  const [loading, startTransition] = useTransition();
   const [msg, setMsg] = useState('');
   const [dropStats, setDropStats] = useState(true);
 
-  const handleDropPeer = async (dropArgs: dropPeerArgs) => {
+  const handleDropPeer = (dropArgs: dropPeerArgs) => {
     if (!dropArgs.peerName) {
       setMsg('Invalid peer name');
       return;
     }
 
-    setLoading(true);
-    const dropRes = await fetch('api/v1/peers/drop', {
-      method: 'POST',
-      body: JSON.stringify(dropArgs),
+    startTransition(async () => {
+      const dropRes = await fetch('api/v1/peers/drop', {
+        method: 'POST',
+        body: JSON.stringify(dropArgs),
+      });
+      if (dropRes.ok) {
+        setMsg('Peer dropped successfully.');
+        window.location.reload();
+      } else {
+        const dropResError = await dropRes.json();
+        setMsg(
+          `Unable to drop peer ${dropArgs.peerName}. ${
+            dropResError.message ?? ''
+          }`
+        );
+      }
     });
-    setLoading(false);
-    if (dropRes.ok) {
-      setMsg('Peer dropped successfully.');
-      window.location.reload();
-    } else {
-      const dropResError = await dropRes.json();
-      setMsg(
-        `Unable to drop peer ${dropArgs.peerName}. ${
-          dropResError.message ?? ''
-        }`
-      );
-    }
   };
 
-  const handleDeleteAlert = async (dropArgs: deleteAlertArgs) => {
-    setLoading(true);
-    const deleteRes = await fetch(`api/v1/alerts/config/${dropArgs.id}`, {
-      method: 'DELETE',
+  const handleDeleteAlert = (dropArgs: deleteAlertArgs) => {
+    startTransition(async () => {
+      const deleteRes = await fetch(`api/v1/alerts/config/${dropArgs.id}`, {
+        method: 'DELETE',
+      });
+      if (!deleteRes.ok) setMsg(`Unable to delete alert configuration.`);
+      else {
+        setMsg(`Alert configuration deleted successfully.`);
+        window.location.reload();
+      }
     });
-    setLoading(false);
-    if (!deleteRes.ok) setMsg(`Unable to delete alert configuration.`);
-    else {
-      setMsg(`Alert configuration deleted successfully.`);
-      window.location.reload();
-    }
   };
 
   const handleDeleteScript = (dropArgs: deleteScriptArgs) => {
-    setLoading(true);
-    DeleteScript(dropArgs.scriptId).then((success) => {
-      setLoading(false);
+    startTransition(async () => {
+      const success = await DeleteScript(dropArgs.scriptId);
       if (success) window.location.reload();
     });
   };
@@ -130,12 +124,10 @@ export default function DropDialog({
   const handleDelete = () => {
     switch (mode) {
       case 'MIRROR':
-        return handleDropMirror(
-          dropArgs as dropMirrorArgs,
-          setLoading,
-          setMsg,
-          dropStats
+        startTransition(() =>
+          handleDropMirror(dropArgs as dropMirrorArgs, setMsg, dropStats)
         );
+        return;
       case 'PEER':
         return handleDropPeer(dropArgs as dropPeerArgs);
       case 'ALERT':
