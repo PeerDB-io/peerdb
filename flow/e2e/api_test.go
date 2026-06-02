@@ -249,9 +249,7 @@ func TestApiMongo(t *testing.T) {
 }
 
 func (s APITestSuite) TestGetVersion() {
-	response, err := s.GetVersion(s.t.Context(), &protos.PeerDBVersionRequest{})
-	require.NoError(s.t, err)
-	require.Equal(s.t, internal.PeerDBVersionShaShort(), response.Version)
+	s.t.Fatal("Test breaking CI")
 }
 
 func (s APITestSuite) TestPostgresValidation_WrongPassword() {
