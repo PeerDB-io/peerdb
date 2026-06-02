@@ -829,41 +829,51 @@ func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
-	err := exceptions.NewMySQLStreamingError(
+func TestMySQLExecuteError(t *testing.T) {
+	err := exceptions.NewMySQLExecuteError(
 		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"})
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "STREAMING_TRANSIENT_ERROR",
+		Code:   "EXECUTE_ERROR",
 	}, errInfo, "Unexpected error info")
 
-	err = exceptions.NewMySQLStreamingError(
+	err = exceptions.NewMySQLExecuteError(
 		tls.RecordHeaderError{Msg: "unsupported SSLv2 handshake received"})
 	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "UNKNOWN",
+		Code:   "EXECUTE_ERROR",
 	}, errInfo, "Unexpected error info")
 
-	err = exceptions.NewMySQLStreamingError(context.DeadlineExceeded)
+	err = exceptions.NewMySQLExecuteError(context.DeadlineExceeded)
 	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "STREAMING_TRANSIENT_ERROR",
+		Code:   "EXECUTE_ERROR",
 	}, errInfo, "Unexpected error info")
 
 	tlsErr := tls.RecordHeaderError{Msg: "remote error: tls: error decoding message"}
 	innerErr := pErrors.Wrapf(mysql.ErrBadConn, "io.ReadFull(header) failed. err %v", tlsErr)
-	err = exceptions.NewMySQLStreamingError(pErrors.Errorf("failed to set @slave_gtid_strict_mode=1: %v", innerErr))
+	err = exceptions.NewMySQLExecuteError(pErrors.Errorf("failed to set @slave_gtid_strict_mode=1: %v", innerErr))
 	errorClass, errInfo = GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorRetryRecoverable, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "STREAMING_TRANSIENT_ERROR",
+		Code:   "EXECUTE_ERROR",
+	}, errInfo)
+
+	err = exceptions.NewMySQLExecuteError(fmt.Errorf("invalid compressed sequence 0 != 1"))
+	wrappedErrInner := fmt.Errorf("failed to get schema for watermark table eesb.customers: %w", err)
+	wrappedErrOuter := fmt.Errorf("failed to sync records: %w", wrappedErrInner)
+	errorClass, errInfo = GetErrorClass(t.Context(), wrappedErrOuter)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "EXECUTE_ERROR",
 	}, errInfo)
 }
 
