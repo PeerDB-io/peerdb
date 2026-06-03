@@ -26,12 +26,12 @@ import (
 )
 
 const (
-	isDeletedColName    = "_peerdb_is_deleted"
-	isDeletedColType    = "UInt8"
-	versionColName      = "_peerdb_version"
-	versionColType      = "UInt64"
-	sourceSchemaColName = "_peerdb_source_schema"
-	sourceSchemaColType = "LowCardinality(String)"
+	defaultIsDeletedColName = "_peerdb_is_deleted"
+	isDeletedColType        = "UInt8"
+	versionColName          = "_peerdb_version"
+	versionColType          = "UInt64"
+	sourceSchemaColName     = "_peerdb_source_schema"
+	sourceSchemaColType     = "LowCardinality(String)"
 )
 
 func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
@@ -101,7 +101,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		}
 	}
 
-	isDeletedColumn := isDeletedColName
+	isDeletedColumn := defaultIsDeletedColName
 	isDeletedColumnPart := ""
 	if config.SoftDeleteColName != "" {
 		isDeletedColumn = config.SoftDeleteColName

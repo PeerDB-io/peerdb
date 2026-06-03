@@ -52,7 +52,7 @@ func NewNormalizeQueryGenerator(
 	version uint32,
 	flags []string,
 ) *NormalizeQueryGenerator {
-	isDeletedColumn := isDeletedColName
+	isDeletedColumn := defaultIsDeletedColName
 	if configuredSoftDeleteColName != "" {
 		isDeletedColumn = configuredSoftDeleteColName
 	}
