@@ -22,20 +22,16 @@ func (mc *MeteredConn) Read(b []byte) (int, error) {
 type innerDialer func(ctx context.Context, network, address string) (net.Conn, error)
 
 type MeteredDialer struct {
-	totalBytesRead     *atomic.Int64
-	deltaBytesRead     *atomic.Int64
-	innerDialer        innerDialer
-	noDeadlineRequired bool
+	totalBytesRead *atomic.Int64
+	deltaBytesRead *atomic.Int64
+	innerDialer    innerDialer
 }
 
-func NewMeteredDialer(totalBytesRead *atomic.Int64, deltaBytesRead *atomic.Int64,
-	innerDialer innerDialer, noDeadlineRequired bool,
-) MeteredDialer {
+func NewMeteredDialer(totalBytesRead *atomic.Int64, deltaBytesRead *atomic.Int64, innerDialer innerDialer) MeteredDialer {
 	return MeteredDialer{
-		totalBytesRead:     totalBytesRead,
-		deltaBytesRead:     deltaBytesRead,
-		innerDialer:        innerDialer,
-		noDeadlineRequired: noDeadlineRequired,
+		totalBytesRead: totalBytesRead,
+		deltaBytesRead: deltaBytesRead,
+		innerDialer:    innerDialer,
 	}
 }
 
@@ -44,17 +40,9 @@ func (md *MeteredDialer) DialContext(ctx context.Context, network, address strin
 	if err != nil {
 		return nil, err
 	}
-	if md.noDeadlineRequired {
-		return &MeteredConn{
-			Conn:           &NoDeadlineConn{Conn: conn},
-			totalBytesRead: md.totalBytesRead,
-			deltaBytesRead: md.deltaBytesRead,
-		}, nil
-	} else {
-		return &MeteredConn{
-			Conn:           conn,
-			totalBytesRead: md.totalBytesRead,
-			deltaBytesRead: md.deltaBytesRead,
-		}, nil
-	}
+	return &MeteredConn{
+		Conn:           conn,
+		totalBytesRead: md.totalBytesRead,
+		deltaBytesRead: md.deltaBytesRead,
+	}, nil
 }

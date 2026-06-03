@@ -40,7 +40,7 @@ func setupPostgresConnectorWithDirectSSH(ctx context.Context, t *testing.T) *Pos
 	return connector
 }
 
-func TestPostgresSSHReceiveMessageDeadlineKeepsConnectionUsable(t *testing.T) {
+func TestPostgresSSHReceiveMessageDeadlineRespectsContextDeadline(t *testing.T) {
 	connector := setupPostgresConnectorWithDirectSSH(t.Context(), t)
 	defer connector.Close()
 
