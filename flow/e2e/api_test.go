@@ -3557,12 +3557,12 @@ func (s APITestSuite) TestResetMirrorSequences() {
 	require.NoError(s.t, err)
 	require.True(s.t, resetResp.Ok)
 
-	// After reset: sequence should be at 5 (max id)
+	// After reset: setval(seq, MAX+1, false) means pg_sequence_last_value = 6
 	var seqValAfter int64
 	err = s.pg.Conn().QueryRow(s.t.Context(),
 		fmt.Sprintf("SELECT pg_sequence_last_value(pg_get_serial_sequence('%s', 'id'))", dstTable)).Scan(&seqValAfter)
 	require.NoError(s.t, err)
-	require.Equal(s.t, int64(5), seqValAfter)
+	require.Equal(s.t, int64(6), seqValAfter)
 
 	// nextval should return 6
 	var nextVal int64

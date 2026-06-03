@@ -75,9 +75,7 @@ func (h *FlowRequestHandler) ResetMirrorSequences(
 			AND pg_get_serial_sequence(v_table, a.attname) IS NOT NULL
 		LOOP
 		EXECUTE format('SELECT COALESCE(MAX(%I), 0) FROM %s', v_col, v_table) INTO v_max;
-		IF v_max > 0 THEN
-			PERFORM setval(v_seq, v_max, true);
-		END IF;
+		PERFORM setval(v_seq, v_max + 1, false);
 		END LOOP;
 	END LOOP;
 	END;
