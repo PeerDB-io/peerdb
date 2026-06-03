@@ -313,8 +313,9 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS",
-		Description:      "Days to retain rows in the ClickHouse _peerdb_raw table before TTL eviction. Applies to newly created raw tables",
+		Name: "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS",
+		Description: "Days to retain rows in the ClickHouse _peerdb_raw and _peerdb_wal tables before TTL eviction. " +
+			"Applies to newly created tables",
 		DefaultValue:     "90",
 		ValueType:        protos.DynconfValueType_UINT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
@@ -417,6 +418,26 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_CDC_V2_ENABLED",
+		Description:      "Enable CDC v2 protocol with for ClickHouse destinations",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		// Test/debug only. When set to "immediate" PG streams every change
+		// regardless of logical_decoding_work_mem (PG14+, PGC_USERSET, used
+		// by PG's own logical-replication test suite). Applied via SET on
+		// the per-flow replication connection so blast radius is one slot.
+		Name:             "PEERDB_PG_DEBUG_LOGICAL_REPLICATION_STREAMING",
+		Description:      "Override debug_logical_replication_streaming on the replication connection (buffered | immediate)",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
@@ -803,6 +824,14 @@ func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Conte
 
 func PeerDBForceInternalVersion(ctx context.Context, env map[string]string) (uint32, error) {
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_FORCE_INTERNAL_VERSION")
+}
+
+func PeerDBCDCV2Enabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CDC_V2_ENABLED")
+}
+
+func PeerDBPgDebugLogicalReplicationStreaming(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_PG_DEBUG_LOGICAL_REPLICATION_STREAMING")
 }
 
 func PeerDBPostgresEnableFailoverSlots(ctx context.Context, env map[string]string) (bool, error) {

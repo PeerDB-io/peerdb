@@ -41,6 +41,46 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+// cdcV2State is in-flight v2 protocol state that must survive a batch boundary
+// mid-transaction. The PostgresCDCSource is recreated per pull, but the
+// underlying replication connection (and the WAL stream from it) persists
+// across pulls on the same PostgresConnector — so any state that tracks
+// "where am I in PG's wire-protocol framing" or "what have I buffered for an
+// uncommitted XID" must live on the connector, not the per-pull source. v2's
+// batch boundary is decoupled from commit (§4.1.2), so batches can split a
+// transaction; PG only sends each RelationMessage once per session, never
+// re-emits Begin/StreamStart on the open stream, and parsing stream-framed
+// messages requires inStream to match. Losing any of these across batches
+// causes silent mis-parse, missing XIDs, or lost schema deltas.
+type cdcV2State struct {
+	// Begin message for the current non-streamed v2 transaction. Carries the
+	// XID and CommitTime used by baseRecordV2 to stamp DML records. Cleared
+	// on CommitMessage. Streaming transactions don't use this — they have no
+	// surrounding Begin/Commit.
+	commitLock *pglogrepl.BeginMessage
+	// Top-level XID -> sub-XIDs tracked for the transaction. See §6.4.
+	activeStreams map[uint32][]uint32
+	// Per-XID buffer of schema deltas seen inside in-flight transactions.
+	// Flushed to batch on Commit/StreamCommit, dropped on StreamAbort. Keyed
+	// by the XID the RelationMessage arrived under: msg.Xid when inStream,
+	// commitLock.Xid otherwise. DML decoding still uses the eagerly-updated
+	// relationMessageMapping; only destination apply of the delta is deferred.
+	// See §4.5.
+	pendingRelations map[uint32][]*protos.TableSchemaDelta
+	// True between StreamStartV2 and StreamStopV2. Passed to ParseV2 to tell
+	// it whether to read the wrapper XID prefix from the message body. If
+	// this flips back to false across a batch boundary while PG is still
+	// streaming, the next message is mis-parsed.
+	inStream bool
+}
+
+func newCDCV2State() *cdcV2State {
+	return &cdcV2State{
+		activeStreams:    make(map[uint32][]uint32),
+		pendingRelations: make(map[uint32][]*protos.TableSchemaDelta),
+	}
+}
+
 //nolint:govet // fieldalignment: fields grouped by purpose for readability
 type PostgresCDCSource struct {
 	*PostgresConnector
@@ -51,7 +91,11 @@ type PostgresCDCSource struct {
 	relationMessageMapping model.RelationMessageMapping
 	slot                   string
 	publication            string
-	commitLock             *pglogrepl.BeginMessage
+
+	// In-flight v2 state held on the connector so it survives a batch boundary
+	// mid-transaction. Embedded so we can keep writing p.inStream, p.commitLock,
+	// etc. without sprinkling .v2state. everywhere.
+	*cdcV2State
 
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
@@ -68,6 +112,13 @@ type PostgresCDCSource struct {
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
+
+	// v2 protocol config flag (static for this pull)
+	useV2Protocol bool
+
+	// committedXIDs is drained into the CDCStream at end of pull, so a fresh
+	// per-pull map is correct here — no need to lift onto the connector.
+	committedXIDs map[uint32]struct{}
 }
 
 type PostgresCDCConfig struct {
@@ -77,13 +128,15 @@ type PostgresCDCConfig struct {
 	TableNameMapping                         map[string]model.NameAndExclude
 	TableNameSchemaMapping                   map[string]*protos.TableSchema
 	RelationMessageMapping                   model.RelationMessageMapping
+	CDCV2State                               *cdcV2State
 	FlowJobName                              string
 	Slot                                     string
 	Publication                              string
+	InternalVersion                          uint32
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
 	OriginMetaAsDestinationColumn            bool
-	InternalVersion                          uint32
+	UseV2Protocol                            bool
 }
 
 // Create a new PostgresCDCSource
@@ -126,7 +179,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		relationMessageMapping:                   cdcConfig.RelationMessageMapping,
 		slot:                                     cdcConfig.Slot,
 		publication:                              cdcConfig.Publication,
-		commitLock:                               nil,
+		cdcV2State:                               cdcConfig.CDCV2State,
 		childToParentRelIDMapping:                childToParentRelIDMap,
 		idToRelKindMap:                           idToRelKindMap,
 		publishViaPartitionRoot:                  publishViaPartitionRoot,
@@ -139,6 +192,8 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
+		useV2Protocol:                            cdcConfig.UseV2Protocol,
+		committedXIDs:                            make(map[uint32]struct{}),
 	}, nil
 }
 
@@ -563,7 +618,16 @@ func PullCdcRecords[Items model.Items](
 	var latestServerWALEnd, lastXLogDataServerWALEnd atomic.Int64
 	defer func() {
 		if totalRecords == 0 {
-			records.SignalAsEmpty()
+			// In v2 mode a batch may carry only a StreamCommit/Commit (no DML records)
+			// when a transaction's commit lands in a different batch than its inserts.
+			// Treat such batches as non-empty so the activity still calls SyncRecords
+			// and persists the committed XIDs; otherwise the prior batch's records
+			// in the WAL sink would never be marked committed and never normalize.
+			if p.useV2Protocol && len(p.committedXIDs) > 0 {
+				records.SignalAsNotEmpty()
+			} else {
+				records.SignalAsEmpty()
+			}
 		}
 		trace.SpanFromContext(ctx).SetAttributes(
 			attribute.Int64(otel_metrics.RowsInBatchKey, totalRecords),
@@ -670,50 +734,80 @@ func PullCdcRecords[Items model.Items](
 			}
 		}
 
-		if p.commitLock == nil {
+		if p.useV2Protocol {
+			// In v2 mode batch boundaries are not gated on whole-transaction commit;
+			// huge transactions may span batches. But we still avoid returning while
+			// a streamed transaction is in flight (StreamStart seen, no StreamCommit/
+			// Abort yet) so its commit XID is recorded alongside its inserts whenever
+			// possible. Without this guard a small streamed txn whose Commit arrives
+			// shortly after StreamStop could be split across two batches, leaving the
+			// records orphaned in the WAL sink with no committedXID to normalize.
+			inProgressStreams := p.inStream || len(p.activeStreams) > 0
 			if totalRecords >= int64(req.MaxBatchSize) {
-				logger.Info("batch filled, returning currently accumulated records",
+				logger.Info("v2: batch filled, returning currently accumulated records",
 					slog.Int64("records", totalRecords),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
-					slog.Int("channelLen", records.ChannelLen()),
 					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 				return nil
 			}
-
-			if waitingForCommit {
-				logger.Info("commit received, returning currently accumulated records",
-					slog.Int64("records", totalRecords),
-					slog.Int64("bytes", totalFetchedBytes.Load()),
-					slog.Int("channelLen", records.ChannelLen()),
-					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
-				return nil
+			if time.Now().After(nextRecordDeadline) {
+				if totalRecords != 0 && !inProgressStreams {
+					logger.Info("v2: standby deadline reached, returning records",
+						slog.Int64("records", totalRecords),
+						slog.Int64("bytes", totalFetchedBytes.Load()),
+						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+					return nil
+				}
+				logger.Info("standby deadline reached, no records accumulated or streams in flight, continuing to wait",
+					slog.Bool("inProgressStreams", inProgressStreams))
+				nextRecordDeadline = time.Now().Add(req.IdleTimeout)
 			}
-		}
-
-		// if we are past the next standby deadline (?)
-		if time.Now().After(nextRecordDeadline) {
-			if totalRecords != 0 {
-				logger.Info("standby deadline reached", slog.Int64("records", totalRecords))
-
-				if p.commitLock == nil {
-					logger.Info("no commit lock, returning currently accumulated records",
+		} else {
+			if p.commitLock == nil {
+				if totalRecords >= int64(req.MaxBatchSize) {
+					logger.Info("batch filled, returning currently accumulated records",
 						slog.Int64("records", totalRecords),
 						slog.Int64("bytes", totalFetchedBytes.Load()),
 						slog.Int("channelLen", records.ChannelLen()),
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					return nil
-				} else {
-					logger.Info("commit lock, waiting for commit to return records",
+				}
+
+				if waitingForCommit {
+					logger.Info("commit received, returning currently accumulated records",
 						slog.Int64("records", totalRecords),
 						slog.Int64("bytes", totalFetchedBytes.Load()),
 						slog.Int("channelLen", records.ChannelLen()),
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
-					waitingForCommit = true
+					return nil
 				}
-			} else {
-				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
 			}
-			nextRecordDeadline = time.Now().Add(req.IdleTimeout)
+
+			// if we are past the next standby deadline (?)
+			if time.Now().After(nextRecordDeadline) {
+				if totalRecords != 0 {
+					logger.Info("standby deadline reached", slog.Int64("records", totalRecords))
+
+					if p.commitLock == nil {
+						logger.Info("no commit lock, returning currently accumulated records",
+							slog.Int64("records", totalRecords),
+							slog.Int64("bytes", totalFetchedBytes.Load()),
+							slog.Int("channelLen", records.ChannelLen()),
+							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+						return nil
+					} else {
+						logger.Info("commit lock, waiting for commit to return records",
+							slog.Int64("records", totalRecords),
+							slog.Int64("bytes", totalFetchedBytes.Load()),
+							slog.Int("channelLen", records.ChannelLen()),
+							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+						waitingForCommit = true
+					}
+				} else {
+					logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
+				}
+				nextRecordDeadline = time.Now().Add(req.IdleTimeout)
+			}
 		}
 
 		// Since we are interrupting the receive message call as soon as `messageWaitPeriod` is over
@@ -789,7 +883,12 @@ func PullCdcRecords[Items model.Items](
 
 				logger.Debug("XLogData",
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
-				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
+				var rec model.Record[Items]
+				if p.useV2Protocol {
+					rec, err = processMessageV2(ctx, p, records, xld, clientXLogPos, processor)
+				} else {
+					rec, err = processMessage(ctx, p, records, xld, clientXLogPos, processor)
+				}
 				if err != nil {
 					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
@@ -982,11 +1081,11 @@ func processMessage[Items model.Items](
 		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Uint64("XID", uint64(msg.Xid)))
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
-		return processInsertMessage(p, xld.WALStart, msg, processor, customTypeMapping)
+		return processInsertMessage(p, xld.WALStart, msg, p.baseRecord(xld.WALStart), processor, customTypeMapping)
 	case *pglogrepl.UpdateMessage:
-		return processUpdateMessage(p, xld.WALStart, msg, processor, customTypeMapping)
+		return processUpdateMessage(p, xld.WALStart, msg, p.baseRecord(xld.WALStart), processor, customTypeMapping)
 	case *pglogrepl.DeleteMessage:
-		return processDeleteMessage(p, xld.WALStart, msg, processor, customTypeMapping)
+		return processDeleteMessage(p, xld.WALStart, msg, p.baseRecord(xld.WALStart), processor, customTypeMapping)
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
 		logger.Debug("CommitMessage",
@@ -1048,10 +1147,232 @@ func processMessage[Items model.Items](
 	return nil, nil
 }
 
+// baseRecordV2 creates a BaseRecord for v2 protocol DML messages.
+// For streamed transactions xid is the in-stream XID and commitLock is nil.
+// For non-streamed v2 transactions the wrapper carries xid==0 and the XID
+// (and CommitTime) come from the surrounding Begin/Commit pair via commitLock,
+// matching v1 baseRecord semantics.
+func (p *PostgresCDCSource) baseRecordV2(lsn pglogrepl.LSN, xid uint32) model.BaseRecord {
+	var nano int64
+	transactionID := uint64(xid)
+	if p.commitLock != nil {
+		nano = p.commitLock.CommitTime.UnixNano()
+		if transactionID == 0 {
+			transactionID = uint64(p.commitLock.Xid)
+		}
+	}
+	return model.BaseRecord{
+		CheckpointID:   int64(lsn),
+		CommitTimeNano: nano,
+		TransactionID:  transactionID,
+	}
+}
+
+func processMessageV2[Items model.Items](
+	ctx context.Context,
+	p *PostgresCDCSource,
+	batch *model.CDCStream[Items],
+	xld pglogrepl.XLogData,
+	currentClientXlogPos pglogrepl.LSN,
+	processor replProcessor[Items],
+) (model.Record[Items], error) {
+	logger := internal.LoggerFromCtx(ctx)
+	logicalMsg, err := pglogrepl.ParseV2(xld.WALData, p.inStream)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing v2 logical message: %w", err)
+	}
+	customTypeMapping, err := p.fetchCustomTypeMapping(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	switch msg := logicalMsg.(type) {
+	case *pglogrepl.StreamStartMessageV2:
+		logger.Debug("StreamStartMessageV2",
+			slog.Uint64("XID", uint64(msg.Xid)),
+			slog.Uint64("FirstSegment", uint64(msg.FirstSegment)))
+		p.inStream = true
+		if msg.FirstSegment == 1 {
+			// First segment of a new streaming transaction
+			p.activeStreams[msg.Xid] = nil
+		}
+
+	case *pglogrepl.StreamStopMessageV2:
+		logger.Debug("StreamStopMessageV2")
+		p.inStream = false
+
+	case *pglogrepl.StreamCommitMessageV2:
+		logger.Debug("StreamCommitMessageV2",
+			slog.Uint64("XID", uint64(msg.Xid)),
+			slog.Any("CommitLSN", msg.CommitLSN))
+		// Mark top-level XID as committed, then flush any schema deltas
+		// buffered under it. Sub-XIDs (tracked or not) are flushed below.
+		p.committedXIDs[msg.Xid] = struct{}{}
+		if err := flushPendingRelations(ctx, p, batch, msg.Xid); err != nil {
+			return nil, err
+		}
+		// Mark all sub-XIDs for this transaction as committed
+		if subXIDs, ok := p.activeStreams[msg.Xid]; ok {
+			for _, subXID := range subXIDs {
+				p.committedXIDs[subXID] = struct{}{}
+				if err := flushPendingRelations(ctx, p, batch, subXID); err != nil {
+					return nil, err
+				}
+			}
+			delete(p.activeStreams, msg.Xid)
+		}
+		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
+		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
+		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
+
+	case *pglogrepl.StreamAbortMessageV2:
+		logger.Debug("StreamAbortMessageV2",
+			slog.Uint64("XID", uint64(msg.Xid)),
+			slog.Uint64("SubXID", uint64(msg.SubXid)))
+		// If SubXid != Xid, only the subtransaction is aborted
+		if msg.SubXid == msg.Xid {
+			// Whole transaction aborted: discard pending schema deltas under
+			// the parent XID and every tracked sub-XID.
+			delete(p.pendingRelations, msg.Xid)
+			if subXIDs, ok := p.activeStreams[msg.Xid]; ok {
+				for _, subXID := range subXIDs {
+					delete(p.pendingRelations, subXID)
+				}
+			}
+			delete(p.activeStreams, msg.Xid)
+		} else {
+			// Sub-XID aborted: discard only that sub-XID's pending deltas.
+			delete(p.pendingRelations, msg.SubXid)
+			// Remove the specific sub-XID from tracking
+			if subXIDs, ok := p.activeStreams[msg.Xid]; ok {
+				filtered := subXIDs[:0]
+				for _, sid := range subXIDs {
+					if sid != msg.SubXid {
+						filtered = append(filtered, sid)
+					}
+				}
+				p.activeStreams[msg.Xid] = filtered
+			}
+		}
+
+	// Non-streaming transactions still use Begin/Commit
+	case *pglogrepl.BeginMessage:
+		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Uint64("XID", uint64(msg.Xid)))
+		p.commitLock = msg
+	case *pglogrepl.CommitMessage:
+		logger.Debug("CommitMessage",
+			slog.Any("CommitLSN", msg.CommitLSN),
+			slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
+		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
+		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
+		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
+		// Mark the non-streaming transaction as committed and flush any schema
+		// deltas buffered under its XID.
+		if p.commitLock != nil {
+			p.committedXIDs[p.commitLock.Xid] = struct{}{}
+			if err := flushPendingRelations(ctx, p, batch, p.commitLock.Xid); err != nil {
+				return nil, err
+			}
+		}
+		p.commitLock = nil
+
+	// Streamed DML messages (v2 wrappers around v1 messages). For streamed
+	// transactions msg.Xid carries the XID; for non-streamed v2 transactions
+	// msg.Xid is 0 and baseRecordV2 falls back to commitLock.
+	case *pglogrepl.InsertMessageV2:
+		return processInsertMessageV2(p, xld.WALStart, msg, processor, customTypeMapping)
+	case *pglogrepl.UpdateMessageV2:
+		return processUpdateMessageV2(p, xld.WALStart, msg, processor, customTypeMapping)
+	case *pglogrepl.DeleteMessageV2:
+		return processDeleteMessageV2(p, xld.WALStart, msg, processor, customTypeMapping)
+
+	case *pglogrepl.RelationMessageV2:
+		// Defer destination apply until the transaction commits: a relation
+		// message inside an aborted (sub)transaction must not alter the dest
+		// schema. The in-memory relationMessageMapping is still updated eagerly
+		// inside computeRelationDelta so DMLs in the same transaction can decode.
+		rmsg := &msg.RelationMessage
+		originalRelID := rmsg.RelationID
+		var parentRelKind byte
+		rmsg.RelationID, parentRelKind, err = p.checkIfUnknownTableInherits(ctx, rmsg.RelationID)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := p.srcTableIDNameMapping[rmsg.RelationID]; !exists {
+			return nil, nil
+		}
+		if originalRelID != rmsg.RelationID && parentRelKind == 'p' && p.publishViaPartitionRoot {
+			return nil, nil
+		}
+		logger.Info("processing RelationMessageV2",
+			slog.Any("LSN", currentClientXlogPos),
+			slog.Uint64("RelationID", uint64(rmsg.RelationID)),
+			slog.Uint64("WrapperXID", uint64(msg.Xid)),
+			slog.String("Namespace", rmsg.Namespace),
+			slog.String("RelationName", rmsg.RelationName),
+			slog.Any("Columns", rmsg.Columns))
+		delta, err := computeRelationDelta(ctx, p, rmsg)
+		if err != nil || delta == nil {
+			return nil, err
+		}
+		// Streaming: msg.Xid carries the streaming (sub)XID. Non-streaming v2:
+		// msg.Xid is 0, fall back to the surrounding Begin's XID via commitLock.
+		xid := msg.Xid
+		if xid == 0 && p.commitLock != nil {
+			xid = p.commitLock.Xid
+		}
+		if xid == 0 {
+			// No transaction frame to attach to (shouldn't happen with PG v2);
+			// apply eagerly rather than silently dropping the delta.
+			logger.Warn("RelationMessageV2 outside any transaction frame, applying eagerly",
+				slog.Uint64("RelationID", uint64(rmsg.RelationID)))
+			return &model.RelationRecord[Items]{
+				BaseRecord:       p.baseRecord(currentClientXlogPos),
+				TableSchemaDelta: delta,
+			}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, delta)
+		}
+		p.pendingRelations[xid] = append(p.pendingRelations[xid], delta)
+		return nil, nil
+
+	case *pglogrepl.LogicalDecodingMessageV2:
+		logger.Debug("LogicalDecodingMessageV2",
+			slog.Bool("Transactional", msg.Transactional),
+			slog.String("Prefix", msg.Prefix),
+			slog.String("LSN", msg.LSN.String()))
+		if !msg.Transactional {
+			batch.UpdateLatestCheckpointID(int64(msg.LSN))
+		}
+		return &model.MessageRecord[Items]{
+			BaseRecord: p.baseRecordV2(msg.LSN, msg.Xid),
+			Prefix:     msg.Prefix,
+			Content:    string(msg.Content),
+		}, nil
+
+	default:
+		if _, ok := p.hushWarnUnhandledMessageType[msg.Type()]; !ok {
+			logger.Warn(fmt.Sprintf("Unhandled v2 message type: %T", msg))
+			p.hushWarnUnhandledMessageType[msg.Type()] = struct{}{}
+		}
+	}
+
+	return nil, nil
+}
+
+// GetAndResetCommittedXIDs returns the current set of committed XIDs and resets it.
+func (p *PostgresCDCSource) GetAndResetCommittedXIDs() []uint32 {
+	xids := make([]uint32, 0, len(p.committedXIDs))
+	for xid := range p.committedXIDs {
+		xids = append(xids, xid)
+	}
+	clear(p.committedXIDs)
+	return xids
+}
+
 func processInsertMessage[Items model.Items](
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
+	baseRecord model.BaseRecord,
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) (model.Record[Items], error) {
@@ -1075,7 +1396,6 @@ func processInsertMessage[Items model.Items](
 		return nil, err
 	}
 
-	baseRecord := p.baseRecord(lsn)
 	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process insert message for table %s: %w", tableName, err)
@@ -1094,6 +1414,7 @@ func processUpdateMessage[Items model.Items](
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
+	baseRecord model.BaseRecord,
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) (model.Record[Items], error) {
@@ -1122,7 +1443,6 @@ func processUpdateMessage[Items model.Items](
 		return nil, fmt.Errorf("failed to process update message (OldTuple) for table %s: %w", tableName, err)
 	}
 
-	baseRecord := p.baseRecord(lsn)
 	newItems, unchangedToastColumns, err := processTuple(
 		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
@@ -1157,6 +1477,7 @@ func processDeleteMessage[Items model.Items](
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
+	baseRecord model.BaseRecord,
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) (model.Record[Items], error) {
@@ -1180,7 +1501,6 @@ func processDeleteMessage[Items model.Items](
 		return nil, err
 	}
 
-	baseRecord := p.baseRecord(lsn)
 	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process delete message for table %s: %w", tableName, err)
@@ -1194,13 +1514,50 @@ func processDeleteMessage[Items model.Items](
 	}, nil
 }
 
-// processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
-func processRelationMessage[Items model.Items](
-	ctx context.Context,
+// processInsertMessageV2 / processUpdateMessageV2 / processDeleteMessageV2 wrap
+// the v1 processors with a v2-aware BaseRecord. In streamed transactions the
+// XID is carried on the wire-level wrapper (msg.Xid) rather than via Begin/Commit,
+// so we cannot rely on commitLock for it.
+func processInsertMessageV2[Items model.Items](
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
-	currRel *pglogrepl.RelationMessage,
+	msg *pglogrepl.InsertMessageV2,
+	processor replProcessor[Items],
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) (model.Record[Items], error) {
+	return processInsertMessage(p, lsn, &msg.InsertMessage, p.baseRecordV2(lsn, msg.Xid), processor, customTypeMapping)
+}
+
+func processUpdateMessageV2[Items model.Items](
+	p *PostgresCDCSource,
+	lsn pglogrepl.LSN,
+	msg *pglogrepl.UpdateMessageV2,
+	processor replProcessor[Items],
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+) (model.Record[Items], error) {
+	return processUpdateMessage(p, lsn, &msg.UpdateMessage, p.baseRecordV2(lsn, msg.Xid), processor, customTypeMapping)
+}
+
+func processDeleteMessageV2[Items model.Items](
+	p *PostgresCDCSource,
+	lsn pglogrepl.LSN,
+	msg *pglogrepl.DeleteMessageV2,
+	processor replProcessor[Items],
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+) (model.Record[Items], error) {
+	return processDeleteMessage(p, lsn, &msg.DeleteMessage, p.baseRecordV2(lsn, msg.Xid), processor, customTypeMapping)
+}
+
+// computeRelationDelta computes the schema delta for a RelationMessage and
+// eagerly updates relationMessageMapping (needed so DMLs in the same transaction
+// decode correctly). Returns nil delta when there are no actionable AddedColumns.
+// Callers decide when to apply the delta to destination — v1 emits immediately,
+// v2 buffers per-XID and flushes on commit.
+func computeRelationDelta(
+	ctx context.Context,
+	p *PostgresCDCSource,
+	currRel *pglogrepl.RelationMessage,
+) (*protos.TableSchemaDelta, error) {
 	// not present in tables to sync, return immediately
 	currRelName, ok := p.srcTableIDNameMapping[currRel.RelationID]
 	if !ok {
@@ -1353,14 +1710,54 @@ func processRelationMessage[Items model.Items](
 	}
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
-	// only log audit if there is actionable delta
-	if len(schemaDelta.AddedColumns) > 0 {
-		return &model.RelationRecord[Items]{
-			BaseRecord:       p.baseRecord(lsn),
-			TableSchemaDelta: schemaDelta,
-		}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
+	if len(schemaDelta.AddedColumns) == 0 {
+		return nil, nil
 	}
-	return nil, nil
+	return schemaDelta, nil
+}
+
+// processRelationMessage emits a TableSchemaDelta synchronously (v1 / non-deferred path).
+func processRelationMessage[Items model.Items](
+	ctx context.Context,
+	p *PostgresCDCSource,
+	lsn pglogrepl.LSN,
+	currRel *pglogrepl.RelationMessage,
+) (model.Record[Items], error) {
+	delta, err := computeRelationDelta(ctx, p, currRel)
+	if err != nil || delta == nil {
+		return nil, err
+	}
+	return &model.RelationRecord[Items]{
+		BaseRecord:       p.baseRecord(lsn),
+		TableSchemaDelta: delta,
+	}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, delta)
+}
+
+// flushPendingRelations applies all schema deltas buffered under xid into batch
+// and emits the audit log. Called on Commit / StreamCommit for the newly
+// committed XID (and each of its sub-XIDs).
+func flushPendingRelations[Items model.Items](
+	ctx context.Context,
+	p *PostgresCDCSource,
+	batch *model.CDCStream[Items],
+	xid uint32,
+) error {
+	deltas := p.pendingRelations[xid]
+	if len(deltas) == 0 {
+		return nil
+	}
+	delete(p.pendingRelations, xid)
+	for _, delta := range deltas {
+		p.logger.Info("applying deferred schema delta on commit",
+			slog.String("table", delta.SrcTableName),
+			slog.Uint64("xid", uint64(xid)),
+			slog.Any("addedColumns", delta.AddedColumns))
+		batch.AddSchemaDelta(p.tableNameMapping, delta)
+		if err := monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, delta); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // getParentRelIDIfPartitioned checks if the relation ID is a child table

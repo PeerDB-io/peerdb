@@ -444,20 +444,44 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	endBatchID := min(req.SyncBatchID, lastNormBatchID+groupBatches)
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, lastNormBatchID, endBatchID, req.Env, req.Version); err != nil {
+	walSinkMode, err := internal.PeerDBCDCV2Enabled(ctx, req.Env)
+	if err != nil {
+		return model.NormalizeResponse{}, fmt.Errorf("failed to get CDC v2 WAL sink setting: %w", err)
+	}
+
+	stagingTable := c.GetRawTableName(req.FlowJobName)
+	if walSinkMode {
+		stagingTable = c.GetWALSinkTableName(req.FlowJobName)
+	}
+
+	if err := c.copyAvroStagesToDestination(
+		ctx, req.FlowJobName, stagingTable, lastNormBatchID, endBatchID, req.Env, req.Version,
+	); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(
-		ctx,
-		req.FlowJobName,
-		endBatchID,
-		lastNormBatchID,
-		req.TableNameSchemaMapping,
-	)
-	if err != nil {
-		c.logger.Error("[clickhouse] error while getting distinct table names in batch", slog.Any("error", err))
-		return model.NormalizeResponse{}, err
+	var committedXIDs []uint32
+	var destinationTableNames []string
+	if walSinkMode {
+		committedXIDs, err = c.GetCommittedXIDsForBatches(ctx, req.FlowJobName, lastNormBatchID, endBatchID)
+		if err != nil {
+			return model.NormalizeResponse{}, fmt.Errorf("failed to read committed XIDs: %w", err)
+		}
+		destinationTableNames, err = c.getDistinctTableNamesInWALSink(
+			ctx, req.FlowJobName, committedXIDs, req.TableNameSchemaMapping,
+		)
+		if err != nil {
+			c.logger.Error("[clickhouse] error while getting distinct table names in WAL sink", slog.Any("error", err))
+			return model.NormalizeResponse{}, err
+		}
+	} else {
+		destinationTableNames, err = c.getDistinctTableNamesInBatch(
+			ctx, req.FlowJobName, endBatchID, lastNormBatchID, req.TableNameSchemaMapping,
+		)
+		if err != nil {
+			c.logger.Error("[clickhouse] error while getting distinct table names in batch", slog.Any("error", err))
+			return model.NormalizeResponse{}, err
+		}
 	}
 
 	enablePrimaryUpdate, err := internal.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
@@ -497,7 +521,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		lastNormBatchID int64
 	}
 	queriesCh := make(chan queryInfo)
-	rawTbl := c.GetRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
 	// create N=PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE goroutines to process requests from queriesCh
@@ -582,12 +605,14 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				enablePrimaryUpdate,
 				sourceSchemaAsDestinationColumn,
 				req.Env,
-				rawTbl,
+				stagingTable,
 				c.chVersion,
 				c.Config.Cluster != "",
 				req.SoftDeleteColName,
 				req.Version,
 				req.Flags,
+				walSinkMode,
+				committedXIDs,
 			)
 			query, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
@@ -624,6 +649,16 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		c.logger.Error("[clickhouse] error while updating normalize batch id",
 			slog.Int64("batchID", endBatchID), slog.Any("error", err))
 		return model.NormalizeResponse{}, err
+	}
+	if walSinkMode {
+		if err := c.CleanupWALSink(ctx, req.FlowJobName, committedXIDs); err != nil {
+			c.logger.Warn("[clickhouse] failed to cleanup WAL sink table",
+				slog.Int64("endBatchID", endBatchID), slog.Any("error", err))
+		}
+		if err := c.CleanupCommittedXIDs(ctx, req.FlowJobName, endBatchID); err != nil {
+			c.logger.Warn("[clickhouse] failed to cleanup committed XIDs metadata",
+				slog.Int64("endBatchID", endBatchID), slog.Any("error", err))
+		}
 	}
 	return model.NormalizeResponse{
 		StartBatchID: lastNormBatchID + 1,
@@ -670,14 +705,84 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	return tableNames, nil
 }
 
+func (c *ClickHouseConnector) getDistinctTableNamesInWALSink(
+	ctx context.Context,
+	flowJobName string,
+	committedXIDs []uint32,
+	tableToSchema map[string]*protos.TableSchema,
+) ([]string, error) {
+	if len(committedXIDs) == 0 {
+		return nil, nil
+	}
+
+	walTbl := c.GetWALSinkTableName(flowJobName)
+	xidParts := make([]string, len(committedXIDs))
+	for i, xid := range committedXIDs {
+		xidParts[i] = strconv.FormatUint(uint64(xid), 10)
+	}
+	xidList := strings.Join(xidParts, ",")
+
+	q := fmt.Sprintf(
+		"SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_txid IN (%s)",
+		peerdb_clickhouse.QuoteIdentifier(walTbl), xidList)
+
+	rows, err := c.query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("error while querying WAL sink table for distinct table names: %w", err)
+	}
+	defer rows.Close()
+	var tableNames []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return nil, fmt.Errorf("error while scanning table name: %w", err)
+		}
+		if _, ok := tableToSchema[tableName]; ok {
+			tableNames = append(tableNames, tableName)
+		} else {
+			c.logger.Warn("table not found in table to schema mapping", "table", tableName)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read rows: %w", err)
+	}
+	return tableNames, nil
+}
+
+// CleanupWALSink deletes rows for the given committed XIDs from the WAL sink
+// table. XID-based (not LSN-based) so in-progress streamed transactions whose
+// segments share an LSN range with committed transactions are preserved.
+func (c *ClickHouseConnector) CleanupWALSink(ctx context.Context, flowJobName string, committedXIDs []uint32) error {
+	if len(committedXIDs) == 0 {
+		return nil
+	}
+	walTbl := c.GetWALSinkTableName(flowJobName)
+	onCluster := c.onCluster()
+	if onCluster != "" {
+		// Lightweight deletes are not supported on Distributed tables
+		walTbl += "_shard"
+	}
+	xidParts := make([]string, len(committedXIDs))
+	for i, xid := range committedXIDs {
+		xidParts[i] = strconv.FormatUint(uint64(xid), 10)
+	}
+	q := fmt.Sprintf("ALTER TABLE %s DELETE WHERE _peerdb_txid IN (%s)",
+		peerdb_clickhouse.QuoteIdentifier(walTbl), strings.Join(xidParts, ","))
+	if err := c.execWithLogging(ctx, q); err != nil {
+		return fmt.Errorf("failed to cleanup WAL sink table: %w", err)
+	}
+	return nil
+}
+
 func (c *ClickHouseConnector) copyAvroStageToDestination(
 	ctx context.Context,
 	flowJobName string,
+	destTable string,
 	syncBatchID int64,
 	env map[string]string,
 	version uint32,
 ) error {
-	avroSyncMethod := c.avroSyncMethod(flowJobName, env, version)
+	avroSyncMethod := c.avroSyncMethodForTable(flowJobName, destTable, env, version)
 	avroFile, err := GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
@@ -691,20 +796,22 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, lastNormBatchID int64, endBatchID int64, env map[string]string, version uint32,
+	ctx context.Context, flowJobName string, destTable string,
+	lastNormBatchID int64, endBatchID int64, env map[string]string, version uint32,
 ) error {
-	// Skip batches already copied to raw table. This can happen if a previous normalization
-	// run failed after copying to raw table but before completing normalization.
+	// Skip batches already copied. This can happen if a previous normalization
+	// run failed after copying to the staging table but before completing normalization.
 	lastBatchIDInRawTable, err := c.GetLastBatchIDInRawTable(ctx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get last batch id in raw table: %w", err)
 	}
 	lastCopiedBatchID := max(lastBatchIDInRawTable, lastNormBatchID)
-	c.logger.Info("[clickhouse] pushing s3 data to raw table",
+	c.logger.Info("[clickhouse] pushing s3 data to staging table",
+		slog.String("destTable", destTable),
 		slog.Int64("batchID", lastCopiedBatchID), slog.Int64("endBatchID", endBatchID))
 
 	for batchID := lastCopiedBatchID + 1; batchID <= endBatchID; batchID++ {
-		if err := c.copyAvroStageToDestination(ctx, flowJobName, batchID, env, version); err != nil {
+		if err := c.copyAvroStageToDestination(ctx, flowJobName, destTable, batchID, env, version); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}
 		c.logger.Info("[clickhouse] setting last batch id in raw table",

@@ -43,12 +43,20 @@ type PostgresConnector struct {
 	Config                 *protos.PostgresConfig
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
-	typeMap                *pgtype.Map
-	rdsAuth                *utils.RDSAuth
-	connStr                string
-	metadataSchema         string
-	replLock               sync.Mutex
-	pgVersion              shared.PGVersion
+	// cdcV2State is shared with the per-pull PostgresCDCSource so in-flight v2
+	// state (commitLock, activeStreams, pendingRelations, inStream) survives a
+	// batch boundary mid-transaction. SyncFlow reuses one PostgresConnector
+	// across the inner batch loop, so this pointer survives until the activity
+	// reconnects (reconnectAfterBatches) or the process restarts — at which
+	// point the slot's confirmed-flush LSN and PG's per-session replay rebuild
+	// the state from scratch. See cdc-v2-design.md §4.5, §4.6.
+	cdcV2State     *cdcV2State
+	typeMap        *pgtype.Map
+	rdsAuth        *utils.RDSAuth
+	connStr        string
+	metadataSchema string
+	replLock       sync.Mutex
+	pgVersion      shared.PGVersion
 }
 
 func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
@@ -122,6 +130,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		customTypeMapping:      nil,
 		hushWarnOID:            make(map[uint32]struct{}),
 		relationMessageMapping: make(model.RelationMessageMapping),
+		cdcV2State:             newCDCV2State(),
 		connStr:                connectionString,
 		metadataSchema:         metadataSchema,
 		replLock:               sync.Mutex{},

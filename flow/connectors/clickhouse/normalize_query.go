@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
@@ -19,23 +20,28 @@ import (
 
 type NormalizeQueryGenerator struct {
 	env                             map[string]string
-	flags                           []string
 	tableNameSchemaMapping          map[string]*protos.TableSchema
 	chVersion                       *chproto.Version
+	isDeletedColName                string
 	Query                           string
 	TableName                       string
 	rawTableName                    string
-	isDeletedColName                string
 	tableMappings                   []*protos.TableMapping
+	flags                           []string
+	committedXIDs                   []uint32
 	lastNormBatchID                 int64
 	endBatchID                      int64
+	version                         uint32
 	enablePrimaryUpdate             bool
 	sourceSchemaAsDestinationColumn bool
 	cluster                         bool
-	version                         uint32
+	walSinkMode                     bool
 }
 
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
+// walSinkMode=true switches the FROM table to the WAL sink table and filters by
+// committedXIDs instead of batch_id range; rawTableName should then be the WAL
+// sink table name.
 func NewNormalizeQueryGenerator(
 	tableName string,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
@@ -51,6 +57,8 @@ func NewNormalizeQueryGenerator(
 	configuredSoftDeleteColName string,
 	version uint32,
 	flags []string,
+	walSinkMode bool,
+	committedXIDs []uint32,
 ) *NormalizeQueryGenerator {
 	isDeletedColumn := isDeletedColName
 	if configuredSoftDeleteColName != "" {
@@ -71,6 +79,8 @@ func NewNormalizeQueryGenerator(
 		isDeletedColName:                isDeletedColumn,
 		version:                         version,
 		flags:                           flags,
+		walSinkMode:                     walSinkMode,
+		committedXIDs:                   committedXIDs,
 	}
 }
 
@@ -286,14 +296,26 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(t.isDeletedColName))
 	fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(t.isDeletedColName))
 
-	// add _peerdb_timestamp as _peerdb_version
-	fmt.Fprintf(&projection, "_peerdb_timestamp AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
+	// In WAL sink mode, use _peerdb_lsn for strict WAL ordering; otherwise use _peerdb_timestamp
+	versionSource := "_peerdb_timestamp"
+	if t.walSinkMode {
+		versionSource = "_peerdb_lsn"
+	}
+	fmt.Fprintf(&projection, "%s AS %s", versionSource, peerdb_clickhouse.QuoteIdentifier(versionColName))
 	fmt.Fprintf(&colSelector, "%s) ", peerdb_clickhouse.QuoteIdentifier(versionColName))
 
 	selectQuery.WriteString(projection.String())
-	fmt.Fprintf(&selectQuery,
-		" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+
+	// WHERE clause: WAL sink mode filters by committed XIDs, v1 mode filters by batch_id range
+	if t.walSinkMode {
+		fmt.Fprintf(&selectQuery,
+			" FROM %s WHERE _peerdb_txid IN (%s) AND _peerdb_destination_table_name = %s",
+			peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.committedXIDsSQL(), peerdb_clickhouse.QuoteLiteral(t.TableName))
+	} else {
+		fmt.Fprintf(&selectQuery,
+			" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
+			peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+	}
 
 	if t.enablePrimaryUpdate {
 		if t.sourceSchemaAsDestinationColumn {
@@ -304,15 +326,24 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(t.isDeletedColName))
 		// decrement timestamp by 1 so delete is ordered before latest data,
 		// could be same if deletion records were only generated when ordering updated
-		fmt.Fprintf(&projectionUpdate, "_peerdb_timestamp - 1 AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
+		fmt.Fprintf(&projectionUpdate, "%s - 1 AS %s", versionSource, peerdb_clickhouse.QuoteIdentifier(versionColName))
 
 		selectQuery.WriteString(" UNION ALL SELECT ")
 		selectQuery.WriteString(projectionUpdate.String())
-		fmt.Fprintf(&selectQuery,
-			" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
-				" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
-			peerdb_clickhouse.QuoteIdentifier(t.rawTableName),
-			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+
+		if t.walSinkMode {
+			fmt.Fprintf(&selectQuery,
+				" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_txid IN (%s)"+
+					" AND _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
+				peerdb_clickhouse.QuoteIdentifier(t.rawTableName),
+				t.committedXIDsSQL(), peerdb_clickhouse.QuoteLiteral(t.TableName))
+		} else {
+			fmt.Fprintf(&selectQuery,
+				" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
+					" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
+				peerdb_clickhouse.QuoteIdentifier(t.rawTableName),
+				t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+		}
 	}
 
 	chSettings := clickhouse.NewCHSettings(t.chVersion)
@@ -331,6 +362,15 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	t.Query = insertIntoSelectQuery
 
 	return t.Query, nil
+}
+
+// committedXIDsSQL returns a comma-separated list of committed XIDs for use in SQL IN clause.
+func (t *NormalizeQueryGenerator) committedXIDsSQL() string {
+	parts := make([]string, len(t.committedXIDs))
+	for i, xid := range t.committedXIDs {
+		parts[i] = strconv.FormatUint(uint64(xid), 10)
+	}
+	return strings.Join(parts, ",")
 }
 
 func extendedTimeToDateTime(jsonExtractExpr string, time64Supported bool) string {

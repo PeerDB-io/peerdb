@@ -105,6 +105,8 @@ func (c *PostgresConnector) MaybeStartReplication(
 	publicationName string,
 	lastOffset int64,
 	pgVersion shared.PGVersion,
+	useV2Protocol bool,
+	env map[string]string,
 ) error {
 	if c.replState != nil && (c.replState.Offset != lastOffset ||
 		c.replState.Slot != slotName ||
@@ -117,7 +119,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 	}
 
 	if c.replState == nil {
-		replicationOpts, err := c.replicationOptions(publicationName, pgVersion)
+		replicationOpts, err := c.replicationOptions(publicationName, pgVersion, useV2Protocol)
 		if err != nil {
 			return fmt.Errorf("error getting replication options: %w", err)
 		}
@@ -130,6 +132,20 @@ func (c *PostgresConnector) MaybeStartReplication(
 
 		c.replLock.Lock()
 		defer c.replLock.Unlock()
+
+		// Apply walsender-scoped GUC overrides before START_REPLICATION enters
+		// CopyBoth mode (after which the connection won't accept SQL).
+		if debugStream, err := internal.PeerDBPgDebugLogicalReplicationStreaming(ctx, env); err != nil {
+			return fmt.Errorf("error reading debug_logical_replication_streaming setting: %w", err)
+		} else if debugStream != "" {
+			c.logger.Warn("forcing debug_logical_replication_streaming on replication connection",
+				slog.String("value", debugStream))
+			if _, err := c.replConn.Exec(ctx,
+				"SET debug_logical_replication_streaming = "+utils.QuoteLiteral(debugStream)); err != nil {
+				return fmt.Errorf("failed to set debug_logical_replication_streaming: %w", err)
+			}
+		}
+
 		if err := pglogrepl.StartReplication(
 			ctx, c.replConn.PgConn(), common.QuoteIdentifier(slotName), startLSN, replicationOpts); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
@@ -148,9 +164,13 @@ func (c *PostgresConnector) MaybeStartReplication(
 	return nil
 }
 
-func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion shared.PGVersion,
+func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion shared.PGVersion, useV2Protocol bool,
 ) (pglogrepl.StartReplicationOptions, error) {
-	pluginArguments := append(make([]string, 0, 3), "proto_version '1'")
+	protoVersion := "1"
+	if useV2Protocol {
+		protoVersion = "2"
+	}
+	pluginArguments := append(make([]string, 0, 5), "proto_version '"+protoVersion+"'")
 
 	if publicationName != "" {
 		pubOpt := "publication_names " + utils.QuoteLiteral(publicationName)
@@ -161,6 +181,10 @@ func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion
 
 	if pgVersion >= shared.POSTGRES_14 {
 		pluginArguments = append(pluginArguments, "messages 'true'")
+	}
+
+	if useV2Protocol {
+		pluginArguments = append(pluginArguments, "streaming 'on'")
 	}
 
 	return pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
@@ -193,7 +217,11 @@ func pullCore[Items model.Items](
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
 ) error {
+	var cdc *PostgresCDCSource
 	defer func() {
+		if cdc != nil && cdc.useV2Protocol {
+			req.RecordStream.SetCommittedXIDs(cdc.GetAndResetCommittedXIDs())
+		}
 		req.RecordStream.Close()
 		if c.replState != nil {
 			c.replState.Offset = req.RecordStream.GetLastCheckpoint().ID
@@ -233,7 +261,22 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return err
 	}
-	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion); err != nil {
+	useV2Protocol, err := internal.PeerDBCDCV2Enabled(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get CDC v2 WAL sink setting: %w", err)
+	}
+	// v2 protocol requires PostgreSQL >= 14
+	if useV2Protocol && pgVersion < shared.POSTGRES_14 {
+		c.logger.Warn("CDC v2 WAL sink requires PostgreSQL >= 14, falling back to v1")
+		useV2Protocol = false
+	}
+	// Set v2 active on the stream before pull starts: the sync goroutine reads
+	// it concurrently and routes records based on this flag.
+	req.RecordStream.SetV2Active(useV2Protocol)
+
+	if err := c.MaybeStartReplication(
+		ctx, slotName, publicationName, req.LastOffset.ID, pgVersion, useV2Protocol, req.Env,
+	); err != nil {
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
@@ -250,13 +293,14 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
 	}
 
-	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
+	cdc, err = c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
 		OtelManager:                              otelManager,
 		SrcTableIDNameMapping:                    req.SrcTableIDNameMapping,
 		TableNameMapping:                         req.TableNameMapping,
 		TableNameSchemaMapping:                   req.TableNameSchemaMapping,
 		RelationMessageMapping:                   c.relationMessageMapping,
+		CDCV2State:                               c.cdcV2State,
 		FlowJobName:                              req.FlowJobName,
 		Slot:                                     slotName,
 		Publication:                              publicationName,
@@ -264,6 +308,7 @@ func pullCore[Items model.Items](
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
+		UseV2Protocol:                            useV2Protocol,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))
