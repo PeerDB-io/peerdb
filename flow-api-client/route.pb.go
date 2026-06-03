@@ -6210,6 +6210,102 @@ func (x *CancelTableAdditionOutput) GetRunId() string {
 	return ""
 }
 
+type ResetMirrorSequencesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlowJobName   string                 `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResetMirrorSequencesRequest) Reset() {
+	*x = ResetMirrorSequencesRequest{}
+	mi := &file_route_proto_msgTypes[106]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResetMirrorSequencesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResetMirrorSequencesRequest) ProtoMessage() {}
+
+func (x *ResetMirrorSequencesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_route_proto_msgTypes[106]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResetMirrorSequencesRequest.ProtoReflect.Descriptor instead.
+func (*ResetMirrorSequencesRequest) Descriptor() ([]byte, []int) {
+	return file_route_proto_rawDescGZIP(), []int{106}
+}
+
+func (x *ResetMirrorSequencesRequest) GetFlowJobName() string {
+	if x != nil {
+		return x.FlowJobName
+	}
+	return ""
+}
+
+type ResetMirrorSequencesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResetMirrorSequencesResponse) Reset() {
+	*x = ResetMirrorSequencesResponse{}
+	mi := &file_route_proto_msgTypes[107]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResetMirrorSequencesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResetMirrorSequencesResponse) ProtoMessage() {}
+
+func (x *ResetMirrorSequencesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_route_proto_msgTypes[107]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResetMirrorSequencesResponse.ProtoReflect.Descriptor instead.
+func (*ResetMirrorSequencesResponse) Descriptor() ([]byte, []int) {
+	return file_route_proto_rawDescGZIP(), []int{107}
+}
+
+func (x *ResetMirrorSequencesResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *ResetMirrorSequencesResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
 var File_route_proto protoreflect.FileDescriptor
 
 const file_route_proto_rawDesc = "" +
@@ -6640,7 +6736,12 @@ const file_route_proto_rawDesc = "" +
 	"\x19CancelTableAdditionOutput\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12U\n" +
 	"\x19tables_after_cancellation\x18\x02 \x03(\v2\x19.peerdb_flow.TableMappingR\x17tablesAfterCancellation\x12\x15\n" +
-	"\x06run_id\x18\x03 \x01(\tR\x05runId*B\n" +
+	"\x06run_id\x18\x03 \x01(\tR\x05runId\"A\n" +
+	"\x1bResetMirrorSequencesRequest\x12\"\n" +
+	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\"S\n" +
+	"\x1cResetMirrorSequencesResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12#\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage*B\n" +
 	"\x12ValidatePeerStatus\x12\x14\n" +
 	"\x10CREATION_UNKNOWN\x10\x00\x12\t\n" +
 	"\x05VALID\x10\x01\x12\v\n" +
@@ -6673,7 +6774,7 @@ const file_route_proto_rawDesc = "" +
 	"\x19MAINTENANCE_PHASE_UNKNOWN\x10\x00\x12'\n" +
 	"#MAINTENANCE_PHASE_START_MAINTENANCE\x10\x01\x12.\n" +
 	"*MAINTENANCE_PHASE_MAINTENANCE_MODE_ENABLED\x10\x02\x12%\n" +
-	"!MAINTENANCE_PHASE_END_MAINTENANCE\x10\x032\xaa-\n" +
+	"!MAINTENANCE_PHASE_END_MAINTENANCE\x10\x032\xc2.\n" +
 	"\vFlowService\x12t\n" +
 	"\fValidatePeer\x12!.peerdb_route.ValidatePeerRequest\x1a\".peerdb_route.ValidatePeerResponse\"\x1d\x82\xd3\xe4\x93\x02\x17:\x01*\"\x12/v1/peers/validate\x12\x85\x01\n" +
 	"\x11ValidateCDCMirror\x12\".peerdb_route.CreateCDCFlowRequest\x1a'.peerdb_route.ValidateCDCMirrorResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x01*\"\x18/v1/mirrors/cdc/validate\x12l\n" +
@@ -6726,7 +6827,8 @@ const file_route_proto_rawDesc = "" +
 	"\x17CreateOrReplaceFlowTags\x12,.peerdb_route.CreateOrReplaceFlowTagsRequest\x1a-.peerdb_route.CreateOrReplaceFlowTagsResponse\"\x19\x82\xd3\xe4\x93\x02\x13:\x01*\"\x0e/v1/flows/tags\x12v\n" +
 	"\vGetFlowTags\x12 .peerdb_route.GetFlowTagsRequest\x1a!.peerdb_route.GetFlowTagsResponse\"\"\x82\xd3\xe4\x93\x02\x1c\x12\x1a/v1/flows/tags/{flow_name}\x12\xad\x01\n" +
 	"\x17TotalRowsSyncedByMirror\x12,.peerdb_route.TotalRowsSyncedByMirrorRequest\x1a-.peerdb_route.TotalRowsSyncedByMirrorResponse\"5\x82\xd3\xe4\x93\x02/\x12-/v1/mirrors/total_rows_synced/{flow_job_name}\x12\x96\x01\n" +
-	"\x13CancelTableAddition\x12&.peerdb_route.CancelTableAdditionInput\x1a'.peerdb_route.CancelTableAdditionOutput\".\x82\xd3\xe4\x93\x02(:\x01*\"#/v1/flows/cdc/cancel_table_additionB|\n" +
+	"\x13CancelTableAddition\x12&.peerdb_route.CancelTableAdditionInput\x1a'.peerdb_route.CancelTableAdditionOutput\".\x82\xd3\xe4\x93\x02(:\x01*\"#/v1/flows/cdc/cancel_table_addition\x12\x95\x01\n" +
+	"\x14ResetMirrorSequences\x12).peerdb_route.ResetMirrorSequencesRequest\x1a*.peerdb_route.ResetMirrorSequencesResponse\"&\x82\xd3\xe4\x93\x02 :\x01*\"\x1b/v1/mirrors/sequences/resetB|\n" +
 	"\x10com.peerdb_routeB\n" +
 	"RouteProtoP\x01Z\x10generated/protos\xa2\x02\x03PXX\xaa\x02\vPeerdbRoute\xca\x02\vPeerdbRoute\xe2\x02\x17PeerdbRoute\\GPBMetadata\xea\x02\vPeerdbRouteb\x06proto3"
 
@@ -6743,7 +6845,7 @@ func file_route_proto_rawDescGZIP() []byte {
 }
 
 var file_route_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_route_proto_msgTypes = make([]protoimpl.MessageInfo, 106)
+var file_route_proto_msgTypes = make([]protoimpl.MessageInfo, 108)
 var file_route_proto_goTypes = []any{
 	(ValidatePeerStatus)(0),                 // 0: peerdb_route.ValidatePeerStatus
 	(CreatePeerStatus)(0),                   // 1: peerdb_route.CreatePeerStatus
@@ -6858,86 +6960,88 @@ var file_route_proto_goTypes = []any{
 	(*GetFlowTagsResponse)(nil),             // 110: peerdb_route.GetFlowTagsResponse
 	(*CancelTableAdditionInput)(nil),        // 111: peerdb_route.CancelTableAdditionInput
 	(*CancelTableAdditionOutput)(nil),       // 112: peerdb_route.CancelTableAdditionOutput
-	(*FlowConnectionConfigs)(nil),           // 113: peerdb_flow.FlowConnectionConfigs
-	(*QRepConfig)(nil),                      // 114: peerdb_flow.QRepConfig
-	(DynconfValueType)(0),                   // 115: peerdb_flow.DynconfValueType
-	(DynconfApplyMode)(0),                   // 116: peerdb_flow.DynconfApplyMode
-	(DynconfTarget)(0),                      // 117: peerdb_flow.DynconfTarget
-	(*Peer)(nil),                            // 118: peerdb_peers.Peer
-	(*timestamppb.Timestamp)(nil),           // 119: google.protobuf.Timestamp
-	(DBType)(0),                             // 120: peerdb_peers.DBType
-	(FlowStatus)(0),                         // 121: peerdb_flow.FlowStatus
-	(*FlowConfigUpdate)(nil),                // 122: peerdb_flow.FlowConfigUpdate
-	(*durationpb.Duration)(nil),             // 123: google.protobuf.Duration
-	(*TableMapping)(nil),                    // 124: peerdb_flow.TableMapping
+	(*ResetMirrorSequencesRequest)(nil),     // 113: peerdb_route.ResetMirrorSequencesRequest
+	(*ResetMirrorSequencesResponse)(nil),    // 114: peerdb_route.ResetMirrorSequencesResponse
+	(*FlowConnectionConfigs)(nil),           // 115: peerdb_flow.FlowConnectionConfigs
+	(*QRepConfig)(nil),                      // 116: peerdb_flow.QRepConfig
+	(DynconfValueType)(0),                   // 117: peerdb_flow.DynconfValueType
+	(DynconfApplyMode)(0),                   // 118: peerdb_flow.DynconfApplyMode
+	(DynconfTarget)(0),                      // 119: peerdb_flow.DynconfTarget
+	(*Peer)(nil),                            // 120: peerdb_peers.Peer
+	(*timestamppb.Timestamp)(nil),           // 121: google.protobuf.Timestamp
+	(DBType)(0),                             // 122: peerdb_peers.DBType
+	(FlowStatus)(0),                         // 123: peerdb_flow.FlowStatus
+	(*FlowConfigUpdate)(nil),                // 124: peerdb_flow.FlowConfigUpdate
+	(*durationpb.Duration)(nil),             // 125: google.protobuf.Duration
+	(*TableMapping)(nil),                    // 126: peerdb_flow.TableMapping
 }
 var file_route_proto_depIdxs = []int32{
-	113, // 0: peerdb_route.CreateCDCFlowRequest.connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
-	114, // 1: peerdb_route.CreateQRepFlowRequest.qrep_config:type_name -> peerdb_flow.QRepConfig
+	115, // 0: peerdb_route.CreateCDCFlowRequest.connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
+	116, // 1: peerdb_route.CreateQRepFlowRequest.qrep_config:type_name -> peerdb_flow.QRepConfig
 	11,  // 2: peerdb_route.PostAlertConfigRequest.config:type_name -> peerdb_route.AlertConfig
 	11,  // 3: peerdb_route.GetAlertConfigsResponse.configs:type_name -> peerdb_route.AlertConfig
-	115, // 4: peerdb_route.DynamicSetting.value_type:type_name -> peerdb_flow.DynconfValueType
-	116, // 5: peerdb_route.DynamicSetting.apply_mode:type_name -> peerdb_flow.DynconfApplyMode
-	117, // 6: peerdb_route.DynamicSetting.target_for_setting:type_name -> peerdb_flow.DynconfTarget
+	117, // 4: peerdb_route.DynamicSetting.value_type:type_name -> peerdb_flow.DynconfValueType
+	118, // 5: peerdb_route.DynamicSetting.apply_mode:type_name -> peerdb_flow.DynconfApplyMode
+	119, // 6: peerdb_route.DynamicSetting.target_for_setting:type_name -> peerdb_flow.DynconfTarget
 	18,  // 7: peerdb_route.GetDynamicSettingsResponse.settings:type_name -> peerdb_route.DynamicSetting
 	23,  // 8: peerdb_route.GetScriptsResponse.scripts:type_name -> peerdb_route.Script
 	23,  // 9: peerdb_route.PostScriptRequest.script:type_name -> peerdb_route.Script
-	118, // 10: peerdb_route.ValidatePeerRequest.peer:type_name -> peerdb_peers.Peer
-	118, // 11: peerdb_route.CreatePeerRequest.peer:type_name -> peerdb_peers.Peer
+	120, // 10: peerdb_route.ValidatePeerRequest.peer:type_name -> peerdb_peers.Peer
+	120, // 11: peerdb_route.CreatePeerRequest.peer:type_name -> peerdb_peers.Peer
 	0,   // 12: peerdb_route.ValidatePeerResponse.status:type_name -> peerdb_route.ValidatePeerStatus
 	1,   // 13: peerdb_route.CreatePeerResponse.status:type_name -> peerdb_route.CreatePeerStatus
-	119, // 14: peerdb_route.PartitionStatus.start_time:type_name -> google.protobuf.Timestamp
-	119, // 15: peerdb_route.PartitionStatus.end_time:type_name -> google.protobuf.Timestamp
+	121, // 14: peerdb_route.PartitionStatus.start_time:type_name -> google.protobuf.Timestamp
+	121, // 15: peerdb_route.PartitionStatus.end_time:type_name -> google.protobuf.Timestamp
 	37,  // 16: peerdb_route.QRepMirrorStatus.partitions:type_name -> peerdb_route.PartitionStatus
-	119, // 17: peerdb_route.CDCBatch.start_time:type_name -> google.protobuf.Timestamp
-	119, // 18: peerdb_route.CDCBatch.end_time:type_name -> google.protobuf.Timestamp
+	121, // 17: peerdb_route.CDCBatch.start_time:type_name -> google.protobuf.Timestamp
+	121, // 18: peerdb_route.CDCBatch.end_time:type_name -> google.protobuf.Timestamp
 	40,  // 19: peerdb_route.CDCTableRowCounts.counts:type_name -> peerdb_route.CDCRowCounts
 	40,  // 20: peerdb_route.CDCTableTotalCountsResponse.total_data:type_name -> peerdb_route.CDCRowCounts
 	41,  // 21: peerdb_route.CDCTableTotalCountsResponse.tables_data:type_name -> peerdb_route.CDCTableRowCounts
 	50,  // 22: peerdb_route.SchemaTablesResponse.tables:type_name -> peerdb_route.TableResponse
 	53,  // 23: peerdb_route.TableColumnsResponse.columns:type_name -> peerdb_route.ColumnsItem
 	56,  // 24: peerdb_route.ColumnsTypeConversionResponse.conversions:type_name -> peerdb_route.ColumnsTypeConversion
-	118, // 25: peerdb_route.PeerInfoResponse.peer:type_name -> peerdb_peers.Peer
-	120, // 26: peerdb_route.PeerListItem.type:type_name -> peerdb_peers.DBType
+	120, // 25: peerdb_route.PeerInfoResponse.peer:type_name -> peerdb_peers.Peer
+	122, // 26: peerdb_route.PeerListItem.type:type_name -> peerdb_peers.DBType
 	62,  // 27: peerdb_route.ListPeersResponse.items:type_name -> peerdb_route.PeerListItem
 	62,  // 28: peerdb_route.ListPeersResponse.source_items:type_name -> peerdb_route.PeerListItem
 	62,  // 29: peerdb_route.ListPeersResponse.destination_items:type_name -> peerdb_route.PeerListItem
 	66,  // 30: peerdb_route.GetSlotLagHistoryResponse.data:type_name -> peerdb_route.SlotLagPoint
 	65,  // 31: peerdb_route.PeerSlotResponse.slot_data:type_name -> peerdb_route.SlotInfo
 	69,  // 32: peerdb_route.PeerStatResponse.stat_data:type_name -> peerdb_route.StatInfo
-	119, // 33: peerdb_route.CloneTableSummary.start_time:type_name -> google.protobuf.Timestamp
+	121, // 33: peerdb_route.CloneTableSummary.start_time:type_name -> google.protobuf.Timestamp
 	72,  // 34: peerdb_route.SnapshotStatus.clones:type_name -> peerdb_route.CloneTableSummary
-	113, // 35: peerdb_route.CDCMirrorStatus.config:type_name -> peerdb_flow.FlowConnectionConfigs
+	115, // 35: peerdb_route.CDCMirrorStatus.config:type_name -> peerdb_flow.FlowConnectionConfigs
 	73,  // 36: peerdb_route.CDCMirrorStatus.snapshot_status:type_name -> peerdb_route.SnapshotStatus
 	39,  // 37: peerdb_route.CDCMirrorStatus.cdc_batches:type_name -> peerdb_route.CDCBatch
-	120, // 38: peerdb_route.CDCMirrorStatus.source_type:type_name -> peerdb_peers.DBType
-	120, // 39: peerdb_route.CDCMirrorStatus.destination_type:type_name -> peerdb_peers.DBType
+	122, // 38: peerdb_route.CDCMirrorStatus.source_type:type_name -> peerdb_peers.DBType
+	122, // 39: peerdb_route.CDCMirrorStatus.destination_type:type_name -> peerdb_peers.DBType
 	38,  // 40: peerdb_route.MirrorStatusResponse.qrep_status:type_name -> peerdb_route.QRepMirrorStatus
 	74,  // 41: peerdb_route.MirrorStatusResponse.cdc_status:type_name -> peerdb_route.CDCMirrorStatus
-	121, // 42: peerdb_route.MirrorStatusResponse.current_flow_state:type_name -> peerdb_flow.FlowStatus
-	119, // 43: peerdb_route.MirrorStatusResponse.created_at:type_name -> google.protobuf.Timestamp
+	123, // 42: peerdb_route.MirrorStatusResponse.current_flow_state:type_name -> peerdb_flow.FlowStatus
+	121, // 43: peerdb_route.MirrorStatusResponse.created_at:type_name -> google.protobuf.Timestamp
 	72,  // 44: peerdb_route.InitialLoadSummaryResponse.tableSummaries:type_name -> peerdb_route.CloneTableSummary
 	39,  // 45: peerdb_route.GetCDCBatchesResponse.cdc_batches:type_name -> peerdb_route.CDCBatch
 	3,   // 46: peerdb_route.GraphRequest.aggregate_type:type_name -> peerdb_route.TimeAggregateType
 	2,   // 47: peerdb_route.GraphRequest.mode:type_name -> peerdb_route.GraphMode
 	81,  // 48: peerdb_route.GraphResponse.data:type_name -> peerdb_route.GraphResponseItem
 	83,  // 49: peerdb_route.ListMirrorLogsResponse.errors:type_name -> peerdb_route.MirrorLog
-	120, // 50: peerdb_route.ListMirrorsItem.source_type:type_name -> peerdb_peers.DBType
-	120, // 51: peerdb_route.ListMirrorsItem.destination_type:type_name -> peerdb_peers.DBType
-	121, // 52: peerdb_route.ListMirrorsItem.status:type_name -> peerdb_flow.FlowStatus
+	122, // 50: peerdb_route.ListMirrorsItem.source_type:type_name -> peerdb_peers.DBType
+	122, // 51: peerdb_route.ListMirrorsItem.destination_type:type_name -> peerdb_peers.DBType
+	123, // 52: peerdb_route.ListMirrorsItem.status:type_name -> peerdb_flow.FlowStatus
 	87,  // 53: peerdb_route.ListMirrorsResponse.mirrors:type_name -> peerdb_route.ListMirrorsItem
-	121, // 54: peerdb_route.FlowStateChangeRequest.requested_flow_state:type_name -> peerdb_flow.FlowStatus
-	122, // 55: peerdb_route.FlowStateChangeRequest.flow_config_update:type_name -> peerdb_flow.FlowConfigUpdate
+	123, // 54: peerdb_route.FlowStateChangeRequest.requested_flow_state:type_name -> peerdb_flow.FlowStatus
+	124, // 55: peerdb_route.FlowStateChangeRequest.flow_config_update:type_name -> peerdb_flow.FlowConfigUpdate
 	4,   // 56: peerdb_route.InstanceInfoResponse.status:type_name -> peerdb_route.InstanceStatus
 	5,   // 57: peerdb_route.MaintenanceRequest.status:type_name -> peerdb_route.MaintenanceStatus
-	123, // 58: peerdb_route.MaintenanceActivityDetails.activity_duration:type_name -> google.protobuf.Duration
-	119, // 59: peerdb_route.MaintenanceActivityDetails.last_heartbeat:type_name -> google.protobuf.Timestamp
+	125, // 58: peerdb_route.MaintenanceActivityDetails.activity_duration:type_name -> google.protobuf.Duration
+	121, // 59: peerdb_route.MaintenanceActivityDetails.last_heartbeat:type_name -> google.protobuf.Timestamp
 	6,   // 60: peerdb_route.MaintenanceStatusResponse.phase:type_name -> peerdb_route.MaintenancePhase
 	102, // 61: peerdb_route.MaintenanceStatusResponse.pending_activities:type_name -> peerdb_route.MaintenanceActivityDetails
 	106, // 62: peerdb_route.CreateOrReplaceFlowTagsRequest.tags:type_name -> peerdb_route.FlowTag
 	106, // 63: peerdb_route.GetFlowTagsResponse.tags:type_name -> peerdb_route.FlowTag
-	124, // 64: peerdb_route.CancelTableAdditionInput.currently_replicating_tables:type_name -> peerdb_flow.TableMapping
-	124, // 65: peerdb_route.CancelTableAdditionOutput.tables_after_cancellation:type_name -> peerdb_flow.TableMapping
+	126, // 64: peerdb_route.CancelTableAdditionInput.currently_replicating_tables:type_name -> peerdb_flow.TableMapping
+	126, // 65: peerdb_route.CancelTableAdditionOutput.tables_after_cancellation:type_name -> peerdb_flow.TableMapping
 	30,  // 66: peerdb_route.FlowService.ValidatePeer:input_type -> peerdb_route.ValidatePeerRequest
 	7,   // 67: peerdb_route.FlowService.ValidateCDCMirror:input_type -> peerdb_route.CreateCDCFlowRequest
 	31,  // 68: peerdb_route.FlowService.CreatePeer:input_type -> peerdb_route.CreatePeerRequest
@@ -6983,53 +7087,55 @@ var file_route_proto_depIdxs = []int32{
 	109, // 108: peerdb_route.FlowService.GetFlowTags:input_type -> peerdb_route.GetFlowTagsRequest
 	44,  // 109: peerdb_route.FlowService.TotalRowsSyncedByMirror:input_type -> peerdb_route.TotalRowsSyncedByMirrorRequest
 	111, // 110: peerdb_route.FlowService.CancelTableAddition:input_type -> peerdb_route.CancelTableAdditionInput
-	34,  // 111: peerdb_route.FlowService.ValidatePeer:output_type -> peerdb_route.ValidatePeerResponse
-	86,  // 112: peerdb_route.FlowService.ValidateCDCMirror:output_type -> peerdb_route.ValidateCDCMirrorResponse
-	35,  // 113: peerdb_route.FlowService.CreatePeer:output_type -> peerdb_route.CreatePeerResponse
-	33,  // 114: peerdb_route.FlowService.DropPeer:output_type -> peerdb_route.DropPeerResponse
-	8,   // 115: peerdb_route.FlowService.CreateCDCFlow:output_type -> peerdb_route.CreateCDCFlowResponse
-	10,  // 116: peerdb_route.FlowService.CreateQRepFlow:output_type -> peerdb_route.CreateQRepFlowResponse
-	15,  // 117: peerdb_route.FlowService.GetAlertConfigs:output_type -> peerdb_route.GetAlertConfigsResponse
-	16,  // 118: peerdb_route.FlowService.PostAlertConfig:output_type -> peerdb_route.PostAlertConfigResponse
-	17,  // 119: peerdb_route.FlowService.DeleteAlertConfig:output_type -> peerdb_route.DeleteAlertConfigResponse
-	20,  // 120: peerdb_route.FlowService.GetDynamicSettings:output_type -> peerdb_route.GetDynamicSettingsResponse
-	22,  // 121: peerdb_route.FlowService.PostDynamicSetting:output_type -> peerdb_route.PostDynamicSettingResponse
-	25,  // 122: peerdb_route.FlowService.GetScripts:output_type -> peerdb_route.GetScriptsResponse
-	27,  // 123: peerdb_route.FlowService.PostScript:output_type -> peerdb_route.PostScriptResponse
-	29,  // 124: peerdb_route.FlowService.DeleteScript:output_type -> peerdb_route.DeleteScriptResponse
-	43,  // 125: peerdb_route.FlowService.CDCTableTotalCounts:output_type -> peerdb_route.CDCTableTotalCountsResponse
-	46,  // 126: peerdb_route.FlowService.GetSchemas:output_type -> peerdb_route.PeerSchemasResponse
-	47,  // 127: peerdb_route.FlowService.GetPublications:output_type -> peerdb_route.PeerPublicationsResponse
-	49,  // 128: peerdb_route.FlowService.GetTablesInSchema:output_type -> peerdb_route.SchemaTablesResponse
-	51,  // 129: peerdb_route.FlowService.GetAllTables:output_type -> peerdb_route.AllTablesResponse
-	54,  // 130: peerdb_route.FlowService.GetColumns:output_type -> peerdb_route.TableColumnsResponse
-	57,  // 131: peerdb_route.FlowService.GetColumnsTypeConversion:output_type -> peerdb_route.ColumnsTypeConversionResponse
-	70,  // 132: peerdb_route.FlowService.GetSlotInfo:output_type -> peerdb_route.PeerSlotResponse
-	68,  // 133: peerdb_route.FlowService.GetSlotLagHistory:output_type -> peerdb_route.GetSlotLagHistoryResponse
-	71,  // 134: peerdb_route.FlowService.GetStatInfo:output_type -> peerdb_route.PeerStatResponse
-	85,  // 135: peerdb_route.FlowService.ListMirrorLogs:output_type -> peerdb_route.ListMirrorLogsResponse
-	89,  // 136: peerdb_route.FlowService.ListMirrors:output_type -> peerdb_route.ListMirrorsResponse
-	91,  // 137: peerdb_route.FlowService.ListMirrorNames:output_type -> peerdb_route.ListMirrorNamesResponse
-	93,  // 138: peerdb_route.FlowService.FlowStateChange:output_type -> peerdb_route.FlowStateChangeResponse
-	75,  // 139: peerdb_route.FlowService.MirrorStatus:output_type -> peerdb_route.MirrorStatusResponse
-	79,  // 140: peerdb_route.FlowService.GetCDCBatches:output_type -> peerdb_route.GetCDCBatchesResponse
-	79,  // 141: peerdb_route.FlowService.CDCBatches:output_type -> peerdb_route.GetCDCBatchesResponse
-	82,  // 142: peerdb_route.FlowService.CDCGraph:output_type -> peerdb_route.GraphResponse
-	77,  // 143: peerdb_route.FlowService.InitialLoadSummary:output_type -> peerdb_route.InitialLoadSummaryResponse
-	60,  // 144: peerdb_route.FlowService.GetPeerInfo:output_type -> peerdb_route.PeerInfoResponse
-	61,  // 145: peerdb_route.FlowService.GetPeerType:output_type -> peerdb_route.PeerTypeResponse
-	64,  // 146: peerdb_route.FlowService.ListPeers:output_type -> peerdb_route.ListPeersResponse
-	95,  // 147: peerdb_route.FlowService.GetVersion:output_type -> peerdb_route.PeerDBVersionResponse
-	98,  // 148: peerdb_route.FlowService.GetInstanceInfo:output_type -> peerdb_route.InstanceInfoResponse
-	100, // 149: peerdb_route.FlowService.Maintenance:output_type -> peerdb_route.MaintenanceResponse
-	103, // 150: peerdb_route.FlowService.GetMaintenanceStatus:output_type -> peerdb_route.MaintenanceStatusResponse
-	105, // 151: peerdb_route.FlowService.SkipSnapshotWaitFlows:output_type -> peerdb_route.SkipSnapshotWaitFlowsResponse
-	108, // 152: peerdb_route.FlowService.CreateOrReplaceFlowTags:output_type -> peerdb_route.CreateOrReplaceFlowTagsResponse
-	110, // 153: peerdb_route.FlowService.GetFlowTags:output_type -> peerdb_route.GetFlowTagsResponse
-	45,  // 154: peerdb_route.FlowService.TotalRowsSyncedByMirror:output_type -> peerdb_route.TotalRowsSyncedByMirrorResponse
-	112, // 155: peerdb_route.FlowService.CancelTableAddition:output_type -> peerdb_route.CancelTableAdditionOutput
-	111, // [111:156] is the sub-list for method output_type
-	66,  // [66:111] is the sub-list for method input_type
+	113, // 111: peerdb_route.FlowService.ResetMirrorSequences:input_type -> peerdb_route.ResetMirrorSequencesRequest
+	34,  // 112: peerdb_route.FlowService.ValidatePeer:output_type -> peerdb_route.ValidatePeerResponse
+	86,  // 113: peerdb_route.FlowService.ValidateCDCMirror:output_type -> peerdb_route.ValidateCDCMirrorResponse
+	35,  // 114: peerdb_route.FlowService.CreatePeer:output_type -> peerdb_route.CreatePeerResponse
+	33,  // 115: peerdb_route.FlowService.DropPeer:output_type -> peerdb_route.DropPeerResponse
+	8,   // 116: peerdb_route.FlowService.CreateCDCFlow:output_type -> peerdb_route.CreateCDCFlowResponse
+	10,  // 117: peerdb_route.FlowService.CreateQRepFlow:output_type -> peerdb_route.CreateQRepFlowResponse
+	15,  // 118: peerdb_route.FlowService.GetAlertConfigs:output_type -> peerdb_route.GetAlertConfigsResponse
+	16,  // 119: peerdb_route.FlowService.PostAlertConfig:output_type -> peerdb_route.PostAlertConfigResponse
+	17,  // 120: peerdb_route.FlowService.DeleteAlertConfig:output_type -> peerdb_route.DeleteAlertConfigResponse
+	20,  // 121: peerdb_route.FlowService.GetDynamicSettings:output_type -> peerdb_route.GetDynamicSettingsResponse
+	22,  // 122: peerdb_route.FlowService.PostDynamicSetting:output_type -> peerdb_route.PostDynamicSettingResponse
+	25,  // 123: peerdb_route.FlowService.GetScripts:output_type -> peerdb_route.GetScriptsResponse
+	27,  // 124: peerdb_route.FlowService.PostScript:output_type -> peerdb_route.PostScriptResponse
+	29,  // 125: peerdb_route.FlowService.DeleteScript:output_type -> peerdb_route.DeleteScriptResponse
+	43,  // 126: peerdb_route.FlowService.CDCTableTotalCounts:output_type -> peerdb_route.CDCTableTotalCountsResponse
+	46,  // 127: peerdb_route.FlowService.GetSchemas:output_type -> peerdb_route.PeerSchemasResponse
+	47,  // 128: peerdb_route.FlowService.GetPublications:output_type -> peerdb_route.PeerPublicationsResponse
+	49,  // 129: peerdb_route.FlowService.GetTablesInSchema:output_type -> peerdb_route.SchemaTablesResponse
+	51,  // 130: peerdb_route.FlowService.GetAllTables:output_type -> peerdb_route.AllTablesResponse
+	54,  // 131: peerdb_route.FlowService.GetColumns:output_type -> peerdb_route.TableColumnsResponse
+	57,  // 132: peerdb_route.FlowService.GetColumnsTypeConversion:output_type -> peerdb_route.ColumnsTypeConversionResponse
+	70,  // 133: peerdb_route.FlowService.GetSlotInfo:output_type -> peerdb_route.PeerSlotResponse
+	68,  // 134: peerdb_route.FlowService.GetSlotLagHistory:output_type -> peerdb_route.GetSlotLagHistoryResponse
+	71,  // 135: peerdb_route.FlowService.GetStatInfo:output_type -> peerdb_route.PeerStatResponse
+	85,  // 136: peerdb_route.FlowService.ListMirrorLogs:output_type -> peerdb_route.ListMirrorLogsResponse
+	89,  // 137: peerdb_route.FlowService.ListMirrors:output_type -> peerdb_route.ListMirrorsResponse
+	91,  // 138: peerdb_route.FlowService.ListMirrorNames:output_type -> peerdb_route.ListMirrorNamesResponse
+	93,  // 139: peerdb_route.FlowService.FlowStateChange:output_type -> peerdb_route.FlowStateChangeResponse
+	75,  // 140: peerdb_route.FlowService.MirrorStatus:output_type -> peerdb_route.MirrorStatusResponse
+	79,  // 141: peerdb_route.FlowService.GetCDCBatches:output_type -> peerdb_route.GetCDCBatchesResponse
+	79,  // 142: peerdb_route.FlowService.CDCBatches:output_type -> peerdb_route.GetCDCBatchesResponse
+	82,  // 143: peerdb_route.FlowService.CDCGraph:output_type -> peerdb_route.GraphResponse
+	77,  // 144: peerdb_route.FlowService.InitialLoadSummary:output_type -> peerdb_route.InitialLoadSummaryResponse
+	60,  // 145: peerdb_route.FlowService.GetPeerInfo:output_type -> peerdb_route.PeerInfoResponse
+	61,  // 146: peerdb_route.FlowService.GetPeerType:output_type -> peerdb_route.PeerTypeResponse
+	64,  // 147: peerdb_route.FlowService.ListPeers:output_type -> peerdb_route.ListPeersResponse
+	95,  // 148: peerdb_route.FlowService.GetVersion:output_type -> peerdb_route.PeerDBVersionResponse
+	98,  // 149: peerdb_route.FlowService.GetInstanceInfo:output_type -> peerdb_route.InstanceInfoResponse
+	100, // 150: peerdb_route.FlowService.Maintenance:output_type -> peerdb_route.MaintenanceResponse
+	103, // 151: peerdb_route.FlowService.GetMaintenanceStatus:output_type -> peerdb_route.MaintenanceStatusResponse
+	105, // 152: peerdb_route.FlowService.SkipSnapshotWaitFlows:output_type -> peerdb_route.SkipSnapshotWaitFlowsResponse
+	108, // 153: peerdb_route.FlowService.CreateOrReplaceFlowTags:output_type -> peerdb_route.CreateOrReplaceFlowTagsResponse
+	110, // 154: peerdb_route.FlowService.GetFlowTags:output_type -> peerdb_route.GetFlowTagsResponse
+	45,  // 155: peerdb_route.FlowService.TotalRowsSyncedByMirror:output_type -> peerdb_route.TotalRowsSyncedByMirrorResponse
+	112, // 156: peerdb_route.FlowService.CancelTableAddition:output_type -> peerdb_route.CancelTableAdditionOutput
+	114, // 157: peerdb_route.FlowService.ResetMirrorSequences:output_type -> peerdb_route.ResetMirrorSequencesResponse
+	112, // [112:158] is the sub-list for method output_type
+	66,  // [66:112] is the sub-list for method input_type
 	66,  // [66:66] is the sub-list for extension type_name
 	66,  // [66:66] is the sub-list for extension extendee
 	0,   // [0:66] is the sub-list for field type_name
@@ -7057,7 +7163,7 @@ func file_route_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_route_proto_rawDesc), len(file_route_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   106,
+			NumMessages:   108,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
