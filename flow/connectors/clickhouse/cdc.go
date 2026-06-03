@@ -44,8 +44,8 @@ const (
 		_peerdb_match_data String,
 		_peerdb_batch_id Int64,
 		_peerdb_unchanged_toast_columns String,
-		_peerdb_txid UInt64,
-		_peerdb_lsn Int64
+		_peerdb_txid UInt32,
+		_peerdb_lsn UInt64
 	)`
 	zooPathPrefix = "/clickhouse/tables/{uuid}/{shard}/{database}/"
 )
@@ -224,7 +224,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 // syncRecordsViaAvroWALSink stages a CDC v2 batch into the WAL sink table.
 // Records are written including _peerdb_txid and _peerdb_lsn; the normalize
 // step later filters by committed XID. Committed XIDs for the batch are
-// persisted in catalog (cdc_v2_committed_xids) so normalize can read them
+// persisted in catalog (pg_cdc_v2_committed_xids) so normalize can read them
 // without depending on the source connection.
 func (c *ClickHouseConnector) syncRecordsViaAvroWALSink(
 	ctx context.Context,
@@ -524,7 +524,7 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 			}
 		}
 	}
-	c.logger.Info("successfully dropped raw and WAL sink tables",
+	c.logger.Info("successfully dropped raw and/or WAL sink tables",
 		slog.String("rawTable", rawTableIdentifier), slog.String("walTable", walTableIdentifier))
 
 	return nil

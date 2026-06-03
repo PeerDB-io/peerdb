@@ -162,8 +162,8 @@ func RecordsToWALSinkStream(
 			{Name: "_peerdb_match_data", Type: types.QValueKindString, Nullable: true},
 			{Name: "_peerdb_batch_id", Type: types.QValueKindInt64, Nullable: true},
 			{Name: "_peerdb_unchanged_toast_columns", Type: types.QValueKindString, Nullable: true},
-			{Name: "_peerdb_txid", Type: types.QValueKindInt64, Nullable: false},
-			{Name: "_peerdb_lsn", Type: types.QValueKindInt64, Nullable: false},
+			{Name: "_peerdb_txid", Type: types.QValueKindUInt32, Nullable: false},
+			{Name: "_peerdb_lsn", Type: types.QValueKindUInt64, Nullable: false},
 		},
 	})
 
@@ -247,8 +247,8 @@ func recordToWALSinkQRecordOrError(
 	entries[1] = types.QValueInt64{Val: time.Now().UnixNano()}
 	entries[2] = types.QValueString{Val: record.GetDestinationTableName()}
 	entries[6] = types.QValueInt64{Val: batchID}
-	entries[8] = types.QValueInt64{Val: int64(record.GetTransactionID())}
-	entries[9] = types.QValueInt64{Val: record.GetCheckpointID()}
+	entries[8] = types.QValueUInt32{Val: uint32(record.GetTransactionID())}
+	entries[9] = types.QValueUInt64{Val: uint64(record.GetCheckpointID())}
 
 	return entries[:], nil
 }

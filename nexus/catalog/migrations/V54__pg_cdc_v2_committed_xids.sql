@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS cdc_v2_committed_xids (
+CREATE TABLE IF NOT EXISTS pg_cdc_v2_committed_xids (
     flow_name TEXT NOT NULL,
     batch_id BIGINT NOT NULL,
     committed_xids xid[] NOT NULL,

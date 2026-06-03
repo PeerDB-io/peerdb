@@ -521,8 +521,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		lastNormBatchID int64
 	}
 	queriesCh := make(chan queryInfo)
-	// rawTbl is the source table for the normalize query: raw table in v1, WAL sink table in v2.
-	rawTbl := stagingTable
 
 	group, errCtx := errgroup.WithContext(ctx)
 	// create N=PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE goroutines to process requests from queriesCh
@@ -607,7 +605,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				enablePrimaryUpdate,
 				sourceSchemaAsDestinationColumn,
 				req.Env,
-				rawTbl,
+				stagingTable,
 				c.chVersion,
 				c.Config.Cluster != "",
 				req.SoftDeleteColName,

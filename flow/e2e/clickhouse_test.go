@@ -3566,14 +3566,14 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 // with streaming 'on'. On the destination it routes records into a separate
 // _peerdb_wal_<flow> sink table (instead of the v1 _peerdb_raw_<flow>) and
 // makes the normalize step filter by committed XIDs read from catalog table
-// cdc_v2_committed_xids.
+// pg_cdc_v2_committed_xids.
 //
 // Asserts:
 //   - row equality across initial, single insert, multi-statement tx, and delete
 //     (all non-streamed: small enough to fit under logical_decoding_work_mem).
 //   - WAL sink table populated with non-zero _peerdb_txid (v2 sink fired).
 //   - v1 raw table unused.
-//   - cdc_v2_committed_xids cleaned up post-normalize.
+//   - pg_cdc_v2_committed_xids cleaned up post-normalize.
 //   - Streamed-transaction path: forced via
 //     PEERDB_PG_DEBUG_LOGICAL_REPLICATION_STREAMING=immediate (PG14+, scoped to
 //     this slot's walsender — does not leak to parallel v1 tests). With this
@@ -3670,19 +3670,19 @@ func (s ClickHouseSuite) Test_CDC_V2_Protocol() {
 	).Scan(&rawRows); err == nil {
 		require.Zero(s.t, rawRows, "v1 raw table should be empty when v2 pipeline is active")
 	}
-	// After normalize, the catalog's cdc_v2_committed_xids rows for normalized
+	// After normalize, the catalog's pg_cdc_v2_committed_xids rows for normalized
 	// batches should be cleaned up.
 	catalog, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
 	require.NoError(s.t, err)
 	var leftoverXIDBatches int64
 	require.NoError(s.t, catalog.QueryRow(s.t.Context(),
-		`SELECT count(*) FROM cdc_v2_committed_xids
+		`SELECT count(*) FROM pg_cdc_v2_committed_xids
 		WHERE flow_name = $1
 		  AND batch_id <= (SELECT normalize_batch_id FROM metadata_last_sync_state WHERE job_name = $1)`,
 		flowJobName,
 	).Scan(&leftoverXIDBatches))
 	require.Zero(s.t, leftoverXIDBatches,
-		"cdc_v2_committed_xids should be cleaned up for normalized batches")
+		"pg_cdc_v2_committed_xids should be cleaned up for normalized batches")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
