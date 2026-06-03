@@ -19,6 +19,10 @@ import (
 )
 
 func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
+	if err := pkg_pg.CheckUnsupportedDatabase(ctx, c.conn); err != nil {
+		return err
+	}
+
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return err
