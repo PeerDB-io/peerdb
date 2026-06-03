@@ -130,7 +130,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncState *atomic.Pointer[string],
-	cdcStoreEnabled bool,
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, shared.CatalogPool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
@@ -250,7 +249,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
 			InternalVersion:             config.Version,
-			CDCStoreEnabled:             cdcStoreEnabled,
 		})
 		if err != nil {
 			pullSpan.RecordError(err)

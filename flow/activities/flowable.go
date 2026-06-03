@@ -356,6 +356,22 @@ func (a *FlowableActivity) SyncFlow(
 	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := internal.LoggerFromCtx(ctx)
 
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
+	}
+
+	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, config.Env, destinationType)
+	if err != nil {
+		return fmt.Errorf("failed to fetch PEERDB_CDC_STORE_ENABLED setting: %w", err)
+	}
+
+	// Postgres connector reads this at construction to populate its cdcStoreEnabled
+	// attribute; only set here because cdcStoreEnabled is only used by SyncFlow
+	if config.Env == nil {
+		config.Env = make(map[string]string)
+	}
+	config.Env["PEERDB_CDC_STORE_ENABLED"] = strconv.FormatBool(cdcStoreEnabled)
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -369,16 +385,6 @@ func (a *FlowableActivity) SyncFlow(
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-	}
-
-	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
-	}
-
-	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabledForDestination(ctx, config.Env, destinationType)
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to resolve CDC store enabled: %w", err))
 	}
 
 	// syncDone will be closed by SyncFlow,
@@ -428,10 +434,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState, cdcStoreEnabled)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
 			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState, cdcStoreEnabled)
+				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil {
@@ -484,7 +490,6 @@ func (a *FlowableActivity) syncRecords(
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
-	cdcStoreEnabled bool,
 ) (*model.SyncResponse, error) {
 	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
 	if config.Script != "" {
@@ -517,7 +522,7 @@ func (a *FlowableActivity) syncRecords(
 	}
 	return syncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
-		syncingBatchID, syncWaiting, cdcStoreEnabled, adaptStream,
+		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
 }
@@ -533,11 +538,10 @@ func (a *FlowableActivity) syncPg(
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
-	cdcStoreEnabled bool,
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
-		syncingBatchID, syncWaiting, cdcStoreEnabled, nil,
+		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
 }

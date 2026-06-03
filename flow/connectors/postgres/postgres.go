@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,6 +50,8 @@ type PostgresConnector struct {
 	metadataSchema         string
 	replLock               sync.Mutex
 	pgVersion              shared.PGVersion
+
+	cdcStoreEnabled bool
 }
 
 func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
@@ -112,6 +115,12 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
+	// SyncFlow resolves its destination-aware value and bakes it into env before
+	// constructing the connector, so we can read the concrete value here without
+	// knowing the destination type. Outside SyncFlow the env key is absent and the
+	// attribute is not used.
+	cdcStoreEnabled, _ := strconv.ParseBool(env["PEERDB_CDC_STORE_ENABLED"])
+
 	connector := &PostgresConnector{
 		logger:                 logger,
 		Config:                 pgConfig,
@@ -128,6 +137,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
+		cdcStoreEnabled:        cdcStoreEnabled,
 	}
 
 	tunnel.StartKeepalive(context.Background(), func() {

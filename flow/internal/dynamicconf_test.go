@@ -8,65 +8,44 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
-func TestPeerDBCDCStoreEnabledForDestination(t *testing.T) {
+func TestPeerDBCDCStoreEnabled(t *testing.T) {
 	cases := []struct {
-		env    map[string]string
-		name   string
-		destDB protos.DBType
-		want   bool
+		env      map[string]string
+		name     string
+		destDB   protos.DBType
+		expected bool
 	}{
 		{
-			name: "ClickHouse: global false wins over ClickHouse override true (preserve OOM mitigation)",
-			env: map[string]string{
-				"PEERDB_CDC_STORE_ENABLED":            "false",
-				"PEERDB_CLICKHOUSE_CDC_STORE_ENABLED": "true",
-			},
-			destDB: protos.DBType_CLICKHOUSE,
-			want:   false,
+			name:     "ClickHouse: unset defaults to false",
+			env:      map[string]string{"PEERDB_CDC_STORE_ENABLED": ""},
+			destDB:   protos.DBType_CLICKHOUSE,
+			expected: false,
 		},
 		{
-			name: "ClickHouse: global true + ClickHouse override false disables for ClickHouse",
-			env: map[string]string{
-				"PEERDB_CDC_STORE_ENABLED":            "true",
-				"PEERDB_CLICKHOUSE_CDC_STORE_ENABLED": "false",
-			},
-			destDB: protos.DBType_CLICKHOUSE,
-			want:   false,
+			name:     "Non-ClickHouse: unset defaults to true",
+			env:      map[string]string{"PEERDB_CDC_STORE_ENABLED": ""},
+			destDB:   protos.DBType_SNOWFLAKE,
+			expected: true,
 		},
 		{
-			name: "ClickHouse: both true keeps store enabled",
-			env: map[string]string{
-				"PEERDB_CDC_STORE_ENABLED":            "true",
-				"PEERDB_CLICKHOUSE_CDC_STORE_ENABLED": "true",
-			},
-			destDB: protos.DBType_CLICKHOUSE,
-			want:   true,
+			name:     "ClickHouse: explicit preserved",
+			env:      map[string]string{"PEERDB_CDC_STORE_ENABLED": "true"},
+			destDB:   protos.DBType_CLICKHOUSE,
+			expected: true,
 		},
 		{
-			name: "Non-ClickHouse: global false honored, ClickHouse override ignored",
-			env: map[string]string{
-				"PEERDB_CDC_STORE_ENABLED":            "false",
-				"PEERDB_CLICKHOUSE_CDC_STORE_ENABLED": "true",
-			},
-			destDB: protos.DBType_SNOWFLAKE,
-			want:   false,
-		},
-		{
-			name: "Non-ClickHouse: global true honored, ClickHouse override ignored",
-			env: map[string]string{
-				"PEERDB_CDC_STORE_ENABLED":            "true",
-				"PEERDB_CLICKHOUSE_CDC_STORE_ENABLED": "false",
-			},
-			destDB: protos.DBType_BIGQUERY,
-			want:   true,
+			name:     "Non-ClickHouse: explicit preserved",
+			env:      map[string]string{"PEERDB_CDC_STORE_ENABLED": "false"},
+			destDB:   protos.DBType_SNOWFLAKE,
+			expected: false,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := PeerDBCDCStoreEnabledForDestination(t.Context(), tc.env, tc.destDB)
+			actual, err := PeerDBCDCStoreEnabled(t.Context(), tc.env, tc.destDB)
 			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.expected, actual)
 		})
 	}
 }
