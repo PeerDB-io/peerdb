@@ -53,38 +53,36 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 }
 
 func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMetadata bool) error {
-	for conn, err := range c.withRetries(ctx) {
-		if err != nil {
-			return err
-		}
-
-		switch c.config.Flavor {
-		case protos.MySqlFlavor_MYSQL_MARIA:
-			// check if binlog_row_metadata is supported is done inside this function
-			return mysql_validation.CheckMariaDBBinlogSettings(conn, c.logger, requireRowMetadata)
-		case protos.MySqlFlavor_MYSQL_MYSQL:
-			cmp, err := c.CompareServerVersion(ctx, mysql_validation.MySQLMinVersionForBinlogRowMetadata)
-			if err != nil {
-				return fmt.Errorf("failed to get server version: %w", err)
-			}
-			if cmp < 0 {
-				// as we're dispatching to a function that doesn't know about binlog_row_metadata,
-				// perform the check here instead of inside
-				if requireRowMetadata {
-					return fmt.Errorf("MySQL version too old for column exclusion support, "+
-						"please disable it or upgrade to >=%s (binlog_row_metadata needed)",
-						mysql_validation.MySQLMinVersionForBinlogRowMetadata)
-				}
-				c.logger.Warn("Falling back to MySQL 5.7 check")
-				return mysql_validation.CheckMySQL5BinlogSettings(conn, c.logger)
-			} else {
-				return mysql_validation.CheckMySQL8BinlogSettings(conn, c.logger)
-			}
-		default:
-			return fmt.Errorf("unsupported MySQL flavor: %s", c.config.Flavor.String())
-		}
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
 	}
-	return fmt.Errorf("failed to connect to MySQL server")
+
+	switch c.config.Flavor {
+	case protos.MySqlFlavor_MYSQL_MARIA:
+		// check if binlog_row_metadata is supported is done inside this function
+		return mysql_validation.CheckMariaDBBinlogSettings(conn, c.logger, requireRowMetadata)
+	case protos.MySqlFlavor_MYSQL_MYSQL:
+		cmp, err := c.CompareServerVersion(ctx, mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		if err != nil {
+			return fmt.Errorf("failed to get server version: %w", err)
+		}
+		if cmp < 0 {
+			// as we're dispatching to a function that doesn't know about binlog_row_metadata,
+			// perform the check here instead of inside
+			if requireRowMetadata {
+				return fmt.Errorf("MySQL version too old for column exclusion support, "+
+					"please disable it or upgrade to >=%s (binlog_row_metadata needed)",
+					mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+			}
+			c.logger.Warn("Falling back to MySQL 5.7 check")
+			return mysql_validation.CheckMySQL5BinlogSettings(conn, c.logger)
+		} else {
+			return mysql_validation.CheckMySQL8BinlogSettings(conn, c.logger)
+		}
+	default:
+		return fmt.Errorf("unsupported MySQL flavor: %s", c.config.Flavor.String())
+	}
 }
 
 func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
@@ -123,7 +121,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return fmt.Errorf("binlog configuration error: %w", err)
 	}
 	if err := mysql_validation.CheckLogReplicaUpdates(conn); err != nil {
-		return fmt.Errorf("binlog configuration error: %w", err)
+		return fmt.Errorf("check log replica updates error: %w", err)
 	}
 
 	requireRowMetadata := false
@@ -145,13 +143,12 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("flavor is set to unknown")
 	}
 
-	for conn, err := range c.withRetries(ctx) {
-		if err != nil {
-			return err
-		}
-		return c.validateFlavor(conn)
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
 	}
-	return fmt.Errorf("failed to connect to MySQL server")
+
+	return c.validateFlavor(conn)
 }
 
 func (c *MySqlConnector) validateFlavor(conn *client.Conn) error {
