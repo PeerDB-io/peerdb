@@ -24,7 +24,7 @@ func setupPostgresConnectorWithDirectSSH(ctx context.Context, t *testing.T) *Pos
 	// The database connection is opened from inside the SSH server container; In CI,
 	// PG_HOST=localhost only works for runner-to-PG connections; but from inside the
 	// SSH server container, host must be resolvable by the SSH container.
-	pgConfig.Host = internal.PostgresToxiproxyUpstreamHostWithFallback(pgConfig.Host)
+	pgConfig.Host = internal.PostgresSSHUpstreamHostWithFallback(pgConfig.Host)
 	pgConfig.SshConfig = &protos.SSHConfig{
 		Host:     "localhost",
 		Port:     uint32(sshPort),
