@@ -463,14 +463,15 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 }
 
 func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
-	conn, err := c.connect(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect: %w", err)
+	for conn, err := range c.withRetries(ctx) {
+		if err != nil {
+			return "", err
+		}
+		version := conn.GetServerVersion()
+		c.logger.Info("[mysql] version", slog.String("version", version))
+		return version, nil
 	}
-
-	version := conn.GetServerVersion()
-	c.logger.Info("[mysql] version", slog.String("version", version))
-	return version, nil
+	return "", fmt.Errorf("failed to connect")
 }
 
 func (c *MySqlConnector) StatActivity(
