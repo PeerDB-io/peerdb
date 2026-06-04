@@ -581,8 +581,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// Handle Neon's custom WAL reading error
-			if pgErr.Routine == "NeonWALPageRead" && strings.Contains(pgErr.Message, "server closed the connection unexpectedly") {
-				return ErrorNotifyConnectivity, pgErrorInfo
+			if pgErr.Routine == "NeonWALPageRead" {
+				if strings.Contains(pgErr.Message, "server closed the connection unexpectedly") {
+					return ErrorNotifyConnectivity, pgErrorInfo
+				}
+				if strings.Contains(pgErr.Message, "lost synchronization with server") {
+					return ErrorRetryRecoverable, pgErrorInfo
+				}
 			}
 
 			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
