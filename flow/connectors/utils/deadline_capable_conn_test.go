@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"io"
 	"net"
 	"os"
 	"testing"
@@ -76,4 +77,121 @@ func TestNewDeadlineCapableConn_PreservesSSHBytesAcrossReadTimeout(t *testing.T)
 	n, err = conn.Read(buf)
 	require.NoError(t, err)
 	require.Equal(t, "hello", string(buf[:n]))
+}
+
+func TestNewDeadlineCapableConn_LocalCloseClosesSSHAndRemoteSide(t *testing.T) {
+	sshConn, serverConn := net.Pipe()
+	conn := NewDeadlineCapableConn(sshConn)
+	t.Cleanup(func() {
+		_ = conn.Close()
+		_ = serverConn.Close()
+	})
+
+	require.NoError(t, conn.Close())
+
+	done1 := make(chan error, 1)
+	go func() {
+		_, err := sshConn.Read(make([]byte, 1))
+		done1 <- err
+	}()
+
+	done2 := make(chan error, 1)
+	go func() {
+		_, err := serverConn.Read(make([]byte, 1))
+		done2 <- err
+	}()
+
+	select {
+	case err := <-done1:
+		// since pipe is closed by localConn, we don't actually care about the
+		// error type from the sshConn just need to know that it's closed.
+		// Showing error type here just to be informative.
+		require.ErrorIs(t, err, io.ErrClosedPipe)
+	case <-time.After(time.Second):
+		t.Fatal("local close did not close SSH side")
+	}
+
+	select {
+	case err := <-done2:
+		// since pipe is closed by localConn, we don't actually care about the
+		// error type from the sshConn just need to know that it's closed.
+		// Showing error type here just to be informative.
+		require.ErrorIs(t, err, io.EOF)
+	case <-time.After(time.Second):
+		t.Fatal("local close did not close server side")
+	}
+}
+
+func TestNewDeadlineCapableConn_SSHCloseClosesLocalAndRemote(t *testing.T) {
+	sshConn, serverConn := net.Pipe()
+	conn := NewDeadlineCapableConn(sshConn)
+	t.Cleanup(func() {
+		_ = conn.Close()
+		_ = serverConn.Close()
+	})
+
+	require.NoError(t, sshConn.Close())
+
+	done1 := make(chan error, 1)
+	go func() {
+		_, err := conn.Read(make([]byte, 1))
+		done1 <- err
+	}()
+
+	done2 := make(chan error, 1)
+	go func() {
+		_, err := serverConn.Read(make([]byte, 1))
+		done2 <- err
+	}()
+
+	select {
+	case err := <-done1:
+		require.ErrorIs(t, err, io.EOF)
+	case <-time.After(time.Second):
+		t.Fatal("SSH close did not close local side")
+	}
+
+	select {
+	case err := <-done2:
+		require.ErrorIs(t, err, io.EOF)
+	case <-time.After(time.Second):
+		t.Fatal("SSH close did not close server side")
+	}
+}
+
+func TestNewDeadlineCapableConn_RemoteCloseClosesSSHAndLocalSide(t *testing.T) {
+	sshConn, serverConn := net.Pipe()
+	conn := NewDeadlineCapableConn(sshConn)
+	t.Cleanup(func() {
+		_ = conn.Close()
+		_ = serverConn.Close()
+	})
+
+	require.NoError(t, serverConn.Close())
+
+	done1 := make(chan error, 1)
+	go func() {
+		_, err := sshConn.Read(make([]byte, 1))
+		done1 <- err
+	}()
+
+	done2 := make(chan error, 1)
+	go func() {
+		_, err := conn.Read(make([]byte, 1))
+		done2 <- err
+	}()
+
+	select {
+	case err := <-done1:
+		require.ErrorIs(t, err, io.EOF)
+	case <-time.After(time.Second):
+		t.Fatal("remote close did not close local side")
+	}
+
+	select {
+	case err := <-done2:
+		require.ErrorIs(t, err, io.EOF)
+	case <-time.After(time.Second):
+		t.Fatal("remote close did not close server side")
+	}
 }

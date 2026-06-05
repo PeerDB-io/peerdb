@@ -6,6 +6,14 @@ import (
 	"sync"
 )
 
+type deadlineCapableConn struct {
+	net.Conn
+
+	proxyConn net.Conn
+	sshConn   net.Conn
+	closeOnce sync.Once
+}
+
 // NewDeadlineCapableConn creates connection that always respect context deadline.
 // Used for ssh connection where deadline is not supported and an error is returned
 // when attempting to set deadline (https://github.com/golang/go/issues/65930)
@@ -23,24 +31,33 @@ import (
 func NewDeadlineCapableConn(sshConn net.Conn) net.Conn {
 	localConn, proxyConn := net.Pipe()
 
-	var closeOnce sync.Once
-	closeAll := func() {
-		closeOnce.Do(func() {
-			// we do not explicitly close localConn here
-			// as that is the responsibility of the caller
-			_ = proxyConn.Close()
-			_ = sshConn.Close()
-		})
+	dcConn := &deadlineCapableConn{
+		Conn:      localConn,
+		proxyConn: proxyConn,
+		sshConn:   sshConn,
 	}
 
 	go func() {
-		_, _ = io.Copy(proxyConn, sshConn)
-		closeAll()
+		_, _ = io.Copy(dcConn.proxyConn, dcConn.sshConn)
+		dcConn.closeAll()
 	}()
 	go func() {
-		_, _ = io.Copy(sshConn, proxyConn)
-		closeAll()
+		_, _ = io.Copy(dcConn.sshConn, dcConn.proxyConn)
+		dcConn.closeAll()
 	}()
 
-	return localConn
+	return dcConn
+}
+
+func (c *deadlineCapableConn) Close() error {
+	err := c.Conn.Close()
+	c.closeAll()
+	return err
+}
+
+func (c *deadlineCapableConn) closeAll() {
+	c.closeOnce.Do(func() {
+		_ = c.proxyConn.Close()
+		_ = c.sshConn.Close()
+	})
 }
