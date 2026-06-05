@@ -15,6 +15,7 @@ import {
   alertConfigType,
   emailConfigType,
   serviceConfigType,
+  serviceTypeEditSchemaMap,
   serviceTypeSchemaMap,
   slackConfigType,
 } from './validation';
@@ -48,7 +49,8 @@ function ConfigLabel(data: { label: string; value: string }) {
 
 function getSlackProps(
   config: slackConfigType,
-  setConfig: Dispatch<SetStateAction<slackConfigType>>
+  setConfig: Dispatch<SetStateAction<slackConfigType>>,
+  forEdit: boolean
 ) {
   return (
     <>
@@ -58,7 +60,12 @@ function getSlackProps(
           key={'auth_token'}
           style={{ height: '2.5rem', marginTop: '0.5rem' }}
           variant='simple'
-          placeholder='Auth Token'
+          type='password'
+          placeholder={
+            forEdit
+              ? 'Leave blank to keep current token'
+              : 'Auth Token'
+          }
           value={config.auth_token}
           onChange={(e) => {
             setConfig((previous) => ({
@@ -136,7 +143,8 @@ function getEmailProps(
 function getServiceFields<T extends serviceConfigType>(
   serviceType: ServiceType,
   config: T,
-  setConfig: Dispatch<SetStateAction<T>>
+  setConfig: Dispatch<SetStateAction<T>>,
+  forEdit: boolean
 ) {
   switch (serviceType) {
     case 'email':
@@ -147,7 +155,8 @@ function getServiceFields<T extends serviceConfigType>(
     case 'slack': {
       return getSlackProps(
         config as slackConfigType,
-        setConfig as Dispatch<SetStateAction<slackConfigType>>
+        setConfig as Dispatch<SetStateAction<slackConfigType>>,
+        forEdit
       );
     }
   }
@@ -175,7 +184,9 @@ export function NewConfig(alertProps: AlertConfigProps) {
       return;
     }
 
-    const serviceSchema = serviceTypeSchemaMap[serviceType];
+    const serviceSchema = alertProps.forEdit
+      ? serviceTypeEditSchemaMap[serviceType]
+      : serviceTypeSchemaMap[serviceType];
     const serviceValidity = serviceSchema.safeParse(config);
     if (!serviceValidity?.success) {
       notifyErr(
@@ -226,7 +237,12 @@ export function NewConfig(alertProps: AlertConfigProps) {
       window.location.reload();
     });
   };
-  const ServiceFields = getServiceFields(serviceType, config, setConfig);
+  const ServiceFields = getServiceFields(
+    serviceType,
+    config,
+    setConfig,
+    alertProps.forEdit ?? false
+  );
   return (
     <div
       style={{

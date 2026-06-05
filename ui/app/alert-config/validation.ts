@@ -27,6 +27,24 @@ export const slackServiceConfigSchema = z.intersection(
   })
 );
 
+// Edit variant: an empty auth_token means "keep the stored value"; the
+// backend will preserve the existing token. The API never returns the
+// current token to the UI.
+export const slackServiceConfigEditSchema = z.intersection(
+  baseServiceConfigSchema,
+  z.object({
+    auth_token: z
+      .string()
+      .max(256, { message: 'Auth Token is too long' }),
+    channel_ids: z
+      .array(
+        z.string().trim().min(1, { message: 'Channel IDs cannot be empty' })
+      )
+      .min(1, { message: 'At least one channel ID is needed' }),
+    members: z.array(z.string().trim()).optional(),
+  })
+);
+
 export const emailServiceConfigSchema = z.intersection(
   baseServiceConfigSchema,
   z.object({
@@ -66,5 +84,10 @@ export type alertConfigType = z.infer<typeof alertConfigReqSchema>;
 
 export const serviceTypeSchemaMap = {
   slack: slackServiceConfigSchema,
+  email: emailServiceConfigSchema,
+};
+
+export const serviceTypeEditSchemaMap = {
+  slack: slackServiceConfigEditSchema,
   email: emailServiceConfigSchema,
 };
