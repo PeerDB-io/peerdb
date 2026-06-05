@@ -15,6 +15,15 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+// This function determines when PG should use TLS connections in function of the peer configuration.
+// The logic is as follows:
+// 1. If TLS is explicitly required by the user (RequireTls=true), then we use TLS.
+// 2. If TLS is not explicitly required, but DisableTls is explicitly set to false, then we also use TLS.
+// 3. Otherwise, we do not use TLS.
+func PGMustUseTlsConnection(pgConfig *protos.PostgresConfig) bool {
+	return pgConfig.RequireTls || (pgConfig.DisableTls != nil && !*pgConfig.DisableTls)
+}
+
 func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
 	// strip path and query params that may be present in the host
 	host, _, _ := strings.Cut(pgConfig.Host, "/")
@@ -40,8 +49,11 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) str
 	q := u.Query()
 	q.Set("application_name", applicationName)
 	q.Set("client_encoding", "UTF8")
-	if pgConfig.RequireTls {
+	if PGMustUseTlsConnection(pgConfig) {
 		q.Set("sslmode", "require")
+		// When require or more strict modes are set, the PostgreSQL client library will use the TLS
+		// configuration provided by the user.
+		// Other modes such as "verify-ca" or "verify-full" might be relaxed by this configuration.
 	}
 
 	u.RawQuery = q.Encode()

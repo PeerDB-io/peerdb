@@ -128,6 +128,7 @@ message PostgresConfig {
   bool require_tls = 10;
   PostgresAuthType auth_type = 11;
   optional AwsAuthenticationConfig aws_auth = 12;
+  optional bool disable_tls = 13;
 }
 
 message EventHubConfig {

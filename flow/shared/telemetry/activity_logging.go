@@ -395,7 +395,7 @@ func LogPeerInfo(ctx context.Context, peer *protos.Peer, version string, variant
 	switch config := peer.Config.(type) {
 	case *protos.Peer_PostgresConfig:
 		info.Host = config.PostgresConfig.Host
-		info.DisableTLS = !config.PostgresConfig.RequireTls
+		info.DisableTLS = !internal.PGMustUseTlsConnection(config.PostgresConfig)
 		info.TLSHost = config.PostgresConfig.TlsHost
 		info.SshHost = config.PostgresConfig.SshConfig.GetHost()
 		info.DatabaseName = config.PostgresConfig.Database

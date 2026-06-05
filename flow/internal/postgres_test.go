@@ -10,6 +10,70 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
+func TestPGMustUseTlsConnection(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		disableTls *bool
+		name       string
+		requireTls bool
+		expected   bool
+	}{
+		{
+			// Legacy API: disable_tls missing, no TLS required.
+			name:       "require=false disable=missing",
+			requireTls: false,
+			disableTls: nil,
+			expected:   false,
+		},
+		{
+			// New API using DisableTLS: disable_tls explicitly false => use TLS.
+			name:       "require=false disable=false",
+			requireTls: false,
+			disableTls: boolPtr(false),
+			expected:   true,
+		},
+		{
+			// New API using DisableTLS: disable_tls explicitly true => no TLS.
+			name:       "require=false disable=true",
+			requireTls: false,
+			disableTls: boolPtr(true),
+			expected:   false,
+		},
+		{
+			// RequireTls dominates regardless of disable_tls being missing.
+			name:       "require=true disable=missing",
+			requireTls: true,
+			disableTls: nil,
+			expected:   true,
+		},
+		{
+			// Should not be seen in practice, RequireTls dominates.
+			name:       "require=true disable=false",
+			requireTls: true,
+			disableTls: boolPtr(false),
+			expected:   true,
+		},
+		{
+			// Should not be seen in practice, RequireTls dominates.
+			name:       "require=true disable=true",
+			requireTls: true,
+			disableTls: boolPtr(true),
+			expected:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &protos.PostgresConfig{
+				RequireTls: tt.requireTls,
+				DisableTls: tt.disableTls,
+			}
+			assert.Equal(t, tt.expected, PGMustUseTlsConnection(config))
+		})
+	}
+}
+
 func TestGetPGConnectionString(t *testing.T) {
 	tests := []struct {
 		name         string
