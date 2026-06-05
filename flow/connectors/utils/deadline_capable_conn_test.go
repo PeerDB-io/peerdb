@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -89,20 +90,20 @@ func TestNewDeadlineCapableConn_LocalCloseClosesSSHAndRemoteSide(t *testing.T) {
 
 	require.NoError(t, conn.Close())
 
-	done1 := make(chan error, 1)
+	sshDone := make(chan error, 1)
 	go func() {
 		_, err := sshConn.Read(make([]byte, 1))
-		done1 <- err
+		sshDone <- err
 	}()
 
-	done2 := make(chan error, 1)
+	serverDone := make(chan error, 1)
 	go func() {
 		_, err := serverConn.Read(make([]byte, 1))
-		done2 <- err
+		serverDone <- err
 	}()
 
 	select {
-	case err := <-done1:
+	case err := <-sshDone:
 		// since pipe is closed by localConn, we don't actually care about the
 		// error type from the sshConn just need to know that it's closed.
 		// Showing error type here just to be informative.
@@ -112,7 +113,7 @@ func TestNewDeadlineCapableConn_LocalCloseClosesSSHAndRemoteSide(t *testing.T) {
 	}
 
 	select {
-	case err := <-done2:
+	case err := <-serverDone:
 		// since pipe is closed by localConn, we don't actually care about the
 		// error type from the sshConn just need to know that it's closed.
 		// Showing error type here just to be informative.
@@ -132,27 +133,27 @@ func TestNewDeadlineCapableConn_SSHCloseClosesLocalAndRemote(t *testing.T) {
 
 	require.NoError(t, sshConn.Close())
 
-	done1 := make(chan error, 1)
+	localDone := make(chan error, 1)
 	go func() {
 		_, err := conn.Read(make([]byte, 1))
-		done1 <- err
+		localDone <- err
 	}()
 
-	done2 := make(chan error, 1)
+	serverDone := make(chan error, 1)
 	go func() {
 		_, err := serverConn.Read(make([]byte, 1))
-		done2 <- err
+		serverDone <- err
 	}()
 
 	select {
-	case err := <-done1:
+	case err := <-localDone:
 		require.ErrorIs(t, err, io.EOF)
 	case <-time.After(time.Second):
 		t.Fatal("SSH close did not close local side")
 	}
 
 	select {
-	case err := <-done2:
+	case err := <-serverDone:
 		require.ErrorIs(t, err, io.EOF)
 	case <-time.After(time.Second):
 		t.Fatal("SSH close did not close server side")
@@ -169,27 +170,33 @@ func TestNewDeadlineCapableConn_RemoteCloseClosesSSHAndLocalSide(t *testing.T) {
 
 	require.NoError(t, serverConn.Close())
 
-	done1 := make(chan error, 1)
+	sshDone := make(chan error, 1)
 	go func() {
 		_, err := sshConn.Read(make([]byte, 1))
-		done1 <- err
+		sshDone <- err
 	}()
 
-	done2 := make(chan error, 1)
+	localDonn := make(chan error, 1)
 	go func() {
 		_, err := conn.Read(make([]byte, 1))
-		done2 <- err
+		localDonn <- err
 	}()
 
 	select {
-	case err := <-done1:
-		require.ErrorIs(t, err, io.EOF)
+	case err := <-sshDone:
+		// ServerConn.Close yields io.EOF on sshConn. The wrapper's io.Copy(proxyConn, sshConn)
+		// goroutine observes EOF, and calls sshConn.Close(). sshConn.Read here races with
+		// the teardown, so either io.EOF or io.ErrClosedPipe is valid. we don't actually care
+		// about the error type from the sshConn just need to know that it's closed. Showing
+		// error type here just to be informative.
+		require.True(t, errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe),
+			"expected io.EOF or io.ErrClosedPipe, got %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("remote close did not close local side")
 	}
 
 	select {
-	case err := <-done2:
+	case err := <-localDonn:
 		require.ErrorIs(t, err, io.EOF)
 	case <-time.After(time.Second):
 		t.Fatal("remote close did not close server side")
