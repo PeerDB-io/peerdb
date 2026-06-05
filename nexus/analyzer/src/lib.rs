@@ -777,6 +777,13 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("require_tls")
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .map(|s| s.parse::<bool>().unwrap_or_default()),
+                skip_cert_verification: opts
+                    .get("skip_cert_verification")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
                 auth_type: PostgresAuthType::PostgresPassword.into(),
                 aws_auth: None,
             };
