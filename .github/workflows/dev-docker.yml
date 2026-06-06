@@ -7,8 +7,10 @@ on:
     branches: [main]
 
 jobs:
-  docker-build:
-    if: github.event_name == 'pull_request'
+  docker-build-external:
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name != github.repository
     strategy:
       matrix:
         # ubuntu-latest leverages larger GH runner pool & completes in ~30s instead of ~3m
@@ -37,8 +39,10 @@ jobs:
           SHA_SHORT: dev-${{ steps.vars.outputs.sha_short }}
           TAG: latest-dev
 
-  docker-publish:
-    if: github.event_name == 'push'
+  docker-build:
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       matrix:
         # ubuntu-latest leverages larger GH runner pool & completes in ~30s instead of ~3m
@@ -72,7 +76,7 @@ jobs:
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
           files: ./docker-bake.hcl
-          push: true
+          push: ${{ github.ref == 'refs/heads/main' }}
         env:
           SHA_SHORT: dev-${{ steps.vars.outputs.sha_short }}
           TAG: latest-dev
