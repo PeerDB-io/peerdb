@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -2506,11 +2507,28 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 }
 
 func (s APITestSuite) TestAlertConfig() {
+	// findSlackConfig locates the config by id and returns its parsed auth_token
+	// and channel_ids, so tests can assert the secret is redacted on read.
+	findSlackConfig := func(configs []*protos.AlertConfig, id int32) (authToken string, channelIDs []string, found bool) {
+		for _, config := range configs {
+			if config.Id != id || config.ServiceType != "slack" {
+				continue
+			}
+			var parsed struct {
+				AuthToken  string   `json:"auth_token"`
+				ChannelIDs []string `json:"channel_ids"`
+			}
+			require.NoError(s.t, json.Unmarshal([]byte(config.ServiceConfig), &parsed))
+			return parsed.AuthToken, parsed.ChannelIDs, true
+		}
+		return "", nil, false
+	}
+
 	create, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
 		Config: &protos.AlertConfig{
 			Id:              -1,
 			ServiceType:     "slack",
-			ServiceConfig:   "config",
+			ServiceConfig:   `{"auth_token":"xoxb-secret-token","channel_ids":["C123"]}`,
 			AlertForMirrors: []string{"mirror"},
 		},
 	})
@@ -2519,15 +2537,16 @@ func (s APITestSuite) TestAlertConfig() {
 	getCreate, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, getCreate)
-	require.True(s.t, slices.ContainsFunc(getCreate.Configs, func(config *protos.AlertConfig) bool {
-		return config.Id == create.Id && config.ServiceType == "slack" && config.ServiceConfig == "config"
-	}))
+	authToken, channelIDs, found := findSlackConfig(getCreate.Configs, create.Id)
+	require.True(s.t, found)
+	require.Empty(s.t, authToken, "auth_token must be redacted in API responses")
+	require.Equal(s.t, []string{"C123"}, channelIDs)
 
 	update, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
 		Config: &protos.AlertConfig{
 			Id:              create.Id,
-			ServiceType:     "email",
-			ServiceConfig:   "newconfig",
+			ServiceType:     "slack",
+			ServiceConfig:   `{"auth_token":"xoxb-rotated-token","channel_ids":["C456"]}`,
 			AlertForMirrors: []string{"mirror"},
 		},
 	})
@@ -2536,9 +2555,10 @@ func (s APITestSuite) TestAlertConfig() {
 	getUpdate, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, getUpdate)
-	require.True(s.t, slices.ContainsFunc(getUpdate.Configs, func(config *protos.AlertConfig) bool {
-		return config.Id == create.Id && config.ServiceType == "email" && config.ServiceConfig == "newconfig"
-	}))
+	authToken, channelIDs, found = findSlackConfig(getUpdate.Configs, create.Id)
+	require.True(s.t, found)
+	require.Empty(s.t, authToken, "auth_token must be redacted in API responses")
+	require.Equal(s.t, []string{"C456"}, channelIDs)
 
 	del, err := s.DeleteAlertConfig(s.t.Context(), &protos.DeleteAlertConfigRequest{Id: create.Id})
 	require.NoError(s.t, err)
