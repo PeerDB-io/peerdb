@@ -43,21 +43,26 @@ func newSlackAlertSender(config *slackAlertConfig) *SlackAlertSender {
 	}
 }
 
+func formatCCMembers(members []string) string {
+	if len(members) == 0 {
+		return "cc: <!channel>"
+	}
+	var b strings.Builder
+	b.WriteString("cc:")
+	for _, member := range members {
+		b.WriteString(" <@")
+		b.WriteString(member)
+		b.WriteString(">")
+	}
+	return b.String()
+}
+
 func (s *SlackAlertSender) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
+	ccMembersPart := formatCCMembers(s.members)
 	for _, channelID := range s.channelIDs {
-		var ccMembersPart strings.Builder
-		if len(s.members) == 0 {
-			ccMembersPart.WriteString("cc: <!channel>")
-		} else {
-			ccMembersPart.WriteString("cc:")
-			for _, member := range s.members {
-				ccMembersPart.WriteString(" @")
-				ccMembersPart.WriteString(member)
-			}
-		}
 		_, _, _, err := s.client.SendMessageContext(ctx, channelID, slack.MsgOptionBlocks(
 			slack.NewHeaderBlock(slack.NewTextBlockObject("plain_text", ":rotating_light:Alert:rotating_light:: "+alertTitle, true, false)),
-			slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", alertMessage+"\n"+ccMembersPart.String(), false, false), nil, nil),
+			slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", alertMessage+"\n"+ccMembersPart, false, false), nil, nil),
 		))
 		if err != nil {
 			return fmt.Errorf("failed to send message to Slack channel %s: %w", channelID, err)

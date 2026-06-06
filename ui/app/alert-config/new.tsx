@@ -87,8 +87,8 @@ function getSlackProps(
       <div>
         <p>Members</p>
         <Label as='label' style={{ fontSize: 14 }}>
-          Slack usernames to tag in the channel for these alerts. If left empty,
-          pings the whole channel
+          Slack user IDs (e.g. U01ABC234) to tag in the channel for these
+          alerts. If left empty, pings the whole channel
         </Label>
         <TextField
           key={'members'}
