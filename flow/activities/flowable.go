@@ -361,18 +361,9 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
 	}
 
-	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, config.Env, destinationType)
-	if err != nil {
-		return fmt.Errorf("failed to fetch PEERDB_CDC_STORE_ENABLED setting: %w", err)
-	}
-
-	// Postgres connector reads this at construction to populate its cdcStoreEnabled
-	// attribute; only set here because cdcStoreEnabled is only used by SyncFlow
-	if config.Env == nil {
-		config.Env = make(map[string]string)
-	}
-	config.Env["PEERDB_CDC_STORE_ENABLED"] = strconv.FormatBool(cdcStoreEnabled)
-	srcConn, srcClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
+	srcConn, srcClose, err := connectors.GetByNameWithCDCDestinationTypeAs[connectors.CDCPullConnectorCore](
+		ctx, config.Env, a.CatalogPool, config.SourceName, destinationType,
+	)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}

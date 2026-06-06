@@ -546,7 +546,6 @@ func PullCdcRecords[Items model.Items](
 		}
 	}
 
-	// Remove exceptions.PrimaryKeyModifiedError and its classification when cdc store is removed
 	var cdcRecordsStorage *utils.CDCStore[Items]
 	if p.cdcStoreEnabled {
 		var err error

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -54,7 +53,21 @@ type PostgresConnector struct {
 	cdcStoreEnabled bool
 }
 
-func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+func NewPostgresConnectorWithCDCDestination(
+	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
+) (*PostgresConnector, error) {
+	return newPostgresConnector(ctx, env, pgConfig, destinationType)
+}
+
+func NewPostgresConnector(
+	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig,
+) (*PostgresConnector, error) {
+	return newPostgresConnector(ctx, env, pgConfig, protos.DBType_DBTYPE_UNKNOWN)
+}
+
+func newPostgresConnector(
+	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
+) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
@@ -115,11 +128,18 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
-	// SyncFlow resolves its destination-aware value and bakes it into env before
-	// constructing the connector, so we can read the concrete value here without
-	// knowing the destination type. Outside SyncFlow the env key is absent and the
-	// attribute is not used.
-	cdcStoreEnabled, _ := strconv.ParseBool(env["PEERDB_CDC_STORE_ENABLED"])
+	var cdcStoreEnabled bool
+	if destinationType == protos.DBType_CLICKHOUSE {
+		cdcStoreEnabled, err = internal.PeerDBClickHouseCDCStoreEnabled(ctx, env)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to fetch ClickHouse CDC Store setting: %w", err)
+		}
+	} else {
+		cdcStoreEnabled, err = internal.PeerDBCDCStoreEnabled(ctx, env)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to fetch CDC Store setting: %w", err)
+		}
+	}
 
 	connector := &PostgresConnector{
 		logger:                 logger,
