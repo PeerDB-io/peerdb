@@ -11,7 +11,6 @@ func TestRelaxedNumberExtension(t *testing.T) {
 	relaxedNumberStr := "1" + strings.Repeat("0", 1000)
 	negRelaxedNumberStr := "-" + relaxedNumberStr
 
-	//nolint:govet // it's a test, no need for fieldalignment
 	testCases := []struct {
 		name     string
 		input    string

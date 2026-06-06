@@ -255,7 +255,6 @@ func TestFixedArraySize(t *testing.T) {
 	ctx := context.Background()
 	env := map[string]string{}
 
-	//nolint:govet // intended for readability
 	tests := []struct {
 		name     string
 		qv       types.QValue

@@ -29,7 +29,6 @@ const (
 	insert
 )
 
-//nolint:govet // it's a test, no need for fieldalignment
 type mockChangeStream struct {
 	err         error
 	resumeToken bson.Raw

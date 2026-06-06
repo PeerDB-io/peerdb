@@ -9,7 +9,6 @@ import (
 
 func TestProcessTime(t *testing.T) {
 	epoch := time.Unix(0, 0).UTC()
-	//nolint:govet
 	for _, ts := range []struct {
 		out time.Duration
 		in  string

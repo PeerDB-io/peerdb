@@ -9,7 +9,6 @@ import (
 )
 
 func TestCompile(t *testing.T) {
-	//nolint:govet // fieldalignment: test code, readability preferred
 	tests := []struct {
 		name         string
 		input        string
