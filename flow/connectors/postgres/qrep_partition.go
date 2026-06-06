@@ -470,7 +470,9 @@ func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPar
 	if pp.lastRangeEnd == nil {
 		pp.logger.Info("fetch estimated row count", slog.String("query", estimatedCountTemplate))
 		if err := pp.tx.QueryRow(ctx, estimatedCountTemplate, pp.watermarkTable).Scan(&totalRows); err != nil {
-			return 0, fmt.Errorf("failed to query for estimated row count: %w", err)
+			pp.logger.Warn("failed to query estimated row count, falling back to precise count",
+				slog.Any("error", err),
+				slog.String("watermarkTable", pp.watermarkTable))
 		}
 	} else {
 		whereClause = fmt.Sprintf("WHERE %s > $1", pp.watermarkColumn)
