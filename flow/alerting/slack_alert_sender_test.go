@@ -9,6 +9,7 @@ import (
 func TestFormatCCMembers(t *testing.T) {
 	t.Parallel()
 
+	//nolint:govet // it's a test, no need for fieldalignment
 	tests := []struct {
 		name    string
 		members []string
