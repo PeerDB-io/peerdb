@@ -2509,6 +2509,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 func (s APITestSuite) TestAlertConfig() {
 	// findSlackConfig locates the config by id and returns its parsed auth_token
 	// and channel_ids, so tests can assert the secret is redacted on read.
+	//nolint:nonamedreturns
 	findSlackConfig := func(configs []*protos.AlertConfig, id int32) (authToken string, channelIDs []string, found bool) {
 		for _, config := range configs {
 			if config.Id != id || config.ServiceType != "slack" {
