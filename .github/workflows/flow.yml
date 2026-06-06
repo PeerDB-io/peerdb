@@ -92,6 +92,7 @@ jobs:
           - 9902:9902
           - 9904:9904
           - 9903:9903
+          - 10001:10001
           - 12001:12001
           - 12002:12002
           - 12003:12003
@@ -614,7 +615,7 @@ jobs:
           CI_MONGO_URI: mongodb://localhost:27017
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
-          TOXIPROXY_POSTGRES_HOST: catalog
+          SSH_POSTGRES_HOST: catalog
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
