@@ -14,12 +14,7 @@ import useSWR from 'swr';
 import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
 import { AlertConfigProps, NewConfig, ServiceType } from './new';
-
-// Secret JSON keys the backend redacts to "" in alert config responses.
-// Keep in sync with secretFieldsByServiceType in flow/cmd/alerts.go.
-const secretFieldsByServiceType: Record<string, string[]> = {
-  slack: ['auth_token'],
-};
+import { secretFieldsByServiceType } from './validation';
 
 function ServiceIcon({
   serviceType,

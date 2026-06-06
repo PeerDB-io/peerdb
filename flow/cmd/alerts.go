@@ -2,84 +2,16 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
-
-// secretFieldsByServiceType lists JSON keys whose values must never be
-// returned to API clients. Keep this in sync with the alert sender configs
-// in flow/alerting.
-var secretFieldsByServiceType = map[string][]string{
-	"slack": {"auth_token"},
-}
-
-// redactServiceConfig returns serviceConfig with all secret fields for the
-// given service type replaced by the empty string. Unknown service types
-// are passed through unchanged.
-func redactServiceConfig(serviceType string, serviceConfig []byte) ([]byte, error) {
-	secretFields, ok := secretFieldsByServiceType[serviceType]
-	if !ok {
-		return serviceConfig, nil
-	}
-	var cfg map[string]json.RawMessage
-	if err := json.Unmarshal(serviceConfig, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal service config for redaction: %w", err)
-	}
-	empty, _ := json.Marshal("")
-	for _, field := range secretFields {
-		if _, present := cfg[field]; present {
-			cfg[field] = empty
-		}
-	}
-	return json.Marshal(cfg)
-}
-
-// mergePreservingSecrets returns submitted with any empty secret fields
-// populated from existing, so that clients can omit a secret to keep its
-// stored value (clients never receive the value, see redactServiceConfig).
-func mergePreservingSecrets(serviceType string, submitted, existing []byte) ([]byte, error) {
-	secretFields, ok := secretFieldsByServiceType[serviceType]
-	if !ok {
-		return submitted, nil
-	}
-	var submittedMap map[string]json.RawMessage
-	if err := json.Unmarshal(submitted, &submittedMap); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal submitted service config: %w", err)
-	}
-	var existingMap map[string]json.RawMessage
-	if err := json.Unmarshal(existing, &existingMap); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal existing service config: %w", err)
-	}
-	changed := false
-	for _, field := range secretFields {
-		submittedVal, submittedHas := submittedMap[field]
-		if !submittedHas || isEmptyJSONString(submittedVal) {
-			if existingVal, existingHas := existingMap[field]; existingHas {
-				submittedMap[field] = existingVal
-				changed = true
-			}
-		}
-	}
-	if !changed {
-		return submitted, nil
-	}
-	return json.Marshal(submittedMap)
-}
-
-func isEmptyJSONString(raw json.RawMessage) bool {
-	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return false
-	}
-	return s == ""
-}
 
 func (h *FlowRequestHandler) GetAlertConfigs(
 	ctx context.Context,
@@ -101,7 +33,7 @@ func (h *FlowRequestHandler) GetAlertConfigs(
 		if err != nil {
 			return nil, NewInternalApiError(fmt.Errorf("failed to decrypt alert config: %w", err))
 		}
-		redacted, err := redactServiceConfig(config.ServiceType, serviceConfig)
+		redacted, err := alerting.RedactSecrets(alerting.ServiceType(config.ServiceType), serviceConfig)
 		if err != nil {
 			return nil, NewInternalApiError(err)
 		}
@@ -126,7 +58,7 @@ func (h *FlowRequestHandler) PostAlertConfig(
 
 	// On update, fill empty secret fields from the stored config so callers
 	// can omit unchanged secrets (the API never returns them — see
-	// redactServiceConfig).
+	// alerting.RedactSecrets).
 	serviceConfigPlaintext := req.Config.ServiceConfig
 	if req.Config.Id != -1 {
 		var existingPayload []byte
@@ -143,7 +75,7 @@ func (h *FlowRequestHandler) PostAlertConfig(
 			if err != nil {
 				return nil, NewInternalApiError(fmt.Errorf("failed to decrypt existing alert config: %w", err))
 			}
-			merged, err := mergePreservingSecrets(req.Config.ServiceType,
+			merged, err := alerting.MergeSecrets(alerting.ServiceType(req.Config.ServiceType),
 				shared.UnsafeFastStringToReadOnlyBytes(req.Config.ServiceConfig), existingPlaintext)
 			if err != nil {
 				return nil, NewInternalApiError(err)
