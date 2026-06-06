@@ -62,9 +62,7 @@ function getSlackProps(
           variant='simple'
           type='password'
           placeholder={
-            forEdit
-              ? 'Leave blank to keep current token'
-              : 'Auth Token'
+            forEdit ? 'Leave blank to keep current token' : 'Auth Token'
           }
           value={config.auth_token}
           onChange={(e) => {
