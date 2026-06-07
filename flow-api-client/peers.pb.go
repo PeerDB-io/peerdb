@@ -1375,14 +1375,16 @@ type PostgresConfig struct {
 	Database string                 `protobuf:"bytes,5,opt,name=database,proto3" json:"database,omitempty"`
 	TlsHost  string                 `protobuf:"bytes,6,opt,name=tls_host,json=tlsHost,proto3" json:"tls_host,omitempty"`
 	// defaults to _peerdb_internal
-	MetadataSchema *string                  `protobuf:"bytes,7,opt,name=metadata_schema,json=metadataSchema,proto3,oneof" json:"metadata_schema,omitempty"`
-	SshConfig      *SSHConfig               `protobuf:"bytes,8,opt,name=ssh_config,json=sshConfig,proto3,oneof" json:"ssh_config,omitempty"`
-	RootCa         *string                  `protobuf:"bytes,9,opt,name=root_ca,json=rootCa,proto3,oneof" json:"root_ca,omitempty"`
-	RequireTls     bool                     `protobuf:"varint,10,opt,name=require_tls,json=requireTls,proto3" json:"require_tls,omitempty"`
-	AuthType       PostgresAuthType         `protobuf:"varint,11,opt,name=auth_type,json=authType,proto3,enum=peerdb_peers.PostgresAuthType" json:"auth_type,omitempty"`
-	AwsAuth        *AwsAuthenticationConfig `protobuf:"bytes,12,opt,name=aws_auth,json=awsAuth,proto3,oneof" json:"aws_auth,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	MetadataSchema       *string                  `protobuf:"bytes,7,opt,name=metadata_schema,json=metadataSchema,proto3,oneof" json:"metadata_schema,omitempty"`
+	SshConfig            *SSHConfig               `protobuf:"bytes,8,opt,name=ssh_config,json=sshConfig,proto3,oneof" json:"ssh_config,omitempty"`
+	RootCa               *string                  `protobuf:"bytes,9,opt,name=root_ca,json=rootCa,proto3,oneof" json:"root_ca,omitempty"`
+	RequireTls           bool                     `protobuf:"varint,10,opt,name=require_tls,json=requireTls,proto3" json:"require_tls,omitempty"`
+	AuthType             PostgresAuthType         `protobuf:"varint,11,opt,name=auth_type,json=authType,proto3,enum=peerdb_peers.PostgresAuthType" json:"auth_type,omitempty"`
+	AwsAuth              *AwsAuthenticationConfig `protobuf:"bytes,12,opt,name=aws_auth,json=awsAuth,proto3,oneof" json:"aws_auth,omitempty"`
+	DisableTls           *bool                    `protobuf:"varint,13,opt,name=disable_tls,json=disableTls,proto3,oneof" json:"disable_tls,omitempty"`
+	SkipCertVerification bool                     `protobuf:"varint,14,opt,name=skip_cert_verification,json=skipCertVerification,proto3" json:"skip_cert_verification,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *PostgresConfig) Reset() {
@@ -1497,6 +1499,20 @@ func (x *PostgresConfig) GetAwsAuth() *AwsAuthenticationConfig {
 		return x.AwsAuth
 	}
 	return nil
+}
+
+func (x *PostgresConfig) GetDisableTls() bool {
+	if x != nil && x.DisableTls != nil {
+		return *x.DisableTls
+	}
+	return false
+}
+
+func (x *PostgresConfig) GetSkipCertVerification() bool {
+	if x != nil {
+		return x.SkipCertVerification
+	}
+	return false
 }
 
 type EventHubConfig struct {
@@ -2732,7 +2748,7 @@ const file_peers_proto_rawDesc = "" +
 	"\tauth_type\x18\x02 \x01(\x0e2\".peerdb_peers.AwsIAMAuthConfigTypeR\bauthType\x12]\n" +
 	"\x12static_credentials\x18\x03 \x01(\v2,.peerdb_peers.AwsAuthStaticCredentialsConfigH\x00R\x11staticCredentials\x12;\n" +
 	"\x04role\x18\x04 \x01(\v2%.peerdb_peers.AWSAuthAssumeRoleConfigH\x00R\x04roleB\r\n" +
-	"\vauth_config\"\x97\x04\n" +
+	"\vauth_config\"\x83\x05\n" +
 	"\x0ePostgresConfig\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x12\n" +
@@ -2748,12 +2764,16 @@ const file_peers_proto_rawDesc = "" +
 	" \x01(\bR\n" +
 	"requireTls\x12;\n" +
 	"\tauth_type\x18\v \x01(\x0e2\x1e.peerdb_peers.PostgresAuthTypeR\bauthType\x12E\n" +
-	"\baws_auth\x18\f \x01(\v2%.peerdb_peers.AwsAuthenticationConfigH\x03R\aawsAuth\x88\x01\x01B\x12\n" +
+	"\baws_auth\x18\f \x01(\v2%.peerdb_peers.AwsAuthenticationConfigH\x03R\aawsAuth\x88\x01\x01\x12$\n" +
+	"\vdisable_tls\x18\r \x01(\bH\x04R\n" +
+	"disableTls\x88\x01\x01\x124\n" +
+	"\x16skip_cert_verification\x18\x0e \x01(\bR\x14skipCertVerificationB\x12\n" +
 	"\x10_metadata_schemaB\r\n" +
 	"\v_ssh_configB\n" +
 	"\n" +
 	"\b_root_caB\v\n" +
-	"\t_aws_auth\"\x85\x02\n" +
+	"\t_aws_authB\x0e\n" +
+	"\f_disable_tls\"\x85\x02\n" +
 	"\x0eEventHubConfig\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12%\n" +
 	"\x0eresource_group\x18\x02 \x01(\tR\rresourceGroup\x12\x1a\n" +
