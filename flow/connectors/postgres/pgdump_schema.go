@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 // pg_dump from newer Postgres versions emits statements that older
@@ -280,7 +281,7 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 }
 
 func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig) {
-	if config.RequireTls {
+	if internal.PGMustUseTlsConnection(config) {
 		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
 
 		if config.RootCa != nil && *config.RootCa != "" {

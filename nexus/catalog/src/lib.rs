@@ -177,6 +177,8 @@ impl CatalogConfig<'_> {
             root_ca: None,
             tls_host: String::new(),
             require_tls: false,
+            disable_tls: None,
+            skip_cert_verification: false,
             auth_type: PostgresAuthType::PostgresPassword.into(),
             aws_auth: None,
         }
