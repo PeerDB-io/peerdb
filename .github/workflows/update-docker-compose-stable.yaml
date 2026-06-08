@@ -38,7 +38,7 @@ jobs:
       PR_LABEL: dependencies
       PR_TITLE: "feat: upgrade `docker-compose.yml` stable image tags"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: main
       - name: Update PeerDb Version in docker-compose.yml
@@ -81,7 +81,7 @@ jobs:
       STABLE_PEERDB_VERSION: stable-${{ needs.get-latest-release.outputs.latest_tag }}
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: main
           repository: PeerDB-io/peerdb-enterprise
