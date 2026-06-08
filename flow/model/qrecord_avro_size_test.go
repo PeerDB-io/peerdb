@@ -119,7 +119,6 @@ func TestMongoDBAvroSizeComputation(t *testing.T) {
 }
 
 func TestAvroSizeComputation(t *testing.T) {
-	//nolint:govet // fieldalignment: readability over struct packing in test definitions
 	type subtestDef struct {
 		name       string
 		kind       types.QValueKind
