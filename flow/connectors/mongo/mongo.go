@@ -106,15 +106,16 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	}
 
 	clientOptions, err := peerdb_mongo.BuildClientOptions(peerdb_mongo.ClientConfig{
-		Uri:                 config.Uri,
-		Username:            config.Username,
-		Password:            config.Password,
-		ReadPreference:      protoReadPrefToString[config.ReadPreference],
-		DisableTls:          config.DisableTls,
-		RootCa:              config.GetRootCa(),
-		TlsHost:             config.TlsHost,
-		CreateTlsConfigFunc: common.CreateTlsConfigFromRootCAString,
-		Dialer:              &meteredDialer,
+		Uri:                  config.Uri,
+		Username:             config.Username,
+		Password:             config.Password,
+		ReadPreference:       protoReadPrefToString[config.ReadPreference],
+		DisableTls:           config.DisableTls,
+		SkipCertVerification: config.SkipCertVerification,
+		RootCa:               config.GetRootCa(),
+		TlsHost:              config.TlsHost,
+		CreateTlsConfigFunc:  common.CreateTlsConfigFromRootCAString,
+		Dialer:               &meteredDialer,
 	})
 	if err != nil {
 		return nil, err
