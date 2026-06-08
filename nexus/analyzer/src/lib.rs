@@ -719,6 +719,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("disable_tls")
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
+                skip_cert_verification: opts
+                    .get("skip_cert_verification")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
                 root_ca: opts.get("root_ca").map(|s| s.to_string()),
                 tls_host: opts
                     .get("tls_host")
