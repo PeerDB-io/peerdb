@@ -703,6 +703,7 @@ export const mongoSchema = z.object({
   username: z.string({ error: () => 'Username must be a string' }),
   password: z.string({ error: () => 'Password must be a string' }),
   disableTls: z.boolean().optional(),
+  skipCertVerification: z.boolean().optional(),
   rootCa: z
     .string({ error: () => 'Root CA must be a string' })
     .optional()
