@@ -282,7 +282,11 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 
 func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig) {
 	if internal.PGMustUseTlsConnection(config) {
-		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
+		sslMode := "verify-ca"
+		if config.SkipCertVerification {
+			sslMode = "require"
+		}
+		cmd.Env = append(cmd.Env, "PGSSLMODE="+sslMode)
 
 		if config.RootCa != nil && *config.RootCa != "" {
 			// write root CA to a temp file
