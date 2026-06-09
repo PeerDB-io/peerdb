@@ -37,9 +37,14 @@ func GetTablesBySchema(conn *client.Conn, schema string) ([]TableInfo, error) {
 		return nil, fmt.Errorf("failed to query table sizes for schema %s: %w", schema, err)
 	}
 
-	sizeByTable := make(map[string]int64, len(sizeRs.Values))
-	for _, row := range sizeRs.Values {
-		sizeByTable[string(row[0].AsString())] = row[1].AsInt64()
+	sizeByTable := make(map[string]int64, sizeRs.RowNumber())
+	for i := range sizeRs.RowNumber() {
+		name := string(sizeRs.Values[i][0].AsString())
+		size, err := sizeRs.GetInt(i, 1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read size for table %s.%s: %w", schema, name, err)
+		}
+		sizeByTable[name] = size
 	}
 
 	pkRs, err := conn.Execute(
