@@ -19,15 +19,16 @@ const (
 )
 
 type ClientConfig struct {
-	Uri                 string
-	Username            string
-	Password            string
-	ReadPreference      string
-	DisableTls          bool
-	RootCa              string
-	TlsHost             string
-	CreateTlsConfigFunc func(minVersion uint16, rootCAs string, host string, tlsHost string, skipCertVerification bool) (*tls.Config, error)
-	Dialer              options.ContextDialer
+	Uri                  string
+	Username             string
+	Password             string
+	ReadPreference       string
+	DisableTls           bool
+	SkipCertVerification bool
+	RootCa               string
+	TlsHost              string
+	CreateTlsConfigFunc  func(minVersion uint16, rootCAs string, host string, tlsHost string, skipCertVerification bool) (*tls.Config, error)
+	Dialer               options.ContextDialer
 }
 
 func BuildClientOptions(config ClientConfig) (*options.ClientOptions, error) {
@@ -72,8 +73,9 @@ func BuildClientOptions(config ClientConfig) (*options.ClientOptions, error) {
 	} else if connStr.SSLSet && !connStr.SSL {
 		// user set tls=false in URI param — honor it
 	} else {
-		// apply TLS config — honor tlsInsecure from URI params if set
-		skipCertVerification := connStr.SSLInsecureSet && connStr.SSLInsecure
+		// apply TLS config
+		skipCertVerification := config.SkipCertVerification || // explicit deactivation from config
+			connStr.SSLInsecureSet && connStr.SSLInsecure // honor tlsInsecure from URI params if set
 		tlsConfig, err := config.CreateTlsConfigFunc(tls.VersionTLS12, config.RootCa, "", config.TlsHost, skipCertVerification)
 		if err != nil {
 			return nil, err
