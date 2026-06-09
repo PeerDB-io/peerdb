@@ -69,6 +69,13 @@ func (kind QValueKind) IsArray() bool {
 	return strings.HasPrefix(string(kind), "array_")
 }
 
+// SnowflakeMaxVarchar is the maximum VARCHAR length Snowflake allows (128 MB).
+// A bare STRING/VARCHAR declaration defaults to 16 MB, so we specify the max
+// explicitly to avoid silently capping string columns. Snowflake bills storage
+// based on actual data stored and documents no performance difference between
+// max-length and shorter VARCHAR declarations.
+const SnowflakeMaxVarchar = "VARCHAR(134217728)"
+
 var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindBoolean:     "BOOLEAN",
 	QValueKindInt8:        "INTEGER",
@@ -82,7 +89,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindFloat32:     "FLOAT",
 	QValueKindFloat64:     "FLOAT",
 	QValueKindQChar:       "CHAR",
-	QValueKindString:      "STRING",
+	QValueKindString:      SnowflakeMaxVarchar,
 	QValueKindEnum:        "STRING",
 	QValueKindUint16Enum:  "INTEGER",
 	QValueKindJSON:        "VARIANT",
@@ -95,7 +102,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindDate:        "DATE",
 	QValueKindBytes:       "BINARY",
 	QValueKindUUID:        "STRING",
-	QValueKindInvalid:     "STRING",
+	QValueKindInvalid:     SnowflakeMaxVarchar,
 	QValueKindHStore:      "VARIANT",
 	QValueKindGeography:   "GEOGRAPHY",
 	QValueKindGeometry:    "GEOMETRY",
