@@ -1,7 +1,6 @@
 package connmysql
 
 import (
-	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -28,6 +27,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	mysqlpkg "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -50,11 +50,52 @@ func (c *MySqlConnector) GetTableSchema(
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
+	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
+	}
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Table metadata is fetched once per schema (mysqlpkg.GetTablesBySchema is per-schema) and
+	// cached, keyed by exact table name so case-variant tables (e.g. `A`/`a` under
+	// lower_case_table_names=0) stay distinct.
+	schemaCache := make(map[string]map[string]mysqlpkg.TableInfo)
 	res := make(map[string]*protos.TableSchema, len(tableMappings))
 	for _, tm := range tableMappings {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
+		qualifiedTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 		if err != nil {
-			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
+			return nil, err
+		}
+
+		byTable, ok := schemaCache[qualifiedTable.Namespace]
+		if !ok {
+			tableInfos, err := mysqlpkg.GetTablesBySchema(conn, qualifiedTable.Namespace)
+			if err != nil {
+				c.logger.Info("error fetching schema", slog.String("schema", qualifiedTable.Namespace), slog.Any("error", err))
+				return nil, err
+			}
+			byTable = make(map[string]mysqlpkg.TableInfo, len(tableInfos))
+			for _, ti := range tableInfos {
+				byTable[ti.Name] = ti
+			}
+			schemaCache[qualifiedTable.Namespace] = byTable
+		}
+
+		info, ok := byTable[qualifiedTable.Table]
+		if !ok {
+			return nil, fmt.Errorf("table %s not found", tm.SourceTableIdentifier)
+		}
+
+		tableSchema, err := c.buildTableSchema(tm, info, system, version, nullableEnabled, binlogRowMetadataSupported)
+		if err != nil {
+			c.logger.Info("error building schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
 		}
 		res[tm.SourceTableIdentifier] = tableSchema
@@ -64,114 +105,40 @@ func (c *MySqlConnector) GetTableSchema(
 	return res, nil
 }
 
-func (c *MySqlConnector) getTableSchemaForTable(
-	ctx context.Context,
-	env map[string]string,
+// buildTableSchema converts the raw table metadata from mysqlpkg.GetTablesBySchema into a
+// protos.TableSchema, applying column exclusions and MySQL->Qkind type mapping. Columns arrive in
+// ordinal order and the primary key in key order, so no sorting is needed here.
+func (c *MySqlConnector) buildTableSchema(
 	tm *protos.TableMapping,
+	info mysqlpkg.TableInfo,
 	system protos.TypeSystem,
 	mirrorVersion uint32,
+	nullableEnabled bool,
+	binlogRowMetadataSupported bool,
 ) (*protos.TableSchema, error) {
-	qualifiedTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
-	if err != nil {
-		return nil, err
-	}
-
-	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
-	if err != nil {
-		return nil, err
-	}
-
-	pkSeqRs, err := c.Execute(ctx, fmt.Sprintf(`
-		select column_name, seq_in_index
-		from information_schema.statistics
-		where table_schema = '%s' and table_name = '%s' and index_name = 'PRIMARY'`,
-		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
-	if err != nil {
-		return nil, err
-	}
-	pkSeqMap := make(map[string]int64, pkSeqRs.RowNumber())
-	for idx := range pkSeqRs.RowNumber() {
-		name, err := pkSeqRs.GetString(idx, 0)
-		if err != nil {
-			return nil, err
-		}
-		seq, err := pkSeqRs.GetInt(idx, 1)
-		if err != nil {
-			return nil, err
-		}
-		pkSeqMap[name] = seq
-	}
-
-	rs, err := c.Execute(ctx, fmt.Sprintf(`
-		select column_name, column_type, is_nullable, numeric_precision, numeric_scale
-		from information_schema.columns
-		where table_schema = '%s' and table_name = '%s'
-		order by ordinal_position`,
-		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
-	if err != nil {
-		return nil, err
-	}
-	columns := make([]*protos.FieldDescription, 0, rs.RowNumber())
-	type pkEntry struct {
-		name       string
-		seqInIndex int64
-	}
-
-	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
-	}
-
-	var primaryEntries []pkEntry
-	for idx := range rs.RowNumber() {
-		columnName, err := rs.GetString(idx, 0)
-		if err != nil {
-			return nil, err
-		}
-		if slices.Contains(tm.Exclude, columnName) {
+	columns := make([]*protos.FieldDescription, 0, len(info.Columns))
+	for _, col := range info.Columns {
+		if slices.Contains(tm.Exclude, col.Name) {
 			continue
 		}
-
-		dataType, err := rs.GetString(idx, 1)
+		qkind, err := QkindFromMysqlColumnType(col.ColumnType, binlogRowMetadataSupported, mirrorVersion)
 		if err != nil {
 			return nil, err
 		}
-		isNullable, err := rs.GetString(idx, 2)
-		if err != nil {
-			return nil, err
-		}
-		numericPrecision, err := rs.GetInt(idx, 3)
-		if err != nil {
-			return nil, err
-		}
-		numericScale, err := rs.GetInt(idx, 4)
-		if err != nil {
-			return nil, err
-		}
-		qkind, err := QkindFromMysqlColumnType(dataType, binlogRowMetadataSupported, mirrorVersion)
-		if err != nil {
-			return nil, err
-		}
-
-		column := &protos.FieldDescription{
-			Name:         columnName,
+		columns = append(columns, &protos.FieldDescription{
+			Name:         col.Name,
 			Type:         string(qkind),
-			TypeModifier: datatypes.MakeNumericTypmod(int32(numericPrecision), int32(numericScale)),
-			Nullable:     isNullable == "YES",
-		}
-		columns = append(columns, column)
-
-		if seq, ok := pkSeqMap[columnName]; ok {
-			primaryEntries = append(primaryEntries, pkEntry{name: columnName, seqInIndex: seq})
-		}
+			TypeModifier: datatypes.MakeNumericTypmod(col.NumericPrecision, col.NumericScale),
+			Nullable:     col.IsNullable,
+		})
 	}
 
-	slices.SortFunc(primaryEntries, func(a, b pkEntry) int {
-		return cmp.Compare(a.seqInIndex, b.seqInIndex)
-	})
-	primary := make([]string, len(primaryEntries))
-	for i, e := range primaryEntries {
-		primary[i] = e.name
+	// Primary key columns are already in key order; drop any that were excluded.
+	primary := make([]string, 0, len(info.PrimaryKey))
+	for _, pk := range info.PrimaryKey {
+		if !slices.Contains(tm.Exclude, pk) {
+			primary = append(primary, pk)
+		}
 	}
 
 	return &protos.TableSchema{
