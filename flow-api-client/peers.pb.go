@@ -1066,16 +1066,17 @@ type MongoConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// can be a mongodb:// URI mapping to discrete hosts or a mongodb+srv:// URI
 	// mapping to a DNS SRV record.
-	Uri            string         `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`
-	Username       string         `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
-	Password       string         `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
-	DisableTls     bool           `protobuf:"varint,4,opt,name=disable_tls,json=disableTls,proto3" json:"disable_tls,omitempty"`
-	TlsHost        string         `protobuf:"bytes,5,opt,name=tls_host,json=tlsHost,proto3" json:"tls_host,omitempty"`
-	RootCa         *string        `protobuf:"bytes,6,opt,name=root_ca,json=rootCa,proto3,oneof" json:"root_ca,omitempty"`
-	ReadPreference ReadPreference `protobuf:"varint,7,opt,name=read_preference,json=readPreference,proto3,enum=peerdb_peers.ReadPreference" json:"read_preference,omitempty"`
-	SshConfig      *SSHConfig     `protobuf:"bytes,8,opt,name=ssh_config,json=sshConfig,proto3,oneof" json:"ssh_config,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	Uri                  string         `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`
+	Username             string         `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Password             string         `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
+	DisableTls           bool           `protobuf:"varint,4,opt,name=disable_tls,json=disableTls,proto3" json:"disable_tls,omitempty"`
+	TlsHost              string         `protobuf:"bytes,5,opt,name=tls_host,json=tlsHost,proto3" json:"tls_host,omitempty"`
+	RootCa               *string        `protobuf:"bytes,6,opt,name=root_ca,json=rootCa,proto3,oneof" json:"root_ca,omitempty"`
+	ReadPreference       ReadPreference `protobuf:"varint,7,opt,name=read_preference,json=readPreference,proto3,enum=peerdb_peers.ReadPreference" json:"read_preference,omitempty"`
+	SshConfig            *SSHConfig     `protobuf:"bytes,8,opt,name=ssh_config,json=sshConfig,proto3,oneof" json:"ssh_config,omitempty"`
+	SkipCertVerification bool           `protobuf:"varint,9,opt,name=skip_cert_verification,json=skipCertVerification,proto3" json:"skip_cert_verification,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *MongoConfig) Reset() {
@@ -1162,6 +1163,13 @@ func (x *MongoConfig) GetSshConfig() *SSHConfig {
 		return x.SshConfig
 	}
 	return nil
+}
+
+func (x *MongoConfig) GetSkipCertVerification() bool {
+	if x != nil {
+		return x.SkipCertVerification
+	}
+	return false
 }
 
 type AwsAuthStaticCredentialsConfig struct {
@@ -2721,7 +2729,7 @@ const file_peers_proto_rawDesc = "" +
 	"\n" +
 	"dataset_id\x18\v \x01(\tR\tdatasetId\"X\n" +
 	"\fPubSubConfig\x12H\n" +
-	"\x0fservice_account\x18\x01 \x01(\v2\x1f.peerdb_peers.GcpServiceAccountR\x0eserviceAccount\"\xde\x02\n" +
+	"\x0fservice_account\x18\x01 \x01(\v2\x1f.peerdb_peers.GcpServiceAccountR\x0eserviceAccount\"\x94\x03\n" +
 	"\vMongoConfig\x12\x10\n" +
 	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12!\n" +
@@ -2732,7 +2740,8 @@ const file_peers_proto_rawDesc = "" +
 	"\aroot_ca\x18\x06 \x01(\tB\x05\x90\xfa\x91?\x01H\x00R\x06rootCa\x88\x01\x01\x12E\n" +
 	"\x0fread_preference\x18\a \x01(\x0e2\x1c.peerdb_peers.ReadPreferenceR\x0ereadPreference\x12;\n" +
 	"\n" +
-	"ssh_config\x18\b \x01(\v2\x17.peerdb_peers.SSHConfigH\x01R\tsshConfig\x88\x01\x01B\n" +
+	"ssh_config\x18\b \x01(\v2\x17.peerdb_peers.SSHConfigH\x01R\tsshConfig\x88\x01\x01\x124\n" +
+	"\x16skip_cert_verification\x18\t \x01(\bR\x14skipCertVerificationB\n" +
 	"\n" +
 	"\b_root_caB\r\n" +
 	"\v_ssh_config\"~\n" +
