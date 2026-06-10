@@ -80,11 +80,40 @@ func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]st
 		return err
 	}
 	c.replConn = conn
+	go c.runReplConnKeepalive(ctx, 15*time.Second, c.ReplPing)
 	return nil
 }
 
-// To keep connection alive between sync batches.
-// By default postgres drops connection after 1 minute of inactivity.
+// PullRecords already handles keepalive while it's running; however there is
+// potentially a large time gap between PullRecords (e.g. when normalize
+// backpressure kicks in). So we run a background ticker when we are outside the
+// PullRecords loop.
+func (c *PostgresConnector) runReplConnKeepalive(
+	ctx context.Context,
+	interval time.Duration,
+	keepalive func(context.Context) error,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if c.pullActive.Load() {
+				continue
+			}
+			if err := keepalive(ctx); err != nil {
+				c.logger.Warn("replication keepalive failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+// ReplPing sends a standby status update so Postgres doesn't terminate the walsender
+// for inactivity. Called from two places:
+//   - During PullRecords: PullCdcRecords' receive loop, on each messageWaitPeriod timeout.
+//   - Outside PullRecords: runReplConnKeepalive's background ticker, gated by c.pullActive.
 func (c *PostgresConnector) ReplPing(ctx context.Context) error {
 	if c.replLock.TryLock() {
 		defer c.replLock.Unlock()
@@ -193,6 +222,9 @@ func pullCore[Items model.Items](
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
 ) error {
+	c.pullActive.Store(true)
+	defer c.pullActive.Store(false)
+
 	defer func() {
 		req.RecordStream.Close()
 		if c.replState != nil {
