@@ -486,12 +486,12 @@ func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPar
 		); err != nil {
 			return 0, fmt.Errorf("failed to query for estimated row count: %w", err)
 		}
+
 		pp.logger.Info("estimated row count",
 			slog.String("query", estimatedCountTemplate),
 			slog.String("watermarkTable", pp.watermarkTable),
 			slog.Bool("relhassubclass", relhassubclass),
-			slog.String("formula", fmt.Sprintf("%v / %d * (%d / %d)",
-				reltuples, relpages, relationSize, blockSize)))
+			slog.String("formula", fmt.Sprintf("%v / %d * (%d / %d)", reltuples, relpages, relationSize, blockSize)))
 
 		if v, err := estimatedCount.Int64Value(); err != nil {
 			pp.logger.Warn("estimated row count outside int64 range, falling back to precise count",
