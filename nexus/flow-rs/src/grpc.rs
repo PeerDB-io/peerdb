@@ -148,6 +148,7 @@ impl FlowGrpcClient {
             env: Default::default(),
             version: 0, // filled in by server
             flags: Default::default(),
+            skip_validation: Some(false),
         };
 
         if job.disable_peerdb_columns {
