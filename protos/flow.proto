@@ -96,7 +96,7 @@ message FlowConnectionConfigs {
   // Used to control type mapping backwards compatibility.
   repeated string flags = 27;
 
-  bool skip_validation = 28;
+  optional bool skip_validation = 28;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -148,7 +148,7 @@ message FlowConnectionConfigsCore {
   // Used to control type mapping backwards compatibility.
   repeated string flags = 27;
 
-  bool skip_validation = 28;
+  optional bool skip_validation = 28;
 }
 
 message RenameTableOption {
