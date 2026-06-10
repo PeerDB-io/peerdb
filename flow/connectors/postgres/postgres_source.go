@@ -111,9 +111,8 @@ func (c *PostgresConnector) runReplConnKeepalive(
 }
 
 // ReplPing sends a standby status update so Postgres doesn't terminate the walsender
-// for inactivity. Called from two places:
-//   - During PullRecords: PullCdcRecords' receive loop, on each messageWaitPeriod timeout.
-//   - Outside PullRecords: runReplConnKeepalive's background ticker, gated by c.pullActive.
+// for inactivity. This is only called from runReplConnKeepalive's background ticker,
+// gated by c.pullActive; while a pull is active, PullCdcRecords handles keepalive.
 func (c *PostgresConnector) ReplPing(ctx context.Context) error {
 	if c.replLock.TryLock() {
 		defer c.replLock.Unlock()

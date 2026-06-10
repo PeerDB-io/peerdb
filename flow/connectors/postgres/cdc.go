@@ -611,13 +611,36 @@ func PullCdcRecords[Items model.Items](
 	nextRecordDeadline := time.Now().Add(req.IdleTimeout)
 	pkmRequiresResponse := false
 
+	pushToStream := func(rec model.Record[Items]) error {
+		for !records.TryAddRecord(rec) {
+			// if TryAddRecord fails, it implies channel is full due to downstream backpressure;
+			// it will then block in AddRecord, but wake up every messageWaitPeriod to send a
+			// standby status update so that wal_sender_timeout doesn't get triggered.
+			addCtx, cancel := context.WithTimeout(ctx, messageWaitPeriod)
+			err := records.AddRecord(addCtx, rec)
+			cancel()
+			if err == nil {
+				break
+			}
+			if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+				logger.Info("pushing to stream blocked due to backpressure, sending standby status update")
+				if err := sendStandbyAfterReplLock("backpressure"); err != nil {
+					return err
+				}
+				continue
+			}
+			return err
+		}
+		return nil
+	}
+
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
 		if cdcRecordsStorage != nil {
 			if err := cdcRecordsStorage.Set(key, rec); err != nil {
 				return err
 			}
 		}
-		if err := records.AddRecord(ctx, rec); err != nil {
+		if err := pushToStream(rec); err != nil {
 			return err
 		}
 
@@ -737,8 +760,8 @@ func PullCdcRecords[Items model.Items](
 
 		if err != nil && pgconn.Timeout(err) {
 			// On timeout, always send a ping before moving on to read more messages
-			if err := p.ReplPing(ctx); err != nil {
-				return fmt.Errorf("ReplPing failed: %w", err)
+			if err := sendStandbyAfterReplLock("receive-message"); err != nil {
+				return err
 			}
 			// After that, we let the condition checks at the beginging of the loop,
 			// specifically "if we are past the next standby deadline (?)" to
@@ -911,7 +934,7 @@ func PullCdcRecords[Items model.Items](
 									return err
 								}
 							}
-						} else if err := records.AddRecord(ctx, rec); err != nil {
+						} else if err := pushToStream(rec); err != nil {
 							return err
 						}
 					}

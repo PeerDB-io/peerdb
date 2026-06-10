@@ -59,12 +59,24 @@ func (r *CDCStream[T]) GetLastCheckpoint() CdcCheckpoint {
 	return CdcCheckpoint{ID: r.lastCheckpointID, Text: r.lastCheckpointText}
 }
 
-func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
+func (r *CDCStream[T]) TryAddRecord(record Record[T]) bool {
 	if !r.needsNormalize {
 		switch record.(type) {
 		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
 			r.needsNormalize = true
 		}
+	}
+	select {
+	case r.records <- record:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
+	if r.TryAddRecord(record) {
+		return nil
 	}
 
 	logger := internal.LoggerFromCtx(ctx)
