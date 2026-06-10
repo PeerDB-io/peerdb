@@ -17,8 +17,9 @@ func TestReplConnKeepalive(t *testing.T) {
 	c := &PostgresConnector{
 		logger: log.NewStructuredLogger(slog.New(slog.DiscardHandler)),
 	}
-	var pings atomic.Int32
+	c.pullActive.Store(true)
 
+	var pings atomic.Int32
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
@@ -30,7 +31,6 @@ func TestReplConnKeepalive(t *testing.T) {
 	}()
 
 	// Active phase: pings should be suppressed.
-	c.pullActive.Store(true)
 	time.Sleep(30 * time.Millisecond)
 	require.Zero(t, pings.Load())
 
