@@ -14,6 +14,7 @@ import useSWR from 'swr';
 import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
 import { AlertConfigProps, NewConfig, ServiceType } from './new';
+import { secretFieldsByServiceType } from './validation';
 
 function ServiceIcon({
   serviceType,
@@ -74,6 +75,16 @@ export default function AlertConfigPage() {
 
   const genConfigJSON = (alertConfig: AlertConfig) => {
     const parsedConfig = JSON.parse(alertConfig.serviceConfig);
+    // Display-only mask for redacted secret fields. The backend returns secrets
+    // as "" (see redactServiceConfig); the edit flow (onEdit) keeps using that
+    // raw "" so the backend keep-existing-secret logic stays intact. We only
+    // dress up the read-only view so an empty value doesn't look unconfigured.
+    for (const field of secretFieldsByServiceType[alertConfig.serviceType] ??
+      []) {
+      if (parsedConfig[field] === '') {
+        parsedConfig[field] = '••••••• (hidden)';
+      }
+    }
     return JSON.stringify(
       { ...parsedConfig, alertForMirrors: alertConfig.alertForMirrors },
       null,
