@@ -455,49 +455,78 @@ func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPar
 	// see https://www.citusdata.com/blog/2016/10/12/count-performance/#dup_counts_estimated_full).
 	// For inherited/partitioned tables pg_relation_size, reltuples, and relpages
 	// only reflect the parent table, so we return 0 and fall back to precise count query.
-	const estimatedCountTemplate = `SELECT CASE
-		WHEN c.relhassubclass THEN 0
-		WHEN c.reltuples >= 0 AND c.relpages > 0 THEN
-			(c.reltuples / c.relpages * (pg_relation_size(c.oid) / current_setting('block_size')::integer))::bigint
-		ELSE c.reltuples::bigint
-		END
+	const estimatedCountTemplate = `SELECT
+    		-- for logging/debugging purpose
+			c.reltuples,
+			c.relpages,
+			c.relhassubclass,
+			pg_relation_size(c.oid),
+			current_setting('block_size')::integer,
+			-- row estimation formula
+			CASE
+				WHEN c.reltuples >= 0 AND c.relpages > 0 AND NOT c.relhassubclass
+				    THEN c.reltuples::numeric / c.relpages * (pg_relation_size(c.oid) / current_setting('block_size')::integer)
+				ELSE 0::numeric
+			END
 		FROM pg_class c WHERE c.oid = to_regclass($1)`
 
-	var totalRows pgtype.Int8
+	var totalRows int64
 	var whereClause string
 	var queryArgs []any
 
 	if pp.lastRangeEnd == nil {
-		pp.logger.Info("fetch estimated row count", slog.String("query", estimatedCountTemplate))
-		if err := pp.tx.QueryRow(ctx, estimatedCountTemplate, pp.watermarkTable).Scan(&totalRows); err != nil {
+		var reltuples float32
+		var relpages int32
+		var relhassubclass bool
+		var relationSize int64
+		var blockSize int32
+		var estimatedCount pgtype.Numeric
+		if err := pp.tx.QueryRow(ctx, estimatedCountTemplate, pp.watermarkTable).Scan(
+			&reltuples, &relpages, &relhassubclass, &relationSize, &blockSize, &estimatedCount,
+		); err != nil {
 			return 0, fmt.Errorf("failed to query for estimated row count: %w", err)
+		}
+
+		pp.logger.Info("estimated row count",
+			slog.String("query", estimatedCountTemplate),
+			slog.String("watermarkTable", pp.watermarkTable),
+			slog.Bool("relhassubclass", relhassubclass),
+			slog.String("formula", fmt.Sprintf("%v / %d * (%d / %d)", reltuples, relpages, relationSize, blockSize)))
+
+		if v, err := estimatedCount.Int64Value(); err != nil {
+			pp.logger.Warn("estimated row count outside int64 range, falling back to precise count",
+				slog.Any("error", err),
+				slog.String("watermarkTable", pp.watermarkTable))
+		} else if v.Valid {
+			totalRows = v.Int64
 		}
 	} else {
 		whereClause = fmt.Sprintf("WHERE %s > $1", pp.watermarkColumn)
 		queryArgs = []any{pp.lastRangeEnd}
 	}
 
-	// reltuples is -1 if the table has never been analyzed
-	// reltuples is 0 if:
-	//   - table is new and stats is stale; or
+	// estimated rows is <= 0 if:
+	//   - table has never been analyzed; or
+	//   - row count outside int64 range; or
 	//   - table is inherited/partitioned (see query above); or
 	//   - polling-based flows (estimated row count is skipped)
 	// In all cases, fall back to precise count query
-	if totalRows.Int64 <= 0 {
+	if totalRows <= 0 {
 		countQuery := fmt.Sprintf(preciseCountTemplate, pp.watermarkTable, whereClause)
 		pp.logger.Info("fetch row count", slog.String("query", countQuery))
 		if err := pp.tx.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows); err != nil {
 			return 0, fmt.Errorf("failed to query for precise row count: %w", err)
 		}
 	}
-	if totalRows.Int64 <= 0 {
+
+	if totalRows <= 0 {
 		pp.logger.Warn("no records to replicate, returning")
 		return 0, nil
 	}
 
-	adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
+	adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
 	pp.logger.Info("[postgres] partition details",
-		slog.Int64("totalRows", totalRows.Int64),
+		slog.Int64("totalRows", totalRows),
 		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
 		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
 		slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
