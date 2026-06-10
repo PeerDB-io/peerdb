@@ -455,11 +455,19 @@ func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPar
 	// see https://www.citusdata.com/blog/2016/10/12/count-performance/#dup_counts_estimated_full).
 	// For inherited/partitioned tables pg_relation_size, reltuples, and relpages
 	// only reflect the parent table, so we return 0 and fall back to precise count query.
-	const estimatedCountTemplate = `SELECT CASE
-			WHEN c.reltuples >= 0 AND c.relpages > 0 AND NOT c.relhassubclass
-			    THEN c.reltuples::numeric / c.relpages * (pg_relation_size(c.oid) / current_setting('block_size')::integer)
-			ELSE 0::numeric
-		END
+	const estimatedCountTemplate = `SELECT
+    		-- for logging/debugging purpose
+			c.reltuples,
+			c.relpages,
+			c.relhassubclass,
+			pg_relation_size(c.oid),
+			current_setting('block_size')::integer,
+			-- row estimation formula
+			CASE
+				WHEN c.reltuples >= 0 AND c.relpages > 0 AND NOT c.relhassubclass
+				    THEN c.reltuples::numeric / c.relpages * (pg_relation_size(c.oid) / current_setting('block_size')::integer)
+				ELSE 0::numeric
+			END
 		FROM pg_class c WHERE c.oid = to_regclass($1)`
 
 	var totalRows int64
@@ -467,11 +475,25 @@ func ComputeNumPartitions(ctx context.Context, pp PartitionParams, numRowsPerPar
 	var queryArgs []any
 
 	if pp.lastRangeEnd == nil {
-		pp.logger.Info("fetch estimated row count", slog.String("query", estimatedCountTemplate))
-		var n pgtype.Numeric
-		if err := pp.tx.QueryRow(ctx, estimatedCountTemplate, pp.watermarkTable).Scan(&n); err != nil {
+		var reltuples float32
+		var relpages int32
+		var relhassubclass bool
+		var relationSize int64
+		var blockSize int32
+		var estimatedCount pgtype.Numeric
+		if err := pp.tx.QueryRow(ctx, estimatedCountTemplate, pp.watermarkTable).Scan(
+			&reltuples, &relpages, &relhassubclass, &relationSize, &blockSize, &estimatedCount,
+		); err != nil {
 			return 0, fmt.Errorf("failed to query for estimated row count: %w", err)
-		} else if v, err := n.Int64Value(); err != nil {
+		}
+		pp.logger.Info("estimated row count",
+			slog.String("query", estimatedCountTemplate),
+			slog.String("watermarkTable", pp.watermarkTable),
+			slog.Bool("relhassubclass", relhassubclass),
+			slog.String("formula", fmt.Sprintf("%v / %d * (%d / %d)",
+				reltuples, relpages, relationSize, blockSize)))
+
+		if v, err := estimatedCount.Int64Value(); err != nil {
 			pp.logger.Warn("estimated row count outside int64 range, falling back to precise count",
 				slog.Any("error", err),
 				slog.String("watermarkTable", pp.watermarkTable))
