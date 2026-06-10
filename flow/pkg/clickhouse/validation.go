@@ -32,6 +32,29 @@ var acceptableTableEngines = []string{
 	EngineCoalescingMergeTree, EngineNull,
 }
 
+// supportedDatabaseEngines are the ClickHouse database engines that can be used
+// as a replication destination. Foreign-database engines such as MySQL or
+// PostgreSQL expose read-only proxied tables and cannot be written to.
+var supportedDatabaseEngines = []string{"Atomic", "Replicated", "Shared"}
+
+func validateDatabaseEngine(ctx context.Context, logger log.Logger, conn clickhouse.Conn) error {
+	var engine string
+	if err := QueryRow(ctx, logger, conn,
+		"SELECT engine FROM system.databases WHERE name = currentDatabase()",
+	).Scan(&engine); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("failed to determine destination database engine: %w", err)
+	}
+
+	if !slices.Contains(supportedDatabaseEngines, engine) {
+		return fmt.Errorf("unsupported destination database engine %q; "+
+			"only Atomic, Replicated and Shared database engines are supported", engine)
+	}
+	return nil
+}
+
 func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger log.Logger,
 	conn clickhouse.Conn,
 ) error {
@@ -125,6 +148,11 @@ func ValidateClickHousePeer(
 ) error {
 	// Hostname validation
 	if err := ValidateClickHouseHost(ctx, serviceHost, allowedDomains); err != nil {
+		return err
+	}
+
+	// Destination database engine validation
+	if err := validateDatabaseEngine(ctx, logger, conn); err != nil {
 		return err
 	}
 
