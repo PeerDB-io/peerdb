@@ -106,3 +106,55 @@ func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 	assertSchema(schemas[ulTable], []string{"id"}, "id", "ul")
 	assertSchema(schemas[uuTable], []string{"id"}, "id", "uu")
 }
+
+func TestGetTableSchemaPrimaryKeyVariants(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	connector := newTestConnector(t, ctx)
+
+	dbName := "pk_variants_test"
+	createTestDB(t, ctx, connector, dbName)
+
+	exec := func(sql string) {
+		t.Helper()
+		_, err := connector.Execute(ctx, sql)
+		require.NoError(t, err)
+	}
+
+	assertSchema := func(schema *protos.TableSchema, pk []string, cols ...string) {
+		t.Helper()
+		require.NotNil(t, schema)
+		if len(pk) == 0 {
+			require.Empty(t, schema.PrimaryKeyColumns)
+		} else {
+			require.Equal(t, pk, schema.PrimaryKeyColumns)
+		}
+		require.Len(t, schema.Columns, len(cols))
+		for i, name := range cols {
+			require.Equal(t, name, schema.Columns[i].Name)
+		}
+	}
+
+	compositeTable := dbName + ".composite_pk"
+	noPKTable := dbName + ".no_pk"
+	mixedCaseTable := dbName + ".mixed_case_pk"
+
+	// Composite PK whose key order (b, a) differs from column definition order (a, b, c),
+	// exercising the seq_in_index sort.
+	exec(fmt.Sprintf("CREATE TABLE %s (a INT, b INT, c INT, PRIMARY KEY (b, a))", compositeTable))
+	// Table without a primary key, exercising the LEFT JOIN's NULL seq_in_index path.
+	exec(fmt.Sprintf("CREATE TABLE %s (a INT, b TEXT)", noPKTable))
+	// PK on a mixed-case column name, exercising the case-preserving column_name join.
+	exec(fmt.Sprintf("CREATE TABLE %s (`MyId` INT PRIMARY KEY, val TEXT)", mixedCaseTable))
+
+	schemas, err := connector.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{
+			{SourceTableIdentifier: compositeTable},
+			{SourceTableIdentifier: noPKTable},
+			{SourceTableIdentifier: mixedCaseTable},
+		})
+	require.NoError(t, err)
+	assertSchema(schemas[compositeTable], []string{"b", "a"}, "a", "b", "c")
+	assertSchema(schemas[noPKTable], nil, "a", "b")
+	assertSchema(schemas[mixedCaseTable], []string{"MyId"}, "MyId", "val")
+}
