@@ -873,9 +873,10 @@ type FlowConnectionConfigs struct {
 	Version         uint32            `protobuf:"varint,25,opt,name=version,proto3" json:"version,omitempty"`
 	// Connector capabilities detected at flow creation time.
 	// Used to control type mapping backwards compatibility.
-	Flags         []string `protobuf:"bytes,27,rep,name=flags,proto3" json:"flags,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Flags          []string `protobuf:"bytes,27,rep,name=flags,proto3" json:"flags,omitempty"`
+	SkipValidation *bool    `protobuf:"varint,28,opt,name=skip_validation,json=skipValidation,proto3,oneof" json:"skip_validation,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *FlowConnectionConfigs) Reset() {
@@ -1076,6 +1077,13 @@ func (x *FlowConnectionConfigs) GetFlags() []string {
 	return nil
 }
 
+func (x *FlowConnectionConfigs) GetSkipValidation() bool {
+	if x != nil && x.SkipValidation != nil {
+		return *x.SkipValidation
+	}
+	return false
+}
+
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
 // It still needs to be a proto because Temporal
 // When adding fields here, add them to FlowConnectionConfigs too
@@ -1116,9 +1124,10 @@ type FlowConnectionConfigsCore struct {
 	Version         uint32            `protobuf:"varint,25,opt,name=version,proto3" json:"version,omitempty"`
 	// Connector capabilities detected at flow creation time.
 	// Used to control type mapping backwards compatibility.
-	Flags         []string `protobuf:"bytes,27,rep,name=flags,proto3" json:"flags,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Flags          []string `protobuf:"bytes,27,rep,name=flags,proto3" json:"flags,omitempty"`
+	SkipValidation *bool    `protobuf:"varint,28,opt,name=skip_validation,json=skipValidation,proto3,oneof" json:"skip_validation,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *FlowConnectionConfigsCore) Reset() {
@@ -1317,6 +1326,13 @@ func (x *FlowConnectionConfigsCore) GetFlags() []string {
 		return x.Flags
 	}
 	return nil
+}
+
+func (x *FlowConnectionConfigsCore) GetSkipValidation() bool {
+	if x != nil && x.SkipValidation != nil {
+		return *x.SkipValidation
+	}
+	return false
 }
 
 type RenameTableOption struct {
@@ -5445,7 +5461,8 @@ const file_flow_proto_rawDesc = "" +
 	"\tpeer_name\x18\x03 \x01(\tR\bpeerName\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd2\t\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x94\n" +
+	"\n" +
 	"\x15FlowConnectionConfigs\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12@\n" +
 	"\x0etable_mappings\x18\x04 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x12$\n" +
@@ -5472,10 +5489,13 @@ const file_flow_proto_rawDesc = "" +
 	"\x10destination_name\x18\x17 \x01(\tR\x0fdestinationName\x12=\n" +
 	"\x03env\x18\x18 \x03(\v2+.peerdb_flow.FlowConnectionConfigs.EnvEntryR\x03env\x12\x18\n" +
 	"\aversion\x18\x19 \x01(\rR\aversion\x12\x14\n" +
-	"\x05flags\x18\x1b \x03(\tR\x05flags\x1a6\n" +
+	"\x05flags\x18\x1b \x03(\tR\x05flags\x12,\n" +
+	"\x0fskip_validation\x18\x1c \x01(\bH\x00R\x0eskipValidation\x88\x01\x01\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x11\x10\x12\"\xda\t\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x12\n" +
+	"\x10_skip_validationJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x11\x10\x12\"\x9c\n" +
+	"\n" +
 	"\x19FlowConnectionConfigsCore\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12@\n" +
 	"\x0etable_mappings\x18\x04 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x12$\n" +
@@ -5502,10 +5522,12 @@ const file_flow_proto_rawDesc = "" +
 	"\x10destination_name\x18\x17 \x01(\tR\x0fdestinationName\x12A\n" +
 	"\x03env\x18\x18 \x03(\v2/.peerdb_flow.FlowConnectionConfigsCore.EnvEntryR\x03env\x12\x18\n" +
 	"\aversion\x18\x19 \x01(\rR\aversion\x12\x14\n" +
-	"\x05flags\x18\x1b \x03(\tR\x05flags\x1a6\n" +
+	"\x05flags\x18\x1b \x03(\tR\x05flags\x12,\n" +
+	"\x0fskip_validation\x18\x1c \x01(\bH\x00R\x0eskipValidation\x88\x01\x01\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x11\x10\x12\"Q\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x12\n" +
+	"\x10_skip_validationJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x11\x10\x12\"Q\n" +
 	"\x11RenameTableOption\x12!\n" +
 	"\fcurrent_name\x18\x01 \x01(\tR\vcurrentName\x12\x19\n" +
 	"\bnew_name\x18\x02 \x01(\tR\anewName\"\x96\x02\n" +
@@ -6117,6 +6139,8 @@ func file_flow_proto_init() {
 		return
 	}
 	file_peers_proto_init()
+	file_flow_proto_msgTypes[5].OneofWrappers = []any{}
+	file_flow_proto_msgTypes[6].OneofWrappers = []any{}
 	file_flow_proto_msgTypes[34].OneofWrappers = []any{
 		(*PartitionRange_IntRange)(nil),
 		(*PartitionRange_TimestampRange)(nil),
