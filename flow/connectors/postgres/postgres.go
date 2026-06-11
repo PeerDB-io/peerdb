@@ -49,6 +49,7 @@ type PostgresConnector struct {
 	metadataSchema         string
 	replLock               sync.Mutex
 	closeLock              sync.Mutex
+	walSenderTimeout       walSenderTimeout
 	pgVersion              shared.PGVersion
 }
 

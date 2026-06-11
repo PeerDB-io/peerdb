@@ -546,7 +546,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 	// create slot only after we succeeded in creating publication.
 	if !s.SlotExists {
-		conn, err := c.CreateReplConn(ctx, env)
+		conn, _, err := c.CreateReplConn(ctx, env)
 		if err != nil {
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error acquiring connection: %w", err)
 		}
