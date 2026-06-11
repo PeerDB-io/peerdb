@@ -80,7 +80,7 @@ func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]st
 		return err
 	}
 	c.replConn = conn
-	go c.runReplConnKeepalive(ctx, 15*time.Second, c.ReplPing)
+	go c.runReplConnKeepalive(ctx, 15*time.Second, c.replPing)
 	return nil
 }
 
@@ -89,7 +89,7 @@ func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]st
 // from the PullRecords stop: (1) between PullRecords calls (2) within
 // PullRecords when AddRecord blocks on a full record stream.
 //
-// While PullRecords holds replLock inside ReceiveMessage, ReplPing's TryLock
+// While PullRecords holds replLock inside ReceiveMessage, replPing's TryLock
 // makes it a no-op. This is safe because ReceiveMessage will always run its
 // own keepalive on timeout.
 func (c *PostgresConnector) runReplConnKeepalive(
@@ -111,8 +111,8 @@ func (c *PostgresConnector) runReplConnKeepalive(
 	}
 }
 
-// ReplPing sends a standby status update so Postgres doesn't terminate the walsender for inactivity.
-func (c *PostgresConnector) ReplPing(ctx context.Context) error {
+// replPing sends a standby status update so Postgres doesn't terminate the walsender for inactivity.
+func (c *PostgresConnector) replPing(ctx context.Context) error {
 	if c.replLock.TryLock() {
 		defer c.replLock.Unlock()
 		if c.replState != nil {
