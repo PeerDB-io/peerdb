@@ -67,6 +67,13 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 		}
 	}
 
+	// hot-path optimization: avoid setting up logger/ticker unless channel is actually full
+	select {
+	case r.records <- record:
+		return nil
+	default:
+	}
+
 	logger := internal.LoggerFromCtx(ctx)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
