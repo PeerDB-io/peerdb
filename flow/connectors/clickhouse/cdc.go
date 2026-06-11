@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -410,17 +411,22 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 		return nil
 	}
 
-	for _, tableName := range req.DestinationTableNames {
+	// chunk to bound statement size, one mutation covers many tables instead of one mutation each
+	for chunk := range slices.Chunk(req.DestinationTableNames, 100) {
+		quoted := make([]string, len(chunk))
+		for i, tableName := range chunk {
+			quoted[i] = peerdb_clickhouse.QuoteLiteral(tableName)
+		}
 		// Better to use lightweight deletes here as the main goal is to not have
 		// rows in the table be visible by the NormalizeRecords' INSERT INTO SELECT queries
-		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
+		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name IN (%s)"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			c.GetRawTableName(req.FlowJobName), peerdb_clickhouse.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId),
+			c.GetRawTableName(req.FlowJobName), strings.Join(quoted, ","), req.NormalizeBatchId, req.SyncBatchId),
 		); err != nil {
-			return fmt.Errorf("unable to remove table %s from raw table: %w", tableName, err)
+			return fmt.Errorf("unable to remove tables from raw table: %w", err)
 		}
 
-		c.logger.Info("successfully removed entries for table from raw table", slog.String("table", tableName))
+		c.logger.Info("successfully removed entries for tables from raw table", slog.Any("tables", chunk))
 	}
 
 	return nil
