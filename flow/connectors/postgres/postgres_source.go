@@ -80,11 +80,38 @@ func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]st
 		return err
 	}
 	c.replConn = conn
+	go c.runReplConnKeepalive(ctx, 15*time.Second, c.ReplPing)
 	return nil
 }
 
-// To keep connection alive between sync batches.
-// By default postgres drops connection after 1 minute of inactivity.
+// runReplConnKeepalive pings the replication connection on a ticker so the
+// walsender doesn't hit wal_sender_timeout. This happens whenever keepalive
+// from the PullRecords stop: (1) between PullRecords calls (2) within
+// PullRecords when AddRecord blocks on a full record stream.
+//
+// While PullRecords holds replLock inside ReceiveMessage, ReplPing's TryLock
+// makes it a no-op. This is safe because ReceiveMessage will always run its
+// own keepalive on timeout.
+func (c *PostgresConnector) runReplConnKeepalive(
+	ctx context.Context,
+	interval time.Duration,
+	keepalive func(context.Context) error,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := keepalive(ctx); err != nil {
+				c.logger.Warn("replication keepalive failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+// ReplPing sends a standby status update so Postgres doesn't terminate the walsender for inactivity.
 func (c *PostgresConnector) ReplPing(ctx context.Context) error {
 	if c.replLock.TryLock() {
 		defer c.replLock.Unlock()
