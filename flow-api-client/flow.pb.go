@@ -4477,10 +4477,11 @@ func (x *IsQRepPartitionSyncedInput) GetPartitionId() string {
 }
 
 type ExportTxSnapshotOutput struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SnapshotName  string                 `protobuf:"bytes,1,opt,name=snapshot_name,json=snapshotName,proto3" json:"snapshot_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	SnapshotName        string                 `protobuf:"bytes,1,opt,name=snapshot_name,json=snapshotName,proto3" json:"snapshot_name,omitempty"`
+	SnapshotStagingPath string                 `protobuf:"bytes,3,opt,name=snapshot_staging_path,json=snapshotStagingPath,proto3" json:"snapshot_staging_path,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ExportTxSnapshotOutput) Reset() {
@@ -4516,6 +4517,13 @@ func (*ExportTxSnapshotOutput) Descriptor() ([]byte, []int) {
 func (x *ExportTxSnapshotOutput) GetSnapshotName() string {
 	if x != nil {
 		return x.SnapshotName
+	}
+	return ""
+}
+
+func (x *ExportTxSnapshotOutput) GetSnapshotStagingPath() string {
+	if x != nil {
+		return x.SnapshotStagingPath
 	}
 	return ""
 }
@@ -5800,9 +5808,10 @@ const file_flow_proto_rawDesc = "" +
 	"\x10tables_to_remove\x18\x03 \x03(\v2\x19.peerdb_flow.TableMappingR\x0etablesToRemove\"c\n" +
 	"\x1aIsQRepPartitionSyncedInput\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12!\n" +
-	"\fpartition_id\x18\x02 \x01(\tR\vpartitionId\"C\n" +
+	"\fpartition_id\x18\x02 \x01(\tR\vpartitionId\"w\n" +
 	"\x16ExportTxSnapshotOutput\x12#\n" +
-	"\rsnapshot_name\x18\x01 \x01(\tR\fsnapshotNameJ\x04\b\x02\x10\x03\"X\n" +
+	"\rsnapshot_name\x18\x01 \x01(\tR\fsnapshotName\x122\n" +
+	"\x15snapshot_staging_path\x18\x03 \x01(\tR\x13snapshotStagingPathJ\x04\b\x02\x10\x03\"X\n" +
 	"\x15DropFlowActivityInput\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12\x1b\n" +
 	"\tpeer_name\x18\x02 \x01(\tR\bpeerName\"\x1b\n" +
