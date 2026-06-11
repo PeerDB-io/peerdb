@@ -475,8 +475,6 @@ func clientSidePingPeriod(walSenderTimeout time.Duration) time.Duration {
 	return 3 * walSenderTimeout / 4
 }
 
-const NoWALSenderTimeoutSetting = "NONE"
-
 // PullCdcRecords pulls records from req's cdc stream
 func PullCdcRecords[Items model.Items](
 	ctx context.Context,
