@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"time"
@@ -102,6 +103,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	ctx workflow.Context,
 	boundSelector *shared.BoundSelector,
 	snapshotName string,
+	stagingPathOverride string,
 	mapping *protos.TableMapping,
 	sourcePeerType protos.DBType,
 	destinationPeerType protos.DBType,
@@ -209,7 +211,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		NumRowsPerPartition:        numRowsPerPartition,
 		NumPartitionsOverride:      numPartitionsOverride,
 		MaxParallelWorkers:         numWorkers,
-		StagingPath:                s.config.SnapshotStagingPath,
+		StagingPath:                cmp.Or(stagingPathOverride, s.config.SnapshotStagingPath),
 		SyncedAtColName:            s.config.SyncedAtColName,
 		SoftDeleteColName:          s.config.SoftDeleteColName,
 		WriteMode:                  snapshotWriteMode,
@@ -231,6 +233,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	snapshotType snapshotType,
 	slotName string,
 	snapshotName string,
+	stagingPathOverride string,
 	maxParallelClones int,
 ) error {
 	if snapshotType == SNAPSHOT_TYPE_SLOT {
@@ -273,7 +276,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 		if v.PartitionKey == "" {
 			v.PartitionKey = res.TableDefaultPartitionKeyMapping[source]
 		}
-		if err := s.cloneTable(ctx, boundSelector, snapshotName, v, sourcePeerType, destinationPeerType); err != nil {
+		if err := s.cloneTable(ctx, boundSelector, snapshotName, stagingPathOverride, v, sourcePeerType, destinationPeerType); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
 			return err
 		}
@@ -316,6 +319,7 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		SNAPSHOT_TYPE_SLOT,
 		slotName,
 		snapshotName,
+		"",
 		numTablesInParallel,
 	); err != nil {
 		s.logger.Error("failed to clone tables", slog.Any("error", err))
@@ -410,6 +414,7 @@ func SnapshotFlowWorkflow(
 			SNAPSHOT_TYPE_TX,
 			"",
 			txnSnapshotState.SnapshotName,
+			txnSnapshotState.SnapshotStagingPath,
 			numTablesInParallel,
 		); err != nil {
 			return fmt.Errorf("failed to clone tables: %w", err)

@@ -25,7 +25,8 @@ type SlotSnapshotState struct {
 }
 
 type TxSnapshotState struct {
-	SnapshotName string
+	SnapshotName        string
+	SnapshotStagingPath string
 }
 
 type SnapshotActivity struct {
@@ -123,7 +124,8 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 	a.SnapshotStatesMutex.Lock()
 	if exportSnapshotOutput != nil {
 		a.TxSnapshotStates[sessionID] = TxSnapshotState{
-			SnapshotName: exportSnapshotOutput.SnapshotName,
+			SnapshotName:        exportSnapshotOutput.SnapshotName,
+			SnapshotStagingPath: exportSnapshotOutput.SnapshotStagingPath,
 		}
 	} else {
 		a.TxSnapshotStates[sessionID] = TxSnapshotState{}

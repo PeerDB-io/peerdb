@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/activity"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -331,9 +332,18 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 
 	_ = c.LogFlowInfo(ctx, flowName, "Starting snapshot BigQuery export to GCS staging bucket")
 
+	// Make the staging path unique per-run so it can be cleaned up asynchronously on resync.
+	activityInfo := activity.GetInfo(ctx)
+	basePath, err := parseGCSPath(cfg.SnapshotStagingPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse snapshot staging path %q: %w", cfg.SnapshotStagingPath, err)
+	}
+	runSnapshotStagingPath := basePath.JoinPath(activityInfo.WorkflowExecution.RunID).String()
+	c.logger.Info("Run snapshot staging path", slog.String("path", runSnapshotStagingPath))
+
 	jobs := make(map[string]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
-		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, cfg.SnapshotStagingPath)
+		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, runSnapshotStagingPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
 		}
@@ -365,7 +375,7 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTableIdentifier)
 	}
 
-	return nil, cfg.SnapshotStagingPath, nil
+	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
 }
 
 // bigQueryExportQueryStatement builds the EXPORT DATA SQL statement for exporting data from BigQuery to GCS in Parquet format.
