@@ -737,8 +737,8 @@ func PullCdcRecords[Items model.Items](
 
 		if err != nil && pgconn.Timeout(err) {
 			// On timeout, always send a ping before moving on to read more messages
-			if err := p.ReplPing(ctx); err != nil {
-				return fmt.Errorf("ReplPing failed: %w", err)
+			if err := sendStandbyAfterReplLock("receive-timeout"); err != nil {
+				return err
 			}
 			// After that, we let the condition checks at the beginging of the loop,
 			// specifically "if we are past the next standby deadline (?)" to
