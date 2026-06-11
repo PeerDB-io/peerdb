@@ -84,10 +84,14 @@ func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]st
 	return nil
 }
 
-// PullRecords already handles keepalive while it's running; however there is
-// potentially a large time gap between PullRecords (e.g. when normalize
-// backpressure kicks in). So we run a background ticker when we are outside the
-// PullRecords loop.
+// runReplConnKeepalive pings the replication connection on a ticker so the
+// walsender doesn't hit wal_sender_timeout. This happens whenever keepalive
+// from the PullRecords stop: (1) between PullRecords calls (2) within
+// PullRecords when AddRecord blocks on a full record stream.
+//
+// While PullRecords holds replLock inside ReceiveMessage, ReplPing's TryLock
+// makes it a no-op. This is safe because ReceiveMessage will always run its
+// own keepalive on timeout.
 func (c *PostgresConnector) runReplConnKeepalive(
 	ctx context.Context,
 	interval time.Duration,
@@ -100,9 +104,6 @@ func (c *PostgresConnector) runReplConnKeepalive(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if c.pullActive.Load() {
-				continue
-			}
 			if err := keepalive(ctx); err != nil {
 				c.logger.Warn("replication keepalive failed", slog.Any("error", err))
 			}
@@ -110,10 +111,7 @@ func (c *PostgresConnector) runReplConnKeepalive(
 	}
 }
 
-// ReplPing sends a standby status update so Postgres doesn't terminate the walsender
-// for inactivity. Called from two places:
-//   - During PullRecords: PullCdcRecords' receive loop, on each messageWaitPeriod timeout.
-//   - Outside PullRecords: runReplConnKeepalive's background ticker, gated by c.pullActive.
+// ReplPing sends a standby status update so Postgres doesn't terminate the walsender for inactivity.
 func (c *PostgresConnector) ReplPing(ctx context.Context) error {
 	if c.replLock.TryLock() {
 		defer c.replLock.Unlock()
@@ -222,9 +220,6 @@ func pullCore[Items model.Items](
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
 ) error {
-	c.pullActive.Store(true)
-	defer c.pullActive.Store(false)
-
 	defer func() {
 		req.RecordStream.Close()
 		if c.replState != nil {
