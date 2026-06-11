@@ -241,7 +241,7 @@ func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSyncer, error) {
+func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*replication.BinlogSyncer, error) {
 	var tlsConfig *tls.Config
 	if !c.config.DisableTls {
 		var err error
@@ -271,6 +271,10 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		config.Password = token
 	}
 
+	eventCacheCount, err := internal.PeerDBMySQLEventCacheCount(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get event cache count: %w", err)
+	}
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:         rand.Uint32(),
@@ -286,12 +290,14 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		ParseTime:        true,
 		TLSConfig:        tlsConfig,
 		HeartbeatPeriod:  c.binlogHeartbeatPeriod,
+		EventCacheCount:  eventCacheCount,
 	}), nil
 }
 
 func (c *MySqlConnector) startStreaming(
 	ctx context.Context,
 	pos string,
+	env map[string]string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	parsedOffset, err := parseReplicationOffsetText(c.Flavor(), pos)
 	if err != nil {
@@ -300,9 +306,9 @@ func (c *MySqlConnector) startStreaming(
 
 	switch parsedOffset.mechanism {
 	case protos.MySqlReplicationMechanism_MYSQL_FILEPOS.String():
-		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos)
+		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos, env)
 	case protos.MySqlReplicationMechanism_MYSQL_GTID.String():
-		return c.startCdcStreamingGtid(ctx, parsedOffset.gset)
+		return c.startCdcStreamingGtid(ctx, parsedOffset.gset, env)
 	default:
 		return nil, nil, nil, mysql.Position{}, fmt.Errorf("empty mysql replication offset")
 	}
@@ -311,8 +317,9 @@ func (c *MySqlConnector) startStreaming(
 func (c *MySqlConnector) startCdcStreamingFilePos(
 	ctx context.Context,
 	pos mysql.Position,
+	env map[string]string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer(ctx)
+	syncer, err := c.startSyncer(ctx, env)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
@@ -327,8 +334,9 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 func (c *MySqlConnector) startCdcStreamingGtid(
 	ctx context.Context,
 	gset mysql.GTIDSet,
+	env map[string]string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer(ctx)
+	syncer, err := c.startSyncer(ctx, env)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
@@ -389,7 +397,7 @@ func (c *MySqlConnector) PullRecords(
 		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
 
-	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
+	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text, req.Env)
 	if err != nil {
 		return err
 	}

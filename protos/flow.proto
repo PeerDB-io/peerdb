@@ -588,6 +588,7 @@ enum DynconfTarget {
   CLICKHOUSE = 3;
   QUEUES = 4;
   POSTGRES = 5;
+  MYSQL = 6;
 }
 
 message DropFlowActivityInput {
