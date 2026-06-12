@@ -39,21 +39,16 @@ func CheckSchemaExists(ctx context.Context, conn *pgx.Conn, schema string) error
 }
 
 // GetDestinationTableSchema queries a PostgreSQL table's column type information
-// using SELECT * FROM tableIdentifier LIMIT 0 to get field descriptions with OIDs.
+// using SELECT * FROM table LIMIT 0 to get field descriptions with OIDs.
 // Returns pgx.ErrNoRows if the table exists but has no columns.
-func GetDestinationTableSchema(ctx context.Context, conn *pgx.Conn, tableIdentifier string) (map[string]ColumnSchema, error) {
-	parsedTable, err := common.ParseTableIdentifier(tableIdentifier)
-	if err != nil {
-		return nil, fmt.Errorf("invalid table identifier %s: %w", tableIdentifier, err)
-	}
-
+func GetDestinationTableSchema(ctx context.Context, conn *pgx.Conn, table common.QualifiedTable) (map[string]ColumnSchema, error) {
 	customTypeMapping, err := GetCustomDataTypes(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch custom type mapping: %w", err)
 	}
 
 	rows, err := conn.Query(ctx,
-		"SELECT * FROM "+parsedTable.String()+" LIMIT 0",
+		"SELECT * FROM "+table.String()+" LIMIT 0",
 		pgx.QueryExecModeSimpleProtocol,
 	)
 	if err != nil {
@@ -104,19 +99,15 @@ func ResolveDestinationColumnName(srcColName string, mappings []ColumnMapping) s
 }
 
 // CheckTableEmpty returns an error if the given table already contains rows.
-func CheckTableEmpty(ctx context.Context, conn *pgx.Conn, tableIdentifier string) error {
+func CheckTableEmpty(ctx context.Context, conn *pgx.Conn, table common.QualifiedTable) error {
 	var hasRows bool
-	qualifiedTableIdentifier, err := common.ParseTableIdentifier(tableIdentifier)
-	if err != nil {
-		return fmt.Errorf("invalid table identifier for empty table check %s: %w", tableIdentifier, err)
-	}
 	if err := conn.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM "+qualifiedTableIdentifier.String()+")",
+		"SELECT EXISTS(SELECT 1 FROM "+table.String()+")",
 	).Scan(&hasRows); err != nil {
-		return fmt.Errorf("failed to check if destination table %s has rows: %w", tableIdentifier, err)
+		return fmt.Errorf("failed to check if destination table %s has rows: %w", table, err)
 	}
 	if hasRows {
-		return fmt.Errorf("destination table %s already has existing rows", tableIdentifier)
+		return fmt.Errorf("destination table %s already has existing rows", table)
 	}
 	return nil
 }

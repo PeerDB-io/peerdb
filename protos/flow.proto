@@ -734,7 +734,13 @@ message GetDefaultPartitionKeyForTablesInput {
 }
 
 message GetDefaultPartitionKeyForTablesOutput {
+  message TablePartitionKey {
+    QualifiedTable table = 1;
+    string partition_key = 2;
+  }
+  // legacy dotted identifiers, prefer table_partition_keys
   map<string, string> table_default_partition_key_mapping = 1;
+  repeated TablePartitionKey table_partition_keys = 2;
 }
 
 message GetFlowInfoToCancelFromCatalogOutput {

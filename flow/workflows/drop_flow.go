@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
@@ -124,6 +125,9 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 }
 
 func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers
+	internal.NormalizeDropFlowInput(input)
+
 	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (cdc_state.CDCFlowWorkflowState, error) {
 		state := cdc_state.CDCFlowWorkflowState{DropFlowInput: input}
 		if input.Resync {

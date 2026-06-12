@@ -550,15 +550,11 @@ func (c *MySqlConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
 
-func (c *MySqlConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableIdentifier string) (int64, error) {
-	parsedTable, err := common.ParseTableIdentifier(tableIdentifier)
-	if err != nil {
-		return 0, err
-	}
+func (c *MySqlConnector) GetTableSizeEstimatedBytes(ctx context.Context, table common.QualifiedTable) (int64, error) {
 	query := fmt.Sprintf(
 		"SELECT data_length FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s'",
-		mysql.Escape(parsedTable.Namespace),
-		mysql.Escape(parsedTable.Table),
+		mysql.Escape(table.Namespace),
+		mysql.Escape(table.Table),
 	)
 
 	rs, err := c.Execute(ctx, query)

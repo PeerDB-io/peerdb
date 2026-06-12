@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/activities"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -53,15 +54,18 @@ func (s *SnapshotFlowExecution) setupReplication(
 		},
 	})
 
-	tblNameMapping := make(map[string]string, len(s.config.TableMappings))
+	qualifiedTableMappings := make([]*protos.QualifiedTableMapping, 0, len(s.config.TableMappings))
 	for _, v := range s.config.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
+		qualifiedTableMappings = append(qualifiedTableMappings, &protos.QualifiedTableMapping{
+			Source:      v.SourceTable,
+			Destination: v.DestinationTable,
+		})
 	}
 
 	setupReplicationInput := &protos.SetupReplicationInput{
 		PeerName:                    s.config.SourceName,
 		FlowJobName:                 flowName,
-		TableNameMapping:            tblNameMapping,
+		QualifiedTableMappings:      qualifiedTableMappings,
 		DoInitialSnapshot:           s.config.DoInitialSnapshot,
 		ExistingPublicationName:     s.config.PublicationName,
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
@@ -113,11 +117,13 @@ func (s *SnapshotFlowExecution) cloneTable(
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("snapshotName", snapshotName))
 
-	srcName := mapping.SourceTableIdentifier
-	dstName := mapping.DestinationTableIdentifier
+	srcName := internal.QualifiedTableFromProto(mapping.SourceTable)
+	dstName := internal.QualifiedTableFromProto(mapping.DestinationTable)
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
-	childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, srcName, originalRunID)
+	// LegacyDotted keeps child workflow IDs identical to those of earlier releases so
+	// re-attached snapshot clones stay idempotent across upgrades
+	childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, srcName.LegacyDotted(), originalRunID)
 	childWorkflowID = shared.ReplaceIllegalCharactersWithUnderscores(childWorkflowID)
 
 	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
@@ -197,32 +203,32 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 
 	config := &protos.QRepConfig{
-		FlowJobName:                childWorkflowID,
-		SourceName:                 s.config.SourceName,
-		SourceType:                 sourcePeerType,
-		DestinationName:            s.config.DestinationName,
-		Query:                      "",
-		WatermarkColumn:            mapping.PartitionKey,
-		AddNullPartition:           watermarkColumnNullable,
-		WatermarkTable:             srcName,
-		InitialCopyOnly:            true,
-		SnapshotName:               snapshotName,
-		DestinationTableIdentifier: dstName,
-		NumRowsPerPartition:        numRowsPerPartition,
-		NumPartitionsOverride:      numPartitionsOverride,
-		MaxParallelWorkers:         numWorkers,
-		StagingPath:                cmp.Or(stagingPathOverride, s.config.SnapshotStagingPath),
-		SyncedAtColName:            s.config.SyncedAtColName,
-		SoftDeleteColName:          s.config.SoftDeleteColName,
-		WriteMode:                  snapshotWriteMode,
-		System:                     s.config.System,
-		Script:                     s.config.Script,
-		Env:                        s.config.Env,
-		ParentMirrorName:           flowName,
-		Exclude:                    mapping.Exclude,
-		Columns:                    mapping.Columns,
-		Version:                    s.config.Version,
-		Flags:                      s.config.Flags,
+		FlowJobName:             childWorkflowID,
+		SourceName:              s.config.SourceName,
+		SourceType:              sourcePeerType,
+		DestinationName:         s.config.DestinationName,
+		Query:                   "",
+		WatermarkColumn:         mapping.PartitionKey,
+		AddNullPartition:        watermarkColumnNullable,
+		QualifiedWatermarkTable: mapping.SourceTable,
+		InitialCopyOnly:         true,
+		SnapshotName:            snapshotName,
+		DestinationTable:        mapping.DestinationTable,
+		NumRowsPerPartition:     numRowsPerPartition,
+		NumPartitionsOverride:   numPartitionsOverride,
+		MaxParallelWorkers:      numWorkers,
+		StagingPath:             cmp.Or(stagingPathOverride, s.config.SnapshotStagingPath),
+		SyncedAtColName:         s.config.SyncedAtColName,
+		SoftDeleteColName:       s.config.SoftDeleteColName,
+		WriteMode:               snapshotWriteMode,
+		System:                  s.config.System,
+		Script:                  s.config.Script,
+		Env:                     s.config.Env,
+		ParentMirrorName:        flowName,
+		Exclude:                 mapping.Exclude,
+		Columns:                 mapping.Columns,
+		Version:                 s.config.Version,
+		Flags:                   s.config.Flags,
 	}
 
 	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
@@ -254,6 +260,10 @@ func (s *SnapshotFlowExecution) cloneTables(
 		snapshot.GetDefaultPartitionKeyForTables, s.config).Get(ctx, &res); err != nil {
 		return fmt.Errorf("failed to get default partition keys for tables: %w", err)
 	}
+	defaultPartitionKeys := make(map[common.QualifiedTable]string, len(res.TablePartitionKeys))
+	for _, tablePartitionKey := range res.TablePartitionKeys {
+		defaultPartitionKeys[internal.QualifiedTableFromProto(tablePartitionKey.Table)] = tablePartitionKey.PartitionKey
+	}
 
 	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)
 
@@ -267,14 +277,14 @@ func (s *SnapshotFlowExecution) cloneTables(
 	}
 
 	for _, v := range s.config.TableMappings {
-		source := v.SourceTableIdentifier
-		destination := v.DestinationTableIdentifier
+		source := internal.QualifiedTableFromProto(v.SourceTable)
+		destination := internal.QualifiedTableFromProto(v.DestinationTable)
 		s.logger.Info(
 			fmt.Sprintf("Cloning table with source table %s and destination table name %s", source, destination),
 			slog.String("snapshotName", snapshotName),
 		)
 		if v.PartitionKey == "" {
-			v.PartitionKey = res.TableDefaultPartitionKeyMapping[source]
+			v.PartitionKey = defaultPartitionKeys[source]
 		}
 		if err := s.cloneTable(ctx, boundSelector, snapshotName, stagingPathOverride, v, sourcePeerType, destinationPeerType); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
@@ -333,6 +343,9 @@ func SnapshotFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigsCore,
 ) error {
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers
+	internal.NormalizeFlowConfig(config)
+
 	se := &SnapshotFlowExecution{
 		config: config,
 		logger: log.With(workflow.GetLogger(ctx),

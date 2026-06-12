@@ -21,9 +21,9 @@ type normalizeStmtGenerator struct {
 	// _PEERDB_RAW_...
 	rawTableName string
 	// the schema of the table to merge into
-	tableSchemaMapping map[string]*protos.TableSchema
+	tableSchemaMapping map[common.QualifiedTable]*protos.TableSchema
 	// array of toast column combinations that are unchanged
-	unchangedToastColumnsMap map[string][]string
+	unchangedToastColumnsMap map[common.QualifiedTable][]string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
 	// Postgres metadata schema
@@ -71,7 +71,7 @@ func (n *normalizeStmtGenerator) generateExpr(
 	return fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 }
 
-func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []string {
+func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable common.QualifiedTable) []string {
 	normalizedTableSchema := n.tableSchemaMapping[dstTable]
 
 	if n.supportsMerge {
@@ -87,7 +87,7 @@ func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []
 }
 
 func (n *normalizeStmtGenerator) generateFallbackStatements(
-	dstTableName string,
+	dstTable common.QualifiedTable,
 	normalizedTableSchema *protos.TableSchema,
 ) []string {
 	columnCount := len(normalizedTableSchema.Columns)
@@ -108,7 +108,6 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 		}
 	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
-	parsedDstTable, _ := common.ParseTableIdentifier(dstTableName)
 
 	insertColumnsSQL := strings.Join(columnNames, ",")
 	updateColumnsSQLArray := make([]string, 0, columnCount)
@@ -120,15 +119,15 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 	deleteWhereClauseArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, columnCast := range primaryKeyColumnCasts {
 		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf(`%s.%s=%s`,
-			parsedDstTable.String(), common.QuoteIdentifier(columnName), columnCast))
+			dstTable.String(), common.QuoteIdentifier(columnName), columnCast))
 	}
 	deleteWhereClauseSQL := strings.Join(deleteWhereClauseArray, " AND ")
 
 	// make it update instead in case soft-delete is enabled
-	deleteUpdate := fmt.Sprintf(`DELETE FROM %s USING `, parsedDstTable.String())
+	deleteUpdate := fmt.Sprintf(`DELETE FROM %s USING `, dstTable.String())
 	if n.peerdbCols.SoftDeleteColName != "" {
 		deleteUpdate = fmt.Sprintf(`UPDATE %s SET %s=TRUE`,
-			parsedDstTable.String(), common.QuoteIdentifier(n.peerdbCols.SoftDeleteColName))
+			dstTable.String(), common.QuoteIdentifier(n.peerdbCols.SoftDeleteColName))
 		if n.peerdbCols.SyncedAtColName != "" {
 			deleteUpdate += fmt.Sprintf(`,%s=CURRENT_TIMESTAMP`, common.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
 		}
@@ -136,7 +135,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 	}
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
 		strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ","), n.metadataSchema,
-		n.rawTableName, parsedDstTable.String(), insertColumnsSQL, flattenedCastsSQL,
+		n.rawTableName, dstTable.String(), insertColumnsSQL, flattenedCastsSQL,
 		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
 		strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ","), n.metadataSchema,
@@ -146,14 +145,12 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 }
 
 func (n *normalizeStmtGenerator) generateMergeStatement(
-	dstTableName string,
+	dstTable common.QualifiedTable,
 	normalizedTableSchema *protos.TableSchema,
 	unchangedToastColumns []string,
 ) string {
 	columnCount := len(normalizedTableSchema.Columns)
 	quotedColumnNames := make([]string, columnCount)
-
-	parsedDstTable, _ := common.ParseTableIdentifier(dstTableName)
 
 	primaryKeyColumnCasts := make(map[string]string, len(normalizedTableSchema.PrimaryKeyColumns))
 	primaryKeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
@@ -250,7 +247,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 			n.metadataSchema,
 			n.rawTableName,
 			strings.Join(recordDefs, ","),
-			parsedDstTable.String(),
+			dstTable.String(),
 			selectExprsSQL,
 			strings.Join(primaryKeySelectSQLArray, " AND "),
 			insertColumnsSQL,
@@ -264,7 +261,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 			strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ","),
 			n.metadataSchema,
 			n.rawTableName,
-			parsedDstTable.String(),
+			dstTable.String(),
 			selectExprsSQL,
 			strings.Join(primaryKeySelectSQLArray, " AND "),
 			insertColumnsSQL,

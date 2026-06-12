@@ -50,7 +50,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM %s",
-		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), stagingTableFunction)
+		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTable.GetTable()), stagingTableFunction)
 	return s.exec(ctx, query)
 }
 
@@ -61,7 +61,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	flowJobName string,
 	syncBatchID int64,
 ) (int64, error) {
-	dstTableName := s.config.DestinationTableIdentifier
+	dstTableName := internal.QualifiedTableFromProto(s.config.DestinationTable).Table
 
 	schema, err := stream.Schema()
 	if err != nil {
@@ -100,7 +100,8 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
-	dstTableName := config.DestinationTableIdentifier
+	destinationTable := internal.QualifiedTableFromProto(config.DestinationTable)
+	dstTableName := destinationTable.Table
 	startTime := time.Now()
 	schema, err := stream.Schema()
 	if err != nil {
@@ -111,7 +112,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	if len(destTypeConversions) > 0 {
 		schema = applyTypeConversions(schema, destTypeConversions)
 	}
-	numericTruncator := model.NewSnapshotTableNumericTruncator(dstTableName, schema.Fields)
+	numericTruncator := model.NewSnapshotTableNumericTruncator(destinationTable.String(), schema.Fields)
 
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
 	avroFiles, totalRecords, err := s.pushDataToStagingForSnapshot(ctx, config, dstTableName, schema,
@@ -243,7 +244,7 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 	config *protos.QRepConfig,
 ) error {
 	insertConfig := &insertFromTableFunctionConfig{
-		destinationTable: config.DestinationTableIdentifier,
+		destinationTable: config.DestinationTable.GetTable(),
 		schema:           schema,
 		columnNameMap:    columnNameAvroFieldMap,
 		excludedColumns:  config.Exclude,
@@ -317,7 +318,7 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 					slog.Uint64("numParts", numParts),
 					slog.Int("chunkIdx", chunkIdx),
 					slog.Any("error", err))
-				return exceptions.NewClickHouseQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.Config.Database)
+				return exceptions.NewClickHouseQRepSyncError(err, config.DestinationTable.GetTable(), s.ClickHouseConnector.Config.Database)
 			}
 
 			s.logger.Info("inserted part",

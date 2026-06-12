@@ -107,7 +107,7 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 	partition *protos.QRepPartition,
 	stream *model.QObjectStream,
 ) (int64, shared.QRepWarnings, error) {
-	dstTableName := config.DestinationTableIdentifier
+	dstTableName := config.DestinationTable.GetTable()
 	startTime := time.Now()
 
 	format, err := stream.Format()
@@ -233,7 +233,7 @@ func (c *ClickHouseConnector) insertFromURLBatch(
 	urlTableFunction := c.buildURLTableFunction(urls, headers, format)
 
 	insertConfig := &insertFromTableFunctionConfig{
-		destinationTable:          config.DestinationTableIdentifier,
+		destinationTable:          config.DestinationTable.GetTable(),
 		schema:                    schema,
 		columnNameMap:             columnNameFieldMap,
 		excludedColumns:           config.Exclude,

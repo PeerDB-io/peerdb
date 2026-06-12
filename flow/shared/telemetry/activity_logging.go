@@ -80,7 +80,7 @@ func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, upda
 	if len(update.AdditionalTables) > 0 {
 		addedTables := make([]string, 0, len(update.AdditionalTables))
 		for _, t := range update.AdditionalTables {
-			addedTables = append(addedTables, t.SourceTableIdentifier)
+			addedTables = append(addedTables, internal.QualifiedTableFromProto(t.SourceTable).LegacyDotted())
 		}
 		changes = append(changes, fmt.Sprintf("tables added: %v", addedTables))
 	}
@@ -88,7 +88,7 @@ func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, upda
 	if len(update.RemovedTables) > 0 {
 		removedTables := make([]string, 0, len(update.RemovedTables))
 		for _, t := range update.RemovedTables {
-			removedTables = append(removedTables, t.SourceTableIdentifier)
+			removedTables = append(removedTables, internal.QualifiedTableFromProto(t.SourceTable).LegacyDotted())
 		}
 		changes = append(changes, fmt.Sprintf("tables removed: %v", removedTables))
 	}
@@ -245,9 +245,9 @@ func GetFlowConfigLogEntries(
 
 	batch := pgx.Batch{}
 	batch.Queue(`SELECT DISTINCT ON (name) name, config_proto, tags FROM flows WHERE config_proto IS NOT NULL`)
-	batch.Queue(`SELECT flow_name, destination_table_name, inserts_count, updates_count, deletes_count
+	batch.Queue(`SELECT flow_name, destination_table_namespace, destination_table_name, inserts_count, updates_count, deletes_count
 		FROM peerdb_stats.cdc_table_aggregate_counts`)
-	batch.Queue(`SELECT flow_name, table_name, table_schema FROM table_schema_mapping`)
+	batch.Queue(`SELECT flow_name, table_namespace, table_name, table_schema FROM table_schema_mapping`)
 
 	batchResults := catalogPool.Pool.SendBatch(ctx, &batch)
 	defer batchResults.Close()
@@ -267,6 +267,7 @@ func GetFlowConfigLogEntries(
 		if err := proto.Unmarshal(configProto, cfg); err != nil {
 			return flowConfigWithTags{}, err
 		}
+		internal.NormalizeFlowConfig(cfg)
 		return flowConfigWithTags{config: cfg, tags: tags}, nil
 	})
 	if err != nil {
@@ -278,40 +279,43 @@ func GetFlowConfigLogEntries(
 		updates int64
 		deletes int64
 	}
-	countsByFlow := make(map[string]map[string]tableCounts)
+	countsByFlow := make(map[string]map[common.QualifiedTable]tableCounts)
 
 	countRows, err := batchResults.Query()
 	if err != nil {
 		logger.Warn("failed to query table aggregate counts", slog.Any("error", err))
 	} else {
-		var flowName, destTable string
+		var flowName string
+		var destTable common.QualifiedTable
 		var counts tableCounts
-		if _, err := pgx.ForEachRow(countRows, []any{&flowName, &destTable, &counts.inserts, &counts.updates, &counts.deletes}, func() error {
-			if countsByFlow[flowName] == nil {
-				countsByFlow[flowName] = make(map[string]tableCounts)
-			}
-			countsByFlow[flowName][destTable] = counts
-			return nil
-		}); err != nil {
+		if _, err := pgx.ForEachRow(countRows,
+			[]any{&flowName, &destTable.Namespace, &destTable.Table, &counts.inserts, &counts.updates, &counts.deletes}, func() error {
+				if countsByFlow[flowName] == nil {
+					countsByFlow[flowName] = make(map[common.QualifiedTable]tableCounts)
+				}
+				countsByFlow[flowName][destTable] = counts
+				return nil
+			}); err != nil {
 			logger.Warn("failed to read table aggregate counts", slog.Any("error", err))
 		}
 	}
 
-	replicaIdentityByFlow := make(map[string]map[string]bool)
+	replicaIdentityByFlow := make(map[string]map[common.QualifiedTable]bool)
 
 	schemaRows, err := batchResults.Query()
 	if err != nil {
 		logger.Warn("failed to query table schema mapping", slog.Any("error", err))
 	} else {
-		var flowName, tableName string
+		var flowName string
+		var tableName common.QualifiedTable
 		var tableSchemaBytes []byte
-		if _, err := pgx.ForEachRow(schemaRows, []any{&flowName, &tableName, &tableSchemaBytes}, func() error {
+		if _, err := pgx.ForEachRow(schemaRows, []any{&flowName, &tableName.Namespace, &tableName.Table, &tableSchemaBytes}, func() error {
 			tableSchema := &protos.TableSchema{}
 			if err := proto.Unmarshal(tableSchemaBytes, tableSchema); err != nil {
 				return err
 			}
 			if replicaIdentityByFlow[flowName] == nil {
-				replicaIdentityByFlow[flowName] = make(map[string]bool)
+				replicaIdentityByFlow[flowName] = make(map[common.QualifiedTable]bool)
 			}
 			replicaIdentityByFlow[flowName][tableName] = tableSchema.IsReplicaIdentityFull
 			return nil
@@ -344,17 +348,18 @@ func GetFlowConfigLogEntries(
 		flowCounts := countsByFlow[cfg.FlowJobName]
 		tableMappings := make([]tableMappingForLogging, 0, len(cfg.TableMappings))
 		for _, tm := range cfg.TableMappings {
-			counts := flowCounts[tm.DestinationTableIdentifier]
+			destinationTable := internal.QualifiedTableFromProto(tm.DestinationTable)
+			counts := flowCounts[destinationTable]
 			hasCustomSortKey := slices.ContainsFunc(tm.Columns, func(col *protos.ColumnSetting) bool {
 				return col.Ordering > 0
 			})
 			tableMappings = append(tableMappings, tableMappingForLogging{
-				TableName:           tm.SourceTableIdentifier,
-				DestTableName:       tm.DestinationTableIdentifier,
+				TableName:           internal.QualifiedTableFromProto(tm.SourceTable).LegacyDotted(),
+				DestTableName:       destinationTable.LegacyDotted(),
 				PartitionKey:        tm.PartitionKey,
 				Engine:              tm.Engine.String(),
 				Exclude:             tm.Exclude,
-				ReplicaIdentityFull: flowReplicaIdentity[tm.DestinationTableIdentifier],
+				ReplicaIdentityFull: flowReplicaIdentity[destinationTable],
 				UseCustomSortKey:    hasCustomSortKey,
 				TotalInserts:        counts.inserts,
 				TotalUpdates:        counts.updates,

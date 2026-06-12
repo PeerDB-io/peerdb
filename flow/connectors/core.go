@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -52,7 +53,7 @@ type MirrorSourceValidationConnector interface {
 type MirrorDestinationValidationConnector interface {
 	Connector
 
-	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigsCore, map[string]*protos.TableSchema) error
+	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigsCore, map[common.QualifiedTable]*protos.TableSchema) error
 }
 
 type StatActivityConnector interface {
@@ -64,14 +65,15 @@ type StatActivityConnector interface {
 type GetTableSchemaConnector interface {
 	Connector
 
-	// GetTableSchema returns the schema of a table in terms of type system.
+	// GetTableSchema returns the schema of a table in terms of type system,
+	// keyed by source table.
 	GetTableSchema(
 		ctx context.Context,
 		env map[string]string,
 		version uint32,
 		system protos.TypeSystem,
 		tableMappings []*protos.TableMapping,
-	) (map[string]*protos.TableSchema, error)
+	) (map[common.QualifiedTable]*protos.TableSchema, error)
 }
 
 type GetSchemaConnector interface {
@@ -165,7 +167,7 @@ type NormalizedTablesConnector interface {
 		ctx context.Context,
 		tx any,
 		config *protos.SetupNormalizedTableBatchInput,
-		destinationTableIdentifier string,
+		destinationTable common.QualifiedTable,
 		sourceTableSchema *protos.TableSchema,
 	) (bool, error)
 }
@@ -320,7 +322,7 @@ type RenameTablesConnector interface {
 type RenameTablesWithSoftDeleteConnector interface {
 	Connector
 
-	RenameTables(context.Context, *protos.RenameTablesInput, map[string]*protos.TableSchema) (*protos.RenameTablesOutput, error)
+	RenameTables(context.Context, *protos.RenameTablesInput, map[common.QualifiedTable]*protos.TableSchema) (*protos.RenameTablesOutput, error)
 }
 
 type GetVersionConnector interface {
@@ -356,7 +358,7 @@ type ReplicationMechanismInUseConnector interface {
 type TableSizeEstimatorConnector interface {
 	Connector
 
-	GetTableSizeEstimatedBytes(ctx context.Context, tableIdentifier string) (int64, error)
+	GetTableSizeEstimatedBytes(ctx context.Context, table common.QualifiedTable) (int64, error)
 }
 
 func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (protos.DBType, error) {

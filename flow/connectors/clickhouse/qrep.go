@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -21,10 +22,10 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
 	// Ensure the destination table is available.
-	destTable := config.DestinationTableIdentifier
+	destTable := internal.QualifiedTableFromProto(config.DestinationTable)
 	flowLog := slog.Group("sync_metadata",
 		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
-		slog.String("destinationTable", destTable),
+		slog.String("destinationTable", destTable.String()),
 	)
 
 	c.logger.Info("Called QRep sync function", flowLog)

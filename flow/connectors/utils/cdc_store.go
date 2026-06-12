@@ -175,7 +175,7 @@ func (c *CDCStore[T]) diskSpillThresholdsExceeded() bool {
 }
 
 func (c *CDCStore[T]) Set(key model.TableWithPkey, rec model.Record[T]) error {
-	if key.TableName != "" {
+	if key.TableName.Table != "" {
 		_, ok := c.inMemoryRecords[key]
 		if ok || !c.diskSpillThresholdsExceeded() {
 			c.inMemoryRecords[key] = rec

@@ -131,6 +131,20 @@ func NormalizeDropFlowInput(input *protos.DropFlowInput) {
 	}
 }
 
+func NormalizeTableSchemaDelta(delta *protos.TableSchemaDelta) {
+	if delta == nil {
+		return
+	}
+	delta.SrcTable = normalizeQualifiedTable(delta.SrcTable, &delta.SrcTableName)
+	delta.DstTable = normalizeQualifiedTable(delta.DstTable, &delta.DstTableName)
+}
+
+func NormalizeTableSchemaDeltas(deltas []*protos.TableSchemaDelta) {
+	for _, delta := range deltas {
+		NormalizeTableSchemaDelta(delta)
+	}
+}
+
 func NormalizeTableSchema(ts *protos.TableSchema) {
 	if ts != nil {
 		ts.Table = normalizeQualifiedTable(ts.Table, &ts.TableIdentifier)

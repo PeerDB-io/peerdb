@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 )
@@ -23,11 +24,8 @@ func (c *MongoConnector) ValidateCheck(ctx context.Context) error {
 func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	tables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
 	for _, tm := range cfg.TableMappings {
-		t, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
-		if err != nil {
-			return err
-		}
-		tables = append(tables, t)
+		sourceTable := internal.QualifiedTableFromProto(tm.SourceTable)
+		tables = append(tables, &sourceTable)
 	}
 	if err := shared_mongo.ValidateCollections(ctx, c.client, tables); err != nil {
 		return err

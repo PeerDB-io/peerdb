@@ -28,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -40,20 +41,24 @@ const (
 	Destination PeerType = "destination"
 )
 
-func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowName string) (map[string]*protos.TableSchema, error) {
-	rows, err := a.CatalogPool.Query(ctx, "select table_name, table_schema from table_schema_mapping where flow_name = $1", flowName)
+func (a *FlowableActivity) getTableNameSchemaMapping(
+	ctx context.Context, flowName string,
+) (map[common.QualifiedTable]*protos.TableSchema, error) {
+	rows, err := a.CatalogPool.Query(ctx,
+		"select table_namespace, table_name, table_schema from table_schema_mapping where flow_name = $1", flowName)
 	if err != nil {
 		return nil, err
 	}
 
-	var tableName string
+	var tableName common.QualifiedTable
 	var tableSchemaBytes []byte
-	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
-	if _, err := pgx.ForEachRow(rows, []any{&tableName, &tableSchemaBytes}, func() error {
+	tableNameSchemaMapping := make(map[common.QualifiedTable]*protos.TableSchema)
+	if _, err := pgx.ForEachRow(rows, []any{&tableName.Namespace, &tableName.Table, &tableSchemaBytes}, func() error {
 		tableSchema := &protos.TableSchema{}
 		if err := proto.Unmarshal(tableSchemaBytes, tableSchema); err != nil {
 			return err
 		}
+		internal.NormalizeTableSchema(tableSchema)
 		tableNameSchemaMapping[tableName] = tableSchema
 		return nil
 	}); err != nil {
@@ -69,9 +74,10 @@ func (a *FlowableActivity) applySchemaDeltas(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	dstTableNamesInDeltas := make([]string, 0, len(schemaDeltas))
+	internal.NormalizeTableSchemaDeltas(schemaDeltas)
+	dstTablesInDeltas := make([]common.QualifiedTable, 0, len(schemaDeltas))
 	for _, schemaDelta := range schemaDeltas {
-		dstTableNamesInDeltas = append(dstTableNamesInDeltas, schemaDelta.DstTableName)
+		dstTablesInDeltas = append(dstTablesInDeltas, internal.QualifiedTableFromProto(schemaDelta.DstTable))
 	}
 
 	if err := internal.ReadModifyWriteTableSchemasToCatalog(
@@ -79,10 +85,10 @@ func (a *FlowableActivity) applySchemaDeltas(
 		a.CatalogPool,
 		logger,
 		config.FlowJobName,
-		dstTableNamesInDeltas,
-		func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
+		dstTablesInDeltas,
+		func(schemas map[common.QualifiedTable]*protos.TableSchema) (map[common.QualifiedTable]*protos.TableSchema, error) {
 			// deep copy to avoid mutating input
-			schemasCopy := make(map[string]*protos.TableSchema, len(schemas))
+			schemasCopy := make(map[common.QualifiedTable]*protos.TableSchema, len(schemas))
 			for tableName, schema := range schemas {
 				if schema == nil {
 					return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
@@ -91,7 +97,8 @@ func (a *FlowableActivity) applySchemaDeltas(
 			}
 
 			for _, schemaDelta := range schemaDeltas {
-				if schema, exists := schemasCopy[schemaDelta.DstTableName]; exists {
+				dstTable := internal.QualifiedTableFromProto(schemaDelta.DstTable)
+				if schema, exists := schemasCopy[dstTable]; exists {
 					columnNames := make(map[string]struct{}, len(schema.GetColumns()))
 					for _, col := range schema.GetColumns() {
 						columnNames[col.Name] = struct{}{}
@@ -103,11 +110,11 @@ func (a *FlowableActivity) applySchemaDeltas(
 							columnNames[newCol.Name] = struct{}{}
 						} else {
 							logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
-								newCol.Name, newCol.Type, schemaDelta.DstTableName))
+								newCol.Name, newCol.Type, dstTable))
 						}
 					}
 				} else {
-					logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
+					logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", dstTable))
 				}
 			}
 			return schemasCopy, nil
@@ -143,9 +150,10 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	))
 	defer batchSpan.End()
 
-	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
+	tblNameMapping := make(map[common.QualifiedTable]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
+		tblNameMapping[internal.QualifiedTableFromProto(v.SourceTable)] =
+			model.NewNameAndExclude(internal.QualifiedTableFromProto(v.DestinationTable), v.Exclude)
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
@@ -235,9 +243,13 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			attribute.Int64(otel_metrics.BatchIdKey, syncBatchID),
 		))
 		defer pullSpan.End()
+		srcTableIDNameMapping := make(map[uint32]common.QualifiedTable, len(options.SrcTableIdMapping))
+		for relID, table := range options.SrcTableIdMapping {
+			srcTableIDNameMapping[relID] = internal.QualifiedTableFromProto(table)
+		}
 		err := pull(srcConn, pullCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
 			FlowJobName:                 flowName,
-			SrcTableIDNameMapping:       options.SrcTableIdNameMapping,
+			SrcTableIDNameMapping:       srcTableIDNameMapping,
 			TableNameMapping:            tblNameMapping,
 			LastOffset:                  lastOffset,
 			ConsumedOffset:              &consumedOffset,

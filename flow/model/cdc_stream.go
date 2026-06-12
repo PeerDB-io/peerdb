@@ -7,6 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type CDCStream[T Items] struct {
@@ -83,9 +84,9 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 		case r.records <- record:
 			return nil
 		case <-ticker.C:
-			logger.Warn("waiting on adding record to stream", slog.String("dstTableName", record.GetDestinationTableName()))
+			logger.Warn("waiting on adding record to stream", slog.String("dstTableName", record.GetDestinationTable().String()))
 		case <-ctx.Done():
-			logger.Warn("context cancelled while adding record to stream", slog.String("dstTableName", record.GetDestinationTableName()))
+			logger.Warn("context cancelled while adding record to stream", slog.String("dstTableName", record.GetDestinationTable().String()))
 			return ctx.Err()
 		}
 	}
@@ -127,7 +128,7 @@ func (r *CDCStream[T]) ChannelLen() int {
 }
 
 func (r *CDCStream[T]) AddSchemaDelta(
-	tableNameMapping map[string]NameAndExclude,
+	tableNameMapping map[common.QualifiedTable]NameAndExclude,
 	delta *protos.TableSchemaDelta,
 ) {
 	r.SchemaDeltas = append(r.SchemaDeltas, delta)

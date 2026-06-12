@@ -49,16 +49,17 @@ func (c *MySqlConnector) GetTableSchema(
 	version uint32,
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
-) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableMappings))
+) (map[common.QualifiedTable]*protos.TableSchema, error) {
+	res := make(map[common.QualifiedTable]*protos.TableSchema, len(tableMappings))
 	for _, tm := range tableMappings {
+		sourceTable := internal.QualifiedTableFromProto(tm.SourceTable)
 		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
 		if err != nil {
-			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
+			c.logger.Info("error fetching schema", slog.String("table", sourceTable.String()), slog.Any("error", err))
 			return nil, err
 		}
-		res[tm.SourceTableIdentifier] = tableSchema
-		c.logger.Info("fetched schema", slog.String("table", tm.SourceTableIdentifier))
+		res[sourceTable] = tableSchema
+		c.logger.Info("fetched schema", slog.String("table", sourceTable.String()))
 	}
 
 	return res, nil
@@ -71,10 +72,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	system protos.TypeSystem,
 	mirrorVersion uint32,
 ) (*protos.TableSchema, error) {
-	qualifiedTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
-	if err != nil {
-		return nil, err
-	}
+	qualifiedTable := internal.QualifiedTableFromProto(tm.SourceTable)
 
 	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
 	if err != nil {
@@ -169,7 +167,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier:       tm.SourceTableIdentifier,
+		Table:                 tm.SourceTable,
 		PrimaryKeyColumns:     primary,
 		IsReplicaIdentityFull: false,
 		System:                system,
@@ -197,6 +195,7 @@ func (c *MySqlConnector) SetupReplication(
 	ctx context.Context,
 	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
+	internal.NormalizeSetupReplicationInput(req)
 	var gtidModeOn bool
 	if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_AUTO {
 		var err error
@@ -569,10 +568,10 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.RowsEvent:
-			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
-			destinationTableName := req.TableNameMapping[sourceTableName].Name
-			exclusion := req.TableNameMapping[sourceTableName].Exclude
-			schema := req.TableNameSchemaMapping[destinationTableName]
+			sourceTable := common.QualifiedTable{Namespace: string(ev.Table.Schema), Table: string(ev.Table.Table)}
+			destinationTable := req.TableNameMapping[sourceTable].Name
+			exclusion := req.TableNameMapping[sourceTable].Exclude
+			schema := req.TableNameSchemaMapping[destinationTable]
 			if schema != nil {
 				// The issue is global, but only error if we see a table in the pipe
 				// Otherwise users could be confused
@@ -594,7 +593,7 @@ func (c *MySqlConnector) PullRecords(
 					var err error
 					fields, err = c.processTableMapEventSchema(
 						ctx, catalogPool, req, ev.Table,
-						sourceTableName, destinationTableName, schema, exclusion,
+						sourceTable, destinationTable, schema, exclusion,
 					)
 					if err != nil {
 						return err
@@ -638,10 +637,10 @@ func (c *MySqlConnector) PullRecords(
 						}
 
 						if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-							BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
-							Items:                items,
-							SourceTableName:      sourceTableName,
-							DestinationTableName: destinationTableName,
+							BaseRecord:       model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
+							Items:            items,
+							SourceTable:      sourceTable,
+							DestinationTable: destinationTable,
 						}); err != nil {
 							return err
 						}
@@ -692,8 +691,8 @@ func (c *MySqlConnector) PullRecords(
 							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							OldItems:              oldItems,
 							NewItems:              newItems,
-							SourceTableName:       sourceTableName,
-							DestinationTableName:  destinationTableName,
+							SourceTable:           sourceTable,
+							DestinationTable:      destinationTable,
 							UnchangedToastColumns: unchangedToastColumns,
 						}); err != nil {
 							return err
@@ -729,8 +728,8 @@ func (c *MySqlConnector) PullRecords(
 						if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
 							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							Items:                 items,
-							SourceTableName:       sourceTableName,
-							DestinationTableName:  destinationTableName,
+							SourceTable:           sourceTable,
+							DestinationTable:      destinationTable,
 							UnchangedToastColumns: unchangedToastColumns,
 						}); err != nil {
 							return err
@@ -762,18 +761,19 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 	} else {
 		sourceSchemaName = stmtSchema
 	}
-	sourceTableName := sourceSchemaName + "." + stmt.Table.Name.String()
+	sourceTable := common.QualifiedTable{Namespace: sourceSchemaName, Table: stmt.Table.Name.String()}
 
-	destinationTableName := req.TableNameMapping[sourceTableName].Name
-	if destinationTableName == "" {
-		c.logger.Warn("table not found in mapping", slog.String("table", sourceTableName))
+	destination, ok := req.TableNameMapping[sourceTable]
+	if !ok {
+		c.logger.Warn("table not found in mapping", slog.String("table", sourceTable.String()))
 		return nil
 	}
-	currentSchema := req.TableNameSchemaMapping[destinationTableName]
+	destinationTable := destination.Name
+	currentSchema := req.TableNameSchemaMapping[destinationTable]
 
 	tableSchemaDelta := &protos.TableSchemaDelta{
-		SrcTableName:    sourceTableName,
-		DstTableName:    destinationTableName,
+		SrcTable:        internal.QualifiedTableProto(sourceTable),
+		DstTable:        internal.QualifiedTableProto(destinationTable),
 		AddedColumns:    nil,
 		System:          protos.TypeSystem_Q,
 		NullableEnabled: currentSchema != nil && currentSchema.NullableEnabled,
@@ -789,7 +789,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					// ignore, can be plain ALTER TABLE ... ALTER COLUMN ... DEFAULT ...
 					c.logger.Warn("ALTER TABLE with no column type detected, ignoring",
 						slog.String("columnName", col.Name.String()),
-						slog.String("tableName", sourceTableName))
+						slog.String("tableName", sourceTable.String()))
 					continue
 				}
 
@@ -797,7 +797,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					hasPositionShiftingDdlChanges = true
 					c.logger.Warn("column added with position specifier (FIRST/AFTER)",
 						slog.String("columnName", col.Name.String()),
-						slog.String("tableName", sourceTableName))
+						slog.String("tableName", sourceTable.String()))
 				}
 
 				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
@@ -846,15 +846,15 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 	// columns by ordinal position if binlog_row_metadata is not supported.
 	if hasPositionShiftingDdlChanges && !binlogRowMetadataSupported {
 		c.logger.Error("Position-shifting DDL detected on table without binlog_row_metadata support",
-			slog.String("table", sourceTableName),
+			slog.String("table", sourceTable.String()),
 			slog.Bool("binlogRowMetadataSupported", binlogRowMetadataSupported))
-		return exceptions.NewMySQLUnsupportedDDLError(sourceTableName)
+		return exceptions.NewMySQLUnsupportedDDLError(sourceTable.String())
 	}
 
 	if tableSchemaDelta.AddedColumns != nil {
 		c.logger.Info("Column added detected",
-			slog.String("table", destinationTableName), slog.Any("columns", tableSchemaDelta.AddedColumns))
-		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+			slog.String("table", destinationTable.String()), slog.Any("columns", tableSchemaDelta.AddedColumns))
+		req.RecordStream.AddSchemaDelta(nil, tableSchemaDelta)
 		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
 	}
 	return nil
@@ -872,8 +872,8 @@ func (c *MySqlConnector) processTableMapEventSchema(
 	catalogPool shared.CatalogPool,
 	req *model.PullRecordsRequest[model.RecordItems],
 	tableMap *replication.TableMapEvent,
-	sourceTableName string,
-	destinationTableName string,
+	sourceTable common.QualifiedTable,
+	destinationTable common.QualifiedTable,
 	schema *protos.TableSchema,
 	exclusion map[string]struct{},
 ) ([]*protos.FieldDescription, error) {
@@ -909,7 +909,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset)
 			if err != nil {
 				c.logger.Warn("Unknown MySQL type for new column, skipping",
-					slog.String("table", sourceTableName),
+					slog.String("table", sourceTable.String()),
 					slog.String("column", colName),
 					slog.Any("error", err))
 				continue
@@ -940,7 +940,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			newFds[idx] = newFd
 
 			c.logger.Info("Detected new column from TABLE_MAP_EVENT",
-				slog.String("table", sourceTableName),
+				slog.String("table", sourceTable.String()),
 				slog.String("column", colName),
 				slog.String("type", string(qkind)))
 		}
@@ -949,22 +949,22 @@ func (c *MySqlConnector) processTableMapEventSchema(
 	// If new columns were detected, emit schema delta and update cached schema
 	if len(addedColumns) > 0 {
 		tableSchemaDelta := &protos.TableSchemaDelta{
-			SrcTableName:    sourceTableName,
-			DstTableName:    destinationTableName,
+			SrcTable:        internal.QualifiedTableProto(sourceTable),
+			DstTable:        internal.QualifiedTableProto(destinationTable),
 			AddedColumns:    addedColumns,
 			System:          protos.TypeSystem_Q,
 			NullableEnabled: schema.NullableEnabled,
 		}
 
 		c.logger.Info("Schema change detected from TABLE_MAP_EVENT",
-			slog.String("table", destinationTableName),
+			slog.String("table", destinationTable.String()),
 			slog.Any("addedColumns", addedColumns))
 
 		// Update cached schema
 		schema.Columns = append(schema.Columns, addedColumns...)
 
 		// Emit schema delta
-		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+		req.RecordStream.AddSchemaDelta(nil, tableSchemaDelta)
 		if err := monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta); err != nil {
 			return nil, err
 		}

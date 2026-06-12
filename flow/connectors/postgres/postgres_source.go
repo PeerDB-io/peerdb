@@ -1,6 +1,7 @@
 package connpostgres
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -367,17 +368,18 @@ func (c *PostgresConnector) GetTableSchema(
 	version uint32,
 	system protos.TypeSystem,
 	tableMapping []*protos.TableMapping,
-) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableMapping))
+) (map[common.QualifiedTable]*protos.TableSchema, error) {
+	res := make(map[common.QualifiedTable]*protos.TableSchema, len(tableMapping))
 	typeSchemaNameMapping := make(map[uint32]string, len(tableMapping))
 	for _, tm := range tableMapping {
+		sourceTable := internal.QualifiedTableFromProto(tm.SourceTable)
 		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version, typeSchemaNameMapping)
 		if err != nil {
-			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
+			c.logger.Info("error fetching schema", slog.String("table", sourceTable.String()), slog.Any("error", err))
 			return nil, err
 		}
-		res[tm.SourceTableIdentifier] = tableSchema
-		c.logger.Info("fetched schema", slog.String("table", tm.SourceTableIdentifier))
+		res[sourceTable] = tableSchema
+		c.logger.Info("fetched schema", slog.String("table", sourceTable.String()))
 	}
 
 	return res, nil
@@ -524,26 +526,23 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	version uint32,
 	typeSchemaNameMapping map[uint32]string,
 ) (*protos.TableSchema, error) {
-	schemaTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
-	if err != nil {
-		return nil, err
-	}
+	schemaTable := internal.QualifiedTableFromProto(tm.SourceTable)
 	customTypeMapping, err := c.fetchCustomTypeMapping(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	relID, err := c.getRelIDForTable(ctx, schemaTable)
+	relID, err := c.getRelIDForTable(ctx, &schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] failed to get relation id for table %s: %w", schemaTable, err)
 	}
 
-	replicaIdentityType, err := c.getReplicaIdentityType(ctx, relID, schemaTable)
+	replicaIdentityType, err := c.getReplicaIdentityType(ctx, relID, &schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
 	}
 
-	pKeyCols, err := c.getUniqueColumns(ctx, relID, replicaIdentityType, schemaTable)
+	pKeyCols, err := c.getUniqueColumns(ctx, relID, replicaIdentityType, &schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 	}
@@ -561,7 +560,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 	selectedColumnsStr := "*"
 	if len(tm.Exclude) > 0 {
-		selectedColumns, err := c.GetSelectedColumns(ctx, schemaTable, tm.Exclude)
+		selectedColumns, err := c.GetSelectedColumns(ctx, &schemaTable, tm.Exclude)
 		if err != nil {
 			return nil, err
 		}
@@ -643,7 +642,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier:       tm.SourceTableIdentifier,
+		Table:                 tm.SourceTable,
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		Columns:               columns,
@@ -658,34 +657,36 @@ func (c *PostgresConnector) EnsurePullability(
 	ctx context.Context,
 	req *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
-	tableIdentifierMapping := make(map[string]*protos.PostgresTableIdentifier)
-	for _, tableName := range req.SourceTableIdentifiers {
-		schemaTable, err := common.ParseTableIdentifier(tableName)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing schema and table: %w", err)
-		}
+	internal.NormalizeEnsurePullabilityInput(req)
+	sourceTables := slices.SortedFunc(slices.Values(req.SourceTables), func(a, b *protos.QualifiedTable) int {
+		return cmp.Or(cmp.Compare(a.GetNamespace(), b.GetNamespace()), cmp.Compare(a.GetTable(), b.GetTable()))
+	})
+	tableRelIds := make([]*protos.EnsurePullabilityBatchOutput_TableRelId, 0, len(sourceTables))
+	for _, sourceTable := range sourceTables {
+		schemaTable := internal.QualifiedTableFromProto(sourceTable)
 
 		// check if the table exists by getting the relation ID
-		relID, err := c.getRelIDForTable(ctx, schemaTable)
+		relID, err := c.getRelIDForTable(ctx, &schemaTable)
 		if err != nil {
 			return nil, err
 		}
 
-		tableIdentifierMapping[tableName] = &protos.PostgresTableIdentifier{
+		tableRelIds = append(tableRelIds, &protos.EnsurePullabilityBatchOutput_TableRelId{
+			Table: sourceTable,
 			RelId: relID,
-		}
+		})
 
 		if !req.CheckConstraints {
-			internal.LoggerFromCtx(ctx).Info("[no-constraints] ensured pullability table " + tableName)
+			internal.LoggerFromCtx(ctx).Info("[no-constraints] ensured pullability table " + schemaTable.String())
 			continue
 		}
 
-		replicaIdentity, replErr := c.getReplicaIdentityType(ctx, relID, schemaTable)
+		replicaIdentity, replErr := c.getReplicaIdentityType(ctx, relID, &schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 		}
 
-		pKeyCols, err := c.getUniqueColumns(ctx, relID, replicaIdentity, schemaTable)
+		pKeyCols, err := c.getUniqueColumns(ctx, relID, replicaIdentity, &schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}
@@ -697,7 +698,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 	}
 
-	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
+	return &protos.EnsurePullabilityBatchOutput{TableRelIds: tableRelIds}, nil
 }
 
 func (c *PostgresConnector) ExportTxSnapshot(
@@ -760,6 +761,7 @@ func (c *PostgresConnector) SetupReplication(
 	ctx context.Context,
 	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
+	internal.NormalizeSetupReplicationInput(req)
 	if !shared.IsValidReplicationName(req.FlowJobName) {
 		return model.SetupReplicationResult{}, fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
 	}
@@ -786,10 +788,10 @@ func (c *PostgresConnector) SetupReplication(
 		skipSnapshotExport = false
 	}
 
-	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
-	for k, v := range req.TableNameMapping {
-		tableNameMapping[k] = model.NameAndExclude{
-			Name:    v,
+	tableNameMapping := make(map[common.QualifiedTable]model.NameAndExclude, len(req.QualifiedTableMappings))
+	for _, mapping := range req.QualifiedTableMappings {
+		tableNameMapping[internal.QualifiedTableFromProto(mapping.Source)] = model.NameAndExclude{
+			Name:    internal.QualifiedTableFromProto(mapping.Destination),
 			Exclude: make(map[string]struct{}, 0),
 		}
 	}
@@ -1015,43 +1017,47 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		return nil
 	}
 
-	additionalSrcTables := make([]string, 0, len(req.AdditionalTables))
+	additionalSrcTables := make([]common.QualifiedTable, 0, len(req.AdditionalTables))
 	for _, additionalTableMapping := range req.AdditionalTables {
-		additionalSrcTables = append(additionalSrcTables, additionalTableMapping.SourceTableIdentifier)
+		additionalSrcTables = append(additionalSrcTables, internal.QualifiedTableFromProto(additionalTableMapping.SourceTable))
 	}
 
 	// just check if we have all the tables already in the publication for custom publications
 	if req.PublicationName != "" {
 		rows, err := c.conn.Query(ctx,
-			"SELECT schemaname || '.' || tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
+			"SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
 
-		tableNames, err := pgx.CollectRows[string](rows, pgx.RowTo)
+		tablesInPublication, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (common.QualifiedTable, error) {
+			var table common.QualifiedTable
+			err := row.Scan(&table.Namespace, &table.Table)
+			return table, err
+		})
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
-		notPresentTables := shared.ArrayMinus(additionalSrcTables, tableNames)
+		notPresentTables := shared.ArrayMinus(additionalSrcTables, tablesInPublication)
 		if len(notPresentTables) > 0 {
-			return exceptions.NewTablesNotInPublicationError(notPresentTables, req.PublicationName)
+			notPresentTableNames := make([]string, 0, len(notPresentTables))
+			for _, table := range notPresentTables {
+				notPresentTableNames = append(notPresentTableNames, table.String())
+			}
+			return exceptions.NewTablesNotInPublicationError(notPresentTableNames, req.PublicationName)
 		}
 	} else {
 		for _, additionalSrcTable := range additionalSrcTables {
-			schemaTable, err := common.ParseTableIdentifier(additionalSrcTable)
-			if err != nil {
-				return err
-			}
-			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
+			_, err := c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
 				common.QuoteIdentifier(GetDefaultPublicationName(req.FlowJobName)),
-				schemaTable.String()))
+				additionalSrcTable.String()))
 			// don't error out if table is already added to our publication
 			if err != nil && !shared.IsSQLStateError(err, pgerrcode.DuplicateObject) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("added table to publication",
 				slog.String("publication", GetDefaultPublicationName(req.FlowJobName)),
-				slog.String("table", additionalSrcTable))
+				slog.String("table", additionalSrcTable.String()))
 		}
 	}
 
@@ -1063,18 +1069,10 @@ func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req
 		return nil
 	}
 
-	tablesToRemove := make([]string, 0, len(req.TablesToRemove))
-	for _, tableToRemove := range req.TablesToRemove {
-		tablesToRemove = append(tablesToRemove, tableToRemove.SourceTableIdentifier)
-	}
-
 	if req.PublicationName == "" {
-		for _, tableToRemove := range tablesToRemove {
-			schemaTable, err := common.ParseTableIdentifier(tableToRemove)
-			if err != nil {
-				return err
-			}
-			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s",
+		for _, tableToRemove := range req.TablesToRemove {
+			schemaTable := internal.QualifiedTableFromProto(tableToRemove.SourceTable)
+			_, err := c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s",
 				common.QuoteIdentifier(GetDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already removed from our publication (UndefinedObject)
@@ -1084,7 +1082,7 @@ func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req
 			}
 			c.logger.Info("removed table from publication",
 				slog.String("publication", GetDefaultPublicationName(req.FlowJobName)),
-				slog.String("table", tableToRemove))
+				slog.String("table", schemaTable.String()))
 		}
 	} else {
 		c.logger.Info("custom publication provided, no need to remove tables",

@@ -17,6 +17,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -227,7 +229,7 @@ func ctidPartitionsForTable(ctx context.Context, pp PartitionParams) ([]*protos.
 //   - partition 3: [T3:0-9]
 func ctidPartitionsForChildTables(
 	pp PartitionParams,
-	blocksPerTable map[string]int64,
+	blocksPerTable map[common.QualifiedTable]int64,
 ) ([]*protos.QRepPartition, error) {
 	var totalBlocks int64
 	for _, blocks := range blocksPerTable {
@@ -243,7 +245,9 @@ func ctidPartitionsForChildTables(
 		slog.Int("numChildTables", len(blocksPerTable)),
 		slog.Int64("totalBlocks", totalBlocks))
 
-	sortedTables := slices.Sorted(maps.Keys(blocksPerTable))
+	sortedTables := slices.SortedFunc(maps.Keys(blocksPerTable), func(a, b common.QualifiedTable) int {
+		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Table, b.Table))
+	})
 	blocksPerPartition := max(int64(1), shared.DivCeil(totalBlocks, pp.numPartitions))
 
 	var partitions []*protos.QRepPartition
@@ -263,9 +267,9 @@ func ctidPartitionsForChildTables(
 			blockEnd := uint32(blockOffset + consume)
 
 			ranges = append(ranges, &protos.ChildTableRange{
-				Table: tableName,
-				Start: blockStart,
-				End:   blockEnd - 1,
+				ChildTable: internal.QualifiedTableProto(tableName),
+				Start:      blockStart,
+				End:        blockEnd - 1,
 			})
 
 			remaining -= consume
@@ -303,7 +307,7 @@ func getTableBlockCount(ctx context.Context, tx pgx.Tx, table string) (int64, er
 }
 
 type tableClassification struct {
-	qualifiedName  string
+	qualifiedName  common.QualifiedTable
 	relkind        string
 	oid            uint32
 	relhassubclass bool
@@ -316,11 +320,12 @@ func classifyTable(ctx context.Context, tx pgx.Tx, table string) (tableClassific
 		// the input table name is quoted; and we want the unquoted canonical form for uniformity.
 		// We also fetch the OID so downstream queries can join on it directly, avoiding
 		// to_regclass which lowercases unquoted identifiers and breaks mixed-case table names.
-		`SELECT c.oid, format('%s.%s', n.nspname, c.relname), c.relkind::text, c.relhassubclass
+		`SELECT c.oid, n.nspname, c.relname, c.relkind::text, c.relhassubclass
 		 FROM pg_class c
 		 JOIN pg_namespace n ON c.relnamespace = n.oid
 		 WHERE c.oid = to_regclass($1)`,
-		table).Scan(&classification.oid, &classification.qualifiedName, &classification.relkind, &classification.relhassubclass)
+		table).Scan(&classification.oid, &classification.qualifiedName.Namespace, &classification.qualifiedName.Table,
+		&classification.relkind, &classification.relhassubclass)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return classification, fmt.Errorf("table %s not found in pg_class", table)
@@ -333,9 +338,9 @@ func classifyTable(ctx context.Context, tx pgx.Tx, table string) (tableClassific
 // getPartitionedTables returns a map of partitioned child table names to their block counts,
 // recursively handle multi-level partitioned tables.
 // Uses OID-based join to avoid to_regclass which lowercases unquoted mixed-case identifiers.
-func getPartitionedTables(ctx context.Context, tx pgx.Tx, parentOID uint32) (map[string]int64, error) {
+func getPartitionedTables(ctx context.Context, tx pgx.Tx, parentOID uint32) (map[common.QualifiedTable]int64, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT c.oid, format('%s.%s', n.nspname, c.relname), c.relkind::text,
+		SELECT c.oid, n.nspname, c.relname, c.relkind::text,
 			(pg_relation_size(c.oid) / current_setting('block_size')::int)::bigint
 		FROM pg_inherits i
 		JOIN pg_class c ON i.inhrelid = c.oid
@@ -349,7 +354,7 @@ func getPartitionedTables(ctx context.Context, tx pgx.Tx, parentOID uint32) (map
 	defer rows.Close()
 
 	type tableInfo struct {
-		name   string
+		name   common.QualifiedTable
 		kind   string
 		blocks int64
 		oid    uint32
@@ -357,7 +362,7 @@ func getPartitionedTables(ctx context.Context, tx pgx.Tx, parentOID uint32) (map
 	var tableInfos []tableInfo
 	for rows.Next() {
 		var info tableInfo
-		if err := rows.Scan(&info.oid, &info.name, &info.kind, &info.blocks); err != nil {
+		if err := rows.Scan(&info.oid, &info.name.Namespace, &info.name.Table, &info.kind, &info.blocks); err != nil {
 			return nil, fmt.Errorf("failed to scan child table: %w", err)
 		}
 		tableInfos = append(tableInfos, info)
@@ -366,7 +371,7 @@ func getPartitionedTables(ctx context.Context, tx pgx.Tx, parentOID uint32) (map
 		return nil, err
 	}
 
-	blocksPerPartitionedTable := make(map[string]int64)
+	blocksPerPartitionedTable := make(map[common.QualifiedTable]int64)
 	for _, info := range tableInfos {
 		if info.kind == "p" {
 			leaveTables, err := getPartitionedTables(ctx, tx, info.oid)
@@ -384,8 +389,10 @@ func getPartitionedTables(ctx context.Context, tx pgx.Tx, parentOID uint32) (map
 // getInheritedTables returns a map of table names to their block counts for an inherited
 // table hierarchy. Unlike partitioned tables, the parent itself stores data and is included.
 // Uses OID-based join to avoid to_regclass which lowercases unquoted mixed-case identifiers.
-func getInheritedTables(ctx context.Context, tx pgx.Tx, parentOID uint32, parentName string) (map[string]int64, error) {
-	blocksPerTable := make(map[string]int64)
+func getInheritedTables(
+	ctx context.Context, tx pgx.Tx, parentOID uint32, parentName common.QualifiedTable,
+) (map[common.QualifiedTable]int64, error) {
+	blocksPerTable := make(map[common.QualifiedTable]int64)
 
 	var numBlocks int64
 	if err := tx.QueryRow(ctx,
@@ -398,7 +405,7 @@ func getInheritedTables(ctx context.Context, tx pgx.Tx, parentOID uint32, parent
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT c.oid, format('%s.%s', n.nspname, c.relname), c.relhassubclass,
+		SELECT c.oid, n.nspname, c.relname, c.relhassubclass,
 			(pg_relation_size(c.oid) / current_setting('block_size')::int)::bigint
 		FROM pg_inherits i
 		JOIN pg_class c ON i.inhrelid = c.oid
@@ -412,7 +419,7 @@ func getInheritedTables(ctx context.Context, tx pgx.Tx, parentOID uint32, parent
 	defer rows.Close()
 
 	type tableInfo struct {
-		name        string
+		name        common.QualifiedTable
 		blocks      int64
 		oid         uint32
 		hasSubclass bool
@@ -420,7 +427,7 @@ func getInheritedTables(ctx context.Context, tx pgx.Tx, parentOID uint32, parent
 	var children []tableInfo
 	for rows.Next() {
 		var info tableInfo
-		if err := rows.Scan(&info.oid, &info.name, &info.hasSubclass, &info.blocks); err != nil {
+		if err := rows.Scan(&info.oid, &info.name.Namespace, &info.name.Table, &info.hasSubclass, &info.blocks); err != nil {
 			return nil, fmt.Errorf("failed to scan child table: %w", err)
 		}
 		children = append(children, info)

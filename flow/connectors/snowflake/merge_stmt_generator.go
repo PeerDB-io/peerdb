@@ -15,8 +15,9 @@ import (
 
 type mergeStmtGenerator struct {
 	// the schema of the table to merge into
-	tableSchemaMapping map[string]*protos.TableSchema
-	// array of toast column combinations that are unchanged
+	tableSchemaMapping map[common.QualifiedTable]*protos.TableSchema
+	// array of toast column combinations that are unchanged,
+	// keyed by the legacy dotted name stored in the raw table
 	unchangedToastColumnsMap map[string][]string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
@@ -26,10 +27,9 @@ type mergeStmtGenerator struct {
 	mergeBatchId int64
 }
 
-func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[string]string, dstTable string) (string, error) {
-	parsedDstTable, _ := common.ParseTableIdentifier(dstTable)
+func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[string]string, dstTable common.QualifiedTable) (string, error) {
 	normalizedTableSchema := m.tableSchemaMapping[dstTable]
-	unchangedToastColumns := m.unchangedToastColumnsMap[dstTable]
+	unchangedToastColumns := m.unchangedToastColumnsMap[dstTable.LegacyDotted()]
 	columns := normalizedTableSchema.Columns
 
 	flattenedCastsSQLArray := make([]string, 0, len(columns))
@@ -132,7 +132,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[stri
 		}
 	}
 
-	mergeStatement := fmt.Sprintf(mergeStatementSQL, snowflakeSchemaTableNormalize(parsedDstTable),
+	mergeStatement := fmt.Sprintf(mergeStatementSQL, snowflakeSchemaTableNormalize(dstTable),
 		toVariantColumnName, m.rawTableName, m.mergeBatchId, flattenedCastsSQL,
 		fmt.Sprintf("(%s)", strings.Join(normalizedpkeyColsArray, ",")),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)

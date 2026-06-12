@@ -2,28 +2,31 @@ package model
 
 import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type CdcTableNumericTruncator struct {
 	TruncatorsByColumn map[string]CdcColumnNumericTruncator
-	DestinationTable   string
+	DestinationTable   common.QualifiedTable
 }
 
-type StreamNumericTruncator map[string]CdcTableNumericTruncator
+type StreamNumericTruncator map[common.QualifiedTable]CdcTableNumericTruncator
 
 func NewStreamNumericTruncator(tableMappings []*protos.TableMapping, typesToSkip map[string]struct{}) StreamNumericTruncator {
-	statsByTable := make(map[string]CdcTableNumericTruncator, len(tableMappings))
+	statsByTable := make(map[common.QualifiedTable]CdcTableNumericTruncator, len(tableMappings))
 	for _, tableMapping := range tableMappings {
-		statsByTable[tableMapping.DestinationTableIdentifier] = NewCdcTableNumericTruncator(
-			tableMapping.DestinationTableIdentifier, tableMapping.Columns, typesToSkip)
+		destinationTable := internal.QualifiedTableFromProto(tableMapping.DestinationTable)
+		statsByTable[destinationTable] = NewCdcTableNumericTruncator(
+			destinationTable, tableMapping.Columns, typesToSkip)
 	}
 	return statsByTable
 }
 
-func (ss StreamNumericTruncator) Get(destinationTable string) CdcTableNumericTruncator {
+func (ss StreamNumericTruncator) Get(destinationTable common.QualifiedTable) CdcTableNumericTruncator {
 	if ss == nil {
 		return CdcTableNumericTruncator{}
 	}
@@ -44,7 +47,7 @@ func (ss StreamNumericTruncator) Warnings() shared.QRepWarnings {
 }
 
 func NewCdcTableNumericTruncator(
-	destinationTable string, columnSettings []*protos.ColumnSetting, typesToSkip map[string]struct{},
+	destinationTable common.QualifiedTable, columnSettings []*protos.ColumnSetting, typesToSkip map[string]struct{},
 ) CdcTableNumericTruncator {
 	truncatorsByColumn := map[string]CdcColumnNumericTruncator{}
 	for _, columnSetting := range columnSettings {
@@ -68,7 +71,7 @@ func (ts CdcTableNumericTruncator) Get(destinationColumn string) CdcColumnNumeri
 	}
 	stat, ok := ts.TruncatorsByColumn[destinationColumn]
 	if !ok {
-		numericStat := qvalue.NewNumericStat(ts.DestinationTable, destinationColumn)
+		numericStat := qvalue.NewNumericStat(ts.DestinationTable.String(), destinationColumn)
 		stat = CdcColumnNumericTruncator{
 			Stat: &numericStat,
 		}

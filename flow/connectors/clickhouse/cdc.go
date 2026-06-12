@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -55,6 +56,7 @@ func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseNa
 }
 
 func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+	internal.NormalizeCreateRawTableInput(req)
 	var rawDistributedName string
 	rawTableName := c.GetRawTableName(req.FlowJobName)
 	engine := "MergeTree()"
@@ -103,11 +105,11 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 
 func (c *ClickHouseConnector) avroSyncMethod(flowJobName string, env map[string]string, version uint32) *ClickHouseAvroSyncMethod {
 	qrepConfig := &protos.QRepConfig{
-		StagingPath:                c.staging.BucketPath(),
-		FlowJobName:                flowJobName,
-		DestinationTableIdentifier: c.GetRawTableName(flowJobName),
-		Env:                        env,
-		Version:                    version,
+		StagingPath:      c.staging.BucketPath(),
+		FlowJobName:      flowJobName,
+		DestinationTable: &protos.QualifiedTable{Table: c.GetRawTableName(flowJobName)},
+		Env:              env,
+		Version:          version,
 	}
 	return NewClickHouseAvroSyncMethod(qrepConfig, c)
 }
@@ -241,10 +243,12 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			continue
 		}
 
+		srcTable := internal.QualifiedTableFromProto(schemaDelta.SrcTable)
+		dstTable := internal.QualifiedTableFromProto(schemaDelta.DstTable)
 		var tm *protos.TableMapping
 		for _, tableMapping := range tableMappings {
-			if tableMapping.SourceTableIdentifier == schemaDelta.SrcTableName &&
-				tableMapping.DestinationTableIdentifier == schemaDelta.DstTableName {
+			if internal.QualifiedTableFromProto(tableMapping.SourceTable) == srcTable &&
+				internal.QualifiedTableFromProto(tableMapping.DestinationTable) == dstTable {
 				tm = tableMapping
 				break
 			}
@@ -257,9 +261,9 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		var shardTableName string
 		if c.Config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
 			var err error
-			shardTableName, err = c.getDistributedShardTable(ctx, schemaDelta.DstTableName)
+			shardTableName, err = c.getDistributedShardTable(ctx, dstTable.Table)
 			if err != nil {
-				return fmt.Errorf("failed to resolve shard table for %s: %w", schemaDelta.DstTableName, err)
+				return fmt.Errorf("failed to resolve shard table for %s: %w", dstTable, err)
 			}
 		}
 
@@ -278,21 +282,21 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 						peerdb_clickhouse.QuoteIdentifier(shardTableName), onCluster,
 						peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
 				); err != nil {
-					return fmt.Errorf("failed to add column %s for table shards %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
+					return fmt.Errorf("failed to add column %s for table shards %s: %w", addedColumn.Name, dstTable, err)
 				}
 			}
 
 			if err := c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
-					peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName), onCluster,
+					peerdb_clickhouse.QuoteIdentifier(dstTable.Table), onCluster,
 					peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
 			); err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, dstTable, err)
 			}
 			c.logger.Info(
 				"[schema delta replay] added column",
 				slog.String("column", addedColumn.Name), slog.String("type", clickHouseColType),
-				slog.String("destination table name", schemaDelta.DstTableName), slog.String("source table name", schemaDelta.SrcTableName),
+				slog.String("destination table name", dstTable.String()), slog.String("source table name", srcTable.String()),
 			)
 		}
 	}
@@ -304,49 +308,52 @@ func (c *ClickHouseConnector) RenameTables(
 	ctx context.Context,
 	req *protos.RenameTablesInput,
 ) (*protos.RenameTablesOutput, error) {
+	internal.NormalizeRenameTablesInput(req)
 	onCluster := c.onCluster()
 	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
 		chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingMaxTableSizeToDrop, "0")
 	for _, renameRequest := range req.RenameTableOptions {
-		if renameRequest.CurrentName == renameRequest.NewName {
+		currentTable := internal.QualifiedTableFromProto(renameRequest.CurrentTable)
+		newTable := internal.QualifiedTableFromProto(renameRequest.NewTable)
+		if currentTable == newTable {
 			c.logger.Info("table rename is nop, probably Null table engine, skipping rename for it",
-				slog.String("table", renameRequest.CurrentName))
+				slog.String("table", currentTable.String()))
 			continue
 		}
 
-		resyncTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, renameRequest.CurrentName)
+		resyncTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, currentTable.Table)
 		if err != nil {
-			return nil, fmt.Errorf("unable to check if resync table %s exists: %w", renameRequest.CurrentName, err)
+			return nil, fmt.Errorf("unable to check if resync table %s exists: %w", currentTable, err)
 		}
 
 		if !resyncTableExists {
-			c.logger.Info("table does not exist, skipping rename for it", slog.String("table", renameRequest.CurrentName))
+			c.logger.Info("table does not exist, skipping rename for it", slog.String("table", currentTable.String()))
 			continue
 		}
 
-		originalTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, renameRequest.NewName)
+		originalTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, newTable.Table)
 		if err != nil {
-			return nil, fmt.Errorf("unable to check if table %s exists: %w", renameRequest.NewName, err)
+			return nil, fmt.Errorf("unable to check if table %s exists: %w", newTable, err)
 		}
 
 		if originalTableExists {
 			// target table exists, so we can attempt to swap. In most cases, we will have Atomic engine,
 			// which supports a special query to exchange two tables, allowing dependent (materialized) views and dictionaries on these tables
 			c.logger.Info("attempting atomic exchange",
-				slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
+				slog.String("OldName", currentTable.String()), slog.String("NewName", newTable.String()))
 			if err = c.execWithLogging(ctx,
-				fmt.Sprintf("EXCHANGE TABLES %s and %s%s", peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName),
-					peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
+				fmt.Sprintf("EXCHANGE TABLES %s and %s%s", peerdb_clickhouse.QuoteIdentifier(newTable.Table),
+					peerdb_clickhouse.QuoteIdentifier(currentTable.Table), onCluster),
 			); err == nil {
 				if err := c.execWithLogging(ctx,
-					fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
+					fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(currentTable.Table), onCluster),
 				); err != nil {
-					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
+					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", currentTable, err)
 				}
 			} else if ex, ok := err.(*clickhouse.Exception); !ok || chproto.Error(ex.Code) != chproto.ErrNotImplemented {
 				// move on to the fallback code if unimplemented, in all other error codes / types return,
 				// since we know/assume exchange would be the sensible action
-				return nil, fmt.Errorf("unable to exchange tables %s and %s: %w", renameRequest.NewName, renameRequest.CurrentName, err)
+				return nil, fmt.Errorf("unable to exchange tables %s and %s: %w", newTable, currentTable, err)
 			}
 		}
 
@@ -354,21 +361,21 @@ func (c *ClickHouseConnector) RenameTables(
 		// or err is set (in which case err comes from EXCHANGE TABLES)
 		if !originalTableExists || err != nil {
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster),
+				fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(newTable.Table), onCluster),
 			); err != nil {
-				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
+				return nil, fmt.Errorf("unable to drop table %s: %w", newTable, err)
 			}
 
 			if err := c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s%s",
-				peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName),
-				peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster,
+				peerdb_clickhouse.QuoteIdentifier(currentTable.Table),
+				peerdb_clickhouse.QuoteIdentifier(newTable.Table), onCluster,
 			)); err != nil {
-				return nil, fmt.Errorf("unable to rename table %s to %s: %w", renameRequest.CurrentName, renameRequest.NewName, err)
+				return nil, fmt.Errorf("unable to rename table %s to %s: %w", currentTable, newTable, err)
 			}
 		}
 
 		c.logger.Info("successfully renamed table",
-			slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
+			slog.String("OldName", currentTable.String()), slog.String("NewName", newTable.String()))
 	}
 
 	return &protos.RenameTablesOutput{
@@ -403,24 +410,33 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
 	req *protos.RemoveTablesFromRawTableInput,
 ) error {
+	internal.NormalizeRemoveTablesFromRawTableInput(req)
+	destinationTables := make([]common.QualifiedTable, 0, len(req.DestinationTables))
+	for _, destinationTable := range req.DestinationTables {
+		destinationTables = append(destinationTables, internal.QualifiedTableFromProto(destinationTable))
+	}
+
 	if c.Config.Cluster != "" {
 		// this operation isn't crucial, okay to skip
 		c.logger.Info("skipping raw table cleanup of tables, DELETE not supported on Distributed table engine",
-			slog.Any("tables", req.DestinationTableNames))
+			slog.Any("tables", destinationTables))
 		return nil
 	}
 
-	for _, tableName := range req.DestinationTableNames {
+	for _, table := range destinationTables {
 		// Better to use lightweight deletes here as the main goal is to not have
 		// rows in the table be visible by the NormalizeRecords' INSERT INTO SELECT queries
+		// LegacyDotted: _peerdb_destination_table_name values were written in the dotted
+		// format, by this and older releases
 		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			c.GetRawTableName(req.FlowJobName), peerdb_clickhouse.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId),
+			c.GetRawTableName(req.FlowJobName), peerdb_clickhouse.QuoteLiteral(table.LegacyDotted()),
+			req.NormalizeBatchId, req.SyncBatchId),
 		); err != nil {
-			return fmt.Errorf("unable to remove table %s from raw table: %w", tableName, err)
+			return fmt.Errorf("unable to remove table %s from raw table: %w", table, err)
 		}
 
-		c.logger.Info("successfully removed entries for table from raw table", slog.String("table", tableName))
+		c.logger.Info("successfully removed entries for table from raw table", slog.String("table", table.String()))
 	}
 
 	return nil

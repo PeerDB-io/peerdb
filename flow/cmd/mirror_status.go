@@ -486,6 +486,11 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}
 
+	// configs persisted before QualifiedTable carry only legacy string identifiers;
+	// denormalize so API consumers reading only the legacy fields keep working
+	internal.NormalizeFlowConfigAPI(&config)
+	internal.DenormalizeFlowConfigForAPI(&config)
+
 	return &config, nil
 }
 
@@ -690,6 +695,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	req *protos.CDCTableTotalCountsRequest,
 ) (*protos.CDCTableTotalCountsResponse, APIError) {
 	rows, err := h.pool.Query(ctx, `SELECT
+			destination_table_namespace,
 			destination_table_name,
 			inserts_count,
 			updates_count,
@@ -697,7 +703,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 			total_count
 		FROM peerdb_stats.cdc_table_aggregate_counts
 		WHERE flow_name = $1
-		ORDER BY destination_table_name`, req.FlowJobName)
+		ORDER BY destination_table_namespace, destination_table_name`, req.FlowJobName)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to query cdc table total counts: %w", err))
 	}
@@ -707,10 +713,12 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	tableCounts, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCTableRowCounts, error) {
 		tableCount := &protos.CDCTableRowCounts{
 			Counts: &protos.CDCRowCounts{},
+			Table:  &protos.QualifiedTable{},
 		}
 		var totalRows int64
 		err := row.Scan(
-			&tableCount.TableName,
+			&tableCount.Table.Namespace,
+			&tableCount.Table.Table,
 			&tableCount.Counts.InsertsCount,
 			&tableCount.Counts.UpdatesCount,
 			&tableCount.Counts.DeletesCount,
@@ -718,6 +726,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 		if err != nil {
 			return nil, NewInternalApiError(fmt.Errorf("failed to scan cdc table total counts: %w", err))
 		}
+		tableCount.TableName = internal.QualifiedTableFromProto(tableCount.Table).LegacyDotted()
 
 		// Use the pre-calculated total count
 		tableCount.Counts.TotalCount = totalRows

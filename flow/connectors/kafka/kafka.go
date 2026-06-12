@@ -374,7 +374,7 @@ Loop:
 					}
 					if kr != nil {
 						if kr.Topic == "" {
-							kr.Topic = record.GetDestinationTableName()
+							kr.Topic = record.GetDestinationTable().LegacyDotted()
 						}
 						results = append(results, kr)
 						record.PopulateCountMap(tableNameRowsMapping)

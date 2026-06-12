@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type Record[T Items] interface {
@@ -11,11 +12,11 @@ type Record[T Items] interface {
 	GetCheckpointID() int64
 	GetCommitTime() time.Time
 	GetTransactionID() uint64
-	GetDestinationTableName() string
-	GetSourceTableName() string
+	GetDestinationTable() common.QualifiedTable
+	GetSourceTable() common.QualifiedTable
 	// get columns and values for the record
 	GetItems() T
-	PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts)
+	PopulateCountMap(mapOfCounts map[common.QualifiedTable]*RecordTypeCounts)
 }
 
 type BaseRecord struct {
@@ -43,9 +44,9 @@ type InsertRecord[T Items] struct {
 	// Items is a map of column name to value.
 	Items T
 	// Name of the source table
-	SourceTableName string
+	SourceTable common.QualifiedTable
 	// Name of the destination table
-	DestinationTableName string
+	DestinationTable common.QualifiedTable
 	// CommitID is the ID of the commit corresponding to this record.
 	CommitID int64
 	BaseRecord
@@ -55,20 +56,20 @@ func (*InsertRecord[T]) Kind() string {
 	return "insert"
 }
 
-func (r *InsertRecord[T]) GetDestinationTableName() string {
-	return r.DestinationTableName
+func (r *InsertRecord[T]) GetDestinationTable() common.QualifiedTable {
+	return r.DestinationTable
 }
 
-func (r *InsertRecord[T]) GetSourceTableName() string {
-	return r.SourceTableName
+func (r *InsertRecord[T]) GetSourceTable() common.QualifiedTable {
+	return r.SourceTable
 }
 
 func (r *InsertRecord[T]) GetItems() T {
 	return r.Items
 }
 
-func (r *InsertRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
-	recordCount, ok := mapOfCounts[r.DestinationTableName]
+func (r *InsertRecord[T]) PopulateCountMap(mapOfCounts map[common.QualifiedTable]*RecordTypeCounts) {
+	recordCount, ok := mapOfCounts[r.DestinationTable]
 	if ok {
 		recordCount.InsertCount.Add(1)
 	}
@@ -82,9 +83,9 @@ type UpdateRecord[T Items] struct {
 	// unchanged toast columns
 	UnchangedToastColumns map[string]struct{}
 	// Name of the source table
-	SourceTableName string
+	SourceTable common.QualifiedTable
 	// Name of the destination table
-	DestinationTableName string
+	DestinationTable common.QualifiedTable
 	BaseRecord
 }
 
@@ -92,20 +93,20 @@ func (*UpdateRecord[T]) Kind() string {
 	return "update"
 }
 
-func (r *UpdateRecord[T]) GetDestinationTableName() string {
-	return r.DestinationTableName
+func (r *UpdateRecord[T]) GetDestinationTable() common.QualifiedTable {
+	return r.DestinationTable
 }
 
-func (r *UpdateRecord[T]) GetSourceTableName() string {
-	return r.SourceTableName
+func (r *UpdateRecord[T]) GetSourceTable() common.QualifiedTable {
+	return r.SourceTable
 }
 
 func (r *UpdateRecord[T]) GetItems() T {
 	return r.NewItems
 }
 
-func (r *UpdateRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
-	recordCount, ok := mapOfCounts[r.DestinationTableName]
+func (r *UpdateRecord[T]) PopulateCountMap(mapOfCounts map[common.QualifiedTable]*RecordTypeCounts) {
+	recordCount, ok := mapOfCounts[r.DestinationTable]
 	if ok {
 		recordCount.UpdateCount.Add(1)
 	}
@@ -117,9 +118,9 @@ type DeleteRecord[T Items] struct {
 	// unchanged toast columns, filled from latest UpdateRecord
 	UnchangedToastColumns map[string]struct{}
 	// Name of the source table
-	SourceTableName string
+	SourceTable common.QualifiedTable
 	// Name of the destination table
-	DestinationTableName string
+	DestinationTable common.QualifiedTable
 	BaseRecord
 }
 
@@ -127,20 +128,20 @@ func (*DeleteRecord[T]) Kind() string {
 	return "delete"
 }
 
-func (r *DeleteRecord[T]) GetDestinationTableName() string {
-	return r.DestinationTableName
+func (r *DeleteRecord[T]) GetDestinationTable() common.QualifiedTable {
+	return r.DestinationTable
 }
 
-func (r *DeleteRecord[T]) GetSourceTableName() string {
-	return r.SourceTableName
+func (r *DeleteRecord[T]) GetSourceTable() common.QualifiedTable {
+	return r.SourceTable
 }
 
 func (r *DeleteRecord[T]) GetItems() T {
 	return r.Items
 }
 
-func (r *DeleteRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
-	recordCount, ok := mapOfCounts[r.DestinationTableName]
+func (r *DeleteRecord[T]) PopulateCountMap(mapOfCounts map[common.QualifiedTable]*RecordTypeCounts) {
+	recordCount, ok := mapOfCounts[r.DestinationTable]
 	if ok {
 		recordCount.DeleteCount.Add(1)
 	}
@@ -156,12 +157,20 @@ func (*RelationRecord[T]) Kind() string {
 	return "relation"
 }
 
-func (r *RelationRecord[T]) GetDestinationTableName() string {
-	return r.TableSchemaDelta.DstTableName
+func (r *RelationRecord[T]) GetDestinationTable() common.QualifiedTable {
+	dst := r.TableSchemaDelta.DstTable
+	if dst == nil {
+		return common.QualifiedTable{}
+	}
+	return common.QualifiedTable{Namespace: dst.Namespace, Table: dst.Table}
 }
 
-func (r *RelationRecord[T]) GetSourceTableName() string {
-	return r.TableSchemaDelta.SrcTableName
+func (r *RelationRecord[T]) GetSourceTable() common.QualifiedTable {
+	src := r.TableSchemaDelta.SrcTable
+	if src == nil {
+		return common.QualifiedTable{}
+	}
+	return common.QualifiedTable{Namespace: src.Namespace, Table: src.Table}
 }
 
 func (r *RelationRecord[T]) GetItems() T {
@@ -169,7 +178,7 @@ func (r *RelationRecord[T]) GetItems() T {
 	return none
 }
 
-func (r *RelationRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+func (r *RelationRecord[T]) PopulateCountMap(mapOfCounts map[common.QualifiedTable]*RecordTypeCounts) {
 }
 
 type MessageRecord[T Items] struct {
@@ -182,12 +191,12 @@ func (*MessageRecord[T]) Kind() string {
 	return "message"
 }
 
-func (r *MessageRecord[T]) GetDestinationTableName() string {
-	return ""
+func (r *MessageRecord[T]) GetDestinationTable() common.QualifiedTable {
+	return common.QualifiedTable{}
 }
 
-func (r *MessageRecord[T]) GetSourceTableName() string {
-	return ""
+func (r *MessageRecord[T]) GetSourceTable() common.QualifiedTable {
+	return common.QualifiedTable{}
 }
 
 func (r *MessageRecord[T]) GetItems() T {
@@ -195,5 +204,5 @@ func (r *MessageRecord[T]) GetItems() T {
 	return none
 }
 
-func (r *MessageRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+func (r *MessageRecord[T]) PopulateCountMap(mapOfCounts map[common.QualifiedTable]*RecordTypeCounts) {
 }

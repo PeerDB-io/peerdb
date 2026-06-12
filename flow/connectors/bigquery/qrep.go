@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/bigquery"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -22,7 +23,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
 	// Ensure the destination table is available.
-	destTable := config.DestinationTableIdentifier
+	destTable := internal.QualifiedTableFromProto(config.DestinationTable)
 	srcSchema, err := stream.Schema()
 	if err != nil {
 		return 0, nil, err
@@ -52,7 +53,8 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	partition *protos.QRepPartition,
 	srcSchema types.QRecordSchema,
 ) (*bigquery.TableMetadata, error) {
-	destDatasetTable, _ := c.convertToDatasetTable(config.DestinationTableIdentifier)
+	destTable := internal.QualifiedTableFromProto(config.DestinationTable)
+	destDatasetTable, _ := c.convertToDatasetTable(destTable)
 	bqTable := c.client.DatasetInProject(c.projectID, destDatasetTable.dataset).Table(destDatasetTable.table)
 	dstTableMetadata, err := bqTable.Metadata(ctx)
 	if err != nil {
@@ -60,8 +62,8 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	}
 
 	tableSchemaDelta := &protos.TableSchemaDelta{
-		SrcTableName: config.WatermarkTable,
-		DstTableName: config.DestinationTableIdentifier,
+		SrcTable: config.QualifiedWatermarkTable,
+		DstTable: config.DestinationTable,
 	}
 
 	for _, col := range srcSchema.Fields {
@@ -76,7 +78,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 
 		if !hasColumn {
 			c.logger.Info(fmt.Sprintf("adding column %s to destination table %s",
-				col.Name, config.DestinationTableIdentifier),
+				col.Name, destTable),
 				slog.String(string(shared.PartitionIDKey), partition.PartitionId))
 			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.FieldDescription{
 				Name:         col.Name,
@@ -100,7 +102,11 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 
 func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		query := c.queryWithLogging("TRUNCATE TABLE " + config.DestinationTableIdentifier)
+		destDatasetTable, err := c.convertToDatasetTable(internal.QualifiedTableFromProto(config.DestinationTable))
+		if err != nil {
+			return err
+		}
+		query := c.queryWithLogging(fmt.Sprintf("TRUNCATE TABLE `%s`", destDatasetTable.string()))
 		query.DefaultDatasetID = c.datasetID
 		query.DefaultProjectID = c.projectID
 		if _, err := query.Read(ctx); err != nil {

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -52,12 +53,9 @@ func syncQRepRecords(
 	partition *protos.QRepPartition,
 	sink QRepSyncSink,
 ) (int64, shared.QRepWarnings, error) {
-	dstTable, err := common.ParseTableIdentifier(config.DestinationTableIdentifier)
-	if err != nil {
-		return 0, nil, fmt.Errorf("failed to parse destination table identifier: %w", err)
-	}
+	dstTable := internal.QualifiedTableFromProto(config.DestinationTable)
 
-	exists, err := c.tableExists(ctx, dstTable)
+	exists, err := c.tableExists(ctx, &dstTable)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to check if table exists: %w", err)
 	}

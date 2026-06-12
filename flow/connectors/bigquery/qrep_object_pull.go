@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -56,7 +57,9 @@ func (c *BigQueryConnector) PullQRepObjects(
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
 	}
-	tablePath := stagingPath.JoinPath(config.WatermarkTable)
+	// LegacyDotted: export writes staging objects under the dotted table name
+	watermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
+	tablePath := stagingPath.JoinPath(watermarkTable.LegacyDotted())
 	bucketName := tablePath.Bucket()
 	prefix := tablePath.QueryPrefix()
 
@@ -156,9 +159,10 @@ func (c *BigQueryConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	dsTable, err := c.convertToDatasetTable(config.WatermarkTable)
+	watermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
+	dsTable, err := c.convertToDatasetTable(watermarkTable)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse table identifier %s: %w", config.WatermarkTable, err)
+		return nil, fmt.Errorf("failed to parse table identifier %s: %w", watermarkTable, err)
 	}
 
 	tableRef := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
@@ -183,7 +187,8 @@ func (c *BigQueryConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
 	}
 
-	tablePath := stagingPath.JoinPath(config.WatermarkTable)
+	// LegacyDotted: export writes staging objects under the dotted table name
+	tablePath := stagingPath.JoinPath(watermarkTable.LegacyDotted())
 	bucketName := tablePath.Bucket()
 	prefix := tablePath.QueryPrefix()
 
@@ -275,9 +280,10 @@ func (c *BigQueryConnector) GetQRepPartitions(
 }
 
 func (c *BigQueryConnector) getQRepSchema(ctx context.Context, config *protos.QRepConfig) (types.QRecordSchema, error) {
-	dsTable, err := c.convertToDatasetTable(config.WatermarkTable)
+	watermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
+	dsTable, err := c.convertToDatasetTable(watermarkTable)
 	if err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to parse table identifier %s: %w", config.WatermarkTable, err)
+		return types.QRecordSchema{}, fmt.Errorf("failed to parse table identifier %s: %w", watermarkTable, err)
 	}
 
 	tableRef := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
@@ -341,11 +347,12 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	runSnapshotStagingPath := basePath.JoinPath(activityInfo.WorkflowExecution.RunID).String()
 	c.logger.Info("Run snapshot staging path", slog.String("path", runSnapshotStagingPath))
 
-	jobs := make(map[string]*bigquery.Job)
+	jobs := make(map[common.QualifiedTable]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
-		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, runSnapshotStagingPath)
+		sourceTable := internal.QualifiedTableFromProto(tm.SourceTable)
+		exportSQL, err := c.bigQueryExportQueryStatement(ctx, sourceTable, runSnapshotStagingPath)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
+			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", sourceTable, err)
 		}
 
 		q := c.client.Query(exportSQL)
@@ -355,24 +362,24 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 				if apiErr.Code == 403 {
 					_ = c.LogFlowInfo(ctx, flowName, fmt.Sprintf(
 						"Permission denied error when starting export job for table %s: %s",
-						tm.SourceTableIdentifier,
+						sourceTable,
 						apiErr.Message,
 					))
 				}
 			}
 
-			return nil, nil, fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
+			return nil, nil, fmt.Errorf("failed to start export job for table %s: %w", sourceTable, err)
 		}
-		jobs[tm.SourceTableIdentifier] = job
+		jobs[sourceTable] = job
 	}
-	for sourceTableIdentifier, job := range jobs {
+	for sourceTable, job := range jobs {
 		if status, err := job.Wait(ctx); err != nil {
 			return nil, nil, fmt.Errorf("error waiting for export job to complete: %w", err)
 		} else if err := status.Err(); err != nil {
 			return nil, nil, fmt.Errorf("export job completed with error: %w", err)
 		}
 
-		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTableIdentifier)
+		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTable.String())
 	}
 
 	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
@@ -385,17 +392,18 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 // See: https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/export-statements#syntax
 func (c *BigQueryConnector) bigQueryExportQueryStatement(
 	ctx context.Context,
-	sourceTableIdentifier, snapshotStagingPath string,
+	sourceTable common.QualifiedTable,
+	snapshotStagingPath string,
 ) (string, error) {
-	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
+	dsTable, err := c.convertToDatasetTable(sourceTable)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
+		return "", fmt.Errorf("failed to parse table identifier %s: %w", sourceTable, err)
 	}
 
 	tableRef := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
 	metadata, err := tableRef.Metadata(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to get table metadata for %s: %w", sourceTableIdentifier, err)
+		return "", fmt.Errorf("failed to get table metadata for %s: %w", sourceTable, err)
 	}
 
 	columnSelects := make([]string, 0, len(metadata.Schema))
@@ -418,7 +426,9 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 		columnSelects = append(columnSelects, columnSelect)
 	}
 
-	uri := fmt.Sprintf("%s/%s/*.parquet", snapshotStagingPath, url.PathEscape(sourceTableIdentifier))
+	// LegacyDotted: staging object paths are keyed by the dotted table name so
+	// pulls find objects written by exports from any release
+	uri := fmt.Sprintf("%s/%s/*.parquet", snapshotStagingPath, url.PathEscape(sourceTable.LegacyDotted()))
 
 	exportSQL := fmt.Sprintf(`EXPORT DATA OPTIONS(
 			uri='%s',

@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -67,10 +68,10 @@ func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 	createTestDB(t, ctx, connector, lowerDB)
 	createTestDB(t, ctx, connector, upperDB)
 
-	llTable := lowerDB + ".cs_t"
-	luTable := lowerDB + ".CS_T"
-	ulTable := upperDB + ".cs_t"
-	uuTable := upperDB + ".CS_T"
+	llTable := common.QualifiedTable{Namespace: lowerDB, Table: "cs_t"}
+	luTable := common.QualifiedTable{Namespace: lowerDB, Table: "CS_T"}
+	ulTable := common.QualifiedTable{Namespace: upperDB, Table: "cs_t"}
+	uuTable := common.QualifiedTable{Namespace: upperDB, Table: "CS_T"}
 
 	exec := func(sql string) {
 		t.Helper()
@@ -88,17 +89,17 @@ func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 		}
 	}
 
-	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ll TEXT)", llTable))
-	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, lu TEXT)", luTable))
-	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ul TEXT)", ulTable))
-	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, uu TEXT)", uuTable))
+	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ll TEXT)", llTable.MySQL()))
+	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, lu TEXT)", luTable.MySQL()))
+	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ul TEXT)", ulTable.MySQL()))
+	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, uu TEXT)", uuTable.MySQL()))
 
 	schemas, err := connector.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{
-			{SourceTableIdentifier: llTable},
-			{SourceTableIdentifier: luTable},
-			{SourceTableIdentifier: ulTable},
-			{SourceTableIdentifier: uuTable},
+			{SourceTable: internal.QualifiedTableProto(llTable)},
+			{SourceTable: internal.QualifiedTableProto(luTable)},
+			{SourceTable: internal.QualifiedTableProto(ulTable)},
+			{SourceTable: internal.QualifiedTableProto(uuTable)},
 		})
 	require.NoError(t, err)
 	assertSchema(schemas[llTable], []string{"id"}, "id", "ll")
@@ -135,23 +136,23 @@ func TestGetTableSchemaPrimaryKeyVariants(t *testing.T) {
 		}
 	}
 
-	compositeTable := dbName + ".composite_pk"
-	noPKTable := dbName + ".no_pk"
-	mixedCaseTable := dbName + ".mixed_case_pk"
+	compositeTable := common.QualifiedTable{Namespace: dbName, Table: "composite_pk"}
+	noPKTable := common.QualifiedTable{Namespace: dbName, Table: "no_pk"}
+	mixedCaseTable := common.QualifiedTable{Namespace: dbName, Table: "mixed_case_pk"}
 
 	// Composite PK whose key order (b, a) differs from column definition order (a, b, c),
 	// exercising the seq_in_index sort.
-	exec(fmt.Sprintf("CREATE TABLE %s (a INT, b INT, c INT, PRIMARY KEY (b, a))", compositeTable))
+	exec(fmt.Sprintf("CREATE TABLE %s (a INT, b INT, c INT, PRIMARY KEY (b, a))", compositeTable.MySQL()))
 	// Table without a primary key, exercising the LEFT JOIN's NULL seq_in_index path.
-	exec(fmt.Sprintf("CREATE TABLE %s (a INT, b TEXT)", noPKTable))
+	exec(fmt.Sprintf("CREATE TABLE %s (a INT, b TEXT)", noPKTable.MySQL()))
 	// PK on a mixed-case column name, exercising the case-preserving column_name join.
-	exec(fmt.Sprintf("CREATE TABLE %s (`MyId` INT PRIMARY KEY, val TEXT)", mixedCaseTable))
+	exec(fmt.Sprintf("CREATE TABLE %s (`MyId` INT PRIMARY KEY, val TEXT)", mixedCaseTable.MySQL()))
 
 	schemas, err := connector.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{
-			{SourceTableIdentifier: compositeTable},
-			{SourceTableIdentifier: noPKTable},
-			{SourceTableIdentifier: mixedCaseTable},
+			{SourceTable: internal.QualifiedTableProto(compositeTable)},
+			{SourceTable: internal.QualifiedTableProto(noPKTable)},
+			{SourceTable: internal.QualifiedTableProto(mixedCaseTable)},
 		})
 	require.NoError(t, err)
 	assertSchema(schemas[compositeTable], []string{"b", "a"}, "a", "b", "c")

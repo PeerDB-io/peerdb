@@ -10,6 +10,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pua"
@@ -60,11 +61,11 @@ Loop:
 					items.AddColumn(schema.Fields[i].Name, val)
 				}
 				record := &model.InsertRecord[model.RecordItems]{
-					BaseRecord:           model.BaseRecord{},
-					Items:                items,
-					SourceTableName:      config.WatermarkTable,
-					DestinationTableName: config.DestinationTableIdentifier,
-					CommitID:             0,
+					BaseRecord:       model.BaseRecord{},
+					Items:            items,
+					SourceTable:      internal.QualifiedTableFromProto(config.QualifiedWatermarkTable),
+					DestinationTable: internal.QualifiedTableFromProto(config.DestinationTable),
+					CommitID:         0,
 				}
 
 				lfn := ls.Env.RawGetString("onRecord")
@@ -92,7 +93,7 @@ Loop:
 					}
 					if kr != nil {
 						if kr.Topic == "" {
-							kr.Topic = record.GetDestinationTableName()
+							kr.Topic = record.GetDestinationTable().LegacyDotted()
 						}
 						results = append(results, kr)
 					}

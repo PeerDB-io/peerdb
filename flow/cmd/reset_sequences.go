@@ -9,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func (h *FlowRequestHandler) ResetMirrorSequences(
@@ -45,7 +46,9 @@ func (h *FlowRequestHandler) ResetMirrorSequences(
 
 	destTables := make([]string, 0, len(config.TableMappings))
 	for _, tm := range config.TableMappings {
-		destTables = append(destTables, tm.DestinationTableIdentifier)
+		// quoted form: pg_get_serial_sequence parses its argument as a possibly-quoted
+		// qualified name, so this stays correct for names containing dots
+		destTables = append(destTables, internal.QualifiedTableFromProto(tm.DestinationTable).String())
 	}
 
 	quotedTables := make([]string, 0, len(destTables))

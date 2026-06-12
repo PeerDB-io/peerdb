@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
@@ -99,6 +100,8 @@ func processCDCFlowConfigUpdate(
 	mirrorNameSearch temporal.SearchAttributes,
 ) error {
 	flowConfigUpdate := state.FlowConfigUpdate
+	// signals enqueued by a pre-QualifiedTable release carry legacy string identifiers
+	internal.NormalizeCDCFlowConfigUpdate(flowConfigUpdate)
 
 	// Capture old values for logging before updates are applied
 	oldValues := telemetry.OldCDCFlowValues{
@@ -342,7 +345,7 @@ func processTableAdditions(
 		}
 	}
 
-	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
+	maps.Copy(state.SyncFlowOptions.SrcTableIdMapping, res.SyncFlowOptions.SrcTableIdMapping)
 
 	logger.Info("additional tables added to sync flow")
 	return nil
@@ -412,16 +415,16 @@ func processTableRemovals(
 
 	// remove the tables from the sync flow options
 	// do this first in case resync comes in
-	removedTables := make(map[string]struct{}, len(state.FlowConfigUpdate.RemovedTables))
+	removedTables := make(map[common.QualifiedTable]struct{}, len(state.FlowConfigUpdate.RemovedTables))
 	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
-		removedTables[removedTable.SourceTableIdentifier] = struct{}{}
+		removedTables[internal.QualifiedTableFromProto(removedTable.SourceTable)] = struct{}{}
 	}
-	maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(k uint32, v string) bool {
-		_, removed := removedTables[v]
+	maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdMapping, func(k uint32, v *protos.QualifiedTable) bool {
+		_, removed := removedTables[internal.QualifiedTableFromProto(v)]
 		return removed
 	})
 	state.SyncFlowOptions.TableMappings = slices.DeleteFunc(state.SyncFlowOptions.TableMappings, func(tm *protos.TableMapping) bool {
-		_, removed := removedTables[tm.SourceTableIdentifier]
+		_, removed := removedTables[internal.QualifiedTableFromProto(tm.SourceTable)]
 		return removed
 	})
 
@@ -481,9 +484,17 @@ func CDCFlowWorkflow(
 		return nil, fmt.Errorf("invalid connection configs")
 	}
 
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers;
+	// normalization is pure so this is deterministic on replay
+	internal.NormalizeFlowConfig(cfg)
+
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	if state == nil {
 		state = cdc_state.NewCDCFlowWorkflowState(ctx, logger, cfg)
+	} else {
+		internal.NormalizeSyncFlowOptions(state.SyncFlowOptions)
+		internal.NormalizeCDCFlowConfigUpdate(state.FlowConfigUpdate)
+		internal.NormalizeDropFlowInput(state.DropFlowInput)
 	}
 
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
@@ -584,7 +595,7 @@ func CDCFlowWorkflow(
 		migrateCtx,
 		flowable.MigratePostgresTableOIDs,
 		cfg.FlowJobName,
-		state.SyncFlowOptions.SrcTableIdNameMapping,
+		state.SyncFlowOptions.SrcTableIdMapping,
 		state.SyncFlowOptions.TableMappings,
 	).Get(migrateCtx, nil); err != nil {
 		return state, fmt.Errorf("failed to migrate Postgres table OIDs: %w", err)
@@ -627,7 +638,7 @@ func CDCFlowWorkflow(
 		if cfg.Resync {
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-					mapping.DestinationTableIdentifier += "_resync"
+					mapping.DestinationTable.Table += "_resync"
 				}
 			}
 			// because we have renamed the tables.
@@ -709,7 +720,7 @@ func CDCFlowWorkflow(
 			}
 		}
 
-		state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
+		state.SyncFlowOptions.SrcTableIdMapping = setupFlowOutput.SrcTableIdMapping
 		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
@@ -764,17 +775,20 @@ func CDCFlowWorkflow(
 
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-					oldName := mapping.DestinationTableIdentifier
-					newName := strings.TrimSuffix(oldName, "_resync")
+					oldTable := mapping.DestinationTable
+					newTable := &protos.QualifiedTable{
+						Namespace: oldTable.Namespace,
+						Table:     strings.TrimSuffix(oldTable.Table, "_resync"),
+					}
 					renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
-						CurrentName: oldName,
-						NewName:     newName,
+						CurrentTable: oldTable,
+						NewTable:     newTable,
 					})
-					mapping.DestinationTableIdentifier = newName
+					mapping.DestinationTable = newTable
 				} else {
 					renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
-						CurrentName: mapping.DestinationTableIdentifier,
-						NewName:     mapping.DestinationTableIdentifier,
+						CurrentTable: mapping.DestinationTable,
+						NewTable:     mapping.DestinationTable,
 					})
 				}
 			}

@@ -301,7 +301,7 @@ Loop:
 					}
 					if msg.Message != nil {
 						if msg.Topic == "" {
-							msg.Topic = record.GetDestinationTableName()
+							msg.Topic = record.GetDestinationTable().LegacyDotted()
 						}
 						results = append(results, msg)
 						record.PopulateCountMap(tableNameRowsMapping)

@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -22,6 +23,9 @@ func XminFlowWorkflow(
 ) (*protos.QRepFlowState, error) {
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers
+	internal.NormalizeQRepConfig(config)
 
 	if state == nil {
 		state = newQRepFlowState()

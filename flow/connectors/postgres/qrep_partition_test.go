@@ -74,6 +74,16 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 	}
 }
 
+// configs in these tests are built with the legacy dotted watermark table for brevity;
+// normalize them the same way the activity layer does before handing them to the connector
+func getQRepPartitions(
+	t *testing.T, c *PostgresConnector, config *protos.QRepConfig, last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
+	t.Helper()
+	internal.NormalizeQRepConfig(config)
+	return c.GetQRepPartitions(t.Context(), config, last)
+}
+
 func setupTestSchema(t *testing.T) (string, *pgx.Conn, string) {
 	t.Helper()
 	catalogConnStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
@@ -195,7 +205,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := c.GetQRepPartitions(t.Context(), tc.config, tc.last)
+			got, err := getQRepPartitions(t, c, tc.config, tc.last)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -252,7 +262,7 @@ func TestGetQRepPartitionsWithNulls(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := c.GetQRepPartitions(t.Context(), tc.config, tc.last)
+			got, err := getQRepPartitions(t, c, tc.config, tc.last)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -317,7 +327,7 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testCTIDPartitioned"))),
 	}
 	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, parentTable)
-	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+	partitions, err := getQRepPartitions(t, c, &protos.QRepConfig{
 		FlowJobName:           "test_ctid_partitioned",
 		NumRowsPerPartition:   10,
 		NumPartitionsOverride: 8,
@@ -328,19 +338,20 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
 
-	childTableCounts := make(map[string]int)
+	childTableCounts := make(map[common.QualifiedTable]int)
 	for _, p := range partitions {
 		require.Nil(t, p.Range)
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
-			require.NotEmpty(t, ctr.Table)
-			childTableCounts[ctr.Table]++
+			require.NotNil(t, ctr.ChildTable)
+			childTableCounts[internal.QualifiedTableFromProto(ctr.ChildTable)]++
 		}
 	}
 
 	require.Len(t, childTableCounts, numChildTables)
 	for _, child := range childTables {
-		require.Positive(t, childTableCounts[child], "child %s should appear in at least one partition", child)
+		require.Positive(t, childTableCounts[common.NormalizeTableIdentifier(child)],
+			"child %s should appear in at least one partition", child)
 	}
 }
 
@@ -398,11 +409,11 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	}
 
 	// 6 leaf tables total, insert 20 rows into each
-	// expectedLeaves uses unquoted names since that's what format('%s.%s', ...) in pg_class returns
-	expectedLeaves := make([]string, 0, numLeafChildTablesPerMidLevelTable*numMidLevelTables)
+	// expectedLeaves uses raw (unquoted) components since that's what pg_class returns
+	expectedLeaves := make([]common.QualifiedTable, 0, numLeafChildTablesPerMidLevelTable*numMidLevelTables)
 	for r := range numMidLevelTables {
 		for c := range numLeafChildTablesPerMidLevelTable {
-			leaf := fmt.Sprintf("%s.Region_%d_Cat_%d", schemaName, r, c)
+			leaf := common.QualifiedTable{Namespace: schemaName, Table: fmt.Sprintf("Region_%d_Cat_%d", r, c)}
 			expectedLeaves = append(expectedLeaves, leaf)
 			for j := range rowsPerPartition {
 				_, err = conn.Exec(t.Context(), fmt.Sprintf(
@@ -420,7 +431,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testMultiLevel"))),
 	}
 	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, rootTableDDL)
-	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+	partitions, err := getQRepPartitions(t, c, &protos.QRepConfig{
 		FlowJobName:           "test_ctid_multi_level",
 		NumRowsPerPartition:   10,
 		NumPartitionsOverride: 12,
@@ -431,13 +442,13 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
 
-	childTableCounts := make(map[string]int)
+	childTableCounts := make(map[common.QualifiedTable]int)
 	for _, p := range partitions {
 		require.Nil(t, p.Range)
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
-			require.NotEmpty(t, ctr.Table)
-			childTableCounts[ctr.Table]++
+			require.NotNil(t, ctr.ChildTable)
+			childTableCounts[internal.QualifiedTableFromProto(ctr.ChildTable)]++
 		}
 	}
 
@@ -446,8 +457,8 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		require.Positive(t, childTableCounts[leaf])
 	}
 	for r := range numMidLevelTables {
-		mid := fmt.Sprintf("%s.Region_%d", schemaName, r)
-		require.Zero(t, childTableCounts[mid], mid)
+		mid := common.QualifiedTable{Namespace: schemaName, Table: fmt.Sprintf("Region_%d", r)}
+		require.Zero(t, childTableCounts[mid], mid.String())
 	}
 }
 
@@ -481,7 +492,7 @@ func TestCTIDPartitioningOnEmptyPartitionedTable(t *testing.T) {
 		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testEmptyPartitioned"))),
 	}
 	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, parentTable)
-	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+	partitions, err := getQRepPartitions(t, c, &protos.QRepConfig{
 		FlowJobName:           "test_ctid_empty_partitioned",
 		NumRowsPerPartition:   10,
 		NumPartitionsOverride: 4,
@@ -538,7 +549,7 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGrouping"))),
 	}
 	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, parentTable)
-	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+	partitions, err := getQRepPartitions(t, c, &protos.QRepConfig{
 		FlowJobName:           "test_ctid_grouping",
 		NumRowsPerPartition:   10,
 		NumPartitionsOverride: numPartitionsBudget,
@@ -550,17 +561,17 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 	require.NotEmpty(t, partitions)
 	require.LessOrEqual(t, len(partitions), int(numPartitionsBudget))
 
-	childTablesCovered := make(map[string]bool)
+	childTablesCovered := make(map[common.QualifiedTable]bool)
 	for _, p := range partitions {
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
-			require.NotEmpty(t, ctr.Table)
-			childTablesCovered[ctr.Table] = true
+			require.NotNil(t, ctr.ChildTable)
+			childTablesCovered[internal.QualifiedTableFromProto(ctr.ChildTable)] = true
 		}
 	}
 	require.Len(t, childTablesCovered, numChildTables)
 	for _, child := range allChildren {
-		require.True(t, childTablesCovered[child])
+		require.True(t, childTablesCovered[common.NormalizeTableIdentifier(child)])
 	}
 }
 
@@ -570,32 +581,35 @@ func TestCtidPartitionsForChildTablesOffsetNumberBounds(t *testing.T) {
 		numPartitions: 8,
 		logger:        log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testOffsetBounds"))),
 	}
-	leafBlocks := map[string]int64{
-		"public.t1": 100,
-		"public.t2": 45,
-		"public.t3": 10,
+	t1 := common.QualifiedTable{Namespace: "public", Table: "t1"}
+	t2 := common.QualifiedTable{Namespace: "public", Table: "t2"}
+	t3 := common.QualifiedTable{Namespace: "public", Table: "t3"}
+	leafBlocks := map[common.QualifiedTable]int64{
+		t1: 100,
+		t2: 45,
+		t3: 10,
 	}
 	// blocksPerPartition = DivCeil(155, 8) = 20
 	partitions, err := ctidPartitionsForChildTables(pp, leafBlocks)
 	require.NoError(t, err)
 	require.Len(t, partitions, 8)
 
-	childRange := func(table string, startBlock, endBlock uint32) *protos.ChildTableRange {
+	childRange := func(table common.QualifiedTable, startBlock, endBlock uint32) *protos.ChildTableRange {
 		return &protos.ChildTableRange{
-			Table: table,
-			Start: startBlock,
-			End:   endBlock,
+			ChildTable: internal.QualifiedTableProto(table),
+			Start:      startBlock,
+			End:        endBlock,
 		}
 	}
 	expected := [][]*protos.ChildTableRange{
-		{childRange("public.t1", 0, 19)},
-		{childRange("public.t1", 20, 39)},
-		{childRange("public.t1", 40, 59)},
-		{childRange("public.t1", 60, 79)},
-		{childRange("public.t1", 80, 99)},
-		{childRange("public.t2", 0, 19)},
-		{childRange("public.t2", 20, 39)},
-		{childRange("public.t2", 40, 44), childRange("public.t3", 0, 9)},
+		{childRange(t1, 0, 19)},
+		{childRange(t1, 20, 39)},
+		{childRange(t1, 40, 59)},
+		{childRange(t1, 60, 79)},
+		{childRange(t1, 80, 99)},
+		{childRange(t2, 0, 19)},
+		{childRange(t2, 20, 39)},
+		{childRange(t2, 40, 44), childRange(t3, 0, 9)},
 	}
 
 	for i, p := range partitions {
@@ -603,7 +617,7 @@ func TestCtidPartitionsForChildTablesOffsetNumberBounds(t *testing.T) {
 		for j, ctr := range p.ChildTableRanges {
 			exp := expected[i][j]
 			msg := fmt.Sprintf("partition %d range %d", i, j)
-			assert.Equal(t, exp.Table, ctr.Table, msg)
+			assert.Equal(t, internal.QualifiedTableFromProto(exp.ChildTable), internal.QualifiedTableFromProto(ctr.ChildTable), msg)
 			assert.Equal(t, exp.Start, ctr.Start, msg)
 			assert.Equal(t, exp.End, ctr.End, msg)
 		}
@@ -661,7 +675,7 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 		conn:    conn,
 		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testInherited"))),
 	}
-	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+	partitions, err := getQRepPartitions(t, c, &protos.QRepConfig{
 		FlowJobName:           "test_ctid_inherited",
 		NumRowsPerPartition:   10,
 		NumPartitionsOverride: 8,
@@ -671,18 +685,18 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
 
-	childTablesCovered := make(map[string]bool)
+	childTablesCovered := make(map[common.QualifiedTable]bool)
 	for _, p := range partitions {
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
-			childTablesCovered[ctr.Table] = true
+			childTablesCovered[internal.QualifiedTableFromProto(ctr.ChildTable)] = true
 		}
 	}
-	// pg_class returns unquoted names from format('%s.%s', ...) so assertions use the unquoted form
+	// pg_class returns raw (unquoted) components so assertions use the unquoted form
 	require.Len(t, childTablesCovered, 1+numChildren)
-	require.True(t, childTablesCovered[schemaName+".ParentInh"])
+	require.True(t, childTablesCovered[common.QualifiedTable{Namespace: schemaName, Table: "ParentInh"}])
 	for i := range numChildren {
-		require.True(t, childTablesCovered[fmt.Sprintf("%s.ChildInh_%d", schemaName, i)])
+		require.True(t, childTablesCovered[common.QualifiedTable{Namespace: schemaName, Table: fmt.Sprintf("ChildInh_%d", i)}])
 	}
 }
 
@@ -724,7 +738,7 @@ func TestCTIDPartitioningOnMultiLevelInheritedTable(t *testing.T) {
 		conn:    conn,
 		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testMultiLevelInherited"))),
 	}
-	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+	partitions, err := getQRepPartitions(t, c, &protos.QRepConfig{
 		FlowJobName:           "test_ctid_multi_inherited",
 		NumRowsPerPartition:   10,
 		NumPartitionsOverride: 10,
@@ -734,16 +748,16 @@ func TestCTIDPartitioningOnMultiLevelInheritedTable(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
 
-	tablesCovered := make(map[string]bool)
+	tablesCovered := make(map[common.QualifiedTable]bool)
 	for _, p := range partitions {
 		require.NotEmpty(t, p.ChildTableRanges)
 		for _, ctr := range p.ChildTableRanges {
-			tablesCovered[ctr.Table] = true
+			tablesCovered[internal.QualifiedTableFromProto(ctr.ChildTable)] = true
 		}
 	}
 	require.Len(t, tablesCovered, len(allTables))
 	for _, tbl := range allTables {
-		require.True(t, tablesCovered[tbl])
+		require.True(t, tablesCovered[common.NormalizeTableIdentifier(tbl)])
 	}
 }
 
@@ -768,7 +782,7 @@ func TestCTIDPartitioningOnEmptyInheritedTable(t *testing.T) {
 		conn:    conn,
 		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testAllEmptyInherited"))),
 	}
-	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+	partitions, err := getQRepPartitions(t, c, &protos.QRepConfig{
 		FlowJobName:           "test_ctid_all_empty_inherited",
 		NumRowsPerPartition:   10,
 		NumPartitionsOverride: 4,

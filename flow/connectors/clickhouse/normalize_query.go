@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -20,10 +21,10 @@ import (
 type NormalizeQueryGenerator struct {
 	env                             map[string]string
 	flags                           []string
-	tableNameSchemaMapping          map[string]*protos.TableSchema
+	tableNameSchemaMapping          map[common.QualifiedTable]*protos.TableSchema
 	chVersion                       *chproto.Version
 	Query                           string
-	TableName                       string
+	TableName                       common.QualifiedTable
 	rawTableName                    string
 	isDeletedColName                string
 	tableMappings                   []*protos.TableMapping
@@ -37,8 +38,8 @@ type NormalizeQueryGenerator struct {
 
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
 func NewNormalizeQueryGenerator(
-	tableName string,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
+	tableName common.QualifiedTable,
+	tableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema,
 	tableMappings []*protos.TableMapping,
 	endBatchID int64,
 	lastNormBatchID int64,
@@ -85,7 +86,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	var tableMapping *protos.TableMapping
 	for _, tm := range t.tableMappings {
-		if tm.DestinationTableIdentifier == t.TableName {
+		if internal.QualifiedTableFromProto(tm.DestinationTable) == t.TableName {
 			tableMapping = tm
 			break
 		}
@@ -291,9 +292,12 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	fmt.Fprintf(&colSelector, "%s) ", peerdb_clickhouse.QuoteIdentifier(versionColName))
 
 	selectQuery.WriteString(projection.String())
+	// LegacyDotted: _peerdb_destination_table_name values were written in the dotted
+	// format, by this and older releases
 	fmt.Fprintf(&selectQuery,
 		" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.lastNormBatchID, t.endBatchID,
+		peerdb_clickhouse.QuoteLiteral(t.TableName.LegacyDotted()))
 
 	if t.enablePrimaryUpdate {
 		if t.sourceSchemaAsDestinationColumn {
@@ -312,7 +316,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
 				" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
 			peerdb_clickhouse.QuoteIdentifier(t.rawTableName),
-			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName.LegacyDotted()))
 	}
 
 	chSettings := clickhouse.NewCHSettings(t.chVersion)
@@ -326,7 +330,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
-		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String(), chSettings.String())
+		peerdb_clickhouse.QuoteIdentifier(t.TableName.Table), colSelector.String(), selectQuery.String(), chSettings.String())
 
 	t.Query = insertIntoSelectQuery
 

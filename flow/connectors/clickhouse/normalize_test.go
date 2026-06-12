@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -25,8 +26,8 @@ func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
 	}
 
 	tableMappingForTest := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "my id",
@@ -80,8 +81,8 @@ func Test_GetOrderByColumns_NoOrdering_NoColMap(t *testing.T) {
 	}
 
 	tableMappingForTest := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "my id",
@@ -128,8 +129,8 @@ func Test_GetOrderByColumns_WithColMap_NoOrdering(t *testing.T) {
 	}
 
 	tableMappingForTest := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "my id",
@@ -180,8 +181,8 @@ func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
 	}
 
 	tableMappingForTest := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "my id",
@@ -218,7 +219,7 @@ func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
 
 func TestBuildQuery_Basic(t *testing.T) {
 	ctx := t.Context()
-	tableName := "my_table"
+	tableName := common.QualifiedTable{Table: "my_table"}
 	rawTableName := "raw_my_table"
 	endBatchID := int64(10)
 	lastNormBatchID := int64(5)
@@ -234,14 +235,14 @@ func TestBuildQuery_Basic(t *testing.T) {
 		},
 		NullableEnabled: false,
 	}
-	tableNameSchemaMapping := map[string]*protos.TableSchema{
+	tableNameSchemaMapping := map[common.QualifiedTable]*protos.TableSchema{
 		tableName: tableSchema,
 	}
 
 	tableMappings := []*protos.TableMapping{
 		{
-			SourceTableIdentifier:      "public.my_table",
-			DestinationTableIdentifier: tableName,
+			SourceTable:      &protos.QualifiedTable{Namespace: "public", Table: "my_table"},
+			DestinationTable: &protos.QualifiedTable{Table: tableName.Table},
 		},
 	}
 
@@ -275,7 +276,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 
 func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 	ctx := t.Context()
-	tableName := "my_table"
+	tableName := common.QualifiedTable{Table: "my_table"}
 	rawTableName := "raw_my_table"
 	endBatchID := int64(10)
 	lastNormBatchID := int64(5)
@@ -289,14 +290,14 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		},
 		NullableEnabled: false,
 	}
-	tableNameSchemaMapping := map[string]*protos.TableSchema{
+	tableNameSchemaMapping := map[common.QualifiedTable]*protos.TableSchema{
 		tableName: tableSchema,
 	}
 
 	tableMappings := []*protos.TableMapping{
 		{
-			SourceTableIdentifier:      "public.my_table",
-			DestinationTableIdentifier: tableName,
+			SourceTable:      &protos.QualifiedTable{Namespace: "public", Table: "my_table"},
+			DestinationTable: &protos.QualifiedTable{Table: tableName.Table},
 		},
 	}
 
@@ -327,7 +328,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 
 func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 	ctx := t.Context()
-	tableName := "my_table"
+	tableName := common.QualifiedTable{Table: "my_table"}
 	rawTableName := "raw_my_table"
 	endBatchID := int64(10)
 	lastNormBatchID := int64(5)
@@ -341,14 +342,14 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		},
 		NullableEnabled: false,
 	}
-	tableNameSchemaMapping := map[string]*protos.TableSchema{
+	tableNameSchemaMapping := map[common.QualifiedTable]*protos.TableSchema{
 		tableName: tableSchema,
 	}
 
 	tableMappings := []*protos.TableMapping{
 		{
-			SourceTableIdentifier:      "public.my_table",
-			DestinationTableIdentifier: tableName,
+			SourceTable:      &protos.QualifiedTable{Namespace: "public", Table: "my_table"},
+			DestinationTable: &protos.QualifiedTable{Table: tableName.Table},
 		},
 	}
 
@@ -393,8 +394,8 @@ func TestGetOrderedPartitionByColumns(t *testing.T) {
 	}
 
 	tableMapping := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "col1",
@@ -497,14 +498,14 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 				Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
 				TableMappings: []*protos.TableMapping{
 					{
-						SourceTableIdentifier:      tableIdentifier,
-						DestinationTableIdentifier: tableIdentifier,
+						SourceTable:      &protos.QualifiedTable{Table: tableIdentifier},
+						DestinationTable: &protos.QualifiedTable{Table: tableIdentifier},
 					},
 				},
 				IsResync: tc.isResync,
 			}
 
-			result, err := c.generateCreateTableSQLForNormalizedTable(ctx, config, tableIdentifier, tableSchema, tc.chVersion, nil)
+			result, err := c.generateCreateTableSQLForNormalizedTable(ctx, config, common.QualifiedTable{Table: tableIdentifier}, tableSchema, tc.chVersion, nil)
 			require.NoError(t, err)
 			require.Len(t, result, 1)
 			sql := result[0]
