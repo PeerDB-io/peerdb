@@ -152,8 +152,8 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 	tblNameMapping := make(map[common.QualifiedTable]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
-		tblNameMapping[internal.QualifiedTableFromProto(v.SourceTable)] =
-			model.NewNameAndExclude(internal.QualifiedTableFromProto(v.DestinationTable), v.Exclude)
+		destination := internal.QualifiedTableFromProto(v.DestinationTable)
+		tblNameMapping[internal.QualifiedTableFromProto(v.SourceTable)] = model.NewNameAndExclude(destination, v.Exclude)
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
