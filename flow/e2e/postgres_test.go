@@ -1084,7 +1084,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	assert.EqualValues(s.t, 7, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
 	assert.EqualValues(s.t, 6, workflowState.SyncFlowOptions.BatchSize)
 	assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 1)
-	assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 1)
+	assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdMapping, 1)
 
 	if !s.t.Failed() {
 		SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
@@ -1126,7 +1126,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		assert.EqualValues(s.t, 14, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
 		assert.EqualValues(s.t, 12, workflowState.SyncFlowOptions.BatchSize)
 		assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 2)
-		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 2)
+		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdMapping, 2)
 	}
 
 	env.Cancel(s.t.Context())
