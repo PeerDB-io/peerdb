@@ -17,9 +17,28 @@ message AlertInput {
   string message = 2;
 }
 
+// QualifiedTable is the canonical representation of a table identifier.
+// Components are stored raw (unquoted, unescaped), so names may contain dots.
+message QualifiedTable {
+  // schema (Postgres), database (MySQL/MongoDB), dataset or project.dataset (BigQuery),
+  // EventHub namespace; empty for table-only destinations (ClickHouse, Kafka, PubSub,
+  // Elasticsearch, S3)
+  string namespace = 1;
+  // table / collection / topic / index; EventHub packs "eventhub.partition_key_column"
+  string table = 2;
+}
+
+message QualifiedTableMapping {
+  QualifiedTable source = 1;
+  QualifiedTable destination = 2;
+}
+
 message TableNameMapping {
+  // legacy dotted identifiers, prefer source/destination
   string source_table_name = 1;
   string destination_table_name = 2;
+  QualifiedTable source = 3;
+  QualifiedTable destination = 4;
 }
 
 message ColumnSetting {
@@ -32,6 +51,8 @@ message ColumnSetting {
 }
 
 message TableMapping {
+  // legacy dotted identifiers, only populated at the API boundary; prefer
+  // source_table/destination_table internally
   string source_table_identifier = 1;
   string destination_table_identifier = 2;
   string partition_key = 3;
@@ -41,6 +62,8 @@ message TableMapping {
   string sharding_key = 7;
   string policy_name = 8;
   string partition_by_expr = 9;
+  QualifiedTable source_table = 10;
+  QualifiedTable destination_table = 11;
 }
 
 message SetupInput {
@@ -152,8 +175,11 @@ message FlowConnectionConfigsCore {
 }
 
 message RenameTableOption {
+  // legacy dotted identifiers, prefer current_table/new_table
   string current_name = 1;
   string new_name = 2;
+  QualifiedTable current_table = 3;
+  QualifiedTable new_table = 4;
 }
 
 message RenameTablesInput {
@@ -167,9 +193,11 @@ message RenameTablesInput {
 
 message RemoveTablesFromRawTableInput {
   string flow_job_name = 1;
+  // legacy dotted identifiers, prefer destination_tables
   repeated string destination_table_names = 2;
   int64 sync_batch_id = 3;
   int64 normalize_batch_id = 4;
+  repeated QualifiedTable destination_tables = 5;
 }
 
 message RenameTablesOutput {
@@ -178,8 +206,10 @@ message RenameTablesOutput {
 
 message CreateTablesFromExistingInput {
   string flow_job_name = 1;
+  // legacy dotted identifiers, prefer new_to_existing (source = new, destination = existing)
   map<string, string> new_to_existing_table_mapping = 3;
   string peer_name = 4;
+  repeated QualifiedTableMapping new_to_existing = 5;
 }
 
 message CreateTablesFromExistingOutput {
@@ -190,16 +220,20 @@ message SyncFlowOptions {
   reserved 5;
   uint32 batch_size = 1;
   uint64 idle_timeout_seconds = 3;
+  // legacy dotted identifiers, prefer src_table_id_mapping
   map<uint32, string> src_table_id_name_mapping = 4;
   repeated TableMapping table_mappings = 6;
   int32 number_of_syncs = 7;
+  map<uint32, QualifiedTable> src_table_id_mapping = 8;
 }
 
 message EnsurePullabilityBatchInput {
   string flow_job_name = 2;
+  // legacy dotted identifiers, prefer source_tables
   repeated string source_table_identifiers = 3;
   bool check_constraints = 4;
   string peer_name = 5;
+  repeated QualifiedTable source_tables = 6;
 }
 
 message PostgresTableIdentifier {
@@ -207,11 +241,18 @@ message PostgresTableIdentifier {
 }
 
 message EnsurePullabilityBatchOutput {
+  message TableRelId {
+    QualifiedTable table = 1;
+    uint32 rel_id = 2;
+  }
+  // legacy dotted identifiers, prefer table_rel_ids
   map<string, PostgresTableIdentifier> table_identifier_mapping = 1;
+  repeated TableRelId table_rel_ids = 2;
 }
 
 message SetupReplicationInput {
   string flow_job_name = 2;
+  // legacy dotted identifiers, prefer qualified_table_mappings
   map<string, string> table_name_mapping = 3;
   map<string, string> env = 4;
 
@@ -221,6 +262,7 @@ message SetupReplicationInput {
   string existing_replication_slot_name = 7;
   string peer_name = 8;
   string destination_name = 9;
+  repeated QualifiedTableMapping qualified_table_mappings = 10;
 }
 
 message SetupReplicationOutput {
@@ -231,14 +273,18 @@ message SetupReplicationOutput {
 
 message CreateRawTableInput {
   string flow_job_name = 2;
+  // legacy dotted identifiers, prefer qualified_table_mappings
   map<string, string> table_name_mapping = 3;
   string peer_name = 4;
+  repeated QualifiedTableMapping qualified_table_mappings = 5;
 }
 
 message CreateRawTableOutput { string table_identifier = 1; }
 
 // stored in catalog table table_schema_mapping, be wary of breaking changes
 message TableSchema {
+  // legacy dotted identifier; still read for rows persisted before the QualifiedTable
+  // migration, prefer table
   string table_identifier = 1;
   repeated string primary_key_columns = 2;
   bool is_replica_identity_full = 3;
@@ -246,6 +292,7 @@ message TableSchema {
   bool nullable_enabled = 5;
   repeated FieldDescription columns = 6;
   uint32 table_oid = 7;
+  QualifiedTable table = 8;
 }
 
 message FieldDescription {
@@ -286,7 +333,13 @@ message SetupNormalizedTableOutput {
 }
 
 message SetupNormalizedTableBatchOutput {
+  message TableExistsEntry {
+    QualifiedTable table = 1;
+    bool exists = 2;
+  }
+  // legacy dotted identifiers, prefer tables
   map<string, bool> table_exists_mapping = 1;
+  repeated TableExistsEntry tables = 2;
 }
 
 // partition ranges [start, end] inclusive
@@ -367,11 +420,13 @@ message QRepConfig {
   reserved 2, 3;
   string flow_job_name = 1;
 
+  // legacy dotted identifier, prefer destination_table
   string destination_table_identifier = 4;
 
   // If present, the query provided by the user. If empty, a full-table query determined by the connector.
   string query = 5;
 
+  // legacy dotted identifier, prefer qualified_watermark_table
   string watermark_table = 6;
   string watermark_column = 7;
 
@@ -427,12 +482,17 @@ message QRepConfig {
   repeated string flags = 31; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
   bool add_null_partition = 32; // internal
+
+  QualifiedTable qualified_watermark_table = 33;
+  QualifiedTable destination_table = 34;
 }
 
 message ChildTableRange {
+  // legacy dotted identifier, prefer child_table
   string table = 1;
   uint32 start = 2;
   uint32 end = 3;
+  QualifiedTable child_table = 4;
 }
 
 message QRepPartition {
@@ -465,11 +525,14 @@ message DropFlowInput {
 }
 
 message TableSchemaDelta {
+  // legacy dotted identifiers, prefer src_table/dst_table
   string src_table_name = 1;
   string dst_table_name = 2;
   repeated FieldDescription added_columns = 3;
   TypeSystem system = 4;
   bool nullable_enabled = 5;
+  QualifiedTable src_table = 6;
+  QualifiedTable dst_table = 7;
 }
 
 message QRepFlowState {
@@ -536,7 +599,9 @@ message FlowConfigUpdate {
 }
 
 message SetupFlowOutput {
+  // legacy dotted identifiers, prefer src_table_id_mapping
   map<uint32, string> src_table_id_name_mapping = 1;
+  map<uint32, QualifiedTable> src_table_id_mapping = 2;
 }
 
 message AddTablesToPublicationInput {

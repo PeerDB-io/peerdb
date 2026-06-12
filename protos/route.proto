@@ -136,8 +136,10 @@ message CDCRowCounts {
   int64 deletes_count = 4;
 }
 message CDCTableRowCounts {
+  // legacy dotted display name, prefer table
   string table_name = 1;
   CDCRowCounts counts = 2;
+  peerdb_flow.QualifiedTable table = 3;
 }
 
 message CDCTableTotalCountsRequest { string flow_job_name = 1; }

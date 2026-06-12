@@ -18,6 +18,30 @@ func (t QualifiedTable) MySQL() string {
 	return fmt.Sprintf("%s.%s", QuoteMySQLIdentifier(t.Namespace), QuoteMySQLIdentifier(t.Table))
 }
 
+// LegacyDotted renders the identifier in the unquoted dotted wire format used before
+// QualifiedTable was introduced. Only for surfaces where that format is persisted or
+// user-exposed and must stay stable: _peerdb_destination_table_name values in raw
+// tables, the Lua script API, child workflow IDs and API display fields. Ambiguous when
+// a component contains a dot (mirror validation rejects colliding pairs); never use it
+// for logs or new functionality.
+func (t QualifiedTable) LegacyDotted() string {
+	if t.Namespace == "" {
+		return t.Table
+	}
+	return t.Namespace + "." + t.Table
+}
+
+// NormalizeTableIdentifier converts a legacy dotted identifier into a QualifiedTable
+// with the pre-QualifiedTable first-dot-split semantics; identifiers without a dot are
+// table-only. Pure and total so it is safe inside Temporal workflow code.
+func NormalizeTableIdentifier(identifier string) QualifiedTable {
+	namespace, table, hasDot := strings.Cut(identifier, ".")
+	if !hasDot {
+		return QualifiedTable{Table: identifier}
+	}
+	return QualifiedTable{Namespace: namespace, Table: table}
+}
+
 // ParseTableIdentifier parses a table name into namespace and table name.
 func ParseTableIdentifier(tableIdentifier string) (*QualifiedTable, error) {
 	ns, table, hasDot := strings.Cut(tableIdentifier, ".")
