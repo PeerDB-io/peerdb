@@ -165,6 +165,9 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 		config.MaxBatchSize = state.SyncFlowOptions.BatchSize
 		config.TableMappings = state.SyncFlowOptions.TableMappings
+		// workflow state carries normalized mappings with cleared legacy strings;
+		// refill them for API consumers reading only the pre-struct fields
+		internal.DenormalizeFlowConfigForAPI(config)
 	}
 
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
