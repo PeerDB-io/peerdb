@@ -26,18 +26,7 @@ export const tableMappingSchema = z
       partitionKey: z.string().optional(),
     })
   )
-  .nonempty('At least one table mapping is required')
-  .superRefine((mappingArray, ctx) => {
-    if (
-      mappingArray.map((val) => val.destinationTableIdentifier).length !==
-      new Set(mappingArray).size
-    ) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `Two source tables have been mapped to the same destination table`,
-      });
-    }
-  });
+  .nonempty('At least one table mapping is required');
 
 export const cdcSchema = z.object({
   sourceName: z.string({ error: 'Source peer is required' }).min(1),
