@@ -16,38 +16,45 @@ Branch: `qualified-table-identifiers`
 - [x] 1.4 flow/internal/identifier_normalization.go (Normalize*/Denormalize* for all
       identifier-bearing messages) + tests incl. old-wire-format fixture test
 
-## Phase 2 — Normalization boundary
-- [ ] 2.1 gRPC handlers (CreateCDCFlow, CreateQRepFlow, FlowStateChange, validate_mirror, cancel_table_addition, mirror_status denormalize)
-- [ ] 2.2 catalog config loads (FetchConfigFromDB, getTableNameSchemaMapping, internal/postgres.go)
-- [ ] 2.3 workflows entry normalization + resync/rename/ensurePullability struct logic
-- [ ] 2.4 activity entry normalization (belt-and-suspenders)
+## Phase 2 — Normalization boundary — DONE (commit 3ad972fa)
+- [x] 2.1 gRPC handlers: CreateCDCFlow/ValidateCDCMirror/CreateQRepFlow normalize at entry;
+      FlowStateChange normalizes CDCFlowConfigUpdate + validates additions;
+      validateTableMappingIdentifiers (dups, LegacyDotted collisions, empties);
+      mirror_status getFlowConfigFromCatalog normalize+denormalize; persisted configs
+      keep both forms (rollback safety: createCdcJobEntry, createQRepJobEntry,
+      UpdateCDCConfigInCatalog, UpdateCdcJobEntry, MarshalTableSchemaForCatalog)
+- [x] 2.2 catalog loads: FetchConfigFromDB, getTableNameSchemaMapping (split columns),
+      internal/postgres.go Load/ReadModifyWrite/UpdateOIDs (struct keys + split columns)
+- [x] 2.3 workflows: entry normalization in cdc/setup/snapshot/qrep/xmin/drop/cancel;
+      resync `_resync` suffix on .Table; rename options structs; ensurePullability
+      TableRelIds + uniqueness check; SetupFlowOutput.src_table_id_mapping;
+      GetDefaultPartitionKeyForTablesOutput.table_partition_keys (proto gap, added)
+- [x] 2.4 activity entry normalization: SetupTableSchema, CreateNormalizedTable,
+      SyncFlow, EnsurePullability, CreateRawTable, RenameTables, RemoveTables*,
+      AddTables/RemoveTablesFromPublication, CreateTablesFromExisting,
+      MigratePostgresTableOIDs, QRep activities, SetupReplication, snapshot activities,
+      cancel_table_addition activities; NormalizeTableSchemaDelta(s) added
 
-## Phase 3 — Model & internal plumbing
-- [ ] model.go map rekeying (NameAndExclude, PullRecordsRequest, TableWithPkey, etc.)
-- [ ] record.go GetDestinationTable()/GetSourceTable()
-- [ ] conversion_avro + raw-row writers use LegacyDotted
-- [ ] schema_helpers.go struct keys
-- [ ] flowable_core.go / flowable.go plumbing
-- [ ] telemetry activity_logging queries
-- [ ] pua/peerdb.go LegacyDotted
+## Phase 3 — Model & internal plumbing — DONE (commit 3ad972fa)
+- [x] model.go map rekeying; record.go GetDestinationTable()/GetSourceTable();
+      numeric_truncator struct keys; stream.go raw rows LegacyDotted;
+      schema_helpers struct keys + CompareQualifiedTables/SortedQualifiedTables;
+      flowable_core/flowable plumbing; telemetry activity_logging (split columns +
+      LegacyDotted display); pua/peerdb.go LegacyDotted
 
-## Phase 4 — Connectors
-- [ ] postgres source
-- [ ] mysql
-- [ ] mongo
-- [ ] clickhouse
-- [ ] snowflake
-- [ ] bigquery
-- [ ] postgres destination + pkg/postgres
-- [ ] kafka / pubsub / s3 / elasticsearch / eventhub
-- [ ] connectors/core.go interfaces
+## Phase 4 — Connectors — DONE (commit 3ad972fa, via parallel subagents + review)
+- [x] postgres (agent; TableRelIds output, publication tuple checks, child ranges)
+- [x] mysql + mongo (agent; binlog struct construction, dotted mongo collections)
+- [x] clickhouse (agent; table-only namespace enforced in validate, LegacyDotted raw lookups)
+- [x] snowflake + bigquery (agent; per-component casing, convertToDatasetTable matrix + test)
+- [x] postgres destination + pkg/postgres; kafka/pubsub/s3/elasticsearch/eventhub (orchestrator)
+- [x] connectors/core.go interfaces
 
-## Phase 5 — Catalog migrations + monitoring
-- [ ] V54 table_schema_mapping namespace split
-- [ ] V55 cdc_table_aggregate_counts namespace split
-- [ ] V56 qrep_runs namespaces
-- [ ] V57 drop flows legacy identifier columns (verify nexus first)
-- [ ] monitoring.go / mirror_status.go / flowable.go query updates
+## Phase 5 — Catalog migrations + monitoring — DONE (commit 3ad972fa)
+- [x] V54/V55/V56 split-column migrations + backfills; V57 drops dead flows columns
+      (verified nexus/ui don't reference)
+- [x] monitoring.go (split columns), mirror_status.go CDCTableTotalCounts (+ struct in
+      response), flowable.go RecordMetricsAggregates, reset_sequences quoting
 
 ## Phase 6 — UI
 - [ ] tableIdentifier.ts utils

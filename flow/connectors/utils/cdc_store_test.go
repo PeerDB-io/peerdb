@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -28,7 +29,7 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordI
 	rv := decimalForTesting
 
 	key := model.TableWithPkey{
-		TableName:  "test_src_tbl",
+		TableName:  common.QualifiedTable{Namespace: "test", Table: "src_tbl"},
 		PkeyColVal: [32]byte(pkeyColVal),
 	}
 	rec := &model.InsertRecord[model.RecordItems]{
@@ -36,9 +37,9 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordI
 			CheckpointID:   1,
 			CommitTimeNano: time.Now().UnixNano(),
 		},
-		SourceTableName:      "test_src_tbl",
-		DestinationTableName: "test_dst_tbl",
-		CommitID:             2,
+		SourceTable:      common.QualifiedTable{Namespace: "test", Table: "src_tbl"},
+		DestinationTable: common.QualifiedTable{Namespace: "test", Table: "dst_tbl"},
+		CommitID:         2,
 		Items: model.RecordItems{
 			ColToVal: map[string]types.QValue{
 				"id": types.QValueInt64{Val: 1},
