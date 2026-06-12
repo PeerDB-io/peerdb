@@ -90,9 +90,12 @@ Branch: `qualified-table-identifiers`
       ui tsc + lint clean; golangci-lint ./... 0 issues
 - [x] unit tests green locally (TZ=UTC; catalog env needed for avro-size tests;
       remaining failures pre-existing/environmental, verified against main)
-- [x] tilt e2e runs: TestGenericCH_PG full suite PASSED (final rerun in flight at
-      time of writing), TestApiPg subtests all PASS after fixes, connector_clickhouse
-      PASSED, dotted-name tests all PASSED
+- [x] tilt e2e runs: TestGenericCH_PG full suite PASSED TWICE (incl. final rerun on
+      the finished code), TestApiPg subtests all PASS after fixes, connector_clickhouse
+      PASSED, dotted-name tests all PASSED (incl. schema-change replay on dotted table)
+
+## STATUS: COMPLETE (2026-06-12)
+All plan phases implemented and verified. 16 commits on qualified-table-identifiers.
 - [x] manual upgrade testing per plan section E: live old-bits mirror resumed + synced
       on new bits (E1, E2 partial); V54-57 backfill verified on 30 real rows (E3);
       MirrorStatus dual-form verified via HTTP gateway after fixing a real bug (E5);
