@@ -112,5 +112,22 @@ Branch: `qualified-table-identifiers`
   `connector_postgres`: 4 failures, all pre-existing/environmental — 3 SSH keepalive
   tests (toxiproxy state) + TestSupportedDataTypes (fails identically on main; tz-
   sensitive time assertion). pua tests need TZ=UTC (also pre-existing).
-- 2026-06-12: Triggered `e2e_mysql-gtid` (TestGenericCH_MySQL) and `e2e_api-postgres`
-  (TestApiPg) suites; monitoring.
+- 2026-06-12: `e2e_mysql-gtid`: fails with "source tables do not exist" — reproduced
+  IDENTICALLY on pure main bits (main flow-api + main test code): pre-existing
+  environmental issue in this dev env (mysql general log shows the validation SELECT
+  never reaches the server the test creates tables on). NOT caused by the refactor.
+- 2026-06-12: **Dotted-name feature verified live**: `TestGenericCH_PG/Test_Dotted_Names_CDC`
+  PASSED (dotted PG schema "e2e_dot.X" + table "ta.ble" → dotted CH table "ta.ble_dst",
+  snapshot + CDC insert/update/delete). `TestMirrorValidation_DottedIdentifierCollisions`
+  PASSED (duplicate/collision/empty rejections).
+- 2026-06-12: TestApiPg triage: (a) TestMirrorValidation_InvalidTableMappings — error
+  code changed FailedPrecondition→InvalidArgument by design (boundary validation);
+  updated test + tightened validator (source namespace required). (b)
+  TestPostgresTableOIDsMigration — e2e conversion bug: helper queried catalog by SOURCE
+  key but table_schema_mapping is DESTINATION-keyed; renamed helper to
+  getCatalogTableSchemaForDestinationTable and fixed callers. (c) Resync/Drop subtest
+  failures overlapped checkout-triggered flow-api rebuilds mid-suite; re-running on a
+  stable stack.
+- 2026-06-12: NOTE deviation: Tilt proto-gen regenerates flow/generated (gitignored!)
+  from the working tree — switching branches clobbers it; rerun `buf generate protos`
+  + `go generate` after any checkout.

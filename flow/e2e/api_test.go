@@ -190,15 +190,17 @@ func (s APITestSuite) checkCatalogTableMapping(
 	return true, nil
 }
 
-func (s APITestSuite) getCatalogTableSchemaForSourceTable(
+// table_schema_mapping is keyed by destination table; the stored schema value carries
+// the source identifier
+func (s APITestSuite) getCatalogTableSchemaForDestinationTable(
 	ctx context.Context,
 	flowName string,
-	sourceTable common.QualifiedTable,
+	destinationTable common.QualifiedTable,
 ) (*protos.TableSchema, error) {
 	var configBytes sql.RawBytes
 	if err := s.catalog.QueryRow(ctx,
 		`SELECT table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_namespace = $2 AND table_name = $3`,
-		flowName, sourceTable.Namespace, sourceTable.Table,
+		flowName, destinationTable.Namespace, destinationTable.Table,
 	).Scan(&configBytes); err != nil {
 		return nil, err
 	}
@@ -470,7 +472,7 @@ func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
 
 			st, ok := status.FromError(err)
 			require.True(t, ok, "expected gRPC status error")
-			require.Equal(t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition error code")
+			require.Equal(t, codes.InvalidArgument, st.Code(), "expected InvalidArgument error code")
 		})
 	}
 }
@@ -2738,19 +2740,19 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 	require.NotEqual(s.t, uint32(0), table1OID)
 	require.NotEqual(s.t, uint32(0), table2OID)
 
-	schema1, err := s.getCatalogTableSchemaForSourceTable(
+	schema1, err := s.getCatalogTableSchemaForDestinationTable(
 		s.t.Context(),
 		flowConnConfig.FlowJobName,
-		common.QualifiedTable{Namespace: Schema(s), Table: "table1"},
+		common.QualifiedTable{Table: "table1"},
 	)
 	require.NoError(s.t, err)
 	require.Equal(s.t, common.QualifiedTable{Namespace: Schema(s), Table: "table1"}, internal.QualifiedTableFromProto(schema1.Table))
 	require.Equal(s.t, table1OID, schema1.TableOid)
 
-	schema2, err := s.getCatalogTableSchemaForSourceTable(
+	schema2, err := s.getCatalogTableSchemaForDestinationTable(
 		s.t.Context(),
 		flowConnConfig.FlowJobName,
-		common.QualifiedTable{Namespace: Schema(s), Table: "table2"},
+		common.QualifiedTable{Table: "table2"},
 	)
 	require.NoError(s.t, err)
 	require.Equal(s.t, common.QualifiedTable{Namespace: Schema(s), Table: "table2"}, internal.QualifiedTableFromProto(schema2.Table))

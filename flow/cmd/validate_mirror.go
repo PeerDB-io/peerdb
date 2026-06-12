@@ -187,6 +187,9 @@ func validateTableMappingIdentifiers(tableMappings []*protos.TableMapping) error
 		if source.Table == "" {
 			return fmt.Errorf("source table name is empty for destination %s", destination)
 		}
+		if source.Namespace == "" {
+			return fmt.Errorf("source namespace is empty for table %s", source.Table)
+		}
 		if destination.Table == "" {
 			return fmt.Errorf("destination table name is empty for source %s", source)
 		}
