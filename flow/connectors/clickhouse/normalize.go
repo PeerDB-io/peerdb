@@ -52,7 +52,10 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	destinationTable common.QualifiedTable,
 	sourceTableSchema *protos.TableSchema,
 ) (bool, error) {
-	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTable.Table)
+	// LegacyDotted: ClickHouse table names may contain dots; configs persisted before
+	// the QualifiedTable refactor arrive first-dot-split, LegacyDotted reconstructs the
+	// original single-part name (equal to .Table for new configs, namespace == "")
+	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTable.LegacyDotted())
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if destination ClickHouse table exists: %w", err)
 	}
@@ -89,7 +92,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	chVersion *chproto.Version,
 	flags []string,
 ) ([]string, error) {
-	tableIdentifier := destinationTable.Table
+	tableIdentifier := destinationTable.LegacyDotted()
 	var engine string
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
 

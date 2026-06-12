@@ -218,6 +218,11 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 			return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 		}
+	} else if err := validateTableMappingIdentifiers(connectionConfigsCore.TableMappings); err != nil {
+		// SkipValidation skips environmental checks only; structural identifier
+		// invariants (duplicates, dotted-name collisions, empty components) are
+		// relied on by the raw-table round-trip and must always hold
+		return nil, NewInvalidArgumentApiError(err)
 	}
 
 	if resp, err := h.createCDCFlow(ctx, connectionConfigsCore, workflowID); err != nil {
@@ -466,6 +471,20 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
 		if err := validateTableMappingIdentifiers(cdcUpdate.AdditionalTables); err != nil {
 			return nil, NewInvalidArgumentApiError(err)
+		}
+		if len(cdcUpdate.AdditionalTables) > 0 {
+			// added tables must not duplicate or dotted-collide with the flow's
+			// EXISTING tables either, not just within the additions batch
+			config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+			if err != nil {
+				return nil, NewInternalApiError(fmt.Errorf("unable to load flow config to validate additional tables: %w", err))
+			}
+			combined := make([]*protos.TableMapping, 0, len(config.TableMappings)+len(cdcUpdate.AdditionalTables))
+			combined = append(combined, config.TableMappings...)
+			combined = append(combined, cdcUpdate.AdditionalTables...)
+			if err := validateTableMappingIdentifiers(combined); err != nil {
+				return nil, NewInvalidArgumentApiError(fmt.Errorf("additional tables conflict with existing tables: %w", err))
+			}
 		}
 	}
 

@@ -21,7 +21,9 @@ type ScopedEventhub struct {
 // (EventHub names containing dots remain unsupported, as before QualifiedTable).
 func NewScopedEventhub(destination common.QualifiedTable) (ScopedEventhub, error) {
 	eventhubPart, partitionPart, hasDot := strings.Cut(destination.Table, ".")
-	if destination.Namespace == "" || !hasDot {
+	// exactly namespace.eventhub.partition_key_column; extra dots were rejected
+	// before QualifiedTable too
+	if destination.Namespace == "" || !hasDot || strings.ContainsRune(partitionPart, '.') {
 		return ScopedEventhub{}, fmt.Errorf("invalid scoped eventhub '%s'", destination.LegacyDotted())
 	}
 

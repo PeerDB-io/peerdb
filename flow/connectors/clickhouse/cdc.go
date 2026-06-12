@@ -261,7 +261,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		var shardTableName string
 		if c.Config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
 			var err error
-			shardTableName, err = c.getDistributedShardTable(ctx, dstTable.Table)
+			shardTableName, err = c.getDistributedShardTable(ctx, dstTable.LegacyDotted())
 			if err != nil {
 				return fmt.Errorf("failed to resolve shard table for %s: %w", dstTable, err)
 			}
@@ -288,7 +288,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 
 			if err := c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
-					peerdb_clickhouse.QuoteIdentifier(dstTable.Table), onCluster,
+					peerdb_clickhouse.QuoteIdentifier(dstTable.LegacyDotted()), onCluster,
 					peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
 			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, dstTable, err)
@@ -321,7 +321,7 @@ func (c *ClickHouseConnector) RenameTables(
 			continue
 		}
 
-		resyncTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, currentTable.Table)
+		resyncTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, currentTable.LegacyDotted())
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if resync table %s exists: %w", currentTable, err)
 		}
@@ -331,7 +331,7 @@ func (c *ClickHouseConnector) RenameTables(
 			continue
 		}
 
-		originalTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, newTable.Table)
+		originalTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, newTable.LegacyDotted())
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if table %s exists: %w", newTable, err)
 		}
@@ -342,11 +342,11 @@ func (c *ClickHouseConnector) RenameTables(
 			c.logger.Info("attempting atomic exchange",
 				slog.String("OldName", currentTable.String()), slog.String("NewName", newTable.String()))
 			if err = c.execWithLogging(ctx,
-				fmt.Sprintf("EXCHANGE TABLES %s and %s%s", peerdb_clickhouse.QuoteIdentifier(newTable.Table),
-					peerdb_clickhouse.QuoteIdentifier(currentTable.Table), onCluster),
+				fmt.Sprintf("EXCHANGE TABLES %s and %s%s", peerdb_clickhouse.QuoteIdentifier(newTable.LegacyDotted()),
+					peerdb_clickhouse.QuoteIdentifier(currentTable.LegacyDotted()), onCluster),
 			); err == nil {
 				if err := c.execWithLogging(ctx,
-					fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(currentTable.Table), onCluster),
+					fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(currentTable.LegacyDotted()), onCluster),
 				); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", currentTable, err)
 				}
@@ -361,14 +361,14 @@ func (c *ClickHouseConnector) RenameTables(
 		// or err is set (in which case err comes from EXCHANGE TABLES)
 		if !originalTableExists || err != nil {
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(newTable.Table), onCluster),
+				fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(newTable.LegacyDotted()), onCluster),
 			); err != nil {
 				return nil, fmt.Errorf("unable to drop table %s: %w", newTable, err)
 			}
 
 			if err := c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s%s",
-				peerdb_clickhouse.QuoteIdentifier(currentTable.Table),
-				peerdb_clickhouse.QuoteIdentifier(newTable.Table), onCluster,
+				peerdb_clickhouse.QuoteIdentifier(currentTable.LegacyDotted()),
+				peerdb_clickhouse.QuoteIdentifier(newTable.LegacyDotted()), onCluster,
 			)); err != nil {
 				return nil, fmt.Errorf("unable to rename table %s to %s: %w", currentTable, newTable, err)
 			}

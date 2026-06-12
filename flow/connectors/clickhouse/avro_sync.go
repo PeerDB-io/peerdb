@@ -50,7 +50,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM %s",
-		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTable.GetTable()), stagingTableFunction)
+		peerdb_clickhouse.QuoteIdentifier(internal.QualifiedTableFromProto(s.config.DestinationTable).LegacyDotted()), stagingTableFunction)
 	return s.exec(ctx, query)
 }
 
@@ -61,7 +61,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	flowJobName string,
 	syncBatchID int64,
 ) (int64, error) {
-	dstTableName := internal.QualifiedTableFromProto(s.config.DestinationTable).Table
+	dstTableName := internal.QualifiedTableFromProto(s.config.DestinationTable).LegacyDotted()
 
 	schema, err := stream.Schema()
 	if err != nil {
@@ -101,7 +101,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
 	destinationTable := internal.QualifiedTableFromProto(config.DestinationTable)
-	dstTableName := destinationTable.Table
+	dstTableName := destinationTable.LegacyDotted()
 	startTime := time.Now()
 	schema, err := stream.Schema()
 	if err != nil {
@@ -244,7 +244,7 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 	config *protos.QRepConfig,
 ) error {
 	insertConfig := &insertFromTableFunctionConfig{
-		destinationTable: config.DestinationTable.GetTable(),
+		destinationTable: internal.QualifiedTableFromProto(config.DestinationTable).LegacyDotted(),
 		schema:           schema,
 		columnNameMap:    columnNameAvroFieldMap,
 		excludedColumns:  config.Exclude,
@@ -318,7 +318,8 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 					slog.Uint64("numParts", numParts),
 					slog.Int("chunkIdx", chunkIdx),
 					slog.Any("error", err))
-				return exceptions.NewClickHouseQRepSyncError(err, config.DestinationTable.GetTable(), s.ClickHouseConnector.Config.Database)
+				return exceptions.NewClickHouseQRepSyncError(
+					err, internal.QualifiedTableFromProto(config.DestinationTable).LegacyDotted(), s.ClickHouseConnector.Config.Database)
 			}
 
 			s.logger.Info("inserted part",

@@ -103,6 +103,14 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	return nil
 }
 
+// snapshotCloneWorkflowID builds the clone child workflow ID. LegacyDotted keeps the
+// IDs byte-identical to those of pre-QualifiedTable releases so re-attached snapshot
+// clones stay idempotent across upgrades.
+func snapshotCloneWorkflowID(flowName string, srcName common.QualifiedTable, originalRunID string) string {
+	return shared.ReplaceIllegalCharactersWithUnderscores(
+		fmt.Sprintf("clone_%s_%s_%s", flowName, srcName.LegacyDotted(), originalRunID))
+}
+
 func (s *SnapshotFlowExecution) cloneTable(
 	ctx workflow.Context,
 	boundSelector *shared.BoundSelector,
@@ -121,10 +129,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	dstName := internal.QualifiedTableFromProto(mapping.DestinationTable)
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
-	// LegacyDotted keeps child workflow IDs identical to those of earlier releases so
-	// re-attached snapshot clones stay idempotent across upgrades
-	childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, srcName.LegacyDotted(), originalRunID)
-	childWorkflowID = shared.ReplaceIllegalCharactersWithUnderscores(childWorkflowID)
+	childWorkflowID := snapshotCloneWorkflowID(flowName, srcName, originalRunID)
 
 	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName), cloneLog)
@@ -263,6 +268,12 @@ func (s *SnapshotFlowExecution) cloneTables(
 	defaultPartitionKeys := make(map[common.QualifiedTable]string, len(res.TablePartitionKeys))
 	for _, tablePartitionKey := range res.TablePartitionKeys {
 		defaultPartitionKeys[internal.QualifiedTableFromProto(tablePartitionKey.Table)] = tablePartitionKey.PartitionKey
+	}
+	if len(defaultPartitionKeys) == 0 && len(res.TableDefaultPartitionKeyMapping) > 0 {
+		// output recorded by a pre-QualifiedTable release carries only the legacy map
+		for name, partitionKey := range res.TableDefaultPartitionKeyMapping {
+			defaultPartitionKeys[common.NormalizeTableIdentifier(name)] = partitionKey
+		}
 	}
 
 	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)

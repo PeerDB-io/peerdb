@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
@@ -300,7 +301,9 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 	q := `
 	SELECT
 		distinct qr.flow_name,
+		qr.destination_table_namespace,
 		qr.destination_table,
+		qr.source_table_namespace,
 		qr.source_table,
 		qr.start_time AS StartTime,
 		qr.fetch_complete as FetchCompleted,
@@ -312,10 +315,13 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 	FROM peerdb_stats.qrep_partitions qp
 	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
 	WHERE qr.parent_mirror_name = $1
-	GROUP BY qr.flow_name, qr.destination_table, qr.source_table, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
+	GROUP BY qr.flow_name, qr.destination_table_namespace, qr.destination_table,
+		qr.source_table_namespace, qr.source_table, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`
 	var flowName pgtype.Text
+	var destinationTableNamespace pgtype.Text
 	var destinationTable pgtype.Text
+	var sourceTableNamespace pgtype.Text
 	var sourceTable pgtype.Text
 	var fetchCompleted pgtype.Bool
 	var consolidateCompleted pgtype.Bool
@@ -338,7 +344,9 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 	for rows.Next() {
 		if err := rows.Scan(
 			&flowName,
+			&destinationTableNamespace,
 			&destinationTable,
+			&sourceTableNamespace,
 			&sourceTable,
 			&startTime,
 			&fetchCompleted,
@@ -360,11 +368,11 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 		}
 
 		if destinationTable.Valid {
-			res.TableName = destinationTable.String
+			res.TableName = common.QualifiedTable{Namespace: destinationTableNamespace.String, Table: destinationTable.String}.LegacyDotted()
 		}
 
 		if sourceTable.Valid {
-			res.SourceTable = sourceTable.String
+			res.SourceTable = common.QualifiedTable{Namespace: sourceTableNamespace.String, Table: sourceTable.String}.LegacyDotted()
 		}
 
 		if startTime.Valid {

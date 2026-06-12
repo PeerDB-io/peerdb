@@ -207,10 +207,13 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 		}
 
 		destinationTable := record.GetDestinationTable()
-		bulkIndexer, ok := esBulkIndexerCache[destinationTable.Table]
+		// index names may legally contain dots; legacy configs arrive first-dot-split,
+		// LegacyDotted reconstructs the exact pre-split index name
+		destinationIndex := destinationTable.LegacyDotted()
+		bulkIndexer, ok := esBulkIndexerCache[destinationIndex]
 		if !ok {
 			bulkIndexer, err = esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
-				Index:  destinationTable.Table,
+				Index:  destinationIndex,
 				Client: esc.client,
 				// can't really ascertain how many tables present to provide a reasonable value
 				NumWorkers:    1,
@@ -220,7 +223,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 				esc.logger.Error("[elasticsearch] failed to initialize bulk indexer", slog.Any("error", err))
 				return nil, fmt.Errorf("[elasticsearch] failed to initialize bulk indexer: %w", err)
 			}
-			esBulkIndexerCache[destinationTable.Table] = bulkIndexer
+			esBulkIndexerCache[destinationIndex] = bulkIndexer
 		}
 
 		if len(req.TableNameSchemaMapping[destinationTable].PrimaryKeyColumns) == 1 {

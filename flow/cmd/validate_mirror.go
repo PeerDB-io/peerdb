@@ -38,6 +38,9 @@ func validateQRepIdentifiers(cfg *protos.QRepConfig) error {
 	if cfg.DestinationTable.GetTable() == "" {
 		return errors.New("destination table name is empty")
 	}
+	if cfg.WatermarkColumn != "" && cfg.QualifiedWatermarkTable.GetTable() == "" {
+		return errors.New("watermark table is required when a watermark column is configured")
+	}
 	return nil
 }
 
@@ -174,11 +177,13 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 }
 
 // validateTableMappingIdentifiers rejects duplicate sources/destinations, empty table
-// components, and destination pairs whose LegacyDotted renderings collide (e.g.
-// {"a","b.c"} vs {"a.b","c"}) — those would merge in the raw table, which stores the
-// dotted format.
+// components, and source/destination pairs whose LegacyDotted renderings collide (e.g.
+// {"a","b.c"} vs {"a.b","c"}) — colliding destinations would merge in the raw table,
+// which stores the dotted format, and colliding sources would produce duplicate
+// snapshot clone child-workflow IDs.
 func validateTableMappingIdentifiers(tableMappings []*protos.TableMapping) error {
 	sources := make(map[common.QualifiedTable]struct{}, len(tableMappings))
+	sourcesDotted := make(map[string]common.QualifiedTable, len(tableMappings))
 	destinations := make(map[common.QualifiedTable]struct{}, len(tableMappings))
 	destinationsDotted := make(map[string]common.QualifiedTable, len(tableMappings))
 	for _, tm := range tableMappings {
@@ -197,6 +202,11 @@ func validateTableMappingIdentifiers(tableMappings []*protos.TableMapping) error
 			return fmt.Errorf("duplicate source table %s", source)
 		}
 		sources[source] = struct{}{}
+		if other, ok := sourcesDotted[source.LegacyDotted()]; ok {
+			return fmt.Errorf("source tables %s and %s are ambiguous with each other due to dots in names",
+				source, other)
+		}
+		sourcesDotted[source.LegacyDotted()] = source
 		if _, ok := destinations[destination]; ok {
 			return fmt.Errorf("duplicate destination table %s", destination)
 		}

@@ -460,6 +460,9 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig, lastPartition *protos.QRepPartition) error {
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers
+	internal.NormalizeQRepConfig(config)
+
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 4 * time.Hour, // 4 hours
 		HeartbeatTimeout:    time.Minute,
@@ -495,7 +498,7 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 			return nil
 		}
 		logger.Info("QRepWaitForNewRowsWorkflow: continuing the loop")
-		return workflow.NewContinueAsNewError(ctx, QRepWaitForNewRowsWorkflow, config, lastPartition)
+		return continueAsNewQRepWaitForNewRows(ctx, config, lastPartition)
 	}
 
 	logger.Info("QRepWaitForNewRowsWorkflow: exiting the loop")
@@ -578,7 +581,7 @@ func QRepFlowWorkflow(
 			}
 		}
 		if q.activeSignal == model.TerminateSignal {
-			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
+			return state, continueAsNewDropFlow(ctx, q.dropFlowInput)
 		}
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
@@ -616,7 +619,7 @@ func QRepFlowWorkflow(
 	}
 
 	if q.activeSignal == model.TerminateSignal {
-		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
+		return state, continueAsNewDropFlow(ctx, q.dropFlowInput)
 	}
 
 	if q.activeSignal != model.PauseSignal {
@@ -639,7 +642,7 @@ func QRepFlowWorkflow(
 		if config.InitialCopyOnly {
 			q.logger.Info("initial copy completed for peer flow")
 			updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_COMPLETED)
-			return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
+			return state, continueAsNewQRepFlow(ctx, config, state)
 		}
 
 		if err := q.handleTableRenameForResync(ctx, state); err != nil {
@@ -671,7 +674,7 @@ func QRepFlowWorkflow(
 	}
 
 	if q.activeSignal == model.TerminateSignal {
-		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
+		return state, continueAsNewDropFlow(ctx, q.dropFlowInput)
 	}
 
 	q.logger.Info("Continuing as new workflow",
@@ -681,7 +684,7 @@ func QRepFlowWorkflow(
 	if q.activeSignal == model.PauseSignal {
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 	}
-	return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
+	return state, continueAsNewQRepFlow(ctx, config, state)
 }
 
 // QRepPartitionWorkflow replicate a partition batch

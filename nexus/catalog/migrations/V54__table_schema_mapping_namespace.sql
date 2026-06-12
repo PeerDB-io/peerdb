@@ -2,6 +2,10 @@
 -- identifiers. Pre-existing rows were written with first-dot-split semantics, so the
 -- backfill splits at the first dot; rows without a dot (table-only destinations like
 -- ClickHouse) keep an empty namespace.
+--
+-- Rollout prerequisite: the PK swap breaks pre-V54 pods, whose upserts target
+-- ON CONFLICT (flow_name, table_name); deploys run under maintenance pause, so old
+-- pods are drained before migrations apply (same applies to V55).
 ALTER TABLE table_schema_mapping ADD COLUMN IF NOT EXISTS table_namespace TEXT NOT NULL DEFAULT '';
 
 UPDATE table_schema_mapping

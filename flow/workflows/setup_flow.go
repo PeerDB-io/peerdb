@@ -145,8 +145,20 @@ func (s *SetupFlowExecution) ensurePullability(
 		return nil, nil
 	}
 
-	srcTableIdMapping := make(map[uint32]*protos.QualifiedTable, len(ensurePullabilityOutput.TableRelIds))
-	for _, tableRelId := range ensurePullabilityOutput.TableRelIds {
+	tableRelIds := ensurePullabilityOutput.TableRelIds
+	if len(tableRelIds) == 0 && len(ensurePullabilityOutput.TableIdentifierMapping) > 0 {
+		// output recorded by a pre-QualifiedTable release carries only the legacy map
+		tableRelIds = make([]*protos.EnsurePullabilityBatchOutput_TableRelId, 0, len(ensurePullabilityOutput.TableIdentifierMapping))
+		for name, tableIdentifier := range ensurePullabilityOutput.TableIdentifierMapping {
+			tableRelIds = append(tableRelIds, &protos.EnsurePullabilityBatchOutput_TableRelId{
+				Table: internal.QualifiedTableProto(common.NormalizeTableIdentifier(name)),
+				RelId: tableIdentifier.RelId,
+			})
+		}
+	}
+
+	srcTableIdMapping := make(map[uint32]*protos.QualifiedTable, len(tableRelIds))
+	for _, tableRelId := range tableRelIds {
 		if existing, ok := srcTableIdMapping[tableRelId.RelId]; ok {
 			return nil, fmt.Errorf("duplicate relation id %d for tables %s and %s",
 				tableRelId.RelId,

@@ -546,6 +546,7 @@ func (a *FlowableActivity) pullAndSyncPg(
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.
 func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
+	internal.NormalizeQRepConfig(config)
 	conn, connClose, err := connectors.GetByNameAs[connectors.QRepSyncConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
@@ -1597,6 +1598,8 @@ var activeFlowStatuses = map[protos.FlowStatus]struct{}{
 func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
 ) (bool, error) {
+	internal.NormalizeQRepConfig(config)
+	internal.NormalizeQRepPartition(last)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "scanning for new rows"
 	})
@@ -1893,6 +1896,7 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	cfg *protos.FlowConnectionConfigsCore,
 	tablesToRemove []*protos.TableMapping,
 ) error {
+	internal.NormalizeTableMappings(tablesToRemove)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "removing tables from raw table"
 	})

@@ -106,6 +106,25 @@ func DenormalizeQRepConfig(cfg *protos.QRepConfig) {
 	denormalizeQualifiedTable(cfg.DestinationTable, &cfg.DestinationTableIdentifier)
 }
 
+func DenormalizeSyncFlowOptions(opts *protos.SyncFlowOptions) {
+	if opts == nil {
+		return
+	}
+	DenormalizeTableMappings(opts.TableMappings)
+	if len(opts.SrcTableIdNameMapping) == 0 && len(opts.SrcTableIdMapping) > 0 {
+		opts.SrcTableIdNameMapping = make(map[uint32]string, len(opts.SrcTableIdMapping))
+		for relID, table := range opts.SrcTableIdMapping {
+			opts.SrcTableIdNameMapping[relID] = QualifiedTableFromProto(table).LegacyDotted()
+		}
+	}
+}
+
+func DenormalizeDropFlowInput(input *protos.DropFlowInput) {
+	if input != nil {
+		DenormalizeFlowConfigCore(input.FlowConnectionConfigs)
+	}
+}
+
 func NormalizeSyncFlowOptions(opts *protos.SyncFlowOptions) {
 	if opts == nil {
 		return

@@ -42,16 +42,6 @@ func NormalizeTableIdentifier(identifier string) QualifiedTable {
 	return QualifiedTable{Namespace: namespace, Table: table}
 }
 
-// ParseTableIdentifier parses a table name into namespace and table name.
-func ParseTableIdentifier(tableIdentifier string) (*QualifiedTable, error) {
-	ns, table, hasDot := strings.Cut(tableIdentifier, ".")
-	if !hasDot || ns == "" || table == "" || strings.ContainsRune(table, '.') {
-		return nil, fmt.Errorf("invalid table name: %s", tableIdentifier)
-	}
-
-	return &QualifiedTable{ns, table}, nil
-}
-
 // QuoteIdentifier quotes an "identifier" (e.g. a table or a column name) to be
 // used as part of an SQL statement.  For example:
 //

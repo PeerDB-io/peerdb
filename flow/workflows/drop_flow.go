@@ -219,7 +219,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	}
 
 	if input.Resync {
-		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, input.FlowConnectionConfigs, nil)
+		return continueAsNewCDCFlow(ctx, input.FlowConnectionConfigs, nil)
 	}
 
 	return nil

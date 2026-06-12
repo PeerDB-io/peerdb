@@ -63,7 +63,7 @@ func XminFlowWorkflow(
 			}
 		}
 		if q.activeSignal == model.TerminateSignal {
-			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
+			return state, continueAsNewDropFlow(ctx, q.dropFlowInput)
 		}
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
@@ -140,7 +140,7 @@ func XminFlowWorkflow(
 	}
 
 	if q.activeSignal == model.TerminateSignal {
-		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
+		return state, continueAsNewDropFlow(ctx, q.dropFlowInput)
 	}
 
 	logger.Info("Continuing as new workflow",
@@ -150,5 +150,5 @@ func XminFlowWorkflow(
 	if q.activeSignal == model.PauseSignal {
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 	}
-	return state, workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
+	return state, continueAsNewXminFlow(ctx, config, state)
 }

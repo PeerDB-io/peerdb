@@ -330,7 +330,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
-		peerdb_clickhouse.QuoteIdentifier(t.TableName.Table), colSelector.String(), selectQuery.String(), chSettings.String())
+		peerdb_clickhouse.QuoteIdentifier(t.TableName.LegacyDotted()), colSelector.String(), selectQuery.String(), chSettings.String())
 
 	t.Query = insertIntoSelectQuery
 

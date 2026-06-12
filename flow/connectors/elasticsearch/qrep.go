@@ -15,6 +15,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v8/esutil"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -54,7 +55,9 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	var numRecords int64
 	bulkIndexerHasShutdown := false
 
-	destinationIndex := config.DestinationTable.GetTable()
+	// index names may legally contain dots; legacy configs arrive first-dot-split,
+	// LegacyDotted reconstructs the exact pre-split index name
+	destinationIndex := internal.QualifiedTableFromProto(config.DestinationTable).LegacyDotted()
 
 	// len == 0 means use UUID
 	// len == 1 means single column, use value directly

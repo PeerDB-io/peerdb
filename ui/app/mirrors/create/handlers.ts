@@ -232,23 +232,39 @@ export function changesToTablesMapping(
       }
       return false;
     })
-    .map(
-      (row) =>
-        ({
-          sourceTable: row.sourceTable,
-          destinationTable: parseDestinationInput(
-            row.destination,
-            destinationType
-          ),
-          partitionKey: row.partitionKey,
-          exclude: Array.from(row.exclude),
-          columns: row.columns,
-          engine: row.engine,
-          shardingKey: row.shardingKey,
-          policyName: row.policyName,
-          partitionByExpr: row.partitionByExpr,
-        }) as TableMapping
-    );
+    .map((row) => {
+      if (isRemoval) {
+        // removals must reference the exact identifiers stored in the mirror
+        // config; re-parsing the display text can mismatch legacy mirrors whose
+        // dotted destination was split differently than the current peer-type
+        // parse (e.g. table-only destinations with dots in the name)
+        const canonical = currentTableMapping
+          .get(row.schema)
+          ?.find(
+            (tableMap) =>
+              (tableMap.sourceTable
+                ? displayQualifiedTable(tableMap.sourceTable)
+                : tableMap.sourceTableIdentifier) === row.source
+          );
+        if (canonical) {
+          return canonical;
+        }
+      }
+      return {
+        sourceTable: row.sourceTable,
+        destinationTable: parseDestinationInput(
+          row.destination,
+          destinationType
+        ),
+        partitionKey: row.partitionKey,
+        exclude: Array.from(row.exclude),
+        columns: row.columns,
+        engine: row.engine,
+        shardingKey: row.shardingKey,
+        policyName: row.policyName,
+        partitionByExpr: row.partitionByExpr,
+      } as TableMapping;
+    });
   return mapping;
 }
 
@@ -355,6 +371,15 @@ export async function handleCreateQRep(
   }
   config.flowJobName = flowJobName;
   config.query = query;
+
+  // the destination was parsed as the user typed, possibly before the destination
+  // peer was selected; re-parse the displayed text with the final peer type
+  if (config.destinationTable) {
+    config.destinationTable = parseDestinationInput(
+      displayQualifiedTable(config.destinationTable),
+      destinationType
+    );
+  }
 
   if (!ValidSchemaQualifiedTarget(destinationType, config.destinationTable)) {
     notifyErr(

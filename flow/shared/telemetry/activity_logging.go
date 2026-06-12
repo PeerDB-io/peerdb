@@ -147,7 +147,7 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 	if len(update.AdditionalTables) > 0 {
 		addedTables := make([]string, 0, len(update.AdditionalTables))
 		for _, t := range update.AdditionalTables {
-			addedTables = append(addedTables, t.SourceTableIdentifier)
+			addedTables = append(addedTables, internal.QualifiedTableFromProto(t.SourceTable).String())
 		}
 		changes = append(changes, fmt.Sprintf("tables added: %v", addedTables))
 	}
@@ -155,7 +155,7 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 	if len(update.RemovedTables) > 0 {
 		removedTables := make([]string, 0, len(update.RemovedTables))
 		for _, t := range update.RemovedTables {
-			removedTables = append(removedTables, t.SourceTableIdentifier)
+			removedTables = append(removedTables, internal.QualifiedTableFromProto(t.SourceTable).String())
 		}
 		changes = append(changes, fmt.Sprintf("tables removed: %v", removedTables))
 	}
