@@ -551,10 +551,6 @@ func (c *MongoConnector) SetupReplConn(context.Context, map[string]string) error
 	return nil
 }
 
-func (c *MongoConnector) ReplPing(context.Context) error {
-	return nil
-}
-
 func (c *MongoConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error {
 	return nil
 }

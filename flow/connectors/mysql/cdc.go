@@ -358,10 +358,6 @@ func (c *MySqlConnector) closeSyncerWithTimeout(syncer *replication.BinlogSyncer
 	}
 }
 
-func (c *MySqlConnector) ReplPing(context.Context) error {
-	return nil
-}
-
 func (c *MySqlConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error {
 	flowName := ctx.Value(shared.FlowNameKey).(string)
 	return c.SetLastOffset(ctx, flowName, lastOffset)
