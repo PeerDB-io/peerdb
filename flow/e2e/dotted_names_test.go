@@ -166,6 +166,15 @@ func (s Generic) Test_Dotted_Names_CDC() {
 
 	envWaitForEqualDottedTables(env, s, "cdc insert/update/delete", source, srcQuoted, dst, "id,val")
 
+	// schema change on a dotted table: the delta carries QualifiedTable structs and the
+	// destination ALTER must quote per component
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		"ALTER TABLE %s ADD COLUMN val2 TEXT", srcQuoted)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		"INSERT INTO %s (val, val2) VALUES ('post_alter', 'v2')", srcQuoted)))
+
+	envWaitForEqualDottedTables(env, s, "schema change on dotted table", source, srcQuoted, dst, "id,val,val2")
+
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
 }

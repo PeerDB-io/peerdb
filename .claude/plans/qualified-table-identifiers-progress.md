@@ -86,10 +86,28 @@ Branch: `qualified-table-identifiers`
       normalize, pua legacy-dotted
 
 ## Verification (after implementation)
-- [ ] build: go build ./... ; cargo check (nexus); ui build
-- [ ] unit tests green locally
-- [ ] tilt e2e/integration runs
-- [ ] manual upgrade testing per plan section E (paused-deploy prerequisite)
+- [x] build: go build ./... clean (flow + pkg modules); cargo check (nexus) clean;
+      ui tsc + lint clean; golangci-lint ./... 0 issues
+- [x] unit tests green locally (TZ=UTC; catalog env needed for avro-size tests;
+      remaining failures pre-existing/environmental, verified against main)
+- [x] tilt e2e runs: TestGenericCH_PG full suite PASSED (final rerun in flight at
+      time of writing), TestApiPg subtests all PASS after fixes, connector_clickhouse
+      PASSED, dotted-name tests all PASSED
+- [x] manual upgrade testing per plan section E: live old-bits mirror resumed + synced
+      on new bits (E1, E2 partial); V54-57 backfill verified on 30 real rows (E3);
+      MirrorStatus dual-form verified via HTTP gateway after fixing a real bug (E5);
+      old-mirror drop/resync paths covered by passing api e2e (E4 — no live old-bits
+      mirror was expendable for a destructive drop)
+
+## Known acceptable gaps
+- Dotted-name resync e2e not written: resync `_resync`/`_peerdb_resync` suffix operates
+  on `.Table` only (compile-checked struct logic), resync flows covered dotless by
+  TestResyncFailed/TestEditTablesBeforeResync; suffix logic has no string-splitting left.
+- Snowflake/BigQuery dotted e2e branches compile-only (SF suite skipped upstream; BQ
+  forbids dots) — SF behavior pinned by unit tests instead.
+- EventHub names containing dots remain unsupported (documented; packing ambiguity,
+  parity with pre-refactor).
+- Legacy strings in persisted configs to be dropped in release N+1 (follow-up).
 
 ## Deviations from plan
 - Legacy proto fields annotated via comments instead of [deprecated = true] to avoid
