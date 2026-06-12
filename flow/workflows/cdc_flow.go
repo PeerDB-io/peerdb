@@ -385,10 +385,24 @@ func processTableRemovals(
 		}
 		logger.Info("tables removed from publication")
 
+		// destinations still fed by remaining mappings keep raw rows & schema mapping,
+		// pending rows still normalize into surviving destination table
+		// relies on TableMappings being trimmed before selector callbacks fire
+		remainingDestinations := make(map[common.QualifiedTable]struct{}, len(state.SyncFlowOptions.TableMappings))
+		for _, tm := range state.SyncFlowOptions.TableMappings {
+			remainingDestinations[internal.QualifiedTableFromProto(tm.DestinationTable)] = struct{}{}
+		}
+		exclusivelyRemovedTables := make([]*protos.TableMapping, 0, len(state.FlowConfigUpdate.RemovedTables))
+		for _, tm := range state.FlowConfigUpdate.RemovedTables {
+			if _, shared := remainingDestinations[internal.QualifiedTableFromProto(tm.DestinationTable)]; !shared {
+				exclusivelyRemovedTables = append(exclusivelyRemovedTables, tm)
+			}
+		}
+
 		rawTableCleanupFuture := workflow.ExecuteActivity(
 			removeTablesCtx,
 			flowable.RemoveTablesFromRawTable,
-			cfg, state.FlowConfigUpdate.RemovedTables)
+			cfg, exclusivelyRemovedTables)
 		removeTablesSelector.AddFuture(rawTableCleanupFuture, func(f workflow.Future) {
 			if err := f.Get(ctx, nil); err != nil {
 				logger.Error("failed to clean up raw table for removed tables", slog.Any("error", err))
@@ -400,7 +414,7 @@ func processTableRemovals(
 			removeTablesFromCatalogFuture := workflow.ExecuteActivity(
 				removeTablesCtx,
 				flowable.RemoveTablesFromCatalog,
-				cfg, state.FlowConfigUpdate.RemovedTables)
+				cfg, exclusivelyRemovedTables)
 			removeTablesSelector.AddFuture(removeTablesFromCatalogFuture, func(f workflow.Future) {
 				if err := f.Get(ctx, nil); err != nil {
 					logger.Error("failed to clean up raw table for removed tables", slog.Any("error", err))

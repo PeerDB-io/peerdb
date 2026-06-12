@@ -1916,6 +1916,26 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 
+	// N:1 mappings can list the same destination more than once; dedupe by struct
+	destinationTables := make([]*protos.QualifiedTable, 0, len(tablesToRemove))
+	seenDestinations := make(map[common.QualifiedTable]struct{}, len(tablesToRemove))
+	for _, table := range tablesToRemove {
+		key := internal.QualifiedTableFromProto(table.DestinationTable)
+		if _, ok := seenDestinations[key]; !ok {
+			seenDestinations[key] = struct{}{}
+			destinationTables = append(destinationTables, table.DestinationTable)
+		}
+	}
+	slices.SortFunc(destinationTables, func(a, b *protos.QualifiedTable) int {
+		return internal.CompareQualifiedTables(internal.QualifiedTableFromProto(a), internal.QualifiedTableFromProto(b))
+	})
+	if len(destinationTables) == 0 || syncBatchID <= normBatchID {
+		logger.Info("[RemoveTablesFromRawTable] no pending raw rows to remove, skipping",
+			slog.Int64("syncBatchID", syncBatchID), slog.Int64("normalizeBatchID", normBatchID),
+			slog.Int("tables", len(destinationTables)))
+		return nil
+	}
+
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.RawTableConnector](ctx, cfg.Env, a.CatalogPool, cfg.DestinationName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -1929,10 +1949,6 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	}
 	defer dstClose(ctx)
 
-	destinationTables := make([]*protos.QualifiedTable, 0, len(tablesToRemove))
-	for _, table := range tablesToRemove {
-		destinationTables = append(destinationTables, table.DestinationTable)
-	}
 	if err := dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
 		FlowJobName:       cfg.FlowJobName,
 		DestinationTables: destinationTables,

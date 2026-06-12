@@ -176,15 +176,15 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	return &protos.ValidateCDCMirrorResponse{}, nil
 }
 
-// validateTableMappingIdentifiers rejects duplicate sources/destinations, empty table
-// components, and source/destination pairs whose LegacyDotted renderings collide (e.g.
+// validateTableMappingIdentifiers rejects duplicate sources, empty table components,
+// and source/destination pairs whose LegacyDotted renderings collide (e.g.
 // {"a","b.c"} vs {"a.b","c"}) — colliding destinations would merge in the raw table,
 // which stores the dotted format, and colliding sources would produce duplicate
-// snapshot clone child-workflow IDs.
+// snapshot clone child-workflow IDs. The exact same destination MAY repeat: N:1
+// mappings (multiple sources sharing one destination) are supported.
 func validateTableMappingIdentifiers(tableMappings []*protos.TableMapping) error {
 	sources := make(map[common.QualifiedTable]struct{}, len(tableMappings))
 	sourcesDotted := make(map[string]common.QualifiedTable, len(tableMappings))
-	destinations := make(map[common.QualifiedTable]struct{}, len(tableMappings))
 	destinationsDotted := make(map[string]common.QualifiedTable, len(tableMappings))
 	for _, tm := range tableMappings {
 		source := internal.QualifiedTableFromProto(tm.SourceTable)
@@ -207,11 +207,7 @@ func validateTableMappingIdentifiers(tableMappings []*protos.TableMapping) error
 				source, other)
 		}
 		sourcesDotted[source.LegacyDotted()] = source
-		if _, ok := destinations[destination]; ok {
-			return fmt.Errorf("duplicate destination table %s", destination)
-		}
-		destinations[destination] = struct{}{}
-		if other, ok := destinationsDotted[destination.LegacyDotted()]; ok {
+		if other, ok := destinationsDotted[destination.LegacyDotted()]; ok && other != destination {
 			return fmt.Errorf("destination tables %s and %s are ambiguous with each other due to dots in names",
 				destination, other)
 		}

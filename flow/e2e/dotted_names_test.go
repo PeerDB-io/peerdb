@@ -264,20 +264,14 @@ func (s APITestSuite) TestDottedTableAddition() {
 		fmt.Sprintf("INSERT INTO %s(id, val) VALUES (2,'cdc')", dottedSrcQuoted)))
 	EnvWaitForEqualTablesWithNames(env, s.ch, "added dotted table cdc", dottedTable, dottedDst, "id,val")
 
-	// additions must also be validated against the flow's EXISTING tables
+	// additions must also be validated against the flow's EXISTING tables (exact
+	// duplicates are allowed — N:1 mappings — but dotted collisions between
+	// DIFFERENT destinations are not)
 	for _, tc := range []struct {
 		name        string
 		mapping     *protos.TableMapping
 		errContains string
 	}{
-		{
-			name: "duplicate of existing destination",
-			mapping: &protos.TableMapping{
-				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "dotadd_other"},
-				DestinationTable: &protos.QualifiedTable{Table: baseTable},
-			},
-			errContains: "duplicate destination table",
-		},
 		{
 			name: "dotted collision with existing destination",
 			mapping: &protos.TableMapping{
@@ -321,20 +315,6 @@ func (s APITestSuite) TestMirrorValidation_DottedIdentifierCollisions() {
 		mappings    []*protos.TableMapping
 		errContains string
 	}{
-		{
-			name: "duplicate destination structs",
-			mappings: []*protos.TableMapping{
-				{
-					SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "vsrc1"},
-					DestinationTable: &protos.QualifiedTable{Table: "vdst"},
-				},
-				{
-					SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "vsrc2"},
-					DestinationTable: &protos.QualifiedTable{Table: "vdst"},
-				},
-			},
-			errContains: "duplicate destination table",
-		},
 		{
 			name: "legacy dotted collision pair",
 			mappings: []*protos.TableMapping{

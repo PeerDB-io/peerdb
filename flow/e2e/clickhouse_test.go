@@ -209,6 +209,98 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Removing one of several source tables feeding a shared destination must keep
+// that destination's raw rows & catalog schema mapping intact, otherwise the
+// surviving source can no longer normalize into it. Disjoint id ranges keep the
+// two sources' rows distinct under the destination's ReplacingMergeTree.
+func (s ClickHouseSuite) Test_Removal_Shared_Destination() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableA := s.attachSchemaSuffix("test_shared_dst_a")
+	srcTableB := s.attachSchemaSuffix("test_shared_dst_b")
+	dstTableName := "test_shared_dst_target"
+
+	for _, srcTableName := range []string{srcTableA, srcTableB} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				id INT PRIMARY KEY,
+				"key" TEXT NOT NULL
+			);
+		`, srcTableName)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhousesharedremoval"),
+		TableNameMapping: map[string]string{srcTableA: dstTableName, srcTableB: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 1
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'a1')`, srcTableA)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (101,'b1')`, srcTableB)))
+	EnvWaitForCount(env, s, "both sources reach shared destination", dstTableName, "id,\"key\"", 2)
+
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
+	EnvWaitFor(s.t, env, 3*time.Minute, "pausing for removing shared table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
+		conn := pgconn.Conn()
+		_, err := conn.Exec(s.t.Context(),
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+				WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+				s.attachSuffix("clickhousesharedremoval")))
+		require.NoError(s.t, err)
+
+		EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
+			rows, err := conn.Query(s.t.Context(),
+				fmt.Sprintf(`SELECT pid FROM pg_stat_activity
+					WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+					s.attachSuffix("clickhousesharedremoval")))
+			require.NoError(s.t, err)
+			defer rows.Close()
+			return !rows.Next()
+		})
+	}
+
+	runID := EnvGetRunID(s.t, env)
+	SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		RemovedTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTableA,
+			DestinationTableIdentifier: dstTableName,
+		}},
+	})
+
+	EnvWaitFor(s.t, env, 4*time.Minute, "removing shared source", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitFor(s.t, env, time.Minute, "ContinueAsNew", func() bool {
+		return runID != EnvGetRunID(s.t, env)
+	})
+
+	// removed source: must not replicate; surviving source: must still reach shared destination
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'a2')`, srcTableA)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (102,'b2')`, srcTableB)))
+
+	EnvWaitForCount(env, s, "surviving source still reaches shared destination", dstTableName, "id,\"key\"", 3)
+
+	rows, err := s.GetRows(dstTableName, "id")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 3, "removed source must not leak into shared destination")
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 	srcTableName := "test_nullable_mirror"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
