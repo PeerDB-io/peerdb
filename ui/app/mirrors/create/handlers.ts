@@ -5,11 +5,17 @@ import {
   FlowConnectionConfigs,
   QRepConfig,
   QRepWriteType,
+  QualifiedTable,
   TableEngine,
   TableMapping,
   TypeSystem,
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
+import {
+  displayQualifiedTable,
+  parseDestinationInput,
+  qualifiedTableFromParts,
+} from '@/lib/utils/tableIdentifier';
 import {
   AllTablesResponse,
   ColumnsTypeConversionResponse,
@@ -61,7 +67,7 @@ export function IsClickHousePeer(peerType?: DBType): boolean {
 
 function ValidSchemaQualifiedTarget(
   peerType: DBType,
-  tableName: string
+  table: QualifiedTable | undefined
 ): boolean {
   const schemaRequiredPeer =
     peerType === DBType.POSTGRES || peerType === DBType.SNOWFLAKE;
@@ -69,7 +75,7 @@ function ValidSchemaQualifiedTarget(
     return true;
   }
 
-  return !!tableName && tableName.includes('.') && !tableName.startsWith('.');
+  return !!table && !!table.namespace && !!table.table;
 }
 
 function CDCCheck(
@@ -91,7 +97,7 @@ function CDCCheck(
     }
   }
 
-  const tableNameMapping = reformattedTableMapping(rows);
+  const tableNameMapping = reformattedTableMapping(rows, destinationType);
   const fieldErr = validateCDCFields(tableNameMapping, config, destinationType);
   if (fieldErr) {
     return fieldErr;
@@ -129,15 +135,10 @@ function validateSchemaQualification(
   destinationType: DBType
 ): string {
   for (const table of tableMapping) {
-    if (
-      !ValidSchemaQualifiedTarget(
-        destinationType,
-        table!.destinationTableIdentifier
-      )
-    ) {
-      return `Destination table ${
-        table?.destinationTableIdentifier
-      } should be schema qualified`;
+    if (!ValidSchemaQualifiedTarget(destinationType, table?.destinationTable)) {
+      return `Destination table ${displayQualifiedTable(
+        table?.destinationTable
+      )} should be schema qualified`;
     }
   }
   return '';

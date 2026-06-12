@@ -64,10 +64,15 @@ Branch: `qualified-table-identifiers`
 - [ ] eventhubsCallout text
 
 ## Phase 7 — Tests
-- [ ] A: existing e2e suites updated & passing
+- [~] A: existing e2e suites — conversion in progress (subagent); unit tests across
+      modules fixed & green (commit 4280a4c7; pua needs TZ=UTC env — preexisting;
+      connectors/utils SSH test needs dev stack; pkg/mysql vet failure preexisting)
 - [ ] B: dotted-name e2e (generic matrix, schema changes, add/remove, resync, qrep watermark, mongo collection, queue dests, api validation, snapshot-only)
-- [ ] C: backward-compat (normalization units, old-bytes fixtures, raw-table continuity, migration tests)
-- [ ] D: per-component units (identifiers, SF golden, CH, PG, BQ matrix, eventhub, pua, schema_helpers, validation)
+- [~] C: backward-compat — normalization units + old-wire-format fixture done (Phase 1);
+      raw-table continuity + migration tests TODO
+- [~] D: per-component units — identifiers ✓, BQ convertToDatasetTable matrix ✓ (agent),
+      EventHub scoped test ✓, CH dotted-destination BuildQuery test ✓ (headline case),
+      pua legacy-dotted pinned via existing test; SF golden dotted cases TODO
 
 ## Verification (after implementation)
 - [ ] build: go build ./... ; cargo check (nexus); ui build

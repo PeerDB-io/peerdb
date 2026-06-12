@@ -274,6 +274,44 @@ func TestBuildQuery_Basic(t *testing.T) {
 	require.Contains(t, query, "_peerdb_destination_table_name = 'my_table'")
 }
 
+// ClickHouse destination names may contain dots; the INSERT must treat the whole name
+// as one identifier while the raw-table filter matches the dotted literal
+func TestBuildQuery_DottedTableName(t *testing.T) {
+	ctx := t.Context()
+	tableName := common.QualifiedTable{Table: "dst.table"}
+	tableSchema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+		},
+	}
+	g := NewNormalizeQueryGenerator(
+		tableName,
+		map[common.QualifiedTable]*protos.TableSchema{tableName: tableSchema},
+		[]*protos.TableMapping{
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: "sch.ema", Table: "ta.ble"},
+				DestinationTable: &protos.QualifiedTable{Table: tableName.Table},
+			},
+		},
+		10,
+		5,
+		false,
+		false,
+		map[string]string{},
+		"raw_my_table",
+		nil,
+		false,
+		"",
+		shared.InternalVersion_Latest,
+		nil,
+	)
+
+	query, err := g.BuildQuery(ctx)
+	require.NoError(t, err)
+	require.Contains(t, query, "INSERT INTO `dst.table`")
+	require.Contains(t, query, "_peerdb_destination_table_name = 'dst.table'")
+}
+
 func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 	ctx := t.Context()
 	tableName := common.QualifiedTable{Table: "my_table"}
