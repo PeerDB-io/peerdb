@@ -181,34 +181,46 @@ function validateQRepFields(
 }
 
 export function reformattedTableMapping(
-  tableMapping: TableMapRow[]
+  tableMapping: TableMapRow[],
+  destinationType: DBType
 ): TableMapping[] {
   return tableMapping
     .filter((row) => row?.selected === true && row?.canMirror === true)
-    .map((row) => ({
-      sourceTableIdentifier: row.source,
-      destinationTableIdentifier: row.destination,
-      partitionKey: row.partitionKey,
-      exclude: Array.from(row.exclude),
-      columns: row.columns,
-      engine: row.engine,
-      shardingKey: row.shardingKey,
-      policyName: row.policyName,
-      partitionByExpr: row.partitionByExpr,
-    }));
+    .map(
+      (row) =>
+        ({
+          sourceTable: row.sourceTable,
+          destinationTable: parseDestinationInput(
+            row.destination,
+            destinationType
+          ),
+          partitionKey: row.partitionKey,
+          exclude: Array.from(row.exclude),
+          columns: row.columns,
+          engine: row.engine,
+          shardingKey: row.shardingKey,
+          policyName: row.policyName,
+          partitionByExpr: row.partitionByExpr,
+        }) as TableMapping
+    );
 }
 
 export function changesToTablesMapping(
   tableMapping: TableMapRow[],
   currentTableMapping: Map<string, TableMapping[]>,
-  isRemoval: boolean
+  isRemoval: boolean,
+  destinationType: DBType
 ): TableMapping[] {
   const mapping = tableMapping
     .filter((row) => {
       const isSelected = row?.selected === true && row?.canMirror === true;
       const isCurrentMapping = currentTableMapping
         .get(row.schema)
-        ?.map((tableMap) => tableMap.sourceTableIdentifier)
+        ?.map((tableMap) =>
+          tableMap.sourceTable
+            ? displayQualifiedTable(tableMap.sourceTable)
+            : tableMap.sourceTableIdentifier
+        )
         .includes(row.source);
       // if not in current mapping, and selected, it's an addition
       if (!isCurrentMapping && isSelected && !isRemoval) {
@@ -223,8 +235,11 @@ export function changesToTablesMapping(
     .map(
       (row) =>
         ({
-          sourceTableIdentifier: row.source,
-          destinationTableIdentifier: row.destination,
+          sourceTable: row.sourceTable,
+          destinationTable: parseDestinationInput(
+            row.destination,
+            destinationType
+          ),
           partitionKey: row.partitionKey,
           exclude: Array.from(row.exclude),
           columns: row.columns,
@@ -275,12 +290,11 @@ export async function handleCreateCDC(
   route();
 }
 
-function quotedWatermarkTable(watermarkTable: string): string {
-  if (watermarkTable.includes('.')) {
-    const [schema, table] = watermarkTable.split('.');
-    return `"${schema}"."${table}"`;
+function quotedWatermarkTable(watermarkTable: QualifiedTable): string {
+  if (watermarkTable.namespace) {
+    return `"${watermarkTable.namespace}"."${watermarkTable.table}"`;
   } else {
-    return `"${watermarkTable}"`;
+    return `"${watermarkTable.table}"`;
   }
 }
 
@@ -316,8 +330,12 @@ export async function handleCreateQRep(
   }
 
   if (xmin == true) {
+    if (!config.qualifiedWatermarkTable) {
+      notifyErr('Watermark table is required');
+      return;
+    }
     config.watermarkColumn = 'xmin';
-    config.query = `SELECT * FROM ${quotedWatermarkTable(config.watermarkTable)}`;
+    config.query = `SELECT * FROM ${quotedWatermarkTable(config.qualifiedWatermarkTable)}`;
     query = config.query;
     config.initialCopyOnly = false;
   }
@@ -338,12 +356,7 @@ export async function handleCreateQRep(
   config.flowJobName = flowJobName;
   config.query = query;
 
-  if (
-    !ValidSchemaQualifiedTarget(
-      destinationType,
-      config.destinationTableIdentifier
-    )
-  ) {
+  if (!ValidSchemaQualifiedTarget(destinationType, config.destinationTable)) {
     notifyErr(
       `Destination table should be schema qualified for ${DBTypeToGoodText(
         destinationType
@@ -441,9 +454,14 @@ export async function fetchTables(
         targetSchemaName,
         tableObject.tableName
       );
+      const sourceTable = qualifiedTableFromParts(
+        schemaName,
+        tableObject.tableName
+      );
       tables.push({
         schema: schemaName,
-        source: `${schemaName}.${tableObject.tableName}`,
+        sourceTable,
+        source: displayQualifiedTable(sourceTable),
         destination: dstName,
         partitionKey: '',
         exclude: new Set(),
