@@ -7,7 +7,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type CDCStream[T Items] struct {
@@ -127,10 +126,7 @@ func (r *CDCStream[T]) ChannelLen() int {
 	return len(r.records)
 }
 
-func (r *CDCStream[T]) AddSchemaDelta(
-	tableNameMapping map[common.QualifiedTable]NameAndExclude,
-	delta *protos.TableSchemaDelta,
-) {
+func (r *CDCStream[T]) AddSchemaDelta(delta *protos.TableSchemaDelta) {
 	r.SchemaDeltas = append(r.SchemaDeltas, delta)
 }
 

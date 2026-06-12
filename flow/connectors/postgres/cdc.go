@@ -865,7 +865,7 @@ func PullCdcRecords[Items model.Items](
 						if len(tableSchemaDelta.AddedColumns) > 0 {
 							logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
 								rec.GetSourceTable(), tableSchemaDelta.AddedColumns))
-							records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+							records.AddSchemaDelta(tableSchemaDelta)
 						}
 
 					case *model.MessageRecord[Items]:

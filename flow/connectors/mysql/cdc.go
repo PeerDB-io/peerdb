@@ -854,7 +854,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 	if tableSchemaDelta.AddedColumns != nil {
 		c.logger.Info("Column added detected",
 			slog.String("table", destinationTable.String()), slog.Any("columns", tableSchemaDelta.AddedColumns))
-		req.RecordStream.AddSchemaDelta(nil, tableSchemaDelta)
+		req.RecordStream.AddSchemaDelta(tableSchemaDelta)
 		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
 	}
 	return nil
@@ -964,7 +964,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 		schema.Columns = append(schema.Columns, addedColumns...)
 
 		// Emit schema delta
-		req.RecordStream.AddSchemaDelta(nil, tableSchemaDelta)
+		req.RecordStream.AddSchemaDelta(tableSchemaDelta)
 		if err := monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta); err != nil {
 			return nil, err
 		}

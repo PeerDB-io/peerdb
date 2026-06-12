@@ -33,6 +33,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/internal/testutil"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
@@ -602,8 +603,12 @@ func ExpectedDestinationIdentifier(s GenericSuite, ident string) string {
 	}
 }
 
-func ExpectedDestinationTableName(s GenericSuite, table string) string {
-	return ExpectedDestinationIdentifier(s, s.DestinationTable(table))
+func ExpectedDestinationTableName(s GenericSuite, table string) *protos.QualifiedTable {
+	qt := s.DestinationTable(table)
+	return &protos.QualifiedTable{
+		Namespace: ExpectedDestinationIdentifier(s, qt.Namespace),
+		Table:     ExpectedDestinationIdentifier(s, qt.Table),
+	}
 }
 
 type testWriter struct {
@@ -786,7 +791,7 @@ func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
 		yTypmods = append(yTypmods, col.TypeModifier)
 	}
 
-	return x.TableIdentifier == y.TableIdentifier ||
+	return internal.QualifiedTableFromProto(x.Table) == internal.QualifiedTableFromProto(y.Table) ||
 		x.IsReplicaIdentityFull == y.IsReplicaIdentityFull ||
 		slices.Compare(x.PrimaryKeyColumns, y.PrimaryKeyColumns) == 0 ||
 		slices.Compare(xColNames, yColNames) == 0 ||
@@ -797,8 +802,9 @@ func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
 func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual *protos.TableSchema) bool {
 	t.Helper()
 
-	if expected.TableIdentifier != actual.TableIdentifier {
-		t.Logf("expected table identifier %s, got %s", expected.TableIdentifier, actual.TableIdentifier)
+	if internal.QualifiedTableFromProto(expected.Table) != internal.QualifiedTableFromProto(actual.Table) {
+		t.Logf("expected table identifier %s, got %s",
+			internal.QualifiedTableFromProto(expected.Table), internal.QualifiedTableFromProto(actual.Table))
 		return false
 	}
 	if expected.IsReplicaIdentityFull != actual.IsReplicaIdentityFull {

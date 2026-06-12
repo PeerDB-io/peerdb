@@ -98,8 +98,8 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 	return ret
 }
 
-func (s ClickHouseSuite) DestinationTable(table string) string {
-	return table
+func (s ClickHouseSuite) DestinationTable(table string) common.QualifiedTable {
+	return common.QualifiedTable{Table: table}
 }
 
 func (s ClickHouseSuite) Teardown(ctx context.Context) {
