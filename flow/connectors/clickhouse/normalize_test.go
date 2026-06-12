@@ -557,3 +557,42 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 		})
 	}
 }
+
+// a pre-QualifiedTable config with destination string "dst.table" arrives first-dot-split
+// as {Namespace: "dst", Table: "table"}; the physical ClickHouse table and the raw-table
+// lookup must still both resolve to the original single-part name "dst.table"
+func TestBuildQuery_LegacyNormalizedDottedDestination(t *testing.T) {
+	ctx := t.Context()
+	tableName := common.QualifiedTable{Namespace: "dst", Table: "table"}
+	tableSchema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+		},
+	}
+	g := NewNormalizeQueryGenerator(
+		tableName,
+		map[common.QualifiedTable]*protos.TableSchema{tableName: tableSchema},
+		[]*protos.TableMapping{
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: "public", Table: "src"},
+				DestinationTable: &protos.QualifiedTable{Namespace: tableName.Namespace, Table: tableName.Table},
+			},
+		},
+		10,
+		5,
+		false,
+		false,
+		map[string]string{},
+		"raw_my_table",
+		nil,
+		false,
+		"",
+		shared.InternalVersion_Latest,
+		nil,
+	)
+
+	query, err := g.BuildQuery(ctx)
+	require.NoError(t, err)
+	require.Contains(t, query, "INSERT INTO `dst.table`")
+	require.Contains(t, query, "_peerdb_destination_table_name = 'dst.table'")
+}

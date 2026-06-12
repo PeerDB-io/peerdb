@@ -193,3 +193,126 @@ func TestQualifiedTableProtoRoundTrip(t *testing.T) {
 	assert.Equal(t, table, QualifiedTableFromProto(QualifiedTableProto(table)))
 	assert.Equal(t, common.QualifiedTable{}, QualifiedTableFromProto(nil))
 }
+
+// Continue-As-New payloads are denormalized so a rolled-back pre-QualifiedTable
+// release can read them; round-tripping back through normalization must be lossless.
+func TestDenormalizeSyncFlowOptionsRoundTrip(t *testing.T) {
+	opts := &protos.SyncFlowOptions{
+		SrcTableIdMapping: map[uint32]*protos.QualifiedTable{
+			1: {Namespace: "public", Table: "t1"},
+			2: {Table: "t2"},
+		},
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: "public", Table: "t1"},
+				DestinationTable: &protos.QualifiedTable{Table: "t1_dst"},
+			},
+		},
+	}
+	DenormalizeSyncFlowOptions(opts)
+	assert.Equal(t, map[uint32]string{1: "public.t1", 2: "t2"}, opts.SrcTableIdNameMapping)
+	assert.Equal(t, "public.t1", opts.TableMappings[0].SourceTableIdentifier)
+	assert.Equal(t, "t1_dst", opts.TableMappings[0].DestinationTableIdentifier)
+
+	NormalizeSyncFlowOptions(opts)
+	assertQT(t, qt("public", "t1"), opts.SrcTableIdMapping[1])
+	assertQT(t, qt("", "t2"), opts.SrcTableIdMapping[2])
+	assertQT(t, qt("public", "t1"), opts.TableMappings[0].SourceTable)
+	assert.Nil(t, opts.SrcTableIdNameMapping)
+	assert.Empty(t, opts.TableMappings[0].SourceTableIdentifier)
+}
+
+func TestDenormalizeDropFlowInput(t *testing.T) {
+	input := &protos.DropFlowInput{
+		FlowConnectionConfigs: &protos.FlowConnectionConfigsCore{
+			TableMappings: []*protos.TableMapping{
+				{
+					SourceTable:      &protos.QualifiedTable{Namespace: "sch.ema", Table: "ta.ble"},
+					DestinationTable: &protos.QualifiedTable{Table: "dst.table"},
+				},
+			},
+		},
+	}
+	DenormalizeDropFlowInput(input)
+	assert.Equal(t, "sch.ema.ta.ble", input.FlowConnectionConfigs.TableMappings[0].SourceTableIdentifier)
+	assert.Equal(t, "dst.table", input.FlowConnectionConfigs.TableMappings[0].DestinationTableIdentifier)
+	DenormalizeDropFlowInput(nil)
+}
+
+func TestNormalizeDropFlowInput(t *testing.T) {
+	input := &protos.DropFlowInput{
+		FlowConnectionConfigs: &protos.FlowConnectionConfigsCore{
+			TableMappings: []*protos.TableMapping{
+				{SourceTableIdentifier: "sch.ema.ta.ble", DestinationTableIdentifier: "dst.table"},
+			},
+		},
+	}
+	NormalizeDropFlowInput(input)
+	tm := input.FlowConnectionConfigs.TableMappings[0]
+	assertQT(t, qt("sch", "ema.ta.ble"), tm.SourceTable)
+	assertQT(t, qt("dst", "table"), tm.DestinationTable)
+	assert.Empty(t, tm.SourceTableIdentifier)
+	assert.Empty(t, tm.DestinationTableIdentifier)
+	NormalizeDropFlowInput(nil)
+}
+
+func TestNormalizeCreateRawTableInput(t *testing.T) {
+	input := &protos.CreateRawTableInput{
+		TableNameMapping: map[string]string{
+			"public.t1": "t1_dst",
+			"public.t2": "sch.t2_dst",
+		},
+	}
+	NormalizeCreateRawTableInput(input)
+	require.Len(t, input.QualifiedTableMappings, 2)
+	assert.Nil(t, input.TableNameMapping)
+	// deterministic ordering: sorted by (namespace, table)
+	assertQT(t, qt("public", "t1"), input.QualifiedTableMappings[0].Source)
+	assertQT(t, qt("", "t1_dst"), input.QualifiedTableMappings[0].Destination)
+	assertQT(t, qt("public", "t2"), input.QualifiedTableMappings[1].Source)
+	assertQT(t, qt("sch", "t2_dst"), input.QualifiedTableMappings[1].Destination)
+
+	// idempotent: struct mappings win, nothing re-derived
+	NormalizeCreateRawTableInput(input)
+	require.Len(t, input.QualifiedTableMappings, 2)
+	NormalizeCreateRawTableInput(nil)
+}
+
+func TestNormalizeTableSchemaDeltas(t *testing.T) {
+	deltas := []*protos.TableSchemaDelta{
+		{SrcTableName: "public.src", DstTableName: "dst.table"},
+		{SrcTable: qt("sch", "already"), DstTable: qt("", "already_dst")},
+	}
+	NormalizeTableSchemaDeltas(deltas)
+	assertQT(t, qt("public", "src"), deltas[0].SrcTable)
+	assertQT(t, qt("dst", "table"), deltas[0].DstTable)
+	assert.Empty(t, deltas[0].SrcTableName)
+	assert.Empty(t, deltas[0].DstTableName)
+	assertQT(t, qt("sch", "already"), deltas[1].SrcTable)
+	NormalizeTableSchemaDelta(nil)
+}
+
+func TestNormalizeAndDenormalizeFlowConfigAPIRoundTrip(t *testing.T) {
+	cfg := &protos.FlowConnectionConfigs{ //nolint:gocritic // NormalizeFlowConfigAPI operates on the API message
+		TableMappings: []*protos.TableMapping{
+			{SourceTableIdentifier: "sch.ema.ta.ble", DestinationTableIdentifier: "dst.table"},
+		},
+	}
+	NormalizeFlowConfigAPI(cfg)
+	tm := cfg.TableMappings[0]
+	assertQT(t, qt("sch", "ema.ta.ble"), tm.SourceTable)
+	assertQT(t, qt("dst", "table"), tm.DestinationTable)
+	assert.Empty(t, tm.SourceTableIdentifier)
+
+	DenormalizeFlowConfigForAPI(cfg)
+	assert.Equal(t, "sch.ema.ta.ble", tm.SourceTableIdentifier)
+	assert.Equal(t, "dst.table", tm.DestinationTableIdentifier)
+	assertQT(t, qt("sch", "ema.ta.ble"), tm.SourceTable)
+
+	// denormalize→normalize round-trips losslessly (struct wins, strings cleared)
+	NormalizeFlowConfigAPI(cfg)
+	assertQT(t, qt("sch", "ema.ta.ble"), tm.SourceTable)
+	assert.Empty(t, tm.SourceTableIdentifier)
+	NormalizeFlowConfigAPI(nil)
+	DenormalizeFlowConfigForAPI(nil)
+}

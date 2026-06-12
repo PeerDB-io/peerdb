@@ -31,7 +31,7 @@ func dottedDestinationTable(s GenericSuite, srcSchema string, table string) comm
 	case PeerFlowE2ETestSuitePG:
 		return common.QualifiedTable{Namespace: srcSchema, Table: table}
 	case PeerFlowE2ETestSuiteSF:
-		return common.QualifiedTable{Namespace: "E2E.DOT", Table: strings.ToUpper(table)}
+		return common.QualifiedTable{Namespace: "E2E.DOT_" + strings.ToUpper(s.Suffix()), Table: strings.ToUpper(table)}
 	case PeerFlowE2ETestSuiteBQ:
 		return common.QualifiedTable{Table: strings.ReplaceAll(table, ".", "_")}
 	case ClickHouseSuite:
@@ -264,6 +264,50 @@ func (s APITestSuite) TestDottedTableAddition() {
 		fmt.Sprintf("INSERT INTO %s(id, val) VALUES (2,'cdc')", dottedSrcQuoted)))
 	EnvWaitForEqualTablesWithNames(env, s.ch, "added dotted table cdc", dottedTable, dottedDst, "id,val")
 
+	// additions must also be validated against the flow's EXISTING tables
+	for _, tc := range []struct {
+		name        string
+		mapping     *protos.TableMapping
+		errContains string
+	}{
+		{
+			name: "duplicate of existing destination",
+			mapping: &protos.TableMapping{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "dotadd_other"},
+				DestinationTable: &protos.QualifiedTable{Table: baseTable},
+			},
+			errContains: "duplicate destination table",
+		},
+		{
+			name: "dotted collision with existing destination",
+			mapping: &protos.TableMapping{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "dotadd_other"},
+				DestinationTable: &protos.QualifiedTable{Namespace: "dot", Table: "added_dst"},
+			},
+			errContains: "ambiguous",
+		},
+	} {
+		s.t.Run(tc.name, func(t *testing.T) {
+			_, err := s.FlowStateChange(t.Context(), &protos.FlowStateChangeRequest{
+				FlowJobName:        flowConnConfig.FlowJobName,
+				RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+				FlowConfigUpdate: &protos.FlowConfigUpdate{
+					Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+						CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+							AdditionalTables: []*protos.TableMapping{tc.mapping},
+						},
+					},
+				},
+			})
+			require.Error(t, err)
+			st, ok := status.FromError(err)
+			require.True(t, ok, "expected gRPC status error")
+			require.Equal(t, codes.InvalidArgument, st.Code())
+			require.Contains(t, st.Message(), "conflict with existing tables")
+			require.Contains(t, st.Message(), tc.errContains)
+		})
+	}
+
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
@@ -301,6 +345,20 @@ func (s APITestSuite) TestMirrorValidation_DottedIdentifierCollisions() {
 				{
 					SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "vsrc2"},
 					DestinationTable: &protos.QualifiedTable{Namespace: "a.b", Table: "c"},
+				},
+			},
+			errContains: "ambiguous",
+		},
+		{
+			name: "source dotted collision pair",
+			mappings: []*protos.TableMapping{
+				{
+					SourceTable:      &protos.QualifiedTable{Namespace: "a", Table: "b.c"},
+					DestinationTable: &protos.QualifiedTable{Table: "vdst1"},
+				},
+				{
+					SourceTable:      &protos.QualifiedTable{Namespace: "a.b", Table: "c"},
+					DestinationTable: &protos.QualifiedTable{Table: "vdst2"},
 				},
 			},
 			errContains: "ambiguous",
@@ -347,6 +405,36 @@ func (s APITestSuite) TestMirrorValidation_DottedIdentifierCollisions() {
 			require.Contains(t, st.Message(), tc.errContains)
 		})
 	}
+}
+
+// SkipValidation skips environmental checks only; structural identifier invariants
+// must be enforced on create regardless
+func (s APITestSuite) TestMirrorValidation_StructuralChecksDespiteSkipValidation() {
+	skipValidation := true
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     "dotted_skip_validation_" + s.suffix,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.ch.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "vsrc1"},
+				DestinationTable: &protos.QualifiedTable{Namespace: "a", Table: "b.c"},
+			},
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "vsrc2"},
+				DestinationTable: &protos.QualifiedTable{Namespace: "a.b", Table: "c"},
+			},
+		},
+		SkipValidation: &skipValidation,
+	}
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err)
+	require.Nil(s.t, response)
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error")
+	require.Equal(s.t, codes.InvalidArgument, st.Code())
+	require.Contains(s.t, st.Message(), "ambiguous")
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Dotted_Watermark_QRep() {
@@ -438,4 +526,116 @@ func (s MongoClickhouseSuite) Test_Dotted_Collection_Name() {
 	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
+}
+
+// QRep over a dotted PARTITIONED parent with ctid partitioning: partitions carry
+// ChildTableRange structs for the dotted children (plan 7.B.5).
+func (s PeerFlowE2ETestSuitePG) Test_Dotted_Partitioned_Parent_QRep() {
+	srcSchema := "e2e_dot.part_" + s.suffix
+	parent := common.QualifiedTable{Namespace: srcSchema, Table: "pa.rent"}
+	dst := common.QualifiedTable{Namespace: srcSchema, Table: "pa.rent_dst"}
+	parentQuoted := parent.String()
+	dstQuoted := dst.String()
+
+	_, err := s.Conn().Exec(s.t.Context(), "CREATE SCHEMA "+common.QuoteIdentifier(srcSchema))
+	require.NoError(s.t, err)
+	s.t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_, _ = s.Conn().Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", common.QuoteIdentifier(srcSchema)))
+	})
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL,
+			partition_key INT NOT NULL,
+			val TEXT NOT NULL,
+			PRIMARY KEY (partition_key, id)
+		) PARTITION BY RANGE (partition_key)`, parentQuoted))
+	require.NoError(s.t, err)
+	for i := range 3 {
+		child := common.QualifiedTable{Namespace: srcSchema, Table: fmt.Sprintf("chi.ld_%d", i)}
+		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+			"CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)",
+			child.String(), parentQuoted, i*20, (i+1)*20))
+		require.NoError(s.t, err)
+	}
+	for i := range 60 {
+		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+			"INSERT INTO %s (partition_key, val) VALUES (%d, 'val_%d')", parentQuoted, i, i))
+		require.NoError(s.t, err)
+	}
+
+	flowName := AddSuffix(s, "dotted_part_qrep")
+	qrepConfig := &protos.QRepConfig{
+		FlowJobName:             flowName,
+		ParentMirrorName:        flowName,
+		QualifiedWatermarkTable: internal.QualifiedTableProto(parent),
+		DestinationTable:        internal.QualifiedTableProto(dst),
+		SourceName:              GeneratePostgresPeer(s.t).Name,
+		DestinationName:         GeneratePostgresPeer(s.t).Name,
+		Query:                   fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", parentQuoted),
+		WatermarkColumn:         "ctid",
+		WriteMode: &protos.QRepWriteMode{
+			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+		},
+		NumRowsPerPartition: 10,
+		InitialCopyOnly:     true,
+		// child-range pulls resolve the destination schema from the catalog, which is
+		// populated by the watermark-table setup step (it also creates the dotted
+		// destination table)
+		SetupWatermarkTableOnDestination: true,
+		Version:                          shared.InternalVersion_Latest,
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error(s.t.Context()))
+
+	require.NoError(s.t, s.comparePGTables(parentQuoted, dstQuoted, "id,partition_key,val"))
+}
+
+// Initial-snapshot-only mirror with dotted names: the snapshot/clone workflow path
+// builds child workflow IDs from the dotted source and the flow must reach COMPLETED
+// (plan 7.B.9).
+func (s APITestSuite) TestInitialSnapshotOnlyWithDottedNames() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("dotted source identifiers are only legal on Postgres sources")
+	}
+
+	srcTable := "snap.only"
+	dstTable := "snap.only_dst"
+	srcQuoted := common.QuoteIdentifier(Schema(s)) + "." + common.QuoteIdentifier(srcTable)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", srcQuoted)))
+	for i := range 10 {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) VALUES (%d,'snap_%d')", srcQuoted, i, i)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "dotted_snapshot_only_" + s.suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTable},
+			DestinationTable: &protos.QualifiedTable{Table: dstTable},
+			ShardingKey:      "id",
+		}},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	EnvWaitForEqualTablesWithNames(env, s.ch, "dotted snapshot-only initial load", srcTable, dstTable, "id,val")
 }

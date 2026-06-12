@@ -22,6 +22,8 @@ func TestNewScopedEventhub(t *testing.T) {
 	require.Error(t, err, "missing namespace")
 	_, err = NewScopedEventhub(common.QualifiedTable{Namespace: "ns", Table: "hub"})
 	require.Error(t, err, "missing partition key column")
+	_, err = NewScopedEventhub(common.QualifiedTable{Namespace: "ns", Table: "hub.pk.extra"})
+	require.Error(t, err, "more than 3 parts was rejected before QualifiedTable too")
 }
 
 // legacy 3-part dotted destinations from Lua scripts keep parsing as before

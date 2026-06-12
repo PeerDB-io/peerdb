@@ -827,3 +827,82 @@ func prepareTestData(t *testing.T, pool *pgx.Conn, schema string, includeNulls b
 
 	return rowsCount
 }
+
+// CTID partitioning of a partitioned parent whose schema, parent and child names all
+// contain dots: ChildTableRange.child_table must carry exact QualifiedTable structs
+// and every child must map back to a partition (plan 7.D dotted watermark/child case).
+func TestCTIDPartitioningOnDottedPartitionedTable(t *testing.T) {
+	t.Parallel()
+	_, conn, connStr := setupTestSchema(t)
+
+	schemaName := "par.t_" + strings.ToLower(common.RandomString(8))
+	parent := common.QualifiedTable{Namespace: schemaName, Table: "pa.rent"}
+	parentQuoted := parent.String()
+
+	_, err := conn.Exec(t.Context(), "CREATE SCHEMA "+common.QuoteIdentifier(schemaName))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = conn.Exec(t.Context(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", common.QuoteIdentifier(schemaName)))
+	})
+
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL,
+			partition_key INT NOT NULL,
+			value TEXT,
+			PRIMARY KEY (partition_key, id)
+		) PARTITION BY RANGE (partition_key)
+	`, parentQuoted))
+	require.NoError(t, err)
+
+	rowsPerPartition := 25
+	numChildTables := 3
+	children := make([]common.QualifiedTable, numChildTables)
+	for i := range numChildTables {
+		children[i] = common.QualifiedTable{Namespace: schemaName, Table: fmt.Sprintf("chi.ld_%d", i)}
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
+			children[i].String(), parentQuoted, i*rowsPerPartition, (i+1)*rowsPerPartition))
+		require.NoError(t, err)
+	}
+
+	for i := range numChildTables * rowsPerPartition {
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`INSERT INTO %s (partition_key, value) VALUES ($1, $2)`, parentQuoted),
+			i, fmt.Sprintf("val_%d", i))
+		require.NoError(t, err)
+	}
+
+	c := &PostgresConnector{
+		connStr: connStr,
+		Config:  &protos.PostgresConfig{},
+		conn:    conn,
+		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testCTIDDotted"))),
+	}
+	partitions, err := getQRepPartitions(t, c, &protos.QRepConfig{
+		FlowJobName:             "test_ctid_dotted_partitioned",
+		NumRowsPerPartition:     10,
+		NumPartitionsOverride:   8,
+		Query:                   fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, parentQuoted),
+		QualifiedWatermarkTable: internal.QualifiedTableProto(parent),
+		WatermarkColumn:         "ctid",
+	}, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, partitions)
+
+	childTableCounts := make(map[common.QualifiedTable]int)
+	for _, p := range partitions {
+		require.Nil(t, p.Range)
+		require.NotEmpty(t, p.ChildTableRanges)
+		for _, ctr := range p.ChildTableRanges {
+			require.NotNil(t, ctr.ChildTable)
+			childTableCounts[internal.QualifiedTableFromProto(ctr.ChildTable)]++
+		}
+	}
+
+	require.Len(t, childTableCounts, numChildTables)
+	for _, child := range children {
+		require.Positive(t, childTableCounts[child],
+			"child %s should appear in at least one partition", child)
+	}
+}

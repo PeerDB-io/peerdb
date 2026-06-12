@@ -83,7 +83,9 @@ Branch: `qualified-table-identifiers`
       continued syncing through upgrade (raw-table LegacyDotted round-trip live)
 - [x] D: per-component units — identifiers, BQ convertToDatasetTable matrix, EventHub
       scoped test, CH dotted-destination BuildQuery (headline), SF per-component
-      normalize, pua legacy-dotted
+      normalize; pua legacy-dotted + SF golden MERGE + schema-helpers tests were
+      MISSING (claimed done in error) — added during the post-implementation
+      adversarial review (see review-findings doc)
 
 ## Verification (after implementation)
 - [x] build: go build ./... clean (flow + pkg modules); cargo check (nexus) clean;
@@ -102,6 +104,14 @@ Branch: `qualified-table-identifiers`
 ## STATUS: COMPLETE (2026-06-12)
 All plan phases implemented and verified. 17 commits on qualified-table-identifiers.
 
+## Adversarial review (2026-06-12)
+
+An ultracode adversarial review of the finished branch found 14 distinct confirmed
+bugs (1 critical: ES dotted index rerouting; 3 high: CH dotted destination retarget,
+InitialLoadSummary namespace loss, add-tables collision validation) — all fixed, plus
+test gaps closed. Full findings, fixes, disprovals and the verification log:
+`.claude/plans/qualified-table-identifiers-review-findings.md`.
+
 ## Known acceptable gaps
 - Dotted-name resync e2e not written: resync `_resync`/`_peerdb_resync` suffix operates
   on `.Table` only (compile-checked struct logic), resync flows covered dotless by
@@ -111,6 +121,13 @@ All plan phases implemented and verified. 17 commits on qualified-table-identifi
 - EventHub names containing dots remain unsupported (documented; packing ambiguity,
   parity with pre-refactor).
 - Legacy strings in persisted configs to be dropped in release N+1 (follow-up).
+- Plan B.7 queue-destination dotted e2e (Kafka/PubSub/ES) not written — no local
+  Kafka/PubSub/ES infra; ES dotted routing is covered by the LegacyDotted fix + review,
+  kafka/pubsub already route via LegacyDotted. CI follow-up candidate.
+- Plan C.4 catalog-migration backfill Go tests replaced by manual verification on 30
+  real catalog rows + SQL-vs-Go-normalizer audit (see review-findings L7/T5).
+- Plan B.3 dotted table REMOVAL / cancel_table_addition dotted variants and full B.5/B.6
+  dotted QRep matrix (incremental, ctid parent, CH QRep, Mongo QRep) remain partial.
 
 ## Deviations from plan
 - Legacy proto fields annotated via comments instead of [deprecated = true] to avoid
