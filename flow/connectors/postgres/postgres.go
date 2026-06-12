@@ -47,9 +47,9 @@ type PostgresConnector struct {
 	rdsAuth                *utils.RDSAuth
 	connStr                string
 	metadataSchema         string
+	walSenderTimeout       walSenderTimeout
 	replLock               sync.Mutex
 	closeLock              sync.Mutex
-	walSenderTimeout       walSenderTimeout
 	pgVersion              shared.PGVersion
 }
 
