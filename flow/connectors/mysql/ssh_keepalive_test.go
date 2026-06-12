@@ -316,7 +316,7 @@ func TestMySQLCloseSyncerWithTimeout(t *testing.T) {
 
 	pos, err := connector.GetMasterPos(ctx)
 	require.NoError(t, err)
-	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos, map[string]string{}) //nolint:dogsled
+	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos, nil) //nolint:dogsled
 	require.NoError(t, err)
 
 	// Let CDC streaming establish before blocking the MySQL server.
