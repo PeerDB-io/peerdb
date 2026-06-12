@@ -260,3 +260,14 @@ the fixes above. All actionable items now closed (second pass, same day):
   0709374b in a temporary git worktree (`/tmp/peerdb-mb`, since removed) with inputs
   identical to TestGenerateMergeStmtGolden; output compared byte-for-byte against the
   refactored generator (IDENTICAL) before embedding as the test fixture.
+- 2026-06-12: Merged main (#4414 shared-destination/N:1 support) — removal logic and
+  raw-table cleanup ported to QualifiedTable structs; validation now permits exact
+  duplicate destinations (N:1) while still rejecting dotted collisions between
+  different destinations; duplicate-destination e2e rejection cases dropped.
+  Test_Removal_Shared_Destination passes on the branch locally.
+- 2026-06-12: Draft PR #4416 opened. First full CI matrix run caught ONE real failure:
+  Test_Dynamic_Mirror_Config_Via_Signals asserted the legacy SrcTableIdNameMapping in
+  workflow state (cleared by entry normalization; missed in the suite conversion —
+  the PG→PG suite doesn't run on the local dev stack). Fixed to assert
+  SrcTableIdMapping; verified locally; CI fully green on 542578dd (all matrix legs,
+  lint, CodeQL, clippy, UI).
