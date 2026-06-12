@@ -1876,6 +1876,19 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 
+	tableNames := make([]string, 0, len(tablesToRemove))
+	for _, table := range tablesToRemove {
+		tableNames = append(tableNames, table.DestinationTableIdentifier)
+	}
+	slices.Sort(tableNames)
+	tableNames = slices.Compact(tableNames)
+	if len(tableNames) == 0 || syncBatchID <= normBatchID {
+		logger.Info("[RemoveTablesFromRawTable] no pending raw rows to remove, skipping",
+			slog.Int64("syncBatchID", syncBatchID), slog.Int64("normalizeBatchID", normBatchID),
+			slog.Int("tables", len(tableNames)))
+		return nil
+	}
+
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.RawTableConnector](ctx, cfg.Env, a.CatalogPool, cfg.DestinationName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -1889,10 +1902,6 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	}
 	defer dstClose(ctx)
 
-	tableNames := make([]string, 0, len(tablesToRemove))
-	for _, table := range tablesToRemove {
-		tableNames = append(tableNames, table.DestinationTableIdentifier)
-	}
 	if err := dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
 		FlowJobName:           cfg.FlowJobName,
 		DestinationTableNames: tableNames,
