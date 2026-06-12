@@ -466,7 +466,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "10240",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_MYSQL,
+		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 }
 
