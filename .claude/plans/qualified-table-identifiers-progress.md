@@ -93,14 +93,14 @@ Branch: `qualified-table-identifiers`
 - [x] tilt e2e runs: TestGenericCH_PG full suite PASSED TWICE (incl. final rerun on
       the finished code), TestApiPg subtests all PASS after fixes, connector_clickhouse
       PASSED, dotted-name tests all PASSED (incl. schema-change replay on dotted table)
-
-## STATUS: COMPLETE (2026-06-12)
-All plan phases implemented and verified. 16 commits on qualified-table-identifiers.
 - [x] manual upgrade testing per plan section E: live old-bits mirror resumed + synced
       on new bits (E1, E2 partial); V54-57 backfill verified on 30 real rows (E3);
       MirrorStatus dual-form verified via HTTP gateway after fixing a real bug (E5);
       old-mirror drop/resync paths covered by passing api e2e (E4 — no live old-bits
       mirror was expendable for a destructive drop)
+
+## STATUS: COMPLETE (2026-06-12)
+All plan phases implemented and verified. 17 commits on qualified-table-identifiers.
 
 ## Known acceptable gaps
 - Dotted-name resync e2e not written: resync `_resync`/`_peerdb_resync` suffix operates
