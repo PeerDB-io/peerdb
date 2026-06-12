@@ -82,3 +82,31 @@ func TestBuildSelectedColumns(t *testing.T) {
 		})
 	}
 }
+
+func TestMySQLDefaultPartitionKeyEligible(t *testing.T) {
+	for _, dataType := range []string{
+		"tinyint", "smallint", "mediumint", "int", "integer", "bigint", "year",
+		"date", "datetime", "timestamp", "BIGINT", "DateTime",
+	} {
+		if !supportsRangePartition(dataType) {
+			t.Errorf("expected %q to be eligible as a default partition key", dataType)
+		}
+	}
+	for _, dataType := range []string{
+		"varchar", "char", "text", "binary", "varbinary", "decimal", "float", "double",
+		"time", "enum", "set", "json", "bit", "",
+	} {
+		if supportsRangePartition(dataType) {
+			t.Errorf("expected %q to not be eligible as a default partition key", dataType)
+		}
+	}
+}
+
+func TestMySQLQuotedList(t *testing.T) {
+	if got := mysqlQuotedList([]string{"db"}); got != "'db'" {
+		t.Errorf("mysqlQuotedList single = %q", got)
+	}
+	if got := mysqlQuotedList([]string{"a", "b'c"}); got != `'a','b\'c'` {
+		t.Errorf("mysqlQuotedList escaping = %q", got)
+	}
+}

@@ -168,13 +168,175 @@ func (c *MySqlConnector) GetQRepPartitions(
 	return partitionHelper.GetPartitions(), nil
 }
 
+// supportsRangePartition reports whether a primary key column with this
+// information_schema DATA_TYPE can drive range-partitioned snapshots through
+// PartitionHelper.AddPartitionsWithRange. Integer and temporal types only; other
+// types fall back to a full table snapshot. Low-cardinality columns are still
+// accepted, as it would be no worse than a single full table snapshot.
+func supportsRangePartition(dataType string) bool {
+	switch strings.ToLower(dataType) {
+	// integer types
+	case "tinyint", "smallint", "mediumint", "int", "integer", "bigint", "year",
+		return true
+	// temporal types
+	case "date", "datetime", "timestamp":
+		return true
+	case "varchar":
+	default:
+		return false
+	}
+}
+
+// mysqlQuotedList renders values as a comma-separated list of escaped string literals
+// for IN clauses. Literals are used instead of placeholders because go-mysql args switch
+// to the binary prepared-statement protocol, which MySQL-compatible frontends and
+// proxies often support poorly.
+func mysqlQuotedList(values []string) string {
+	quoted := make([]string, len(values))
+	for i, value := range values {
+		quoted[i] = "'" + mysql.Escape(value) + "'"
+	}
+	return strings.Join(quoted, ",")
+}
+
+// GetDefaultPartitionKeyForTables returns the first primary key column for each table
+// whose type supports range partitioning. Tables without a primary key or have type that
+// does not support range partition fall back to full table partitions.
 func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.GetDefaultPartitionKeyForTablesInput,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
-	return &protos.GetDefaultPartitionKeyForTablesOutput{
-		TableDefaultPartitionKeyMapping: nil,
-	}, nil
+	c.logger.Info("Evaluating if tables can perform parallel load")
+
+	output := &protos.GetDefaultPartitionKeyForTablesOutput{
+		TableDefaultPartitionKeyMapping: make(map[string]string, len(input.TableMappings)),
+	}
+
+	if len(input.TableMappings) == 0 {
+		c.logger.Warn("no table mappings found")
+		return output, nil
+	}
+
+	type tableKey struct {
+		schema string
+		table  string
+	}
+	sourcesByTable := make(map[tableKey][]string, len(input.TableMappings))
+	var schemas, tables []string
+	for _, tm := range input.TableMappings {
+		parsed, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse source table %s: %w", tm.SourceTableIdentifier, err)
+		}
+		key := tableKey{schema: parsed.Namespace, table: parsed.Table}
+		if _, ok := sourcesByTable[key]; !ok {
+			schemas = append(schemas, parsed.Namespace)
+			tables = append(tables, parsed.Table)
+		}
+		sourcesByTable[key] = append(sourcesByTable[key], tm.SourceTableIdentifier)
+	}
+
+	// using cross-product of schema/table is safe here because information_schema can be
+	// case-insensitive in MySQL (when lower_case_table_names = 1 in MySQL, and always the
+	// case in MariaDB). We will filter in Go code below to skip irrelevant ones.
+	tableFilter := fmt.Sprintf("TABLE_SCHEMA IN (%s) AND TABLE_NAME IN (%s)",
+		mysqlQuotedList(schemas), mysqlQuotedList(tables))
+
+	pkRows, err := c.Execute(ctx,
+		`SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, SEQ_IN_INDEX
+				FROM information_schema.STATISTICS
+				WHERE INDEX_NAME = 'PRIMARY' AND `+tableFilter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query information_schema.statistics for primary keys: %w", err)
+	}
+	defer pkRows.Close()
+	firstPKColumn := make(map[tableKey]string)
+	pkColumnCount := make(map[tableKey]int)
+	for i := range pkRows.Values {
+		schema, err := pkRows.GetString(i, 0)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read primary key schema: %w", err)
+		}
+		table, err := pkRows.GetString(i, 1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read primary key table: %w", err)
+		}
+		column, err := pkRows.GetString(i, 2)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read primary key column: %w", err)
+		}
+		seqInIndex, err := pkRows.GetInt(i, 3)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read primary key column position: %w", err)
+		}
+		key := tableKey{schema: schema, table: table}
+		if _, relevant := sourcesByTable[key]; !relevant {
+			continue
+		}
+		pkColumnCount[key]++
+		if seqInIndex == 1 {
+			firstPKColumn[key] = column
+		}
+	}
+
+	typeRows, err := c.Execute(ctx,
+		`SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
+				FROM information_schema.COLUMNS
+				WHERE `+tableFilter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query information_schema.columns for primary key types: %w", err)
+	}
+	defer typeRows.Close()
+	type columnKey struct {
+		tableKey
+		column string
+	}
+	dataTypes := make(map[columnKey]string)
+	for i := range typeRows.Values {
+		schema, err := typeRows.GetString(i, 0)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read column schema: %w", err)
+		}
+		table, err := typeRows.GetString(i, 1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read column table: %w", err)
+		}
+		column, err := typeRows.GetString(i, 2)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read column name: %w", err)
+		}
+		dataType, err := typeRows.GetString(i, 3)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read column type: %w", err)
+		}
+		dataTypes[columnKey{tableKey{schema: schema, table: table}, column}] = dataType
+	}
+
+	for key, sources := range sourcesByTable {
+		tableName := key.schema + "." + key.table
+		pkColumn, hasPK := firstPKColumn[key]
+		if !hasPK {
+			c.logger.Info("[mysql] table has no primary key, defaulting to full table snapshot",
+				slog.String("table", tableName))
+			continue
+		}
+		dataType := dataTypes[columnKey{key, pkColumn}]
+		if !supportsRangePartition(dataType) {
+			c.logger.Info("[mysql] primary key type does not support range partitioning, defaulting to full table snapshot",
+				slog.String("table", tableName),
+				slog.String("column", pkColumn),
+				slog.String("dataType", dataType))
+			continue
+		}
+		c.logger.Info("[mysql] using primary key as default partition key",
+			slog.String("table", tableName),
+			slog.String("column", pkColumn),
+			slog.Bool("compositeKey", pkColumnCount[key] > 1))
+		for _, source := range sources {
+			output.TableDefaultPartitionKeyMapping[source] = pkColumn
+		}
+	}
+	return output, nil
 }
 
 func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string) string {
