@@ -1,9 +1,9 @@
 'use client';
 import { CDCTableRowCounts } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
-import { displayQualifiedTable } from '@/lib/utils/tableIdentifier';
 import { SearchField } from '@/lib/SearchField/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { displayQualifiedTable } from '@/lib/utils/tableIdentifier';
 import { useMemo, useState } from 'react';
 import { RowDataFormatter } from './rowsDisplay';
 

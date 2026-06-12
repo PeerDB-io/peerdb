@@ -38,7 +38,7 @@ export const tableMappingSchema = z
       partitionKey: z.string().optional(),
     })
   )
-.nonempty('At least one table mapping is required');
+  .nonempty('At least one table mapping is required');
 
 export const cdcSchema = z.object({
   sourceName: z.string({ error: 'Source peer is required' }).min(1),

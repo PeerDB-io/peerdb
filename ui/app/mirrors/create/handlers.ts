@@ -12,11 +12,6 @@ import {
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import {
-  displayQualifiedTable,
-  parseDestinationInput,
-  qualifiedTableFromParts,
-} from '@/lib/utils/tableIdentifier';
-import {
   AllTablesResponse,
   ColumnsTypeConversionResponse,
   CreateCDCFlowRequest,
@@ -26,6 +21,11 @@ import {
   SchemaTablesResponse,
   TableColumnsResponse,
 } from '@/grpc_generated/route';
+import {
+  displayQualifiedTable,
+  parseDestinationInput,
+  qualifiedTableFromParts,
+} from '@/lib/utils/tableIdentifier';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 
 import {

@@ -1,11 +1,11 @@
 'use client';
 import { TableMapping } from '@/grpc_generated/flow';
 import { TableColumnsResponse } from '@/grpc_generated/route';
-import { qualifiedTableFromDottedName } from '@/lib/utils/tableIdentifier';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { qualifiedTableFromDottedName } from '@/lib/utils/tableIdentifier';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
 

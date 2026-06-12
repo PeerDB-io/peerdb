@@ -19,7 +19,10 @@ export function qualifiedTableFromDottedName(name: string): QualifiedTable {
   if (dotIndex === -1) {
     return { namespace: '', table: name };
   }
-  return { namespace: name.slice(0, dotIndex), table: name.slice(dotIndex + 1) };
+  return {
+    namespace: name.slice(0, dotIndex),
+    table: name.slice(dotIndex + 1),
+  };
 }
 
 // peer types arrive either as enum numbers or as JSON string names ("CLICKHOUSE"),

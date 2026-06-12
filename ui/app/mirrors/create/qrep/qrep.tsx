@@ -14,6 +14,10 @@ import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import {
+  parseDestinationInput,
+  qualifiedTableFromDottedName,
+} from '@/lib/utils/tableIdentifier';
+import {
   Dispatch,
   SetStateAction,
   useEffect,
@@ -21,10 +25,6 @@ import {
   useTransition,
 } from 'react';
 import ReactSelect from 'react-select';
-import {
-  parseDestinationInput,
-  qualifiedTableFromDottedName,
-} from '@/lib/utils/tableIdentifier';
 import { fetchAllTables, fetchColumns } from '../handlers';
 import { MirrorSetting } from '../helpers/common';
 import UpsertColsDisplay from './upsertcols';
