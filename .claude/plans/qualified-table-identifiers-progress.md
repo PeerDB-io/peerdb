@@ -56,12 +56,16 @@ Branch: `qualified-table-identifiers`
 - [x] monitoring.go (split columns), mirror_status.go CDCTableTotalCounts (+ struct in
       response), flowable.go RecordMetricsAggregates, reset_sequences quoting
 
-## Phase 6 — UI
-- [ ] tableIdentifier.ts utils
-- [ ] MirrorsDTO TableMapRow
-- [ ] schemabox.tsx / handlers.ts / qrep.tsx / helpers
-- [ ] EditMirror / columnDisplayModal / tablePairs
-- [ ] eventhubsCallout text
+## Phase 6 — UI — DONE (subagent; tsc + lint clean)
+- [x] lib/utils/tableIdentifier.ts (displayQualifiedTable, parseDestinationInput with
+      peer-type-aware splitting: table-only CH/Kafka/PubSub/ES/S3, last-dot BQ,
+      first-dot otherwise incl. EventHub packing)
+- [x] MirrorsDTO TableMapRow carries structured sourceTable
+- [x] schemabox / handlers / qrep / helpers emit ONLY struct fields on create/edit
+- [x] EditMirror / columnDisplayModal / tablePairs / tableStats struct-first with
+      legacy fallback for old mirrors; CDCTableRowCounts renders .table
+- [x] eventhubsCallout text updated
+- [x] bonus: fixed never-firing duplicate-destination check in schema.ts
 
 ## Phase 7 — Tests
 - [~] A: existing e2e suites — conversion in progress (subagent); unit tests across

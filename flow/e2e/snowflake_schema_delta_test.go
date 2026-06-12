@@ -10,6 +10,8 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -49,13 +51,14 @@ func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
-	tableName := schemaDeltaTestSchemaName + ".SIMPLE_ADD_COLUMN"
-	err := s.sfTestHelper.RunCommand(s.t.Context(), fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
+	tableName := common.QualifiedTable{Namespace: schemaDeltaTestSchemaName, Table: "SIMPLE_ADD_COLUMN"}
+	err := s.sfTestHelper.RunCommand(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s.%s(ID TEXT PRIMARY KEY)", tableName.Namespace, tableName.Table))
 	require.NoError(s.t, err)
 
 	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
+		SrcTable: internal.QualifiedTableProto(tableName),
+		DstTable: internal.QualifiedTableProto(tableName),
 		AddedColumns: []*protos.FieldDescription{
 			{
 				Name:         "HI",
@@ -66,10 +69,10 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}}, nil))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
+		[]*protos.TableMapping{{SourceTable: internal.QualifiedTableProto(tableName)}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
-		TableIdentifier: tableName,
+		Table: internal.QualifiedTableProto(tableName),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         "ID",
@@ -86,12 +89,13 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
-	tableName := schemaDeltaTestSchemaName + ".ADD_DROP_ALL_COLUMN_TYPES"
-	err := s.sfTestHelper.RunCommand(s.t.Context(), fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
+	tableName := common.QualifiedTable{Namespace: schemaDeltaTestSchemaName, Table: "ADD_DROP_ALL_COLUMN_TYPES"}
+	err := s.sfTestHelper.RunCommand(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s.%s(ID TEXT PRIMARY KEY)", tableName.Namespace, tableName.Table))
 	require.NoError(s.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: tableName,
+		Table: internal.QualifiedTableProto(tableName),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         "ID",
@@ -168,24 +172,25 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	}
 
 	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
+		SrcTable:     internal.QualifiedTableProto(tableName),
+		DstTable:     internal.QualifiedTableProto(tableName),
 		AddedColumns: addedColumns,
 	}}, nil))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
+		[]*protos.TableMapping{{SourceTable: internal.QualifiedTableProto(tableName)}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
-	tableName := schemaDeltaTestSchemaName + ".ADD_DROP_TRICKY_COLUMN_NAMES"
-	err := s.sfTestHelper.RunCommand(s.t.Context(), fmt.Sprintf("CREATE TABLE %s(id TEXT PRIMARY KEY)", tableName))
+	tableName := common.QualifiedTable{Namespace: schemaDeltaTestSchemaName, Table: "ADD_DROP_TRICKY_COLUMN_NAMES"}
+	err := s.sfTestHelper.RunCommand(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s.%s(id TEXT PRIMARY KEY)", tableName.Namespace, tableName.Table))
 	require.NoError(s.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: tableName,
+		Table: internal.QualifiedTableProto(tableName),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         "ID",
@@ -247,24 +252,25 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	}
 
 	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
+		SrcTable:     internal.QualifiedTableProto(tableName),
+		DstTable:     internal.QualifiedTableProto(tableName),
 		AddedColumns: addedColumns,
 	}}, nil))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
+		[]*protos.TableMapping{{SourceTable: internal.QualifiedTableProto(tableName)}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
-	tableName := schemaDeltaTestSchemaName + ".ADD_DROP_WHITESPACE_COLUMN_NAMES"
-	err := s.sfTestHelper.RunCommand(s.t.Context(), fmt.Sprintf("CREATE TABLE %s(\" \" TEXT PRIMARY KEY)", tableName))
+	tableName := common.QualifiedTable{Namespace: schemaDeltaTestSchemaName, Table: "ADD_DROP_WHITESPACE_COLUMN_NAMES"}
+	err := s.sfTestHelper.RunCommand(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s.%s(\" \" TEXT PRIMARY KEY)", tableName.Namespace, tableName.Table))
 	require.NoError(s.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: tableName,
+		Table: internal.QualifiedTableProto(tableName),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         " ",
@@ -302,13 +308,13 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 	}
 
 	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
-		SrcTableName: tableName,
-		DstTableName: tableName,
+		SrcTable:     internal.QualifiedTableProto(tableName),
+		DstTable:     internal.QualifiedTableProto(tableName),
 		AddedColumns: addedColumns,
 	}}, nil))
 
 	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
+		[]*protos.TableMapping{{SourceTable: internal.QualifiedTableProto(tableName)}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }

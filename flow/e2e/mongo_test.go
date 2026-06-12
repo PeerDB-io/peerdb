@@ -899,8 +899,8 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 	// resume workflow with t2 removed from table mapping
 	SignalWorkflow(t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		RemovedTables: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcDatabase + "." + srcTable2,
-			DestinationTableIdentifier: srcDatabase + "." + dstTable2,
+			SourceTable:      &protos.QualifiedTable{Namespace: srcDatabase, Table: srcTable2},
+			DestinationTable: &protos.QualifiedTable{Namespace: srcDatabase, Table: dstTable2},
 		}},
 	})
 	EnvWaitFor(t, env, 1*time.Minute, "resumed workflow", func() bool {

@@ -18,6 +18,7 @@ import (
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -170,9 +171,9 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Not_Supported() {
 	flowConfig := &protos.FlowConnectionConfigsCore{
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-				DestinationTableIdentifier: "trips_1k_dst",
-				Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: "trips_1k"},
+				DestinationTable: &protos.QualifiedTable{Table: "trips_1k_dst"},
+				Engine:           protos.TableEngine_CH_ENGINE_MERGE_TREE,
 			},
 		},
 		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
@@ -209,8 +210,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Required() {
 		DoInitialSnapshot:   true,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-				DestinationTableIdentifier: "trips_1k_dst",
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: "trips_1k"},
+				DestinationTable: &protos.QualifiedTable{Table: "trips_1k_dst"},
 			},
 		},
 		SnapshotStagingPath: "", // empty
@@ -243,8 +244,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Invalid_Forma
 				DoInitialSnapshot:   true,
 				TableMappings: []*protos.TableMapping{
 					{
-						SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-						DestinationTableIdentifier: "trips_1k_dst",
+						SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: "trips_1k"},
+						DestinationTable: &protos.QualifiedTable{Table: "trips_1k_dst"},
 					},
 				},
 				SnapshotStagingPath: invalidPath,
@@ -269,8 +270,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Inaccessible(
 		DoInitialSnapshot:   true,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-				DestinationTableIdentifier: "trips_1k_dst",
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: "trips_1k"},
+				DestinationTable: &protos.QualifiedTable{Table: "trips_1k_dst"},
 			},
 		},
 		SnapshotStagingPath: "gs://nonexistent-bucket-peerdb-test-12345/path",
@@ -293,8 +294,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Invalid_Table_Mappings() {
 		DoInitialSnapshot:   true,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      source.config.DatasetId + ".nonexistent_table",
-				DestinationTableIdentifier: "nonexistent_dst",
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: "nonexistent_table"},
+				DestinationTable: &protos.QualifiedTable{Table: "nonexistent_dst"},
 			},
 		},
 		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
@@ -321,8 +322,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_ValidateMirrorSource_Succe
 		DoInitialSnapshot:   true,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-				DestinationTableIdentifier: "trips_1k_dst",
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: "trips_1k"},
+				DestinationTable: &protos.QualifiedTable{Table: "trips_1k_dst"},
 			},
 		},
 		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
@@ -376,8 +377,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Get_Table_Schema() {
 
 	tableMappings := []*protos.TableMapping{
 		{
-			SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
-			DestinationTableIdentifier: "trips_1k_dst",
+			SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: "trips_1k"},
+			DestinationTable: &protos.QualifiedTable{Table: "trips_1k_dst"},
 		},
 	}
 
@@ -386,7 +387,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Get_Table_Schema() {
 	require.NotNil(t, schemas, "schemas should not be nil")
 	require.Len(t, schemas, 1, "should have one table schema")
 
-	tableSchema := schemas[source.config.DatasetId+".trips_1k"]
+	tableSchema := schemas[common.QualifiedTable{Namespace: source.config.DatasetId, Table: "trips_1k"}]
 	require.NotNil(t, tableSchema, "table schema should not be nil")
 	require.NotEmpty(t, tableSchema.Columns, "should have columns")
 	require.Equal(t, protos.TypeSystem_Q, tableSchema.System, "should use Q type system")
@@ -428,8 +429,8 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 		FlowJobName: AddSuffix(s, srcTable),
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
-				DestinationTableIdentifier: s.DestinationTable(dstTable),
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: srcTable},
+				DestinationTable: internal.QualifiedTableProto(s.DestinationTable(dstTable)),
 			},
 		},
 		Destination: s.Peer().Name,
@@ -500,8 +501,8 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow_Small_Partitions() {
 		FlowJobName: AddSuffix(s, srcTable),
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
-				DestinationTableIdentifier: s.DestinationTable(dstTable),
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: srcTable},
+				DestinationTable: internal.QualifiedTableProto(s.DestinationTable(dstTable)),
 			},
 		},
 		Destination: s.Peer().Name,
@@ -724,8 +725,8 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 		FlowJobName: AddSuffix(s, srcTable),
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
-				DestinationTableIdentifier: s.DestinationTable(dstTable),
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: srcTable},
+				DestinationTable: internal.QualifiedTableProto(s.DestinationTable(dstTable)),
 			},
 		},
 		Destination: s.Peer().Name,
@@ -871,8 +872,8 @@ func (s BigQueryClickhouseSuite) Test_JSON_Support() {
 		FlowJobName: AddSuffix(s, srcTable),
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
-				DestinationTableIdentifier: s.DestinationTable(dstTable),
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: srcTable},
+				DestinationTable: internal.QualifiedTableProto(s.DestinationTable(dstTable)),
 			},
 		},
 		Destination: s.Peer().Name,
@@ -974,8 +975,8 @@ func (s BigQueryClickhouseSuite) Test_GCS_Cleanup_After_Initial_Load() {
 		FlowJobName: AddSuffix(s, srcTable),
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
-				DestinationTableIdentifier: s.DestinationTable(dstTable),
+				SourceTable:      &protos.QualifiedTable{Namespace: source.config.DatasetId, Table: srcTable},
+				DestinationTable: internal.QualifiedTableProto(s.DestinationTable(dstTable)),
 			},
 		},
 		Destination: s.Peer().Name,

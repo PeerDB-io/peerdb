@@ -64,8 +64,8 @@ func (s PeerFlowE2ETestSuiteSF) Peer() *protos.Peer {
 	return ret
 }
 
-func (s PeerFlowE2ETestSuiteSF) DestinationTable(table string) string {
-	return fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, table)
+func (s PeerFlowE2ETestSuiteSF) DestinationTable(table string) common.QualifiedTable {
+	return common.QualifiedTable{Namespace: s.sfHelper.testSchemaName, Table: table}
 }
 
 func (s PeerFlowE2ETestSuiteSF) GetRows(tableName string, sfSelector string) (*model.QRecordBatch, error) {

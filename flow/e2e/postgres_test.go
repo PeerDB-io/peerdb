@@ -622,8 +622,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_src"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_dst"},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -699,8 +699,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_iud_src"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_iud_dst"},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -767,8 +767,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_ud_src"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_ud_dst"},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -843,8 +843,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_iad"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_iad_dst"},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -892,9 +892,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 	tc := NewTemporalClient(s.t)
 
 	stmtSrcTableName := fmt.Sprintf(`e2e_test_%s."%s"`, s.suffix, "testMixedCase")
-	srcTableName := s.attachSchemaSuffix("testMixedCase")
 	stmtDstTableName := fmt.Sprintf(`e2e_test_%s."%s"`, s.suffix, "testMixedCaseDst")
-	dstTableName := s.attachSchemaSuffix("testMixedCaseDst")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -911,8 +909,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "testMixedCase"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "testMixedCaseDst"},
 			},
 		},
 		SourceName:   GeneratePostgresPeer(s.t).Name,
@@ -950,8 +948,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Multiple_Parallel_Initial() {
 		dstTable := srcTable + "_dst"
 		s.setupSourceTable(srcTable, (i+1)*101)
 		tableMapping[i] = &protos.TableMapping{
-			SourceTableIdentifier:      s.attachSchemaSuffix(srcTable),
-			DestinationTableIdentifier: s.attachSchemaSuffix(dstTable),
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTable},
+			DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: dstTable},
 		}
 	}
 
@@ -971,8 +969,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Multiple_Parallel_Initial() {
 	env := ExecutePeerflow(s.t, tc, config)
 	SetupCDCFlowStatusQuery(s.t, env, config)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
-	for _, tm := range config.TableMappings {
-		require.NoError(s.t, s.comparePGTables(tm.SourceTableIdentifier, tm.DestinationTableIdentifier, "id,address,asset_id"))
+	for i := range config.TableMappings {
+		srcTable := fmt.Sprintf("test_multi_init_%d", i)
+		require.NoError(s.t,
+			s.comparePGTables(s.attachSchemaSuffix(srcTable), s.attachSchemaSuffix(srcTable+"_dst"), "id,address,asset_id"))
 	}
 }
 
@@ -1042,8 +1042,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTable1Name,
-				DestinationTableIdentifier: dstTable1Name,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_dynconfig_1"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "test_dynconfig_1_dst"},
 			},
 		},
 		SourceName:                  s.Peer().Name,
@@ -1106,8 +1106,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			BatchSize:   12,
 			AdditionalTables: []*protos.TableMapping{
 				{
-					SourceTableIdentifier:      srcTable2Name,
-					DestinationTableIdentifier: dstTable2Name,
+					SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_dynconfig_2"},
+					DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "test_dynconfig_2_dst"},
 				},
 			},
 		})
@@ -1309,8 +1309,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Mixed_Case_Schema_Changes_PG() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      s.attachSchemaSuffix(srcTableName),
-				DestinationTableIdentifier: s.attachSchemaSuffix(dstTableName),
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: dstTableName},
 			},
 		},
 		SourceName:   GeneratePostgresPeer(s.t).Name,
@@ -1401,9 +1401,9 @@ func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 		FlowJobName: s.attachSuffix(srcTableName),
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
-				DestinationTableIdentifier: dstTableName,
-				Exclude:                    []string{"excludedColumn"},
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+				DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+				Exclude:          []string{"excludedColumn"},
 			},
 		},
 		Destination: s.Peer().Name,
@@ -1517,9 +1517,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Table_With_Excluded_PK_And_ReplicaIdentityF
 		FlowJobName: s.attachSuffix("test_excluded_pk_replfull"),
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
-				Exclude:                    []string{"id"},
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_excluded_pk_replfull"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "test_excluded_pk_replfull_dst"},
+				Exclude:          []string{"id"},
 			},
 		},
 		Destination: s.Peer().Name,
@@ -1615,12 +1615,12 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_PG_Target_Foreign_Keys() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName1,
-				DestinationTableIdentifier: dstTableName1,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_pg_pg_fk_src_1"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "test_pg_pg_fk_dst_1"},
 			},
 			{
-				SourceTableIdentifier:      srcTableName2,
-				DestinationTableIdentifier: dstTableName2,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_pg_pg_fk_src_2"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "test_pg_pg_fk_dst_2"},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
