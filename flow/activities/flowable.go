@@ -686,15 +686,16 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			slog.Int("totalPartitions", numPartitions))
 
 		startTime := time.Now()
-		partLogger.Info(fmt.Sprintf("start replicating partition %d/%d of table %s", i+1, numPartitions, internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)))
+		watermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
+		partLogger.Info(fmt.Sprintf("start replicating partition %d/%d of table %s", i+1, numPartitions, watermarkTable))
 
 		if err := replicatePartitionFunc(partition); err != nil {
-			partLogger.Error(fmt.Sprintf("failed to replicate partition %d/%d of table %s", i+1, numPartitions, internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)),
+			partLogger.Error(fmt.Sprintf("failed to replicate partition %d/%d of table %s", i+1, numPartitions, watermarkTable),
 				slog.Any("error", err))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		}
 
-		partLogger.Info(fmt.Sprintf("finished replicating partition %d/%d of table %s", i+1, numPartitions, internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)),
+		partLogger.Info(fmt.Sprintf("finished replicating partition %d/%d of table %s", i+1, numPartitions, watermarkTable),
 			slog.Time("startTime", startTime),
 			slog.Time("finishTime", time.Now()))
 	}
@@ -702,7 +703,8 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	a.Alerter.LogFlowInfo(
 		ctx,
 		config.FlowJobName,
-		fmt.Sprintf("replicated %d partitions to destination for table %s", numPartitions, internal.QualifiedTableFromProto(config.DestinationTable)),
+		fmt.Sprintf("replicated %d partitions to destination for table %s",
+			numPartitions, internal.QualifiedTableFromProto(config.DestinationTable)),
 	)
 	return nil
 }

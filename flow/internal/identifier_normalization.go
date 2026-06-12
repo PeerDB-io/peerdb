@@ -65,6 +65,7 @@ func NormalizeFlowConfig(cfg *protos.FlowConnectionConfigsCore) {
 	}
 }
 
+//nolint:gocritic // boundary helper: normalizes the external API message before conversion to Core
 func NormalizeFlowConfigAPI(cfg *protos.FlowConnectionConfigs) {
 	if cfg != nil {
 		NormalizeTableMappings(cfg.TableMappings)
@@ -75,6 +76,8 @@ func NormalizeFlowConfigAPI(cfg *protos.FlowConnectionConfigs) {
 // API consumers reading only the pre-struct fields, like nexus and older UIs, keep
 // working. Also applied to configs persisted in the catalog for one release, so a
 // rollback to the previous release can still read them.
+//
+//nolint:gocritic // boundary helper: refills legacy fields on the external API message
 func DenormalizeFlowConfigForAPI(cfg *protos.FlowConnectionConfigs) {
 	if cfg != nil {
 		DenormalizeTableMappings(cfg.TableMappings)

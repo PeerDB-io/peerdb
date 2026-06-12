@@ -19,9 +19,9 @@ func TestNewScopedEventhub(t *testing.T) {
 	assert.Equal(t, ScopedEventhub{NamespaceName: "ns", Eventhub: "my-hub", PartitionKeyColumn: "pk-col"}, quoted)
 
 	_, err = NewScopedEventhub(common.QualifiedTable{Table: "hub.pkcol"})
-	assert.Error(t, err, "missing namespace")
+	require.Error(t, err, "missing namespace")
 	_, err = NewScopedEventhub(common.QualifiedTable{Namespace: "ns", Table: "hub"})
-	assert.Error(t, err, "missing partition key column")
+	require.Error(t, err, "missing partition key column")
 }
 
 // legacy 3-part dotted destinations from Lua scripts keep parsing as before
@@ -31,5 +31,5 @@ func TestNewScopedEventhubFromString(t *testing.T) {
 	assert.Equal(t, ScopedEventhub{NamespaceName: "ns", Eventhub: "hub", PartitionKeyColumn: "pkcol"}, scoped)
 
 	_, err = NewScopedEventhubFromString("ns.hub")
-	assert.Error(t, err)
+	require.Error(t, err)
 }

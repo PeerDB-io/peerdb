@@ -1025,7 +1025,8 @@ func processInsertMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName.String()))
+	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName.String()))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
@@ -1064,7 +1065,8 @@ func processUpdateMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName.String()))
+	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName.String()))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
@@ -1124,7 +1126,8 @@ func processDeleteMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName.String()))
+	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName.String()))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {

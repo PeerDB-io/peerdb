@@ -543,7 +543,8 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 				IsResync: tc.isResync,
 			}
 
-			result, err := c.generateCreateTableSQLForNormalizedTable(ctx, config, common.QualifiedTable{Table: tableIdentifier}, tableSchema, tc.chVersion, nil)
+			result, err := c.generateCreateTableSQLForNormalizedTable(
+				ctx, config, common.QualifiedTable{Table: tableIdentifier}, tableSchema, tc.chVersion, nil)
 			require.NoError(t, err)
 			require.Len(t, result, 1)
 			sql := result[0]

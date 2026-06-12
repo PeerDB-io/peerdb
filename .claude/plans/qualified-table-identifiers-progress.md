@@ -68,15 +68,22 @@ Branch: `qualified-table-identifiers`
 - [x] bonus: fixed never-firing duplicate-destination check in schema.ts
 
 ## Phase 7 — Tests
-- [~] A: existing e2e suites — conversion in progress (subagent); unit tests across
-      modules fixed & green (commit 4280a4c7; pua needs TZ=UTC env — preexisting;
-      connectors/utils SSH test needs dev stack; pkg/mysql vet failure preexisting)
-- [ ] B: dotted-name e2e (generic matrix, schema changes, add/remove, resync, qrep watermark, mongo collection, queue dests, api validation, snapshot-only)
-- [~] C: backward-compat — normalization units + old-wire-format fixture done (Phase 1);
-      raw-table continuity + migration tests TODO
-- [~] D: per-component units — identifiers ✓, BQ convertToDatasetTable matrix ✓ (agent),
-      EventHub scoped test ✓, CH dotted-destination BuildQuery test ✓ (headline case),
-      pua legacy-dotted pinned via existing test; SF golden dotted cases TODO
+- [x] A: existing e2e suites converted (subagent) + verified on dev stack:
+      TestGenericCH_PG full suite PASSED; TestApiPg all subtests pass after fixes
+      (two real issues found & fixed: error-code expectation + destination-keyed
+      catalog lookup); connector_clickhouse PASSED; remaining failures pre-existing
+      environmental (mysql e2e fails identically on pure main bits; SSH/tz tests)
+- [x] B: dotted-name e2e — Test_Dotted_Names_CDC (PG→CH) PASSED;
+      TestDottedTableAddition PASSED; Test_Dotted_Watermark_QRep PASSED;
+      Test_Dotted_Collection_Name (Mongo) PASSED;
+      TestMirrorValidation_DottedIdentifierCollisions PASSED (4/4 rejections).
+      SF/BQ branches compile-only (SF suite-skipped upstream; BQ can't have dots)
+- [x] C: backward-compat — normalization units + old-wire-format fixture;
+      V54 backfill verified against 30 real catalog rows; live old-bits mirror
+      continued syncing through upgrade (raw-table LegacyDotted round-trip live)
+- [x] D: per-component units — identifiers, BQ convertToDatasetTable matrix, EventHub
+      scoped test, CH dotted-destination BuildQuery (headline), SF per-component
+      normalize, pua legacy-dotted
 
 ## Verification (after implementation)
 - [ ] build: go build ./... ; cargo check (nexus); ui build
