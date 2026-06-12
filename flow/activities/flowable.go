@@ -71,15 +71,11 @@ func getInitialNormalizeBatchID(
 	catalogPool shared.CatalogPool,
 	env map[string]string,
 	destinationName string,
+	destinationType protos.DBType,
 	flowName string,
 ) (int64, error) {
-	dstPeer, err := connectors.LoadPeer(ctx, catalogPool, destinationName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to load destination peer for normalize state: %w", err)
-	}
-
 	// Postgres keeps normalize progress in destination-local metadata.
-	if dstPeer.Type == protos.DBType_POSTGRES {
+	if destinationType == protos.DBType_POSTGRES {
 		dstPgConn, dstClose, err := connectors.GetPostgresConnectorByName(ctx, env, catalogPool, destinationName)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get postgres destination connector for normalize state: %w", err)
@@ -360,6 +356,22 @@ func (a *FlowableActivity) SyncFlow(
 	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := internal.LoggerFromCtx(ctx)
 
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
+	}
+
+	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, config.Env, destinationType)
+	if err != nil {
+		return fmt.Errorf("failed to fetch PEERDB_CDC_STORE_ENABLED setting: %w", err)
+	}
+
+	// Postgres connector reads this at construction to populate its cdcStoreEnabled
+	// attribute; only set here because cdcStoreEnabled is only used by SyncFlow
+	if config.Env == nil {
+		config.Env = make(map[string]string)
+	}
+	config.Env["PEERDB_CDC_STORE_ENABLED"] = strconv.FormatBool(cdcStoreEnabled)
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -383,7 +395,7 @@ func (a *FlowableActivity) SyncFlow(
 	normResponses := concurrency.NewLastChan()
 
 	lastNormBatchID, err := getInitialNormalizeBatchID(
-		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, config.FlowJobName,
+		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
 	)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -401,7 +413,7 @@ func (a *FlowableActivity) SyncFlow(
 	// under normal steady operation where the batch hits idle timeout every time it will match the hours very closely
 	// effective hours will be longer if pull is idling, or there are waits on big transactions,
 	// or the sync interval is so small that start/stop overhead starts being visible
-	// will be shorter if the batches hit the size limit rather rather than idle timeout
+	// will be shorter if the batches hit the size limit rather than idle timeout
 	normBufferSize := normBufferHours * 3600 / int64(idleTimeout.Seconds())
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)

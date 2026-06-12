@@ -526,12 +526,9 @@ func PullCdcRecords[Items model.Items](
 	}
 
 	// Remove exceptions.PrimaryKeyModifiedError and its classification when cdc store is removed
-	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, req.Env)
-	if err != nil {
-		return err
-	}
 	var cdcRecordsStorage *utils.CDCStore[Items]
-	if cdcStoreEnabled {
+	if p.cdcStoreEnabled {
+		var err error
 		cdcRecordsStorage, err = utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
 		if err != nil {
 			return err
