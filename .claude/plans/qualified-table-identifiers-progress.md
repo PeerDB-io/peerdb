@@ -96,4 +96,21 @@ Branch: `qualified-table-identifiers`
   was awkward).
 
 ## Manual work log
-- (empty)
+- 2026-06-12: Tilt env (port 10352) was already rebuilt from the branch; catalog
+  migrations V54-V57 auto-applied. Verified on live catalog: table_schema_mapping has
+  table_namespace + new PK (flow_name, table_namespace, table_name); 30 pre-existing
+  flows backfilled (CH table-only rows → namespace=''); flows legacy identifier columns
+  dropped.
+- 2026-06-12: Upgrade scenario validated organically: `test_mirror_flow` (PG→CH CDC
+  mirror created on OLD bits) resumed on the new worker, healthy sync loop; inserted a
+  fresh row into source `public.test_mirror` → landed in ClickHouse `default.test_mirror`
+  (raw-table write + normalize on new code against legacy-era table state). Covers plan
+  section E scenarios 1 (paused/running mirror across upgrade) and 2 partially
+  (raw-table LegacyDotted round-trip on a live mirror).
+- 2026-06-12: `e2e_postgres` (TestGenericCH_PG) regression suite: **PASSED** on the
+  refactored code. `connector_clickhouse`: **PASSED** (incl. live-CH raw table tests).
+  `connector_postgres`: 4 failures, all pre-existing/environmental — 3 SSH keepalive
+  tests (toxiproxy state) + TestSupportedDataTypes (fails identically on main; tz-
+  sensitive time assertion). pua tests need TZ=UTC (also pre-existing).
+- 2026-06-12: Triggered `e2e_mysql-gtid` (TestGenericCH_MySQL) and `e2e_api-postgres`
+  (TestApiPg) suites; monitoring.
