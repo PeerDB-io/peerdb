@@ -8,6 +8,7 @@ import {
   FlowStatus,
   TableMapping,
 } from '@/grpc_generated/flow';
+import { DBType } from '@/grpc_generated/peers';
 import {
   FlowStateChangeRequest,
   MirrorStatusResponse,
@@ -89,11 +90,16 @@ export default function EditMirror({
   );
   const { push } = useRouter();
 
+  const destinationType =
+    mirrorState.cdcStatus?.destinationType ?? DBType.DBTYPE_UNKNOWN;
+
   const alreadySelectedTablesMapping: Map<string, TableMapping[]> =
     useMemo(() => {
       const alreadySelectedTablesMap: Map<string, TableMapping[]> = new Map();
       mirrorState?.cdcStatus?.config?.tableMappings.forEach((value) => {
-        const sourceSchema = value.sourceTableIdentifier.split('.').at(0)!;
+        const sourceSchema = value.sourceTable
+          ? value.sourceTable.namespace
+          : value.sourceTableIdentifier.split('.').at(0)!;
         const mapVal: TableMapping[] =
           alreadySelectedTablesMap.get(sourceSchema) ?? [];
         mapVal.push(value);
@@ -103,17 +109,27 @@ export default function EditMirror({
     }, [mirrorState]);
 
   const additionalTables = useMemo(() => {
-    return changesToTablesMapping(rows, alreadySelectedTablesMapping, false);
-  }, [rows, alreadySelectedTablesMapping]);
+    return changesToTablesMapping(
+      rows,
+      alreadySelectedTablesMapping,
+      false,
+      destinationType
+    );
+  }, [rows, alreadySelectedTablesMapping, destinationType]);
 
   const removedTables = useMemo(() => {
-    return changesToTablesMapping(rows, alreadySelectedTablesMapping, true);
-  }, [rows, alreadySelectedTablesMapping]);
+    return changesToTablesMapping(
+      rows,
+      alreadySelectedTablesMapping,
+      true,
+      destinationType
+    );
+  }, [rows, alreadySelectedTablesMapping, destinationType]);
 
   const sendFlowStateChangeRequest = () => {
     if (rows.length > 0) {
       const tablesValidity = tableMappingSchema.safeParse(
-        reformattedTableMapping(rows)
+        reformattedTableMapping(rows, destinationType)
       );
       if (!tablesValidity.success) {
         notifyErr(tablesValidity.error.issues[0].message);

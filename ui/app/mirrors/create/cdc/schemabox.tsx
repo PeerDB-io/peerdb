@@ -18,6 +18,7 @@ import { RowWithCheckbox } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
+import { displayQualifiedTable } from '@/lib/utils/tableIdentifier';
 import {
   Dispatch,
   SetStateAction,
@@ -148,14 +149,16 @@ export default function SchemaBox({
   };
 
   const addTableColumns = useCallback(
-    (table: string) => {
-      const [schemaName, tableName] = table.split('.');
-
+    (row: TableMapRow) => {
       startColumnsTransition(async () => {
-        const res = await fetchColumns(sourcePeer, schemaName, tableName);
+        const res = await fetchColumns(
+          sourcePeer,
+          row.sourceTable.namespace,
+          row.sourceTable.table
+        );
         setTableColumns((prev) => [
           ...prev,
-          { tableName: table, columns: res },
+          { tableName: row.source, columns: res },
         ]);
       });
     },
@@ -165,9 +168,11 @@ export default function SchemaBox({
   const handleAddRow = (source: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    if (index >= 0) newRows[index] = { ...newRows[index], selected: true };
+    if (index >= 0) {
+      newRows[index] = { ...newRows[index], selected: true };
+      addTableColumns(newRows[index]);
+    }
     setRows(newRows);
-    addTableColumns(source);
   };
 
   const removeTableColumns = (table: string) => {
@@ -190,7 +195,7 @@ export default function SchemaBox({
       const row = newRows[i];
       if (row.schema === schemaName && row.canMirror) {
         newRows[i] = { ...row, selected: e.currentTarget.checked };
-        if (e.currentTarget.checked) addTableColumns(row.source);
+        if (e.currentTarget.checked) addTableColumns(row);
         else removeTableColumns(row.source);
       }
     }
@@ -211,8 +216,12 @@ export default function SchemaBox({
 
           if (alreadySelectedTables) {
             for (const row of newRows) {
-              const existingRow = alreadySelectedTables.find(
-                (tableMap) => tableMap.sourceTableIdentifier === row.source
+              const existingRow = alreadySelectedTables.find((tableMap) =>
+                tableMap.sourceTable
+                  ? tableMap.sourceTable.namespace ===
+                      row.sourceTable.namespace &&
+                    tableMap.sourceTable.table === row.sourceTable.table
+                  : tableMap.sourceTableIdentifier === row.source
               );
               if (existingRow) {
                 row.selected = true;
@@ -223,8 +232,10 @@ export default function SchemaBox({
                 row.policyName = existingRow.policyName;
                 row.partitionByExpr = existingRow.partitionByExpr;
                 row.exclude = new Set(existingRow.exclude ?? []);
-                row.destination = existingRow.destinationTableIdentifier;
-                addTableColumns(row.source);
+                row.destination = existingRow.destinationTable
+                  ? displayQualifiedTable(existingRow.destinationTable)
+                  : existingRow.destinationTableIdentifier;
+                addTableColumns(row);
               }
             }
           }

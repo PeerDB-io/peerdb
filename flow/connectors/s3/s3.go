@@ -87,10 +87,10 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
 	qrepConfig := &protos.QRepConfig{
-		FlowJobName:                req.FlowJobName,
-		DestinationTableIdentifier: "raw_table_" + req.FlowJobName,
-		Env:                        req.Env,
-		Version:                    req.Version,
+		FlowJobName:      req.FlowJobName,
+		DestinationTable: &protos.QualifiedTable{Table: "raw_table_" + req.FlowJobName},
+		Env:              req.Env,
+		Version:          req.Version,
 	}
 	partition := &protos.QRepPartition{
 		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),

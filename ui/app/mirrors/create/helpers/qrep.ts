@@ -51,9 +51,9 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        destinationTableIdentifier: value as string,
+        destinationTable: value as QualifiedTable | undefined,
       })),
-    checked: (state) => state.destinationTableIdentifier,
+    checked: (state) => !!state.destinationTable,
     tips: 'Name of the destination. For any destination peer apart from BigQuery, this must be schema-qualified. Example: public.users',
     required: true,
   },

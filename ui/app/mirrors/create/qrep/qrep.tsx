@@ -2,7 +2,11 @@
 import { useSelectTheme } from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
-import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
+import {
+  QRepConfig,
+  QRepWriteType,
+  QualifiedTable,
+} from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
@@ -17,6 +21,10 @@ import {
   useTransition,
 } from 'react';
 import ReactSelect from 'react-select';
+import {
+  parseDestinationInput,
+  qualifiedTableFromDottedName,
+} from '@/lib/utils/tableIdentifier';
 import { fetchAllTables, fetchColumns } from '../handlers';
 import { MirrorSetting } from '../helpers/common';
 import UpsertColsDisplay from './upsertcols';
@@ -81,8 +89,11 @@ export default function QRepConfigForm({
   const [loading, startTransition] = useTransition();
 
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | QRepWriteType | string[] = val;
-    if (setting.label.includes('Write Type')) {
+    let stateVal: string | boolean | QRepWriteType | string[] | QualifiedTable =
+      val;
+    if (setting.label === 'Destination Table Name') {
+      stateVal = parseDestinationInput(val as string, destinationType);
+    } else if (setting.label.includes('Write Type')) {
       switch (val) {
         case 'Upsert':
           stateVal = QRepWriteType.QREP_WRITE_MODE_UPSERT;
@@ -121,10 +132,13 @@ export default function QRepConfigForm({
   };
 
   const loadColumnOptions = (tableIdentifier: string) => {
-    const schema = tableIdentifier.split('.')[0];
-    const table = tableIdentifier.split('.')[1];
+    const { namespace, table } = qualifiedTableFromDottedName(tableIdentifier);
     startTransition(async () => {
-      const cols = await fetchColumns(mirrorConfig.sourceName, schema, table);
+      const cols = await fetchColumns(
+        mirrorConfig.sourceName,
+        namespace,
+        table
+      );
       const filteredCols = cols?.filter((col) => {
         const types = allowedTypesForWatermarkColumn.get(sourceType);
         return !types || types.has(col.type);

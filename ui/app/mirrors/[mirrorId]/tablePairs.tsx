@@ -3,9 +3,22 @@ import { tableStyle } from '@/app/peers/[peerName]/style';
 import { TableMapping } from '@/grpc_generated/flow';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { displayQualifiedTable } from '@/lib/utils/tableIdentifier';
 import React, { useMemo, useState } from 'react';
 import { useTheme as useStyledTheme } from 'styled-components';
 import ColumnDisplayModal from './columnDisplayModal';
+
+function sourceDisplay(table: TableMapping): string {
+  return table.sourceTable
+    ? displayQualifiedTable(table.sourceTable)
+    : table.sourceTableIdentifier;
+}
+
+function destinationDisplay(table: TableMapping): string {
+  return table.destinationTable
+    ? displayQualifiedTable(table.destinationTable)
+    : table.destinationTableIdentifier;
+}
 
 export default function TablePairs({
   tables,
@@ -22,8 +35,8 @@ export default function TablePairs({
   const shownTables: TableMapping[] | undefined = useMemo(() => {
     const shownTables = tables?.filter(
       (table: TableMapping) =>
-        table.sourceTableIdentifier.includes(searchQuery) ||
-        table.destinationTableIdentifier.includes(searchQuery)
+        sourceDisplay(table).includes(searchQuery) ||
+        destinationDisplay(table).includes(searchQuery)
     );
     return shownTables?.length ? shownTables : tables;
   }, [tables, searchQuery]);
@@ -69,14 +82,14 @@ export default function TablePairs({
           >
             {shownTables?.map((table) => (
               <TableRow
-                key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
+                key={`${sourceDisplay(table)}.${destinationDisplay(table)}`}
                 onClick={() => handleTableClick(table)}
                 style={{ cursor: 'pointer' }}
                 className='hover:bg-gray-50 dark:hover:bg-gray-800'
               >
-                <TableCell>{table.sourceTableIdentifier}</TableCell>
+                <TableCell>{sourceDisplay(table)}</TableCell>
                 <TableCell style={{ padding: '0.5rem' }}>
-                  {table.destinationTableIdentifier}
+                  {destinationDisplay(table)}
                 </TableCell>
               </TableRow>
             ))}
@@ -86,9 +99,11 @@ export default function TablePairs({
         <ColumnDisplayModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          sourceTableIdentifier={selectedTable?.sourceTableIdentifier ?? ''}
+          sourceTableIdentifier={
+            selectedTable ? sourceDisplay(selectedTable) : ''
+          }
           destinationTableIdentifier={
-            selectedTable?.destinationTableIdentifier ?? ''
+            selectedTable ? destinationDisplay(selectedTable) : ''
           }
           tableMapping={selectedTable}
           sourcePeerName={sourcePeerName}
