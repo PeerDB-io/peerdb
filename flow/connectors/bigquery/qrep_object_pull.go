@@ -499,10 +499,6 @@ func (c *BigQueryConnector) SetupReplConn(context.Context, map[string]string) er
 	return nil
 }
 
-func (c *BigQueryConnector) ReplPing(context.Context) error {
-	return nil
-}
-
 func (c *BigQueryConnector) UpdateReplStateLastOffset(context.Context, model.CdcCheckpoint) error {
 	return nil
 }

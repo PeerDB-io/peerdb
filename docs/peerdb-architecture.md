@@ -228,7 +228,6 @@ classDiagram
         +EnsurePullability()
         +ExportTxSnapshot()
         +SetupReplication()
-        +ReplPing()
         +PullFlowCleanup()
     }
 
