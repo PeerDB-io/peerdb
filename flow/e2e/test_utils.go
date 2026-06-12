@@ -66,7 +66,7 @@ type GenericSuite interface {
 	RowSource
 	Peer() *protos.Peer
 	DestinationConnector() connectors.Connector
-	DestinationTable(table string) string
+	DestinationTable(table string) common.QualifiedTable
 }
 
 func Schema(s Suite) string {

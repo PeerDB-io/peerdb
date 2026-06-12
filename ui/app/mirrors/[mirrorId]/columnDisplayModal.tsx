@@ -1,6 +1,7 @@
 'use client';
 import { TableMapping } from '@/grpc_generated/flow';
 import { TableColumnsResponse } from '@/grpc_generated/route';
+import { qualifiedTableFromDottedName } from '@/lib/utils/tableIdentifier';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -37,7 +38,9 @@ export default function ColumnDisplayModal({
           setError(null);
 
           // Parse schema and table name from sourceTableIdentifier (e.g., "public.users")
-          const [schemaName, tableName] = sourceTableIdentifier.split('.');
+          const { namespace: schemaName, table: tableName } =
+            tableMapping?.sourceTable ??
+            qualifiedTableFromDottedName(sourceTableIdentifier);
 
           if (!schemaName || !tableName) {
             throw new Error('Invalid table identifier format');
@@ -71,7 +74,7 @@ export default function ColumnDisplayModal({
 
       fetchTableColumns();
     }
-  }, [isOpen, sourceTableIdentifier, sourcePeerName]);
+  }, [isOpen, sourceTableIdentifier, sourcePeerName, tableMapping]);
 
   const excludedColumns = new Set(tableMapping?.exclude || []);
 

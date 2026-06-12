@@ -54,6 +54,8 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	var numRecords int64
 	bulkIndexerHasShutdown := false
 
+	destinationIndex := config.DestinationTable.GetTable()
+
 	// len == 0 means use UUID
 	// len == 1 means single column, use value directly
 	// len > 1 means SHA256 hash of upsert key columns
@@ -66,10 +68,10 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			if idx != -1 {
 				upsertKeyColIndices = append(upsertKeyColIndices, idx)
 			} else {
-				hushKey := tableUpsertCol{table: config.DestinationTableIdentifier, col: upsertCol}
+				hushKey := tableUpsertCol{table: destinationIndex, col: upsertCol}
 				if _, warned := esc.hushWarnUpsertColMissing[hushKey]; !warned {
 					esc.logger.Warn("[elasticsearch] upsert key column not found in schema, may cause duplicates",
-						slog.String("destinationTable", config.DestinationTableIdentifier),
+						slog.String("destinationTable", destinationIndex),
 						slog.String("upsertKeyColumn", upsertCol),
 						slog.Any("schemaColumns", schemaColNames))
 					esc.hushWarnUpsertColMissing[hushKey] = struct{}{}
@@ -79,7 +81,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	}
 
 	esBulkIndexer, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
-		Index:  config.DestinationTableIdentifier,
+		Index:  destinationIndex,
 		Client: esc.client,
 		// parallelism comes from the workflow design itself, no need for this
 		NumWorkers:    1,

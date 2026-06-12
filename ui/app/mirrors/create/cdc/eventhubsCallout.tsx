@@ -19,7 +19,11 @@ const EventhubsCallout = () => {
       </div>
       <div style={{ fontSize: 14 }}>
         Eventhubs targets are of the form{' '}
-        <b>namespace.eventhub_name.partition_column</b>.<br />
+        <b>namespace.eventhub_name.partition_key_column</b>: the first segment
+        is the namespace, and the remainder (
+        <b>eventhub_name.partition_key_column</b>) identifies the eventhub
+        along with the column whose values pick its partitions.
+        <br />
         Namespaces are specified in the Eventhub peer. PeerDB will create the
         eventhub if needed with the name you specify in the provided namespace
         for each source table.
