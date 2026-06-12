@@ -1726,8 +1726,6 @@ func (a *FlowableActivity) updateTableSchemaMappingForResync(
 		}
 	}
 
-	a.Alerter.LogFlowInfo(ctx, flowJobName, "Resync completed for all tables")
-
 	if commitErr := tx.Commit(ctx); commitErr != nil {
 		return a.Alerter.LogFlowError(ctx, flowJobName, fmt.Errorf("failed to commit updating table_schema_mapping: %w", commitErr))
 	}
