@@ -13,14 +13,14 @@ plugins:
     out: flow/generated/protos
     opt:
       - paths=source_relative
-  - plugin: buf.build/community/neoeinstein-prost:v0.4.0
+  - plugin: buf.build/community/neoeinstein-prost:v0.5.0
     out: nexus/pt/src/gen
     opt:
       - compile_well_known_types
       - extern_path=.google.protobuf=::pbjson_types
-  - plugin: buf.build/community/neoeinstein-tonic:v0.4.1
+  - plugin: buf.build/community/neoeinstein-tonic:v0.5.0
     out: nexus/pt/src/gen
-  - plugin: buf.build/community/neoeinstein-prost-serde:v0.3.1
+  - plugin: buf.build/community/neoeinstein-prost-serde:v0.4.0
     out: nexus/pt/src/gen
     opt:
       - ignore_unknown_fields=true

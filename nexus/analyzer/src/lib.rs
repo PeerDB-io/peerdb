@@ -558,10 +558,18 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                     FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
                     FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
-                        limit: ast::Value::Number(n, _),
+                        limit:
+                            ast::ValueWithSpan {
+                                value: ast::Value::Number(n, _),
+                                ..
+                            },
                     }
                     | FetchDirection::Forward {
-                        limit: Some(ast::Value::Number(n, _)),
+                        limit:
+                            Some(ast::ValueWithSpan {
+                                value: ast::Value::Number(n, _),
+                                ..
+                            }),
                     } => n.parse::<usize>()?,
                     _ => {
                         return Err(anyhow::anyhow!(
