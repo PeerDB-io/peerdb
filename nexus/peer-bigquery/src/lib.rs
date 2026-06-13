@@ -134,10 +134,18 @@ impl QueryExecutor for BigQueryQueryExecutor {
                     FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
                     FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
-                        limit: sqlparser::ast::Value::Number(n, _),
+                        limit:
+                            sqlparser::ast::ValueWithSpan {
+                                value: sqlparser::ast::Value::Number(n, _),
+                                ..
+                            },
                     }
                     | FetchDirection::Forward {
-                        limit: Some(sqlparser::ast::Value::Number(n, _)),
+                        limit:
+                            Some(sqlparser::ast::ValueWithSpan {
+                                value: sqlparser::ast::Value::Number(n, _),
+                                ..
+                            }),
                     } => n
                         .parse::<usize>()
                         .map_err(|err| PgWireError::ApiError(err.into()))?,
