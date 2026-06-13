@@ -951,6 +951,21 @@ func TestClickHouseOtherUnfinishedShouldBeRecoverable(t *testing.T) {
 	}, errInfo)
 }
 
+func TestClickHouseLockingAttemptForAlterTimedOutShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrDeadlockAvoided),
+		//nolint:lll
+		Message: `Locking attempt for ALTER on "my_database.my_table" has timed out! (120000 ms) Possible deadlock avoided. Client should retry.`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to push records: failed to sync schema changes: failed to add column case_number for table my_table: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrDeadlockAvoided)),
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 	err := exceptions.NewMySQLUnsupportedDDLError("test_db.test_table")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))

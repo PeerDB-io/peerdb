@@ -64,10 +64,11 @@ var (
 	ClickHouseObjectStorageIOErrorRe = regexp.MustCompile(
 		`unspecified iostream_category error: while reading .+: While executing ReadFromObjectStorage`,
 	)
-	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
-	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
-	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
-	PostgresSpillFileMissingRe        = regexp.MustCompile(`Unable to restore changes for xid \d+`)
+	ClickHouseLockingAttemptForAlterRe = regexp.MustCompile(`Locking attempt for ALTER on .+ has timed out`)
+	PostgresPublicationDoesNotExistRe  = regexp.MustCompile(`publication ".*?" does not exist`)
+	PostgresSnapshotDoesNotExistRe     = regexp.MustCompile(`snapshot ".*?" does not exist`)
+	PostgresWalSegmentRemovedRe        = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
+	PostgresSpillFileMissingRe         = regexp.MustCompile(`Unable to restore changes for xid \d+`)
 	// e.g. could not rename file "pg_logical/snapshots/25-3370F40.snap.19943.tmp" to "pg_logical/snapshots/25-3370F40.snap"
 	PostgresCouldNotRenameSnapshotRe = regexp.MustCompile(`could not rename file ".*\.snap\..*\.tmp" to ".*\.snap"`)
 	MySqlRdsBinlogFileNotFoundRe     = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
@@ -956,6 +957,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrCannotAssignAlter:
 			return ErrorNotifyClickHouseError, chErrorInfo
+		case chproto.ErrDeadlockAvoided:
+			if ClickHouseLockingAttemptForAlterRe.MatchString(chException.Message) {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
 		case chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
