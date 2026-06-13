@@ -13,7 +13,7 @@ gcp = ["dep:reqwest"]
 [dependencies]
 anyhow = "1"
 aws-config = { version = "1", optional = true }
-aws-sdk-kms = { version = "1", optional = true }
+aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 async-trait = "0.1"
 base64 = "0.22"
