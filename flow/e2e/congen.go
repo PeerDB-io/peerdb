@@ -10,6 +10,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -29,9 +30,9 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 	tm := make([]*protos.TableMapping, 0, len(tables)/2)
 	for i := 0; i < len(tables); i += 2 {
 		tm = append(tm, &protos.TableMapping{
-			SourceTableIdentifier:      AttachSchema(s, tables[i]),
-			DestinationTableIdentifier: s.DestinationTable(tables[i+1]), //nolint:gosec // G602: even length enforced above
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tables[i]},
+			DestinationTable: internal.QualifiedTableProto(s.DestinationTable(tables[i+1])), //nolint:gosec // G602: even length enforced above
+			ShardingKey:      "id",
 		})
 	}
 	return tm

@@ -8,6 +8,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
@@ -15,6 +17,8 @@ import (
 func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAdditionInput) (*protos.CancelTableAdditionOutput, error) {
 	logger := workflow.GetLogger(ctx)
 	flowJobName := input.FlowJobName
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers
+	internal.NormalizeTableMappings(input.CurrentlyReplicatingTables)
 
 	logger.Info("Starting cancel table addition flow", "flowName", flowJobName)
 	getFlowConfigOptions := workflow.ActivityOptions{
@@ -40,14 +44,14 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	sourcePeerType := flowConfigFetchOutput.SourcePeerType
 	logger.Info("Retrieved flow config", "flowName", flowJobName, "tableCount", len(flowConfig.TableMappings))
 
-	currentlyReplicatingTableSet := make(map[string]bool)
+	currentlyReplicatingTableSet := make(map[common.QualifiedTable]bool)
 	for _, mapping := range input.CurrentlyReplicatingTables {
-		currentlyReplicatingTableSet[mapping.SourceTableIdentifier] = true
+		currentlyReplicatingTableSet[internal.QualifiedTableFromProto(mapping.SourceTable)] = true
 	}
 
 	var removedTables []*protos.TableMapping
 	for _, mapping := range flowConfig.TableMappings {
-		if !currentlyReplicatingTableSet[mapping.SourceTableIdentifier] {
+		if !currentlyReplicatingTableSet[internal.QualifiedTableFromProto(mapping.SourceTable)] {
 			removedTables = append(removedTables, mapping)
 		}
 	}
@@ -79,7 +83,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 	getCompletedTablesFromQrepRunsCtx := workflow.WithActivityOptions(ctx, getCompletedTablesFromQrepRunsOptions)
 
-	var snapshottedSourceTables []string
+	var snapshottedSourceTables []*protos.QualifiedTable
 	err = workflow.ExecuteActivity(
 		getCompletedTablesFromQrepRunsCtx,
 		cancelTableAddition.GetCompletedTablesFromQrepRuns,
@@ -93,16 +97,16 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 
 	logger.Info("Retrieved completed tables", "flowName", flowJobName, "completedCount", len(snapshottedSourceTables))
 
-	snapshottedTableSet := make(map[string]bool)
+	snapshottedTableSet := make(map[common.QualifiedTable]bool)
 	for _, tableName := range snapshottedSourceTables {
-		snapshottedTableSet[tableName] = true
+		snapshottedTableSet[internal.QualifiedTableFromProto(tableName)] = true
 	}
 
 	finalListOfTables := make([]*protos.TableMapping, 0)
 	// final list of tables = tables in catalog (still before addition/removal) + tables in this table addition that have completed snapshotting
 	finalListOfTables = append(finalListOfTables, flowConfig.TableMappings...)
 	for _, mapping := range input.CurrentlyReplicatingTables {
-		if snapshottedTableSet[mapping.SourceTableIdentifier] {
+		if snapshottedTableSet[internal.QualifiedTableFromProto(mapping.SourceTable)] {
 			finalListOfTables = append(finalListOfTables, mapping)
 		}
 	}
@@ -123,7 +127,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	}
 	getTableOIDsCtx := workflow.WithActivityOptions(ctx, getTableOIDsOptions)
 
-	var tableOIDs map[uint32]string
+	var tableOIDs map[uint32]*protos.QualifiedTable
 	err = workflow.ExecuteActivity(getTableOIDsCtx, cancelTableAddition.GetTableOIDsFromCatalog,
 		flowJobName, finalListOfTables).Get(ctx, &tableOIDs)
 	if err != nil {
@@ -134,15 +138,15 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 	logger.Info("Retrieved PostgreSQL table OIDs", "flowName", flowJobName, "oidCount", len(tableOIDs))
 
 	if tableName, ok := tableOIDs[0]; ok && sourcePeerType == protos.DBType_POSTGRES {
-		logger.Error("PostgreSQL schema has zero OID", "table", tableName)
-		return nil, fmt.Errorf("PostgreSQL schema has zero OID for table: %s", tableName)
+		logger.Error("PostgreSQL schema has zero OID", "table", internal.QualifiedTableFromProto(tableName).String())
+		return nil, fmt.Errorf("PostgreSQL schema has zero OID for table: %s", internal.QualifiedTableFromProto(tableName))
 	}
 
 	// update table mappings for upcoming request
 	flowConfig.TableMappings = finalListOfTables
 
 	state := cdc_state.NewCDCFlowWorkflowState(ctx, logger, flowConfig)
-	state.SyncFlowOptions.SrcTableIdNameMapping = tableOIDs
+	state.SyncFlowOptions.SrcTableIdMapping = tableOIDs
 	logger.Info("Set source table ID name mapping in state",
 		"flowName", flowJobName, "mappingCount", len(tableOIDs))
 	// this allows us to skip setup and snapshot

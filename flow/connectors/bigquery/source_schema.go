@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func (c *BigQueryConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -152,8 +153,8 @@ func (c *BigQueryConnector) GetTableSchema(
 	version uint32,
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
-) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableMappings))
+) (map[common.QualifiedTable]*protos.TableSchema, error) {
+	res := make(map[common.QualifiedTable]*protos.TableSchema, len(tableMappings))
 
 	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
 	if err != nil {
@@ -161,13 +162,14 @@ func (c *BigQueryConnector) GetTableSchema(
 	}
 
 	for _, tm := range tableMappings {
+		sourceTable := internal.QualifiedTableFromProto(tm.SourceTable)
 		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, nullableEnabled)
 		if err != nil {
-			c.logger.Error("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
+			c.logger.Error("error fetching schema", slog.String("table", sourceTable.String()), slog.Any("error", err))
 			return nil, err
 		}
-		res[tm.SourceTableIdentifier] = tableSchema
-		c.logger.Info("fetched schema", slog.String("table", tm.SourceTableIdentifier))
+		res[sourceTable] = tableSchema
+		c.logger.Info("fetched schema", slog.String("table", sourceTable.String()))
 	}
 
 	return res, nil
@@ -179,15 +181,16 @@ func (c *BigQueryConnector) getTableSchemaForTable(
 	system protos.TypeSystem,
 	nullableEnabled bool,
 ) (*protos.TableSchema, error) {
-	dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
+	sourceTable := internal.QualifiedTableFromProto(tm.SourceTable)
+	dsTable, err := c.convertToDatasetTable(sourceTable)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse table identifier %s: %w", tm.SourceTableIdentifier, err)
+		return nil, fmt.Errorf("failed to parse table identifier %s: %w", sourceTable, err)
 	}
 
 	table := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
 	metadata, err := table.Metadata(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get metadata for table %s: %w", tm.SourceTableIdentifier, err)
+		return nil, fmt.Errorf("failed to get metadata for table %s: %w", sourceTable, err)
 	}
 
 	columns := make([]*protos.FieldDescription, 0, len(metadata.Schema))
@@ -225,7 +228,7 @@ func (c *BigQueryConnector) getTableSchemaForTable(
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier:   tm.SourceTableIdentifier,
+		Table:             tm.SourceTable,
 		Columns:           columns,
 		PrimaryKeyColumns: primaryKeyColumns,
 		System:            system,

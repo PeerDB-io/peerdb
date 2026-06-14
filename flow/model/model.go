@@ -9,16 +9,17 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type NameAndExclude struct {
 	Exclude map[string]struct{}
-	Name    string
+	Name    common.QualifiedTable
 }
 
-func NewNameAndExclude(name string, exclude []string) NameAndExclude {
+func NewNameAndExclude(name common.QualifiedTable, exclude []string) NameAndExclude {
 	var exset map[string]struct{}
 	if len(exclude) != 0 {
 		exset = make(map[string]struct{}, len(exclude))
@@ -37,7 +38,7 @@ type RecordTypeCounts struct {
 
 type RecordsToStreamRequest[T Items] struct {
 	records                  <-chan Record[T]
-	TableMapping             map[string]*RecordTypeCounts
+	TableMapping             map[common.QualifiedTable]*RecordTypeCounts
 	BatchID                  int64
 	UnboundedNumericAsString bool
 	TargetDWH                protos.DBType
@@ -45,7 +46,7 @@ type RecordsToStreamRequest[T Items] struct {
 
 func NewRecordsToStreamRequest[T Items](
 	records <-chan Record[T],
-	tableMapping map[string]*RecordTypeCounts,
+	tableMapping map[common.QualifiedTable]*RecordTypeCounts,
 	batchID int64,
 	unboundedNumericAsString bool,
 	targetDWH protos.DBType,
@@ -71,11 +72,11 @@ type PullRecordsRequest[T Items] struct {
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
 	// relId to name Mapping
-	SrcTableIDNameMapping map[uint32]string
+	SrcTableIDNameMapping map[uint32]common.QualifiedTable
 	// source to destination table name mapping
-	TableNameMapping map[string]NameAndExclude
+	TableNameMapping map[common.QualifiedTable]NameAndExclude
 	// tablename to schema mapping
-	TableNameSchemaMapping map[string]*protos.TableSchema
+	TableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema
 	// overrides dynamic configuration
 	Env map[string]string
 	// override publication name
@@ -112,22 +113,22 @@ func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) ToJSONOptions {
 }
 
 type TableWithPkey struct {
-	TableName string
+	TableName common.QualifiedTable
 	// SHA256 hash of the primary key columns
 	PkeyColVal [32]byte
 }
 
 func RecToTablePKey[T Items](
-	tableNameSchemaMapping map[string]*protos.TableSchema,
+	tableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema,
 	rec Record[T],
 ) (TableWithPkey, error) {
-	tableName := rec.GetDestinationTableName()
+	tableName := rec.GetDestinationTable()
 	hasher := sha256.New()
 
 	for _, pkeyCol := range tableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColBytes, err := rec.GetItems().GetBytesByColName(pkeyCol)
 		if err != nil {
-			return TableWithPkey{}, exceptions.NewPrimaryKeyModifiedError(err, tableName, pkeyCol)
+			return TableWithPkey{}, exceptions.NewPrimaryKeyModifiedError(err, tableName.String(), pkeyCol)
 		}
 		// cannot return an error
 		_, _ = hasher.Write(pkeyColBytes)
@@ -147,7 +148,7 @@ type SyncRecordsRequest[T Items] struct {
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
 	// destination table name -> schema mapping
-	TableNameSchemaMapping map[string]*protos.TableSchema
+	TableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema
 	Env                    map[string]string
 	// Staging path for AVRO files in CDC
 	StagingPath string
@@ -161,7 +162,7 @@ type SyncRecordsRequest[T Items] struct {
 }
 type NormalizeRecordsRequest struct {
 	Env                    map[string]string
-	TableNameSchemaMapping map[string]*protos.TableSchema
+	TableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema
 	Flags                  []string
 	FlowJobName            string
 	SoftDeleteColName      string
@@ -174,7 +175,7 @@ type NormalizeRecordsRequest struct {
 //nolint:govet // no need to save on fieldalignment
 type SyncResponse struct {
 	// TableNameRowsMapping tells how many records need to be synced to each destination table.
-	TableNameRowsMapping map[string]*RecordTypeCounts
+	TableNameRowsMapping map[common.QualifiedTable]*RecordTypeCounts
 	// to be carried to parent workflow
 	TableSchemaDeltas []*protos.TableSchemaDelta
 	// LastSyncedCheckpoint is the last state (eg LSN, GTID) that was synced.

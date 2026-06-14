@@ -148,9 +148,10 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 	flowJobName := "test_simple_slot_creation"
 	setupReplicationInput := &protos.SetupReplicationInput{
 		FlowJobName: flowJobName,
-		TableNameMapping: map[string]string{
-			fmt.Sprintf("e2e_test_%s.test_1", s.suffix): "test_1_dst",
-		},
+		QualifiedTableMappings: []*protos.QualifiedTableMapping{{
+			Source:      &protos.QualifiedTable{Namespace: "e2e_test_" + s.suffix, Table: "test_1"},
+			Destination: &protos.QualifiedTable{Table: "test_1_dst"},
+		}},
 	}
 
 	s.t.Log("waiting for slot creation to complete: " + flowJobName)

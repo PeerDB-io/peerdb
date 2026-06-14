@@ -10,6 +10,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
@@ -88,11 +89,8 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	sourceTables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		parsedTable, parseErr := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
-		if parseErr != nil {
-			return fmt.Errorf("invalid source table identifier: %w", parseErr)
-		}
-		sourceTables = append(sourceTables, parsedTable)
+		sourceTable := internal.QualifiedTableFromProto(tableMapping.SourceTable)
+		sourceTables = append(sourceTables, &sourceTable)
 	}
 
 	if err := c.CheckSourceTables(ctx, sourceTables); err != nil {

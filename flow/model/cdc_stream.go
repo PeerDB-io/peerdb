@@ -83,9 +83,9 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 		case r.records <- record:
 			return nil
 		case <-ticker.C:
-			logger.Warn("waiting on adding record to stream", slog.String("dstTableName", record.GetDestinationTableName()))
+			logger.Warn("waiting on adding record to stream", slog.String("dstTableName", record.GetDestinationTable().String()))
 		case <-ctx.Done():
-			logger.Warn("context cancelled while adding record to stream", slog.String("dstTableName", record.GetDestinationTableName()))
+			logger.Warn("context cancelled while adding record to stream", slog.String("dstTableName", record.GetDestinationTable().String()))
 			return ctx.Err()
 		}
 	}
@@ -126,10 +126,7 @@ func (r *CDCStream[T]) ChannelLen() int {
 	return len(r.records)
 }
 
-func (r *CDCStream[T]) AddSchemaDelta(
-	tableNameMapping map[string]NameAndExclude,
-	delta *protos.TableSchemaDelta,
-) {
+func (r *CDCStream[T]) AddSchemaDelta(delta *protos.TableSchemaDelta) {
 	r.SchemaDeltas = append(r.SchemaDeltas, delta)
 }
 

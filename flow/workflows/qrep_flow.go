@@ -12,6 +12,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -94,8 +95,8 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 	return nil
 }
 
-func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName string) error {
-	q.logger.Info("fetching schema for table", slog.String("table", tableName))
+func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, table *protos.QualifiedTable) error {
+	q.logger.Info("fetching schema for table", slog.String("table", internal.QualifiedTableFromProto(table).String()))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -112,8 +113,8 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		PeerName: q.config.SourceName,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      tableName,
-				DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+				SourceTable:      table,
+				DestinationTable: q.config.DestinationTable,
 			},
 		},
 		FlowName: q.config.FlowJobName,
@@ -141,7 +142,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 		})
 
 		// fetch the schema for the watermark table
-		if err := q.setupTableSchema(ctx, q.config.WatermarkTable); err != nil {
+		if err := q.setupTableSchema(ctx, q.config.QualifiedWatermarkTable); err != nil {
 			q.logger.Error("failed to fetch schema for watermark table", slog.Any("error", err))
 			return fmt.Errorf("failed to fetch schema for watermark table: %w", err)
 		}
@@ -151,10 +152,10 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			PeerName: q.config.DestinationName,
 			TableMappings: []*protos.TableMapping{
 				{
-					SourceTableIdentifier:      q.config.WatermarkTable,
-					DestinationTableIdentifier: q.config.DestinationTableIdentifier,
-					Exclude:                    q.config.Exclude,
-					Columns:                    q.config.Columns,
+					SourceTable:      q.config.QualifiedWatermarkTable,
+					DestinationTable: q.config.DestinationTable,
+					Exclude:          q.config.Exclude,
+					Columns:          q.config.Columns,
 				},
 			},
 			SyncedAtColName:   q.config.SyncedAtColName,
@@ -364,7 +365,10 @@ func (q *QRepFlowExecution) waitForNewRows(
 
 func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
 	if state.NeedsResync && q.config.DstTableFullResync {
-		renamedTableIdentifier := q.config.DestinationTableIdentifier + "_peerdb_resync"
+		renamedTable := &protos.QualifiedTable{
+			Namespace: q.config.DestinationTable.Namespace,
+			Table:     q.config.DestinationTable.Table + "_peerdb_resync",
+		}
 		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 10 * time.Minute,
 			HeartbeatTimeout:    time.Minute,
@@ -380,34 +384,38 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 			createTablesFromExistingCtx, flowable.CreateTablesFromExisting, &protos.CreateTablesFromExistingInput{
 				FlowJobName: q.config.FlowJobName,
 				PeerName:    q.config.DestinationName,
-				NewToExistingTableMapping: map[string]string{
-					renamedTableIdentifier: q.config.DestinationTableIdentifier,
+				NewToExisting: []*protos.QualifiedTableMapping{
+					{Source: renamedTable, Destination: q.config.DestinationTable},
 				},
 			})
 		if err := createTablesFromExistingFuture.Get(createTablesFromExistingCtx, nil); err != nil {
 			return fmt.Errorf("failed to create table for mirror resync: %w", err)
 		}
-		q.config.DestinationTableIdentifier = renamedTableIdentifier
+		q.config.DestinationTable = renamedTable
 	}
 	return nil
 }
 
 func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
 	if state.NeedsResync && q.config.DstTableFullResync {
-		oldTableIdentifier := strings.TrimSuffix(q.config.DestinationTableIdentifier, "_peerdb_resync")
+		oldTable := &protos.QualifiedTable{
+			Namespace: q.config.DestinationTable.Namespace,
+			Table:     strings.TrimSuffix(q.config.DestinationTable.Table, "_peerdb_resync"),
+		}
 		renameOpts := &protos.RenameTablesInput{
 			FlowJobName: q.config.FlowJobName,
 			PeerName:    q.config.DestinationName,
 		}
 
-		if err := q.setupTableSchema(ctx, q.config.DestinationTableIdentifier); err != nil {
-			return fmt.Errorf("failed to fetch schema for table %s: %w", q.config.DestinationTableIdentifier, err)
+		if err := q.setupTableSchema(ctx, q.config.DestinationTable); err != nil {
+			return fmt.Errorf("failed to fetch schema for table %s: %w",
+				internal.QualifiedTableFromProto(q.config.DestinationTable), err)
 		}
 
 		renameOpts.RenameTableOptions = []*protos.RenameTableOption{
 			{
-				CurrentName: q.config.DestinationTableIdentifier,
-				NewName:     oldTableIdentifier,
+				CurrentTable: q.config.DestinationTable,
+				NewTable:     oldTable,
 			},
 		}
 
@@ -426,7 +434,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 		if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
 			return fmt.Errorf("failed to execute rename tables activity: %w", err)
 		}
-		q.config.DestinationTableIdentifier = oldTableIdentifier
+		q.config.DestinationTable = oldTable
 	}
 	state.NeedsResync = false
 	return nil
@@ -451,6 +459,9 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 
 func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig, lastPartition *protos.QRepPartition) error {
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers
+	internal.NormalizeQRepConfig(config)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 4 * time.Hour, // 4 hours
@@ -487,7 +498,7 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 			return nil
 		}
 		logger.Info("QRepWaitForNewRowsWorkflow: continuing the loop")
-		return workflow.NewContinueAsNewError(ctx, QRepWaitForNewRowsWorkflow, config, lastPartition)
+		return continueAsNewQRepWaitForNewRows(ctx, config, lastPartition)
 	}
 
 	logger.Info("QRepWaitForNewRowsWorkflow: exiting the loop")
@@ -531,6 +542,9 @@ func QRepFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers
+	internal.NormalizeQRepConfig(config)
+
 	if state == nil {
 		state = newQRepFlowState()
 	}
@@ -567,7 +581,7 @@ func QRepFlowWorkflow(
 			}
 		}
 		if q.activeSignal == model.TerminateSignal {
-			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
+			return state, continueAsNewDropFlow(ctx, q.dropFlowInput)
 		}
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
@@ -605,7 +619,7 @@ func QRepFlowWorkflow(
 	}
 
 	if q.activeSignal == model.TerminateSignal {
-		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
+		return state, continueAsNewDropFlow(ctx, q.dropFlowInput)
 	}
 
 	if q.activeSignal != model.PauseSignal {
@@ -628,7 +642,7 @@ func QRepFlowWorkflow(
 		if config.InitialCopyOnly {
 			q.logger.Info("initial copy completed for peer flow")
 			updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_COMPLETED)
-			return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
+			return state, continueAsNewQRepFlow(ctx, config, state)
 		}
 
 		if err := q.handleTableRenameForResync(ctx, state); err != nil {
@@ -660,7 +674,7 @@ func QRepFlowWorkflow(
 	}
 
 	if q.activeSignal == model.TerminateSignal {
-		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, q.dropFlowInput)
+		return state, continueAsNewDropFlow(ctx, q.dropFlowInput)
 	}
 
 	q.logger.Info("Continuing as new workflow",
@@ -670,7 +684,7 @@ func QRepFlowWorkflow(
 	if q.activeSignal == model.PauseSignal {
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 	}
-	return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
+	return state, continueAsNewQRepFlow(ctx, config, state)
 }
 
 // QRepPartitionWorkflow replicate a partition batch

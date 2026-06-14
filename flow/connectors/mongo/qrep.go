@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -46,18 +47,15 @@ func (c *MongoConnector) GetQRepPartitions(
 	}
 
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	parseWatermarkTable, err := common.ParseTableIdentifier(config.WatermarkTable)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
-	}
-	collection := c.client.Database(parseWatermarkTable.Namespace).Collection(parseWatermarkTable.Table)
+	watermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
+	collection := c.client.Database(watermarkTable.Namespace).Collection(watermarkTable.Table)
 
 	c.logger.Info("[mongo] fetching count of documents for partitioning",
-		slog.String("watermark_table", config.WatermarkTable))
+		slog.String("watermark_table", watermarkTable.String()))
 	// estimated, worst case we are off by a few documents but should be fine for partitioning
 	totalRows, err := collection.EstimatedDocumentCount(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to count documents in collection %s: %w", parseWatermarkTable.Table, err)
+		return nil, fmt.Errorf("failed to count documents in collection %s: %w", watermarkTable.Table, err)
 	}
 
 	// Calculate the number of partitions
@@ -80,12 +78,15 @@ func (c *MongoConnector) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.GetDefaultPartitionKeyForTablesInput,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
-	mapping := make(map[string]string, len(input.TableMappings))
+	tablePartitionKeys := make([]*protos.GetDefaultPartitionKeyForTablesOutput_TablePartitionKey, 0, len(input.TableMappings))
 	for _, tm := range input.TableMappings {
-		mapping[tm.SourceTableIdentifier] = DefaultDocumentKeyColumnName
+		tablePartitionKeys = append(tablePartitionKeys, &protos.GetDefaultPartitionKeyForTablesOutput_TablePartitionKey{
+			Table:        tm.SourceTable,
+			PartitionKey: DefaultDocumentKeyColumnName,
+		})
 	}
 	return &protos.GetDefaultPartitionKeyForTablesOutput{
-		TableDefaultPartitionKeyMapping: mapping,
+		TablePartitionKeys: tablePartitionKeys,
 	}, nil
 }
 
@@ -100,11 +101,8 @@ func (c *MongoConnector) PullQRepRecords(
 ) (int64, int64, error) {
 	var totalRecords int64
 
-	parseWatermarkTable, err := common.ParseTableIdentifier(config.WatermarkTable)
-	if err != nil {
-		return 0, 0, fmt.Errorf("unable to parse watermark table: %w", err)
-	}
-	db := c.client.Database(parseWatermarkTable.Namespace)
+	watermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
+	db := c.client.Database(watermarkTable.Namespace)
 
 	stream.SetSchema(GetDefaultSchema(config.Version))
 
@@ -118,6 +116,7 @@ func (c *MongoConnector) PullQRepRecords(
 
 	filter := bson.D{}
 	if !partition.FullTablePartition {
+		var err error
 		filter, err = toRangeFilter(config.WatermarkColumn, partition.Range)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
@@ -125,7 +124,7 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	c.logger.Info("[mongo] filter for partition",
 		slog.Any("partition", partition.PartitionId),
-		slog.String("watermark_table", config.WatermarkTable),
+		slog.String("watermark_table", watermarkTable.String()),
 		slog.Any("filter", filter))
 
 	batchSize := config.NumRowsPerPartition
@@ -139,7 +138,7 @@ func (c *MongoConnector) PullQRepRecords(
 	// (calculated from ctx deadline) to the server, overriding any server-side defaultMaxTimeMS.
 	// collection.Find hardcodes OmitMaxTimeMS(true) which prevents this.
 	findCmd := bson.D{
-		{Key: "find", Value: parseWatermarkTable.Table},
+		{Key: "find", Value: watermarkTable.Table},
 		{Key: "filter", Value: filter},
 		// MongoDb will use the lesser of batchSize and 16MiB
 		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchsize/
@@ -155,7 +154,7 @@ func (c *MongoConnector) PullQRepRecords(
 
 	converter := NewDirectBsonConverter()
 	for cursor.Next(ctx) {
-		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable)
+		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, watermarkTable.String())
 		if err != nil {
 			c.logger.Error("failed to convert record",
 				slog.String("error", err.Error()),
@@ -179,11 +178,11 @@ func (c *MongoConnector) PullQRepRecords(
 		if errors.Is(err, context.Canceled) {
 			c.logger.Warn("context canceled while reading documents",
 				slog.Any("partition", partition.PartitionId),
-				slog.String("watermark_table", config.WatermarkTable))
+				slog.String("watermark_table", watermarkTable.String()))
 		} else {
 			c.logger.Error("error while reading documents",
 				slog.Any("partition", partition.PartitionId),
-				slog.String("watermark_table", config.WatermarkTable),
+				slog.String("watermark_table", watermarkTable.String()),
 				slog.String("error", err.Error()))
 		}
 		return 0, 0, fmt.Errorf("cursor error: %w", err)

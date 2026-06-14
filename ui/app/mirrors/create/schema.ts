@@ -16,12 +16,24 @@ export const flowNameSchema = z
 export const tableMappingSchema = z
   .array(
     z.object({
-      sourceTableIdentifier: z
-        .string()
-        .min(1, 'source table names, if added, must be non-empty'),
-      destinationTableIdentifier: z
-        .string()
-        .min(1, 'destination table names, if added, must be non-empty'),
+      sourceTable: z.object(
+        {
+          namespace: z.string(),
+          table: z
+            .string()
+            .min(1, 'source table names, if added, must be non-empty'),
+        },
+        { error: 'source table is required' }
+      ),
+      destinationTable: z.object(
+        {
+          namespace: z.string(),
+          table: z
+            .string()
+            .min(1, 'destination table names, if added, must be non-empty'),
+        },
+        { error: 'destination table is required' }
+      ),
       exclude: z.array(z.string()).optional(),
       partitionKey: z.string().optional(),
     })
@@ -80,24 +92,26 @@ export const qrepSchema = z.object({
   destinationName: z.string({ error: 'Destination peer is required' }).min(1),
   initialCopyOnly: z.boolean().optional(),
   setupWatermarkTableOnDestination: z.boolean().optional(),
-  destinationTableIdentifier: z
-    .string({
-      error: (issue) =>
-        issue.input === undefined
-          ? 'Destination table name is required'
-          : 'Destination table name must be a string',
-    })
-    .min(1, 'Destination table name must be non-empty')
-    .max(255, 'Destination table name must be less than 256 characters'),
-  watermarkTable: z
-    .string({
-      error: (issue) =>
-        issue.input === undefined
-          ? 'Watermark table is required'
-          : 'Watermark table must be a string',
-    })
-    .min(1, 'Watermark table must be non-empty')
-    .max(255, 'Watermark table must be less than 256 characters'),
+  destinationTable: z.object(
+    {
+      namespace: z.string(),
+      table: z
+        .string()
+        .min(1, 'Destination table name must be non-empty')
+        .max(255, 'Destination table name must be less than 256 characters'),
+    },
+    { error: 'Destination table name is required' }
+  ),
+  qualifiedWatermarkTable: z.object(
+    {
+      namespace: z.string(),
+      table: z
+        .string()
+        .min(1, 'Watermark table must be non-empty')
+        .max(255, 'Watermark table must be less than 256 characters'),
+    },
+    { error: 'Watermark table is required' }
+  ),
   watermarkColumn: z
     .string({
       error: (issue) =>

@@ -15,33 +15,33 @@ import (
 )
 
 type SnowflakeAvroConsolidateHandler struct {
-	connector    *SnowflakeConnector
-	config       *protos.QRepConfig
-	dstTableName string
-	stage        string
-	allColNames  []string
-	allColTypes  []string
+	connector   *SnowflakeConnector
+	config      *protos.QRepConfig
+	dstTable    common.QualifiedTable
+	stage       string
+	allColNames []string
+	allColTypes []string
 }
 
 // NewSnowflakeAvroConsolidateHandler creates a new SnowflakeAvroWriteHandler
 func NewSnowflakeAvroConsolidateHandler(
 	connector *SnowflakeConnector,
 	config *protos.QRepConfig,
-	dstTableName string,
+	dstTable common.QualifiedTable,
 	stage string,
 ) *SnowflakeAvroConsolidateHandler {
 	return &SnowflakeAvroConsolidateHandler{
-		connector:    connector,
-		config:       config,
-		dstTableName: dstTableName,
-		stage:        stage,
+		connector: connector,
+		config:    config,
+		dstTable:  dstTable,
+		stage:     stage,
 	}
 }
 
 func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination(ctx context.Context) error {
-	s.connector.logger.Info("Copying stage to destination " + s.dstTableName)
+	s.connector.logger.Info("Copying stage to destination " + s.dstTable.String())
 
-	columns, colsErr := s.connector.getColsFromTable(ctx, s.dstTableName)
+	columns, colsErr := s.connector.getColsFromTable(ctx, s.dstTable)
 	if colsErr != nil {
 		return fmt.Errorf("failed to get columns from destination table: %w", colsErr)
 	}
@@ -147,14 +147,13 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 }
 
 func (s *SnowflakeAvroConsolidateHandler) handleAppendMode(ctx context.Context) error {
-	parsedDstTable, _ := common.ParseTableIdentifier(s.dstTableName)
-	copyCmd := s.getCopyTransformation(snowflakeSchemaTableNormalize(parsedDstTable))
+	copyCmd := s.getCopyTransformation(snowflakeSchemaTableNormalize(s.dstTable))
 	s.connector.logger.Info("running copy command: " + copyCmd)
 	if _, err := s.connector.ExecContext(ctx, copyCmd); err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
 
-	s.connector.logger.Info("copied file from stage " + s.stage + " to table " + s.dstTableName)
+	s.connector.logger.Info("copied file from stage " + s.stage + " to table " + s.dstTable.String())
 	return nil
 }
 
@@ -206,7 +205,7 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 			ON %s
 			WHEN MATCHED THEN UPDATE SET %s
 			WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
-		`, s.dstTableName, selectCmd, upsertKeyClause,
+		`, snowflakeSchemaTableNormalize(s.dstTable), selectCmd, upsertKeyClause,
 		updateSetClause, insertColumnsClause, insertValuesClause)
 
 	return mergeCmd
@@ -217,21 +216,25 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) 
 	//nolint:gosec // number has no cryptographic significance
 	runID := rand.Uint64()
 
-	tempTableName := fmt.Sprintf("%s_temp_%d", s.dstTableName, runID)
+	tempTable := common.QualifiedTable{
+		Namespace: s.dstTable.Namespace,
+		Table:     fmt.Sprintf("%s_temp_%d", s.dstTable.Table, runID),
+	}
+	tempTableName := snowflakeSchemaTableNormalize(tempTable)
 
 	createTempTableCmd := fmt.Sprintf("CREATE TEMPORARY TABLE %s AS SELECT * FROM %s LIMIT 0",
-		tempTableName, s.dstTableName)
+		tempTableName, snowflakeSchemaTableNormalize(s.dstTable))
 	if _, err := s.connector.ExecContext(ctx, createTempTableCmd); err != nil {
 		return fmt.Errorf("failed to create temp table: %w", err)
 	}
-	s.connector.logger.Info("created temp table " + tempTableName)
+	s.connector.logger.Info("created temp table " + tempTable.String())
 
 	copyCmd := s.getCopyTransformation(tempTableName)
 
 	if _, err := s.connector.ExecContext(ctx, copyCmd); err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
-	s.connector.logger.Info("copied file from stage " + s.stage + " to temp table " + tempTableName)
+	s.connector.logger.Info("copied file from stage " + s.stage + " to temp table " + tempTable.String())
 
 	mergeCmd := s.generateUpsertMergeCommand(tempTableName)
 
@@ -243,16 +246,17 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) 
 	rowCount, err := rows.RowsAffected()
 	if err == nil {
 		var totalRowsAtTarget int64
-		if err := s.connector.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+s.dstTableName).Scan(&totalRowsAtTarget); err != nil {
-			return fmt.Errorf("failed to get count for table %s: %w", s.dstTableName, err)
+		if err := s.connector.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM "+snowflakeSchemaTableNormalize(s.dstTable)).Scan(&totalRowsAtTarget); err != nil {
+			return fmt.Errorf("failed to get count for table %s: %w", s.dstTable, err)
 		}
 		s.connector.logger.Info(fmt.Sprintf("merged %d rows into destination table %s, total rows at target: %d",
-			rowCount, s.dstTableName, totalRowsAtTarget))
+			rowCount, s.dstTable, totalRowsAtTarget))
 	} else {
 		s.connector.logger.Error("failed to get rows affected", slog.Any("error", err))
 	}
 
 	s.connector.logger.Info(fmt.Sprintf("merged data from temp table %s into destination table %s, time taken %v",
-		tempTableName, s.dstTableName, time.Since(startTime)))
+		tempTable, s.dstTable, time.Since(startTime)))
 	return nil
 }

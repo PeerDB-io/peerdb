@@ -39,7 +39,7 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 	ctx context.Context,
 	flowJobName string,
 	workflowId string,
-) ([]string, error) {
+) ([]*protos.QualifiedTable, error) {
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "fetching completed tables from qrep_runs"
 	})
@@ -64,7 +64,7 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 	if len(listResp.Executions) == 0 {
 		slog.InfoContext(ctx, "No QRep workflows found for flow, returning empty completed tables list",
 			slog.String("flowName", flowJobName))
-		return []string{}, nil
+		return []*protos.QualifiedTable{}, nil
 	}
 
 	runIds := make([]string, 0, len(listResp.Executions))
@@ -73,7 +73,7 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 	}
 
 	rows, err := a.CatalogPool.Query(ctx, `
-    SELECT DISTINCT source_table
+    SELECT DISTINCT source_table_namespace, source_table
     FROM peerdb_stats.qrep_runs
     WHERE parent_mirror_name = $1
     AND run_uuid = ANY($2)
@@ -82,10 +82,10 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 		return nil, err
 	}
 
-	completedTables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
-		var tableName string
-		err := row.Scan(&tableName)
-		return tableName, err
+	completedTables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.QualifiedTable, error) {
+		var tableName protos.QualifiedTable
+		err := row.Scan(&tableName.Namespace, &tableName.Table)
+		return &tableName, err
 	})
 	if err != nil {
 		return nil, err
@@ -98,10 +98,11 @@ func (a *CancelTableAdditionActivity) GetTableOIDsFromCatalog(
 	ctx context.Context,
 	flowJobName string,
 	tableMappings []*protos.TableMapping,
-) (map[uint32]string, error) {
+) (map[uint32]*protos.QualifiedTable, error) {
 	if len(tableMappings) == 0 {
 		return nil, fmt.Errorf("no table mappings provided for GetTableOIDsFromCatalog for flow %s", flowJobName)
 	}
+	internal.NormalizeTableMappings(tableMappings)
 
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "fetching table OIDs from catalog"
@@ -109,9 +110,9 @@ func (a *CancelTableAdditionActivity) GetTableOIDsFromCatalog(
 	defer shutdown()
 
 	// Extract destination table names from table mappings
-	destinationTableNames := make([]string, 0, len(tableMappings))
+	destinationTableNames := make([]common.QualifiedTable, 0, len(tableMappings))
 	for _, tm := range tableMappings {
-		destinationTableNames = append(destinationTableNames, tm.DestinationTableIdentifier)
+		destinationTableNames = append(destinationTableNames, internal.QualifiedTableFromProto(tm.DestinationTable))
 	}
 
 	// Load table schemas from catalog using the internal function
@@ -121,13 +122,14 @@ func (a *CancelTableAdditionActivity) GetTableOIDsFromCatalog(
 	}
 
 	// Extract table OIDs from schemas, mapping OID to source table identifier
-	tableOIDs := make(map[uint32]string)
+	tableOIDs := make(map[uint32]*protos.QualifiedTable)
 	for _, tm := range tableMappings {
-		schema, exists := tableSchemas[tm.DestinationTableIdentifier]
+		destinationTable := internal.QualifiedTableFromProto(tm.DestinationTable)
+		schema, exists := tableSchemas[destinationTable]
 		if !exists {
-			return nil, fmt.Errorf("table schema not found in catalog for table %s in flow %s", tm.DestinationTableIdentifier, flowJobName)
+			return nil, fmt.Errorf("table schema not found in catalog for table %s in flow %s", destinationTable, flowJobName)
 		}
-		tableOIDs[schema.TableOid] = tm.SourceTableIdentifier
+		tableOIDs[schema.TableOid] = tm.SourceTable
 	}
 
 	return tableOIDs, nil
@@ -143,11 +145,16 @@ func (a *CancelTableAdditionActivity) CleanupIncompleteTablesInStats(
 	})
 	defer shutdown()
 
+	internal.NormalizeTableMappings(completedTables)
+	completedSourceNamespaces := make([]string, 0, len(completedTables))
 	completedSourceTables := make([]string, 0, len(completedTables))
+	completedDestinationNamespaces := make([]string, 0, len(completedTables))
 	completedDestinationTables := make([]string, 0, len(completedTables))
 	for _, tm := range completedTables {
-		completedSourceTables = append(completedSourceTables, tm.SourceTableIdentifier)
-		completedDestinationTables = append(completedDestinationTables, tm.DestinationTableIdentifier)
+		completedSourceNamespaces = append(completedSourceNamespaces, tm.SourceTable.GetNamespace())
+		completedSourceTables = append(completedSourceTables, tm.SourceTable.GetTable())
+		completedDestinationNamespaces = append(completedDestinationNamespaces, tm.DestinationTable.GetNamespace())
+		completedDestinationTables = append(completedDestinationTables, tm.DestinationTable.GetTable())
 	}
 	// Remove partitions that belong to incomplete runs for incomplete tables
 	// Since qrep_partitions doesn't have source_table, we filter via the qrep_runs join
@@ -159,8 +166,8 @@ func (a *CancelTableAdditionActivity) CleanupIncompleteTablesInStats(
 			AND qr.run_uuid = qp.run_uuid
 			AND qr.parent_mirror_name = $1
 			AND qr.consolidate_complete = false
-			AND qr.source_table NOT IN (SELECT unnest($2::text[]))
-		)`, flowJobName, completedSourceTables)
+			AND (qr.source_table_namespace, qr.source_table) NOT IN (SELECT * FROM unnest($2::text[], $3::text[]))
+		)`, flowJobName, completedSourceNamespaces, completedSourceTables)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup incomplete tables in qrep_partitions for flow %s: %w", flowJobName, err)
 	}
@@ -168,7 +175,8 @@ func (a *CancelTableAdditionActivity) CleanupIncompleteTablesInStats(
 	_, err = a.CatalogPool.Exec(ctx, `
 		DELETE FROM peerdb_stats.qrep_runs
 		WHERE parent_mirror_name = $1 AND consolidate_complete = false
-		AND source_table NOT IN (SELECT unnest($2::text[]))`, flowJobName, completedSourceTables)
+		AND (source_table_namespace, source_table) NOT IN (SELECT * FROM unnest($2::text[], $3::text[]))`,
+		flowJobName, completedSourceNamespaces, completedSourceTables)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup incomplete tables in qrep_runs for flow %s: %w", flowJobName, err)
 	}
@@ -176,7 +184,8 @@ func (a *CancelTableAdditionActivity) CleanupIncompleteTablesInStats(
 	// delete from table_schema_mapping
 	_, err = a.CatalogPool.Exec(ctx, `
 		DELETE FROM table_schema_mapping
-		WHERE flow_name = $1 AND table_name NOT IN (SELECT unnest($2::text[]))`, flowJobName, completedDestinationTables)
+		WHERE flow_name = $1 AND (table_namespace, table_name) NOT IN (SELECT * FROM unnest($2::text[], $3::text[]))`,
+		flowJobName, completedDestinationNamespaces, completedDestinationTables)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup incomplete tables in table_schema_mapping for flow %s: %w", flowJobName, err)
 	}
@@ -209,6 +218,7 @@ func (a *CancelTableAdditionActivity) GetFlowInfoFromCatalog(
 	if err := proto.Unmarshal(configBytes, &config); err != nil {
 		return nil, fmt.Errorf("unable to unmarshal flow config for flow %s: %w", flowJobName, err)
 	}
+	internal.NormalizeFlowConfig(&config)
 
 	return &protos.GetFlowInfoToCancelFromCatalogOutput{
 		FlowConnectionConfigs: &config,
@@ -222,7 +232,10 @@ func (a *CancelTableAdditionActivity) UpdateCdcJobEntry(
 	connectionConfigs *protos.FlowConnectionConfigsCore,
 	workflowID string,
 ) error {
-	cfgBytes, err := proto.Marshal(connectionConfigs)
+	// keep legacy strings in the persisted config for one release (rollback safety)
+	persistedConfig := proto.CloneOf(connectionConfigs)
+	internal.DenormalizeFlowConfigCore(persistedConfig)
+	cfgBytes, err := proto.Marshal(persistedConfig)
 	if err != nil {
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
@@ -371,13 +384,11 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 		}
 		defer connClose(ctx)
 
+		internal.NormalizeTableMappings(finalListOfTables)
 		var schemaQualifiedTables []*common.QualifiedTable
 		for _, tm := range finalListOfTables {
-			schemaTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
-			if err != nil {
-				return fmt.Errorf("error parsing table identifier %s: %w", tm.SourceTableIdentifier, err)
-			}
-			schemaQualifiedTables = append(schemaQualifiedTables, schemaTable)
+			schemaTable := internal.QualifiedTableFromProto(tm.SourceTable)
+			schemaQualifiedTables = append(schemaQualifiedTables, &schemaTable)
 		}
 		schemaQualifiedTablesInPublication, err := conn.GetTablesFromPublication(ctx, publicationName, schemaQualifiedTables)
 		if err != nil {
@@ -387,7 +398,7 @@ func (a *CancelTableAdditionActivity) RemoveCancelledTablesFromPublicationIfAppl
 		var publicationTablesMapping []*protos.TableMapping
 		for _, schemaQualifiedTable := range schemaQualifiedTablesInPublication {
 			publicationTablesMapping = append(publicationTablesMapping, &protos.TableMapping{
-				SourceTableIdentifier: schemaQualifiedTable.Namespace + "." + schemaQualifiedTable.Table,
+				SourceTable: internal.QualifiedTableProto(*schemaQualifiedTable),
 			})
 		}
 		err = conn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{

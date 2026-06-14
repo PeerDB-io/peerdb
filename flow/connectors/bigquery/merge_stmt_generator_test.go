@@ -1,11 +1,15 @@
 package connbigquery
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func TestGenerateUpdateStatement(t *testing.T) {
@@ -181,5 +185,33 @@ func TestGenerateUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *testing.
 
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("Unexpected result. Expected: %v,\nbut got: %v", expected, result)
+	}
+}
+
+// the raw-table filter must use the legacy dotted destination name — the exact string
+// the sync side writes into _peerdb_destination_table_name — including for dotted
+// name components arriving first-dot-split from legacy configs
+func TestGenerateFlattenedCTERawNameFilterIsLegacyDotted(t *testing.T) {
+	m := &mergeStmtGenerator{
+		shortColumn:     map[string]string{"id": "_c0"},
+		rawDatasetTable: datasetTable{dataset: "ds", table: "_peerdb_raw_my_mirror"},
+		mergeBatchId:    7,
+	}
+	schema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{{Name: "id", Type: string(types.QValueKindInt64)}},
+	}
+
+	for _, tc := range []struct {
+		dstTable common.QualifiedTable
+		rawName  string
+	}{
+		{dstTable: common.QualifiedTable{Namespace: "ds", Table: "my_table"}, rawName: "ds.my_table"},
+		{dstTable: common.QualifiedTable{Namespace: "sch.ema", Table: "ta.ble"}, rawName: "sch.ema.ta.ble"},
+	} {
+		cte := m.generateFlattenedCTE(tc.dstTable, schema)
+		want := fmt.Sprintf("_peerdb_destination_table_name='%s'", tc.rawName)
+		if !strings.Contains(cte, want) {
+			t.Errorf("flattened CTE filter for %v should contain %q, got: %s", tc.dstTable, want, cte)
+		}
 	}
 }

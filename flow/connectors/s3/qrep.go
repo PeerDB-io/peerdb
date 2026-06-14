@@ -26,7 +26,9 @@ func (c *S3Connector) SyncQRepRecords(
 		return 0, nil, err
 	}
 
-	dstTableName := config.DestinationTableIdentifier
+	// LegacyDotted: avro schema names derived from the destination identifier must stay
+	// byte-identical to those produced before QualifiedTable
+	dstTableName := internal.QualifiedTableFromProto(config.DestinationTable).LegacyDotted()
 	avroSchema, err := getAvroSchema(ctx, config.Env, dstTableName, schema)
 	if err != nil {
 		return 0, nil, err

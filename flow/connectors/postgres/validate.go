@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -245,12 +246,8 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 
 	sourceTables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		parsedTable, parseErr := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
-		if parseErr != nil {
-			return fmt.Errorf("invalid source table identifier: %w", parseErr)
-		}
-
-		sourceTables = append(sourceTables, parsedTable)
+		sourceTable := internal.QualifiedTableFromProto(tableMapping.SourceTable)
+		sourceTables = append(sourceTables, &sourceTable)
 	}
 
 	pubName := cfg.PublicationName
@@ -276,7 +273,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 func (c *PostgresConnector) ValidateMirrorDestination(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigsCore,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
+	tableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema,
 ) error {
 	if cfg.Resync {
 		return nil // no need to validate schema for resync, as we will create or replace the tables
@@ -289,42 +286,38 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 	// Validate that all source columns exist in destination tables
 	checkedSchemas := make(map[string]struct{})
 	for _, tableMapping := range cfg.TableMappings {
-		srcTableIdentifier := tableMapping.SourceTableIdentifier
-		dstTableIdentifier := tableMapping.DestinationTableIdentifier
+		srcTable := internal.QualifiedTableFromProto(tableMapping.SourceTable)
+		dstTable := internal.QualifiedTableFromProto(tableMapping.DestinationTable)
 
-		if dstTableIdentifier == "" {
+		if dstTable == (common.QualifiedTable{}) {
 			return errors.New("destination table identifier is empty")
 		}
 
 		// Get the source table schema
-		srcSchema, ok := tableNameSchemaMapping[srcTableIdentifier]
+		srcSchema, ok := tableNameSchemaMapping[srcTable]
 		if !ok {
-			return fmt.Errorf("source table %s not found in schema mapping", srcTableIdentifier)
+			return fmt.Errorf("source table %s not found in schema mapping", srcTable)
 		}
 
 		// Get destination table columns with types
-		dstColumns, err := pkg_pg.GetDestinationTableSchema(ctx, c.conn, dstTableIdentifier)
+		dstColumns, err := pkg_pg.GetDestinationTableSchema(ctx, c.conn, dstTable)
 		if err != nil {
 			// If table doesn't exist, check that the schema does before continuing
 			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "does not exist") {
-				parsedDst, parseErr := common.ParseTableIdentifier(dstTableIdentifier)
-				if parseErr != nil {
-					return fmt.Errorf("invalid destination table identifier %s: %w", dstTableIdentifier, parseErr)
-				}
-				if _, alreadyChecked := checkedSchemas[parsedDst.Namespace]; !alreadyChecked {
-					if schemaErr := pkg_pg.CheckSchemaExists(ctx, c.conn, parsedDst.Namespace); schemaErr != nil {
+				if _, alreadyChecked := checkedSchemas[dstTable.Namespace]; !alreadyChecked {
+					if schemaErr := pkg_pg.CheckSchemaExists(ctx, c.conn, dstTable.Namespace); schemaErr != nil {
 						return schemaErr
 					}
-					checkedSchemas[parsedDst.Namespace] = struct{}{}
+					checkedSchemas[dstTable.Namespace] = struct{}{}
 				}
 				continue
 			}
-			return fmt.Errorf("failed to get columns for destination table %s: %w", dstTableIdentifier, err)
+			return fmt.Errorf("failed to get columns for destination table %s: %w", dstTable, err)
 		}
 
 		if cfg.DoInitialSnapshot {
 			// Check if destination table already has rows
-			if err := pkg_pg.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
+			if err := pkg_pg.CheckTableEmpty(ctx, c.conn, dstTable); err != nil {
 				return err
 			}
 		}
@@ -349,7 +342,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 			colName = pkg_pg.ResolveDestinationColumnName(colName, columnMappings)
 
 			// Check if the column exists in destination
-			if err := pkg_pg.CheckColumnExists(srcField.Name, colName, dstColumns, dstTableIdentifier); err != nil {
+			if err := pkg_pg.CheckColumnExists(srcField.Name, colName, dstColumns, dstTable.String()); err != nil {
 				return err
 			}
 
@@ -359,7 +352,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 				if err := pkg_pg.CheckColumnTypeCompatibility(
 					srcField.Name, srcField.Type, srcField.TypeModifier,
 					colName, dstCol.TypeName, dstCol.TypeMod,
-					dstTableIdentifier,
+					dstTable.String(),
 				); err != nil {
 					return err
 				}

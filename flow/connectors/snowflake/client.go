@@ -33,7 +33,7 @@ func SnowflakeQuotelessIdentifierNormalize(identifier string) string {
 	return identifier
 }
 
-func snowflakeSchemaTableNormalize(schemaTable *common.QualifiedTable) string {
+func snowflakeSchemaTableNormalize(schemaTable common.QualifiedTable) string {
 	return fmt.Sprintf(`%s.%s`, SnowflakeIdentifierNormalize(schemaTable.Namespace),
 		SnowflakeIdentifierNormalize(schemaTable.Table))
 }

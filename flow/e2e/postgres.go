@@ -52,8 +52,8 @@ func (s PeerFlowE2ETestSuitePG) Peer() *protos.Peer {
 	return GeneratePostgresPeer(s.t)
 }
 
-func (s PeerFlowE2ETestSuitePG) DestinationTable(table string) string {
-	return AttachSchema(s, table)
+func (s PeerFlowE2ETestSuitePG) DestinationTable(table string) common.QualifiedTable {
+	return common.QualifiedTable{Namespace: Schema(s), Table: table}
 }
 
 func (s PeerFlowE2ETestSuitePG) Exec(ctx context.Context, sql string) error {

@@ -10,6 +10,7 @@ import (
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -21,7 +22,8 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 
 	var missingTables []common.QualifiedTable
 	for _, tableMapping := range cfg.TableMappings {
-		dstDatasetTable, err := c.convertToDatasetTable(tableMapping.SourceTableIdentifier)
+		sourceTable := internal.QualifiedTableFromProto(tableMapping.SourceTable)
+		dstDatasetTable, err := c.convertToDatasetTable(sourceTable)
 		if err != nil {
 			return err
 		}
@@ -36,7 +38,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 				})
 				continue
 			}
-			return fmt.Errorf("failed to get metadata for table %s: %w", tableMapping.DestinationTableIdentifier, err)
+			return fmt.Errorf("failed to get metadata for table %s: %w", sourceTable, err)
 		}
 	}
 	if len(missingTables) > 0 {

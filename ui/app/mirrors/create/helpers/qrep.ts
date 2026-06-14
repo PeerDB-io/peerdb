@@ -2,8 +2,10 @@ import {
   QRepConfig,
   QRepWriteMode,
   QRepWriteType,
+  QualifiedTable,
   TypeSystem,
 } from '@/grpc_generated/flow';
+import { qualifiedTableFromDottedName } from '@/lib/utils/tableIdentifier';
 
 import { AdvancedSettingType, MirrorSetting } from './common';
 
@@ -13,7 +15,9 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        watermarkTable: (value as string) || '',
+        qualifiedWatermarkTable: value
+          ? qualifiedTableFromDottedName(value as string)
+          : undefined,
       })),
     type: 'select',
     tips: 'The source table of the replication and the table to which the watermark column belongs.',
@@ -47,9 +51,9 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        destinationTableIdentifier: value as string,
+        destinationTable: value as QualifiedTable | undefined,
       })),
-    checked: (state) => state.destinationTableIdentifier,
+    checked: (state) => !!state.destinationTable,
     tips: 'Name of the destination. For any destination peer apart from BigQuery, this must be schema-qualified. Example: public.users',
     required: true,
   },

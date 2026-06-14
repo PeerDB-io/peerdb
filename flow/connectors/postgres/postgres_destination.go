@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -109,7 +110,9 @@ func syncRecordsCore[Items model.Items](
 				row = []any{
 					uuid.New(),
 					time.Now().UnixNano(),
-					typedRecord.DestinationTableName,
+					// LegacyDotted: raw tables written before QualifiedTable hold this format,
+					// and normalize must keep matching rows from both eras
+					typedRecord.DestinationTable.LegacyDotted(),
 					itemsJSON,
 					0,
 					"{}",
@@ -136,7 +139,7 @@ func syncRecordsCore[Items model.Items](
 				row = []any{
 					uuid.New(),
 					time.Now().UnixNano(),
-					typedRecord.DestinationTableName,
+					typedRecord.DestinationTable.LegacyDotted(),
 					newItemsJSON,
 					1,
 					oldItemsJSON,
@@ -156,7 +159,7 @@ func syncRecordsCore[Items model.Items](
 				row = []any{
 					uuid.New(),
 					time.Now().UnixNano(),
-					typedRecord.DestinationTableName,
+					typedRecord.DestinationTable.LegacyDotted(),
 					itemsJSON,
 					2,
 					itemsJSON,
@@ -261,6 +264,14 @@ func (c *PostgresConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
+	// _peerdb_destination_table_name values in the raw table use the legacy dotted format,
+	// including rows written before the QualifiedTable migration, so map them back to
+	// destination tables via LegacyDotted keys
+	destinationTables := make(map[string]common.QualifiedTable, len(req.TableNameSchemaMapping))
+	for dstTable := range req.TableNameSchemaMapping {
+		destinationTables[dstTable.LegacyDotted()] = dstTable
+	}
+
 	normalizeStmtGen := normalizeStmtGenerator{
 		Logger:             c.logger,
 		rawTableName:       rawTableIdentifier,
@@ -275,14 +286,20 @@ func (c *PostgresConnector) NormalizeRecords(
 
 	totalRowsAffected := 0
 	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
-		unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName, batchID)
+		rawUnchangedToastColumns, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName, batchID)
 		if err != nil {
 			return model.NormalizeResponse{}, err
+		}
+		unchangedToastColumnsMap := make(map[common.QualifiedTable][]string, len(rawUnchangedToastColumns))
+		for rawName, unchangedCols := range rawUnchangedToastColumns {
+			if dstTable, ok := destinationTables[rawName]; ok {
+				unchangedToastColumnsMap[dstTable] = unchangedCols
+			}
 		}
 		normalizeStmtGen.unchangedToastColumnsMap = unchangedToastColumnsMap
 
 		destinationTableNames, err := c.getDistinctTableNamesInBatch(
-			ctx, req.FlowJobName, batchID, req.TableNameSchemaMapping)
+			ctx, req.FlowJobName, batchID, destinationTables)
 		if err != nil {
 			return model.NormalizeResponse{}, err
 		}
@@ -306,7 +323,7 @@ func (c *PostgresConnector) NormalizeRecords(
 }
 
 type batchEntry struct {
-	tableName string
+	tableName common.QualifiedTable
 	statement string
 }
 
@@ -314,7 +331,7 @@ func (c *PostgresConnector) normalizeBatch(
 	ctx context.Context,
 	batchID int64,
 	req *model.NormalizeRecordsRequest,
-	destinationTableNames []string,
+	destinationTableNames []common.QualifiedTable,
 	normalizeStmtGen *normalizeStmtGenerator,
 ) (int, error) {
 	tx, err := c.conn.Begin(ctx)
@@ -337,7 +354,8 @@ func (c *PostgresConnector) normalizeBatch(
 	for _, destinationTableName := range destinationTableNames {
 		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
 		for _, stmt := range normalizeStatements {
-			batch.Queue(stmt, batchID, destinationTableName)
+			// raw-table rows store the destination table name in the legacy dotted format
+			batch.Queue(stmt, batchID, destinationTableName.LegacyDotted())
 			entries = append(entries, batchEntry{tableName: destinationTableName, statement: stmt})
 		}
 	}
@@ -356,7 +374,7 @@ func (c *PostgresConnector) normalizeBatch(
 			c.logger.Error("error executing normalize statement",
 				slog.String("statement", entry.statement),
 				slog.Int64("batchID", batchID),
-				slog.String("destinationTableName", entry.tableName),
+				slog.String("destinationTableName", entry.tableName.String()),
 				slog.Any("error", err),
 			)
 			return 0, fmt.Errorf("error executing normalize statement for table %s: %w", entry.tableName, err)
@@ -381,6 +399,7 @@ func (c *PostgresConnector) normalizeBatch(
 
 // CreateRawTable creates a raw table, implementing the Connector interface.
 func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+	internal.NormalizeCreateRawTableInput(req)
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 
 	err := c.createMetadataSchema(ctx)
@@ -432,37 +451,33 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
+	destinationTable common.QualifiedTable,
 	tableSchema *protos.TableSchema,
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
-	parsedNormalizedTable, err := common.ParseTableIdentifier(tableIdentifier)
-	if err != nil {
-		return false, fmt.Errorf("error while parsing table schema and name: %w", err)
-	}
-	tableAlreadyExists, err := c.tableExists(ctx, parsedNormalizedTable)
+	tableAlreadyExists, err := c.tableExists(ctx, &destinationTable)
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
 	if tableAlreadyExists {
 		c.logger.Info("[postgres] table already exists, skipping",
-			slog.String("table", tableIdentifier))
+			slog.String("table", destinationTable.String()))
 		if !config.IsResync {
 			return true, nil
 		}
 
 		err := c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
-			common.QuoteIdentifier(parsedNormalizedTable.Namespace),
-			common.QuoteIdentifier(parsedNormalizedTable.Table)))
+			common.QuoteIdentifier(destinationTable.Namespace),
+			common.QuoteIdentifier(destinationTable.Table)))
 		if err != nil {
 			return false, fmt.Errorf("error while dropping _resync table: %w", err)
 		}
-		c.logger.Info("[postgres] dropped resync table for resync", slog.String("resyncTable", parsedNormalizedTable.String()))
+		c.logger.Info("[postgres] dropped resync table for resync", slog.String("resyncTable", destinationTable.String()))
 	}
 
 	// convert the column names and types to Postgres types
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, parsedNormalizedTable, tableSchema)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, destinationTable, tableSchema)
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
@@ -497,6 +512,8 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
 			continue
 		}
+		srcSchemaTable := internal.QualifiedTableFromProto(schemaDelta.SrcTable)
+		dstSchemaTable := internal.QualifiedTableFromProto(schemaDelta.DstTable)
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			columnType := addedColumn.Type
@@ -520,11 +537,6 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 				columnType = schemaQualifiedType.String()
 			}
 
-			dstSchemaTable, err := common.ParseTableIdentifier(schemaDelta.DstTableName)
-			if err != nil {
-				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
-			}
-
 			_, err = c.execWithLoggingTx(ctx, fmt.Sprintf(
 				"ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS %s %s",
 				common.QuoteIdentifier(dstSchemaTable.Namespace),
@@ -532,12 +544,12 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 				common.QuoteIdentifier(addedColumn.Name), columnType), tableSchemaModifyTx)
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
-					schemaDelta.DstTableName, err)
+					dstSchemaTable, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s",
 				addedColumn.Name, addedColumn.Type),
-				slog.String("srcTableName", schemaDelta.SrcTableName),
-				slog.String("dstTableName", schemaDelta.DstTableName),
+				slog.String("srcTableName", srcSchemaTable.String()),
+				slog.String("dstTableName", dstSchemaTable.String()),
 			)
 		}
 	}
@@ -586,8 +598,9 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 func (c *PostgresConnector) RenameTables(
 	ctx context.Context,
 	req *protos.RenameTablesInput,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
+	tableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
+	internal.NormalizeRenameTablesInput(req)
 	renameTablesTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
@@ -595,10 +608,7 @@ func (c *PostgresConnector) RenameTables(
 	defer shared.RollbackTx(renameTablesTx, c.logger)
 
 	for _, renameRequest := range req.RenameTableOptions {
-		srcTable, err := common.ParseTableIdentifier(renameRequest.CurrentName)
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
-		}
+		srcTable := internal.QualifiedTableFromProto(renameRequest.CurrentTable)
 		src := srcTable.String()
 
 		resyncTableExists, err := c.checkIfTableExistsWithTx(ctx, srcTable.Namespace, srcTable.Table, renameTablesTx)
@@ -611,10 +621,7 @@ func (c *PostgresConnector) RenameTables(
 			continue
 		}
 
-		dstTable, err := common.ParseTableIdentifier(renameRequest.NewName)
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
-		}
+		dstTable := internal.QualifiedTableFromProto(renameRequest.NewTable)
 		dst := dstTable.String()
 
 		// if original table does not exist, skip soft delete transfer
@@ -624,7 +631,7 @@ func (c *PostgresConnector) RenameTables(
 		}
 
 		if originalTableExists {
-			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
+			tableSchema := tableNameSchemaMapping[srcTable]
 			if req.SoftDeleteColName != "" {
 				columnNames := make([]string, 0, len(tableSchema.Columns))
 				for _, col := range tableSchema.Columns {
@@ -689,16 +696,20 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
 	req *protos.RemoveTablesFromRawTableInput,
 ) error {
+	internal.NormalizeRemoveTablesFromRawTableInput(req)
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	for _, tableName := range req.DestinationTableNames {
+	for _, table := range req.DestinationTables {
+		destinationTable := internal.QualifiedTableFromProto(table)
+		// raw-table rows store the destination table name in the legacy dotted format
 		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			common.QuoteIdentifier(rawTableIdentifier), utils.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
+			common.QuoteIdentifier(rawTableIdentifier), utils.QuoteLiteral(destinationTable.LegacyDotted()),
+			req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
 			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
-		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
+		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", destinationTable))
 	}
 
 	return nil

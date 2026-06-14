@@ -5,12 +5,14 @@ import (
 	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tm *protos.TableMapping) (*protos.TableSchema, error) {
-	columns, err := c.getColsFromTable(ctx, tm.SourceTableIdentifier)
+	columns, err := c.getColsFromTable(ctx, internal.QualifiedTableFromProto(tm.SourceTable))
 	if err != nil {
 		return nil, err
 	}
@@ -35,9 +37,9 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tm *pro
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier: tm.SourceTableIdentifier,
-		Columns:         colFields,
-		System:          protos.TypeSystem_Q,
+		Table:   tm.SourceTable,
+		Columns: colFields,
+		System:  protos.TypeSystem_Q,
 	}, nil
 }
 
@@ -48,14 +50,14 @@ func (c *SnowflakeConnector) GetTableSchema(
 	_version uint32,
 	_system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
-) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableMappings))
+) (map[common.QualifiedTable]*protos.TableSchema, error) {
+	res := make(map[common.QualifiedTable]*protos.TableSchema, len(tableMappings))
 	for _, tm := range tableMappings {
 		tableSchema, err := c.getTableSchemaForTable(ctx, tm)
 		if err != nil {
 			return nil, err
 		}
-		res[tm.SourceTableIdentifier] = tableSchema
+		res[internal.QualifiedTableFromProto(tm.SourceTable)] = tableSchema
 	}
 
 	return res, nil

@@ -43,8 +43,8 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	stream *model.QRecordStream,
 	flowJobName string,
 ) (int64, error) {
-	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
-	dstTableName := s.config.DestinationTableIdentifier
+	dstTable := internal.QualifiedTableFromProto(s.config.DestinationTable)
+	tableLog := slog.String("destinationTable", dstTable.String())
 
 	schema, err := stream.Schema()
 	if err != nil {
@@ -53,7 +53,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 
 	s.logger.Info("sync function called and schema acquired", tableLog)
 
-	avroSchema, err := s.getAvroSchema(ctx, env, dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(ctx, env, dstTable, schema)
 	if err != nil {
 		return 0, err
 	}
@@ -77,12 +77,11 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	}
 	s.logger.Info("pushed avro file to stage", tableLog)
 
-	writeHandler := NewSnowflakeAvroConsolidateHandler(s.SnowflakeConnector, s.config, s.config.DestinationTableIdentifier, stage)
+	writeHandler := NewSnowflakeAvroConsolidateHandler(s.SnowflakeConnector, s.config, dstTable, stage)
 	if err := writeHandler.CopyStageToDestination(ctx); err != nil {
 		return 0, err
 	}
-	s.logger.Info(fmt.Sprintf("copying records into %s from stage %s",
-		s.config.DestinationTableIdentifier, stage))
+	s.logger.Info(fmt.Sprintf("copying records into %s from stage %s", dstTable, stage))
 
 	return avroFile.NumRecords, nil
 }
@@ -96,7 +95,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 ) (int64, shared.QRepWarnings, error) {
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	startTime := time.Now()
-	dstTableName := config.DestinationTableIdentifier
+	dstTable := internal.QualifiedTableFromProto(config.DestinationTable)
 
 	schema, err := stream.Schema()
 	if err != nil {
@@ -104,7 +103,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	}
 	s.logger.Info("sync function called and schema acquired", partitionLog)
 
-	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTable, schema)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -132,11 +131,12 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 	ctx context.Context,
 	env map[string]string,
-	dstTableName string,
+	dstTable common.QualifiedTable,
 	schema types.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	// TODO: Support avroNameMap for avro-incompatible column name support
-	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_SNOWFLAKE, nil)
+	// LegacyDotted: avro record names in staged files keep the historical dotted form
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTable.LegacyDotted(), schema, protos.DBType_SNOWFLAKE, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}

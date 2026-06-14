@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
@@ -99,6 +100,8 @@ func processCDCFlowConfigUpdate(
 	mirrorNameSearch temporal.SearchAttributes,
 ) error {
 	flowConfigUpdate := state.FlowConfigUpdate
+	// signals enqueued by a pre-QualifiedTable release carry legacy string identifiers
+	internal.NormalizeCDCFlowConfigUpdate(flowConfigUpdate)
 
 	// Capture old values for logging before updates are applied
 	oldValues := telemetry.OldCDCFlowValues{
@@ -330,7 +333,7 @@ func processTableAdditions(
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
 			}
-			return workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+			return continueAsNewDropFlow(ctx, state.DropFlowInput)
 		}
 		if err := ctx.Err(); err != nil {
 			logger.Info("CDCFlow canceled during table additions", slog.Any("error", err))
@@ -342,7 +345,7 @@ func processTableAdditions(
 		}
 	}
 
-	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
+	maps.Copy(state.SyncFlowOptions.SrcTableIdMapping, res.SyncFlowOptions.SrcTableIdMapping)
 
 	logger.Info("additional tables added to sync flow")
 	return nil
@@ -385,13 +388,13 @@ func processTableRemovals(
 		// destinations still fed by remaining mappings keep raw rows & schema mapping,
 		// pending rows still normalize into surviving destination table
 		// relies on TableMappings being trimmed before selector callbacks fire
-		remainingDestinations := make(map[string]struct{}, len(state.SyncFlowOptions.TableMappings))
+		remainingDestinations := make(map[common.QualifiedTable]struct{}, len(state.SyncFlowOptions.TableMappings))
 		for _, tm := range state.SyncFlowOptions.TableMappings {
-			remainingDestinations[tm.DestinationTableIdentifier] = struct{}{}
+			remainingDestinations[internal.QualifiedTableFromProto(tm.DestinationTable)] = struct{}{}
 		}
 		exclusivelyRemovedTables := make([]*protos.TableMapping, 0, len(state.FlowConfigUpdate.RemovedTables))
 		for _, tm := range state.FlowConfigUpdate.RemovedTables {
-			if _, shared := remainingDestinations[tm.DestinationTableIdentifier]; !shared {
+			if _, shared := remainingDestinations[internal.QualifiedTableFromProto(tm.DestinationTable)]; !shared {
 				exclusivelyRemovedTables = append(exclusivelyRemovedTables, tm)
 			}
 		}
@@ -426,16 +429,16 @@ func processTableRemovals(
 
 	// remove the tables from the sync flow options
 	// do this first in case resync comes in
-	removedTables := make(map[string]struct{}, len(state.FlowConfigUpdate.RemovedTables))
+	removedTables := make(map[common.QualifiedTable]struct{}, len(state.FlowConfigUpdate.RemovedTables))
 	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
-		removedTables[removedTable.SourceTableIdentifier] = struct{}{}
+		removedTables[internal.QualifiedTableFromProto(removedTable.SourceTable)] = struct{}{}
 	}
-	maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(k uint32, v string) bool {
-		_, removed := removedTables[v]
+	maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdMapping, func(k uint32, v *protos.QualifiedTable) bool {
+		_, removed := removedTables[internal.QualifiedTableFromProto(v)]
 		return removed
 	})
 	state.SyncFlowOptions.TableMappings = slices.DeleteFunc(state.SyncFlowOptions.TableMappings, func(tm *protos.TableMapping) bool {
-		_, removed := removedTables[tm.SourceTableIdentifier]
+		_, removed := removedTables[internal.QualifiedTableFromProto(tm.SourceTable)]
 		return removed
 	})
 
@@ -446,7 +449,7 @@ func processTableRemovals(
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
 			}
-			return workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+			return continueAsNewDropFlow(ctx, state.DropFlowInput)
 		}
 		if err := ctx.Err(); err != nil {
 			logger.Info("CDCFlow canceled during table additions", slog.Any("error", err))
@@ -495,9 +498,17 @@ func CDCFlowWorkflow(
 		return nil, fmt.Errorf("invalid connection configs")
 	}
 
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers;
+	// normalization is pure so this is deterministic on replay
+	internal.NormalizeFlowConfig(cfg)
+
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	if state == nil {
 		state = cdc_state.NewCDCFlowWorkflowState(ctx, logger, cfg)
+	} else {
+		internal.NormalizeSyncFlowOptions(state.SyncFlowOptions)
+		internal.NormalizeCDCFlowConfigUpdate(state.FlowConfigUpdate)
+		internal.NormalizeDropFlowInput(state.DropFlowInput)
 	}
 
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
@@ -566,7 +577,7 @@ func CDCFlowWorkflow(
 				return state, err
 			}
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+				return state, continueAsNewDropFlow(ctx, state.DropFlowInput)
 			}
 
 			if state.FlowConfigUpdate != nil {
@@ -583,7 +594,7 @@ func CDCFlowWorkflow(
 
 		logger.Info("mirror resumed", slog.Duration("after", time.Since(startTime)))
 		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+		return state, continueAsNewCDCFlow(ctx, cfg, state)
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
@@ -598,7 +609,7 @@ func CDCFlowWorkflow(
 		migrateCtx,
 		flowable.MigratePostgresTableOIDs,
 		cfg.FlowJobName,
-		state.SyncFlowOptions.SrcTableIdNameMapping,
+		state.SyncFlowOptions.SrcTableIdMapping,
 		state.SyncFlowOptions.TableMappings,
 	).Get(migrateCtx, nil); err != nil {
 		return state, fmt.Errorf("failed to migrate Postgres table OIDs: %w", err)
@@ -641,7 +652,7 @@ func CDCFlowWorkflow(
 		if cfg.Resync {
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-					mapping.DestinationTableIdentifier += "_resync"
+					mapping.DestinationTable.Table += "_resync"
 				}
 			}
 			// because we have renamed the tables.
@@ -711,7 +722,7 @@ func CDCFlowWorkflow(
 		for setupFlowOutput == nil {
 			setupSnapshotSelector.Select(ctx)
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+				return state, continueAsNewDropFlow(ctx, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
@@ -723,7 +734,15 @@ func CDCFlowWorkflow(
 			}
 		}
 
-		state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
+		srcTableIdMapping := setupFlowOutput.SrcTableIdMapping
+		if len(srcTableIdMapping) == 0 && len(setupFlowOutput.SrcTableIdNameMapping) > 0 {
+			// output recorded by a pre-QualifiedTable release carries only the legacy map
+			srcTableIdMapping = make(map[uint32]*protos.QualifiedTable, len(setupFlowOutput.SrcTableIdNameMapping))
+			for relId, name := range setupFlowOutput.SrcTableIdNameMapping {
+				srcTableIdMapping[relId] = internal.QualifiedTableProto(common.NormalizeTableIdentifier(name))
+			}
+		}
+		state.SyncFlowOptions.SrcTableIdMapping = srcTableIdMapping
 		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
@@ -755,7 +774,7 @@ func CDCFlowWorkflow(
 		for !snapshotDone {
 			setupSnapshotSelector.Select(ctx)
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+				return state, continueAsNewDropFlow(ctx, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
@@ -778,17 +797,20 @@ func CDCFlowWorkflow(
 
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-					oldName := mapping.DestinationTableIdentifier
-					newName := strings.TrimSuffix(oldName, "_resync")
+					oldTable := mapping.DestinationTable
+					newTable := &protos.QualifiedTable{
+						Namespace: oldTable.Namespace,
+						Table:     strings.TrimSuffix(oldTable.Table, "_resync"),
+					}
 					renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
-						CurrentName: oldName,
-						NewName:     newName,
+						CurrentTable: oldTable,
+						NewTable:     newTable,
 					})
-					mapping.DestinationTableIdentifier = newName
+					mapping.DestinationTable = newTable
 				} else {
 					renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
-						CurrentName: mapping.DestinationTableIdentifier,
-						NewName:     mapping.DestinationTableIdentifier,
+						CurrentTable: mapping.DestinationTable,
+						NewTable:     mapping.DestinationTable,
 					})
 				}
 			}
@@ -815,7 +837,7 @@ func CDCFlowWorkflow(
 			for !renameTablesDone {
 				setupSnapshotSelector.Select(ctx)
 				if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-					return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+					return state, continueAsNewDropFlow(ctx, state.DropFlowInput)
 				}
 				if err := ctx.Err(); err != nil {
 					state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
@@ -836,7 +858,7 @@ func CDCFlowWorkflow(
 			logger.Info("executed setup flow and snapshot flow, start running")
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 		}
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+		return state, continueAsNewCDCFlow(ctx, cfg, state)
 	}
 
 	var finished bool
@@ -966,9 +988,9 @@ func CDCFlowWorkflow(
 			}
 
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+				return state, continueAsNewDropFlow(ctx, state.DropFlowInput)
 			}
-			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+			return state, continueAsNewCDCFlow(ctx, cfg, state)
 		}
 	}
 }

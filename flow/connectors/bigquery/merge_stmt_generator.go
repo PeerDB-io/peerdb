@@ -5,13 +5,14 @@ import (
 	"strings"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type mergeStmtGenerator struct {
 	// the schema of the table to merge into
-	tableSchemaMapping map[string]*protos.TableSchema
+	tableSchemaMapping map[common.QualifiedTable]*protos.TableSchema
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
 	// map for shorter columns
@@ -23,7 +24,7 @@ type mergeStmtGenerator struct {
 }
 
 // generateFlattenedCTE generates a flattened CTE.
-func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTableSchema *protos.TableSchema) string {
+func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable common.QualifiedTable, normalizedTableSchema *protos.TableSchema) string {
 	// for each column in the normalized table, generate CAST + JSON_VALUE
 	// statement.
 	flattenedProjs := make([]string, 0, len(normalizedTableSchema.Columns)+3)
@@ -66,11 +67,12 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 		"_peerdb_unchanged_toast_columns AS _ut",
 	)
 
-	// normalize anything between last normalized batch id to last sync batchid
+	// normalize anything between last normalized batch id to last sync batchid;
+	// raw table rows hold the legacy dotted destination name
 	return fmt.Sprintf("WITH _f AS "+
 		"(SELECT %s FROM `%s` WHERE _peerdb_batch_id=%d AND "+
 		"_peerdb_destination_table_name='%s')",
-		strings.Join(flattenedProjs, ","), m.rawDatasetTable.string(), m.mergeBatchId, dstTable)
+		strings.Join(flattenedProjs, ","), m.rawDatasetTable.string(), m.mergeBatchId, dstTable.LegacyDotted())
 }
 
 // This function is to support datatypes like JSON which cannot be partitioned by or compared by BigQuery
@@ -128,7 +130,9 @@ func (m *mergeStmtGenerator) generateDeDupedCTE(normalizedTableSchema *protos.Ta
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt(dstTable string, dstDatasetTable datasetTable, unchangedToastColumns []string) string {
+func (m *mergeStmtGenerator) generateMergeStmt(
+	dstTable common.QualifiedTable, dstDatasetTable datasetTable, unchangedToastColumns []string,
+) string {
 	normalizedTableSchema := m.tableSchemaMapping[dstTable]
 	// comma separated list of column names
 	columnCount := len(normalizedTableSchema.Columns)

@@ -43,10 +43,9 @@ import (
 //nolint:govet // fieldalignment: fields grouped by purpose for readability
 type PostgresCDCSource struct {
 	*PostgresConnector
-	srcTableIDNameMapping  map[uint32]string
-	schemaNameForRelID     map[uint32]string
-	tableNameMapping       map[string]model.NameAndExclude
-	tableNameSchemaMapping map[string]*protos.TableSchema
+	srcTableIDNameMapping  map[uint32]common.QualifiedTable
+	tableNameMapping       map[common.QualifiedTable]model.NameAndExclude
+	tableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema
 	relationMessageMapping model.RelationMessageMapping
 	slot                   string
 	publication            string
@@ -65,6 +64,7 @@ type PostgresCDCSource struct {
 	jsonApi                                  jsoniter.API
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
+	sourceSchemaAsDestinationColumn          bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
 }
@@ -72,9 +72,9 @@ type PostgresCDCSource struct {
 type PostgresCDCConfig struct {
 	CatalogPool                              shared.CatalogPool
 	OtelManager                              *otel_metrics.OtelManager
-	SrcTableIDNameMapping                    map[uint32]string
-	TableNameMapping                         map[string]model.NameAndExclude
-	TableNameSchemaMapping                   map[string]*protos.TableSchema
+	SrcTableIDNameMapping                    map[uint32]common.QualifiedTable
+	TableNameMapping                         map[common.QualifiedTable]model.NameAndExclude
+	TableNameSchemaMapping                   map[common.QualifiedTable]*protos.TableSchema
 	RelationMessageMapping                   model.RelationMessageMapping
 	FlowJobName                              string
 	Slot                                     string
@@ -109,17 +109,11 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		}
 	}
 
-	var schemaNameForRelID map[uint32]string
-	if cdcConfig.SourceSchemaAsDestinationColumn {
-		schemaNameForRelID = make(map[uint32]string, len(cdcConfig.TableNameSchemaMapping))
-	}
-
 	jsonApi := createExtendedJSONUnmarshaler()
 
 	return &PostgresCDCSource{
 		PostgresConnector:                        c,
 		srcTableIDNameMapping:                    cdcConfig.SrcTableIDNameMapping,
-		schemaNameForRelID:                       schemaNameForRelID,
 		tableNameMapping:                         cdcConfig.TableNameMapping,
 		tableNameSchemaMapping:                   cdcConfig.TableNameSchemaMapping,
 		relationMessageMapping:                   cdcConfig.RelationMessageMapping,
@@ -136,24 +130,17 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		jsonApi:                                  jsonApi,
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
+		sourceSchemaAsDestinationColumn:          cdcConfig.SourceSchemaAsDestinationColumn,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
 	}, nil
 }
 
-func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, tableName string) (string, error) {
-	if p.schemaNameForRelID == nil {
-		return "", nil
-	} else if schema, ok := p.schemaNameForRelID[relID]; ok {
-		return schema, nil
+func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(tableName common.QualifiedTable) string {
+	if !p.sourceSchemaAsDestinationColumn {
+		return ""
 	}
-
-	schemaTable, err := common.ParseTableIdentifier(tableName)
-	if err != nil {
-		return "", err
-	}
-	p.schemaNameForRelID[relID] = schemaTable.Namespace
-	return schemaTable.Namespace, nil
+	return tableName.Namespace
 }
 
 func getChildToParentRelIDMap(ctx context.Context,
@@ -776,7 +763,7 @@ func PullCdcRecords[Items model.Items](
 				if rec != nil {
 					fetchedBytes.Add(int64(len(msg.Data)))
 					totalFetchedBytes.Add(int64(len(msg.Data)))
-					tableName := rec.GetDestinationTableName()
+					tableName := rec.GetDestinationTable()
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:
 						// tableName here is destination tableName.
@@ -877,8 +864,8 @@ func PullCdcRecords[Items model.Items](
 						tableSchemaDelta := r.TableSchemaDelta
 						if len(tableSchemaDelta.AddedColumns) > 0 {
 							logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
-								tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
-							records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+								rec.GetSourceTable(), tableSchemaDelta.AddedColumns))
+							records.AddSchemaDelta(tableSchemaDelta)
 						}
 
 					case *model.MessageRecord[Items]:
@@ -1038,17 +1025,15 @@ func processInsertMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName.String()))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
 		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
-	if err != nil {
-		return nil, err
-	}
+	schemaName := p.getSourceSchemaForDestinationColumn(tableName)
 
 	baseRecord := p.baseRecord(lsn)
 	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
@@ -1057,10 +1042,10 @@ func processInsertMessage[Items model.Items](
 	}
 
 	return &model.InsertRecord[Items]{
-		BaseRecord:           baseRecord,
-		Items:                items,
-		DestinationTableName: p.tableNameMapping[tableName].Name,
-		SourceTableName:      tableName,
+		BaseRecord:       baseRecord,
+		Items:            items,
+		DestinationTable: p.tableNameMapping[tableName].Name,
+		SourceTable:      tableName,
 	}, nil
 }
 
@@ -1080,17 +1065,15 @@ func processUpdateMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName.String()))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
 		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
-	if err != nil {
-		return nil, err
-	}
+	schemaName := p.getSourceSchemaForDestinationColumn(tableName)
 
 	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, "", model.BaseRecord{})
 	if err != nil {
@@ -1121,8 +1104,8 @@ func processUpdateMessage[Items model.Items](
 		BaseRecord:            baseRecord,
 		OldItems:              oldItems,
 		NewItems:              newItems,
-		DestinationTableName:  p.tableNameMapping[tableName].Name,
-		SourceTableName:       tableName,
+		DestinationTable:      p.tableNameMapping[tableName].Name,
+		SourceTable:           tableName,
 		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
 }
@@ -1143,17 +1126,15 @@ func processDeleteMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName.String()))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
 		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
-	if err != nil {
-		return nil, err
-	}
+	schemaName := p.getSourceSchemaForDestinationColumn(tableName)
 
 	baseRecord := p.baseRecord(lsn)
 	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
@@ -1162,10 +1143,10 @@ func processDeleteMessage[Items model.Items](
 	}
 
 	return &model.DeleteRecord[Items]{
-		BaseRecord:           baseRecord,
-		Items:                items,
-		DestinationTableName: p.tableNameMapping[tableName].Name,
-		SourceTableName:      tableName,
+		BaseRecord:       baseRecord,
+		Items:            items,
+		DestinationTable: p.tableNameMapping[tableName].Name,
+		SourceTable:      tableName,
 	}, nil
 }
 
@@ -1192,14 +1173,14 @@ func processRelationMessage[Items model.Items](
 	currRelDstInfo, ok := p.tableNameMapping[currRelName]
 	if !ok {
 		p.logger.Error("Detected relation message for table, but not in table name mapping",
-			slog.String("tableName", currRelName))
+			slog.String("tableName", currRelName.String()))
 		return nil, fmt.Errorf("cannot find table name mapping for %s", currRelName)
 	}
 
 	prevSchema, ok := p.tableNameSchemaMapping[currRelDstInfo.Name]
 	if !ok {
 		p.logger.Error("Detected relation message for table, but not in table schema mapping",
-			slog.String("tableName", currRelDstInfo.Name))
+			slog.String("tableName", currRelDstInfo.Name.String()))
 		return nil, fmt.Errorf("cannot find table schema for %s", currRelDstInfo.Name)
 	}
 
@@ -1232,8 +1213,8 @@ func processRelationMessage[Items model.Items](
 
 	var potentiallyNullableAddedColumns []string
 	schemaDelta := &protos.TableSchemaDelta{
-		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
-		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
+		SrcTable:        internal.QualifiedTableProto(currRelName),
+		DstTable:        internal.QualifiedTableProto(currRelDstInfo.Name),
 		AddedColumns:    nil,
 		System:          prevSchema.System,
 		NullableEnabled: prevSchema.NullableEnabled,
@@ -1244,7 +1225,7 @@ func processRelationMessage[Items model.Items](
 		if inPrevRel {
 			return false
 		}
-		_, isExcluded := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[columnName]
+		_, isExcluded := currRelDstInfo.Exclude[columnName]
 		return !isExcluded
 	}
 
@@ -1280,26 +1261,26 @@ func processRelationMessage[Items model.Items](
 			p.logger.Info("Detected added column",
 				slog.String("columnName", column.Name),
 				slog.String("columnType", currRelMap[column.Name]),
-				slog.String("relationName", schemaDelta.SrcTableName))
+				slog.String("relationName", currRelName.String()))
 		} else if _, inPrevRel := prevRelMap[column.Name]; !inPrevRel {
 			// Column is added but excluded
 			p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
-				column.Name, schemaDelta.SrcTableName))
+				column.Name, currRelName))
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
 			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
-				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
+				column.Name, prevRelMap[column.Name], currRelMap[column.Name], currRelName))
 		}
 	}
 	for _, column := range prevSchema.Columns {
 		// present in previous relation message, but not in current one, so dropped.
 		if _, ok := currRelMap[column.Name]; !ok {
 			p.logger.Warn(fmt.Sprintf("Detected dropped column %s in table %s, but not propagating", column,
-				schemaDelta.SrcTableName))
+				currRelName))
 		}
 	}
 	if len(potentiallyNullableAddedColumns) > 0 {
 		p.logger.Info("Checking for potentially nullable columns in table",
-			slog.String("tableName", schemaDelta.SrcTableName),
+			slog.String("tableName", currRelName.String()),
 			slog.Any("potentiallyNullable", potentiallyNullableAddedColumns))
 
 		rows, err := p.conn.Query(
@@ -1322,7 +1303,7 @@ func processRelationMessage[Items model.Items](
 			if slices.Contains(attnames, column.Name) {
 				column.Nullable = true
 				p.logger.Info(fmt.Sprintf("Detected column %s in table %s as nullable",
-					column.Name, schemaDelta.SrcTableName))
+					column.Name, currRelName))
 			}
 		}
 	}
@@ -1349,7 +1330,7 @@ func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 			p.logger.Info("Detected child table in CDC stream, remapping to parent table",
 				slog.Uint64("childRelID", uint64(relID)),
 				slog.Uint64("parentRelID", uint64(parentRelID)),
-				slog.String("parentTableName", p.srcTableIDNameMapping[parentRelID]))
+				slog.String("parentTableName", p.srcTableIDNameMapping[parentRelID].String()))
 			p.hushWarnUnknownTableDetected[relID] = struct{}{}
 		}
 		return parentRelID
@@ -1390,7 +1371,7 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 		p.logger.Info("Detected new child table in CDC stream, remapping to parent table",
 			slog.Uint64("childRelID", uint64(relID)),
 			slog.Uint64("parentRelID", uint64(parentRelID)),
-			slog.String("parentTableName", p.srcTableIDNameMapping[parentRelID]))
+			slog.String("parentTableName", p.srcTableIDNameMapping[parentRelID].String()))
 		return parentRelID, p.idToRelKindMap[parentRelID], nil
 	}
 

@@ -23,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -449,9 +450,9 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier: tm.SourceTableIdentifier,
-		Columns:         colFields,
-		System:          protos.TypeSystem_Q,
+		Table:   tm.SourceTable,
+		Columns: colFields,
+		System:  protos.TypeSystem_Q,
 	}, nil
 }
 
@@ -461,10 +462,15 @@ func (c *ClickHouseConnector) GetTableSchema(
 	_version uint32,
 	_system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
-) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableMappings))
+) (map[common.QualifiedTable]*protos.TableSchema, error) {
+	res := make(map[common.QualifiedTable]*protos.TableSchema, len(tableMappings))
 	for _, tm := range tableMappings {
-		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tm.SourceTableIdentifier))
+		sourceTable := internal.QualifiedTableFromProto(tm.SourceTable)
+		sourceTableRef := peerdb_clickhouse.QuoteIdentifier(sourceTable.Table)
+		if sourceTable.Namespace != "" {
+			sourceTableRef = peerdb_clickhouse.QuoteIdentifier(sourceTable.Namespace) + "." + sourceTableRef
+		}
+		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", sourceTableRef))
 		if err != nil {
 			return nil, err
 		}
@@ -474,7 +480,7 @@ func (c *ClickHouseConnector) GetTableSchema(
 		if err != nil {
 			return nil, err
 		}
-		res[tm.SourceTableIdentifier] = tableSchema
+		res[sourceTable] = tableSchema
 	}
 
 	return res, nil

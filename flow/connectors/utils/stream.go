@@ -8,8 +8,10 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -88,7 +90,7 @@ func recordToQRecordOrError(
 	var entries [8]types.QValue
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[model.RecordItems]:
-		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
+		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTable)
 		preprocessedItems := truncateNumerics(
 			typedRecord.Items, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
@@ -102,7 +104,7 @@ func recordToQRecordOrError(
 		entries[5] = types.QValueString{Val: ""}
 		entries[7] = types.QValueString{Val: ""}
 	case *model.UpdateRecord[model.RecordItems]:
-		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
+		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTable)
 		preprocessedItems := truncateNumerics(
 			typedRecord.NewItems, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
@@ -140,16 +142,18 @@ func recordToQRecordOrError(
 
 	entries[0] = types.QValueUUID{Val: uuid.New()}
 	entries[1] = types.QValueInt64{Val: time.Now().UnixNano()}
-	entries[2] = types.QValueString{Val: record.GetDestinationTableName()}
+	// LegacyDotted: raw tables written before QualifiedTable hold this format, and
+	// normalize must keep matching rows from both eras
+	entries[2] = types.QValueString{Val: record.GetDestinationTable().LegacyDotted()}
 	entries[6] = types.QValueInt64{Val: batchID}
 
 	return entries[:], nil
 }
 
-func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {
-	tableNameRowsMapping := make(map[string]*model.RecordTypeCounts, len(tableMaps))
+func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[common.QualifiedTable]*model.RecordTypeCounts {
+	tableNameRowsMapping := make(map[common.QualifiedTable]*model.RecordTypeCounts, len(tableMaps))
 	for _, mapping := range tableMaps {
-		tableNameRowsMapping[mapping.DestinationTableIdentifier] = &model.RecordTypeCounts{}
+		tableNameRowsMapping[internal.QualifiedTableFromProto(mapping.DestinationTable)] = &model.RecordTypeCounts{}
 	}
 
 	return tableNameRowsMapping

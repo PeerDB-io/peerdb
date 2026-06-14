@@ -49,22 +49,25 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
-	destinationTableIdentifier string,
+	destinationTable common.QualifiedTable,
 	sourceTableSchema *protos.TableSchema,
 ) (bool, error) {
-	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTableIdentifier)
+	// LegacyDotted: ClickHouse table names may contain dots; configs persisted before
+	// the QualifiedTable refactor arrive first-dot-split, LegacyDotted reconstructs the
+	// original single-part name (equal to .Table for new configs, namespace == "")
+	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTable.LegacyDotted())
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if destination ClickHouse table exists: %w", err)
 	}
 	if tableAlreadyExists && !config.IsResync {
-		c.logger.Info("[clickhouse] destination ClickHouse table already exists, skipping", "table", destinationTableIdentifier)
+		c.logger.Info("[clickhouse] destination ClickHouse table already exists, skipping", "table", destinationTable.String())
 		return true, nil
 	}
 
 	normalizedTableCreateSQL, err := c.generateCreateTableSQLForNormalizedTable(
 		ctx,
 		config,
-		destinationTableIdentifier,
+		destinationTable,
 		sourceTableSchema,
 		c.chVersion,
 		config.Flags,
@@ -84,17 +87,18 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
+	destinationTable common.QualifiedTable,
 	tableSchema *protos.TableSchema,
 	chVersion *chproto.Version,
 	flags []string,
 ) ([]string, error) {
+	tableIdentifier := destinationTable.LegacyDotted()
 	var engine string
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
 
 	var tableMapping *protos.TableMapping
 	for _, tm := range config.TableMappings {
-		if tm.DestinationTableIdentifier == tableIdentifier {
+		if internal.QualifiedTableFromProto(tm.DestinationTable) == destinationTable {
 			tmEngine = tm.Engine
 			tableMapping = tm
 			break
@@ -492,7 +496,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	defer periodicLogger()
 
 	type queryInfo struct {
-		table           string
+		table           common.QualifiedTable
 		query           string
 		lastNormBatchID int64
 	}
@@ -517,7 +521,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 			for q := range queriesCh {
 				c.logger.Info("executing INSERT command to ClickHouse table",
-					slog.String("table", q.table),
+					slog.String("table", q.table.String()),
 					slog.Int64("endBatchID", endBatchID),
 					slog.Int64("lastNormBatchID", q.lastNormBatchID),
 					slog.String("query", q.query),
@@ -525,7 +529,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 				if err := c.execWithConnection(errCtx, chConn, q.query); err != nil {
 					c.logger.Error("[clickhouse] error while inserting into target clickhouse table",
-						slog.String("table", q.table),
+						slog.String("table", q.table.String()),
 						slog.Int64("endBatchID", endBatchID),
 						slog.Int64("lastNormBatchID", q.lastNormBatchID),
 						slog.Int("parallelWorker", i),
@@ -534,16 +538,18 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				}
 
 				c.logger.Info("[clickhouse] set last normalized batch id for table",
-					slog.String("table", q.table),
+					slog.String("table", q.table.String()),
 					slog.Int64("endBatchID", endBatchID),
 					slog.Int64("lastNormBatchID", q.lastNormBatchID),
 					slog.Int("parallelWorker", i))
-				if err := c.SetLastNormalizedBatchIDForTable(errCtx, req.FlowJobName, q.table, endBatchID); err != nil {
+				// LegacyDotted: per-table batch ids persisted by older releases are keyed
+				// by the dotted identifier
+				if err := c.SetLastNormalizedBatchIDForTable(errCtx, req.FlowJobName, q.table.LegacyDotted(), endBatchID); err != nil {
 					return fmt.Errorf("error while setting last synced batch id for table %s: %w", q.table, err)
 				}
 
 				c.logger.Info("executed INSERT command to ClickHouse",
-					slog.String("table", q.table),
+					slog.String("table", q.table.String()),
 					slog.Int64("endBatchID", endBatchID),
 					slog.Int64("lastNormBatchID", q.lastNormBatchID),
 					slog.Int("parallelWorker", i))
@@ -557,19 +563,19 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		defer close(queriesCh)
 
 		for _, tbl := range destinationTableNames {
-			lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
+			lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl.LegacyDotted())
 			if err != nil {
-				c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
+				c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl.String(), slog.Any("error", err))
 				return err
 			}
 			c.logger.Info("[clickhouse] last normalized batch id for table",
-				"table", tbl, "lastNormBatchID", lastNormBatchIDForTable, "endBatchID", endBatchID)
+				"table", tbl.String(), "lastNormBatchID", lastNormBatchIDForTable, "endBatchID", endBatchID)
 
 			// Skip batches already normalized for this table. This can happen if a previous normalization run partially succeeded.
 			lastNormBatchIDForTable = max(lastNormBatchID, lastNormBatchIDForTable)
 			if lastNormBatchIDForTable >= endBatchID {
 				c.logger.Info("[clickhouse] latest batch already synced to destination, skipping",
-					"table", tbl, "lastNormBatchID", lastNormBatchIDForTable, "endBatchID", endBatchID)
+					"table", tbl.String(), "lastNormBatchID", lastNormBatchIDForTable, "endBatchID", endBatchID)
 				continue
 			}
 
@@ -592,7 +598,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			query, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
 				c.logger.Error("[clickhouse] error while building insert into select query",
-					slog.String("table", tbl),
+					slog.String("table", tbl.String()),
 					slog.Int64("endBatchID", endBatchID),
 					slog.Int64("lastNormBatchID", lastNormBatchIDForTable),
 					slog.Any("error", err))
@@ -636,9 +642,16 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	flowJobName string,
 	endBatchID int64,
 	lastNormBatchID int64,
-	tableToSchema map[string]*protos.TableSchema,
-) ([]string, error) {
+	tableToSchema map[common.QualifiedTable]*protos.TableSchema,
+) ([]common.QualifiedTable, error) {
 	rawTbl := c.GetRawTableName(flowJobName)
+
+	// LegacyDotted: _peerdb_destination_table_name values were written in the dotted
+	// format, by this and older releases
+	legacyNameToTable := make(map[string]common.QualifiedTable, len(tableToSchema))
+	for table := range tableToSchema {
+		legacyNameToTable[table.LegacyDotted()] = table
+	}
 
 	q := fmt.Sprintf(
 		"SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",
@@ -649,15 +662,15 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
 	}
 	defer rows.Close()
-	var tableNames []string
+	var tableNames []common.QualifiedTable
 	for rows.Next() {
 		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
 			return nil, fmt.Errorf("error while scanning table name: %w", err)
 		}
 
-		if _, ok := tableToSchema[tableName]; ok {
-			tableNames = append(tableNames, tableName)
+		if table, ok := legacyNameToTable[tableName]; ok {
+			tableNames = append(tableNames, table)
 		} else {
 			c.logger.Warn("table not found in table to schema mapping", "table", tableName)
 		}

@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,16 +24,12 @@ func (s APITestSuite) insertIntoSourceTables(tables []string, id int, value stri
 	case *PostgresSource, *MySqlSource:
 		for _, table := range tables {
 			require.NoError(s.t, s.source.Exec(s.t.Context(),
-				fmt.Sprintf("INSERT INTO %s(id, val) values (%d,'%s')", table, id, value)))
+				fmt.Sprintf("INSERT INTO %s(id, val) values (%d,'%s')", AttachSchema(s, table), id, value)))
 		}
 	case *MongoSource:
 		for _, table := range tables {
-			// Extract table name from schema.table format
-			parts := strings.Split(table, ".")
-			tableName := parts[len(parts)-1]
-
 			res, err := s.Source().(*MongoSource).AdminClient().
-				Database(Schema(s)).Collection(tableName).
+				Database(Schema(s)).Collection(table).
 				InsertOne(s.t.Context(), bson.D{
 					bson.E{Key: "id", Value: id},
 					bson.E{Key: "val", Value: value},
@@ -52,7 +47,7 @@ func (s APITestSuite) createSourceTables(tables []string) {
 	case *PostgresSource, *MySqlSource:
 		for _, table := range tables {
 			require.NoError(s.t, s.source.Exec(s.t.Context(),
-				fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", table)))
+				fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, table))))
 		}
 	case *MongoSource:
 		// MongoDB collections are created automatically on first insert
@@ -70,7 +65,7 @@ func (s APITestSuite) removeOneTable(
 	env WorkflowRun,
 	flowJobName string,
 	tableToRemove *protos.TableMapping,
-	expectedRemainingSourceTables []string,
+	expectedRemainingSourceTables []common.QualifiedTable,
 ) {
 	// Pause the flow
 	_, err := s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -79,9 +74,10 @@ func (s APITestSuite) removeOneTable(
 	})
 	require.NoError(s.t, err)
 
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for remove "+tableToRemove.SourceTableIdentifier, func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
-	})
+	EnvWaitFor(s.t, env, 3*time.Minute,
+		"wait for pause for remove "+internal.QualifiedTableFromProto(tableToRemove.SourceTable).String(), func() bool {
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+		})
 
 	// Remove the table
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -124,9 +120,10 @@ func (s APITestSuite) addOneTable(
 	})
 	require.NoError(s.t, err)
 
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add "+tableToAdd.SourceTableIdentifier, func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
-	})
+	EnvWaitFor(s.t, env, 3*time.Minute,
+		"wait for pause for add "+internal.QualifiedTableFromProto(tableToAdd.SourceTable).String(), func() bool {
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+		})
 
 	// Add the table
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -163,8 +160,8 @@ func (s APITestSuite) checkPublicationTables(
 }
 
 type includedTable struct {
-	tableName string
-	entries   int
+	table   common.QualifiedTable
+	entries int
 }
 
 func (s APITestSuite) checkQrepRuns(
@@ -172,35 +169,35 @@ func (s APITestSuite) checkQrepRuns(
 	expectedTables []includedTable,
 ) {
 	rows, err := s.catalog.Query(s.t.Context(),
-		`SELECT source_table, COUNT(*) as entry_count
+		`SELECT source_table_namespace, source_table, COUNT(*) as entry_count
         FROM peerdb_stats.qrep_runs
         WHERE parent_mirror_name = $1 AND consolidate_complete = true
-        GROUP BY source_table
-        ORDER BY source_table`,
+        GROUP BY source_table_namespace, source_table
+        ORDER BY source_table_namespace, source_table`,
 		flowJobName,
 	)
 	require.NoError(s.t, err)
 
 	type qrepRunEntry struct {
-		tableName string
-		count     int
+		table common.QualifiedTable
+		count int
 	}
 	actualEntries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (qrepRunEntry, error) {
 		var entry qrepRunEntry
-		err := row.Scan(&entry.tableName, &entry.count)
+		err := row.Scan(&entry.table.Namespace, &entry.table.Table, &entry.count)
 		return entry, err
 	})
 	require.NoError(s.t, err)
 
-	actualMap := make(map[string]int)
+	actualMap := make(map[common.QualifiedTable]int)
 	for _, entry := range actualEntries {
-		actualMap[entry.tableName] = entry.count
+		actualMap[entry.table] = entry.count
 	}
 
-	expectedMap := make(map[string]int)
+	expectedMap := make(map[common.QualifiedTable]int)
 	for _, table := range expectedTables {
 		if table.entries > 0 {
-			expectedMap[table.tableName] = table.entries
+			expectedMap[table.table] = table.entries
 		}
 	}
 
@@ -223,43 +220,43 @@ func (s APITestSuite) checkQrepPartitions(
 	expectedTables []includedTable,
 ) {
 	rows, err := s.catalog.Query(s.t.Context(),
-		`SELECT qr.source_table, COUNT(DISTINCT qp.partition_uuid) as partition_count
+		`SELECT qr.source_table_namespace, qr.source_table, COUNT(DISTINCT qp.partition_uuid) as partition_count
         FROM peerdb_stats.qrep_partitions qp
         JOIN peerdb_stats.qrep_runs qr ON qr.parent_mirror_name = qp.parent_mirror_name AND qr.run_uuid = qp.run_uuid
         WHERE qr.parent_mirror_name = $1 AND qr.consolidate_complete = true
-        GROUP BY qr.source_table
-        ORDER BY qr.source_table`,
+        GROUP BY qr.source_table_namespace, qr.source_table
+        ORDER BY qr.source_table_namespace, qr.source_table`,
 		flowJobName,
 	)
 	require.NoError(s.t, err)
 
 	type partitionEntry struct {
-		tableName      string
+		table          common.QualifiedTable
 		partitionCount int
 	}
 	actualEntries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (partitionEntry, error) {
 		var entry partitionEntry
-		err := row.Scan(&entry.tableName, &entry.partitionCount)
+		err := row.Scan(&entry.table.Namespace, &entry.table.Table, &entry.partitionCount)
 		return entry, err
 	})
 	require.NoError(s.t, err)
 
-	actualTables := make(map[string]int)
+	actualTables := make(map[common.QualifiedTable]int)
 	for _, entry := range actualEntries {
-		actualTables[entry.tableName] = entry.partitionCount
+		actualTables[entry.table] = entry.partitionCount
 	}
 
 	for _, table := range expectedTables {
 		if table.entries > 0 {
-			partitionCount, exists := actualTables[table.tableName]
+			partitionCount, exists := actualTables[table.table]
 			require.True(s.t, exists,
-				"expected qrep_partitions entries for table %s", table.tableName)
+				"expected qrep_partitions entries for table %s", table.table.String())
 			require.Positive(s.t, partitionCount,
-				"expected positive partition count for table %s", table.tableName)
+				"expected positive partition count for table %s", table.table.String())
 		} else {
-			_, exists := actualTables[table.tableName]
+			_, exists := actualTables[table.table]
 			require.False(s.t, exists,
-				"expected no qrep_partitions entries for table %s", table.tableName)
+				"expected no qrep_partitions entries for table %s", table.table.String())
 		}
 	}
 }
@@ -269,35 +266,35 @@ func (s APITestSuite) checkTableSchemaMapping(
 	expectedTables []includedTable,
 ) {
 	rows, err := s.catalog.Query(s.t.Context(),
-		`SELECT table_name, COUNT(*) as entry_count FROM table_schema_mapping
+		`SELECT table_namespace, table_name, COUNT(*) as entry_count FROM table_schema_mapping
         WHERE flow_name = $1
-        GROUP BY table_name
-        ORDER BY table_name`,
+        GROUP BY table_namespace, table_name
+        ORDER BY table_namespace, table_name`,
 		flowJobName,
 	)
 	require.NoError(s.t, err)
 
 	type schemaMappingEntry struct {
-		tableName string
-		count     int
+		table common.QualifiedTable
+		count int
 	}
 
 	actualEntries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (schemaMappingEntry, error) {
 		var entry schemaMappingEntry
-		err := row.Scan(&entry.tableName, &entry.count)
+		err := row.Scan(&entry.table.Namespace, &entry.table.Table, &entry.count)
 		return entry, err
 	})
 	require.NoError(s.t, err)
 
-	actualMap := make(map[string]int)
+	actualMap := make(map[common.QualifiedTable]int)
 	for _, entry := range actualEntries {
-		actualMap[entry.tableName] = entry.count
+		actualMap[entry.table] = entry.count
 	}
 
-	expectedMap := make(map[string]int)
+	expectedMap := make(map[common.QualifiedTable]int)
 	for _, table := range expectedTables {
 		if table.entries > 0 {
-			expectedMap[table.tableName] = table.entries
+			expectedMap[table.table] = table.entries
 		}
 	}
 	require.Equal(s.t, expectedMap, actualMap,
@@ -310,12 +307,8 @@ func (s APITestSuite) testCancelTableAddition(
 ) {
 	var cols string
 	tables := []string{"t1", "t2", "t3", "t4", "t5", "t6"}
-	attachedTables := make([]string, len(tables))
-	for i, t := range tables {
-		attachedTables[i] = AttachSchema(s, t)
-	}
-	s.createSourceTables(attachedTables)
-	s.insertIntoSourceTables(attachedTables, 1, "first")
+	s.createSourceTables(tables)
+	s.insertIntoSourceTables(tables, 1, "first")
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		cols = "id,val"
@@ -407,28 +400,28 @@ func (s APITestSuite) testCancelTableAddition(
 	tableModification := &protos.CDCFlowConfigUpdate{
 		AdditionalTables: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      AttachSchema(s, "t4"),
-				DestinationTableIdentifier: "t4",
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t4"},
+				DestinationTable: &protos.QualifiedTable{Table: "t4"},
 			},
 			{
-				SourceTableIdentifier:      AttachSchema(s, "t5"),
-				DestinationTableIdentifier: "t5",
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t5"},
+				DestinationTable: &protos.QualifiedTable{Table: "t5"},
 			},
 			{
-				SourceTableIdentifier:      AttachSchema(s, "t6"),
-				DestinationTableIdentifier: "t6",
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t6"},
+				DestinationTable: &protos.QualifiedTable{Table: "t6"},
 			},
 		},
 	}
 	if withRemoval {
 		tableModification.RemovedTables = []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      AttachSchema(s, "t2"),
-				DestinationTableIdentifier: "t2",
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+				DestinationTable: &protos.QualifiedTable{Table: "t2"},
 			},
 			{
-				SourceTableIdentifier:      AttachSchema(s, "t3"),
-				DestinationTableIdentifier: "t3",
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t3"},
+				DestinationTable: &protos.QualifiedTable{Table: "t3"},
 			},
 		}
 	}
@@ -456,29 +449,29 @@ func (s APITestSuite) testCancelTableAddition(
 
 	currentlyReplicatingTables := []*protos.TableMapping{
 		{
-			SourceTableIdentifier:      AttachSchema(s, "t1"),
-			DestinationTableIdentifier: "t1",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t1"},
+			DestinationTable: &protos.QualifiedTable{Table: "t1"},
 		},
 		{
-			SourceTableIdentifier:      AttachSchema(s, "t4"),
-			DestinationTableIdentifier: "t4",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t4"},
+			DestinationTable: &protos.QualifiedTable{Table: "t4"},
 		},
 		{
-			SourceTableIdentifier:      AttachSchema(s, "t5"),
-			DestinationTableIdentifier: "t5",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t5"},
+			DestinationTable: &protos.QualifiedTable{Table: "t5"},
 		},
 		{
-			SourceTableIdentifier:      AttachSchema(s, "t6"),
-			DestinationTableIdentifier: "t6",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t6"},
+			DestinationTable: &protos.QualifiedTable{Table: "t6"},
 		},
 	}
 	if !withRemoval {
 		currentlyReplicatingTables = append(currentlyReplicatingTables, &protos.TableMapping{
-			SourceTableIdentifier:      AttachSchema(s, "t2"),
-			DestinationTableIdentifier: "t2",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+			DestinationTable: &protos.QualifiedTable{Table: "t2"},
 		}, &protos.TableMapping{
-			SourceTableIdentifier:      AttachSchema(s, "t3"),
-			DestinationTableIdentifier: "t3",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t3"},
+			DestinationTable: &protos.QualifiedTable{Table: "t3"},
 		})
 	}
 	output, err := s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
@@ -498,15 +491,15 @@ func (s APITestSuite) testCancelTableAddition(
 		require.NoError(s.t, err)
 	}
 
-	outputSourceTables := make([]string, 0, len(output.TablesAfterCancellation))
+	outputSourceTables := make([]common.QualifiedTable, 0, len(output.TablesAfterCancellation))
 	for _, table := range output.TablesAfterCancellation {
-		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
+		outputSourceTables = append(outputSourceTables, internal.QualifiedTableFromProto(table.SourceTable))
 	}
-	expectedTables := []string{
-		AttachSchema(s, "t1"),
-		AttachSchema(s, "t2"),
-		AttachSchema(s, "t3"),
-		AttachSchema(s, "t4"),
+	expectedTables := []common.QualifiedTable{
+		{Namespace: Schema(s), Table: "t1"},
+		{Namespace: Schema(s), Table: "t2"},
+		{Namespace: Schema(s), Table: "t3"},
+		{Namespace: Schema(s), Table: "t4"},
 	}
 
 	require.ElementsMatch(s.t, expectedTables, outputSourceTables,
@@ -516,28 +509,28 @@ func (s APITestSuite) testCancelTableAddition(
 	s.checkQrepRuns(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: AttachSchema(s, "t1"), entries: 1},
-			{tableName: AttachSchema(s, "t2"), entries: 1},
-			{tableName: AttachSchema(s, "t3"), entries: 1},
-			{tableName: AttachSchema(s, "t4"), entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t2"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t3"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t4"}, entries: 1},
 		},
 	)
 	s.checkQrepPartitions(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: AttachSchema(s, "t1"), entries: 1},
-			{tableName: AttachSchema(s, "t2"), entries: 1},
-			{tableName: AttachSchema(s, "t3"), entries: 1},
-			{tableName: AttachSchema(s, "t4"), entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t2"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t3"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t4"}, entries: 1},
 		},
 	)
 	s.checkTableSchemaMapping(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: "t1", entries: 1},
-			{tableName: "t2", entries: 1},
-			{tableName: "t3", entries: 1},
-			{tableName: "t4", entries: 1},
+			{table: common.QualifiedTable{Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Table: "t2"}, entries: 1},
+			{table: common.QualifiedTable{Table: "t3"}, entries: 1},
+			{table: common.QualifiedTable{Table: "t4"}, entries: 1},
 		},
 	)
 	publicationName := connpostgres.GetDefaultPublicationName(flowConnConfig.FlowJobName)
@@ -561,11 +554,7 @@ func (s APITestSuite) testCancelTableAddition(
 
 	// insert a row into all original tables
 	tables = []string{"t1", "t2", "t3", "t4", "t5", "t6"}
-	attachedTables = make([]string, len(tables))
-	for i, t := range tables {
-		attachedTables[i] = AttachSchema(s, t)
-	}
-	s.insertIntoSourceTables(attachedTables, 2, "second")
+	s.insertIntoSourceTables(tables, 2, "second")
 
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t1", "t1", cols)
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t2", "t2", cols)
@@ -595,12 +584,8 @@ func (s APITestSuite) TestCancelTableAddition_NoRemovalAssumedWithRemoval() {
 // by the canceled table having a previous initial load and a previous successful addition then removal
 func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	tables := []string{"t1", "t2"}
-	attachedTables := make([]string, len(tables))
-	for i, t := range tables {
-		attachedTables[i] = AttachSchema(s, t)
-	}
-	s.createSourceTables(attachedTables)
-	s.insertIntoSourceTables(attachedTables, 1, "first")
+	s.createSourceTables(tables)
+	s.insertIntoSourceTables(tables, 1, "first")
 	var cols string
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
@@ -642,30 +627,30 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 
 	// remove t2
 	s.removeOneTable(env, flowConnConfig.FlowJobName, &protos.TableMapping{
-		SourceTableIdentifier:      AttachSchema(s, "t2"),
-		DestinationTableIdentifier: "t2",
-	}, []string{AttachSchema(s, "t1")})
+		SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+		DestinationTable: &protos.QualifiedTable{Table: "t2"},
+	}, []common.QualifiedTable{{Namespace: Schema(s), Table: "t1"}})
 	// re-add t2
 	s.addOneTable(env, flowConnConfig.FlowJobName, &protos.TableMapping{
-		SourceTableIdentifier:      AttachSchema(s, "t2"),
-		DestinationTableIdentifier: "t2",
+		SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+		DestinationTable: &protos.QualifiedTable{Table: "t2"},
 	})
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for re-add t2", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	// remove t2 again
 	s.removeOneTable(env, flowConnConfig.FlowJobName, &protos.TableMapping{
-		SourceTableIdentifier:      AttachSchema(s, "t2"),
-		DestinationTableIdentifier: "t2",
-	}, []string{AttachSchema(s, "t1")})
+		SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+		DestinationTable: &protos.QualifiedTable{Table: "t2"},
+	}, []common.QualifiedTable{{Namespace: Schema(s), Table: "t1"}})
 	t2Mv := s.ch.NewMVManager("t2", s.suffix)
 	require.NoError(s.t, err)
 	err = t2Mv.CreateBadMV(s.t.Context())
 	require.NoError(s.t, err)
 	// second time re-add t2
 	s.addOneTable(env, flowConnConfig.FlowJobName, &protos.TableMapping{
-		SourceTableIdentifier:      AttachSchema(s, "t2"),
-		DestinationTableIdentifier: "t2",
+		SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+		DestinationTable: &protos.QualifiedTable{Table: "t2"},
 	})
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for stuck snapshot of t2 add table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
@@ -680,20 +665,26 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	output, err := s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
 		FlowJobName: flowConnConfig.FlowJobName,
 		CurrentlyReplicatingTables: []*protos.TableMapping{
-			{SourceTableIdentifier: AttachSchema(s, "t1"), DestinationTableIdentifier: "t1"},
-			{SourceTableIdentifier: AttachSchema(s, "t2"), DestinationTableIdentifier: "t2"},
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t1"},
+				DestinationTable: &protos.QualifiedTable{Table: "t1"},
+			},
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+				DestinationTable: &protos.QualifiedTable{Table: "t2"},
+			},
 		},
 		IdempotencyKey:                  s.suffix,
 		AssumeTableRemovalWillNotHappen: false,
 	})
 	require.NoError(s.t, err)
 
-	outputSourceTables := make([]string, 0, len(output.TablesAfterCancellation))
+	outputSourceTables := make([]common.QualifiedTable, 0, len(output.TablesAfterCancellation))
 	for _, table := range output.TablesAfterCancellation {
-		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
+		outputSourceTables = append(outputSourceTables, internal.QualifiedTableFromProto(table.SourceTable))
 	}
-	expectedTables := []string{
-		AttachSchema(s, "t1"),
+	expectedTables := []common.QualifiedTable{
+		{Namespace: Schema(s), Table: "t1"},
 	}
 
 	require.ElementsMatch(s.t, expectedTables, outputSourceTables,
@@ -702,22 +693,23 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	s.checkQrepRuns(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: AttachSchema(s, "t1"), entries: 1},
-			{tableName: AttachSchema(s, "t2"), entries: 2},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t2"}, entries: 2},
 		},
 	)
 	s.checkQrepPartitions(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: AttachSchema(s, "t1"), entries: 1},
-			{tableName: AttachSchema(s, "t2"), entries: 2}, // initial snapshot and first add but not the second add
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t1"}, entries: 1},
+			// initial snapshot and first add but not the second add
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t2"}, entries: 2},
 		},
 	)
 	s.checkTableSchemaMapping(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: "t1", entries: 1},
-			{tableName: "t2", entries: 0},
+			{table: common.QualifiedTable{Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Table: "t2"}, entries: 0},
 		},
 	)
 	publicationName := connpostgres.GetDefaultPublicationName(flowConnConfig.FlowJobName)
@@ -735,7 +727,7 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 	require.NoError(s.t, err)
 
 	// insert a row into all original tables
-	s.insertIntoSourceTables([]string{AttachSchema(s, "t1"), AttachSchema(s, "t2")}, 2, "second")
+	s.insertIntoSourceTables([]string{"t1", "t2"}, 2, "second")
 
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t1", "t1", cols)
 
@@ -747,12 +739,8 @@ func (s APITestSuite) TestCancelTableAdditionRemoveAddRemove() {
 
 func (s APITestSuite) TestCancelAddCancel() {
 	tables := []string{"t1", "t2"}
-	attachedTables := make([]string, len(tables))
-	for i, t := range tables {
-		attachedTables[i] = AttachSchema(s, t)
-	}
-	s.createSourceTables(attachedTables)
-	s.insertIntoSourceTables(attachedTables, 1, "first")
+	s.createSourceTables(tables)
+	s.insertIntoSourceTables(tables, 1, "first")
 	var cols string
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
@@ -819,8 +807,8 @@ func (s APITestSuite) TestCancelAddCancel() {
 	require.NoError(s.t, err)
 
 	s.addOneTable(env, flowConnConfig.FlowJobName, &protos.TableMapping{
-		SourceTableIdentifier:      AttachSchema(s, "t2"),
-		DestinationTableIdentifier: "t2",
+		SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+		DestinationTable: &protos.QualifiedTable{Table: "t2"},
 	})
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for stuck snapshot of t2 add table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
@@ -836,8 +824,14 @@ func (s APITestSuite) TestCancelAddCancel() {
 	output, err := s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
 		FlowJobName: flowConnConfig.FlowJobName,
 		CurrentlyReplicatingTables: []*protos.TableMapping{
-			{SourceTableIdentifier: AttachSchema(s, "t1"), DestinationTableIdentifier: "t1"},
-			{SourceTableIdentifier: AttachSchema(s, "t2"), DestinationTableIdentifier: "t2"},
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t1"},
+				DestinationTable: &protos.QualifiedTable{Table: "t1"},
+			},
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+				DestinationTable: &protos.QualifiedTable{Table: "t2"},
+			},
 		},
 		IdempotencyKey:                  "same",
 		AssumeTableRemovalWillNotHappen: false,
@@ -845,12 +839,12 @@ func (s APITestSuite) TestCancelAddCancel() {
 	require.NoError(s.t, err)
 
 	firstRunId := output.RunId
-	outputSourceTables := make([]string, 0, len(output.TablesAfterCancellation))
+	outputSourceTables := make([]common.QualifiedTable, 0, len(output.TablesAfterCancellation))
 	for _, table := range output.TablesAfterCancellation {
-		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
+		outputSourceTables = append(outputSourceTables, internal.QualifiedTableFromProto(table.SourceTable))
 	}
-	expectedTables := []string{
-		AttachSchema(s, "t1"),
+	expectedTables := []common.QualifiedTable{
+		{Namespace: Schema(s), Table: "t1"},
 	}
 
 	require.ElementsMatch(s.t, expectedTables, outputSourceTables,
@@ -866,8 +860,8 @@ func (s APITestSuite) TestCancelAddCancel() {
 	require.NoError(s.t, err)
 
 	s.addOneTable(env, flowConnConfig.FlowJobName, &protos.TableMapping{
-		SourceTableIdentifier:      AttachSchema(s, "t2"),
-		DestinationTableIdentifier: "t2",
+		SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+		DestinationTable: &protos.QualifiedTable{Table: "t2"},
 	})
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for stuck snapshot of t2 add table again", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
@@ -884,21 +878,27 @@ func (s APITestSuite) TestCancelAddCancel() {
 	output, err = s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
 		FlowJobName: flowConnConfig.FlowJobName,
 		CurrentlyReplicatingTables: []*protos.TableMapping{
-			{SourceTableIdentifier: AttachSchema(s, "t1"), DestinationTableIdentifier: "t1"},
-			{SourceTableIdentifier: AttachSchema(s, "t2"), DestinationTableIdentifier: "t2"},
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t1"},
+				DestinationTable: &protos.QualifiedTable{Table: "t1"},
+			},
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+				DestinationTable: &protos.QualifiedTable{Table: "t2"},
+			},
 		},
 		IdempotencyKey:                  "same",
 		AssumeTableRemovalWillNotHappen: false,
 	})
 	require.NoError(s.t, err)
 
-	expectedTables = []string{
-		AttachSchema(s, "t1"),
+	expectedTables = []common.QualifiedTable{
+		{Namespace: Schema(s), Table: "t1"},
 	}
 
-	outputSourceTables = []string{}
+	outputSourceTables = []common.QualifiedTable{}
 	for _, table := range output.TablesAfterCancellation {
-		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
+		outputSourceTables = append(outputSourceTables, internal.QualifiedTableFromProto(table.SourceTable))
 	}
 
 	require.ElementsMatch(s.t, expectedTables, outputSourceTables,
@@ -926,8 +926,14 @@ func (s APITestSuite) TestCancelAddCancel() {
 	output, err = s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
 		FlowJobName: flowConnConfig.FlowJobName,
 		CurrentlyReplicatingTables: []*protos.TableMapping{
-			{SourceTableIdentifier: AttachSchema(s, "t1"), DestinationTableIdentifier: "t1"},
-			{SourceTableIdentifier: AttachSchema(s, "t2"), DestinationTableIdentifier: "t2"},
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t1"},
+				DestinationTable: &protos.QualifiedTable{Table: "t1"},
+			},
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+				DestinationTable: &protos.QualifiedTable{Table: "t2"},
+			},
 		},
 		IdempotencyKey:                  "different",
 		AssumeTableRemovalWillNotHappen: false,
@@ -935,12 +941,12 @@ func (s APITestSuite) TestCancelAddCancel() {
 	require.NoError(s.t, err)
 	thirdRunId := output.RunId
 	require.NotEqual(s.t, secondRunId, thirdRunId)
-	outputSourceTables = []string{}
+	outputSourceTables = []common.QualifiedTable{}
 	for _, table := range output.TablesAfterCancellation {
-		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
+		outputSourceTables = append(outputSourceTables, internal.QualifiedTableFromProto(table.SourceTable))
 	}
-	expectedTables = []string{
-		AttachSchema(s, "t1"),
+	expectedTables = []common.QualifiedTable{
+		{Namespace: Schema(s), Table: "t1"},
 	}
 
 	require.ElementsMatch(s.t, expectedTables, outputSourceTables,
@@ -951,22 +957,22 @@ func (s APITestSuite) TestCancelAddCancel() {
 	s.checkQrepRuns(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: AttachSchema(s, "t1"), entries: 1},
-			{tableName: AttachSchema(s, "t2"), entries: 0},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t2"}, entries: 0},
 		},
 	)
 	s.checkQrepPartitions(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: AttachSchema(s, "t1"), entries: 1},
-			{tableName: AttachSchema(s, "t2"), entries: 0},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t2"}, entries: 0},
 		},
 	)
 	s.checkTableSchemaMapping(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: "t1", entries: 1},
-			{tableName: "t2", entries: 0},
+			{table: common.QualifiedTable{Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Table: "t2"}, entries: 0},
 		},
 	)
 
@@ -975,7 +981,7 @@ func (s APITestSuite) TestCancelAddCancel() {
 	require.NoError(s.t, err)
 
 	// insert a row into all original tables
-	s.insertIntoSourceTables([]string{AttachSchema(s, "t1"), AttachSchema(s, "t2")}, 2, "second")
+	s.insertIntoSourceTables([]string{"t1", "t2"}, 2, "second")
 
 	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t1", "t1", cols)
 
@@ -987,7 +993,7 @@ func (s APITestSuite) TestCancelAddCancel() {
 
 func (s APITestSuite) TestCancelErrorOnPostgresZeroOIDs() {
 	var cols string
-	tables := []string{AttachSchema(s, "t1"), AttachSchema(s, "t2")}
+	tables := []string{"t1", "t2"}
 	s.createSourceTables(tables)
 	s.insertIntoSourceTables(tables, 1, "first")
 	switch s.source.(type) {
@@ -1040,12 +1046,12 @@ func (s APITestSuite) TestCancelErrorOnPostgresZeroOIDs() {
 	EnvNoError(s.t, env, err)
 	logger := internal.LoggerFromCtx(s.t.Context())
 	err = internal.ReadModifyWriteTableSchemasToCatalog(
-		s.t.Context(), catalogPool, logger, flowConnConfig.FlowJobName, []string{"t1"},
-		func(m map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
-			zeroed := proto.CloneOf(m["t1"])
+		s.t.Context(), catalogPool, logger, flowConnConfig.FlowJobName, []common.QualifiedTable{{Table: "t1"}},
+		func(m map[common.QualifiedTable]*protos.TableSchema) (map[common.QualifiedTable]*protos.TableSchema, error) {
+			zeroed := proto.CloneOf(m[common.QualifiedTable{Table: "t1"}])
 			zeroed.TableOid = 0
-			return map[string]*protos.TableSchema{
-				"t1": zeroed,
+			return map[common.QualifiedTable]*protos.TableSchema{
+				{Table: "t1"}: zeroed,
 			}, nil
 		})
 	EnvNoError(s.t, env, err)
@@ -1080,8 +1086,8 @@ func (s APITestSuite) TestCancelErrorOnPostgresZeroOIDs() {
 	tableModification := &protos.CDCFlowConfigUpdate{
 		AdditionalTables: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      AttachSchema(s, "t2"),
-				DestinationTableIdentifier: "t2",
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+				DestinationTable: &protos.QualifiedTable{Table: "t2"},
 			},
 		},
 	}
@@ -1126,12 +1132,8 @@ func (s APITestSuite) TestCancelErrorOnPostgresZeroOIDs() {
 func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 	var cols string
 	tables := []string{"original", "added"}
-	attachedTables := make([]string, len(tables))
-	for i, t := range tables {
-		attachedTables[i] = AttachSchema(s, t)
-	}
-	s.createSourceTables(attachedTables)
-	s.insertIntoSourceTables(attachedTables, 1, "first")
+	s.createSourceTables(tables)
+	s.insertIntoSourceTables(tables, 1, "first")
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		cols = "id,val"
@@ -1174,7 +1176,7 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 	// insert CDC row
-	s.insertIntoSourceTables([]string{AttachSchema(s, "original")}, 2, "second")
+	s.insertIntoSourceTables([]string{"original"}, 2, "second")
 
 	originalConfig := s.ch.Peer().GetClickhouseConfig()
 	badClickHouseConfig := proto.Clone(originalConfig).(*protos.ClickhouseConfig)
@@ -1202,8 +1204,8 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					AdditionalTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      AttachSchema(s, "added"),
-							DestinationTableIdentifier: "added",
+							SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "added"},
+							DestinationTable: &protos.QualifiedTable{Table: "added"},
 						},
 					},
 				},
@@ -1228,22 +1230,22 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 
-	expectedTables := []string{AttachSchema(s, "original")}
-	outputSourceTables := make([]string, 0, len(output.TablesAfterCancellation))
+	expectedTables := []common.QualifiedTable{{Namespace: Schema(s), Table: "original"}}
+	outputSourceTables := make([]common.QualifiedTable, 0, len(output.TablesAfterCancellation))
 	for _, table := range output.TablesAfterCancellation {
-		outputSourceTables = append(outputSourceTables, table.SourceTableIdentifier)
+		outputSourceTables = append(outputSourceTables, internal.QualifiedTableFromProto(table.SourceTable))
 	}
 	require.ElementsMatch(s.t, expectedTables, outputSourceTables,
 		"expected tables after cancellation to match")
 
 	s.checkTableSchemaMapping(flowConnConfig.FlowJobName, []includedTable{
 		{
-			tableName: "original",
-			entries:   1,
+			table:   common.QualifiedTable{Table: "original"},
+			entries: 1,
 		},
 		{
-			tableName: "added",
-			entries:   0,
+			table:   common.QualifiedTable{Table: "added"},
+			entries: 0,
 		},
 	})
 
@@ -1418,8 +1420,8 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					AdditionalTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      AttachSchema(s, "t2"),
-							DestinationTableIdentifier: "t2",
+							SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+							DestinationTable: &protos.QualifiedTable{Table: "t2"},
 						},
 					},
 				},
@@ -1460,8 +1462,14 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 		output1, err1 = s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
 			FlowJobName: flowConnConfig.FlowJobName,
 			CurrentlyReplicatingTables: []*protos.TableMapping{
-				{SourceTableIdentifier: AttachSchema(s, "t1"), DestinationTableIdentifier: "t1"},
-				{SourceTableIdentifier: AttachSchema(s, "t2"), DestinationTableIdentifier: "t2"},
+				{
+					SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t1"},
+					DestinationTable: &protos.QualifiedTable{Table: "t1"},
+				},
+				{
+					SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+					DestinationTable: &protos.QualifiedTable{Table: "t2"},
+				},
 			},
 			IdempotencyKey:                  "1",
 			AssumeTableRemovalWillNotHappen: false,
@@ -1474,8 +1482,14 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 		output2, err2 = s.CancelTableAddition(s.t.Context(), &protos.CancelTableAdditionInput{
 			FlowJobName: flowConnConfig.FlowJobName,
 			CurrentlyReplicatingTables: []*protos.TableMapping{
-				{SourceTableIdentifier: AttachSchema(s, "t1"), DestinationTableIdentifier: "t1"},
-				{SourceTableIdentifier: AttachSchema(s, "t2"), DestinationTableIdentifier: "t2"},
+				{
+					SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t1"},
+					DestinationTable: &protos.QualifiedTable{Table: "t1"},
+				},
+				{
+					SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "t2"},
+					DestinationTable: &protos.QualifiedTable{Table: "t2"},
+				},
 			},
 			IdempotencyKey:                  "1",
 			AssumeTableRemovalWillNotHappen: false,
@@ -1508,10 +1522,10 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 		"Both requests should return same table mappings")
 
 	// Expected tables after cancellation: only t1
-	expectedTables := []string{AttachSchema(s, "t1")}
-	output1SourceTables := make([]string, 0, len(output1.TablesAfterCancellation))
+	expectedTables := []common.QualifiedTable{{Namespace: Schema(s), Table: "t1"}}
+	output1SourceTables := make([]common.QualifiedTable, 0, len(output1.TablesAfterCancellation))
 	for _, table := range output1.TablesAfterCancellation {
-		output1SourceTables = append(output1SourceTables, table.SourceTableIdentifier)
+		output1SourceTables = append(output1SourceTables, internal.QualifiedTableFromProto(table.SourceTable))
 	}
 	require.ElementsMatch(s.t, expectedTables, output1SourceTables)
 
@@ -1524,22 +1538,22 @@ func (s APITestSuite) TestDoubleClickCancelTableAddition() {
 	s.checkQrepRuns(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: AttachSchema(s, "t1"), entries: 1},
-			{tableName: AttachSchema(s, "t2"), entries: 0},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t2"}, entries: 0},
 		},
 	)
 	s.checkQrepPartitions(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: AttachSchema(s, "t1"), entries: 1},
-			{tableName: AttachSchema(s, "t2"), entries: 0},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Namespace: Schema(s), Table: "t2"}, entries: 0},
 		},
 	)
 	s.checkTableSchemaMapping(
 		flowConnConfig.FlowJobName,
 		[]includedTable{
-			{tableName: "t1", entries: 1},
-			{tableName: "t2", entries: 0},
+			{table: common.QualifiedTable{Table: "t1"}, entries: 1},
+			{table: common.QualifiedTable{Table: "t2"}, entries: 0},
 		},
 	)
 

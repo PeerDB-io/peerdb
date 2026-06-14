@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -147,7 +148,7 @@ func AddCDCBatchTablesForFlow(
 	pool shared.CatalogPool,
 	flowJobName string,
 	batchID int64,
-	tableNameRowsMapping map[string]*model.RecordTypeCounts,
+	tableNameRowsMapping map[common.QualifiedTable]*model.RecordTypeCounts,
 	otelManager *otel_metrics.OtelManager,
 ) error {
 	var recordAggregateMetrics bool
@@ -166,7 +167,7 @@ func AddCDCBatchTablesForFlow(
 	}
 
 	var syncedTablesCount int64
-	tableNameOperations := make(map[string][3]opWithValue, len(tableNameRowsMapping))
+	tableNameOperations := make(map[common.QualifiedTable][3]opWithValue, len(tableNameRowsMapping))
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
 		inserts := rowCounts.InsertCount.Load()
 		updates := rowCounts.UpdateCount.Load()
@@ -187,6 +188,7 @@ func AddCDCBatchTablesForFlow(
 		query := `
 			INSERT INTO peerdb_stats.cdc_table_aggregate_counts AS stats (
 				flow_name,
+				destination_table_namespace,
 				destination_table_name,
 				inserts_count,
 				updates_count,
@@ -197,15 +199,16 @@ func AddCDCBatchTablesForFlow(
 			)
 			VALUES (
 				$1,   -- flow_name
-				$2,   -- destination_table_name
-				$3,   -- inserts_count
-				$4,   -- updates_count
-				$5,   -- deletes_count
-				$6,   -- total_count
-				$7,   -- latest_batch_id
+				$2,   -- destination_table_namespace
+				$3,   -- destination_table_name
+				$4,   -- inserts_count
+				$5,   -- updates_count
+				$6,   -- deletes_count
+				$7,   -- total_count
+				$8,   -- latest_batch_id
 				NOW() -- last_updated_at
 			)
-			ON CONFLICT (flow_name, destination_table_name)
+			ON CONFLICT (flow_name, destination_table_namespace, destination_table_name)
 			DO UPDATE
 			SET
 				inserts_count     = stats.inserts_count + EXCLUDED.inserts_count,
@@ -218,7 +221,8 @@ func AddCDCBatchTablesForFlow(
 
 		if _, err := insertBatchTablesTx.Exec(ctx, query,
 			flowJobName,
-			destinationTableName,
+			destinationTableName.Namespace,
+			destinationTableName.Table,
 			inserts,
 			updates,
 			deletes,
@@ -235,7 +239,7 @@ func AddCDCBatchTablesForFlow(
 	for destinationTableName, operations := range tableNameOperations {
 		for _, opAndCount := range operations {
 			otelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, int64(opAndCount.count), metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.DestinationTableNameKey, destinationTableName),
+				attribute.String(otel_metrics.DestinationTableNameKey, destinationTableName.String()),
 				attribute.String(otel_metrics.RecordOperationTypeKey, opAndCount.op),
 			)))
 		}
@@ -260,9 +264,13 @@ func InitializeQRepRun(
 	defer shared.RollbackTx(tx, logger)
 
 	if _, err := tx.Exec(ctx,
-		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,source_table,destination_table,parent_mirror_name)"+
-			" VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
-		flowJobName, runUUID, config.WatermarkTable, config.DestinationTableIdentifier, parentMirrorName,
+		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,"+
+			"source_table_namespace,source_table,destination_table_namespace,destination_table,parent_mirror_name)"+
+			" VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",
+		flowJobName, runUUID,
+		config.QualifiedWatermarkTable.GetNamespace(), config.QualifiedWatermarkTable.GetTable(),
+		config.DestinationTable.GetNamespace(), config.DestinationTable.GetTable(),
+		parentMirrorName,
 	); err != nil {
 		return fmt.Errorf("error while inserting qrep run in qrep_runs: %w", err)
 	}

@@ -1053,8 +1053,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: tableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcName},
+				DestinationTable: &protos.QualifiedTable{Table: tableName},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -1122,8 +1122,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_iud_src"},
+				DestinationTable: &protos.QualifiedTable{Table: dstTableName},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -1189,8 +1189,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcName},
+				DestinationTable: &protos.QualifiedTable{Table: dstName},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -1264,8 +1264,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: tableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+				DestinationTable: &protos.QualifiedTable{Table: tableName},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,

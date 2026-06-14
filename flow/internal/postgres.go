@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -66,7 +67,11 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool shared.CatalogPool,
 ) error {
 	logger.Info("syncing state to catalog: updating config_proto in flows", slog.String("flowName", cfg.FlowJobName))
 
-	cfgBytes, err := proto.Marshal(cfg)
+	// persist legacy string identifiers alongside the structs for one release so the
+	// previous release can still read the config after a rollback
+	persistedCfg := proto.CloneOf(cfg)
+	DenormalizeFlowConfigCore(persistedCfg)
+	cfgBytes, err := proto.Marshal(persistedCfg)
 	if err != nil {
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
@@ -84,19 +89,42 @@ func LoadTableSchemaFromCatalog(
 	ctx context.Context,
 	pool shared.CatalogPool,
 	flowName string,
-	tableName string,
+	table common.QualifiedTable,
 ) (*protos.TableSchema, error) {
 	var tableSchemaBytes []byte
 	if err := pool.Pool.QueryRow(
 		ctx,
-		"select table_schema from table_schema_mapping where flow_name = $1 and table_name = $2",
+		"select table_schema from table_schema_mapping where flow_name = $1 and table_namespace = $2 and table_name = $3",
 		flowName,
-		tableName,
+		table.Namespace,
+		table.Table,
 	).Scan(&tableSchemaBytes); err != nil {
 		return nil, err
 	}
 	tableSchema := &protos.TableSchema{}
-	return tableSchema, proto.Unmarshal(tableSchemaBytes, tableSchema)
+	if err := proto.Unmarshal(tableSchemaBytes, tableSchema); err != nil {
+		return nil, err
+	}
+	NormalizeTableSchema(tableSchema)
+	return tableSchema, nil
+}
+
+// MarshalTableSchemaForCatalog persists legacy string identifiers alongside the struct
+// for one release, so the previous release can still read rows after a rollback.
+func MarshalTableSchemaForCatalog(tableSchema *protos.TableSchema) ([]byte, error) {
+	persisted := proto.CloneOf(tableSchema)
+	DenormalizeTableSchema(persisted)
+	return proto.Marshal(persisted)
+}
+
+func qualifiedTablesToArrays(tables []common.QualifiedTable) ([]string, []string) {
+	namespaces := make([]string, len(tables))
+	names := make([]string, len(tables))
+	for i, table := range tables {
+		namespaces[i] = table.Namespace
+		names[i] = table.Table
+	}
+	return namespaces, names
 }
 
 func ReadModifyWriteTableSchemasToCatalog(
@@ -104,8 +132,8 @@ func ReadModifyWriteTableSchemasToCatalog(
 	catalogPool shared.CatalogPool,
 	logger log.Logger,
 	flowName string,
-	tableNames []string,
-	modifyFn func(map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error),
+	tableNames []common.QualifiedTable,
+	modifyFn func(map[common.QualifiedTable]*protos.TableSchema) (map[common.QualifiedTable]*protos.TableSchema, error),
 ) error {
 	tx, err := catalogPool.Pool.Begin(ctx)
 	if err != nil {
@@ -121,10 +149,14 @@ func ReadModifyWriteTableSchemasToCatalog(
 	if len(tableSchemas) != len(tableNames) {
 		filteredTableNames := make([]string, 0, len(tableSchemas))
 		for name := range tableSchemas {
-			filteredTableNames = append(filteredTableNames, name)
+			filteredTableNames = append(filteredTableNames, name.String())
+		}
+		expectedTableNames := make([]string, 0, len(tableNames))
+		for _, name := range tableNames {
+			expectedTableNames = append(expectedTableNames, name.String())
 		}
 		logger.Warn("not all tables are found in catalog",
-			slog.String("expected", strings.Join(tableNames, ", ")),
+			slog.String("expected", strings.Join(expectedTableNames, ", ")),
 			slog.String("actual", strings.Join(filteredTableNames, ", ")))
 	}
 
@@ -137,17 +169,17 @@ func ReadModifyWriteTableSchemasToCatalog(
 	// write (in batch)
 	batch := &pgx.Batch{}
 	for tableName, tableSchema := range modifiedTableSchemas {
-		tableSchemaBytes, err := proto.Marshal(tableSchema)
+		tableSchemaBytes, err := MarshalTableSchemaForCatalog(tableSchema)
 		if err != nil {
 			return fmt.Errorf("unable to marshal table schema for %s: %w", tableName, err)
 		}
 		batch.Queue(
-			"UPDATE table_schema_mapping SET table_schema=$1 WHERE flow_name=$2 AND table_name=$3",
-			tableSchemaBytes, flowName, tableName,
+			"UPDATE table_schema_mapping SET table_schema=$1 WHERE flow_name=$2 AND table_namespace=$3 AND table_name=$4",
+			tableSchemaBytes, flowName, tableName.Namespace, tableName.Table,
 		)
 		logger.Info("queued schema delta update",
 			slog.String("flowName", flowName),
-			slog.String("tableName", tableName))
+			slog.String("tableName", tableName.String()))
 	}
 	results := tx.SendBatch(ctx, batch)
 	defer results.Close() // Ensure resources are freed in case of early return
@@ -157,7 +189,7 @@ func ReadModifyWriteTableSchemasToCatalog(
 			logger.Error("failed to update table schema in catalog",
 				slog.Any("error", err),
 				slog.String("flowName", flowName),
-				slog.String("tableName", tableName))
+				slog.String("tableName", tableName.String()))
 			return fmt.Errorf("failed to update table schema in catalog: %w", err)
 		}
 	}
@@ -182,7 +214,7 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 	pool shared.CatalogPool,
 	logger log.Logger,
 	flowName string,
-	tableOIDs map[string]uint32, // map[destinationTableName]tableOID
+	tableOIDs map[common.QualifiedTable]uint32, // map[destinationTable]tableOID
 ) error {
 	if len(tableOIDs) == 0 {
 		logger.Info("no table OIDs to update, skipping migration",
@@ -194,7 +226,7 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 		slog.String("flowName", flowName),
 		slog.Int("numTables", len(tableOIDs)))
 
-	tableNames := make([]string, 0, len(tableOIDs))
+	tableNames := make([]common.QualifiedTable, 0, len(tableOIDs))
 	for tableName := range tableOIDs {
 		tableNames = append(tableNames, tableName)
 	}
@@ -215,24 +247,24 @@ func UpdateTableOIDsInTableSchemaInCatalog(
 		if !exists {
 			logger.Error("table schema not found in catalog",
 				slog.String("flowName", flowName),
-				slog.String("tableName", tableName))
+				slog.String("tableName", tableName.String()))
 			return fmt.Errorf("table schema not found for table: %s", tableName)
 		}
 
 		tableSchema.TableOid = tableOID
-		tableSchemaBytes, err := proto.Marshal(tableSchema)
+		tableSchemaBytes, err := MarshalTableSchemaForCatalog(tableSchema)
 		if err != nil {
 			return fmt.Errorf("unable to marshal updated table schema for %s: %w", tableName, err)
 		}
 
 		batch.Queue(
-			"UPDATE table_schema_mapping SET table_schema=$1 WHERE flow_name=$2 AND table_name=$3",
-			tableSchemaBytes, flowName, tableName,
+			"UPDATE table_schema_mapping SET table_schema=$1 WHERE flow_name=$2 AND table_namespace=$3 AND table_name=$4",
+			tableSchemaBytes, flowName, tableName.Namespace, tableName.Table,
 		)
 
 		logger.Info("queued table OID update",
 			slog.String("flowName", flowName),
-			slog.String("tableName", tableName),
+			slog.String("tableName", tableName.String()),
 			slog.Uint64("tableOID", uint64(tableOID)))
 	}
 
@@ -276,30 +308,33 @@ func LoadTableSchemasFromCatalog(
 	ctx context.Context,
 	querier CatalogQuerier,
 	flowName string,
-	tableNames []string,
-) (map[string]*protos.TableSchema, error) {
+	tableNames []common.QualifiedTable,
+) (map[common.QualifiedTable]*protos.TableSchema, error) {
 	if len(tableNames) == 0 {
-		return make(map[string]*protos.TableSchema), nil
+		return make(map[common.QualifiedTable]*protos.TableSchema), nil
 	}
 
+	namespaces, names := qualifiedTablesToArrays(tableNames)
 	rows, err := querier.Query(
 		ctx,
-		"SELECT table_name, table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_name = ANY($2)",
+		`SELECT table_namespace, table_name, table_schema FROM table_schema_mapping
+		 WHERE flow_name = $1 AND (table_namespace, table_name) IN (SELECT * FROM unnest($2::text[], $3::text[]))`,
 		flowName,
-		tableNames,
+		namespaces,
+		names,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query table schemas: %w", err)
 	}
 	defer rows.Close()
 
-	schemas := make(map[string]*protos.TableSchema)
+	schemas := make(map[common.QualifiedTable]*protos.TableSchema)
 
 	for rows.Next() {
-		var tableName string
+		var tableName common.QualifiedTable
 		var tableSchemaBytes []byte
 
-		if err := rows.Scan(&tableName, &tableSchemaBytes); err != nil {
+		if err := rows.Scan(&tableName.Namespace, &tableName.Table, &tableSchemaBytes); err != nil {
 			return nil, fmt.Errorf("failed to scan table schema row: %w", err)
 		}
 
@@ -307,6 +342,7 @@ func LoadTableSchemasFromCatalog(
 		if err := proto.Unmarshal(tableSchemaBytes, tableSchema); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal table schema for %s: %w", tableName, err)
 		}
+		NormalizeTableSchema(tableSchema)
 
 		schemas[tableName] = tableSchema
 	}

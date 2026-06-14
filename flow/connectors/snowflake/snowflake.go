@@ -227,8 +227,8 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	batchId int64,
-	tableToSchema map[string]*protos.TableSchema,
-) ([]string, error) {
+	tableToSchema map[common.QualifiedTable]*protos.TableSchema,
+) ([]common.QualifiedTable, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.QueryContext(ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.rawSchema,
@@ -238,14 +238,20 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 	}
 	defer rows.Close()
 
+	// raw table rows hold the legacy dotted destination name
+	tablesByLegacyName := make(map[string]common.QualifiedTable, len(tableToSchema))
+	for table := range tableToSchema {
+		tablesByLegacyName[table.LegacyDotted()] = table
+	}
+
 	var result pgtype.Text
-	destinationTableNames := make([]string, 0)
+	destinationTableNames := make([]common.QualifiedTable, 0)
 	for rows.Next() {
 		if err := rows.Scan(&result); err != nil {
 			return nil, fmt.Errorf("failed to read row: %w", err)
 		}
-		if _, ok := tableToSchema[result.String]; ok {
-			destinationTableNames = append(destinationTableNames, result.String)
+		if table, ok := tablesByLegacyName[result.String]; ok {
+			destinationTableNames = append(destinationTableNames, table)
 		} else {
 			c.logger.Warn("table not found in table to schema mapping", "table", result.String)
 		}
@@ -303,28 +309,24 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
+	destinationTable common.QualifiedTable,
 	tableSchema *protos.TableSchema,
 ) (bool, error) {
-	normalizedSchemaTable, err := common.ParseTableIdentifier(tableIdentifier)
-	if err != nil {
-		return false, fmt.Errorf("error while parsing table schema and name: %w", err)
-	}
 	tableAlreadyExists, err := c.checkIfTableExists(
 		ctx,
-		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Namespace),
-		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Table),
+		SnowflakeQuotelessIdentifierNormalize(destinationTable.Namespace),
+		SnowflakeQuotelessIdentifierNormalize(destinationTable.Table),
 	)
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
 	if tableAlreadyExists && !config.IsResync {
 		c.logger.Info("[snowflake] table already exists, skipping",
-			slog.String("table", tableIdentifier))
+			slog.String("table", destinationTable.String()))
 		return true, nil
 	}
 
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(ctx, config, normalizedSchemaTable, tableSchema)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(ctx, config, destinationTable, tableSchema)
 	if _, err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
 		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 	}
@@ -362,6 +364,8 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 			continue
 		}
 
+		dstTable := internal.QualifiedTableFromProto(schemaDelta.DstTable)
+		srcTable := internal.QualifiedTableFromProto(schemaDelta.SrcTable)
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			sfColtype, err := qvalue.ToDWHColumnType(
@@ -374,15 +378,15 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 
 			if _, err := tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype),
+					snowflakeSchemaTableNormalize(dstTable), strings.ToUpper(addedColumn.Name), sfColtype),
 			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
-					schemaDelta.DstTableName, err)
+					dstTable, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name,
 				sfColtype),
-				"destination table name", schemaDelta.DstTableName,
-				"source table name", schemaDelta.SrcTableName)
+				"destination table name", dstTable.String(),
+				"source table name", srcTable.String())
 		}
 	}
 
@@ -431,16 +435,19 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
 
+	rawTable := common.QualifiedTable{
+		Namespace: strings.ToLower(c.rawSchema),
+		Table:     strings.ToLower(rawTableIdentifier),
+	}
 	qrepConfig := &protos.QRepConfig{
-		StagingPath: req.StagingPath,
-		FlowJobName: req.FlowJobName,
-		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.rawSchema,
-			rawTableIdentifier)),
-		Env:     req.Env,
-		Version: req.Version,
+		StagingPath:      req.StagingPath,
+		FlowJobName:      req.FlowJobName,
+		DestinationTable: internal.QualifiedTableProto(rawTable),
+		Env:              req.Env,
+		Version:          req.Version,
 	}
 	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
-	destinationTableSchema, err := c.getTableSchema(ctx, qrepConfig.DestinationTableIdentifier)
+	destinationTableSchema, err := c.getTableSchema(ctx, rawTable)
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +515,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	batchId int64,
 	flowName string,
 	env map[string]string,
-	tableToSchema map[string]*protos.TableSchema,
+	tableToSchema map[common.QualifiedTable]*protos.TableSchema,
 	peerdbCols *protos.PeerDBColumns,
 ) error {
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId, tableToSchema)
@@ -549,9 +556,10 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 			}
 
 			startTime := time.Now()
-			c.logger.Info("[snowflake] merging records...", "destTable", tableName, "batchId", batchId)
+			c.logger.Info("[snowflake] merging records...", "destTable", tableName.String(), "batchId", batchId)
 
-			result, err := c.ExecContext(gCtx, mergeStatement, tableName)
+			// raw table rows hold the legacy dotted destination name
+			result, err := c.ExecContext(gCtx, mergeStatement, tableName.LegacyDotted())
 			if err != nil {
 				return fmt.Errorf("failed to merge records into %s (statement: %s): %w",
 					tableName, mergeStatement, err)
@@ -582,6 +590,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 }
 
 func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+	internal.NormalizeCreateRawTableInput(req)
 	ctx = c.withMirrorNameQueryTag(ctx, req.FlowJobName)
 
 	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
@@ -654,7 +663,7 @@ func (c *SnowflakeConnector) checkIfTableExists(
 func generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
-	dstSchemaTable *common.QualifiedTable,
+	dstSchemaTable common.QualifiedTable,
 	tableSchema *protos.TableSchema,
 ) string {
 	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
@@ -719,8 +728,9 @@ func getRawTableIdentifier(jobName string) string {
 func (c *SnowflakeConnector) RenameTables(
 	ctx context.Context,
 	req *protos.RenameTablesInput,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
+	tableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
+	internal.NormalizeRenameTablesInput(req)
 	renameTablesTx, err := c.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
@@ -733,10 +743,7 @@ func (c *SnowflakeConnector) RenameTables(
 	}()
 
 	for _, renameRequest := range req.RenameTableOptions {
-		srcTable, err := common.ParseTableIdentifier(renameRequest.CurrentName)
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
-		}
+		srcTable := internal.QualifiedTableFromProto(renameRequest.CurrentTable)
 
 		resyncTableExists, err := c.checkIfTableExists(
 			ctx,
@@ -752,10 +759,7 @@ func (c *SnowflakeConnector) RenameTables(
 			continue
 		}
 
-		dstTable, err := common.ParseTableIdentifier(renameRequest.NewName)
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
-		}
+		dstTable := internal.QualifiedTableFromProto(renameRequest.NewTable)
 
 		src := snowflakeSchemaTableNormalize(srcTable)
 		dst := snowflakeSchemaTableNormalize(dstTable)
@@ -770,7 +774,7 @@ func (c *SnowflakeConnector) RenameTables(
 
 		if originalTableExists {
 			if req.SoftDeleteColName != "" {
-				tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
+				tableSchema := tableNameSchemaMapping[srcTable]
 				columnNames := make([]string, 0, len(tableSchema.Columns))
 				for _, col := range tableSchema.Columns {
 					columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
@@ -839,12 +843,15 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 		}
 	}()
 
-	for newTable, existingTable := range req.NewToExistingTableMapping {
+	for _, mapping := range req.NewToExisting {
+		newTable := internal.QualifiedTableFromProto(mapping.Source)
+		existingTable := internal.QualifiedTableFromProto(mapping.Destination)
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		// rename the src table to dst
 		if _, err := c.execWithLoggingTx(ctx,
-			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable), createTablesFromExistingTx,
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s",
+				snowflakeSchemaTableNormalize(newTable), snowflakeSchemaTableNormalize(existingTable)), createTablesFromExistingTx,
 		); err != nil {
 			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)
 		}
@@ -865,16 +872,19 @@ func (c *SnowflakeConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
 	req *protos.RemoveTablesFromRawTableInput,
 ) error {
+	internal.NormalizeRemoveTablesFromRawTableInput(req)
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	for _, tableName := range req.DestinationTableNames {
+	for _, table := range req.DestinationTables {
+		destinationTable := internal.QualifiedTableFromProto(table)
+		// raw table rows hold the legacy dotted destination name
 		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s.%s WHERE _PEERDB_DESTINATION_TABLE_NAME = '%s'"+
 			" AND _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d",
-			c.rawSchema, rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
+			c.rawSchema, rawTableIdentifier, destinationTable.LegacyDotted(), req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
 			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
-		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
+		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", destinationTable))
 	}
 
 	return nil

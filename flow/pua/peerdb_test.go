@@ -6,6 +6,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -122,5 +123,27 @@ assert(msgpack.encode(row_empty_array.a) == string.char(0x90))
 local json = require "json"
 assert(json.encode(row) == "{\"a\":5040}")
 assert(json.encode(row_empty_array.a) == "[]")
+`)
+}
+
+// record.target / record.source are part of the user-facing Lua script API and must
+// keep returning the legacy dotted format (never the quoted String() form), even for
+// identifiers whose components themselves contain dots.
+func TestRecordTargetSourceLegacyDotted(t *testing.T) {
+	t.Parallel()
+
+	ls := lua.NewState(lua.Options{})
+	RegisterTypes(ls)
+
+	record := &model.InsertRecord[model.RecordItems]{
+		Items:            model.NewRecordItems(0),
+		SourceTable:      common.QualifiedTable{Namespace: "sch.ema", Table: "ta.ble"},
+		DestinationTable: common.QualifiedTable{Namespace: "", Table: "dst.table"},
+	}
+	ls.Env.RawSetString("record", LuaRecord.New(ls, record))
+
+	assert(t, ls, `
+assert(record.source == "sch.ema.ta.ble", "source was " .. tostring(record.source))
+assert(record.target == "dst.table", "target was " .. tostring(record.target))
 `)
 }

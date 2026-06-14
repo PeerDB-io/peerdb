@@ -82,9 +82,7 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
 	c.logger.Info("Evaluating if tables can perform parallel load")
 
-	output := &protos.GetDefaultPartitionKeyForTablesOutput{
-		TableDefaultPartitionKeyMapping: make(map[string]string, len(input.TableMappings)),
-	}
+	output := &protos.GetDefaultPartitionKeyForTablesOutput{}
 
 	pgVersion, err := shared.GetMajorVersion(ctx, c.conn)
 	if err != nil {
@@ -92,16 +90,28 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 	}
 	supportsTidScans := pgVersion >= shared.POSTGRES_14
 
-	if supportsTidScans {
-		for _, tm := range input.TableMappings {
-			output.TableDefaultPartitionKeyMapping[tm.SourceTableIdentifier] = ctidColumnName
-		}
-	}
-
 	if !supportsTidScans {
 		// older versions fall back to full table partitions anyway; nothing more to do
 		c.logger.Warn("Postgres version does not support TID scans, falling back to full table partitions")
 		return output, nil
+	}
+
+	partitionKeys := make(map[common.QualifiedTable]string, len(input.TableMappings))
+	for _, tm := range input.TableMappings {
+		partitionKeys[internal.QualifiedTableFromProto(tm.SourceTable)] = ctidColumnName
+	}
+	buildOutput := func() *protos.GetDefaultPartitionKeyForTablesOutput {
+		for _, tm := range input.TableMappings {
+			sourceTable := internal.QualifiedTableFromProto(tm.SourceTable)
+			if partitionKey, ok := partitionKeys[sourceTable]; ok {
+				output.TablePartitionKeys = append(output.TablePartitionKeys,
+					&protos.GetDefaultPartitionKeyForTablesOutput_TablePartitionKey{
+						Table:        tm.SourceTable,
+						PartitionKey: partitionKey,
+					})
+			}
+		}
+		return output
 	}
 
 	var hasTimescale bool
@@ -110,7 +120,7 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 		return nil, fmt.Errorf("failed to check for timescaledb extension: %w", err)
 	}
 	if !hasTimescale {
-		return output, nil
+		return buildOutput(), nil
 	}
 
 	// compressed hypertables cannot do ctid scans, so disable for them
@@ -123,18 +133,18 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 	}
 	var schema, name string
 	if _, err := pgx.ForEachRow(rows, []any{&schema, &name}, func() error {
-		if _, ok := output.TableDefaultPartitionKeyMapping[fmt.Sprintf("%s.%s", schema, name)]; ok {
-			table := fmt.Sprintf("%s.%s", schema, name)
-			delete(output.TableDefaultPartitionKeyMapping, table)
+		hypertable := common.QualifiedTable{Namespace: schema, Table: name}
+		if _, ok := partitionKeys[hypertable]; ok {
+			delete(partitionKeys, hypertable)
 			c.logger.Warn("table is a compressed hypertable, falling back to full table partition",
-				slog.String("table", table))
+				slog.String("table", hypertable.String()))
 		}
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("failed to get compressed hypertables: %w", err)
 	}
 
-	return output, nil
+	return buildOutput(), nil
 }
 
 func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx, snapshot string) error {
@@ -163,11 +173,7 @@ func (c *PostgresConnector) getPartitions(
 ) ([]*protos.QRepPartition, error) {
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	numPartitions := int64(config.NumPartitionsOverride)
-	schemaTable, err := common.ParseTableIdentifier(config.WatermarkTable)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
-	}
-	watermarkTable := schemaTable.String()
+	watermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable).String()
 	watermarkColumn := common.QuoteIdentifier(config.WatermarkColumn)
 
 	var lastRangeEnd any
@@ -245,10 +251,7 @@ func (c *PostgresConnector) getMinMaxValues(
 	var minValue, maxValue any
 	quotedWatermarkColumn := common.QuoteIdentifier(config.WatermarkColumn)
 
-	parsedWatermarkTable, err := common.ParseTableIdentifier(config.WatermarkTable)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to parse watermark table: %w", err)
-	}
+	parsedWatermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
 
 	// If there's a last partition, start from its end
 	if last != nil && last.Range != nil {
@@ -362,7 +365,8 @@ func corePullQRepRecords(
 
 	selectedColumns := "*"
 	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
-		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
+		tableSchema, err := internal.LoadTableSchemaFromCatalog(
+			ctx, catalogPool, config.ParentMirrorName, internal.QualifiedTableFromProto(config.DestinationTable))
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to load table schema: %w", err)
 		}
@@ -375,11 +379,7 @@ func corePullQRepRecords(
 		selectedColumns = strings.Join(quotedColumns, ",")
 	}
 
-	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
-	if err != nil {
-		c.logger.Error("unable to parse source table", slog.Any("error", err))
-		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
-	}
+	parsedSrcTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
 
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
@@ -495,14 +495,11 @@ func pullChildTableRanges(
 
 	var totalRecords, totalBytes int64
 	for _, child := range partition.ChildTableRanges {
-		parsedChild, err := common.ParseTableIdentifier(child.Table)
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to parse child table %s: %w", child.Table, err)
-		}
+		childTable := internal.QualifiedTableFromProto(child.ChildTable)
 
 		// ONLY excludes rows from child tables, ensuring we don't double-count inherited rows.
 		query := fmt.Sprintf("SELECT %s FROM ONLY %s WHERE %s BETWEEN $1 AND $2",
-			selectedColumns, parsedChild.String(), quotedWatermarkColumn)
+			selectedColumns, childTable.String(), quotedWatermarkColumn)
 
 		rangeStart := pgtype.TID{
 			BlockNumber:  child.Start,
@@ -517,13 +514,13 @@ func pullChildTableRanges(
 
 		c.logger.Info("pulling child table range",
 			partitionIdLog,
-			slog.String("childTable", child.Table),
+			slog.String("childTable", childTable.String()),
 			slog.Any("start", rangeStart),
 			slog.Any("end", rangeEnd))
 
 		numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
 		if err != nil {
-			return totalRecords, totalBytes, fmt.Errorf("failed to pull from child %s: %w", child.Table, err)
+			return totalRecords, totalBytes, fmt.Errorf("failed to pull from child %s: %w", childTable, err)
 		}
 		totalRecords += numRecords
 		totalBytes += numBytes

@@ -164,6 +164,7 @@ func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
 	config *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
+	internal.NormalizeEnsurePullabilityInput(config)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
@@ -184,6 +185,7 @@ func (a *FlowableActivity) CreateRawTable(
 	ctx context.Context,
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
+	internal.NormalizeCreateRawTableInput(config)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
@@ -207,6 +209,7 @@ func (a *FlowableActivity) SetupTableSchema(
 	ctx context.Context,
 	config *protos.SetupTableSchemaBatchInput,
 ) error {
+	internal.NormalizeSetupTableSchemaBatchInput(config)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "getting table schema"
 	})
@@ -233,16 +236,17 @@ func (a *FlowableActivity) SetupTableSchema(
 	defer shared.RollbackTx(tx, logger)
 
 	for k, v := range processed {
-		processedBytes, err := proto.Marshal(v)
+		processedBytes, err := internal.MarshalTableSchemaForCatalog(v)
 		if err != nil {
 			return err
 		}
 		if _, err := tx.Exec(
 			ctx,
-			"insert into table_schema_mapping(flow_name, table_name, table_schema) values ($1, $2, $3) "+
-				"on conflict (flow_name, table_name) do update set table_schema = $3",
+			"insert into table_schema_mapping(flow_name, table_namespace, table_name, table_schema) values ($1, $2, $3, $4) "+
+				"on conflict (flow_name, table_namespace, table_name) do update set table_schema = $4",
 			config.FlowName,
-			k,
+			k.Namespace,
+			k.Table,
 			processedBytes,
 		); err != nil {
 			return err
@@ -257,6 +261,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
+	internal.NormalizeSetupNormalizedTableBatchInput(config)
 	numTablesSetup := atomic.Uint32{}
 	numTablesToSetup := atomic.Int32{}
 
@@ -290,29 +295,32 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}
 
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
-	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
+	tableExistsEntries := make([]*protos.SetupNormalizedTableBatchOutput_TableExistsEntry, 0, len(tableNameSchemaMapping))
 	for _, tableMapping := range config.TableMappings {
-		tableIdentifier := tableMapping.DestinationTableIdentifier
-		tableSchema := tableNameSchemaMapping[tableIdentifier]
+		destinationTable := internal.QualifiedTableFromProto(tableMapping.DestinationTable)
+		tableSchema := tableNameSchemaMapping[destinationTable]
 		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
 			config,
-			tableIdentifier,
+			destinationTable,
 			tableSchema,
 		)
 		if err != nil {
 			return nil, a.Alerter.LogFlowError(ctx, config.FlowName,
-				fmt.Errorf("failed to setup normalized table %s: %w", tableIdentifier, err),
+				fmt.Errorf("failed to setup normalized table %s: %w", destinationTable, err),
 			)
 		}
-		tableExistsMapping[tableIdentifier] = existing
+		tableExistsEntries = append(tableExistsEntries, &protos.SetupNormalizedTableBatchOutput_TableExistsEntry{
+			Table:  tableMapping.DestinationTable,
+			Exists: existing,
+		})
 
 		numTablesSetup.Add(1)
 		if !existing {
-			a.Alerter.LogFlowInfo(ctx, config.FlowName, "created table "+tableIdentifier+" in destination")
+			a.Alerter.LogFlowInfo(ctx, config.FlowName, "created table "+destinationTable.String()+" in destination")
 		} else {
-			logger.Info("table already exists " + tableIdentifier)
+			logger.Info("table already exists " + destinationTable.String())
 		}
 	}
 
@@ -323,7 +331,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	a.Alerter.LogFlowInfo(ctx, config.FlowName, "All destination tables have been setup")
 
 	return &protos.SetupNormalizedTableBatchOutput{
-		TableExistsMapping: tableExistsMapping,
+		Tables: tableExistsEntries,
 	}, nil
 }
 
@@ -332,6 +340,8 @@ func (a *FlowableActivity) SyncFlow(
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 ) error {
+	internal.NormalizeFlowConfig(config)
+	internal.NormalizeSyncFlowOptions(options)
 	var currentSyncFlowNum atomic.Int32
 	var totalRecordsSynced atomic.Int64
 	var normalizingBatchID atomic.Int64
@@ -536,6 +546,7 @@ func (a *FlowableActivity) pullAndSyncPg(
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.
 func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
+	internal.NormalizeQRepConfig(config)
 	conn, connClose, err := connectors.GetByNameAs[connectors.QRepSyncConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
@@ -555,6 +566,8 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	last *protos.QRepPartition,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
+	internal.NormalizeQRepConfig(config)
+	internal.NormalizeQRepPartition(last)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "getting partitions for job"
 	})
@@ -571,16 +584,17 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer srcClose(ctx)
 
+	watermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
 	partitioned := config.WatermarkColumn != ""
 	if tableSizeEstimatorConn, ok := srcConn.(connectors.TableSizeEstimatorConnector); ok && partitioned {
 		// expect estimate query execution to be fast, set a short timeout defensively to avoid blocking workflow
 		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		if bytes, connErr := tableSizeEstimatorConn.GetTableSizeEstimatedBytes(timeoutCtx, config.WatermarkTable); connErr == nil {
+		if bytes, connErr := tableSizeEstimatorConn.GetTableSizeEstimatedBytes(timeoutCtx, watermarkTable); connErr == nil {
 			if bytes > 100<<30 { // 100 GiB
 				msg := fmt.Sprintf("large table detected: %s (%s). Counting/partitioning queries for parallel "+
 					"snapshotting may take minutes to hours to execute. This is normal for tables over 100 GiB.",
-					config.WatermarkTable, utils.FormatTableSize(bytes))
+					watermarkTable, utils.FormatTableSize(bytes))
 				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, msg)
 			}
 		} else {
@@ -606,7 +620,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		}
 	}
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "obtained partitions for table "+config.WatermarkTable)
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "obtained partitions for table "+watermarkTable.String())
 
 	return &protos.QRepParitionResult{
 		Partitions: partitions,
@@ -618,6 +632,10 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
+	internal.NormalizeQRepConfig(config)
+	for _, partition := range partitions.GetPartitions() {
+		internal.NormalizeQRepPartition(partition)
+	}
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "replicating partitions for job"
 	})
@@ -632,7 +650,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 
 	numPartitions := len(partitions.Partitions)
 	logger.Info("replicating partitions for batch",
-		slog.String("table", config.WatermarkTable),
+		slog.String("table", internal.QualifiedTableFromProto(config.QualifiedWatermarkTable).String()),
 		slog.Int64("batchID", int64(partitions.BatchId)),
 		slog.Int("totalPartitions", numPartitions))
 
@@ -664,20 +682,21 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		partLogger := log.With(logger,
 			slog.Int64("batchID", int64(partitions.BatchId)),
 			slog.String("partitionId", partition.PartitionId),
-			slog.String("table", config.WatermarkTable),
+			slog.String("table", internal.QualifiedTableFromProto(config.QualifiedWatermarkTable).String()),
 			slog.Int("partitionNum", i+1),
 			slog.Int("totalPartitions", numPartitions))
 
 		startTime := time.Now()
-		partLogger.Info(fmt.Sprintf("start replicating partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable))
+		watermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
+		partLogger.Info(fmt.Sprintf("start replicating partition %d/%d of table %s", i+1, numPartitions, watermarkTable))
 
 		if err := replicatePartitionFunc(partition); err != nil {
-			partLogger.Error(fmt.Sprintf("failed to replicate partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable),
+			partLogger.Error(fmt.Sprintf("failed to replicate partition %d/%d of table %s", i+1, numPartitions, watermarkTable),
 				slog.Any("error", err))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		}
 
-		partLogger.Info(fmt.Sprintf("finished replicating partition %d/%d of table %s", i+1, numPartitions, config.WatermarkTable),
+		partLogger.Info(fmt.Sprintf("finished replicating partition %d/%d of table %s", i+1, numPartitions, watermarkTable),
 			slog.Time("startTime", startTime),
 			slog.Time("finishTime", time.Now()))
 	}
@@ -685,7 +704,8 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	a.Alerter.LogFlowInfo(
 		ctx,
 		config.FlowJobName,
-		fmt.Sprintf("replicated %d partitions to destination for table %s", numPartitions, config.DestinationTableIdentifier),
+		fmt.Sprintf("replicated %d partitions to destination for table %s",
+			numPartitions, internal.QualifiedTableFromProto(config.DestinationTable)),
 	)
 	return nil
 }
@@ -779,6 +799,7 @@ func initializeReplicatePartitionFunc(
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
 	runUUID string,
 ) error {
+	internal.NormalizeQRepConfig(config)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "consolidating partitions for job"
 	})
@@ -802,6 +823,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 }
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
+	internal.NormalizeQRepConfig(config)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](
 		ctx, config.Env, a.CatalogPool, config.DestinationName)
@@ -1107,6 +1129,7 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 	}
 	rows, err := a.CatalogPool.Query(ctx, `
 		SELECT
+			destination_table_namespace,
 			destination_table_name,
 			inserts_count,
 			updates_count,
@@ -1114,13 +1137,13 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 			flow_name
 		FROM peerdb_stats.cdc_table_aggregate_counts
 		WHERE flow_name = ANY($1)
-		ORDER BY flow_name, destination_table_name`, flowNames)
+		ORDER BY flow_name, destination_table_namespace, destination_table_name`, flowNames)
 	if err != nil {
 		return fmt.Errorf("failed to query cdc table total counts: %w", err)
 	}
 
 	var scannedFlow string
-	var tableName string
+	var tableName common.QualifiedTable
 	operationValueMapping := [3]struct {
 		op    string
 		count int64
@@ -1131,7 +1154,8 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 	}
 
 	if _, err = pgx.ForEachRow(rows, []any{
-		&tableName,
+		&tableName.Namespace,
+		&tableName.Table,
 		&operationValueMapping[0].count,
 		&operationValueMapping[1].count,
 		&operationValueMapping[2].count,
@@ -1142,13 +1166,13 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 			for _, opAndValue := range operationValueMapping {
 				a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(eCtx, opAndValue.count, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, scannedFlow),
-					attribute.String(otel_metrics.DestinationTableNameKey, tableName),
+					attribute.String(otel_metrics.DestinationTableNameKey, tableName.String()),
 					attribute.String(otel_metrics.RecordOperationTypeKey, opAndValue.op),
 				)))
 			}
 		} else {
 			logger.Error("Flow not found for metrics",
-				slog.String("flow", scannedFlow), slog.String("tableName", tableName))
+				slog.String("flow", scannedFlow), slog.String("tableName", tableName.String()))
 		}
 		return nil
 	}); err != nil {
@@ -1574,6 +1598,8 @@ var activeFlowStatuses = map[protos.FlowStatus]struct{}{
 func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
 ) (bool, error) {
+	internal.NormalizeQRepConfig(config)
+	internal.NormalizeQRepPartition(last)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "scanning for new rows"
 	})
@@ -1624,6 +1650,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+	internal.NormalizeRenameTablesInput(config)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "renaming tables for job"
 	})
@@ -1663,18 +1690,19 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	defer renameWithSoftDeleteClose(ctx)
 
 	// Rename with soft-delete
-	tableNameSchemaMapping := make(map[string]*protos.TableSchema, len(config.RenameTableOptions))
+	tableNameSchemaMapping := make(map[common.QualifiedTable]*protos.TableSchema, len(config.RenameTableOptions))
 	for _, option := range config.RenameTableOptions {
+		currentTable := internal.QualifiedTableFromProto(option.CurrentTable)
 		schema, err := internal.LoadTableSchemaFromCatalog(
 			ctx,
 			a.CatalogPool,
 			config.FlowJobName,
-			option.CurrentName,
+			currentTable,
 		)
 		if err != nil {
 			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load schema to rename tables: %w", err))
 		}
-		tableNameSchemaMapping[option.CurrentName] = schema
+		tableNameSchemaMapping[currentTable] = schema
 	}
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Renaming tables for resync with soft-delete")
 	renameOutput, err = renameWithSoftDeleteConn.RenameTables(ctx, config, tableNameSchemaMapping)
@@ -1705,22 +1733,28 @@ func (a *FlowableActivity) updateTableSchemaMappingForResync(
 	defer shared.RollbackTx(tx, logger)
 
 	for _, option := range renameOptions {
-		if option.NewName != option.CurrentName {
+		currentTable := internal.QualifiedTableFromProto(option.CurrentTable)
+		newTable := internal.QualifiedTableFromProto(option.NewTable)
+		if newTable != currentTable {
 			if _, err := tx.Exec(
 				ctx,
-				"delete from table_schema_mapping where flow_name = $1 and table_name = $2",
+				"delete from table_schema_mapping where flow_name = $1 and table_namespace = $2 and table_name = $3",
 				flowJobName,
-				option.NewName,
+				newTable.Namespace,
+				newTable.Table,
 			); err != nil {
 				return a.Alerter.LogFlowError(ctx, flowJobName, fmt.Errorf("failed to update table_schema_mapping: %w", err))
 			}
 		}
 		if _, err := tx.Exec(
 			ctx,
-			"update table_schema_mapping set table_name = $3 where flow_name = $1 and table_name = $2",
+			"update table_schema_mapping set table_namespace = $4, table_name = $5 "+
+				"where flow_name = $1 and table_namespace = $2 and table_name = $3",
 			flowJobName,
-			option.CurrentName,
-			option.NewName,
+			currentTable.Namespace,
+			currentTable.Table,
+			newTable.Namespace,
+			newTable.Table,
 		); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowJobName, fmt.Errorf("failed to update table_schema_mapping: %w", err))
 		}
@@ -1751,6 +1785,7 @@ func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName strin
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
 	*protos.CreateTablesFromExistingOutput, error,
 ) {
+	internal.NormalizeCreateTablesFromExistingInput(req)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CreateTablesFromExistingConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
@@ -1766,6 +1801,8 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) (int64, error) {
+	internal.NormalizeQRepConfig(config)
+	internal.NormalizeQRepPartition(partition)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "syncing xmin"
 	})
@@ -1792,6 +1829,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
 	additionalTableMappings []*protos.TableMapping,
 ) error {
+	internal.NormalizeTableMappings(additionalTableMappings)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "adding tables to publication"
 	})
@@ -1825,6 +1863,7 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	cfg *protos.FlowConnectionConfigsCore,
 	removedTablesMapping []*protos.TableMapping,
 ) error {
+	internal.NormalizeTableMappings(removedTablesMapping)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "removing tables from publication"
 	})
@@ -1857,6 +1896,7 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	cfg *protos.FlowConnectionConfigsCore,
 	tablesToRemove []*protos.TableMapping,
 ) error {
+	internal.NormalizeTableMappings(tablesToRemove)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "removing tables from raw table"
 	})
@@ -1876,16 +1916,23 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 
-	tableNames := make([]string, 0, len(tablesToRemove))
+	// N:1 mappings can list the same destination more than once; dedupe by struct
+	destinationTables := make([]*protos.QualifiedTable, 0, len(tablesToRemove))
+	seenDestinations := make(map[common.QualifiedTable]struct{}, len(tablesToRemove))
 	for _, table := range tablesToRemove {
-		tableNames = append(tableNames, table.DestinationTableIdentifier)
+		key := internal.QualifiedTableFromProto(table.DestinationTable)
+		if _, ok := seenDestinations[key]; !ok {
+			seenDestinations[key] = struct{}{}
+			destinationTables = append(destinationTables, table.DestinationTable)
+		}
 	}
-	slices.Sort(tableNames)
-	tableNames = slices.Compact(tableNames)
-	if len(tableNames) == 0 || syncBatchID <= normBatchID {
+	slices.SortFunc(destinationTables, func(a, b *protos.QualifiedTable) int {
+		return internal.CompareQualifiedTables(internal.QualifiedTableFromProto(a), internal.QualifiedTableFromProto(b))
+	})
+	if len(destinationTables) == 0 || syncBatchID <= normBatchID {
 		logger.Info("[RemoveTablesFromRawTable] no pending raw rows to remove, skipping",
 			slog.Int64("syncBatchID", syncBatchID), slog.Int64("normalizeBatchID", normBatchID),
-			slog.Int("tables", len(tableNames)))
+			slog.Int("tables", len(destinationTables)))
 		return nil
 	}
 
@@ -1903,10 +1950,10 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	defer dstClose(ctx)
 
 	if err := dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
-		FlowJobName:           cfg.FlowJobName,
-		DestinationTableNames: tableNames,
-		SyncBatchId:           syncBatchID,
-		NormalizeBatchId:      normBatchID,
+		FlowJobName:       cfg.FlowJobName,
+		DestinationTables: destinationTables,
+		SyncBatchId:       syncBatchID,
+		NormalizeBatchId:  normBatchID,
 	}); err != nil {
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
@@ -1918,15 +1965,20 @@ func (a *FlowableActivity) RemoveTablesFromCatalog(
 	cfg *protos.FlowConnectionConfigsCore,
 	tablesToRemove []*protos.TableMapping,
 ) error {
+	internal.NormalizeTableMappings(tablesToRemove)
+	removedNamespaces := make([]string, 0, len(tablesToRemove))
 	removedTables := make([]string, 0, len(tablesToRemove))
 	for _, tm := range tablesToRemove {
-		removedTables = append(removedTables, tm.DestinationTableIdentifier)
+		removedNamespaces = append(removedNamespaces, tm.DestinationTable.GetNamespace())
+		removedTables = append(removedTables, tm.DestinationTable.GetTable())
 	}
 
 	if _, err := a.CatalogPool.Exec(
 		ctx,
-		"delete from table_schema_mapping where flow_name = $1 and table_name = ANY($2)",
+		`delete from table_schema_mapping where flow_name = $1
+		 and (table_namespace, table_name) in (select * from unnest($2::text[], $3::text[]))`,
 		cfg.FlowJobName,
+		removedNamespaces,
 		removedTables,
 	); err != nil {
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
@@ -2095,9 +2147,10 @@ func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos
 func (a *FlowableActivity) MigratePostgresTableOIDs(
 	ctx context.Context,
 	flowName string,
-	oidToTableNameMapping map[uint32]string,
+	oidToTableMapping map[uint32]*protos.QualifiedTable,
 	tableMappings []*protos.TableMapping,
 ) error {
+	internal.NormalizeTableMappings(tableMappings)
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "migrating oids to table schema"
 	})
@@ -2109,19 +2162,19 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 	if err := internal.RunMigrationOnce(ctx, a.CatalogPool, logger, flowName, migrationName, func(ctx context.Context) error {
 		logger.Info("starting PostgreSQL table OIDs migration",
 			slog.String("flowName", flowName),
-			slog.Int("tableCount", len(oidToTableNameMapping)))
+			slog.Int("tableCount", len(oidToTableMapping)))
 
-		sourceToDestTableMap := make(map[string]string, len(tableMappings))
+		sourceToDestTableMap := make(map[common.QualifiedTable]common.QualifiedTable, len(tableMappings))
 		for _, tm := range tableMappings {
-			sourceToDestTableMap[tm.SourceTableIdentifier] = tm.DestinationTableIdentifier
+			sourceToDestTableMap[internal.QualifiedTableFromProto(tm.SourceTable)] = internal.QualifiedTableFromProto(tm.DestinationTable)
 		}
-		destinationTableOidMap := make(map[string]uint32, len(oidToTableNameMapping))
-		for oid, tableName := range oidToTableNameMapping {
-			destinationTableIdentifier, ok := sourceToDestTableMap[tableName]
+		destinationTableOidMap := make(map[common.QualifiedTable]uint32, len(oidToTableMapping))
+		for oid, tableName := range oidToTableMapping {
+			destinationTable, ok := sourceToDestTableMap[internal.QualifiedTableFromProto(tableName)]
 			if !ok {
-				return fmt.Errorf("destination table identifier not found for source table %s", tableName)
+				return fmt.Errorf("destination table identifier not found for source table %s", internal.QualifiedTableFromProto(tableName))
 			}
-			destinationTableOidMap[destinationTableIdentifier] = oid
+			destinationTableOidMap[destinationTable] = oid
 		}
 
 		err := internal.UpdateTableOIDsInTableSchemaInCatalog(
@@ -2137,7 +2190,7 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 
 		logger.Info("successfully completed PostgreSQL table OIDs migration",
 			slog.String("flowName", flowName),
-			slog.Int("tableCount", len(oidToTableNameMapping)))
+			slog.Int("tableCount", len(oidToTableMapping)))
 
 		return nil
 	}); err != nil {

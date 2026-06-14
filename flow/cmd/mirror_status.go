@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
@@ -165,6 +166,9 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 		config.MaxBatchSize = state.SyncFlowOptions.BatchSize
 		config.TableMappings = state.SyncFlowOptions.TableMappings
+		// workflow state carries normalized mappings with cleared legacy strings;
+		// refill them for API consumers reading only the pre-struct fields
+		internal.DenormalizeFlowConfigForAPI(config)
 	}
 
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
@@ -297,7 +301,9 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 	q := `
 	SELECT
 		distinct qr.flow_name,
+		qr.destination_table_namespace,
 		qr.destination_table,
+		qr.source_table_namespace,
 		qr.source_table,
 		qr.start_time AS StartTime,
 		qr.fetch_complete as FetchCompleted,
@@ -309,10 +315,13 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 	FROM peerdb_stats.qrep_partitions qp
 	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
 	WHERE qr.parent_mirror_name = $1
-	GROUP BY qr.flow_name, qr.destination_table, qr.source_table, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
+	GROUP BY qr.flow_name, qr.destination_table_namespace, qr.destination_table,
+		qr.source_table_namespace, qr.source_table, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`
 	var flowName pgtype.Text
+	var destinationTableNamespace pgtype.Text
 	var destinationTable pgtype.Text
+	var sourceTableNamespace pgtype.Text
 	var sourceTable pgtype.Text
 	var fetchCompleted pgtype.Bool
 	var consolidateCompleted pgtype.Bool
@@ -335,7 +344,9 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 	for rows.Next() {
 		if err := rows.Scan(
 			&flowName,
+			&destinationTableNamespace,
 			&destinationTable,
+			&sourceTableNamespace,
 			&sourceTable,
 			&startTime,
 			&fetchCompleted,
@@ -357,11 +368,11 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 		}
 
 		if destinationTable.Valid {
-			res.TableName = destinationTable.String
+			res.TableName = common.QualifiedTable{Namespace: destinationTableNamespace.String, Table: destinationTable.String}.LegacyDotted()
 		}
 
 		if sourceTable.Valid {
-			res.SourceTable = sourceTable.String
+			res.SourceTable = common.QualifiedTable{Namespace: sourceTableNamespace.String, Table: sourceTable.String}.LegacyDotted()
 		}
 
 		if startTime.Valid {
@@ -485,6 +496,11 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 		slog.ErrorContext(ctx, "unable to unmarshal flow config", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}
+
+	// configs persisted before QualifiedTable carry only legacy string identifiers;
+	// denormalize so API consumers reading only the legacy fields keep working
+	internal.NormalizeFlowConfigAPI(&config)
+	internal.DenormalizeFlowConfigForAPI(&config)
 
 	return &config, nil
 }
@@ -690,6 +706,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	req *protos.CDCTableTotalCountsRequest,
 ) (*protos.CDCTableTotalCountsResponse, APIError) {
 	rows, err := h.pool.Query(ctx, `SELECT
+			destination_table_namespace,
 			destination_table_name,
 			inserts_count,
 			updates_count,
@@ -697,7 +714,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 			total_count
 		FROM peerdb_stats.cdc_table_aggregate_counts
 		WHERE flow_name = $1
-		ORDER BY destination_table_name`, req.FlowJobName)
+		ORDER BY destination_table_namespace, destination_table_name`, req.FlowJobName)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to query cdc table total counts: %w", err))
 	}
@@ -707,10 +724,12 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	tableCounts, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCTableRowCounts, error) {
 		tableCount := &protos.CDCTableRowCounts{
 			Counts: &protos.CDCRowCounts{},
+			Table:  &protos.QualifiedTable{},
 		}
 		var totalRows int64
 		err := row.Scan(
-			&tableCount.TableName,
+			&tableCount.Table.Namespace,
+			&tableCount.Table.Table,
 			&tableCount.Counts.InsertsCount,
 			&tableCount.Counts.UpdatesCount,
 			&tableCount.Counts.DeletesCount,
@@ -718,6 +737,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 		if err != nil {
 			return nil, NewInternalApiError(fmt.Errorf("failed to scan cdc table total counts: %w", err))
 		}
+		tableCount.TableName = internal.QualifiedTableFromProto(tableCount.Table).LegacyDotted()
 
 		// Use the pre-calculated total count
 		tableCount.Counts.TotalCount = totalRows
