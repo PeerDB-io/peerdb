@@ -18,6 +18,7 @@ import { RowWithCheckbox } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
+import { parseTableIdentifier } from '@/lib/utils/tableIdentifier';
 import {
   Dispatch,
   SetStateAction,
@@ -149,7 +150,8 @@ export default function SchemaBox({
 
   const addTableColumns = useCallback(
     (table: string) => {
-      const [schemaName, tableName] = table.split('.');
+      const { schema: schemaName, table: tableName } =
+        parseTableIdentifier(table);
 
       startColumnsTransition(async () => {
         const res = await fetchColumns(sourcePeer, schemaName, tableName);

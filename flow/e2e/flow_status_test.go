@@ -94,9 +94,9 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "status_test"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "status_test").String())))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "status_test"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "status_test").String())))
 		cols = "id,val"
 	case *MongoSource:
 		res, err := s.Source().(*MongoSource).AdminClient().
@@ -110,7 +110,7 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 	}
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "flow_status_update_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "status_test"): "status_test"},
+		TableNameMapping: map[string]string{AttachSchema(s, "status_test").Deparse(): "status_test"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)

@@ -8,11 +8,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (c *PostgresConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
-	rows, err := c.conn.Query(ctx, "SELECT n.nspname || '.' || c.relname AS schema_table "+
+	rows, err := c.conn.Query(ctx, "SELECT n.nspname, c.relname "+
 		"FROM pg_class c "+
 		"JOIN pg_namespace n ON c.relnamespace = n.oid "+
 		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'"+
@@ -21,7 +22,13 @@ func (c *PostgresConnector) GetAllTables(ctx context.Context) (*protos.AllTables
 		return nil, err
 	}
 
-	tables, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
+		var schema, table string
+		if err := row.Scan(&schema, &table); err != nil {
+			return "", err
+		}
+		return (&common.QualifiedTable{Namespace: schema, Table: table}).Deparse(), nil
+	})
 	if err != nil {
 		return nil, err
 	}

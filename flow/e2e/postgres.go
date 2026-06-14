@@ -53,7 +53,7 @@ func (s PeerFlowE2ETestSuitePG) Peer() *protos.Peer {
 }
 
 func (s PeerFlowE2ETestSuitePG) DestinationTable(table string) string {
-	return AttachSchema(s, table)
+	return AttachSchema(s, table).Deparse()
 }
 
 func (s PeerFlowE2ETestSuitePG) Exec(ctx context.Context, sql string) error {

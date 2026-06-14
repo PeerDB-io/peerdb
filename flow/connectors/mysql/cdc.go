@@ -577,7 +577,10 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.RowsEvent:
-			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
+			sourceTableName := (&common.QualifiedTable{
+				Namespace: string(ev.Table.Schema),
+				Table:     string(ev.Table.Table),
+			}).Deparse()
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
@@ -770,7 +773,10 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 	} else {
 		sourceSchemaName = stmtSchema
 	}
-	sourceTableName := sourceSchemaName + "." + stmt.Table.Name.String()
+	sourceTableName := (&common.QualifiedTable{
+		Namespace: sourceSchemaName,
+		Table:     stmt.Table.Name.String(),
+	}).Deparse()
 
 	destinationTableName := req.TableNameMapping[sourceTableName].Name
 	if destinationTableName == "" {
