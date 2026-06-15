@@ -829,6 +829,38 @@ func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
+	// Error 1236 caused by a binlog event larger than max_allowed_packet should be
+	// classified separately from generic binlog invalidation.
+	mysqlErr := &mysql.MyError{
+		Code:  1236, // ER_MASTER_FATAL_ERROR_READING_BINLOG
+		State: "HY000",
+		Message: "log event entry exceeded max_allowed_packet; Increase max_allowed_packet on source; " +
+			"the first event 'mysql-bin.168301' at 1789438008, the last event read from " +
+			"'/app/work2/binlogs/mysql-bin.168301' at 2333874086, the last byte read from " +
+			"'/app/work2/binlogs/mysql-bin.168301' at 2333874105.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records: %w", mysqlErr))
+	assert.Equal(t, ErrorNotifyBinlogEventExceededMaxAllowedPacket, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1236",
+	}, errInfo, "Unexpected error info")
+
+	// A 1236 without the max_allowed_packet signature should still be generic binlog invalidation.
+	genericErr := &mysql.MyError{
+		Code:    1236,
+		State:   "HY000",
+		Message: "Could not find first log file name in binary log index file",
+	}
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", genericErr))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1236",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMySQLExecuteError(t *testing.T) {
 	err := exceptions.NewMySQLExecuteError(
 		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"})
