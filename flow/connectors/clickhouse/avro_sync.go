@@ -177,7 +177,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 			var recordCount int64
 			for record := range stream.Records {
 				if err := substream.Send(ctx, record); err != nil {
-					s.logger.Warn("substream send failed, consumer likely dead",
+					s.logger.Warn("substream send failed",
 						slog.String("partitionId", partition.PartitionId),
 						slog.Int("chunkNum", chunkNum),
 						slog.Int64("recordsSent", recordCount),
@@ -195,12 +195,6 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 			if recordsDone {
 				done.Store(true)
 			}
-			s.logger.Info("substream feeder goroutine exiting",
-				slog.String("partitionId", partition.PartitionId),
-				slog.Int("chunkNum", chunkNum),
-				slog.Int64("recordsSent", recordCount),
-				slog.Bool("allRecordsDone", recordsDone),
-				slog.Duration("elapsed", time.Since(startTime)))
 			substream.Close(stream.Err())
 		}()
 		return substream, &sizeTracker
