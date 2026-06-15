@@ -166,15 +166,27 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 		slog.Int64("bytesPerAvroFile", bytesPerAvroFile))
 
 	// helper function to create a substream for splitting the main stream into chunks
-	createChunkedSubstream := func(done *atomic.Bool) (*model.QRecordStream, *model.QRecordAvroChunkSizeTracker) {
+	createChunkedSubstream := func(done *atomic.Bool, chunkNum int) (*model.QRecordStream, *model.QRecordAvroChunkSizeTracker) {
 		substream := model.NewQRecordStream(0)
 		substream.SetSchema(schema)
 		substream.SetSchemaDebug(stream.SchemaDebug())
 		sizeTracker := model.QRecordAvroChunkSizeTracker{}
 		go func() {
+			startTime := time.Now()
 			recordsDone := true
+			var recordCount int64
 			for record := range stream.Records {
-				substream.Records <- record
+				if err := substream.Send(ctx, record); err != nil {
+					s.logger.Warn("substream send failed",
+						slog.String("partitionId", partition.PartitionId),
+						slog.Int("chunkNum", chunkNum),
+						slog.Int64("recordsSent", recordCount),
+						slog.Duration("elapsed", time.Since(startTime)),
+						slog.Any("error", err))
+					recordsDone = false
+					break
+				}
+				recordCount++
 				if sizeTracker.Bytes.Load() >= bytesPerAvroFile {
 					recordsDone = false
 					break
@@ -199,12 +211,16 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 				return nil, 0, err
 			}
 
-			substream, sizeTracker := createChunkedSubstream(&done)
+			substream, sizeTracker := createChunkedSubstream(&done, chunkNum)
 			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, sizeTracker, avroSchema,
 				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
 				config.FlowJobName, destTypeConversions, numericTruncator,
 			)
 			if err != nil {
+				s.logger.Error("writeToAvroFile failed for chunk",
+					slog.String("partitionId", partition.PartitionId),
+					slog.Int("chunkNum", chunkNum),
+					slog.Any("error", err))
 				return nil, 0, err
 			}
 			avroFiles = append(avroFiles, subFile)
