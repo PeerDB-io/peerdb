@@ -748,13 +748,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1226, // ER_USER_LIMIT_REACHED
 			1827: // ER_PASSWORD_FORMAT
 			return ErrorNotifyConnectivity, myErrorInfo
-		case 1236, // ER_MASTER_FATAL_ERROR_READING_BINLOG
-			1373: // ER_UNKNOWN_TARGET_BINLOG
-			// A single binlog event larger than the replica's max_allowed_packet aborts the
-			// binlog stream read. This is distinct from binlog corruption/purge and has its own mitigation.
-			if myErr.Code == 1236 && strings.Contains(myErr.Message, "max_allowed_packet") {
+		case 1236: // ER_MASTER_FATAL_ERROR_READING_BINLOG
+			// A single binlog event larger than the replica's max_allowed_packet aborts the binlog stream read
+			if strings.Contains(myErr.Message, "max_allowed_packet") {
 				return ErrorNotifyBinlogEventExceededMaxAllowedPacket, myErrorInfo
 			}
+			return ErrorNotifyBinlogInvalid, myErrorInfo
+		case 1373: // ER_UNKNOWN_TARGET_BINLOG
 			return ErrorNotifyBinlogInvalid, myErrorInfo
 		case 1105: // ER_UNKNOWN_ERROR
 			// RDS Aurora MySQL specific errors due to "Zero Downtime Patch" or "Zero Downtime Restart"
