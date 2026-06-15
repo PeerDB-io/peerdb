@@ -914,7 +914,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 				charset = uint16(collation)
 			}
 			mytype := tableMap.ColumnType[idx]
-			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset)
+			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset, req.InternalVersion)
 			if err != nil {
 				c.logger.Warn("Unknown MySQL type for new column, skipping",
 					slog.String("table", sourceTableName),

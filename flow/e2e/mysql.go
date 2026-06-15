@@ -193,7 +193,7 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 		return nil, err
 	}
 
-	schema, err := connmysql.QRecordSchemaFromMysqlFields(tableSchemas[tableName], rs.Fields)
+	schema, err := connmysql.QRecordSchemaFromMysqlFields(tableSchemas[tableName], rs.Fields, shared.InternalVersion_Latest)
 	if err != nil {
 		return nil, err
 	}

@@ -141,7 +141,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	watermarkField := rs.Fields[1]
 	watermarkMyType := watermarkField.Type
 	watermarkUnsigned := (watermarkField.Flag & mysql.UNSIGNED_FLAG) != 0
-	watermarkQKind, err := qkindFromMysqlType(watermarkField.Type, watermarkUnsigned, watermarkField.Charset)
+	watermarkQKind, err := qkindFromMysqlType(watermarkField.Type, watermarkUnsigned, watermarkField.Charset, config.Version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert mysql type to qvaluekind: %w", err)
 	}
@@ -231,7 +231,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	c.deltaBytesRead.Store(0)
 	totalRecords := int64(0)
 	onResult := func(rs *mysql.Result) error {
-		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields)
+		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields, config.Version)
 		if err != nil {
 			return err
 		}
