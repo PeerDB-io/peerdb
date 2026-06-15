@@ -233,7 +233,8 @@ services:
       # Preserve node_modules from container (don't override with local)
       - /app/node_modules
     env_file:
-      - ./.env
+      - path: ./.env
+        required: false
     environment:
       <<: *catalog-config
       PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
