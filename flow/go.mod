@@ -30,7 +30,7 @@ require (
 	github.com/aws/smithy-go v1.25.1
 	github.com/cockroachdb/pebble/v2 v2.1.5
 	github.com/elastic/go-elasticsearch/v8 v8.19.6
-	github.com/go-mysql-org/go-mysql v1.15.0
+	github.com/go-mysql-org/go-mysql v1.15.1-0.20260615132323-06b4fb6b476d
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/hamba/avro/v2 v2.31.0
