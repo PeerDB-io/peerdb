@@ -132,6 +132,7 @@ func TestCreateRawTableHasTTL(t *testing.T) {
 			)).Scan(&engineFull))
 
 			require.Contains(t, engineFull, "TTL", "engine_full should declare a TTL: %s", engineFull)
+			require.Contains(t, engineFull, "toDateTime", "TTL should contain toDateTime cast: %s", engineFull)
 			require.Contains(t, engineFull, "fromUnixTimestamp64Nano(_peerdb_timestamp)",
 				"TTL should reference _peerdb_timestamp: %s", engineFull)
 			require.Contains(t, engineFull, fmt.Sprintf("toIntervalDay(%d)", tc.expectedDays),
