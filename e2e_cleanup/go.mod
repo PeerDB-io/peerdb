@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	cloud.google.com/go/bigquery v1.74.0
 	cloud.google.com/go/pubsub/v2 v2.3.0
-	github.com/snowflakedb/gosnowflake/v2 v2.0.2
+	github.com/snowflakedb/gosnowflake/v2 v2.1.0
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	google.golang.org/api v0.279.0
 )
