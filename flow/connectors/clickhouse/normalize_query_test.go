@@ -9,12 +9,14 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func TestExtendedTimeToDateTime(t *testing.T) {
 	ctx := context.Background()
-	ch, err := clickhouse.Open(&clickhouse.Options{Addr: []string{"localhost:9000"}})
+	addr := fmt.Sprintf("%s:%d", internal.ClickHouseTestHost(), internal.ClickHouseTestPort())
+	ch, err := clickhouse.Open(&clickhouse.Options{Addr: []string{addr}})
 	if err != nil {
 		t.Skipf("ClickHouse not available: %v", err)
 	}
