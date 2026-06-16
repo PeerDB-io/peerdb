@@ -477,6 +477,7 @@ func (c *MySqlConnector) PullRecords(
 	// by a sub-parser that never populates XIDEvent.GSet (and carry end_log_pos=0), so we
 	// can no longer read the post-commit set off the XID event. Accumulating from the
 	// (uncompressed) outer GTID events works identically for the compressed and plain paths.
+	// we can rely on inner event GSet once this PR is merged: https://github.com/go-mysql-org/go-mysql/pull/1153
 	advanceGset := func(next mysql.GTIDSet, err error) error {
 		if err != nil {
 			return fmt.Errorf("failed to compute next GTID: %w", err)
