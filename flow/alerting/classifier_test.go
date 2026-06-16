@@ -1202,3 +1202,15 @@ func TestUnwrappedGoogleAPIErrorShouldNotBeBigQuery(t *testing.T) {
 		Code:   "UNKNOWN",
 	}, errInfo)
 }
+
+func TestMySQLBinlogIncidentErrorShouldBeNotifyBinlogInvalid(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLBinlogIncidentError(1, "LOST_EVENTS")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "BINLOG_INCIDENT",
+	}, errInfo)
+}

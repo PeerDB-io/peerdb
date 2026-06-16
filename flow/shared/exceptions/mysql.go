@@ -138,9 +138,6 @@ func (e *MySQLStaleConnectionError) Error() string {
 		e.Since, e.HeartbeatPeriod)
 }
 
-// MySQLBinlogIncidentError indicates the source emitted an Incident binlog event
-// (e.g. LOST_EVENTS), meaning events are missing from the binlog stream and the CDC
-// position can no longer be trusted. Recovery requires a resync of the mirror.
 type MySQLBinlogIncidentError struct {
 	Message  string
 	Incident uint16

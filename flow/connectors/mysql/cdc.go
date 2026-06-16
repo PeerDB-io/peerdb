@@ -553,10 +553,7 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.GenericEvent:
-			// INCIDENT_EVENT (e.g. LOST_EVENTS) is the source telling us binlog events were
-			// lost from the stream, so our position can no longer be trusted. Fail with a
-			// resync-required error rather than silently skipping the gap. go-mysql decodes
-			// every unhandled event type to GenericEvent, so gate on the header event type.
+			// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
 			if event.Header.EventType == replication.INCIDENT_EVENT {
 				incident, message := parseIncidentEvent(ev.Data)
 				c.logger.Error("[mysql] received binlog incident event, resync required",
@@ -884,9 +881,8 @@ func posToOffsetText(pos mysql.Position) string {
 	return fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
 }
 
-// parseIncidentEvent extracts the incident number and human-readable message from an
-// Incident_log_event body: a little-endian uint16 incident number, a 1-byte message
-// length, then the message. Best-effort: returns what it can if the body is truncated.
+// parseIncidentEvent extracts the incident number and human-readable message.
+// Best-effort: returns what it can if the body is truncated.
 func parseIncidentEvent(data []byte) (uint16, string) {
 	if len(data) < 2 {
 		return 0, ""
