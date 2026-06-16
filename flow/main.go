@@ -2,7 +2,7 @@ package main
 
 //go:generate go run ./cmd/codegen
 
-// hi
+// hello
 
 import (
 	"context"
