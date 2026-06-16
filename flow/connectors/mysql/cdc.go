@@ -472,60 +472,7 @@ func (c *MySqlConnector) PullRecords(
 
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
-	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
-		var event *replication.BinlogEvent
-		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
-		err := timeoutCtx.Err()
-		if err == nil {
-			event, err = mystream.GetEvent(timeoutCtx)
-		}
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
-				return ctxErr
-			}
-
-			if errors.Is(err, context.DeadlineExceeded) {
-				if recordCount == 0 || inTx {
-					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
-						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
-					}
-
-					if recordCount == 0 {
-						// progress offset while no records read to avoid falling behind when all tables inactive
-						if updatedOffset != "" {
-							c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
-							if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
-								c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
-							} else {
-								updatedOffset = ""
-							}
-						}
-						resetTimeout(c.binlogStalenessThreshold())
-					} else {
-						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
-							slog.Uint64("records", uint64(recordCount)),
-							slog.Int64("bytes", totalFetchedBytes.Load()),
-							slog.Int("channelLen", req.RecordStream.ChannelLen()),
-							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
-						resetTimeout(time.Minute)
-						overtime = true
-					}
-
-					continue
-				}
-
-				return nil
-			}
-
-			c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
-			return exceptions.NewMySQLExecuteError(err)
-		}
-
-		lastEventAt = time.Now()
-
-		allFetchedBytes.Add(int64(len(event.RawData)))
-
+	processEvent := func(event *replication.BinlogEvent) error {
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
 			if ev.ImmediateCommitTimestamp > 0 {
@@ -753,6 +700,78 @@ func (c *MySqlConnector) PullRecords(
 					ctx,
 					int64(event.Header.Timestamp),
 				)
+			}
+		}
+
+		return nil
+	}
+
+	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
+		var event *replication.BinlogEvent
+		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
+		err := timeoutCtx.Err()
+		if err == nil {
+			event, err = mystream.GetEvent(timeoutCtx)
+		}
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
+				return ctxErr
+			}
+
+			if errors.Is(err, context.DeadlineExceeded) {
+				if recordCount == 0 || inTx {
+					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
+						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
+					}
+
+					if recordCount == 0 {
+						// progress offset while no records read to avoid falling behind when all tables inactive
+						if updatedOffset != "" {
+							c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
+							if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
+								c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
+							} else {
+								updatedOffset = ""
+							}
+						}
+						resetTimeout(c.binlogStalenessThreshold())
+					} else {
+						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
+							slog.Uint64("records", uint64(recordCount)),
+							slog.Int64("bytes", totalFetchedBytes.Load()),
+							slog.Int("channelLen", req.RecordStream.ChannelLen()),
+							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+						resetTimeout(time.Minute)
+						overtime = true
+					}
+
+					continue
+				}
+
+				return nil
+			}
+
+			c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
+			return exceptions.NewMySQLExecuteError(err)
+		}
+
+		lastEventAt = time.Now()
+
+		allFetchedBytes.Add(int64(len(event.RawData)))
+
+		switch ev := event.Event.(type) {
+		case *replication.TransactionPayloadEvent:
+			for _, inner := range ev.Events {
+				err = processEvent(inner)
+				if err != nil {
+					return err
+				}
+			}
+		default:
+			err = processEvent(event)
+			if err != nil {
+				return err
 			}
 		}
 	}
