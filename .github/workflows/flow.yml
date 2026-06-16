@@ -74,7 +74,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.4.2@sha256:5a2a64b3325fce8c82ea4f2f3d3955c93d7d34d96831fe475b45310da5c27fcb
+        image: elasticsearch:9.4.2@sha256:715c5d552328d83dcee6082bd5125327332a649f8e0aedb5fe0553d7be75bf21
         ports:
           - 9200:9200
         env:
