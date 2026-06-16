@@ -229,6 +229,82 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("binlog_transaction_compression is not supported by MariaDB")
+	}
+	cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogTransactionCompression)
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("only applies to mysql versions with binlog_transaction_compression")
+	}
+
+	srcTableName := "test_txn_payload"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_txn_payload_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY,
+			val TEXT NOT NULL
+		)
+	`, srcFullName)))
+
+	// One row before snapshot.
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (id, val) VALUES (0, 'init')", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,val")
+
+	// Compress this session's transactions so the upcoming DML lands in the binlog as a single
+	// TRANSACTION_PAYLOAD_EVENT, exercising the compressed-payload decode path in CDC.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "SET SESSION binlog_transaction_compression = ON"))
+
+	// Capture the binlog position, then write a large, highly compressible transaction as a single
+	// multi-row INSERT so MySQL compresses it (compressed < uncompressed) into one payload event.
+	posBefore, err := mySource.GetMasterPos(s.t.Context())
+	require.NoError(s.t, err)
+
+	const rowCount = 200
+	rowVal := strings.Repeat("peerdb-compressible-", 100) // ~2KB highly repetitive per row
+	var insert strings.Builder
+	fmt.Fprintf(&insert, "INSERT INTO %s (id, val) VALUES ", srcFullName)
+	for i := 1; i <= rowCount; i++ {
+		if i > 1 {
+			insert.WriteByte(',')
+		}
+		fmt.Fprintf(&insert, "(%d, '%s')", i, rowVal)
+	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(), insert.String()))
+
+	// Confirm compression actually produced a payload event, otherwise the test would silently
+	// pass via the uncompressed path and not exercise the new code.
+	hasPayload, err := mySource.HasTransactionPayloadEvent(s.t.Context(), posBefore)
+	require.NoError(s.t, err)
+	require.True(s.t, hasPayload, "expected a TRANSACTION_PAYLOAD_EVENT in the binlog")
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,val")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Enum() {
 	if mySource, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")

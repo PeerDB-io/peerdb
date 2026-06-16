@@ -15,6 +15,10 @@ import (
 const (
 	MySQLMinVersionForBinlogRowMetadata   = "8.0.1"
 	MariaDBMinVersionForBinlogRowMetadata = "10.5.0"
+	// MySQLMinVersionForBinlogTransactionCompression is the first MySQL version supporting
+	// binlog_transaction_compression, which wraps a whole transaction in a single
+	// TRANSACTION_PAYLOAD_EVENT. Not supported by MariaDB.
+	MySQLMinVersionForBinlogTransactionCompression = "8.0.20"
 )
 
 func CompareServerVersion(conn *client.Conn, version string) (int, error) {

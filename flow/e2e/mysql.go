@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
+
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -175,6 +177,24 @@ func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 func (s *MySqlSource) Exec(ctx context.Context, sql string, args ...any) error {
 	_, err := s.MySqlConnector.Execute(ctx, sql, args...)
 	return err
+}
+
+// HasTransactionPayloadEvent reports whether a TRANSACTION_PAYLOAD_EVENT (the single event
+// MySQL emits per transaction when binlog_transaction_compression is on) appears in the binlog
+// at or after the given position. Used by e2e tests to confirm compression actually kicked in.
+func (s *MySqlSource) HasTransactionPayloadEvent(ctx context.Context, from mysql.Position) (bool, error) {
+	rs, err := s.MySqlConnector.Execute(ctx, fmt.Sprintf("SHOW BINLOG EVENTS IN '%s' FROM %d", from.Name, from.Pos))
+	if err != nil {
+		return false, err
+	}
+	for i := range rs.Values {
+		// SHOW BINLOG EVENTS columns: Log_name, Pos, Event_type, Server_id, End_log_pos, Info
+		eventType, _ := rs.GetString(i, 2)
+		if strings.Contains(strings.ToLower(eventType), "payload") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
