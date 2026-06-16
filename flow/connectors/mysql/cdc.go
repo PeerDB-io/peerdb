@@ -472,6 +472,22 @@ func (c *MySqlConnector) PullRecords(
 
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
+	// advanceGset folds a transaction's GTID into our running set so XID/commit can
+	// checkpoint it. Needed because events inside a TRANSACTION_PAYLOAD_EVENT are decoded
+	// by a sub-parser that never populates XIDEvent.GSet (and carry end_log_pos=0), so we
+	// can no longer read the post-commit set off the XID event. Accumulating from the
+	// (uncompressed) outer GTID events works identically for the compressed and plain paths.
+	advanceGset := func(next mysql.GTIDSet, err error) error {
+		if err != nil {
+			return fmt.Errorf("failed to compute next GTID: %w", err)
+		}
+		if gset != nil {
+			if err := gset.Update(next.String()); err != nil {
+				return fmt.Errorf("failed to accumulate GTID %s: %w", next, err)
+			}
+		}
+		return nil
+	}
 	processEvent := func(event *replication.BinlogEvent) error {
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
@@ -479,10 +495,24 @@ func (c *MySqlConnector) PullRecords(
 				otelManager.Metrics.CommitLagGauge.Record(ctx,
 					time.Now().UTC().Sub(time.UnixMicro(int64(ev.ImmediateCommitTimestamp))).Microseconds())
 			}
+			if err := advanceGset(ev.GTIDNext()); err != nil {
+				return err
+			}
+		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
+			if ev.ImmediateCommitTimestamp > 0 {
+				otelManager.Metrics.CommitLagGauge.Record(ctx,
+					time.Now().UTC().Sub(time.UnixMicro(int64(ev.ImmediateCommitTimestamp))).Microseconds())
+			}
+			if err := advanceGset(ev.GTIDNext()); err != nil {
+				return err
+			}
+		case *replication.MariadbGTIDEvent:
+			if err := advanceGset(ev.GTIDNext()); err != nil {
+				return err
+			}
 		case *replication.XIDEvent:
 			if gset != nil {
-				gset = ev.GSet
-				updatedOffset = gset.String()
+				updatedOffset = gset.String() // accumulated from GTID events above
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			} else if event.Header.LogPos > pos.Pos {
 				pos.Pos = event.Header.LogPos
@@ -767,6 +797,14 @@ func (c *MySqlConnector) PullRecords(
 				if err != nil {
 					return err
 				}
+			}
+			// Inner events carry end_log_pos=0, so in file/pos mode advance the offset from
+			// the outer payload event's header (the end position after the whole transaction).
+			// GTID mode already checkpointed via the outer GTIDEvent + inner XID above.
+			if gset == nil && event.Header.LogPos > pos.Pos {
+				pos.Pos = event.Header.LogPos
+				updatedOffset = posToOffsetText(pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
 		default:
 			err = processEvent(event)
