@@ -334,7 +334,10 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
-	stream, err := syncer.StartSyncGTID(gset)
+	// StartSyncGTID keeps the passed set by reference (as the syncer's prevGset) and mutates it
+	// from the syncer goroutine as GTIDs arrive. Give it an independent clone so PullRecords can
+	// accumulate GTIDs into `gset` (advanceGset) and read it without racing the syncer on the same map.
+	stream, err := syncer.StartSyncGTID(gset.Clone())
 	if err != nil {
 		syncer.Close()
 		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLExecuteError(err)
