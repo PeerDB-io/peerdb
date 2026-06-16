@@ -41,8 +41,7 @@ func TestDecodeMySQLBytes(t *testing.T) {
 }
 
 // TestQValueFromMysqlRowEvent_Transcodes verifies that the CDC decode path applies
-// the column's charset decoder, so a latin1 column no longer reaches the destination
-// as invalid-UTF-8 mojibake (the bug in DBI-810).
+// the column's charset decoder
 func TestQValueFromMysqlRowEvent_Transcodes(t *testing.T) {
 	ev := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_VARCHAR}}
 	logger := log.NewStructuredLogger(nil)

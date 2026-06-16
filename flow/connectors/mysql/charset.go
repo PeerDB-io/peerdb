@@ -17,9 +17,7 @@ import (
 )
 
 // charsetsNoTranscode lists the MySQL character sets whose stored bytes are
-// already valid UTF-8 (or are opaque binary) and therefore need no conversion
-// when read off the binlog. Anything in this set maps to a nil encoding and
-// keeps the original zero-cost string(val) fast path.
+// already valid UTF-8 (or are opaque binary)
 var charsetsNoTranscode = map[string]struct{}{
 	"utf8":    {},
 	"utf8mb3": {},
@@ -29,15 +27,6 @@ var charsetsNoTranscode = map[string]struct{}{
 }
 
 // mysqlCharsetEncodings maps a MySQL character set name to the golang.org/x/text
-// encoding used to decode its bytes into UTF-8.
-//
-// Caveat worth remembering: MySQL's "latin1" is Windows-1252, NOT ISO-8859-1 —
-// it assigns printable characters to the 0x80-0x9F range that ISO-8859-1 leaves
-// as C1 control codes. Decoding latin1 as ISO-8859-1 silently mangles smart
-// quotes, the euro sign, etc., so we deliberately use charmap.Windows1252.
-//
-// MySQL's "utf16"/"ucs2" are big-endian; "utf16le" is little-endian; "utf32" is
-// big-endian. We ignore any BOM since binlog column data carries none.
 var mysqlCharsetEncodings = map[string]encoding.Encoding{
 	// Single-byte / Windows & ISO code pages.
 	"latin1":   charmap.Windows1252,
@@ -78,10 +67,7 @@ var mysqlCharsetEncodings = map[string]encoding.Encoding{
 
 // collationEncoding resolves a MySQL collation id (as carried in binlog
 // TABLE_MAP metadata) to the x/text encoding needed to convert that column's
-// bytes to UTF-8. It returns (nil, nil) when no transcoding is required, i.e.
-// the column is already UTF-8/ascii/binary, the collation is unknown, or the
-// charset is one we cannot transcode (in which case we warn once and fall back
-// to passing the raw bytes through, matching pre-existing behavior).
+// bytes to UTF-8.
 func (c *MySqlConnector) collationEncoding(ctx context.Context, collationID uint64) (encoding.Encoding, error) {
 	if collationID == 0 {
 		return nil, nil
@@ -113,8 +99,6 @@ func (c *MySqlConnector) collationEncoding(ctx context.Context, collationID uint
 	return nil, nil
 }
 
-// charsetForCollation maps a collation id to its character set name, lazily
-// loading (and caching) the full table from information_schema on first use.
 func (c *MySqlConnector) charsetForCollation(ctx context.Context, collationID uint64) (string, error) {
 	if m := c.collationCharset.Load(); m != nil {
 		return (*m)[collationID], nil
@@ -156,8 +140,6 @@ func (c *MySqlConnector) warnCharsetOnce(key string, warn func()) {
 }
 
 // decodeMySQLBytes converts bytes stored in the column's character set to UTF-8.
-// enc may be nil, meaning the bytes are already UTF-8/ascii/binary and are
-// returned verbatim (the zero-overhead common case).
 func decodeMySQLBytes(enc encoding.Encoding, b []byte) (string, error) {
 	if enc == nil {
 		return string(b), nil
@@ -169,7 +151,7 @@ func decodeMySQLBytes(enc encoding.Encoding, b []byte) (string, error) {
 	return string(out), nil
 }
 
-// decodeMySQLString is the string-typed counterpart to decodeMySQLBytes.
+// decodeMySQLBytes converts string stored in the column's character set to UTF-8.
 func decodeMySQLString(enc encoding.Encoding, s string) (string, error) {
 	if enc == nil {
 		return s, nil

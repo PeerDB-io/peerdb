@@ -597,11 +597,7 @@ func (c *MySqlConnector) PullRecords(
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()
 
-				// Binlog row events carry string/ENUM/SET bytes verbatim in each column's
-				// own character set; unlike the snapshot path (SET NAMES utf8mb4) the server
-				// does no transcoding here. Resolve a decoder per column from the TABLE_MAP
-				// collation metadata so non-utf8 columns (e.g. latin1/gbk/sjis) reach the
-				// destination as valid UTF-8 instead of mojibake. nil = already UTF-8, no-op.
+				// build colIdx -> encoding map based on event collation map
 				colEncodings := make([]encoding.Encoding, len(ev.Table.ColumnType))
 				for colIdx, collationID := range ev.Table.CollationMap() {
 					if colIdx < 0 || colIdx >= len(colEncodings) {
@@ -613,8 +609,6 @@ func (c *MySqlConnector) PullRecords(
 					}
 					colEncodings[colIdx] = enc
 				}
-				// ENUM/SET label values themselves are stored in the column's charset, so
-				// transcode the decoded label tables in place before they are emitted.
 				for colIdx, collationID := range ev.Table.EnumSetCollationMap() {
 					enc, err := c.collationEncoding(ctx, collationID)
 					if err != nil {

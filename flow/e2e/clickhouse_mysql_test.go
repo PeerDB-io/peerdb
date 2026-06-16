@@ -394,11 +394,6 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Test_MySQL_Charset_Consistency guards against DBI-810: binlog row events carry
-// string/ENUM/SET bytes in each column's own charset, and the CDC path must transcode
-// them to UTF-8 just like the snapshot path (SET NAMES utf8mb4) does. Without that, a
-// latin1/gbk column lands as valid UTF-8 on snapshot but as mojibake on CDC, so the same
-// source value ends up in two encodings. This asserts snapshot and CDC agree byte-for-byte.
 func (s ClickHouseSuite) Test_MySQL_Charset_Consistency() {
 	if mySource, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
