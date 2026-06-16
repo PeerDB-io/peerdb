@@ -37,15 +37,15 @@ type MySqlConnector struct {
 	logger                log.Logger
 	rdsAuth               *utils.RDSAuth
 	serverVersion         string
-	binlogHeartbeatPeriod time.Duration
-	totalBytesRead        atomic.Int64
-	deltaBytesRead        atomic.Int64
 	// collationCharset caches information_schema.COLLATIONS (collation id -> charset
 	// name), loaded lazily the first time the CDC path needs to transcode a column.
 	collationCharset atomic.Pointer[map[uint64]string]
 	// warnedCharsets dedupes the "unsupported/unknown charset" warnings so a stream
 	// of non-transcodable rows does not flood the logs.
-	warnedCharsets sync.Map
+	warnedCharsets        sync.Map
+	binlogHeartbeatPeriod time.Duration
+	totalBytesRead        atomic.Int64
+	deltaBytesRead        atomic.Int64
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
