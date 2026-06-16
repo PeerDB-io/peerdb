@@ -132,12 +132,12 @@ func newPostgresConnector(
 
 	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, env)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to fetch CDC Store setting: %w", err)
+		return nil, fmt.Errorf("failed to fetch CDC Store setting: %w", err)
 	}
 	if cdcStoreEnabled && destinationType == protos.DBType_CLICKHOUSE {
 		cdcStoreEnabled, err = internal.PeerDBClickHouseCDCStoreEnabled(ctx, env)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to fetch ClickHouse CDC Store setting: %w", err)
+			return nil, fmt.Errorf("failed to fetch ClickHouse CDC Store setting: %w", err)
 		}
 	}
 
