@@ -602,8 +602,11 @@ func (c *MySqlConnector) PullRecords(
 				// does no transcoding here. Resolve a decoder per column from the TABLE_MAP
 				// collation metadata so non-utf8 columns (e.g. latin1/gbk/sjis) reach the
 				// destination as valid UTF-8 instead of mojibake. nil = already UTF-8, no-op.
-				colEncodings := make(map[int]encoding.Encoding)
+				colEncodings := make([]encoding.Encoding, len(ev.Table.ColumnType))
 				for colIdx, collationID := range ev.Table.CollationMap() {
+					if colIdx < 0 || colIdx >= len(colEncodings) {
+						continue
+					}
 					enc, err := c.collationEncoding(ctx, collationID)
 					if err != nil {
 						return err
