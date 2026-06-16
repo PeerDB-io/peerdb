@@ -1132,6 +1132,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if _, ok := errors.AsType[*exceptions.MySQLBinlogIncidentError](err); ok {
+		return ErrorNotifyBinlogInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "BINLOG_INCIDENT",
+		}
+	}
+
 	if mysqlGeometryParseError, ok := errors.AsType[*exceptions.MySQLGeometryParseError](err); ok &&
 		strings.Contains(mysqlGeometryParseError.Error(), mysqlGeometryLinearRingNotClosedError) {
 		return ErrorUnsupportedDatatype, ErrorInfo{
