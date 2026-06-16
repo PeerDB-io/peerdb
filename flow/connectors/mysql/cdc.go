@@ -19,6 +19,7 @@ import (
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/text/encoding"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -596,6 +597,41 @@ func (c *MySqlConnector) PullRecords(
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()
 
+				// Binlog row events carry string/ENUM/SET bytes verbatim in each column's
+				// own character set; unlike the snapshot path (SET NAMES utf8mb4) the server
+				// does no transcoding here. Resolve a decoder per column from the TABLE_MAP
+				// collation metadata so non-utf8 columns (e.g. latin1/gbk/sjis) reach the
+				// destination as valid UTF-8 instead of mojibake. nil = already UTF-8, no-op.
+				colEncodings := make(map[int]encoding.Encoding)
+				for colIdx, collationID := range ev.Table.CollationMap() {
+					enc, err := c.collationEncoding(ctx, collationID)
+					if err != nil {
+						return err
+					}
+					colEncodings[colIdx] = enc
+				}
+				// ENUM/SET label values themselves are stored in the column's charset, so
+				// transcode the decoded label tables in place before they are emitted.
+				for colIdx, collationID := range ev.Table.EnumSetCollationMap() {
+					enc, err := c.collationEncoding(ctx, collationID)
+					if err != nil {
+						return err
+					}
+					if enc == nil {
+						continue
+					}
+					colEncodings[colIdx] = enc
+					for labels := range slices.Values([][]string{enumMap[colIdx], setMap[colIdx]}) {
+						for i, label := range labels {
+							decoded, err := decodeMySQLString(enc, label)
+							if err != nil {
+								return err
+							}
+							labels[i] = decoded
+						}
+					}
+				}
+
 				// Process TABLE_MAP_EVENT schema to detect new columns
 				var fields []*protos.FieldDescription
 				if ev.Table.ColumnName != nil {
@@ -635,7 +671,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, colEncodings[idx], c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -672,7 +708,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, colEncodings[idx], c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -686,7 +722,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, colEncodings[idx], c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -724,7 +760,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, colEncodings[idx], c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}

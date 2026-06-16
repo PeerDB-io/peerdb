@@ -16,6 +16,7 @@ import (
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 	"go.temporal.io/sdk/log"
+	"golang.org/x/text/encoding"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -341,7 +342,7 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 func QValueFromMysqlRowEvent(
 	ev *replication.TableMapEvent, idx int,
 	enums []string, sets []string,
-	qkind types.QValueKind, val any, logger log.Logger, coercionReported *bool,
+	qkind types.QValueKind, val any, enc encoding.Encoding, logger log.Logger, coercionReported *bool,
 ) (types.QValue, error) {
 	mytype := ev.ColumnType[idx]
 
@@ -479,10 +480,19 @@ func QValueFromMysqlRowEvent(
 		case types.QValueKindBytes:
 			return types.QValueBytes{Val: val}, nil
 		case types.QValueKindString:
-			return types.QValueString{Val: string(val)}, nil
+			s, err := decodeMySQLBytes(enc, val)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueString{Val: s}, nil
 		case types.QValueKindEnum:
-			return types.QValueEnum{Val: string(val)}, nil
+			s, err := decodeMySQLBytes(enc, val)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueEnum{Val: s}, nil
 		case types.QValueKindJSON:
+			// MySQL always stores JSON internally as utf8mb4, so it never needs transcoding.
 			return types.QValueJSON{Val: string(val)}, nil
 		case types.QValueKindGeometry:
 			// Handle geometry data as binary (WKB format)
@@ -499,9 +509,17 @@ func QValueFromMysqlRowEvent(
 		case types.QValueKindBytes:
 			return types.QValueBytes{Val: shared.UnsafeFastStringToReadOnlyBytes(val)}, nil
 		case types.QValueKindString:
-			return types.QValueString{Val: val}, nil
+			s, err := decodeMySQLString(enc, val)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueString{Val: s}, nil
 		case types.QValueKindEnum:
-			return types.QValueEnum{Val: val}, nil
+			s, err := decodeMySQLString(enc, val)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueEnum{Val: s}, nil
 		case types.QValueKindJSON:
 			return types.QValueJSON{Val: val}, nil
 		case types.QValueKindTime:

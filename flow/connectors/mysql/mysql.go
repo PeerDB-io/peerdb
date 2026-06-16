@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +40,12 @@ type MySqlConnector struct {
 	binlogHeartbeatPeriod time.Duration
 	totalBytesRead        atomic.Int64
 	deltaBytesRead        atomic.Int64
+	// collationCharset caches information_schema.COLLATIONS (collation id -> charset
+	// name), loaded lazily the first time the CDC path needs to transcode a column.
+	collationCharset atomic.Pointer[map[uint64]string]
+	// warnedCharsets dedupes the "unsupported/unknown charset" warnings so a stream
+	// of non-transcodable rows does not flood the logs.
+	warnedCharsets sync.Map
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
