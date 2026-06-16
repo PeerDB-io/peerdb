@@ -558,10 +558,18 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                     FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
                     FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
-                        limit: ast::Value::Number(n, _),
+                        limit:
+                            ast::ValueWithSpan {
+                                value: ast::Value::Number(n, _),
+                                ..
+                            },
                     }
                     | FetchDirection::Forward {
-                        limit: Some(ast::Value::Number(n, _)),
+                        limit:
+                            Some(ast::ValueWithSpan {
+                                value: ast::Value::Number(n, _),
+                                ..
+                            }),
                     } => n.parse::<usize>()?,
                     _ => {
                         return Err(anyhow::anyhow!(
@@ -719,6 +727,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("disable_tls")
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
+                skip_cert_verification: opts
+                    .get("skip_cert_verification")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
                 root_ca: opts.get("root_ca").map(|s| s.to_string()),
                 tls_host: opts
                     .get("tls_host")
@@ -775,6 +787,13 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .unwrap_or_default(),
                 require_tls: opts
                     .get("require_tls")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .map(|s| s.parse::<bool>().unwrap_or_default()),
+                skip_cert_verification: opts
+                    .get("skip_cert_verification")
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
                 auth_type: PostgresAuthType::PostgresPassword.into(),

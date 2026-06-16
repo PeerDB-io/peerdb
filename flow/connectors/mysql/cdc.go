@@ -81,32 +81,18 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	pkSeqRs, err := c.Execute(ctx, fmt.Sprintf(`
-		select column_name, seq_in_index
-		from information_schema.statistics
-		where table_schema = '%s' and table_name = '%s' and index_name = 'PRIMARY'`,
-		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
-	if err != nil {
-		return nil, err
-	}
-	pkSeqMap := make(map[string]int64, pkSeqRs.RowNumber())
-	for idx := range pkSeqRs.RowNumber() {
-		name, err := pkSeqRs.GetString(idx, 0)
-		if err != nil {
-			return nil, err
-		}
-		seq, err := pkSeqRs.GetInt(idx, 1)
-		if err != nil {
-			return nil, err
-		}
-		pkSeqMap[name] = seq
-	}
-
+	// CAST(... AS BINARY) forces a case-sensitive, collation-independent comparison on the join keys so it works with
+	// lower_case_table_names=0. The LEFT JOIN leaves seq_in_index NULL for non-primary-key columns.
 	rs, err := c.Execute(ctx, fmt.Sprintf(`
-		select column_name, column_type, is_nullable, numeric_precision, numeric_scale
-		from information_schema.columns
-		where table_schema = '%s' and table_name = '%s'
-		order by ordinal_position`,
+		select c.column_name, c.column_type, c.is_nullable, c.numeric_precision, c.numeric_scale, s.seq_in_index
+		from information_schema.columns c
+		left join information_schema.statistics s
+			on cast(s.table_schema as binary) = cast(c.table_schema as binary)
+			and cast(s.table_name as binary) = cast(c.table_name as binary)
+			and cast(s.column_name as binary) = cast(c.column_name as binary)
+			and s.index_name = 'PRIMARY'
+		where c.table_schema = '%s' and c.table_name = '%s'
+		order by c.ordinal_position`,
 		mysql.Escape(qualifiedTable.Namespace), mysql.Escape(qualifiedTable.Table)))
 	if err != nil {
 		return nil, err
@@ -161,7 +147,15 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		}
 		columns = append(columns, column)
 
-		if seq, ok := pkSeqMap[columnName]; ok {
+		seqIsNull, err := rs.IsNull(idx, 5)
+		if err != nil {
+			return nil, err
+		}
+		if !seqIsNull {
+			seq, err := rs.GetInt(idx, 5)
+			if err != nil {
+				return nil, err
+			}
 			primaryEntries = append(primaryEntries, pkEntry{name: columnName, seqInIndex: seq})
 		}
 	}
@@ -241,7 +235,7 @@ func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSyncer, error) {
+func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*replication.BinlogSyncer, error) {
 	var tlsConfig *tls.Config
 	if !c.config.DisableTls {
 		var err error
@@ -271,6 +265,10 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		config.Password = token
 	}
 
+	eventCacheCount, err := internal.PeerDBMySQLEventCacheCount(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get event cache count: %w", err)
+	}
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:         rand.Uint32(),
@@ -286,12 +284,14 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		ParseTime:        true,
 		TLSConfig:        tlsConfig,
 		HeartbeatPeriod:  c.binlogHeartbeatPeriod,
+		EventCacheCount:  eventCacheCount,
 	}), nil
 }
 
 func (c *MySqlConnector) startStreaming(
 	ctx context.Context,
 	pos string,
+	env map[string]string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	parsedOffset, err := parseReplicationOffsetText(c.Flavor(), pos)
 	if err != nil {
@@ -300,9 +300,9 @@ func (c *MySqlConnector) startStreaming(
 
 	switch parsedOffset.mechanism {
 	case protos.MySqlReplicationMechanism_MYSQL_FILEPOS.String():
-		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos)
+		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos, env)
 	case protos.MySqlReplicationMechanism_MYSQL_GTID.String():
-		return c.startCdcStreamingGtid(ctx, parsedOffset.gset)
+		return c.startCdcStreamingGtid(ctx, parsedOffset.gset, env)
 	default:
 		return nil, nil, nil, mysql.Position{}, fmt.Errorf("empty mysql replication offset")
 	}
@@ -311,15 +311,16 @@ func (c *MySqlConnector) startStreaming(
 func (c *MySqlConnector) startCdcStreamingFilePos(
 	ctx context.Context,
 	pos mysql.Position,
+	env map[string]string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer(ctx)
+	syncer, err := c.startSyncer(ctx, env)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
 	stream, err := syncer.StartSync(pos)
 	if err != nil {
 		syncer.Close()
-		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLStreamingError(err)
+		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLExecuteError(err)
 	}
 	return syncer, stream, nil, pos, nil
 }
@@ -327,15 +328,16 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 func (c *MySqlConnector) startCdcStreamingGtid(
 	ctx context.Context,
 	gset mysql.GTIDSet,
+	env map[string]string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer(ctx)
+	syncer, err := c.startSyncer(ctx, env)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
 	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
 		syncer.Close()
-		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLStreamingError(err)
+		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLExecuteError(err)
 	}
 	return syncer, stream, gset, mysql.Position{}, nil
 }
@@ -356,10 +358,6 @@ func (c *MySqlConnector) closeSyncerWithTimeout(syncer *replication.BinlogSyncer
 		c.logger.Error("[mysql] syncer.Close hung, force-closing SSH tunnel to unblock")
 		_ = c.ssh.Close()
 	}
-}
-
-func (c *MySqlConnector) ReplPing(context.Context) error {
-	return nil
 }
 
 func (c *MySqlConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error {
@@ -389,7 +387,7 @@ func (c *MySqlConnector) PullRecords(
 		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
 
-	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
+	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text, req.Env)
 	if err != nil {
 		return err
 	}
@@ -521,7 +519,7 @@ func (c *MySqlConnector) PullRecords(
 			}
 
 			c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
-			return exceptions.NewMySQLStreamingError(err)
+			return exceptions.NewMySQLExecuteError(err)
 		}
 
 		lastEventAt = time.Now()
@@ -916,7 +914,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 				charset = uint16(collation)
 			}
 			mytype := tableMap.ColumnType[idx]
-			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset)
+			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset, req.InternalVersion)
 			if err != nil {
 				c.logger.Warn("Unknown MySQL type for new column, skipping",
 					slog.String("table", sourceTableName),

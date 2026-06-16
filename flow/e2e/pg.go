@@ -333,7 +333,7 @@ func GetPostgresToxicProxy(t *testing.T, suffix string, port uint32) (*tp.Proxy,
 
 	// Get upstream from environment configuration
 	config := internal.GetAncillaryPostgresConfigFromEnv()
-	upstreamHost := internal.PostgresToxiproxyUpstreamHostWithFallback(config.Host)
+	upstreamHost := internal.PostgresSSHUpstreamHostWithFallback(config.Host)
 
 	return toxiClient.CreateProxy("postgres_"+suffix,
 		fmt.Sprintf("0.0.0.0:%d", port),

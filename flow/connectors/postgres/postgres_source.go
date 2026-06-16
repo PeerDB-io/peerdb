@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -35,12 +36,50 @@ type SlotCheckResult struct {
 	PublicationExists bool
 }
 
-func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]string) (*pgx.Conn, error) {
+type walSenderTimeout struct {
+	str      string
+	duration time.Duration
+	isSet    bool
+}
+
+var walSenderTimeoutNumbersOnly = regexp.MustCompile(`^\d+$`)
+
+func walSenderTimeoutOverride(ctx context.Context, env map[string]string) (walSenderTimeout, error) {
+	str, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
+	if err != nil {
+		return walSenderTimeout{}, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
+	}
+	if strings.EqualFold(str, "NONE") {
+		return walSenderTimeout{
+			str:      str,
+			duration: 0,
+			isSet:    false,
+		}, nil
+	}
+	parseStr := str
+	if walSenderTimeoutNumbersOnly.MatchString(parseStr) {
+		parseStr += "ms" // A bare integer is interpreted as milliseconds, per Postgres
+	}
+	duration, err := time.ParseDuration(parseStr)
+	if err != nil {
+		return walSenderTimeout{}, fmt.Errorf("failed to parse wal_sender_timeout value %q: %w", parseStr, err)
+	}
+	if duration < 0 {
+		return walSenderTimeout{}, fmt.Errorf("invalid wal_sender_timeout value: %s", duration)
+	}
+	return walSenderTimeout{
+		str:      str,
+		duration: duration,
+		isSet:    true,
+	}, nil
+}
+
+func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]string) (*pgx.Conn, walSenderTimeout, error) {
 	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	replConfig, err := ParseConfig(c.connStr, c.Config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+		return nil, walSenderTimeout{}, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
 	replConfig.Config.RuntimeParams["timezone"] = "UTC"
@@ -55,13 +94,13 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	replConfig.Config.RuntimeParams["standard_conforming_strings"] = "on"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
+	wst, err := walSenderTimeoutOverride(ctx, env)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
+		return nil, walSenderTimeout{}, err
 	}
-	if !strings.EqualFold(walSenderTimeout, "NONE") {
-		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", walSenderTimeout))
-		replConfig.Config.RuntimeParams["wal_sender_timeout"] = walSenderTimeout
+	if wst.isSet {
+		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", wst.str))
+		replConfig.Config.RuntimeParams["wal_sender_timeout"] = wst.str
 	} else {
 		c.logger.Info("not setting wal_sender_timeout")
 	}
@@ -69,23 +108,51 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to create replication connection: %w", err)
+		return nil, walSenderTimeout{}, fmt.Errorf("failed to create replication connection: %w", err)
 	}
-	return conn, nil
+	return conn, wst, nil
 }
 
 func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]string) error {
-	conn, err := c.CreateReplConn(ctx, env)
+	conn, wst, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return err
 	}
 	c.replConn = conn
+	c.walSenderTimeout = wst
+	go c.runReplConnKeepalive(ctx, 15*time.Second, c.replPing)
 	return nil
 }
 
-// To keep connection alive between sync batches.
-// By default postgres drops connection after 1 minute of inactivity.
-func (c *PostgresConnector) ReplPing(ctx context.Context) error {
+// runReplConnKeepalive pings the replication connection on a ticker so the
+// walsender doesn't hit wal_sender_timeout. This happens whenever keepalive
+// from the PullRecords stop: (1) between PullRecords calls (2) within
+// PullRecords when AddRecord blocks on a full record stream.
+//
+// While PullRecords holds replLock inside ReceiveMessage, replPing's TryLock
+// makes it a no-op. This is safe because ReceiveMessage will always run its
+// own keepalive on timeout.
+func (c *PostgresConnector) runReplConnKeepalive(
+	ctx context.Context,
+	interval time.Duration,
+	keepalive func(context.Context) error,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := keepalive(ctx); err != nil {
+				c.logger.Warn("replication keepalive failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+// replPing sends a standby status update so Postgres doesn't terminate the walsender for inactivity.
+func (c *PostgresConnector) replPing(ctx context.Context) error {
 	if c.replLock.TryLock() {
 		defer c.replLock.Unlock()
 		if c.replState != nil {

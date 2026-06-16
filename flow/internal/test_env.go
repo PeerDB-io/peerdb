@@ -58,8 +58,8 @@ func GetSecondaryPostgresConfigFromEnv() *protos.PostgresConfig {
 	}
 }
 
-func PostgresToxiproxyUpstreamHostWithFallback(fallback string) string {
-	return GetEnvString("TOXIPROXY_POSTGRES_HOST", fallback)
+func PostgresSSHUpstreamHostWithFallback(fallback string) string {
+	return GetEnvString("SSH_POSTGRES_HOST", fallback)
 }
 
 func MySQLTestHostWithFallback(fallback string) string {

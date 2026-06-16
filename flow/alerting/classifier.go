@@ -64,12 +64,15 @@ var (
 	ClickHouseObjectStorageIOErrorRe = regexp.MustCompile(
 		`unspecified iostream_category error: while reading .+: While executing ReadFromObjectStorage`,
 	)
-	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
-	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
-	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
-	PostgresSpillFileMissingRe        = regexp.MustCompile(`Unable to restore changes for xid \d+`)
-	MySqlRdsBinlogFileNotFoundRe      = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
-	MongoPoolClearedErrorRe           = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
+	ClickHouseLockingAttemptForAlterRe = regexp.MustCompile(`Locking attempt for ALTER on .+ has timed out`)
+	PostgresPublicationDoesNotExistRe  = regexp.MustCompile(`publication ".*?" does not exist`)
+	PostgresSnapshotDoesNotExistRe     = regexp.MustCompile(`snapshot ".*?" does not exist`)
+	PostgresWalSegmentRemovedRe        = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
+	PostgresSpillFileMissingRe         = regexp.MustCompile(`Unable to restore changes for xid \d+`)
+	// e.g. could not rename file "pg_logical/snapshots/25-3370F40.snap.19943.tmp" to "pg_logical/snapshots/25-3370F40.snap"
+	PostgresCouldNotRenameSnapshotRe = regexp.MustCompile(`could not rename file ".*\.snap\..*\.tmp" to ".*\.snap"`)
+	MySqlRdsBinlogFileNotFoundRe     = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
+	MongoPoolClearedErrorRe          = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
 
 func (e ErrorAction) String() string {
@@ -138,6 +141,9 @@ var (
 	}
 	ErrorNotifyBinlogInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
+	}
+	ErrorNotifyBinlogEventExceededMaxAllowedPacket = ErrorClass{
+		Class: "NOTIFY_BINLOG_EVENT_EXCEEDED_MAX_ALLOWED_PACKET", action: NotifyUser,
 	}
 	ErrorNotifyBinlogRowMetadataInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_ROW_METADATA_INVALID", action: NotifyUser,
@@ -581,8 +587,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// Handle Neon's custom WAL reading error
-			if pgErr.Routine == "NeonWALPageRead" && strings.Contains(pgErr.Message, "server closed the connection unexpectedly") {
-				return ErrorNotifyConnectivity, pgErrorInfo
+			if pgErr.Routine == "NeonWALPageRead" {
+				if strings.Contains(pgErr.Message, "server closed the connection unexpectedly") {
+					return ErrorNotifyConnectivity, pgErrorInfo
+				}
+				if strings.Contains(pgErr.Message, "lost synchronization with server") {
+					return ErrorRetryRecoverable, pgErrorInfo
+				}
 			}
 
 			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
@@ -596,6 +607,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 			// Transient reorderbuffer spill file restoration failure (e.g. "Resource temporarily unavailable")
 			if PostgresSpillFileMissingRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			// Transient failure renaming a logical decoding snapshot temp file, recovers on retry
+			if PostgresCouldNotRenameSnapshotRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
@@ -733,8 +749,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1226, // ER_USER_LIMIT_REACHED
 			1827: // ER_PASSWORD_FORMAT
 			return ErrorNotifyConnectivity, myErrorInfo
-		case 1236, // ER_MASTER_FATAL_ERROR_READING_BINLOG
-			1373: // ER_UNKNOWN_TARGET_BINLOG
+		case 1236: // ER_MASTER_FATAL_ERROR_READING_BINLOG
+			// A single binlog event larger than the replica's max_allowed_packet aborts the binlog stream read
+			if strings.Contains(myErr.Message, "max_allowed_packet") {
+				return ErrorNotifyBinlogEventExceededMaxAllowedPacket, myErrorInfo
+			}
+			return ErrorNotifyBinlogInvalid, myErrorInfo
+		case 1373: // ER_UNKNOWN_TARGET_BINLOG
 			return ErrorNotifyBinlogInvalid, myErrorInfo
 		case 1105: // ER_UNKNOWN_ERROR
 			// RDS Aurora MySQL specific errors due to "Zero Downtime Patch" or "Zero Downtime Restart"
@@ -944,6 +965,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrCannotAssignAlter:
 			return ErrorNotifyClickHouseError, chErrorInfo
+		case chproto.ErrDeadlockAvoided:
+			if ClickHouseLockingAttemptForAlterRe.MatchString(chException.Message) {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
 		case chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
@@ -1089,17 +1114,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	if mysqlStreamingError, ok := errors.AsType[*exceptions.MySQLStreamingError](err); ok {
-		if mysqlStreamingError.Retryable {
-			return ErrorRetryRecoverable, ErrorInfo{
-				Source: ErrorSourceMySQL,
-				Code:   "STREAMING_TRANSIENT_ERROR",
-			}
-		} else {
-			return ErrorOther, ErrorInfo{
-				Source: ErrorSourceMySQL,
-				Code:   "UNKNOWN",
-			}
+	if mysqlExecuteError, ok := errors.AsType[*exceptions.MySQLExecuteError](err); ok {
+		errClass := ErrorOther
+		if mysqlExecuteError.Retryable {
+			errClass = ErrorRetryRecoverable
+		}
+		return errClass, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "EXECUTE_ERROR",
 		}
 	}
 

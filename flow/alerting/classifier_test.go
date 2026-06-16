@@ -198,6 +198,23 @@ func TestPostgresPfreeInvalidPointerErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresCouldNotRenameSnapshotErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a transient logical decoding snapshot temp file rename failure
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  `could not rename file "pg_logical/snapshots/25-3370F40.snap.19943.tmp" to "pg_logical/snapshots/25-3370F40.snap": `,
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresUnrecognizedSIMessageIDErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate shared invalidation message corruption error
 	err := &exceptions.PostgresWalError{
@@ -829,41 +846,83 @@ func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
-	err := exceptions.NewMySQLStreamingError(
+func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
+	// Error 1236 caused by a binlog event larger than max_allowed_packet should be
+	// classified separately from generic binlog invalidation.
+	mysqlErr := &mysql.MyError{
+		Code:  1236, // ER_MASTER_FATAL_ERROR_READING_BINLOG
+		State: "HY000",
+		Message: "log event entry exceeded max_allowed_packet; Increase max_allowed_packet on source; " +
+			"the first event 'mysql-bin.168301' at 1789438008, the last event read from " +
+			"'/app/work2/binlogs/mysql-bin.168301' at 2333874086, the last byte read from " +
+			"'/app/work2/binlogs/mysql-bin.168301' at 2333874105.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records: %w", mysqlErr))
+	assert.Equal(t, ErrorNotifyBinlogEventExceededMaxAllowedPacket, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1236",
+	}, errInfo, "Unexpected error info")
+
+	// A 1236 without the max_allowed_packet signature should still be generic binlog invalidation.
+	genericErr := &mysql.MyError{
+		Code:    1236,
+		State:   "HY000",
+		Message: "Could not find first log file name in binary log index file",
+	}
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", genericErr))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1236",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLExecuteError(t *testing.T) {
+	err := exceptions.NewMySQLExecuteError(
 		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"})
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "STREAMING_TRANSIENT_ERROR",
+		Code:   "EXECUTE_ERROR",
 	}, errInfo, "Unexpected error info")
 
-	err = exceptions.NewMySQLStreamingError(
+	err = exceptions.NewMySQLExecuteError(
 		tls.RecordHeaderError{Msg: "unsupported SSLv2 handshake received"})
 	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "UNKNOWN",
+		Code:   "EXECUTE_ERROR",
 	}, errInfo, "Unexpected error info")
 
-	err = exceptions.NewMySQLStreamingError(context.DeadlineExceeded)
+	err = exceptions.NewMySQLExecuteError(context.DeadlineExceeded)
 	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "STREAMING_TRANSIENT_ERROR",
+		Code:   "EXECUTE_ERROR",
 	}, errInfo, "Unexpected error info")
 
 	tlsErr := tls.RecordHeaderError{Msg: "remote error: tls: error decoding message"}
 	innerErr := pErrors.Wrapf(mysql.ErrBadConn, "io.ReadFull(header) failed. err %v", tlsErr)
-	err = exceptions.NewMySQLStreamingError(pErrors.Errorf("failed to set @slave_gtid_strict_mode=1: %v", innerErr))
+	err = exceptions.NewMySQLExecuteError(pErrors.Errorf("failed to set @slave_gtid_strict_mode=1: %v", innerErr))
 	errorClass, errInfo = GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorRetryRecoverable, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "STREAMING_TRANSIENT_ERROR",
+		Code:   "EXECUTE_ERROR",
+	}, errInfo)
+
+	err = exceptions.NewMySQLExecuteError(fmt.Errorf("invalid compressed sequence 0 != 1"))
+	wrappedErrInner := fmt.Errorf("failed to get schema for watermark table eesb.customers: %w", err)
+	wrappedErrOuter := fmt.Errorf("failed to sync records: %w", wrappedErrInner)
+	errorClass, errInfo = GetErrorClass(t.Context(), wrappedErrOuter)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "EXECUTE_ERROR",
 	}, errInfo)
 }
 
@@ -922,6 +981,21 @@ func TestClickHouseOtherUnfinishedShouldBeRecoverable(t *testing.T) {
 		Source: ErrorSourceClickHouse,
 		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
 	}, errInfo)
+}
+
+func TestClickHouseLockingAttemptForAlterTimedOutShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrDeadlockAvoided),
+		//nolint:lll
+		Message: `Locking attempt for ALTER on "my_database.my_table" has timed out! (120000 ms) Possible deadlock avoided. Client should retry.`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to push records: failed to sync schema changes: failed to add column case_number for table my_table: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrDeadlockAvoided)),
+	}, errInfo, "Unexpected error info")
 }
 
 func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {

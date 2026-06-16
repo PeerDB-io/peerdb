@@ -277,11 +277,11 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 		if err == nil {
 			if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
-			} else if counter > 30 {
+			} else if counter > 60 {
 				env.Cancel(t.Context())
 				t.Fatal("UNEXPECTED STATUS TIMEOUT", status)
 			}
-		} else if counter > 15 {
+		} else if counter > 30 {
 			env.Cancel(t.Context())
 			t.Fatal("UNEXPECTED STATUS QUERY TIMEOUT", err.Error())
 		} else if counter > 5 {
@@ -625,14 +625,26 @@ func NewTemporalClient(t *testing.T) client.Client {
 		),
 	))
 
-	tc, err := client.Dial(client.Options{
-		HostPort: "localhost:7233",
-		Logger:   logger,
-	})
-	if err != nil {
-		t.Fatalf("Failed to connect temporal client: %v", err)
+	var lastErr error
+	deadline := time.Now().Add(time.Minute)
+	for attempt := 1; ; attempt++ {
+		tc, err := client.Dial(client.Options{
+			HostPort: "localhost:7233",
+			Logger:   logger,
+		})
+		if err == nil {
+			return tc
+		}
+		lastErr = err
+		if ctxErr := t.Context().Err(); ctxErr != nil {
+			t.Fatalf("Failed to connect temporal client: %v", ctxErr)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Failed to connect temporal client after %d attempts: %v", attempt, lastErr)
+		}
+		t.Logf("Temporal client dial attempt %d failed: %v", attempt, err)
+		time.Sleep(time.Second)
 	}
-	return tc
 }
 
 func NewApiClient() (protos.FlowServiceClient, error) {

@@ -19,6 +19,10 @@ import (
 )
 
 func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
+	if err := pkg_pg.CheckUnsupportedDatabase(ctx, c.conn); err != nil {
+		return err
+	}
+
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return err
@@ -200,7 +204,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 
 func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context, env map[string]string) error {
 	// Check if we can create a replication connection
-	conn, err := c.CreateReplConn(ctx, env)
+	conn, _, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return fmt.Errorf("failed to create replication connection: %v", err)
 	}

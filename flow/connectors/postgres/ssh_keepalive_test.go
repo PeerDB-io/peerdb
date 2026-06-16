@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	toxiproxyDownProxyPort    = 49001
-	toxiproxyLatencyProxyPort = 49002
-	toxiproxyResetProxyPort   = 49003
+	toxiproxyDownProxyPort    = 14001
+	toxiproxyLatencyProxyPort = 14002
+	toxiproxyResetProxyPort   = 14003
 )
 
 func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
@@ -27,9 +27,9 @@ func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName 
 	// In local set-up environments like Tilt, when a non catalog
 	// instance of Postgres is present, we use it instead of the catalog.
 	pgConfig := internal.GetAncillaryPostgresConfigFromEnv()
-	// In CI, TOXIPROXY_POSTGRES_HOST is set, usually pointing to 'catalog' network,
-	// in this case, we override the host in pgConfig with the value from TOXIPROXY_POSTGRES_HOST.
-	pgConfig.Host = internal.PostgresToxiproxyUpstreamHostWithFallback(pgConfig.Host)
+	// In CI, SSH_POSTGRES_HOST is set, usually pointing to 'catalog' network,
+	// in this case, we override the host in pgConfig with the value from SSH_POSTGRES_HOST.
+	pgConfig.Host = internal.PostgresSSHUpstreamHostWithFallback(pgConfig.Host)
 	pgConfig.SshConfig = &protos.SSHConfig{
 		Host:     "localhost",
 		Port:     uint32(proxyPort),

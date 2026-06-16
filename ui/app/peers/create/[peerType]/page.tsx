@@ -32,7 +32,7 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import React, { useState } from 'react';
+import React, { useState, useTransition } from 'react';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
@@ -57,7 +57,7 @@ export default function CreateConfig({ params }: CreateConfigProps) {
     peerName ?? searchParams?.get('name') ?? ''
   );
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, startTransition] = useTransition();
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
   const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
 
@@ -223,7 +223,9 @@ export default function CreateConfig({ params }: CreateConfigProps) {
           <Button
             variant='warningSolid'
             onClick={() =>
-              handleValidate(getDBType(), config, notifyErr, setLoading, name)
+              startTransition(() =>
+                handleValidate(getDBType(), config, notifyErr, name)
+              )
             }
           >
             Validate
@@ -231,13 +233,14 @@ export default function CreateConfig({ params }: CreateConfigProps) {
           <Button
             variant='normalSolid'
             onClick={() =>
-              handleCreate(
-                getDBType(),
-                config,
-                notifyErr,
-                setLoading,
-                listPeersRoute,
-                name
+              startTransition(() =>
+                handleCreate(
+                  getDBType(),
+                  config,
+                  notifyErr,
+                  listPeersRoute,
+                  name
+                )
               )
             }
           >

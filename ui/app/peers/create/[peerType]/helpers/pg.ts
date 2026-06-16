@@ -61,6 +61,14 @@ export const postgresSetting: PeerSetting[] = [
     optional: true,
   },
   {
+    label: 'Skip Certificate Verification?',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, skipCertVerification: value as boolean })),
+    type: 'switch',
+    tips: 'Skip TLS certificate verification (insecure, use with caution).',
+    optional: true,
+  },
+  {
     label: 'Root Certificate',
     stateHandler: (value, setter) => {
       if (!value) {
@@ -202,6 +210,7 @@ export const blankPostgresSetting: PostgresConfig = {
   password: '',
   database: '',
   requireTls: false,
+  skipCertVerification: false,
   authType: PostgresAuthType.POSTGRES_PASSWORD,
   awsAuth: {
     region: '',

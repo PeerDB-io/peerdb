@@ -10,7 +10,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { GetScriptById, HandleAddScript, HandleEditScript } from '../handlers';
 
 export default function EditScript() {
@@ -32,7 +32,7 @@ end`,
   };
   const [inEditMode, setInEditMode] = useState(false);
   const [newScript, setNewScript] = useState<Script>(script);
-  const [loading, setLoading] = useState(false);
+  const [loading, startTransition] = useTransition();
   const handleAdd = (script?: Script) => {
     if (!script || !script.source) {
       notifyErr('Empty scripts not allowed');
@@ -42,10 +42,8 @@ end`,
       notifyErr('Please enter a script name');
       return;
     }
-    setLoading(true);
-    HandleAddScript(script).then((success) => {
-      setLoading(false);
-      if (success) {
+    startTransition(async () => {
+      if (await HandleAddScript(script)) {
         router.replace('/scripts');
       }
     });
@@ -60,10 +58,8 @@ end`,
       notifyErr('Please enter a script name');
       return;
     }
-    setLoading(true);
-    HandleEditScript(script).then((success) => {
-      setLoading(false);
-      if (success) {
+    startTransition(async () => {
+      if (await HandleEditScript(script)) {
         router.replace('/scripts');
       }
     });

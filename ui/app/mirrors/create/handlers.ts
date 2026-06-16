@@ -20,8 +20,6 @@ import {
   SchemaTablesResponse,
   TableColumnsResponse,
 } from '@/grpc_generated/route';
-import { Dispatch, SetStateAction } from 'react';
-
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 
 import {
@@ -467,11 +465,9 @@ export async function fetchTables(
 export async function fetchColumns(
   peerName: string,
   schemaName: string,
-  tableName: string,
-  setLoading: Dispatch<SetStateAction<boolean>>
+  tableName: string
 ) {
   if (peerName?.length === 0) return [];
-  setLoading(true);
   const columnsRes: TableColumnsResponse = await fetch(
     `/api/v1/peers/columns?peer_name=${encodeURIComponent(
       peerName
@@ -480,7 +476,6 @@ export async function fetchColumns(
       cache: 'no-store',
     }
   ).then((res) => res.json());
-  setLoading(false);
   return columnsRes.columns;
 }
 

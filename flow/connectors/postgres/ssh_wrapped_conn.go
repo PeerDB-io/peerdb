@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"net"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -21,13 +20,7 @@ func NewPostgresConnFromConfig(
 	tunnel *utils.SSHTunnel,
 ) (*pgx.Conn, error) {
 	if tunnel != nil && tunnel.Client != nil {
-		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := tunnel.Client.DialContext(ctx, network, addr)
-			if err != nil {
-				return nil, err
-			}
-			return &utils.NoDeadlineConn{Conn: conn}, nil
-		}
+		connConfig.DialFunc = tunnel.DialContext
 		// DNS lookup seems to happen before connection is established which can be an issue if given host
 		// can only be resolved on the SSH host https://github.com/jackc/pgx/issues/1724
 		connConfig.LookupFunc = func(ctx context.Context, host string) ([]string, error) {

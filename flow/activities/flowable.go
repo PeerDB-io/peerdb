@@ -424,10 +424,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncResponse *model.SyncResponse
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.pullAndSync(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.pullAndSyncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
@@ -470,7 +470,7 @@ func (a *FlowableActivity) SyncFlow(
 	return nil
 }
 
-func (a *FlowableActivity) syncRecords(
+func (a *FlowableActivity) pullAndSync(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
@@ -511,14 +511,14 @@ func (a *FlowableActivity) syncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, srcConn,
+	return pullAndSyncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
 }
 
-func (a *FlowableActivity) syncPg(
+func (a *FlowableActivity) pullAndSyncPg(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
@@ -530,7 +530,7 @@ func (a *FlowableActivity) syncPg(
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, srcConn,
+	return pullAndSyncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
@@ -1729,8 +1729,6 @@ func (a *FlowableActivity) updateTableSchemaMappingForResync(
 		}
 	}
 
-	a.Alerter.LogFlowInfo(ctx, flowJobName, "Resync completed for all tables")
-
 	if commitErr := tx.Commit(ctx); commitErr != nil {
 		return a.Alerter.LogFlowError(ctx, flowJobName, fmt.Errorf("failed to commit updating table_schema_mapping: %w", commitErr))
 	}
@@ -1881,6 +1879,19 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 
+	tableNames := make([]string, 0, len(tablesToRemove))
+	for _, table := range tablesToRemove {
+		tableNames = append(tableNames, table.DestinationTableIdentifier)
+	}
+	slices.Sort(tableNames)
+	tableNames = slices.Compact(tableNames)
+	if len(tableNames) == 0 || syncBatchID <= normBatchID {
+		logger.Info("[RemoveTablesFromRawTable] no pending raw rows to remove, skipping",
+			slog.Int64("syncBatchID", syncBatchID), slog.Int64("normalizeBatchID", normBatchID),
+			slog.Int("tables", len(tableNames)))
+		return nil
+	}
+
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.RawTableConnector](ctx, cfg.Env, a.CatalogPool, cfg.DestinationName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -1894,10 +1905,6 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	}
 	defer dstClose(ctx)
 
-	tableNames := make([]string, 0, len(tablesToRemove))
-	for _, table := range tablesToRemove {
-		tableNames = append(tableNames, table.DestinationTableIdentifier)
-	}
 	if err := dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
 		FlowJobName:           cfg.FlowJobName,
 		DestinationTableNames: tableNames,

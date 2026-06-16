@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -142,7 +141,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	watermarkField := rs.Fields[1]
 	watermarkMyType := watermarkField.Type
 	watermarkUnsigned := (watermarkField.Flag & mysql.UNSIGNED_FLAG) != 0
-	watermarkQKind, err := qkindFromMysqlType(watermarkField.Type, watermarkUnsigned, watermarkField.Charset)
+	watermarkQKind, err := qkindFromMysqlType(watermarkField.Type, watermarkUnsigned, watermarkField.Charset, config.Version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert mysql type to qvaluekind: %w", err)
 	}
@@ -232,7 +231,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	c.deltaBytesRead.Store(0)
 	totalRecords := int64(0)
 	onResult := func(rs *mysql.Result) error {
-		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields)
+		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields, config.Version)
 		if err != nil {
 			return err
 		}
@@ -282,7 +281,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 
 		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
-			return 0, 0, exceptions.NewMySQLStreamingError(err)
+			return 0, 0, err
 		}
 	} else {
 		var rangeStart string
@@ -330,7 +329,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 
 		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
-			return 0, 0, exceptions.NewMySQLStreamingError(err)
+			return 0, 0, err
 		}
 	}
 

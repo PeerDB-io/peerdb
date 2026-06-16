@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync/atomic"
 	"time"
 
@@ -98,6 +99,14 @@ func NewSSHTunnel(
 	}
 
 	return nil, nil
+}
+
+func (tunnel *SSHTunnel) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	conn, err := tunnel.Client.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return NewDeadlineCapableConn(conn), nil
 }
 
 func (tunnel *SSHTunnel) Close() error {

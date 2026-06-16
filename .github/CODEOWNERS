@@ -45,6 +45,7 @@ flow/connectors/postgres/pgdump_schema_test.go          @PeerDB-io/ch-postgres
 flow/connectors/postgres/sink_pg.go                     @PeerDB-io/ch-postgres
 flow/model/pg_items.go                                  @PeerDB-io/ch-postgres
 flow/pkg/postgres/dest_validation.go                    @PeerDB-io/ch-postgres
+flow/cmd/reset_sequences.go                             @PeerDB-io/ch-postgres
 
 flow/e2e/pg_schema_dump_test.go                         @PeerDB-io/ch-postgres
 flow/e2e/postgres*.go                                   @PeerDB-io/ch-postgres

@@ -100,21 +100,22 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 
 	var meteredDialer utils.MeteredDialer
 	if sshTunnel != nil && sshTunnel.Client != nil {
-		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, sshTunnel.Client.DialContext, true)
+		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, sshTunnel.DialContext)
 	} else {
-		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
+		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
 	}
 
 	clientOptions, err := peerdb_mongo.BuildClientOptions(peerdb_mongo.ClientConfig{
-		Uri:                 config.Uri,
-		Username:            config.Username,
-		Password:            config.Password,
-		ReadPreference:      protoReadPrefToString[config.ReadPreference],
-		DisableTls:          config.DisableTls,
-		RootCa:              config.GetRootCa(),
-		TlsHost:             config.TlsHost,
-		CreateTlsConfigFunc: common.CreateTlsConfigFromRootCAString,
-		Dialer:              &meteredDialer,
+		Uri:                  config.Uri,
+		Username:             config.Username,
+		Password:             config.Password,
+		ReadPreference:       protoReadPrefToString[config.ReadPreference],
+		DisableTls:           config.DisableTls,
+		SkipCertVerification: config.SkipCertVerification,
+		RootCa:               config.GetRootCa(),
+		TlsHost:              config.TlsHost,
+		CreateTlsConfigFunc:  common.CreateTlsConfigFromRootCAString,
+		Dialer:               &meteredDialer,
 	})
 	if err != nil {
 		return nil, err

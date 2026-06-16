@@ -5,7 +5,7 @@ import { Label } from '@/lib/Label/Label';
 import { TextField } from '@/lib/TextField';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Dispatch, SetStateAction, useState } from 'react';
+import { Dispatch, SetStateAction, useState, useTransition } from 'react';
 import ReactSelect from 'react-select';
 import { PulseLoader } from 'react-spinners';
 import { useSelectTheme } from '../styles/select';
@@ -15,6 +15,7 @@ import {
   alertConfigType,
   emailConfigType,
   serviceConfigType,
+  serviceTypeEditSchemaMap,
   serviceTypeSchemaMap,
   slackConfigType,
 } from './validation';
@@ -48,7 +49,8 @@ function ConfigLabel(data: { label: string; value: string }) {
 
 function getSlackProps(
   config: slackConfigType,
-  setConfig: Dispatch<SetStateAction<slackConfigType>>
+  setConfig: Dispatch<SetStateAction<slackConfigType>>,
+  forEdit: boolean
 ) {
   return (
     <>
@@ -58,7 +60,10 @@ function getSlackProps(
           key={'auth_token'}
           style={{ height: '2.5rem', marginTop: '0.5rem' }}
           variant='simple'
-          placeholder='Auth Token'
+          type='password'
+          placeholder={
+            forEdit ? 'Leave blank to keep current token' : 'Auth Token'
+          }
           value={config.auth_token}
           onChange={(e) => {
             setConfig((previous) => ({
@@ -87,8 +92,8 @@ function getSlackProps(
       <div>
         <p>Members</p>
         <Label as='label' style={{ fontSize: 14 }}>
-          Slack usernames to tag in the channel for these alerts. If left empty,
-          pings the whole channel
+          Slack user IDs (e.g. U01ABC234) to tag in the channel for these
+          alerts. If left empty, pings the whole channel
         </Label>
         <TextField
           key={'members'}
@@ -136,7 +141,8 @@ function getEmailProps(
 function getServiceFields<T extends serviceConfigType>(
   serviceType: ServiceType,
   config: T,
-  setConfig: Dispatch<SetStateAction<T>>
+  setConfig: Dispatch<SetStateAction<T>>,
+  forEdit: boolean
 ) {
   switch (serviceType) {
     case 'email':
@@ -147,7 +153,8 @@ function getServiceFields<T extends serviceConfigType>(
     case 'slack': {
       return getSlackProps(
         config as slackConfigType,
-        setConfig as Dispatch<SetStateAction<slackConfigType>>
+        setConfig as Dispatch<SetStateAction<slackConfigType>>,
+        forEdit
       );
     }
   }
@@ -167,15 +174,17 @@ export function NewConfig(alertProps: AlertConfigProps) {
     alertProps.alertForMirrors || []
   );
 
-  const [loading, setLoading] = useState(false);
+  const [loading, startTransition] = useTransition();
 
-  const handleAdd = async () => {
+  const handleAdd = () => {
     if (!serviceType) {
       notifyErr('Service type must be selected');
       return;
     }
 
-    const serviceSchema = serviceTypeSchemaMap[serviceType];
+    const serviceSchema = alertProps.forEdit
+      ? serviceTypeEditSchemaMap[serviceType]
+      : serviceTypeSchemaMap[serviceType];
     const serviceValidity = serviceSchema.safeParse(config);
     if (!serviceValidity?.success) {
       notifyErr(
@@ -212,21 +221,26 @@ export function NewConfig(alertProps: AlertConfigProps) {
       },
     };
 
-    setLoading(true);
-    const createRes = await fetch('/api/v1/alerts/config', {
-      method: 'POST',
-      body: JSON.stringify(alertConfigProtoReq),
+    startTransition(async () => {
+      const createRes = await fetch('/api/v1/alerts/config', {
+        method: 'POST',
+        body: JSON.stringify(alertConfigProtoReq),
+      });
+
+      if (!createRes.ok) {
+        notifyErr('Something went wrong. Please try again');
+        return;
+      }
+
+      window.location.reload();
     });
-
-    setLoading(false);
-    if (!createRes.ok) {
-      notifyErr('Something went wrong. Please try again');
-      return;
-    }
-
-    window.location.reload();
   };
-  const ServiceFields = getServiceFields(serviceType, config, setConfig);
+  const ServiceFields = getServiceFields(
+    serviceType,
+    config,
+    setConfig,
+    alertProps.forEdit ?? false
+  );
   return (
     <div
       style={{

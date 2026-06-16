@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 // pg_dump from newer Postgres versions emits statements that older
@@ -189,16 +190,18 @@ func runPipeline(
 		case err := <-srcDone:
 			srcErr = err
 			if err != nil && dstCmd.ProcessState == nil {
-				_ = dstCmd.Process.Kill()
-				dstKilled = true
+				if killErr := dstCmd.Process.Kill(); killErr == nil {
+					dstKilled = true
+				}
 			}
 		case err := <-dstDone:
 			dstErr = err
 			if srcCmd.ProcessState == nil {
 				// dst exited (success or failure) while src is still running;
 				// kill src so it doesn't block on a pipe with no reader.
-				_ = srcCmd.Process.Kill()
-				srcKilled = true
+				if killErr := srcCmd.Process.Kill(); killErr == nil {
+					srcKilled = true
+				}
 			}
 		}
 	}
@@ -278,8 +281,12 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 }
 
 func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig) {
-	if config.RequireTls {
-		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
+	if internal.PGMustUseTlsConnection(config) {
+		sslMode := "verify-ca"
+		if config.SkipCertVerification {
+			sslMode = "require"
+		}
+		cmd.Env = append(cmd.Env, "PGSSLMODE="+sslMode)
 
 		if config.RootCa != nil && *config.RootCa != "" {
 			// write root CA to a temp file

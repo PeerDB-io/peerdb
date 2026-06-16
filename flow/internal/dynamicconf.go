@@ -468,6 +468,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_POSTGRES,
 	},
+	{
+		Name:             "PEERDB_MYSQL_EVENT_CACHE_COUNT",
+		Description:      "Maximum number of events the MySQL Go driver loads in memory at once, useful when pushing large rows",
+		DefaultValue:     "10240",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -619,6 +627,10 @@ func PeerDBBigQueryToastMergeChunking(ctx context.Context, env map[string]string
 
 func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
+}
+
+func PeerDBMySQLEventCacheCount(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_MYSQL_EVENT_CACHE_COUNT")
 }
 
 func PeerDBNormalizeBufferHours(ctx context.Context, env map[string]string) (int64, error) {

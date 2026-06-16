@@ -24,7 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16) (types.QValueKind, error) {
+func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16, version uint32) (types.QValueKind, error) {
 	switch mytype {
 	case mysql.MYSQL_TYPE_TINY:
 		if unsigned {
@@ -66,6 +66,9 @@ func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16) (types.QValu
 	case mysql.MYSQL_TYPE_YEAR:
 		return types.QValueKindInt16, nil
 	case mysql.MYSQL_TYPE_BIT:
+		if version >= shared.InternalVersion_MySQLConvertBitToUInt64 {
+			return types.QValueKindUInt64, nil
+		}
 		return types.QValueKindInt64, nil
 	case mysql.MYSQL_TYPE_JSON:
 		return types.QValueKindJSON, nil
@@ -92,7 +95,7 @@ func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16) (types.QValu
 	}
 }
 
-func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mysql.Field) (types.QRecordSchema, error) {
+func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mysql.Field, version uint32) (types.QRecordSchema, error) {
 	tableColumns := make(map[string]*protos.FieldDescription, len(tableSchema.Columns))
 	for _, col := range tableSchema.Columns {
 		tableColumns[col.Name] = col
@@ -112,7 +115,7 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 		} else {
 			var err error
 			unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
-			qkind, err = qkindFromMysqlType(field.Type, unsigned, field.Charset)
+			qkind, err = qkindFromMysqlType(field.Type, unsigned, field.Charset, version)
 			if err != nil {
 				return types.QRecordSchema{}, err
 			}

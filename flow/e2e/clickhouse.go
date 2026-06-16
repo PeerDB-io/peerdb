@@ -175,7 +175,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 
 	batch := &model.QRecordBatch{}
 	colTypes := rows.ColumnTypes()
-	row := make([]any, 0, len(colTypes))
+	scanTypes := make([]reflect.Type, len(colTypes))
 	tableSchema, err := connclickhouse.GetTableSchemaForTable(&protos.TableMapping{SourceTableIdentifier: table}, colTypes)
 	if err != nil {
 		return nil, err
@@ -183,7 +183,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 
 	for idx, ty := range colTypes {
 		fieldDesc := tableSchema.Columns[idx]
-		row = append(row, reflect.New(ty.ScanType()).Interface())
+		scanTypes[idx] = ty.ScanType()
 		batch.Schema.Fields = append(batch.Schema.Fields, types.QField{
 			Name:      ty.Name(),
 			Type:      types.QValueKind(fieldDesc.Type),
@@ -194,6 +194,13 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	}
 
 	for rows.Next() {
+		// Allocate fresh scan targets per row: clickhouse-go does not reset a
+		// nullable destination to nil when scanning a NULL, so a reused buffer
+		// would make a NULL row inherit the previous row's value.
+		row := make([]any, len(scanTypes))
+		for idx, st := range scanTypes {
+			row[idx] = reflect.New(st).Interface()
+		}
 		if err := rows.Scan(row...); err != nil {
 			return nil, err
 		}

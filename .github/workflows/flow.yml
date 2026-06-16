@@ -69,12 +69,12 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:8cb52078690728e2b3d1507fc84eda4c07d4d59bd8fa241e9b1cc7eb7de096c9
+        image: redpandadata/redpanda@sha256:394cee6e2076a23f9b7b01f5d68228d52429fe683fd087de11c8a68ff5287037
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.4.1@sha256:12aec8d2b01e0447c61303fc04a66dfbb7bfbb6a1332faf32707c3a2b54787d8
+        image: elasticsearch:9.4.2@sha256:5a2a64b3325fce8c82ea4f2f3d3955c93d7d34d96831fe475b45310da5c27fcb
         ports:
           - 9200:9200
         env:
@@ -82,7 +82,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.152.0@sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
+        image: otel/opentelemetry-collector-contrib:0.153.0@sha256:93aad750175cbf1a973ae1c5886c3371f4d800f61be25cdd26870b8441ffe9fa
         ports:
           - 4317:4317
       toxiproxy:
@@ -92,16 +92,17 @@ jobs:
           - 9902:9902
           - 9904:9904
           - 9903:9903
-          - 42001:42001
-          - 42002:42002
-          - 42003:42003
-          - 42004:42004
-          - 42005:42005
-          - 49001:49001
-          - 49002:49002
-          - 49003:49003
+          - 10001:10001
+          - 12001:12001
+          - 12002:12002
+          - 12003:12003
+          - 12004:12004
+          - 12005:12005
+          - 14001:14001
+          - 14002:14002
+          - 14003:14003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:5b8550a3b703eb4e5efb14a1f491370b7f765febfac5b0b2ed0321cdc74b1476
+        image: linuxserver/openssh-server:latest@sha256:d7ba00e0f66af202beebfa5cd96bad6698aa1543d5196e4d85dba340ea40d092
         ports:
           - 2222:2222
         env:
@@ -114,7 +115,7 @@ jobs:
           DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - name: generate or hydrate protos
@@ -122,7 +123,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.26.3'
+          go-version: '1.26.4'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos and pg_dump
@@ -179,7 +180,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
@@ -614,7 +615,7 @@ jobs:
           CI_MONGO_URI: mongodb://localhost:27017
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
-          TOXIPROXY_POSTGRES_HOST: catalog
+          SSH_POSTGRES_HOST: catalog
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
@@ -652,13 +653,13 @@ jobs:
 
       - name: Upload test results to Codecov
         if: success() || failure()
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           report_type: test_results
           files: logs/test-results.xml
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Ingest tests results for analysis

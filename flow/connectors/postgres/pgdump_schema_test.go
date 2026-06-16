@@ -96,7 +96,7 @@ func TestRunPipeline_DstExitsNonZero(t *testing.T) {
 	requireUnix(t)
 	ctx := t.Context()
 
-	src := exec.CommandContext(ctx, "sh", "-c", "echo hi")
+	src := exec.CommandContext(ctx, "true")
 	// exit 3 immediately, ignoring stdin
 	dst := exec.CommandContext(ctx, "sh", "-c", "exit 3")
 

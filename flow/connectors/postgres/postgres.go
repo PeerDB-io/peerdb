@@ -47,7 +47,9 @@ type PostgresConnector struct {
 	rdsAuth                *utils.RDSAuth
 	connStr                string
 	metadataSchema         string
+	walSenderTimeout       walSenderTimeout
 	replLock               sync.Mutex
+	closeLock              sync.Mutex
 	pgVersion              shared.PGVersion
 
 	cdcStoreEnabled bool
@@ -160,20 +162,8 @@ func newPostgresConnector(
 
 	tunnel.StartKeepalive(context.Background(), func() {
 		connector.logger.Info("SSH keepalive failed, closing connections")
-		bgCtx := context.Background()
-		timeout, cancel := context.WithTimeout(bgCtx, 5*time.Second)
-		defer cancel()
-		if err := connector.conn.Close(timeout); err != nil {
-			connector.logger.Error("Failed to close Postgres connection on SSH keepalive failure",
-				slog.Any("error", err))
-		}
-		if connector.replConn != nil {
-			timeout2, cancel2 := context.WithTimeout(bgCtx, 5*time.Second)
-			defer cancel2()
-			if err := connector.replConn.Close(timeout2); err != nil {
-				connector.logger.Error("Failed to close Postgres replication connection on SSH keepalive failure",
-					slog.Any("error", err))
-			}
+		for _, err := range connector.closePostgresConnections(5 * time.Second) {
+			connector.logger.Error("Failed to close Postgres connection on SSH keepalive failure", slog.Any("error", err))
 		}
 	})
 
@@ -185,8 +175,12 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
-	if pgConfig.RequireTls || pgConfig.RootCa != nil {
-		tlsConfig, err := common.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, false)
+
+	shouldUseTls := internal.PGMustUseTlsConnection(pgConfig)
+
+	if shouldUseTls || pgConfig.RootCa != nil {
+		tlsConfig, err := common.CreateTlsConfig(
+			tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, pgConfig.SkipCertVerification)
 		if err != nil {
 			return nil, err
 		}
@@ -210,21 +204,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 func (c *PostgresConnector) Close() error {
 	var errs []error
 	if c != nil {
-		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := c.conn.Close(timeout); err != nil {
-			c.logger.Error("failed to close Postgres connection", slog.Any("error", err))
-			errs = append(errs, fmt.Errorf("failed to close Postgres connection: %w", err))
-		}
-
-		if c.replConn != nil {
-			timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := c.replConn.Close(timeout); err != nil {
-				c.logger.Error("failed to close Postgres replication connection", slog.Any("error", err))
-				errs = append(errs, fmt.Errorf("failed to close Postgres replication connection: %w", err))
-			}
-		}
+		errs = append(errs, c.closePostgresConnections(30*time.Second)...)
 
 		if err := c.ssh.Close(); err != nil {
 			c.logger.Error("[postgres] failed to close SSH tunnel", slog.Any("error", err))
@@ -232,6 +212,32 @@ func (c *PostgresConnector) Close() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (c *PostgresConnector) closePostgresConnections(timeoutDuration time.Duration) []error {
+	c.closeLock.Lock()
+	defer c.closeLock.Unlock()
+
+	var errs []error
+	if c.conn != nil && !c.conn.IsClosed() {
+		timeout, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+		if err := c.conn.Close(timeout); err != nil {
+			c.logger.Error("failed to close Postgres connection", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to close Postgres connection: %w", err))
+		}
+		cancel()
+	}
+
+	if c.replConn != nil && !c.replConn.IsClosed() {
+		timeout, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+		if err := c.replConn.Close(timeout); err != nil {
+			c.logger.Error("failed to close Postgres replication connection", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to close Postgres replication connection: %w", err))
+		}
+		cancel()
+	}
+
+	return errs
 }
 
 func (c *PostgresConnector) Conn() *pgx.Conn {

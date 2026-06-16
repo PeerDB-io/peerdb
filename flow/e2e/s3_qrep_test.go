@@ -207,5 +207,6 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	require.NoError(s.t, err)
 
-	require.Len(s.t, files, 10)
+	// The estimated row count can land above 20000 and result in 11 partitions
+	require.Contains(s.t, []int{10, 11}, len(files))
 }

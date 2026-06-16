@@ -4,12 +4,42 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func TestQkindFromMysqlType_Bit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		version uint32
+		want    types.QValueKind
+	}{
+		{"first version maps BIT to Int64", shared.InternalVersion_First, types.QValueKindInt64},
+		{
+			"version just before the gate maps BIT to Int64",
+			shared.InternalVersion_MySQLConvertBitToUInt64 - 1,
+			types.QValueKindInt64,
+		},
+		{
+			"gating version maps BIT to UInt64",
+			shared.InternalVersion_MySQLConvertBitToUInt64,
+			types.QValueKindUInt64,
+		},
+		{"latest version maps BIT to UInt64", shared.InternalVersion_Latest, types.QValueKindUInt64},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			qkind, err := qkindFromMysqlType(mysql.MYSQL_TYPE_BIT, false, 0, tc.version)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, qkind)
+		})
+	}
+}
 
 func TestProcessTime(t *testing.T) {
 	epoch := time.Unix(0, 0).UTC()
-	//nolint:govet
 	for _, ts := range []struct {
 		out time.Duration
 		in  string

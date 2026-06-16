@@ -34,6 +34,15 @@ export const mongoSetting: PeerSetting[] = [
     tips: 'If you are using a non-TLS connection, check this box.',
   },
   {
+    label: 'Skip Certificate Verification?',
+    field: 'skipCertVerification',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, skipCertVerification: value as boolean })),
+    type: 'switch',
+    optional: true,
+    tips: 'Skip TLS certificate verification (insecure, use with caution).',
+  },
+  {
     label: 'TLS Host',
     field: 'tlsHost',
     stateHandler: (value, setter) =>
@@ -65,6 +74,7 @@ export const blankMongoSetting: MongoConfig = {
   username: '',
   password: '',
   disableTls: false,
+  skipCertVerification: false,
   tlsHost: '',
   readPreference: 0,
 };
