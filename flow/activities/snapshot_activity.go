@@ -75,7 +75,7 @@ func (a *SnapshotActivity) SetupReplication(
 
 	logger.Info("waiting for slot to be created...")
 	slotCreateStart := time.Now()
-	stopSlotCreateWarning := common.Interval(ctx, time.Minute, func() {
+	stopSlotCreateWarning := common.Interval(ctx, 5*time.Minute, func() {
 		elapsed := time.Since(slotCreateStart)
 		if elapsed >= 15*time.Minute {
 			msg := fmt.Sprintf(
