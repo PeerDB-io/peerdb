@@ -334,9 +334,6 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
-	// StartSyncGTID keeps the passed set by reference (as the syncer's prevGset) and mutates it
-	// from the syncer goroutine as GTIDs arrive. Give it an independent clone so PullRecords can
-	// accumulate GTIDs into `gset` (advanceGset) and read it without racing the syncer on the same map.
 	stream, err := syncer.StartSyncGTID(gset.Clone())
 	if err != nil {
 		syncer.Close()
@@ -476,11 +473,8 @@ func (c *MySqlConnector) PullRecords(
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
 	// advanceGset folds a transaction's GTID into our running set so XID/commit can
-	// checkpoint it. Needed because events inside a TRANSACTION_PAYLOAD_EVENT are decoded
-	// by a sub-parser that never populates XIDEvent.GSet (and carry end_log_pos=0), so we
-	// can no longer read the post-commit set off the XID event. Accumulating from the
-	// (uncompressed) outer GTID events works identically for the compressed and plain paths.
-	// we can rely on inner event GSet once this PR is merged: https://github.com/go-mysql-org/go-mysql/pull/1153
+	// checkpoint it. Needed because events inside a TRANSACTION_PAYLOAD_EVENT don't have ev.GSet set.
+	// We can rely on inner event GSet once this PR is merged: https://github.com/go-mysql-org/go-mysql/pull/1153
 	advanceGset := func(next mysql.GTIDSet, err error) error {
 		if err != nil {
 			return fmt.Errorf("failed to compute next GTID: %w", err)

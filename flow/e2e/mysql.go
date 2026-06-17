@@ -179,9 +179,6 @@ func (s *MySqlSource) Exec(ctx context.Context, sql string, args ...any) error {
 	return err
 }
 
-// HasTransactionPayloadEvent reports whether a TRANSACTION_PAYLOAD_EVENT (the single event
-// MySQL emits per transaction when binlog_transaction_compression is on) appears in the binlog
-// at or after the given position. Used by e2e tests to confirm compression actually kicked in.
 func (s *MySqlSource) HasTransactionPayloadEvent(ctx context.Context, from mysql.Position) (bool, error) {
 	rs, err := s.MySqlConnector.Execute(ctx, fmt.Sprintf("SHOW BINLOG EVENTS IN '%s' FROM %d", from.Name, from.Pos))
 	if err != nil {
