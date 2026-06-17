@@ -68,8 +68,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Controls whether to enable the store for recovering unchanged Postgres TOAST values within a CDC batch",
 		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED",
+		Description:      "Override PEERDB_CDC_STORE_ENABLED when destination is ClickHouse",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD",
@@ -647,6 +655,10 @@ func PeerDBQueueParallelism(ctx context.Context, env map[string]string) (int64, 
 
 func PeerDBCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CDC_STORE_ENABLED")
+}
+
+func PeerDBClickHouseCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED")
 }
 
 func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context, env map[string]string) (int64, error) {
