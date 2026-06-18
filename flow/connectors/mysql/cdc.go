@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -551,6 +552,14 @@ func (c *MySqlConnector) PullRecords(
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
+		case *replication.GenericEvent:
+			// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
+			if event.Header.EventType == replication.INCIDENT_EVENT {
+				incident, message := parseIncidentEvent(ev.Data)
+				c.logger.Error("[mysql] received binlog incident event, resync required",
+					slog.Uint64("incident", uint64(incident)), slog.String("message", message))
+				return exceptions.NewMySQLBinlogIncidentError(incident, message)
+			}
 		case *replication.QueryEvent:
 			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
 				pos.Pos = event.Header.LogPos
@@ -870,6 +879,20 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 
 func posToOffsetText(pos mysql.Position) string {
 	return fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+}
+
+// parseIncidentEvent extracts the incident number and human-readable message.
+// Best-effort: returns what it can if the body is truncated.
+func parseIncidentEvent(data []byte) (uint16, string) {
+	if len(data) < 2 {
+		return 0, ""
+	}
+	incident := binary.LittleEndian.Uint16(data[:2])
+	if len(data) < 3 {
+		return incident, ""
+	}
+	end := min(3+int(data[2]), len(data))
+	return incident, string(data[3:end])
 }
 
 // processTableMapEventSchema compares the TABLE_MAP_EVENT schema against the cached schema
