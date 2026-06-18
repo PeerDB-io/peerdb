@@ -51,9 +51,25 @@ type PostgresConnector struct {
 	replLock               sync.Mutex
 	closeLock              sync.Mutex
 	pgVersion              shared.PGVersion
+
+	cdcStoreEnabled bool
 }
 
-func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+func NewPostgresConnectorWithCDCDestination(
+	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
+) (*PostgresConnector, error) {
+	return newPostgresConnector(ctx, env, pgConfig, destinationType)
+}
+
+func NewPostgresConnector(
+	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig,
+) (*PostgresConnector, error) {
+	return newPostgresConnector(ctx, env, pgConfig, protos.DBType_DBTYPE_UNKNOWN)
+}
+
+func newPostgresConnector(
+	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
+) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
@@ -114,6 +130,17 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
+	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch CDC Store setting: %w", err)
+	}
+	if cdcStoreEnabled && destinationType == protos.DBType_CLICKHOUSE {
+		cdcStoreEnabled, err = internal.PeerDBClickHouseCDCStoreEnabled(ctx, env)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch ClickHouse CDC Store setting: %w", err)
+		}
+	}
+
 	connector := &PostgresConnector{
 		logger:                 logger,
 		Config:                 pgConfig,
@@ -130,6 +157,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
+		cdcStoreEnabled:        cdcStoreEnabled,
 	}
 
 	tunnel.StartKeepalive(context.Background(), func() {

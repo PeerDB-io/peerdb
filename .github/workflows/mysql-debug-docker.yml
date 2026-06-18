@@ -1,0 +1,81 @@
+name: MySQL Debug Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      mysql_version:
+        description: MySQL version tag to build.
+        required: true
+        default: "8.0.46"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mysql-debug-docker.yml"
+      - "flow/e2e/test_data/mysql-debug/docker-bake.hcl"
+      - "flow/e2e/test_data/mysql-debug/Dockerfile"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/mysql-debug-docker.yml"
+      - "flow/e2e/test_data/mysql-debug/docker-bake.hcl"
+      - "flow/e2e/test_data/mysql-debug/Dockerfile"
+
+env:
+  MYSQL_DEBUG_VERSION: ${{ github.event.inputs.mysql_version || '8.0.46' }}
+
+jobs:
+  docker-build-external:
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Build MySQL debug image
+        run: |
+          docker build \
+            --build-arg MYSQL_VERSION="${MYSQL_DEBUG_VERSION}" \
+            --tag peerdb-mysql-debug:e2e \
+            flow/e2e/test_data/mysql-debug
+
+  docker-build:
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set Short Commit Hash
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build MySQL debug image
+        uses: depot/bake-action@1d58c2668346981089b088b7ef36755b206b20e9 # v1
+        with:
+          token: ${{ secrets.DEPOT_TOKEN }}
+          files: ./flow/e2e/test_data/mysql-debug/docker-bake.hcl
+          push: ${{ github.event_name != 'pull_request' }}
+        env:
+          MYSQL_VERSION: ${{ env.MYSQL_DEBUG_VERSION }}
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
