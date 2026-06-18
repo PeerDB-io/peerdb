@@ -338,6 +338,28 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 	}
 }
 
+// binaryColumnLength returns the declared length N of a fixed-length BINARY(N)
+// `mytype` is the MySQL type for the column
+// `meta` is the metadata for the column type: length for fixed length types.
+func binaryColumnLength(mytype byte, meta uint16) int {
+	if mytype != mysql.MYSQL_TYPE_STRING {
+		return 0
+	}
+	if meta < 256 { // no bit-packing, just the length
+		return int(meta)
+	}
+	// bit-packed, for more than 255 bytes:
+	// value = lower_byte(meta) + 2^4 * ((higher_byte(meta)&0x30) XOR 0x30)
+	lowerMetaByte := uint8(meta & 0xFF)
+	higherMetaByte := uint8(meta >> 8)
+	borrowedBitsMask := uint8(0x30)
+	extraBits := higherMetaByte & borrowedBitsMask
+	if extraBits != borrowedBitsMask { // More than 255 bytes
+		return int(lowerMetaByte) | (int((extraBits)^borrowedBitsMask) << 4)
+	}
+	return int(meta & 0xFF)
+}
+
 func QValueFromMysqlRowEvent(
 	ev *replication.TableMapEvent, idx int,
 	enums []string, sets []string,
@@ -497,7 +519,13 @@ func QValueFromMysqlRowEvent(
 	case string:
 		switch qkind {
 		case types.QValueKindBytes:
-			return types.QValueBytes{Val: shared.UnsafeFastStringToReadOnlyBytes(val)}, nil
+			b := shared.UnsafeFastStringToReadOnlyBytes(val)
+			if n := binaryColumnLength(mytype, ev.ColumnMeta[idx]); len(b) < n {
+				padded := make([]byte, n)
+				copy(padded, b)
+				b = padded
+			}
+			return types.QValueBytes{Val: b}, nil
 		case types.QValueKindString:
 			return types.QValueString{Val: val}, nil
 		case types.QValueKindEnum:
