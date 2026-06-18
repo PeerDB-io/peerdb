@@ -338,6 +338,7 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 // binaryColumnLength returns the declared length N of a fixed-length BINARY(N)
 // `mytype` is the MySQL type for the column
 // `meta` is the metadata for the column type: length for fixed length types.
+// Reimplementation of https://github.com/mysql/mysql-server/blob/845d525d49c8027a4d0cdcc43372c96ba295c857/sql/log_event.cc#L1792-L1805
 func binaryColumnLength(mytype byte, meta uint16) int {
 	if mytype != mysql.MYSQL_TYPE_STRING {
 		return 0
