@@ -433,6 +433,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// Returned by the deadline-capable SSH-tunnel conn (net.Pipe based) when the pipe is
+	// torn down mid-read, surfacing through pgconn.ReceiveMessage as a closed connection.
+	if errors.Is(err, io.ErrClosedPipe) {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "io.ErrClosedPipe",
+		}
+	}
+
 	if netErr, ok := errors.AsType[*net.OpError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,

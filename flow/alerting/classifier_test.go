@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"syscall"
@@ -229,6 +230,17 @@ func TestPostgresUnrecognizedSIMessageIDErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresClosedPipeErrorShouldBeIgnoreConnTemporary(t *testing.T) {
+	// Simulate the deadline-capable SSH-tunnel conn closing mid-read, surfacing through
+	// pgconn.ReceiveMessage in postgres/cdc.go as io.ErrClosedPipe.
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("ReceiveMessage failed: %w", io.ErrClosedPipe))
+	assert.Equal(t, ErrorIgnoreConnTemporary, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   "io.ErrClosedPipe",
 	}, errInfo, "Unexpected error info")
 }
 
