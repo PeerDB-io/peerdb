@@ -257,7 +257,7 @@ func (s ClickHouseSuite) Test_MySQL_Binary_Trailing_Zeros() {
 	const (
 		snapshotZeroHex = "11111111111111111111111111111100" // ends in 0x00
 		cdcZeroHex      = "21111111111111111111111111111100" // ends in 0x00
-		cdcNonZeroHex   = "31111111111111111111111111111131" // ends in 0x30
+		cdcNonZeroHex   = "31111111111111111111111111111131" // ends in 0x31
 	)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
