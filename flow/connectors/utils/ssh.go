@@ -23,7 +23,13 @@ type SSHTunnel struct {
 	*ssh.Client
 	logger        *slog.Logger
 	keepaliveChan atomic.Pointer[chan struct{}]
-	badTunnel     bool
+	badTunnel     atomic.Bool
+}
+
+// IsBad reports whether the tunnel has been marked unusable (keepalive failure or explicit close).
+// Safe to call on a nil tunnel, in which case it returns false.
+func (tunnel *SSHTunnel) IsBad() bool {
+	return tunnel != nil && tunnel.badTunnel.Load()
 }
 
 // GetSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
@@ -114,7 +120,7 @@ func (tunnel *SSHTunnel) Close() error {
 		if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
 			close(*keepaliveChan)
 		}
-		tunnel.badTunnel = true
+		tunnel.badTunnel.Store(true)
 		return tunnel.Client.Close()
 	}
 	return nil
@@ -141,7 +147,7 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 				if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
 					close(*keepaliveChan)
 				}
-				tunnel.badTunnel = true
+				tunnel.badTunnel.Store(true)
 				if onFailure != nil {
 					onFailure()
 				}
@@ -169,7 +175,7 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 			if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
 				close(*keepaliveChan)
 			}
-			tunnel.badTunnel = true
+			tunnel.badTunnel.Store(true)
 			if onFailure != nil {
 				onFailure()
 			}
@@ -179,7 +185,7 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 }
 
 func (tunnel *SSHTunnel) StartKeepalive(ctx context.Context, onFailure func()) {
-	if tunnel == nil || tunnel.Client == nil || tunnel.badTunnel {
+	if tunnel == nil || tunnel.Client == nil || tunnel.badTunnel.Load() {
 		return
 	}
 	if tunnel.keepaliveChan.Load() != nil {
@@ -195,7 +201,7 @@ func (tunnel *SSHTunnel) StartKeepalive(ctx context.Context, onFailure func()) {
 // returns a channel that is closed if the SSH keepalive fails,
 // or nil if no SSH tunnel is configured
 func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) <-chan struct{} {
-	if tunnel == nil || tunnel.Client == nil || tunnel.badTunnel {
+	if tunnel == nil || tunnel.Client == nil || tunnel.badTunnel.Load() {
 		// nil channel would be of no consequence in a select
 		// UNLESS it's the only branch in a select, in which case it would block forever
 		return nil

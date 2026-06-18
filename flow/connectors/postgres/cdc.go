@@ -722,6 +722,10 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if err != nil {
+			// If the SSH tunnel went bad (e.g. keepalive failure), we proactively close the replication connection.
+			if p.ssh.IsBad() {
+				return exceptions.NewSSHTunnelConnectionError(fmt.Errorf("ReceiveMessage failed: %w", err))
+			}
 			return fmt.Errorf("ReceiveMessage failed: %w", err)
 		}
 
