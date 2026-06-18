@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
@@ -228,6 +229,203 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 		'tinytext','mediumtext','longtext','char','varchar','{"a":2}')`, quotedSrcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,k,tb,mb,lb,bi,vb,tt,mt,lt,ch,vc,js")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_MySQL_Binary_Trailing_Zeros reproduces trailing-0x00 truncation of fixed-length
+// BINARY(N) columns over CDC.
+//
+// MySQL right-pads BINARY(N) to N bytes with 0x00. Internally this is represented
+// as a binary array of length M=N-number_of_trailing(0x00). When reading from binlog these
+// values need to be adapted back to N bytes based on the column type.
+//
+// See https://github.com/shyiko/mysql-binlog-connector-java/issues/169#issuecomment-301864569
+// for a similar problem in a different project.
+func (s ClickHouseSuite) Test_MySQL_Binary_Trailing_Zeros() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_binary_padding"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_binary_padding_dst"
+
+	type binaryCase struct {
+		id             int
+		label          string
+		beforeSnapshot bool
+		// BINARY(16) covers the common short metadata path with a 1-byte row length.
+		b16InsertHex string
+		b16WantHex   string
+		// BINARY(255) covers the upper edge of the same metadata path without switching
+		// to MySQL's 2-byte row length encoding for fixed strings longer than 255 bytes.
+		// MySQL does not allow BINARY(N) with N > 255.
+		b255InsertHex string
+		b255WantHex   string
+	}
+
+	cases := []binaryCase{
+		// SELECT path: correct today, included to prove snapshot and CDC agree.
+		{
+			id:             1,
+			label:          "snapshot_trailing_zero",
+			beforeSnapshot: true,
+			b16InsertHex:   strings.Repeat("11", 15) + "00",
+			b16WantHex:     strings.Repeat("11", 15) + "00",
+			b255InsertHex:  strings.Repeat("11", 254) + "00",
+			b255WantHex:    strings.Repeat("11", 254) + "00",
+		},
+		// CDC path: MySQL packs these shorter than their declared BINARY(N) length.
+		{
+			id:             2,
+			label:          "cdc_trailing_zero",
+			beforeSnapshot: false,
+			b16InsertHex:   "21" + strings.Repeat("11", 14) + "00",
+			b16WantHex:     "21" + strings.Repeat("11", 14) + "00",
+			b255InsertHex:  "21" + strings.Repeat("11", 253) + "00",
+			b255WantHex:    "21" + strings.Repeat("11", 253) + "00",
+		},
+		{
+			id:             3,
+			label:          "cdc_multiple_trailing_zeros",
+			beforeSnapshot: false,
+			b16InsertHex:   "22" + strings.Repeat("11", 11) + strings.Repeat("00", 4),
+			b16WantHex:     "22" + strings.Repeat("11", 11) + strings.Repeat("00", 4),
+			b255InsertHex:  "22" + strings.Repeat("11", 250) + strings.Repeat("00", 4),
+			b255WantHex:    "22" + strings.Repeat("11", 250) + strings.Repeat("00", 4),
+		},
+		{
+			id:             4,
+			label:          "cdc_all_zero",
+			beforeSnapshot: false,
+			b16InsertHex:   strings.Repeat("00", 16),
+			b16WantHex:     strings.Repeat("00", 16),
+			b255InsertHex:  strings.Repeat("00", 255),
+			b255WantHex:    strings.Repeat("00", 255),
+		},
+		{
+			id:             5,
+			label:          "cdc_short_insert",
+			beforeSnapshot: false,
+			b16InsertHex:   "41",
+			b16WantHex:     "41" + strings.Repeat("00", 15),
+			b255InsertHex:  "42",
+			b255WantHex:    "42" + strings.Repeat("00", 254),
+		},
+		// Controls: interior zero bytes and non-zero tails should be preserved without extra padding.
+		{
+			id:             6,
+			label:          "cdc_interior_zero_nonzero_tail",
+			beforeSnapshot: false,
+			b16InsertHex:   "FF00112233445566778899AABBCCDDEE",
+			b16WantHex:     "FF00112233445566778899AABBCCDDEE",
+			b255InsertHex:  "FF00" + strings.Repeat("7F", 252) + "EE",
+			b255WantHex:    "FF00" + strings.Repeat("7F", 252) + "EE",
+		},
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			label TEXT NOT NULL,
+			b16 BINARY(16) NOT NULL,
+			b255 BINARY(255) NOT NULL
+		)
+	`, quotedSrcFullName)))
+
+	var snapshotCases []binaryCase
+	var cdcCases []binaryCase
+	for _, tc := range cases {
+		if tc.beforeSnapshot {
+			snapshotCases = append(snapshotCases, tc)
+		} else {
+			cdcCases = append(cdcCases, tc)
+		}
+	}
+	snapshotValues := make([]string, 0, len(snapshotCases))
+	for _, tc := range snapshotCases {
+		snapshotValues = append(snapshotValues, fmt.Sprintf(
+			"(%d,'%s',UNHEX('%s'),UNHEX('%s'))",
+			tc.id, tc.label, tc.b16InsertHex, tc.b255InsertHex))
+	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id,label,b16,b255) VALUES %s`, quotedSrcFullName, strings.Join(snapshotValues, ","))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting for snapshot row", dstTableName, "id,label,b16,b255", len(snapshotCases))
+
+	cdcValues := make([]string, 0, len(cdcCases))
+	for _, tc := range cdcCases {
+		cdcValues = append(cdcValues, fmt.Sprintf(
+			"(%d,'%s',UNHEX('%s'),UNHEX('%s'))",
+			tc.id, tc.label, tc.b16InsertHex, tc.b255InsertHex))
+	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id,label,b16,b255) VALUES %s`, quotedSrcFullName, strings.Join(cdcValues, ","))))
+
+	EnvWaitForCount(env, s, "waiting for cdc rows", dstTableName, "id,label,b16,b255", len(cases))
+
+	rows, err := s.GetRows(dstTableName, "id,label,b16,b255")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, len(cases), "expected all binary padding test rows")
+
+	byLabel := make(map[string]map[string][]byte, len(rows.Records))
+	for _, row := range rows.Records {
+		label, ok := row[1].Value().(string)
+		require.True(s.t, ok, "label should be a string")
+		byLabel[label] = make(map[string][]byte, 2)
+		for _, col := range []struct {
+			name string
+			idx  int
+		}{
+			{name: "b16", idx: 2},
+			{name: "b255", idx: 3},
+		} {
+			switch v := row[col.idx].Value().(type) {
+			case string:
+				byLabel[label][col.name] = []byte(v)
+			case []byte:
+				byLabel[label][col.name] = v
+			default:
+				require.Failf(s.t, "unexpected type for binary column",
+					"label=%s column=%s type=%T", label, col.name, row[col.idx].Value())
+			}
+		}
+	}
+
+	for _, tc := range cases {
+		for _, col := range []struct {
+			name    string
+			wantHex string
+		}{
+			{name: "b16", wantHex: tc.b16WantHex},
+			{name: "b255", wantHex: tc.b255WantHex},
+		} {
+			want, decErr := hex.DecodeString(col.wantHex)
+			require.NoError(s.t, decErr)
+			gotByCol, ok := byLabel[tc.label]
+			require.Truef(s.t, ok, "missing row %q in destination", tc.label)
+			got, ok := gotByCol[col.name]
+			require.Truef(s.t, ok, "missing column %q for row %q in destination", col.name, tc.label)
+			require.Equalf(s.t, want, got,
+				"%s %q: MySQL stores %d bytes (%s) but ClickHouse has %d bytes (%s)",
+				col.name, tc.label, len(want), col.wantHex, len(got), strings.ToUpper(hex.EncodeToString(got)))
+		}
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
