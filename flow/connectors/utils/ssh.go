@@ -26,12 +26,6 @@ type SSHTunnel struct {
 	badTunnel     atomic.Bool
 }
 
-// IsBad reports whether the tunnel has been marked unusable (keepalive failure or explicit close).
-// Safe to call on a nil tunnel, in which case it returns false.
-func (tunnel *SSHTunnel) IsBad() bool {
-	return tunnel != nil && tunnel.badTunnel.Load()
-}
-
 // GetSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
 func GetSSHClientConfig(config *protos.SSHConfig) (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
@@ -105,6 +99,12 @@ func NewSSHTunnel(
 	}
 
 	return nil, nil
+}
+
+// IsBad reports whether the tunnel has been marked unusable (keepalive failure or explicit close).
+// Safe to call on a nil tunnel, in which case it returns false.
+func (tunnel *SSHTunnel) IsBad() bool {
+	return tunnel != nil && tunnel.badTunnel.Load()
 }
 
 func (tunnel *SSHTunnel) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
