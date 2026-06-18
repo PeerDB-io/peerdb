@@ -342,11 +342,11 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 // `mytype` is the MySQL type for the column
 // `meta` is the metadata for the column type: length for fixed length types.
 // Reimplementation of MySQL metadata decoding:
-// - MySQL 8.4: https://github.com/mysql/mysql-server/blob/845d525d49c8027a4d0cdcc43372c96ba295c857/sql/log_event.cc#L1792-L1805
-// - MySQL 5.7: https://github.com/mysql/mysql-server/blob/f7680e98b6bbe3500399fbad465d08a6b75d7a5c/sql/log_event.cc#L2047-L2064
-// - MariaDB 10.6:
-//   https://github.com/MariaDB/server/blob/fcd3f81e08daea471d371d3be051e6feabb06399/sql/rpl_utility_server.cc#L139-L140
-//   https://github.com/MariaDB/server/blob/fcd3f81e08daea471d371d3be051e6feabb06399/sql/sql_type_string.cc#L70-L73
+//   - MySQL 8.4: https://github.com/mysql/mysql-server/blob/845d525d49c8027a4d0cdcc43372c96ba295c857/sql/log_event.cc#L1792-L1805
+//   - MySQL 5.7: https://github.com/mysql/mysql-server/blob/f7680e98b6bbe3500399fbad465d08a6b75d7a5c/sql/log_event.cc#L2047-L2064
+//   - MariaDB 10.6:
+//     https://github.com/MariaDB/server/blob/fcd3f81e08daea471d371d3be051e6feabb06399/sql/rpl_utility_server.cc#L139-L140
+//     https://github.com/MariaDB/server/blob/fcd3f81e08daea471d371d3be051e6feabb06399/sql/sql_type_string.cc#L70-L73
 func binaryColumnLength(mytype byte, meta uint16) int {
 	if mytype != mysql.MYSQL_TYPE_STRING {
 		return 0
