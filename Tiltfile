@@ -137,6 +137,55 @@ local_resource(
     resource_deps=['postgres2']
 )
 
+local_resource(
+    'setup-postgres-peer',
+    cmd='./local_provision_scripts/setup-postgres-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-postgres']
+)
+
+local_resource(
+    'setup-postgres2-peer',
+    cmd='./local_provision_scripts/setup-postgres2-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-postgres2'],
+)
+
+local_resource(
+    'setup-clickhouse-peer',
+    cmd='./local_provision_scripts/setup-clickhouse-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-clickhouse'],
+)
+
+local_resource(
+    'setup-mongodb-peer',
+    cmd='./local_provision_scripts/setup-mongodb-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-mongodb'],
+)
+
+local_resource(
+    'setup-mysql-gtid-peer',
+    cmd='./local_provision_scripts/setup-mysql-gtid-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-mysql-gtid'],
+)
+
+local_resource(
+    'setup-mysql-pos-peer',
+    cmd='./local_provision_scripts/setup-mysql-pos-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-mysql-pos'],
+)
+
+local_resource(
+    'setup-mariadb-peer',
+    cmd='./local_provision_scripts/setup-mariadb-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-mariadb'],
+)
+
 # This is not defined as a resource as we need the file to be present
 # when `docker_compose` loads the configuration (next line).
 local('./generate-test-environment.sh')
@@ -150,32 +199,32 @@ docker_compose('./ancillary-docker-compose.yml', env_file=tiltfile_dir + '/ancil
 # This way, users can choose which ones to start and when, depending on the tests they want to run.
 
 dc_resource('clickhouse', labels=['Ancillary-DB'], links=[
-    link('http://localhost:11123', 'ClickHouse HTTP'),
-    link('http://localhost:11000', 'ClickHouse TCP'),
+    link('http://localhost:' + resolve_env('CI_CLICKHOUSE_HTTP_PORT', '8123'), 'ClickHouse HTTP'),
+    link('http://localhost:' + resolve_env('CI_CLICKHOUSE_NATIVE_PORT', '9000'), 'ClickHouse TCP'),
 ], auto_init=False)
 
 dc_resource('mongodb', labels=['Ancillary-DB'], links=[
-    link('http://localhost:11017', 'MongoDB'),
+    link('http://localhost:' + resolve_env('CI_MONGO_PORT', '27017'), 'MongoDB'),
 ], auto_init=False)
 
 dc_resource('mysql-gtid', labels=['Ancillary-DB'], links=[
-    link('http://localhost:3306', 'MySQL GTID'),
+    link('http://localhost:' + resolve_env('CI_MYSQL_GTID_PORT', '3306'), 'MySQL GTID'),
 ], auto_init=False)
 
 dc_resource('mysql-pos', labels=['Ancillary-DB'], links=[
-    link('http://localhost:3307', 'MySQL File-Pos'),
+    link('http://localhost:' + resolve_env('CI_MYSQL_POS_PORT', '3307'), 'MySQL File-Pos'),
 ], auto_init=False)
 
 dc_resource('mariadb', labels=['Ancillary-DB'], links=[
-    link('http://localhost:3308', 'MariaDB'),
+    link('http://localhost:' + resolve_env('CI_MARIADB_PORT', '3308'), 'MariaDB'),
 ], auto_init=False)
 
 dc_resource('postgres', labels=['Ancillary-DB'], links=[
-    link('http://localhost:5432', 'PostgreSQL'),
+    link('http://localhost:' + resolve_env('PG_PORT', '5436'), 'PostgreSQL'),
 ], auto_init=False)
 
 dc_resource('postgres2', labels=['Ancillary-DB'], links=[
-    link('http://localhost:5437', 'PostgreSQL (secondary)'),
+    link('http://localhost:' + resolve_env('PG2_PORT', '5437'), 'PostgreSQL (secondary)'),
 ], auto_init=False)
 
 local_resource(
