@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
@@ -224,6 +225,105 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 		'tinytext','mediumtext','longtext','char','varchar','{"a":2}')`, quotedSrcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,k,tb,mb,lb,bi,vb,tt,mt,lt,ch,vc,js")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_MySQL_Binary_Trailing_Zeros reproduces trailing-0x00 truncation of fixed-length
+// BINARY(N) columns over CDC.
+//
+// MySQL right-pads BINARY(N) to N bytes with 0x00. Internally this is represented
+// as a binary array of length M=N-number_of_trailing(0x00). When reading from binlog these
+// values need to be adapted ack to N bytes based on the column type
+//
+// This test pins all three values at the full 16 bytes:
+//   - snapshot_zero: trailing 0x00, inserted before snapshot (SELECT path)
+//   - cdc_zero:      trailing 0x00, inserted during CDC (binlog path)
+//   - cdc_nonzero:   non-zero trailing byte, inserted during CDC
+//
+// See https://github.com/shyiko/mysql-binlog-connector-java/issues/169#issuecomment-301864569
+// for a similar problem in a different project.
+func (s ClickHouseSuite) Test_MySQL_Binary_Trailing_Zeros() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_binary_padding"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_binary_padding_dst"
+
+	const (
+		snapshotZeroHex = "11111111111111111111111111111100" // ends in 0x00
+		cdcZeroHex      = "21111111111111111111111111111100" // ends in 0x00
+		cdcNonZeroHex   = "31111111111111111111111111111131" // ends in 0x30
+	)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			label TEXT NOT NULL,
+			b BINARY(16) NOT NULL
+		)
+	`, quotedSrcFullName)))
+
+	// snapshot row: initial load reads via SELECT, which returns the full 16 bytes
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id,label,b) VALUES (1,'snapshot_zero',UNHEX('%s'))`, quotedSrcFullName, snapshotZeroHex)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting for snapshot row", dstTableName, "id,label,b", 1)
+
+	// CDC rows: read from the binlog, where trailing 0x00 is stripped
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id,label,b) VALUES (2,'cdc_zero',UNHEX('%s')),(3,'cdc_nonzero',UNHEX('%s'))`,
+		quotedSrcFullName, cdcZeroHex, cdcNonZeroHex)))
+
+	EnvWaitForCount(env, s, "waiting for cdc rows", dstTableName, "id,label,b", 3)
+
+	rows, err := s.GetRows(dstTableName, "id,label,b")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 3, "expected 3 rows")
+
+	byLabel := make(map[string][]byte, len(rows.Records))
+	for _, row := range rows.Records {
+		label, ok := row[1].Value().(string)
+		require.True(s.t, ok, "label should be a string")
+		switch v := row[2].Value().(type) {
+		case string:
+			byLabel[label] = []byte(v)
+		case []byte:
+			byLabel[label] = v
+		default:
+			require.Failf(s.t, "unexpected type for BINARY(16) column", "label=%s type=%T", label, row[2].Value())
+		}
+	}
+
+	expect := func(label, srcHex string) {
+		want, decErr := hex.DecodeString(srcHex)
+		require.NoError(s.t, decErr)
+		got, ok := byLabel[label]
+		require.Truef(s.t, ok, "missing row %q in destination", label)
+		require.Equalf(s.t, want, got,
+			"BINARY(16) %q: MySQL stores 16 bytes (%s) but ClickHouse has %d bytes (%s)",
+			label, srcHex, len(got), strings.ToUpper(hex.EncodeToString(got)))
+	}
+
+	expect("snapshot_zero", snapshotZeroHex) // SELECT path: correct today
+	expect("cdc_zero", cdcZeroHex)           // binlog path, trailing 0x00: reproduces the truncation
+	expect("cdc_nonzero", cdcNonZeroHex)     // binlog path, non-zero trailing byte: unaffected
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
