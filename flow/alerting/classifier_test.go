@@ -693,6 +693,7 @@ func TestNumericTruncateOrOutOfRangeWarningShouldBeLossyConversion(t *testing.T)
 	for code, err := range map[string]error{
 		"NUMERIC_TRUNCATED":    exceptions.NewNumericTruncatedError(errors.New("testing numeric truncated warning"), "tableA1", "columnB2"),
 		"NUMERIC_OUT_OF_RANGE": exceptions.NewNumericOutOfRangeError(errors.New("testing numeric out of range warning"), "tableA1", "columnB2"),
+		"TEMPORAL_CLAMPED":     exceptions.NewTemporalClampedError(errors.New("testing temporal clamped warning"), "tableA1", "columnB2"),
 	} {
 		t.Run(code, func(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("lossy conversion: %w", err))

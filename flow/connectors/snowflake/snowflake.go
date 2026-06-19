@@ -424,7 +424,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReq := model.NewRecordsToStreamRequest(
-		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, false, protos.DBType_SNOWFLAKE,
+		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, false, protos.DBType_SNOWFLAKE, req.Version,
 	)
 	stream, err := utils.RecordsToRawTableStream(streamReq, nil)
 	if err != nil {

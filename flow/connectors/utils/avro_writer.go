@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -38,6 +39,7 @@ type peerDBOCFWriter struct {
 	sizeTracker          *model.QRecordAvroChunkSizeTracker
 	avroCompressionCodec ocf.CodecName
 	targetDWH            protos.DBType
+	internalVersion      uint32
 }
 
 type AvroFile struct {
@@ -61,12 +63,25 @@ func NewPeerDBOCFWriter(
 	targetDWH protos.DBType,
 	sizeTracker *model.QRecordAvroChunkSizeTracker,
 ) *peerDBOCFWriter {
+	return NewPeerDBOCFWriterWithInternalVersion(
+		stream, avroSchema, avroCompressionCodec, targetDWH, sizeTracker, shared.InternalVersion_Latest)
+}
+
+func NewPeerDBOCFWriterWithInternalVersion(
+	stream *model.QRecordStream,
+	avroSchema *model.QRecordAvroSchemaDefinition,
+	avroCompressionCodec ocf.CodecName,
+	targetDWH protos.DBType,
+	sizeTracker *model.QRecordAvroChunkSizeTracker,
+	internalVersion uint32,
+) *peerDBOCFWriter {
 	return &peerDBOCFWriter{
 		stream:               stream,
 		avroSchema:           avroSchema,
 		avroCompressionCodec: avroCompressionCodec,
 		targetDWH:            targetDWH,
 		sizeTracker:          sizeTracker,
+		internalVersion:      internalVersion,
 	}
 }
 
@@ -219,7 +234,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		return 0, fmt.Errorf("failed to get Avro field names from schema: %w", err)
 	}
 	avroConverter, err := model.NewQRecordAvroConverter(
-		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,
+		ctx, env, p.avroSchema, p.targetDWH, p.internalVersion, avroFieldNames, logger,
 	)
 	if err != nil {
 		return 0, err

@@ -22,6 +22,7 @@ type QRecordAvroConverter struct {
 	Schema                   *QRecordAvroSchemaDefinition
 	ColNames                 []string
 	TargetDWH                protos.DBType
+	InternalVersion          uint32
 	UnboundedNumericAsString bool
 	NullMismatchTracker      *NullMismatchTracker
 }
@@ -31,6 +32,7 @@ func NewQRecordAvroConverter(
 	env map[string]string,
 	schema *QRecordAvroSchemaDefinition,
 	targetDWH protos.DBType,
+	internalVersion uint32,
 	colNames []string,
 	logger log.Logger,
 ) (*QRecordAvroConverter, error) {
@@ -46,6 +48,7 @@ func NewQRecordAvroConverter(
 	return &QRecordAvroConverter{
 		Schema:                   schema,
 		TargetDWH:                targetDWH,
+		InternalVersion:          internalVersion,
 		ColNames:                 colNames,
 		logger:                   logger,
 		UnboundedNumericAsString: unboundedNumericAsString,
@@ -75,8 +78,8 @@ func (qac *QRecordAvroConverter) Convert(
 
 		avroVal, size, err := qvalue.QValueToAvro(
 			ctx, val,
-			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
-			numericTruncator.Get(idx),
+			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.InternalVersion,
+			qac.UnboundedNumericAsString, numericTruncator.Get(idx),
 			format,
 			calcSize,
 		)

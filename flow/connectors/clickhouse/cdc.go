@@ -125,7 +125,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}
 	streamReq := model.NewRecordsToStreamRequest(
 		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, unboundedNumericAsString,
-		protos.DBType_CLICKHOUSE,
+		protos.DBType_CLICKHOUSE, req.Version,
 	)
 	numericTruncator := model.NewStreamNumericTruncator(req.TableMappings, NumericDestinationTypes)
 	stream, err := utils.RecordsToRawTableStream(streamReq, numericTruncator)
