@@ -80,21 +80,37 @@ func TestQkindFromMysqlColumnType_Set(t *testing.T) {
 }
 
 func TestQValueFromMysqlFieldValue_Uint64Set(t *testing.T) {
-	fieldValue := mysql.NewFieldValue(mysql.FieldValueTypeUnsigned, 5, nil)
+	const maxUint64 = ^uint64(0)
 
-	qv, err := QValueFromMysqlFieldValue(types.QValueKindUint64Set, mysql.MYSQL_TYPE_SET, fieldValue)
-	require.NoError(t, err)
-	require.Equal(t, types.QValueUint64Set{Val: 5}, qv)
+	for _, value := range []uint64{5, maxUint64} {
+		fieldValue := mysql.NewFieldValue(mysql.FieldValueTypeUnsigned, value, nil)
+
+		qv, err := QValueFromMysqlFieldValue(types.QValueKindUint64Set, mysql.MYSQL_TYPE_SET, fieldValue)
+		require.NoError(t, err)
+		require.Equal(t, types.QValueUint64Set{Val: value}, qv)
+	}
 }
 
 func TestQValueFromMysqlRowEvent_Uint64Set(t *testing.T) {
 	tableMap := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_SET}}
 	coercionReported := false
 
-	qv, err := QValueFromMysqlRowEvent(
-		tableMap, 0, nil, nil, types.QValueKindUint64Set, int64(5), nil, &coercionReported)
-	require.NoError(t, err)
-	require.Equal(t, types.QValueUint64Set{Val: 5}, qv)
+	for _, tc := range []struct {
+		name  string
+		input any
+		want  uint64
+	}{
+		{name: "small signed bitmask", input: int64(5), want: 5},
+		{name: "max signed bitmask", input: int64(-1), want: ^uint64(0)},
+		{name: "max unsigned bitmask", input: ^uint64(0), want: ^uint64(0)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			qv, err := QValueFromMysqlRowEvent(
+				tableMap, 0, nil, nil, types.QValueKindUint64Set, tc.input, nil, &coercionReported)
+			require.NoError(t, err)
+			require.Equal(t, types.QValueUint64Set{Val: tc.want}, qv)
+		})
+	}
 }
 
 func TestProcessTime(t *testing.T) {
