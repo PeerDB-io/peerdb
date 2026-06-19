@@ -500,8 +500,14 @@ func QValueFromMysqlRowEvent(
 	case time.Time:
 		return types.QValueTimestamp{Val: val}, nil
 	case *replication.JsonDiff:
-		// TODO support somehow??
-		return types.QValueNull(types.QValueKindJSON), nil
+		columnName := "__peerdb_unknown_" + strconv.Itoa(idx)
+		if len(ev.ColumnName) > idx {
+			columnName = string(ev.ColumnName[idx])
+		}
+		err := exceptions.NewMySQLPartialJSONUnsupportedError(
+			string(ev.Schema), string(ev.Table), columnName)
+		logger.Warn(err.Error())
+		return nil, err
 	case []byte:
 		switch qkind {
 		case types.QValueKindBytes:

@@ -1214,3 +1214,34 @@ func TestMySQLBinlogIncidentErrorShouldBeNotifyBinlogInvalid(t *testing.T) {
 		Code:   "BINLOG_INCIDENT",
 	}, errInfo)
 }
+
+func TestMySQLPartialJSONUnsupportedShouldBeNotifyBinlogInvalid(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLPartialJSONUnsupportedError("test_db", "test_table", "doc")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_BINLOG_ROW_VALUE_OPTIONS",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable:  "test_db.test_table",
+			ErrorAttributeKeyColumn: "doc",
+		},
+	}, errInfo)
+}
+
+func TestMySQLUnhandledRowsEventShouldBeNotifyBinlogInvalid(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLUnhandledRowsEventError("test_db", "test_table", "UnknownEvent", 255)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNHANDLED_ROWS_EVENT",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "test_db.test_table",
+		},
+	}, errInfo)
+}

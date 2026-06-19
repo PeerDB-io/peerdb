@@ -55,6 +55,49 @@ func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
 		e.SchemaName, e.TableName)
 }
 
+type MySQLPartialJSONUnsupportedError struct {
+	SchemaName string
+	TableName  string
+	ColumnName string
+}
+
+func NewMySQLPartialJSONUnsupportedError(schema string, table string, column string) *MySQLPartialJSONUnsupportedError {
+	return &MySQLPartialJSONUnsupportedError{SchemaName: schema, TableName: table, ColumnName: column}
+}
+
+func (e *MySQLPartialJSONUnsupportedError) Error() string {
+	tableName := fmt.Sprintf("%s.%s", e.SchemaName, e.TableName)
+	if e.ColumnName != "" {
+		tableName = fmt.Sprintf("%s.%s", tableName, e.ColumnName)
+	}
+	return fmt.Sprintf(
+		"PARTIAL_UPDATE_ROWS_EVENT received for %s: disable binlog_row_value_options (PARTIAL_JSON) "+
+			"on the source; PeerDB cannot apply partial JSON diffs", tableName)
+}
+
+type MySQLUnhandledRowsEventError struct {
+	SchemaName string
+	TableName  string
+	EventName  string
+	EventType  uint16
+}
+
+func NewMySQLUnhandledRowsEventError(
+	schema string, table string, eventName string, eventType uint16,
+) *MySQLUnhandledRowsEventError {
+	return &MySQLUnhandledRowsEventError{
+		SchemaName: schema,
+		TableName:  table,
+		EventName:  eventName,
+		EventType:  eventType,
+	}
+}
+
+func (e *MySQLUnhandledRowsEventError) Error() string {
+	return fmt.Sprintf("Unhandled MySQL rows event %s (%d) while processing %s.%s",
+		e.EventName, e.EventType, e.SchemaName, e.TableName)
+}
+
 type MySQLUnsupportedDDLError struct {
 	TableName string
 }

@@ -1104,6 +1104,30 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if partialJSONError, ok := errors.AsType[*exceptions.MySQLPartialJSONUnsupportedError](err); ok {
+		attrs := map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: partialJSONError.SchemaName + "." + partialJSONError.TableName,
+		}
+		if partialJSONError.ColumnName != "" {
+			attrs[ErrorAttributeKeyColumn] = partialJSONError.ColumnName
+		}
+		return ErrorNotifyBinlogInvalid, ErrorInfo{
+			Source:               ErrorSourceMySQL,
+			Code:                 "UNSUPPORTED_BINLOG_ROW_VALUE_OPTIONS",
+			AdditionalAttributes: attrs,
+		}
+	}
+
+	if unhandledRowsEventError, ok := errors.AsType[*exceptions.MySQLUnhandledRowsEventError](err); ok {
+		return ErrorNotifyBinlogInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNHANDLED_ROWS_EVENT",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: unhandledRowsEventError.SchemaName + "." + unhandledRowsEventError.TableName,
+			},
+		}
+	}
+
 	if unsupportedDDLError, ok := errors.AsType[*exceptions.MySQLUnsupportedDDLError](err); ok {
 		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
 			Source: ErrorSourceMySQL,
