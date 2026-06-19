@@ -99,12 +99,12 @@ func TestProcessAlterTableRenameObservesRename(t *testing.T) {
 	counter := installRecordingCodeNotificationCounter(t)
 	connector, logBuffer := newRenameObserverTestConnector()
 
-	stmt, ok := parseSingleDDLStmt(t, "ALTER TABLE original RENAME TO renamed").(*ast.AlterTableStmt)
+	stmt, ok := parseSingleDDLStmt(t, "ALTER TABLE source_db.original RENAME TO renamed").(*ast.AlterTableStmt)
 	require.True(t, ok)
 
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		TableNameMapping: map[string]model.NameAndExclude{
-			"app.original": {Name: "dst"},
+			"source_db.original": {Name: "dst"},
 		},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{
 			"dst": {},
@@ -122,8 +122,8 @@ func TestProcessAlterTableRenameObservesRename(t *testing.T) {
 
 	logs := logBuffer.String()
 	require.Contains(t, logs, `msg="table rename observed"`)
-	require.Contains(t, logs, "oldTable=app.original")
-	require.Contains(t, logs, "newTable=app.renamed")
+	require.Contains(t, logs, "oldTable=source_db.original")
+	require.Contains(t, logs, "newTable=source_db.renamed")
 }
 
 func newTestConnector(t *testing.T, ctx context.Context) *MySqlConnector {

@@ -798,9 +798,9 @@ func qualifiedMySQLTableName(table *ast.TableName, defaultSchema string) string 
 	return schema + "." + table.Name.String()
 }
 
-func (c *MySqlConnector) observeTableRename(ctx context.Context, oldTable, newTable *ast.TableName, defaultSchema string) {
-	oldTableName := qualifiedMySQLTableName(oldTable, defaultSchema)
-	newTableName := qualifiedMySQLTableName(newTable, defaultSchema)
+func (c *MySqlConnector) observeTableRename(ctx context.Context, oldTable, newTable *ast.TableName, oldDefaultSchema, newDefaultSchema string) {
+	oldTableName := qualifiedMySQLTableName(oldTable, oldDefaultSchema)
+	newTableName := qualifiedMySQLTableName(newTable, newDefaultSchema)
 	c.logger.Info("table rename observed",
 		slog.String("oldTable", oldTableName),
 		slog.String("newTable", newTableName))
@@ -810,7 +810,7 @@ func (c *MySqlConnector) observeTableRename(ctx context.Context, oldTable, newTa
 
 func (c *MySqlConnector) processRenameTableQuery(ctx context.Context, stmt *ast.RenameTableStmt, stmtSchema string) {
 	for _, tableToTable := range stmt.TableToTables {
-		c.observeTableRename(ctx, tableToTable.OldTable, tableToTable.NewTable, stmtSchema)
+		c.observeTableRename(ctx, tableToTable.OldTable, tableToTable.NewTable, stmtSchema, stmtSchema)
 	}
 }
 
@@ -829,7 +829,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 
 	for _, spec := range stmt.Specs {
 		if spec.Tp == ast.AlterTableRenameTable {
-			c.observeTableRename(ctx, stmt.Table, spec.NewTable, stmtSchema)
+			c.observeTableRename(ctx, stmt.Table, spec.NewTable, stmtSchema, sourceSchemaName)
 		}
 	}
 
