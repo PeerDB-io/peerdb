@@ -89,8 +89,8 @@ func sqlModeFromStatusVars(statusVars []byte) (uint64, bool) {
 
 func setParserSQLModeFromStatusVars(mysqlParser *parser.Parser, statusVars []byte) {
 	var sqlMode tidbmysql.SQLMode
-	if mode, ok := sqlModeFromStatusVars(statusVars); ok {
-		sqlMode = tidbmysql.SQLMode(mode)
+	if mode, ok := sqlModeFromStatusVars(statusVars); ok && mode&uint64(tidbmysql.ModeANSIQuotes) != 0 {
+		sqlMode = tidbmysql.ModeANSIQuotes
 	}
 	mysqlParser.SetSQLMode(sqlMode)
 }
