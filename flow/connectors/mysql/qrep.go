@@ -179,27 +179,19 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 
 func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string) string {
 	columns := []string{}
-	selectAsterisk := true
 	for _, col := range cols {
 		if slices.Contains(exclude, col.Name) {
-			selectAsterisk = false
 			continue
 		}
 
 		converted := common.QuoteMySQLIdentifier(col.Name)
 		if col.Type == string(types.QValueKindUint16Enum) {
 			converted = fmt.Sprintf("CAST(%s AS UNSIGNED) AS %s", converted, converted)
-			selectAsterisk = false
 		}
 		columns = append(columns, converted)
 	}
 
-	selectedColumns := "*"
-	if !selectAsterisk {
-		selectedColumns = strings.Join(columns, ", ")
-	}
-
-	return selectedColumns
+	return strings.Join(columns, ", ")
 }
 
 func (c *MySqlConnector) PullQRepRecords(

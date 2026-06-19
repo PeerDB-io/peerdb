@@ -22,7 +22,7 @@ func TestBuildSelectedColumns(t *testing.T) {
 				{Name: "status", Type: string(types.QValueKindEnum)},
 			},
 			exclude:                 []string{},
-			expectedSelectedColumns: "*",
+			expectedSelectedColumns: "`id`, `name`, `status`",
 		},
 		{
 			name: "one excluded column",
@@ -49,7 +49,7 @@ func TestBuildSelectedColumns(t *testing.T) {
 				{Name: "status", Type: string(types.QValueKindEnum)},
 			},
 			exclude:                 []string{},
-			expectedSelectedColumns: "*",
+			expectedSelectedColumns: "`id`, `status`",
 		},
 		{
 			name: "uint16enum with exclude",
