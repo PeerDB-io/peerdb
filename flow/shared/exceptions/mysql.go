@@ -69,9 +69,9 @@ func (e *MySQLUnsupportedDDLError) Error() string {
 }
 
 type MySQLUnparsedColumnAlterError struct {
+	error
 	TableName string
 	Query     string
-	error
 }
 
 func NewMySQLUnparsedColumnAlterError(tableName string, query string, err error) *MySQLUnparsedColumnAlterError {
