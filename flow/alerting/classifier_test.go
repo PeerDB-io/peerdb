@@ -689,6 +689,23 @@ func TestNonClassifiedNonNormalizeErrorShouldBeOtherWithSourceClickHouse(t *test
 	}, errInfo, "Unexpected error info")
 }
 
+func TestCannotInsertNullInOrdinaryColumnShouldBeNotifyMV(t *testing.T) {
+	// A nullable source column cast to a non-Nullable type by a user MV/view, e.g.
+	// "code: 349, Cannot convert NULL value to non-Nullable type ... while pushing to view ...".
+	// This is not wrapped as a ViewError/NormalizationError, so it must be classified by code.
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrCannotInsertNullInOrdinaryColumn),
+		//nolint:lll
+		Message: "Cannot convert NULL value to non-Nullable type: while converting source column street to destination column street: while pushing to view cdc_user_api.stg_cdc_user_api__customer_address_mv (some-uuid-here)",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to normalize records: %w", err))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrCannotInsertNullInOrdinaryColumn)),
+	}, errInfo, "Unexpected error info")
+}
+
 func TestNumericTruncateOrOutOfRangeWarningShouldBeLossyConversion(t *testing.T) {
 	for code, err := range map[string]error{
 		"NUMERIC_TRUNCATED":    exceptions.NewNumericTruncatedError(errors.New("testing numeric truncated warning"), "tableA1", "columnB2"),

@@ -944,6 +944,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
+		case chproto.ErrCannotInsertNullInOrdinaryColumn:
+			// A NULL value from a nullable source column is being inserted into a non-Nullable
+			// destination column, e.g. "Cannot convert NULL value to non-Nullable type ...
+			// while pushing to view ...". PeerDB always creates Nullable destination columns, so
+			// this only happens through a user-defined MV/view that casts the column to a
+			// non-Nullable type.
+			return ErrorNotifyMVOrView, chErrorInfo
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
 		case chproto.ErrUnknownDatabase,
