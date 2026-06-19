@@ -594,14 +594,32 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 
 func (s ClickHouseSuite) Test_MySQL_Vector() {
 	mysource, ok := s.source.(*MySqlSource)
-	if !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
-	if cmp, err := mysource.CompareServerVersion(s.t.Context(), "9.0.0"); err != nil {
-		s.t.Fatal(err)
-	} else if cmp < 0 {
-		s.t.Skip("VECTOR type is only supported in MySQL 9.0+")
+	var createTableSQL, initialInsertSQL, cdcInsertSQL string
+	switch mysource.Config.Flavor {
+	case protos.MySqlFlavor_MYSQL_MYSQL:
+		if cmp, err := mysource.CompareServerVersion(s.t.Context(), "9.0.0"); err != nil {
+			s.t.Fatal(err)
+		} else if cmp < 0 {
+			s.t.Skip("VECTOR type is only supported in MySQL 9.0+")
+		}
+		createTableSQL = `CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, val VECTOR)`
+		initialInsertSQL = `INSERT INTO %s (val) VALUES (to_vector('[1.1,1.0]'))`
+		cdcInsertSQL = `INSERT INTO %s (val) VALUES (to_vector('[2.718, 1.414]'))`
+	case protos.MySqlFlavor_MYSQL_MARIA:
+		if cmp, err := mysource.CompareServerVersion(s.t.Context(), "11.7.0"); err != nil {
+			s.t.Fatal(err)
+		} else if cmp < 0 {
+			s.t.Skip("VECTOR type is only supported in MariaDB 11.7+")
+		}
+		createTableSQL = `CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, val VECTOR(2))`
+		initialInsertSQL = `INSERT INTO %s (val) VALUES (Vec_FromText('[1.1,1.0]'))`
+		cdcInsertSQL = `INSERT INTO %s (val) VALUES (Vec_FromText('[2.718, 1.414]'))`
+	default:
+		s.t.Skipf("unsupported MySQL flavor: %s", mysource.Config.Flavor)
 	}
 
 	srcTableName := "test_vector"
@@ -609,12 +627,10 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
 	dstTableName := "test_vector_dst"
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, val VECTOR)
-	`, quotedSrcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(createTableSQL, quotedSrcFullName)))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s (val) VALUES (to_vector('[1.1,1.0]'))`, quotedSrcFullName)))
+		fmt.Sprintf(initialInsertSQL, quotedSrcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -631,7 +647,7 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,val")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s (val) VALUES (to_vector('[2.718, 1.414]'))`, quotedSrcFullName)))
+		fmt.Sprintf(cdcInsertSQL, quotedSrcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,val")
 

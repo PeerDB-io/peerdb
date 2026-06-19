@@ -538,6 +538,13 @@ func QValueFromMysqlRowEvent(
 			return types.QValueEnum{Val: val}, nil
 		case types.QValueKindJSON:
 			return types.QValueJSON{Val: val}, nil
+		case types.QValueKindArrayFloat32:
+			b := shared.UnsafeFastStringToReadOnlyBytes(val)
+			floats := make([]float32, 0, len(b)/4)
+			for i := 0; i < len(b); i += 4 {
+				floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(b[i:])))
+			}
+			return types.QValueArrayFloat32{Val: floats}, nil
 		case types.QValueKindTime:
 			tm, err := processTime(val)
 			if err != nil {

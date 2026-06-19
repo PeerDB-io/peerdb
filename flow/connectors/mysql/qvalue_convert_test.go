@@ -1,15 +1,35 @@
 package connmysql
 
 import (
+	"encoding/binary"
+	"log/slog"
+	"math"
 	"testing"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func TestQValueFromMysqlRowEventStringArrayFloat32(t *testing.T) {
+	raw := make([]byte, 8)
+	binary.LittleEndian.PutUint32(raw[:4], math.Float32bits(1.1))
+	binary.LittleEndian.PutUint32(raw[4:], math.Float32bits(1.0))
+
+	coercionReported := false
+	qvalue, err := QValueFromMysqlRowEvent(
+		&replication.TableMapEvent{
+			ColumnType: []byte{mysql.MYSQL_TYPE_VECTOR},
+		},
+		0, nil, nil, types.QValueKindArrayFloat32, string(raw), slog.Default(), &coercionReported)
+
+	require.NoError(t, err)
+	require.Equal(t, types.QValueArrayFloat32{Val: []float32{1.1, 1.0}}, qvalue)
+}
 
 func TestQkindFromMysqlType_Bit(t *testing.T) {
 	for _, tc := range []struct {
