@@ -69,7 +69,7 @@ func parseSingleDDLStmt(t *testing.T, query string) ast.StmtNode {
 	return stmts[0]
 }
 
-func TestProcessRenameTableQueryObservesAllRenamePairs(t *testing.T) {
+func TestProcessQueryEventStatementObservesRenameTablePairs(t *testing.T) {
 	counter := installRecordingCodeNotificationCounter(t)
 	connector, logBuffer := newRenameObserverTestConnector()
 
@@ -77,7 +77,8 @@ func TestProcessRenameTableQueryObservesAllRenamePairs(t *testing.T) {
 		"RENAME TABLE original TO _original_del, _original_gho TO original").(*ast.RenameTableStmt)
 	require.True(t, ok)
 
-	connector.processRenameTableQuery(t.Context(), stmt, "app")
+	require.NoError(t, connector.processQueryEventStatement(
+		t.Context(), shared.CatalogPool{}, &model.PullRecordsRequest[model.RecordItems]{}, stmt, "app", true))
 
 	counter.mu.Lock()
 	counterValue := counter.value

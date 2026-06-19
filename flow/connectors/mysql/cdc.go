@@ -581,14 +581,9 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
 			}
 			for _, stmt := range stmts {
-				switch stmt := stmt.(type) {
-				case *ast.AlterTableStmt:
-					if err := c.processAlterTableQuery(
-						ctx, catalogPool, req, stmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
-						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
-					}
-				case *ast.RenameTableStmt:
-					c.processRenameTableQuery(ctx, stmt, string(ev.Schema))
+				if err := c.processQueryEventStatement(
+					ctx, catalogPool, req, stmt, string(ev.Schema), binlogRowMetadataSupported); err != nil {
+					return err
 				}
 			}
 		case *replication.RowsEvent:
@@ -770,6 +765,21 @@ func (c *MySqlConnector) PullRecords(
 				)
 			}
 		}
+	}
+	return nil
+}
+
+func (c *MySqlConnector) processQueryEventStatement(ctx context.Context, catalogPool shared.CatalogPool,
+	req *model.PullRecordsRequest[model.RecordItems], stmt ast.StmtNode, stmtSchema string, binlogRowMetadataSupported bool,
+) error {
+	switch stmt := stmt.(type) {
+	case *ast.AlterTableStmt:
+		if err := c.processAlterTableQuery(
+			ctx, catalogPool, req, stmt, stmtSchema, binlogRowMetadataSupported, req.InternalVersion); err != nil {
+			return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
+		}
+	case *ast.RenameTableStmt:
+		c.processRenameTableQuery(ctx, stmt, stmtSchema)
 	}
 	return nil
 }
