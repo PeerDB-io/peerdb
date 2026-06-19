@@ -94,6 +94,13 @@ func TestClassifyUnparsedQueryEvent(t *testing.T) {
 			wantTable:  "db.mapped_t",
 		},
 		{
+			name:       "mapped online add column pages",
+			query:      "ALTER ONLINE TABLE mapped_t ADD COLUMN c INT",
+			schema:     "db",
+			wantAction: unparsedQueryEventColumnAlter,
+			wantTable:  "db.mapped_t",
+		},
+		{
 			name:       "qualified backtick modify column pages",
 			query:      "ALTER TABLE `db`.`mapped_t` MODIFY COLUMN `c` BIGINT /* unsupported */",
 			wantAction: unparsedQueryEventColumnAlter,
@@ -133,6 +140,12 @@ func TestClassifyUnparsedQueryEvent(t *testing.T) {
 		{
 			name:       "index alter on unmapped table is not interesting",
 			query:      "ALTER TABLE unmapped_t ADD INDEX idx_c (c) VENDOR_OPTION",
+			schema:     "db",
+			wantAction: unparsedQueryEventDontCare,
+		},
+		{
+			name:       "online column alter on unmapped table is not interesting",
+			query:      "ALTER ONLINE TABLE unmapped_t ADD COLUMN c INT",
 			schema:     "db",
 			wantAction: unparsedQueryEventDontCare,
 		},

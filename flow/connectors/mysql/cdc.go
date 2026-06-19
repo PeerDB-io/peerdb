@@ -798,9 +798,10 @@ const (
 
 var (
 	mysqlIdentifierPattern     = `(?:` + mysqlQuotedIdentifierPattern + `|` + mysqlUnquotedIdentifierPattern + `)`
-	unparsedAlterTablePhraseRe = regexp.MustCompile(`(?is)\balter\s+(?:ignore\s+)?table\b`)
+	unparsedAlterPrefixPattern = `\balter\s+(?:(?:online|offline|ignore)\s+)*table\b`
+	unparsedAlterTablePhraseRe = regexp.MustCompile(`(?is)` + unparsedAlterPrefixPattern)
 	unparsedAlterTableRe       = regexp.MustCompile(
-		`(?is)\balter\s+(?:ignore\s+)?table\s+(?:if\s+exists\s+)?(` +
+		`(?is)` + unparsedAlterPrefixPattern + `\s+(?:if\s+exists\s+)?(` +
 			mysqlIdentifierPattern + `(?:\s*\.\s*` + mysqlIdentifierPattern + `)?)\s*([^;]*)`)
 	unparsedAlterNonColumnTargets = map[string]struct{}{
 		"check":      {},
