@@ -1,7 +1,6 @@
 package connmysql
 
 import (
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -44,7 +43,7 @@ func TestQkindFromMysqlType_Bit(t *testing.T) {
 }
 
 func TestQValueFromMysqlRowEventJsonDiffErrors(t *testing.T) {
-	logger := temporallog.NewStructuredLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	logger := temporallog.NewStructuredLogger(slog.New(slog.DiscardHandler))
 	ev := &replication.TableMapEvent{
 		Schema:     []byte("test_db"),
 		Table:      []byte("test_table"),
