@@ -1063,6 +1063,10 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
 	}
 
+	fixedBinaryInsertHex := "FF000102030405060708090A0B0C"
+	fixedBinaryWantHex := fixedBinaryInsertHex + "0000"
+	varBinaryWantHex := "FE000102030405060708090A0B0C0D00"
+
 	srcTable := "test_mysql_ghost_schema"
 	dstTable := "test_mysql_ghost_schema_dst"
 	srcTableName := AttachSchema(s, srcTable)
@@ -1137,6 +1141,8 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	// - c6: DECIMAL (no precision/scale -> typmod -1)
 	// - c7: DECIMAL(10,2) (tests precision/scale extraction)
 	// - c8: DECIMAL(18,6) (tests different precision/scale)
+	// - c9: BINARY(16) (tests binary charset on STRING metadata type)
+	// - c10: VARBINARY(16) (tests binary charset on VAR_STRING metadata type)
 	// ============================================
 
 	// 1. gh-ost creates ghost table with new schema (original + new columns)
@@ -1150,20 +1156,23 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 			c5 TEXT,
 			c6 DECIMAL,
 			c7 DECIMAL(10,2),
-			c8 DECIMAL(18,6)
+			c8 DECIMAL(18,6),
+			c9 BINARY(16),
+			c10 VARBINARY(16)
 		)
 	`, ghostTableName)))
 
 	// 2. gh-ost copies existing data to ghost table (we simulate this)
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %s (id, c1, c2, c3, c4, c5, c6, c7, c8) SELECT id, c1, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM %s
+		INSERT INTO %s (id, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
+		SELECT id, c1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM %s
 	`, ghostTableName, srcTableName)))
 
 	// 3. Insert another row into original table (gh-ost would capture this via binlog and apply to ghost)
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(2)`, srcTableName)))
 	// Simulate gh-ost applying it to ghost table
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
+		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10) VALUES(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
 		ghostTableName)))
 	EnvWaitForEqualTablesWithNames(env, s, "pre-cutover row", srcTable, dstTable, "id,c1")
 
@@ -1174,8 +1183,9 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 
 	// 5. Insert a row with the new columns populated (this goes to the new table, formerly ghost)
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(3, 300, 400, x'deadbeef', 'hello text', 123.45, 12345.67, 123456.789012)`,
-		srcTableName)))
+		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
+		VALUES(3, 300, 400, x'deadbeef', 'hello text', 123.45, 12345.67, 123456.789012, UNHEX('%s'), UNHEX('%s'))`,
+		srcTableName, fixedBinaryInsertHex, varBinaryWantHex)))
 	EnvWaitForEqualTablesWithNames(env, s, "post-cutover row", srcTable, dstTable,
 		"id,c1,coalesce(c2,0) c2,coalesce(c4,'') c4,coalesce(c5,'') c5,coalesce(c6,0) c6,coalesce(c7,0) c7,coalesce(c8,0) c8")
 
@@ -1184,6 +1194,29 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	require.NoError(t, err)
 	require.Len(t, dstRows.Records, 3)
 	require.Equal(t, uint32(400), dstRows.Records[2][1].Value())
+
+	dstRows, err = s.GetRows(dstTable, "id,c9,c10")
+	require.NoError(t, err)
+	require.Len(t, dstRows.Records, 3)
+
+	qvalueBytes := func(qv types.QValue) []byte {
+		switch v := qv.Value().(type) {
+		case string:
+			return []byte(v)
+		case []byte:
+			return v
+		default:
+			require.Failf(t, "unexpected binary column type", "type=%T value=%v", qv.Value(), qv.Value())
+			return nil
+		}
+	}
+
+	fixedBinaryWant, err := hex.DecodeString(fixedBinaryWantHex)
+	require.NoError(t, err)
+	varBinaryWant, err := hex.DecodeString(varBinaryWantHex)
+	require.NoError(t, err)
+	require.Equal(t, fixedBinaryWant, qvalueBytes(dstRows.Records[2][1]))
+	require.Equal(t, varBinaryWant, qvalueBytes(dstRows.Records[2][2]))
 
 	// Verify schema was updated to include new columns with correct types and typmods
 	expectedTableSchema = &protos.TableSchema{
@@ -1238,6 +1271,16 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 				Name:         ExpectedDestinationIdentifier(s, "c8"),
 				Type:         string(types.QValueKindNumeric), // DECIMAL(18,6)
 				TypeModifier: datatypes.MakeNumericTypmod(18, 6),
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c9"),
+				Type:         string(types.QValueKindBytes), // BINARY(16)
+				TypeModifier: -1,
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c10"),
+				Type:         string(types.QValueKindBytes), // VARBINARY(16)
+				TypeModifier: -1,
 			},
 		},
 	}

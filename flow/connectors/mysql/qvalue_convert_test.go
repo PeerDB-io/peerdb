@@ -38,6 +38,27 @@ func TestQkindFromMysqlType_Bit(t *testing.T) {
 	}
 }
 
+func TestQkindFromMysqlType_StringTypesBinaryCharset(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mytype byte
+	}{
+		{"VAR_STRING", mysql.MYSQL_TYPE_VAR_STRING},
+		{"STRING", mysql.MYSQL_TYPE_STRING},
+		{"VARCHAR", mysql.MYSQL_TYPE_VARCHAR},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			qkind, err := qkindFromMysqlType(tc.mytype, false, 0x3f, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, types.QValueKindBytes, qkind)
+
+			qkind, err = qkindFromMysqlType(tc.mytype, false, 0x21, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, types.QValueKindString, qkind)
+		})
+	}
+}
+
 func TestProcessTime(t *testing.T) {
 	epoch := time.Unix(0, 0).UTC()
 	for _, ts := range []struct {

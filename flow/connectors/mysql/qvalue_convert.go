@@ -85,6 +85,9 @@ func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16, version uint
 			return types.QValueKindString, nil
 		}
 	case mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING, mysql.MYSQL_TYPE_VARCHAR:
+		if charset == 0x3f {
+			return types.QValueKindBytes, nil
+		}
 		return types.QValueKindString, nil
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		return types.QValueKindGeometry, nil
