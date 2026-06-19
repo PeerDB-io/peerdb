@@ -19,6 +19,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
@@ -38,6 +39,8 @@ import (
 const (
 	defaultBinlogHeartbeatPeriod = time.Minute
 	binlogStalenessMultiplier    = 3
+
+	mysqlTableRenameObservedMessage = "mysql_table_rename_observed"
 )
 
 func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
@@ -578,11 +581,14 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
 			}
 			for _, stmt := range stmts {
-				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
+				switch stmt := stmt.(type) {
+				case *ast.AlterTableStmt:
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, req, alterTableStmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
+						ctx, catalogPool, req, stmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
+				case *ast.RenameTableStmt:
+					c.processRenameTableQuery(ctx, stmt, string(ev.Schema))
 				}
 			}
 		case *replication.RowsEvent:
@@ -768,6 +774,36 @@ func (c *MySqlConnector) PullRecords(
 	return nil
 }
 
+func qualifiedMySQLTableName(table *ast.TableName, defaultSchema string) string {
+	if table == nil {
+		return ""
+	}
+	schema := table.Schema.String()
+	if schema == "" {
+		schema = defaultSchema
+	}
+	if schema == "" {
+		return table.Name.String()
+	}
+	return schema + "." + table.Name.String()
+}
+
+func (c *MySqlConnector) observeTableRename(ctx context.Context, oldTable, newTable *ast.TableName, defaultSchema string) {
+	oldTableName := qualifiedMySQLTableName(oldTable, defaultSchema)
+	newTableName := qualifiedMySQLTableName(newTable, defaultSchema)
+	c.logger.Info("table rename observed",
+		slog.String("oldTable", oldTableName),
+		slog.String("newTable", newTableName))
+	otel_metrics.CodeNotificationCounter.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("message", mysqlTableRenameObservedMessage)))
+}
+
+func (c *MySqlConnector) processRenameTableQuery(ctx context.Context, stmt *ast.RenameTableStmt, stmtSchema string) {
+	for _, tableToTable := range stmt.TableToTables {
+		c.observeTableRename(ctx, tableToTable.OldTable, tableToTable.NewTable, stmtSchema)
+	}
+}
+
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
 	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
 	binlogRowMetadataSupported bool, mirrorVersion uint32,
@@ -780,6 +816,12 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		sourceSchemaName = stmtSchema
 	}
 	sourceTableName := sourceSchemaName + "." + stmt.Table.Name.String()
+
+	for _, spec := range stmt.Specs {
+		if spec.Tp == ast.AlterTableRenameTable {
+			c.observeTableRename(ctx, stmt.Table, spec.NewTable, stmtSchema)
+		}
+	}
 
 	destinationTableName := req.TableNameMapping[sourceTableName].Name
 	if destinationTableName == "" {
