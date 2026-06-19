@@ -2,14 +2,23 @@ package connmysql
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func newTestConnector(t *testing.T, ctx context.Context) *MySqlConnector {
@@ -48,6 +57,193 @@ func createTestDB(t *testing.T, ctx context.Context, c *MySqlConnector, dbName s
 			t.Logf("drop test db %s failed: %v", dbName, err)
 		}
 	})
+}
+
+func TestClassifyUnparsedQueryEvent(t *testing.T) {
+	tableNameMapping := map[string]model.NameAndExclude{
+		"db.mapped_t":      model.NewNameAndExclude("dst_mapped_t", nil),
+		"db.MixedCase":     model.NewNameAndExclude("dst_mixed_case", nil),
+		"other.qualified":  model.NewNameAndExclude("dst_qualified", nil),
+		"db.empty_mapping": {},
+	}
+
+	tests := []struct {
+		name       string
+		query      string
+		schema     string
+		wantAction unparsedQueryEventAction
+		wantTable  string
+	}{
+		{
+			name:       "non alter table query is not interesting",
+			query:      "CREATE TABLE t (id INT) WITH VENDOR OPTION",
+			schema:     "db",
+			wantAction: unparsedQueryEventDontCare,
+		},
+		{
+			name:       "unmapped column alter is not interesting",
+			query:      "ALTER TABLE unmapped_t ADD COLUMN c INT \x00",
+			schema:     "db",
+			wantAction: unparsedQueryEventDontCare,
+		},
+		{
+			name:       "mapped add column pages",
+			query:      "ALTER TABLE mapped_t ADD COLUMN c INT \x00",
+			schema:     "db",
+			wantAction: unparsedQueryEventColumnAlter,
+			wantTable:  "db.mapped_t",
+		},
+		{
+			name:       "qualified backtick modify column pages",
+			query:      "ALTER TABLE `db`.`mapped_t` MODIFY COLUMN `c` BIGINT /* unsupported */",
+			wantAction: unparsedQueryEventColumnAlter,
+			wantTable:  "db.mapped_t",
+		},
+		{
+			name:       "qualified table uses captured schema",
+			query:      "ALTER TABLE other.qualified DROP COLUMN c",
+			schema:     "db",
+			wantAction: unparsedQueryEventColumnAlter,
+			wantTable:  "other.qualified",
+		},
+		{
+			name:       "mapped non column alter is significant but non paging",
+			query:      "ALTER TABLE mapped_t ENGINE=InnoDB VENDOR_OPTION",
+			schema:     "db",
+			wantAction: unparsedQueryEventNotice,
+			wantTable:  "db.mapped_t",
+		},
+		{
+			name:       "unqualified alter table without event schema is significant",
+			query:      "ALTER TABLE mapped_t ENGINE=InnoDB VENDOR_OPTION",
+			wantAction: unparsedQueryEventNotice,
+		},
+		{
+			name:       "alter table phrase with unrecognized identifier is significant",
+			query:      "ALTER TABLE @@@ ADD COLUMN c INT",
+			schema:     "db",
+			wantAction: unparsedQueryEventNotice,
+		},
+		{
+			name:       "empty mapping value is treated as unmapped",
+			query:      "ALTER TABLE empty_mapping ADD COLUMN c INT",
+			schema:     "db",
+			wantAction: unparsedQueryEventDontCare,
+		},
+		{
+			name:       "index alter on unmapped table is not interesting",
+			query:      "ALTER TABLE unmapped_t ADD INDEX idx_c (c) VENDOR_OPTION",
+			schema:     "db",
+			wantAction: unparsedQueryEventDontCare,
+		},
+		{
+			name:       "rename column pages",
+			query:      "ALTER TABLE MixedCase RENAME COLUMN old_name TO new_name",
+			schema:     "db",
+			wantAction: unparsedQueryEventColumnAlter,
+			wantTable:  "db.MixedCase",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyUnparsedQueryEvent(tt.query, tt.schema, tableNameMapping)
+			require.Equal(t, tt.wantAction, got.action)
+			require.Equal(t, tt.wantTable, got.tableName)
+		})
+	}
+}
+
+func TestHandleUnparsedQueryEventSideEffects(t *testing.T) {
+	parseErr := errors.New("syntax error")
+	tableNameMapping := map[string]model.NameAndExclude{
+		"db.mapped_t": model.NewNameAndExclude("dst_mapped_t", nil),
+	}
+
+	oldCounter := otel_metrics.CodeNotificationCounter
+	counter := &countingInt64Counter{}
+	otel_metrics.CodeNotificationCounter = counter
+	t.Cleanup(func() {
+		otel_metrics.CodeNotificationCounter = oldCounter
+	})
+
+	handler := &recordSlogHandler{}
+	logger := log.NewStructuredLogger(slog.New(handler))
+
+	err := handleUnparsedQueryEvent(t.Context(), logger,
+		"CREATE TABLE t (id INT) WITH VENDOR OPTION", "db", "flow", tableNameMapping, parseErr)
+	require.NoError(t, err)
+	require.Zero(t, counter.calls)
+	handler.requireLast(t, slog.LevelDebug, "ignored uninteresting QueryEvent parse failure")
+
+	err = handleUnparsedQueryEvent(t.Context(), logger,
+		"ALTER TABLE mapped_t ENGINE=InnoDB VENDOR_OPTION", "db", "flow", tableNameMapping, parseErr)
+	require.NoError(t, err)
+	require.Equal(t, 1, counter.calls)
+	require.Equal(t, int64(1), counter.total)
+	handler.requireLast(t, slog.LevelError, "failed to parse QueryEvent")
+
+	err = handleUnparsedQueryEvent(t.Context(), logger,
+		"ALTER TABLE mapped_t ADD COLUMN c INT \x00", "db", "flow", tableNameMapping, parseErr)
+	require.Error(t, err)
+	var alterErr *exceptions.MySQLUnparsedColumnAlterError
+	require.ErrorAs(t, err, &alterErr)
+	require.Equal(t, "db.mapped_t", alterErr.TableName)
+	require.Equal(t, 1, counter.calls)
+}
+
+type countingInt64Counter struct {
+	noop.Int64Counter
+	calls int
+	total int64
+}
+
+func (c *countingInt64Counter) Add(_ context.Context, incr int64, _ ...metric.AddOption) {
+	c.calls++
+	c.total += incr
+}
+
+func (c *countingInt64Counter) Enabled(context.Context) bool {
+	return true
+}
+
+type slogRecord struct {
+	level   slog.Level
+	message string
+}
+
+type recordSlogHandler struct {
+	mu      sync.Mutex
+	records []slogRecord
+}
+
+func (h *recordSlogHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h *recordSlogHandler) Handle(_ context.Context, record slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, slogRecord{level: record.Level, message: record.Message})
+	return nil
+}
+
+func (h *recordSlogHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *recordSlogHandler) WithGroup(string) slog.Handler {
+	return h
+}
+
+func (h *recordSlogHandler) requireLast(t *testing.T, level slog.Level, message string) {
+	t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	require.NotEmpty(t, h.records)
+	last := h.records[len(h.records)-1]
+	require.Equal(t, level, last.level)
+	require.Equal(t, message, last.message)
 }
 
 func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {

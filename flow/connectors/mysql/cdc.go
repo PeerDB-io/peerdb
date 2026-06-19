@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"regexp"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -19,7 +22,9 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
+	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -571,7 +576,10 @@ func (c *MySqlConnector) PullRecords(
 			}
 			stmts, warns, err := mysqlParser.ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
 			if err != nil {
-				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				if err := handleUnparsedQueryEvent(ctx, c.logger, string(ev.Query), string(ev.Schema),
+					req.FlowJobName, req.TableNameMapping, err); err != nil {
+					return err
+				}
 				break
 			}
 			if len(warns) > 0 {
@@ -766,6 +774,309 @@ func (c *MySqlConnector) PullRecords(
 		}
 	}
 	return nil
+}
+
+type unparsedQueryEventAction string
+
+const (
+	unparsedQueryEventDontCare    unparsedQueryEventAction = "dont_care"
+	unparsedQueryEventNotice      unparsedQueryEventAction = "notice"
+	unparsedQueryEventColumnAlter unparsedQueryEventAction = "column_alter"
+
+	mysqlUnparsedQueryEventNotificationMessage = "mysql_unparsed_query_event_parse_failure"
+)
+
+type unparsedQueryEventClassification struct {
+	action    unparsedQueryEventAction
+	tableName string
+}
+
+const (
+	mysqlQuotedIdentifierPattern   = "`(?:``|[^`])*`"
+	mysqlUnquotedIdentifierPattern = `[0-9A-Za-z_$]+`
+)
+
+var (
+	mysqlIdentifierPattern     = `(?:` + mysqlQuotedIdentifierPattern + `|` + mysqlUnquotedIdentifierPattern + `)`
+	unparsedAlterTablePhraseRe = regexp.MustCompile(`(?is)\balter\s+(?:ignore\s+)?table\b`)
+	unparsedAlterTableRe       = regexp.MustCompile(
+		`(?is)\balter\s+(?:ignore\s+)?table\s+(?:if\s+exists\s+)?(` +
+			mysqlIdentifierPattern + `(?:\s*\.\s*` + mysqlIdentifierPattern + `)?)\s*([^;]*)`)
+	unparsedAlterNonColumnTargets = map[string]struct{}{
+		"check":      {},
+		"constraint": {},
+		"foreign":    {},
+		"fulltext":   {},
+		"index":      {},
+		"key":        {},
+		"partition":  {},
+		"primary":    {},
+		"spatial":    {},
+		"unique":     {},
+	}
+)
+
+func handleUnparsedQueryEvent(ctx context.Context, logger log.Logger, rawSQL string, eventSchema string,
+	flowJobName string, tableNameMapping map[string]model.NameAndExclude, parseErr error,
+) error {
+	classification := classifyUnparsedQueryEvent(rawSQL, eventSchema, tableNameMapping)
+	switch classification.action {
+	case unparsedQueryEventColumnAlter:
+		return exceptions.NewMySQLUnparsedColumnAlterError(classification.tableName, rawSQL, parseErr)
+	case unparsedQueryEventNotice:
+		logger.Error("failed to parse QueryEvent",
+			slog.String("query", rawSQL),
+			slog.String("flowJobName", flowJobName),
+			slog.String("table", classification.tableName),
+			slog.Any("error", parseErr))
+		otel_metrics.CodeNotificationCounter.Add(ctx, 1,
+			metric.WithAttributes(attribute.String("message", mysqlUnparsedQueryEventNotificationMessage)))
+	case unparsedQueryEventDontCare:
+		logger.Debug("ignored uninteresting QueryEvent parse failure",
+			slog.String("query", rawSQL),
+			slog.String("flowJobName", flowJobName),
+			slog.Any("error", parseErr))
+	}
+	return nil
+}
+
+func classifyUnparsedQueryEvent(rawSQL string, eventSchema string,
+	tableNameMapping map[string]model.NameAndExclude,
+) unparsedQueryEventClassification {
+	sql := strings.TrimSpace(rawSQL)
+	if !unparsedAlterTablePhraseRe.MatchString(sql) {
+		return unparsedQueryEventClassification{action: unparsedQueryEventDontCare}
+	}
+
+	matches := unparsedAlterTableRe.FindAllStringSubmatch(sql, -1)
+	if len(matches) == 0 {
+		return unparsedQueryEventClassification{action: unparsedQueryEventNotice}
+	}
+
+	var mappedNonColumnAlter string
+	for _, match := range matches {
+		tableName, ok := resolveUnparsedAlterTableIdentifier(match[1], eventSchema)
+		if !ok {
+			return unparsedQueryEventClassification{action: unparsedQueryEventNotice}
+		}
+
+		mapping, ok := tableNameMapping[tableName]
+		if !ok || mapping.Name == "" {
+			continue
+		}
+
+		if unparsedAlterTableBodyHasColumnAction(match[2]) {
+			return unparsedQueryEventClassification{action: unparsedQueryEventColumnAlter, tableName: tableName}
+		}
+		if mappedNonColumnAlter == "" {
+			mappedNonColumnAlter = tableName
+		}
+	}
+
+	if mappedNonColumnAlter != "" {
+		return unparsedQueryEventClassification{action: unparsedQueryEventNotice, tableName: mappedNonColumnAlter}
+	}
+	return unparsedQueryEventClassification{action: unparsedQueryEventDontCare}
+}
+
+func resolveUnparsedAlterTableIdentifier(rawIdentifier string, eventSchema string) (string, bool) {
+	parts, ok := splitMySQLTableIdentifier(rawIdentifier)
+	if !ok {
+		return "", false
+	}
+
+	switch len(parts) {
+	case 1:
+		if eventSchema == "" || parts[0] == "" {
+			return "", false
+		}
+		return eventSchema + "." + parts[0], true
+	case 2:
+		if parts[0] == "" || parts[1] == "" {
+			return "", false
+		}
+		return parts[0] + "." + parts[1], true
+	default:
+		return "", false
+	}
+}
+
+func splitMySQLTableIdentifier(rawIdentifier string) ([]string, bool) {
+	remaining := strings.TrimSpace(rawIdentifier)
+	var parts []string
+	for remaining != "" {
+		var part string
+		var ok bool
+		if remaining[0] == '`' {
+			part, remaining, ok = readQuotedMySQLIdentifier(remaining)
+		} else {
+			part, remaining, ok = readUnquotedMySQLIdentifier(remaining)
+		}
+		if !ok || part == "" {
+			return nil, false
+		}
+		parts = append(parts, part)
+
+		remaining = strings.TrimSpace(remaining)
+		if remaining == "" {
+			return parts, true
+		}
+		if remaining[0] != '.' {
+			return nil, false
+		}
+		remaining = strings.TrimSpace(remaining[1:])
+	}
+	return parts, len(parts) > 0
+}
+
+func readQuotedMySQLIdentifier(input string) (string, string, bool) {
+	var ident strings.Builder
+	for i := 1; i < len(input); i++ {
+		if input[i] == '`' {
+			if i+1 < len(input) && input[i+1] == '`' {
+				ident.WriteByte('`')
+				i++
+				continue
+			}
+			return ident.String(), input[i+1:], true
+		}
+		ident.WriteByte(input[i])
+	}
+	return "", "", false
+}
+
+func readUnquotedMySQLIdentifier(input string) (string, string, bool) {
+	end := 0
+	for end < len(input) {
+		r := rune(input[end])
+		if r != '_' && r != '$' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			break
+		}
+		end++
+	}
+	if end == 0 {
+		return "", "", false
+	}
+	return input[:end], input[end:], true
+}
+
+func unparsedAlterTableBodyHasColumnAction(body string) bool {
+	for _, spec := range splitAlterTableSpecs(body) {
+		words := alterSpecWords(spec, 4)
+		if len(words) == 0 || words[0].quoted {
+			continue
+		}
+
+		switch words[0].text {
+		case "modify", "change":
+			return true
+		case "alter", "rename":
+			return len(words) > 1 && !words[1].quoted && words[1].text == "column"
+		case "add", "drop":
+			if len(words) < 2 {
+				continue
+			}
+			if !words[1].quoted && words[1].text == "column" {
+				return true
+			}
+			if words[1].quoted {
+				return true
+			}
+			if _, ok := unparsedAlterNonColumnTargets[words[1].text]; !ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func splitAlterTableSpecs(body string) []string {
+	var specs []string
+	start := 0
+	parenDepth := 0
+	var quote byte
+	for i := 0; i < len(body); i++ {
+		ch := body[i]
+		if quote != 0 {
+			if quote != '`' && ch == '\\' {
+				i++
+				continue
+			}
+			if ch == quote {
+				if quote == '`' && i+1 < len(body) && body[i+1] == '`' {
+					i++
+					continue
+				}
+				quote = 0
+			}
+			continue
+		}
+
+		switch ch {
+		case '\'', '"', '`':
+			quote = ch
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case ',':
+			if parenDepth == 0 {
+				specs = append(specs, body[start:i])
+				start = i + 1
+			}
+		}
+	}
+	specs = append(specs, body[start:])
+	return specs
+}
+
+type alterSpecWord struct {
+	text   string
+	quoted bool
+}
+
+func alterSpecWords(spec string, limit int) []alterSpecWord {
+	words := make([]alterSpecWord, 0, limit)
+	for i := 0; i < len(spec) && len(words) < limit; {
+		switch ch := spec[i]; {
+		case ch == '`':
+			word, rest, ok := readQuotedMySQLIdentifier(spec[i:])
+			if !ok {
+				return words
+			}
+			words = append(words, alterSpecWord{text: strings.ToLower(word), quoted: true})
+			i = len(spec) - len(rest)
+		case ch == '\'' || ch == '"':
+			next := i + 1
+			for next < len(spec) {
+				if spec[next] == '\\' {
+					next += 2
+					continue
+				}
+				if spec[next] == ch {
+					next++
+					break
+				}
+				next++
+			}
+			i = next
+		case ch == '_' || ch == '$' || unicode.IsLetter(rune(ch)) || unicode.IsDigit(rune(ch)):
+			start := i
+			for i < len(spec) {
+				r := rune(spec[i])
+				if r != '_' && r != '$' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+					break
+				}
+				i++
+			}
+			words = append(words, alterSpecWord{text: strings.ToLower(spec[start:i])})
+		default:
+			i++
+		}
+	}
+	return words
 }
 
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
