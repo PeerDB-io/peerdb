@@ -569,8 +569,12 @@ func (c *MySqlConnector) PullRecords(
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
 			}
-			stmts, warns, err := mysqlParser.ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
+			query := shared.UnsafeFastReadOnlyBytesToString(ev.Query)
+			stmts, warns, err := mysqlParser.ParseSQL(query)
 			if err != nil {
+				if tableName, ok := mappedTableForUnparsedColumnAlter(query, string(ev.Schema), req.TableNameMapping); ok {
+					return exceptions.NewMySQLUnparsedColumnAlterError(tableName, query, err)
+				}
 				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
 				break
 			}

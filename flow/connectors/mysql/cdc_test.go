@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -48,6 +50,110 @@ func createTestDB(t *testing.T, ctx context.Context, c *MySqlConnector, dbName s
 			t.Logf("drop test db %s failed: %v", dbName, err)
 		}
 	})
+}
+
+func TestMappedTableForUnparsedColumnAlter(t *testing.T) {
+	t.Parallel()
+
+	tableNameMapping := map[string]model.NameAndExclude{
+		"db.t":        {Name: "dst"},
+		"db.mixed":    {Name: "mixed_dst"},
+		"db.has`tick": {Name: "tick_dst"},
+		"other.t":     {Name: "other_dst"},
+		"db.empty":    {},
+	}
+
+	testCases := []struct {
+		name        string
+		query       string
+		eventSchema string
+		wantTable   string
+		wantMatch   bool
+	}{
+		{
+			name:      "schema qualified add column",
+			query:     "ALTER TABLE db.t ADD COLUMN c INT",
+			wantTable: "db.t",
+			wantMatch: true,
+		},
+		{
+			name:      "backtick qualified modify column",
+			query:     "ALTER TABLE `db`.`t` MODIFY COLUMN c BIGINT",
+			wantTable: "db.t",
+			wantMatch: true,
+		},
+		{
+			name:        "implicit schema drop column",
+			query:       "ALTER TABLE t DROP COLUMN c",
+			eventSchema: "db",
+			wantTable:   "db.t",
+			wantMatch:   true,
+		},
+		{
+			name:      "change column",
+			query:     "ALTER TABLE db.t CHANGE COLUMN c c2 INT",
+			wantTable: "db.t",
+			wantMatch: true,
+		},
+		{
+			name:      "drop index followed by drop column",
+			query:     "ALTER TABLE db.t DROP INDEX c_idx, DROP COLUMN c",
+			wantTable: "db.t",
+			wantMatch: true,
+		},
+		{
+			name:      "multi statement mapped alter",
+			query:     "SET @x = 1; ALTER TABLE `db`.`mixed` ADD COLUMN c INT",
+			wantTable: "db.mixed",
+			wantMatch: true,
+		},
+		{
+			name:      "escaped backtick in table identifier",
+			query:     "ALTER TABLE `db`.`has``tick` ADD COLUMN c INT",
+			wantTable: "db.has`tick",
+			wantMatch: true,
+		},
+		{
+			name:  "unmapped add column",
+			query: "ALTER TABLE db.unmapped ADD COLUMN c INT",
+		},
+		{
+			name:  "mapped entry with empty destination",
+			query: "ALTER TABLE db.empty ADD COLUMN c INT",
+		},
+		{
+			name:  "non column table option",
+			query: "ALTER TABLE db.t ENGINE=InnoDB",
+		},
+		{
+			name:  "non column add unique index",
+			query: "ALTER TABLE db.t ADD UNIQUE INDEX c_idx (c)",
+		},
+		{
+			name:  "non column optimize",
+			query: "OPTIMIZE TABLE db.t",
+		},
+		{
+			name:        "implicit schema missing event schema",
+			query:       "ALTER TABLE t ADD COLUMN c INT",
+			eventSchema: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotTable, gotMatch := mappedTableForUnparsedColumnAlter(tc.query, tc.eventSchema, tableNameMapping)
+			require.Equal(t, tc.wantMatch, gotMatch)
+			require.Equal(t, tc.wantTable, gotTable)
+		})
+	}
+}
+
+func TestTiDBParserRejectsMariaDBUUIDColumnAlter(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := parser.New().ParseSQL("ALTER TABLE db.t ADD COLUMN uuid_col UUID")
+	require.Error(t, err)
 }
 
 func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
