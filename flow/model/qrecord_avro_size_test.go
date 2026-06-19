@@ -276,6 +276,18 @@ func TestAvroSizeComputation(t *testing.T) {
 			},
 		},
 		{
+			name:       "uint64set",
+			kind:       types.QValueKindUint64Set,
+			numRecords: 10_000,
+			env: map[string]string{
+				"PEERDB_CLICKHOUSE_BINARY_FORMAT":               "raw",
+				"PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING": "false",
+			},
+			genValue: func() types.QValue {
+				return types.QValueUint64Set{Val: rand.Uint64()}
+			},
+		},
+		{
 			name:       "timestamp",
 			kind:       types.QValueKindTimestamp,
 			numRecords: 10_000,

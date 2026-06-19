@@ -267,6 +267,21 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		newqv = types.QValueEnum{Val: lua.LVAsString(val)}
 	case types.QValueKindUint16Enum:
 		newqv = types.QValueUint16Enum{Val: uint16(lua.LVAsNumber(val))}
+	case types.QValueKindUint64Set:
+		switch v := val.(type) {
+		case lua.LNumber:
+			newqv = types.QValueUint64Set{Val: uint64(v)}
+		case *lua.LUserData:
+			switch i64 := v.Value.(type) {
+			case int64:
+				newqv = types.QValueUint64Set{Val: uint64(i64)}
+			case uint64:
+				newqv = types.QValueUint64Set{Val: i64}
+			}
+		}
+		if newqv == nil {
+			ls.RaiseError("invalid uint64set")
+		}
 	case types.QValueKindTimestamp:
 		newqv = types.QValueTimestamp{Val: LVAsTime(ls, val)}
 	case types.QValueKindTimestampTZ:

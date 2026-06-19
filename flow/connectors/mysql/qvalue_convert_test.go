@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -36,6 +37,64 @@ func TestQkindFromMysqlType_Bit(t *testing.T) {
 			require.Equal(t, tc.want, qkind)
 		})
 	}
+}
+
+func TestQkindFromMysqlColumnType_Set(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		binlogMetadataSupported bool
+		version                 uint32
+		want                    types.QValueKind
+	}{
+		{
+			name:                    "old version without metadata maps SET to string",
+			binlogMetadataSupported: false,
+			version:                 shared.InternalVersion_MySQL5ConvertSetsToInts - 1,
+			want:                    types.QValueKindString,
+		},
+		{
+			name:                    "gating version without metadata maps SET to Uint64Set",
+			binlogMetadataSupported: false,
+			version:                 shared.InternalVersion_MySQL5ConvertSetsToInts,
+			want:                    types.QValueKindUint64Set,
+		},
+		{
+			name:                    "latest version without metadata maps SET to Uint64Set",
+			binlogMetadataSupported: false,
+			version:                 shared.InternalVersion_Latest,
+			want:                    types.QValueKindUint64Set,
+		},
+		{
+			name:                    "metadata-supported server keeps SET as string labels",
+			binlogMetadataSupported: true,
+			version:                 shared.InternalVersion_Latest,
+			want:                    types.QValueKindString,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			qkind, err := QkindFromMysqlColumnType("set('a','b','c')", tc.binlogMetadataSupported, tc.version)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, qkind)
+		})
+	}
+}
+
+func TestQValueFromMysqlFieldValue_Uint64Set(t *testing.T) {
+	fieldValue := mysql.NewFieldValue(mysql.FieldValueTypeUnsigned, 5, nil)
+
+	qv, err := QValueFromMysqlFieldValue(types.QValueKindUint64Set, mysql.MYSQL_TYPE_SET, fieldValue)
+	require.NoError(t, err)
+	require.Equal(t, types.QValueUint64Set{Val: 5}, qv)
+}
+
+func TestQValueFromMysqlRowEvent_Uint64Set(t *testing.T) {
+	tableMap := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_SET}}
+	coercionReported := false
+
+	qv, err := QValueFromMysqlRowEvent(
+		tableMap, 0, nil, nil, types.QValueKindUint64Set, int64(5), nil, &coercionReported)
+	require.NoError(t, err)
+	require.Equal(t, types.QValueUint64Set{Val: 5}, qv)
 }
 
 func TestProcessTime(t *testing.T) {

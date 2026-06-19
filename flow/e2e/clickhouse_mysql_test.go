@@ -592,6 +592,115 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_Set_Consistency() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_my_set_consistency"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_my_set_consistency_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			perms SET('a', 'b', 'c') NOT NULL
+		)
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (perms) VALUES ('a,c')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,perms", 1)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (perms) VALUES ('a,c')`, srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,perms", 2)
+
+	rows, err := s.GetRows(dstTableName, "id,perms")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	require.Equal(s.t, rows.Records[0][1].Value(), rows.Records[1][1].Value(),
+		"snapshot and CDC SET values should be consistent")
+	if mysqlEnumUsesOrdinals() {
+		require.EqualValues(s.t, 5, rows.Records[0][1].Value())
+	} else {
+		require.Equal(s.t, "a,c", rows.Records[0][1].Value())
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Set_Consistency_Version0() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_my_set_consistency_v0"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_my_set_consistency_v0_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			perms SET('a', 'b', 'c') NOT NULL
+		)
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (perms) VALUES ('a,c')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(shared.InternalVersion_First), 10)}
+	flowConnConfig.Version = shared.InternalVersion_First
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,perms", 1)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (perms) VALUES ('a,c')`, srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,perms", 2)
+
+	rows, err := s.GetRows(dstTableName, "id,perms")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	require.EqualValues(s.t, 1, rows.Records[0][0].Value())
+	require.EqualValues(s.t, 2, rows.Records[1][0].Value())
+	require.Equal(s.t, "a,c", rows.Records[0][1].Value())
+	if mysqlEnumUsesOrdinals() {
+		require.Equal(s.t, "5", rows.Records[1][1].Value())
+	} else {
+		require.Equal(s.t, "a,c", rows.Records[1][1].Value())
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Vector() {
 	mysource, ok := s.source.(*MySqlSource)
 	if !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
