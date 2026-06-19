@@ -199,6 +199,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_CLICKHOUSE_SKIP_STAGING_CLEANUP",
+		Description: "Skip deleting ClickHouse staging avro files after a QRep/snapshot flow completes. " +
+			"Enable to retain staging artifacts for downstream pipelines that consume them",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_S3_UUID_PREFIX",
 		Description:      "Use random UUID as prefix instead of flow name, can help partitioning on non-AWS based s3 providers",
 		DefaultValue:     "false",
@@ -756,6 +765,10 @@ func PeerDBClickHouseStagingProvider(ctx context.Context, env map[string]string)
 
 func PeerDBClickHouseStagingBucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
+}
+
+func PeerDBClickHouseSkipStagingCleanup(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_SKIP_STAGING_CLEANUP")
 }
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
