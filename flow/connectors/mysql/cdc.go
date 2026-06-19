@@ -65,17 +65,21 @@ func sqlModeFromStatusVars(statusVars []byte) (uint64, bool) {
 			}
 			return binary.LittleEndian.Uint64(statusVars[pos : pos+8]), true
 		case queryStatusVarCatalog:
-			if pos >= len(statusVars) {
+			payload := statusVars[pos:]
+			if len(payload) == 0 {
 				return 0, false
 			}
-			pos += 1 + int(statusVars[pos]) + 1
+			statusVarLength := int(payload[0])
+			pos += 1 + statusVarLength + 1
 		case queryStatusVarCharset:
 			pos += 6
 		case queryStatusVarTimeZone, queryStatusVarCatalogNZ:
-			if pos >= len(statusVars) {
+			payload := statusVars[pos:]
+			if len(payload) == 0 {
 				return 0, false
 			}
-			pos += 1 + int(statusVars[pos])
+			statusVarLength := int(payload[0])
+			pos += 1 + statusVarLength
 		default:
 			return 0, false
 		}
