@@ -230,6 +230,61 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MariaDB_CompressedColumnsValidation() {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("only applies to MariaDB")
+	}
+
+	testCases := []struct {
+		name       string
+		columnName string
+		columnDDL  string
+	}{
+		{
+			name:       "varchar",
+			columnName: "compressed_varchar",
+			columnDDL:  "compressed_varchar VARCHAR(100) COMPRESSED",
+		},
+		{
+			name:       "text",
+			columnName: "compressed_text",
+			columnDDL:  "compressed_text TEXT COMPRESSED",
+		},
+	}
+
+	for _, tc := range testCases {
+		s.t.Run(tc.name, func(t *testing.T) {
+			srcTableName := "test_mariadb_compressed_" + tc.name
+			srcFullName := s.attachSchemaSuffix(srcTableName)
+
+			require.NoError(t, s.source.Exec(t.Context(), fmt.Sprintf(`
+				CREATE TABLE %s (
+					id INT PRIMARY KEY,
+					%s
+				)
+			`, srcFullName, tc.columnDDL)))
+
+			err := mysource.ValidateMirrorSource(t.Context(), &protos.FlowConnectionConfigsCore{
+				FlowJobName: s.attachSuffix(srcTableName),
+				TableMappings: []*protos.TableMapping{
+					{
+						SourceTableIdentifier:      srcFullName,
+						DestinationTableIdentifier: srcTableName,
+						ShardingKey:                "id",
+					},
+				},
+				DoInitialSnapshot: true,
+				Version:           shared.InternalVersion_Latest,
+			})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.columnName)
+			require.Contains(t, err.Error(), "COMPRESSED")
+			require.Contains(t, err.Error(), "unsupported")
+		})
+	}
+}
+
 // Test_MySQL_Binary_Trailing_Zeros reproduces trailing-0x00 truncation of fixed-length
 // BINARY(N) columns over CDC.
 //

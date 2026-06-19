@@ -1147,6 +1147,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if strings.Contains(err.Error(), "in binlog and don't know how to handle") {
+		return ErrorUnsupportedDatatype, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_BINLOG_TYPE",
+		}
+	}
+
 	if postgresPrimaryKeyModifiedError, ok := errors.AsType[*exceptions.PrimaryKeyModifiedError](err); ok {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
 			Source: ErrorSourcePostgres,
