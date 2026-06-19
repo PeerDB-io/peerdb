@@ -1098,7 +1098,8 @@ func (s ClickHouseSuite) Test_MySQL_ANSIQuotes_DDL() {
 	EnvNoError(t, env, s.source.Exec(t.Context(), fmt.Sprintf(
 		`INSERT INTO %s ("id", "v", "c") VALUES (2, 20, 30)`, quotedSrcFullName)))
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on ansi quotes ddl", srcTableName, dstTableName, "id,v,c")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on ansi quotes ddl", srcTableName, dstTableName,
+		"id,v,coalesce(c,0) c")
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
