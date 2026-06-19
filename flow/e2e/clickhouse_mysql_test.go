@@ -1507,7 +1507,10 @@ func (s ClickHouseSuite) Test_MySQL_PartialJSONUnsupported() {
 			"--innodb-log-buffer-size=8M",
 		},
 		ExposedPorts: []string{"3306/tcp"},
-		WaitingFor:   wait.ForListeningPort("3306/tcp").WithStartupTimeout(3 * time.Minute),
+		WaitingFor: wait.ForAll(
+			wait.ForLog("ready for connections").WithOccurrence(2).WithStartupTimeout(3*time.Minute),
+			wait.ForListeningPort("3306/tcp").WithStartupTimeout(3*time.Minute),
+		),
 	}
 
 	ctr, err := testcontainers.GenericContainer(s.t.Context(), testcontainers.GenericContainerRequest{
