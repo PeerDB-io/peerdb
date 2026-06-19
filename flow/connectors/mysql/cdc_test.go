@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -11,6 +12,25 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
+
+func TestMySQLBinlogStalenessThresholdFromEnv(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	connector := &MySqlConnector{binlogHeartbeatPeriod: time.Second}
+
+	threshold, err := connector.binlogStalenessThresholdFromEnv(ctx, map[string]string{
+		"PEERDB_MYSQL_BINLOG_STALENESS_SECONDS": "17",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 17*time.Second, threshold)
+
+	defaultThreshold, err := connector.binlogStalenessThresholdFromEnv(ctx, map[string]string{
+		"PEERDB_MYSQL_BINLOG_STALENESS_SECONDS": "180",
+	})
+	require.NoError(t, err)
+	require.Equal(t, connector.binlogStalenessThreshold(), defaultThreshold)
+}
 
 func newTestConnector(t *testing.T, ctx context.Context) *MySqlConnector {
 	t.Helper()
