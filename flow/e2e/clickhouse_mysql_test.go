@@ -1521,6 +1521,8 @@ func (s ClickHouseSuite) Test_MySQL_PartialJSONUnsupported() {
 
 	mapped, err := ctr.MappedPort(s.t.Context(), "3306/tcp")
 	require.NoError(s.t, err)
+	host, err := ctr.Host(s.t.Context())
+	require.NoError(s.t, err)
 	port, err := strconv.Atoi(mapped.Port())
 	require.NoError(s.t, err)
 
@@ -1531,7 +1533,7 @@ func (s ClickHouseSuite) Test_MySQL_PartialJSONUnsupported() {
 
 	suffix := "mypjson_" + strings.ToLower(common.RandomString(8))
 	config := &protos.MySqlConfig{
-		Host:                 internal.MySQLTestHost(),
+		Host:                 host,
 		Port:                 uint32(port),
 		User:                 "root",
 		Password:             internal.MySQLTestRootPasswordWithFallback("cipass"),
