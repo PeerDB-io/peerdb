@@ -577,11 +577,30 @@ func (c *MySqlConnector) PullRecords(
 			if len(warns) > 0 {
 				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
 			}
+			advanceTransactionCheckpoint := func() {
+				if gset != nil {
+					gset = ev.GSet
+					updatedOffset = gset.String()
+					req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+				} else if event.Header.LogPos > pos.Pos {
+					pos.Pos = event.Header.LogPos
+					updatedOffset = posToOffsetText(pos)
+					req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+				}
+				inTx = false
+			}
 			for _, stmt := range stmts {
-				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
+				switch stmt := stmt.(type) {
+				case *ast.AlterTableStmt:
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, req, alterTableStmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
+						ctx, catalogPool, req, stmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
+					}
+				case *ast.CommitStmt:
+					advanceTransactionCheckpoint()
+				case *ast.RollbackStmt:
+					if stmt.SavepointName == "" {
+						advanceTransactionCheckpoint()
 					}
 				}
 			}
