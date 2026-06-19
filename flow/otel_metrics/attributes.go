@@ -32,6 +32,7 @@ const (
 	PipeNameKey                = "pipeName"
 	DestinationTableNameKey    = "destinationTableName"
 	WaitEventTypeKey           = "waitEventType"
+	EventTypeKey               = "eventType"
 	WaitEventKey               = "waitEvent"
 	BackendStateKey            = "backendState"
 	WalStatusKey               = "walStatus"
