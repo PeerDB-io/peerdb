@@ -669,9 +669,13 @@ func (s ClickHouseSuite) Test_MySQL_GeneratedInvisiblePrimaryKey_Consistency() {
 		`INSERT INTO %s (val) VALUES (10), (20)`, srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix(srcTableName),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
-		Destination:      s.Peer().Name,
+		FlowJobName: s.attachSuffix(srcTableName),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			ShardingKey:                "my_row_id",
+		}},
+		Destination: s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
