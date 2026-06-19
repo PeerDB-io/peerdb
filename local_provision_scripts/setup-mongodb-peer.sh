@@ -5,25 +5,30 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
 . "$SCRIPT_DIR/../.env"
 . "$SCRIPT_DIR/../ancillary.env"
+# shellcheck source=flow_api_call.sh
+. "$SCRIPT_DIR/flow_api_call.sh"
 
-PEERDB_NEXUS_PORT="${PEERDB_NEXUS_PORT:-9900}"
-PEERDB_PASSWORD="${PEERDB_PASSWORD:-peerdb}"
+payload=$(jq -n \
+  --arg name "mongodb_peer" \
+  --arg host "$CI_MONGO_HOST" \
+  --argjson port "$CI_MONGO_PORT" \
+  --arg username "$CI_MONGO_USERNAME" \
+  --arg password "$CI_MONGO_PASSWORD" \
+  '{
+    "peer": {
+      "name": $name,
+      "type": "MONGO",
+      "mongoConfig": {
+        "uri": ("mongodb://" + $host + ":" + ($port | tostring)),
+        "username": $username,
+        "password": $password,
+        "disableTls": true,
+        "readPreference": "PRIMARY"
+      }
+    },
+    "allowUpdate": true
+  }')
 
-run_sql() {
-  PGPASSWORD="$PEERDB_PASSWORD" psql \
-    -h localhost \
-    -p "$PEERDB_NEXUS_PORT" \
-    -U peerdb \
-    -c "$1"
-}
-
-echo "Creating mongodb peer in peerdb nexus..."
-run_sql "CREATE PEER IF NOT EXISTS mongodb_peer FROM MONGO WITH (
-  uri = 'mongodb://${CI_MONGO_HOST}:${CI_MONGO_PORT}',
-  username = '${CI_MONGO_USERNAME}',
-  password = '${CI_MONGO_PASSWORD}',
-  disable_tls = 'true',
-  read_preference = '1'
-);"
-
+echo "Creating mongodb peer..."
+call_api "POST" "/v1/peers/create" "$payload"
 echo "mongodb peer created successfully."

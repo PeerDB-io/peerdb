@@ -5,27 +5,31 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
 . "$SCRIPT_DIR/../.env"
 . "$SCRIPT_DIR/../ancillary.env"
+# shellcheck source=flow_api_call.sh
+. "$SCRIPT_DIR/flow_api_call.sh"
 
-PEERDB_NEXUS_PORT="${PEERDB_NEXUS_PORT:-9900}"
-PEERDB_PASSWORD="${PEERDB_PASSWORD:-peerdb}"
+payload=$(jq -n \
+  --arg name "mysql_pos_peer" \
+  --arg host "$CI_MYSQL_HOST" \
+  --argjson port "$CI_MYSQL_POS_PORT" \
+  --arg password "$CI_MYSQL_ROOT_PASSWORD" \
+  '{
+    "peer": {
+      "name": $name,
+      "type": "MYSQL",
+      "mysqlConfig": {
+        "host": $host,
+        "port": $port,
+        "user": "root",
+        "password": $password,
+        "disableTls": true,
+        "flavor": "MYSQL_MYSQL",
+        "replicationMechanism": "MYSQL_FILEPOS"
+      }
+    },
+    "allowUpdate": true
+  }')
 
-run_sql() {
-  PGPASSWORD="$PEERDB_PASSWORD" psql \
-    -h localhost \
-    -p "$PEERDB_NEXUS_PORT" \
-    -U peerdb \
-    -c "$1"
-}
-
-echo "Creating mysql-pos peer in peerdb nexus..."
-run_sql "CREATE PEER IF NOT EXISTS mysql_pos_peer FROM MYSQL WITH (
-  host = '${CI_MYSQL_HOST}',
-  port = '${CI_MYSQL_POS_PORT}',
-  user = 'root',
-  password = '${CI_MYSQL_ROOT_PASSWORD}',
-  disable_tls = 'true',
-  flavor = 'mysql',
-  replication_mechanism = 'filepos'
-);"
-
+echo "Creating mysql-pos peer..."
+call_api "POST" "/v1/peers/create" "$payload"
 echo "mysql-pos peer created successfully."

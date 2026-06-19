@@ -5,25 +5,31 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
 . "$SCRIPT_DIR/../.env"
 . "$SCRIPT_DIR/../ancillary.env"
+# shellcheck source=flow_api_call.sh
+. "$SCRIPT_DIR/flow_api_call.sh"
 
-PEERDB_NEXUS_PORT="${PEERDB_NEXUS_PORT:-9900}"
-PEERDB_PASSWORD="${PEERDB_PASSWORD:-peerdb}"
+payload=$(jq -n \
+  --arg name "postgres2_peer" \
+  --arg host "$PG2_HOST" \
+  --argjson port "$PG2_PORT" \
+  --arg user "$PG2_USER" \
+  --arg password "$PG2_PASSWORD" \
+  --arg database "$PG2_DATABASE" \
+  '{
+    "peer": {
+      "name": $name,
+      "type": "POSTGRES",
+      "postgresConfig": {
+        "host": $host,
+        "port": $port,
+        "user": $user,
+        "password": $password,
+        "database": $database
+      }
+    },
+    "allowUpdate": true
+  }')
 
-run_sql() {
-  PGPASSWORD="$PEERDB_PASSWORD" psql \
-    -h localhost \
-    -p "$PEERDB_NEXUS_PORT" \
-    -U peerdb \
-    -c "$1"
-}
-
-echo "Creating postgres2 peer in peerdb nexus..."
-run_sql "CREATE PEER IF NOT EXISTS postgres2_peer FROM POSTGRES WITH (
-  host = 'host.docker.internal',
-  port = '$PG2_PORT',
-  user = '$PG2_USER',
-  password = '$PG2_PASSWORD',
-  database = '$PG2_DATABASE'
-);"
-
+echo "Creating postgres2 peer..."
+call_api "POST" "/v1/peers/create" "$payload"
 echo "postgres2 peer created successfully."

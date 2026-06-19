@@ -5,26 +5,30 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
 . "$SCRIPT_DIR/../.env"
 . "$SCRIPT_DIR/../ancillary.env"
+# shellcheck source=flow_api_call.sh
+. "$SCRIPT_DIR/flow_api_call.sh"
 
-PEERDB_NEXUS_PORT="${PEERDB_NEXUS_PORT:-9900}"
-PEERDB_PASSWORD="${PEERDB_PASSWORD:-peerdb}"
+payload=$(jq -n \
+  --arg name "mariadb_peer" \
+  --arg host "$CI_MYSQL_HOST" \
+  --argjson port "$CI_MARIADB_PORT" \
+  --arg password "$CI_MYSQL_ROOT_PASSWORD" \
+  '{
+    "peer": {
+      "name": $name,
+      "type": "MYSQL",
+      "mysqlConfig": {
+        "host": $host,
+        "port": $port,
+        "user": "root",
+        "password": $password,
+        "disableTls": true,
+        "flavor": "MYSQL_MARIA"
+      }
+    },
+    "allowUpdate": true
+  }')
 
-run_sql() {
-  PGPASSWORD="$PEERDB_PASSWORD" psql \
-    -h localhost \
-    -p "$PEERDB_NEXUS_PORT" \
-    -U peerdb \
-    -c "$1"
-}
-
-echo "Creating mariadb peer in peerdb nexus..."
-run_sql "CREATE PEER IF NOT EXISTS mariadb_peer FROM MYSQL WITH (
-  host = '${CI_MYSQL_HOST}',
-  port = '${CI_MARIADB_PORT}',
-  user = 'root',
-  password = '${CI_MYSQL_ROOT_PASSWORD}',
-  disable_tls = 'true',
-  flavor = 'mariadb'
-);"
-
+echo "Creating mariadb peer..."
+call_api "POST" "/v1/peers/create" "$payload"
 echo "mariadb peer created successfully."

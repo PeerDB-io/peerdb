@@ -5,27 +5,31 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
 . "$SCRIPT_DIR/../.env"
 . "$SCRIPT_DIR/../ancillary.env"
+# shellcheck source=flow_api_call.sh
+. "$SCRIPT_DIR/flow_api_call.sh"
 
-PEERDB_NEXUS_PORT="${PEERDB_NEXUS_PORT:-9900}"
-PEERDB_PASSWORD="${PEERDB_PASSWORD:-peerdb}"
+payload=$(jq -n \
+  --arg name "mysql_gtid_peer" \
+  --arg host "$CI_MYSQL_HOST" \
+  --argjson port "$CI_MYSQL_GTID_PORT" \
+  --arg password "$CI_MYSQL_ROOT_PASSWORD" \
+  '{
+    "peer": {
+      "name": $name,
+      "type": "MYSQL",
+      "mysqlConfig": {
+        "host": $host,
+        "port": $port,
+        "user": "root",
+        "password": $password,
+        "disableTls": true,
+        "flavor": "MYSQL_MYSQL",
+        "replicationMechanism": "MYSQL_GTID"
+      }
+    },
+    "allowUpdate": true
+  }')
 
-run_sql() {
-  PGPASSWORD="$PEERDB_PASSWORD" psql \
-    -h localhost \
-    -p "$PEERDB_NEXUS_PORT" \
-    -U peerdb \
-    -c "$1"
-}
-
-echo "Creating mysql-gtid peer in peerdb nexus..."
-run_sql "CREATE PEER IF NOT EXISTS mysql_gtid_peer FROM MYSQL WITH (
-  host = '${CI_MYSQL_HOST}',
-  port = '${CI_MYSQL_GTID_PORT}',
-  user = 'root',
-  password = '${CI_MYSQL_ROOT_PASSWORD}',
-  disable_tls = 'true',
-  flavor = 'mysql',
-  replication_mechanism = 'gtid'
-);"
-
+echo "Creating mysql-gtid peer..."
+call_api "POST" "/v1/peers/create" "$payload"
 echo "mysql-gtid peer created successfully."
