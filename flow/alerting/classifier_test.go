@@ -1011,6 +1011,22 @@ func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMySQLIncompatibleColumnTypeShouldNotifyUserWhenWrapped(t *testing.T) {
+	err := exceptions.NewMySQLIncompatibleColumnTypeError(
+		"test_schema.test_table", "num", mysql.MYSQL_TYPE_VAR_STRING, "string", "Int64")
+	wrapped := fmt.Errorf("%w: failed to parse value %q: %w", err, "not-a-number", strconv.ErrSyntax)
+	errorClass, errInfo := GetErrorClass(t.Context(), wrapped)
+	assert.Equal(t, ErrorUnsupportedSchemaChange, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable:  "test_schema.test_table",
+			ErrorAttributeKeyColumn: "num",
+		},
+	}, errInfo)
+}
+
 func TestPublicationMissingError(t *testing.T) {
 	err := exceptions.NewPublicationMissingError("test_pub")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pull failed: %w", err))

@@ -1304,6 +1304,66 @@ func (s ClickHouseSuite) Test_MySQL_NumToVarcharCoercion() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_NumToVarcharCoercionInvalidValue() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_coercion_error"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_coercion_error_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, num bigint)
+	`, quotedSrcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(num) VALUES (42)`, quotedSrcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,num")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s MODIFY COLUMN num VARCHAR(20)
+	`, quotedSrcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(num) VALUES ('not-a-number')`, quotedSrcFullName)))
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for coercion error message", func() bool {
+		var count int64
+		err := catalogPool.QueryRow(s.t.Context(), `
+			SELECT COUNT(*) FROM peerdb_stats.flow_errors
+			WHERE error_type='error'
+			AND flow_name = $1
+			AND error_message ILIKE '%Incompatible type for column%'
+			AND error_message ILIKE '%failed to parse value "not-a-number"%'
+		`, flowConnConfig.FlowJobName).Scan(&count)
+		if err != nil {
+			s.t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
