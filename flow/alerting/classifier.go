@@ -49,6 +49,14 @@ const (
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
 	// once we already know the error came from MySQL geometry parsing.
 	mysqlGeometryLinearRingNotClosedError = "Points of LinearRing do not form a closed linestring"
+
+	// clickHouseCannotConvertNullToNonNullable is the message ClickHouse raises (error code 349,
+	// CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN) when a NULL value is inserted into a non-Nullable
+	// column. By the time this surfaces from a CDC failure the underlying *clickhouse.Exception
+	// type is usually stripped (Temporal serializes it to a plain string), so we match on the
+	// message. PeerDB always creates Nullable destination columns, so this only happens through a
+	// user-defined MV/view that casts a nullable source column to a non-Nullable type.
+	clickHouseCannotConvertNullToNonNullable = "Cannot convert NULL value to non-Nullable type"
 )
 
 var (
@@ -465,6 +473,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "tls.CertificateVerificationError",
+		}
+	}
+
+	// A NULL value being inserted into a non-Nullable ClickHouse column (error code 349). This
+	// reaches us as a serialized string with the *clickhouse.Exception type stripped, so the typed
+	// switch below never sees it; match on the message instead. See the constant for why this is
+	// always an MV/view problem.
+	if strings.Contains(err.Error(), clickHouseCannotConvertNullToNonNullable) {
+		return ErrorNotifyMVOrView, ErrorInfo{
+			Source: ErrorSourceClickHouse,
+			Code:   strconv.Itoa(int(chproto.ErrCannotInsertNullInOrdinaryColumn)),
 		}
 	}
 

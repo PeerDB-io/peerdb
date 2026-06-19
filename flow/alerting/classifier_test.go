@@ -692,13 +692,28 @@ func TestNonClassifiedNonNormalizeErrorShouldBeOtherWithSourceClickHouse(t *test
 func TestCannotInsertNullInOrdinaryColumnShouldBeNotifyMV(t *testing.T) {
 	// A nullable source column cast to a non-Nullable type by a user MV/view, e.g.
 	// "code: 349, Cannot convert NULL value to non-Nullable type ... while pushing to view ...".
-	// This is not wrapped as a ViewError/NormalizationError, so it must be classified by code.
+	// The typed *clickhouse.Exception path (e.g. when the cause is still typed at the activity
+	// level) must be classified by code.
 	err := &clickhouse.Exception{
 		Code: int32(chproto.ErrCannotInsertNullInOrdinaryColumn),
 		//nolint:lll
 		Message: "Cannot convert NULL value to non-Nullable type: while converting source column street to destination column street: while pushing to view cdc_user_api.stg_cdc_user_api__customer_address_mv (some-uuid-here)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to normalize records: %w", err))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrCannotInsertNullInOrdinaryColumn)),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestCannotInsertNullInOrdinaryColumnSerializedShouldBeNotifyMV(t *testing.T) {
+	// The production case: by the time the error reaches the classifier the *clickhouse.Exception
+	// type has been stripped (Temporal serialized it to a plain string), so it must be classified
+	// by message. Without the message match this surfaces as ErrorOther / "UNKNOWN".
+	//nolint:lll
+	serialized := errors.New("failed to normalize records: ClickHouse view error: code: 349, message: Cannot convert NULL value to non-Nullable type: while pushing to view cdc_otc_api.stg_cdc_otc_api__otc_otc_trade_mv (some-uuid-here)")
+	errorClass, errInfo := GetErrorClass(t.Context(), serialized)
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
