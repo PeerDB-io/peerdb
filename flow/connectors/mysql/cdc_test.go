@@ -2,15 +2,59 @@ package connmysql
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/parser"
+	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
+
+func sqlModeStatusVars(sqlMode uint64) []byte {
+	statusVars := []byte{
+		queryStatusVarFlags2,
+		0, 0, 0, 0,
+		queryStatusVarSQLMode,
+		0, 0, 0, 0, 0, 0, 0, 0,
+	}
+	binary.LittleEndian.PutUint64(statusVars[6:], sqlMode)
+	return statusVars
+}
+
+func TestSQLModeFromStatusVars(t *testing.T) {
+	want := uint64(tidbmysql.ModeANSIQuotes | tidbmysql.ModeNoBackslashEscapes)
+
+	got, ok := sqlModeFromStatusVars(sqlModeStatusVars(want))
+	require.True(t, ok)
+	require.Equal(t, want, got)
+
+	_, ok = sqlModeFromStatusVars([]byte{queryStatusVarFlags2, 1, 2, 3})
+	require.False(t, ok)
+
+	_, ok = sqlModeFromStatusVars([]byte{queryStatusVarSQLMode, 1, 2, 3})
+	require.False(t, ok)
+
+	_, ok = sqlModeFromStatusVars([]byte{queryStatusVarCatalogNZ, 3, 'd', 'b', '1'})
+	require.False(t, ok)
+}
+
+func TestSetParserSQLModeFromStatusVarsResetsParser(t *testing.T) {
+	mysqlParser := parser.New()
+	ansiQuotesDDL := `ALTER TABLE "t" ADD COLUMN "c" INT`
+
+	setParserSQLModeFromStatusVars(mysqlParser, sqlModeStatusVars(uint64(tidbmysql.ModeANSIQuotes)))
+	_, _, err := mysqlParser.ParseSQL(ansiQuotesDDL)
+	require.NoError(t, err)
+
+	setParserSQLModeFromStatusVars(mysqlParser, nil)
+	_, _, err = mysqlParser.ParseSQL(ansiQuotesDDL)
+	require.Error(t, err)
+}
 
 func newTestConnector(t *testing.T, ctx context.Context) *MySqlConnector {
 	t.Helper()

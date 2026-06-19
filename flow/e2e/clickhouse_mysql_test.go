@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -1041,6 +1042,63 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_ANSIQuotes_DDL() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+	require.NoError(s.t, err)
+	if cmp >= 0 {
+		s.t.Skip("only applies to mysql versions WITHOUT binlog_row_metadata support")
+	}
+
+	t := s.T()
+	srcTableName := "test_mysql_ansi_quotes_ddl"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_mysql_ansi_quotes_ddl_dst"
+
+	require.NoError(t, s.source.Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			v INT
+		)`, srcFullName)))
+	require.NoError(t, s.source.Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, v) VALUES (1, 10)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	temporalClient := NewTemporalClient(t)
+	env := ExecutePeerflow(t, temporalClient, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,v")
+
+	require.NoError(t, s.source.Exec(t.Context(), `SET SESSION sql_mode='ANSI_QUOTES'`))
+	t.Cleanup(func() {
+		if err := s.source.Exec(context.Background(), "SET SESSION sql_mode='ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
+			t.Logf("failed to restore mysql sql_mode: %v", err)
+		}
+	})
+
+	EnvNoError(t, env, s.source.Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN "c" INT`, quotedSrcFullName)))
+	EnvNoError(t, env, s.source.Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s ("id", "v", "c") VALUES (2, 20, 30)`, quotedSrcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on ansi quotes ddl", srcTableName, dstTableName, "id,v,c")
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
