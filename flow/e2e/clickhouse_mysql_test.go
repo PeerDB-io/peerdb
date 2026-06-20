@@ -261,12 +261,12 @@ func (s ClickHouseSuite) Test_MySQL_NonTransactionalEngineCDC() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s, "snapshot", srcTableName, dstTableName, "id,val")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (id,val) VALUES (2,'cdc')`, srcFullName)))
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s, "cdc", srcTableName, dstTableName, "id,val")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

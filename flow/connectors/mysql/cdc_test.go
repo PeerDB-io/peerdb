@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -48,6 +50,43 @@ func createTestDB(t *testing.T, ctx context.Context, c *MySqlConnector, dbName s
 			t.Logf("drop test db %s failed: %v", dbName, err)
 		}
 	})
+}
+
+func TestTrimQueryEventSQLParsesTrailingNull(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		query  []byte
+		assert func(*testing.T, ast.StmtNode)
+	}{
+		{
+			name:  "alter table",
+			query: []byte("ALTER TABLE t ADD COLUMN c INT\x00"),
+			assert: func(t *testing.T, stmt ast.StmtNode) {
+				t.Helper()
+				require.IsType(t, &ast.AlterTableStmt{}, stmt)
+			},
+		},
+		{
+			name:  "commit",
+			query: []byte("COMMIT\x00"),
+			assert: func(t *testing.T, stmt ast.StmtNode) {
+				t.Helper()
+				require.IsType(t, &ast.CommitStmt{}, stmt)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mysqlParser := parser.New()
+			_, _, err := mysqlParser.ParseSQL(string(tc.query))
+			require.Error(t, err)
+
+			stmts, warns, err := mysqlParser.ParseSQL(trimQueryEventSQL(tc.query))
+			require.NoError(t, err)
+			require.Empty(t, warns)
+			require.Len(t, stmts, 1)
+			tc.assert(t, stmts[0])
+		})
+	}
 }
 
 func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {

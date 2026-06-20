@@ -1,6 +1,7 @@
 package connmysql
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/tls"
@@ -42,6 +43,10 @@ const (
 
 func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
 	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
+}
+
+func trimQueryEventSQL(query []byte) string {
+	return shared.UnsafeFastReadOnlyBytesToString(bytes.TrimRight(query, "\x00"))
 }
 
 func (c *MySqlConnector) GetTableSchema(
@@ -569,7 +574,7 @@ func (c *MySqlConnector) PullRecords(
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
 			}
-			stmts, warns, err := mysqlParser.ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
+			stmts, warns, err := mysqlParser.ParseSQL(trimQueryEventSQL(ev.Query))
 			if err != nil {
 				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
 				break
