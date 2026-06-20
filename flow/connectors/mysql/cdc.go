@@ -805,6 +805,7 @@ var (
 			mysqlIdentifierPattern + `(?:\s*\.\s*` + mysqlIdentifierPattern + `)?)\s*([^;]*)`)
 	unparsedAlterNonColumnTargets = map[string]struct{}{
 		"check":      {},
+		"columnar":   {},
 		"constraint": {},
 		"foreign":    {},
 		"fulltext":   {},
@@ -814,6 +815,7 @@ var (
 		"primary":    {},
 		"spatial":    {},
 		"unique":     {},
+		"vector":     {},
 	}
 )
 

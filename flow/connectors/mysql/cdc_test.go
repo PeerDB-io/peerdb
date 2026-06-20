@@ -144,6 +144,20 @@ func TestClassifyUnparsedQueryEvent(t *testing.T) {
 			wantAction: unparsedQueryEventDontCare,
 		},
 		{
+			name:       "mapped vector index alter is significant but non paging",
+			query:      "ALTER TABLE mapped_t ADD VECTOR INDEX idx_c (c) VENDOR_OPTION",
+			schema:     "db",
+			wantAction: unparsedQueryEventNotice,
+			wantTable:  "db.mapped_t",
+		},
+		{
+			name:       "mapped columnar index alter is significant but non paging",
+			query:      "ALTER TABLE mapped_t ADD COLUMNAR INDEX idx_c (c) VENDOR_OPTION",
+			schema:     "db",
+			wantAction: unparsedQueryEventNotice,
+			wantTable:  "db.mapped_t",
+		},
+		{
 			name:       "online column alter on unmapped table is not interesting",
 			query:      "ALTER ONLINE TABLE unmapped_t ADD COLUMN c INT",
 			schema:     "db",
