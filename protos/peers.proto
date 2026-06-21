@@ -115,6 +115,11 @@ enum PostgresAuthType {
   POSTGRES_IAM_AUTH = 1;
 }
 
+message ClientTlsConfig {
+  string certificate = 1 [(peerdb_redacted) = true];
+  string private_key = 2 [(peerdb_redacted) = true];
+}
+
 message PostgresConfig {
   string host = 1;
   uint32 port = 2;
@@ -131,6 +136,7 @@ message PostgresConfig {
   optional AwsAuthenticationConfig aws_auth = 12;
   optional bool disable_tls = 13;
   bool skip_cert_verification = 14;
+  optional ClientTlsConfig client_tls = 15;
 }
 
 message EventHubConfig {
