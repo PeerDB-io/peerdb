@@ -525,13 +525,9 @@ func PullCdcRecords[Items model.Items](
 		}
 	}
 
-	// Remove exceptions.PrimaryKeyModifiedError and its classification when cdc store is removed
-	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, req.Env)
-	if err != nil {
-		return err
-	}
 	var cdcRecordsStorage *utils.CDCStore[Items]
-	if cdcStoreEnabled {
+	if p.cdcStoreEnabled {
+		var err error
 		cdcRecordsStorage, err = utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
 		if err != nil {
 			return err
@@ -726,6 +722,10 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if err != nil {
+			// If the SSH tunnel went bad (e.g. keepalive failure), we proactively close the replication connection.
+			if p.ssh.IsBad() {
+				return exceptions.NewSSHTunnelConnectionError(fmt.Errorf("ReceiveMessage failed: %w", err))
+			}
 			return fmt.Errorf("ReceiveMessage failed: %w", err)
 		}
 

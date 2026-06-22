@@ -68,8 +68,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Controls whether to enable the store for recovering unchanged Postgres TOAST values within a CDC batch",
 		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED",
+		Description:      "Override PEERDB_CDC_STORE_ENABLED when destination is ClickHouse",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD",
@@ -187,6 +195,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Staging bucket name for ClickHouse mirrors (provider-agnostic, preferred over legacy env vars)",
 		DefaultValue:     "",
 		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name: "PEERDB_CLICKHOUSE_SKIP_STAGING_CLEANUP",
+		Description: "Skip deleting ClickHouse staging avro files after a QRep/snapshot flow completes. " +
+			"Enable to retain staging artifacts for downstream pipelines that consume them",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
@@ -649,6 +666,10 @@ func PeerDBCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, er
 	return dynamicConfBool(ctx, env, "PEERDB_CDC_STORE_ENABLED")
 }
 
+func PeerDBClickHouseCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED")
+}
+
 func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD")
 }
@@ -744,6 +765,10 @@ func PeerDBClickHouseStagingProvider(ctx context.Context, env map[string]string)
 
 func PeerDBClickHouseStagingBucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
+}
+
+func PeerDBClickHouseSkipStagingCleanup(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_SKIP_STAGING_CLEANUP")
 }
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
