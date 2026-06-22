@@ -10,7 +10,6 @@ call_api() {
   _call_api_payload="$3"
 
   echo "Calling API: $_call_api_method $_call_api_endpoint"
-  echo "Payload: $_call_api_payload"
 
   response=$(curl -s -X "$_call_api_method" "http://localhost:$FLOW_API_HTTP_PORT$_call_api_endpoint" \
     -H "Content-Type: application/json" \
