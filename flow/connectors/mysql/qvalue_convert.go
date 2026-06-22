@@ -3,7 +3,6 @@ package connmysql
 import (
 	"encoding/binary"
 	"fmt"
-	"log/slog"
 	"math"
 	"math/bits"
 	"slices"
@@ -366,10 +365,18 @@ func binaryColumnLength(mytype byte, meta uint16) int {
 	return int(meta & 0xFF)
 }
 
+// QValueFromMysqlRowEvent decodes a binlog value using the qkind cached when the
+// mirror was configured. The schema-change conversions intentionally supported
+// here are narrow: integer and float values can be formatted as strings;
+// parseable strings can be converted back to integer/float qkinds within the
+// cached destination range; existing signed/unsigned integer cases, the INT24
+// unsigned mask, and float32-to-float64 widening are preserved; temporal MODIFY
+// cases below cover DATE<->DATETIME/TIMESTAMP and TIME->timestamp. Free-form
+// text cached as numeric is unsupported and hard-fails on the bad value.
 func QValueFromMysqlRowEvent(
 	ev *replication.TableMapEvent, idx int,
 	enums []string, sets []string,
-	qkind types.QValueKind, val any, logger log.Logger, coercionReported *bool,
+	qkind types.QValueKind, val any, logger log.Logger,
 ) (types.QValue, error) {
 	mytype := ev.ColumnType[idx]
 
@@ -600,77 +607,103 @@ func QValueFromMysqlRowEvent(
 			}, nil
 		case types.QValueKindInt8:
 			v, err := strconv.ParseInt(val, 10, 8)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueInt8{Val: int8(v)}, nil
 		case types.QValueKindInt16:
 			v, err := strconv.ParseInt(val, 10, 16)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueInt16{Val: int16(v)}, nil
 		case types.QValueKindInt32:
 			v, err := strconv.ParseInt(val, 10, 32)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueInt32{Val: int32(v)}, nil
 		case types.QValueKindInt64:
 			v, err := strconv.ParseInt(val, 10, 64)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueInt64{Val: v}, nil
 		case types.QValueKindUInt8:
 			v, err := strconv.ParseUint(val, 10, 8)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueUInt8{Val: uint8(v)}, nil
 		case types.QValueKindUInt16:
 			v, err := strconv.ParseUint(val, 10, 16)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueUInt16{Val: uint16(v)}, nil
 		case types.QValueKindUInt32:
 			v, err := strconv.ParseUint(val, 10, 32)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueUInt32{Val: uint32(v)}, nil
 		case types.QValueKindUInt64:
 			v, err := strconv.ParseUint(val, 10, 64)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueUInt64{Val: v}, nil
 		case types.QValueKindFloat32:
 			v, err := strconv.ParseFloat(val, 32)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueFloat32{Val: float32(v)}, nil
 		case types.QValueKindFloat64:
 			v, err := strconv.ParseFloat(val, 64)
-			if err != nil && !*coercionReported {
-				*coercionReported = true
-				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			if err != nil {
+				err := newMysqlStringCoercionError(ev, idx, qkind, val, err)
+				logger.Warn(err.Error())
+				return nil, err
 			}
 			return types.QValueFloat64{Val: v}, nil
 		}
 	}
 
+	err := newMysqlRowEventColumnTypeError(ev, idx, qkind, val)
+	logger.Warn(err.Error())
+	return nil, err
+}
+
+func newMysqlStringCoercionError(
+	ev *replication.TableMapEvent, idx int, qkind types.QValueKind, val string, err error,
+) error {
+	return fmt.Errorf("%w: failed to parse value %q: %w",
+		newMysqlRowEventColumnTypeError(ev, idx, qkind, val), val, err)
+}
+
+func newMysqlRowEventColumnTypeError(
+	ev *replication.TableMapEvent, idx int, qkind types.QValueKind, val any,
+) *exceptions.MySQLIncompatibleColumnTypeError {
+	mytype := ev.ColumnType[idx]
 	schemaName := string(ev.Schema)
 	tableName := string(ev.Table)
 	columnName := "__peerdb_unknown_" + strconv.Itoa(idx)
@@ -679,8 +712,6 @@ func QValueFromMysqlRowEvent(
 	}
 	qkindStr := string(qkind)
 
-	err := exceptions.NewMySQLIncompatibleColumnTypeError(
+	return exceptions.NewMySQLIncompatibleColumnTypeError(
 		fmt.Sprintf("%s.%s", schemaName, tableName), columnName, mytype, fmt.Sprintf("%T", val), qkindStr)
-	logger.Warn(err.Error())
-	return nil, err
 }
