@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -10,12 +11,16 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -1467,4 +1472,142 @@ func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
 			RequireEnvCanceled(s.t, env)
 		})
 	}
+}
+
+func (s ClickHouseSuite) Test_MySQL_PartialJSONUnsupported() {
+	if s.cluster {
+		s.t.Skip("source-side PARTIAL_JSON coverage does not need to run against ClickHouse cluster")
+	}
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if internal.MySQLTestVersionIsMaria() {
+		s.t.Skip("PARTIAL_UPDATE_ROWS_EVENT is MySQL-specific")
+	}
+
+	req := testcontainers.ContainerRequest{
+		Image: "ghcr.io/peerdb-io/mysql-debug:8.0.46",
+		Env: map[string]string{
+			"MYSQL_ROOT_PASSWORD": internal.MySQLTestRootPasswordWithFallback("cipass"),
+			"MYSQL_ROOT_HOST":     "%",
+		},
+		Cmd: []string{
+			"mysqld",
+			"--server-id=1",
+			"--log-bin=mysql-bin",
+			"--binlog-format=ROW",
+			"--binlog-row-image=FULL",
+			"--binlog-row-metadata=FULL",
+			"--innodb-buffer-pool-size=64M",
+			"--performance-schema=OFF",
+			"--mysqlx=0",
+			"--max-connections=20",
+			"--table-open-cache=64",
+			"--table-definition-cache=128",
+			"--innodb-log-buffer-size=8M",
+		},
+		ExposedPorts: []string{"3306/tcp"},
+		WaitingFor: wait.ForAll(
+			wait.ForLog("ready for connections").WithOccurrence(2).WithStartupTimeout(3*time.Minute),
+			wait.ForListeningPort("3306/tcp").WithStartupTimeout(3*time.Minute),
+		),
+	}
+
+	ctr, err := testcontainers.GenericContainer(s.t.Context(), testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if ctr != nil {
+		testcontainers.CleanupContainer(s.t, ctr, testcontainers.StopTimeout(30*time.Second))
+	}
+	require.NoError(s.t, err)
+
+	mapped, err := ctr.MappedPort(s.t.Context(), "3306/tcp")
+	require.NoError(s.t, err)
+	port, err := strconv.Atoi(mapped.Port())
+	require.NoError(s.t, err)
+
+	replication := protos.MySqlReplicationMechanism_MYSQL_GTID
+	if internal.MySQLTestVersionIsMySQLPos() {
+		replication = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	}
+
+	suffix := "mypjson_" + strings.ToLower(common.RandomString(8))
+	config := &protos.MySqlConfig{
+		Host:                 internal.MySQLTestHost(),
+		Port:                 uint32(port),
+		User:                 "root",
+		Password:             internal.MySQLTestRootPasswordWithFallback("cipass"),
+		DisableTls:           true,
+		Flavor:               protos.MySqlFlavor_MYSQL_MYSQL,
+		ReplicationMechanism: replication,
+	}
+	src, err := setupMyConnector(s.t, suffix, config, "mysql_partial_json_"+suffix)
+	require.NoError(s.t, err)
+	s.t.Cleanup(func() {
+		src.Teardown(s.t, context.Background(), suffix)
+		require.NoError(s.t, src.Close())
+	})
+
+	srcTableName := "partial_json"
+	srcFullName := fmt.Sprintf("e2e_test_%s.%s", suffix, srcTableName)
+	dstTableName := "partial_json_dst"
+
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, doc JSON NOT NULL)`, srcFullName)))
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s VALUES (
+			1,
+			'{"a":"aaaaaaaaaaaaa","c":"ccccccccccccccc","ab":["abababababababa","babababababab"]}'
+		)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "test_mysql_partial_json_" + suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.SourceName = src.GeneratePeer(s.t).Name
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "snapshot", func() bool {
+		sourceRows, err := src.GetRows(s.t.Context(), suffix, srcTableName, "id,doc")
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		rows, err := s.GetRows(dstTableName, "id,doc")
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		return e2eshared.CheckEqualRecordBatches(s.t, sourceRows, rows)
+	})
+
+	require.NoError(s.t, src.Exec(s.t.Context(), "SET GLOBAL binlog_row_value_options = 'PARTIAL_JSON'"))
+	require.NoError(s.t, src.Exec(s.t.Context(), "SET SESSION binlog_row_value_options = 'PARTIAL_JSON'"))
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`UPDATE %s SET doc = JSON_SET(doc, '$.ab', '["ab_updatedccc"]') WHERE id = 1`, srcFullName)))
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for partial JSON error", func() bool {
+		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error",
+			"disable binlog_row_value_options (PARTIAL_JSON)")
+		if err != nil {
+			s.t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }

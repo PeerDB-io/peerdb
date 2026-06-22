@@ -1,13 +1,17 @@
 package connmysql
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/require"
+	temporallog "go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -36,6 +40,31 @@ func TestQkindFromMysqlType_Bit(t *testing.T) {
 			require.Equal(t, tc.want, qkind)
 		})
 	}
+}
+
+func TestQValueFromMysqlRowEventJsonDiffErrors(t *testing.T) {
+	logger := temporallog.NewStructuredLogger(slog.New(slog.DiscardHandler))
+	ev := &replication.TableMapEvent{
+		Schema:     []byte("test_db"),
+		Table:      []byte("test_table"),
+		ColumnType: []byte{mysql.MYSQL_TYPE_JSON},
+		ColumnMeta: []uint16{0},
+		ColumnName: [][]byte{[]byte("doc")},
+	}
+	var coercionReported bool
+
+	_, err := QValueFromMysqlRowEvent(
+		ev, 0, nil, nil, types.QValueKindJSON,
+		&replication.JsonDiff{Op: replication.JsonDiffOperationReplace, Path: "$.a", Value: `"b"`},
+		logger, &coercionReported,
+	)
+	require.Error(t, err)
+
+	var partialJSONErr *exceptions.MySQLPartialJSONUnsupportedError
+	require.ErrorAs(t, err, &partialJSONErr)
+	require.Equal(t, "test_db", partialJSONErr.SchemaName)
+	require.Equal(t, "test_table", partialJSONErr.TableName)
+	require.Equal(t, "doc", partialJSONErr.ColumnName)
 }
 
 func TestProcessTime(t *testing.T) {

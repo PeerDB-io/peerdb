@@ -635,6 +635,11 @@ func (c *MySqlConnector) PullRecords(
 					return nil
 				}
 				switch event.Header.EventType {
+				case replication.PARTIAL_UPDATE_ROWS_EVENT:
+					e := exceptions.NewMySQLPartialJSONUnsupportedError(
+						string(ev.Table.Schema), string(ev.Table.Table), "")
+					c.logger.Error(e.Error())
+					return e
 				case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2, replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1:
 					for _, row := range ev.Rows {
 						items := model.NewRecordItems(len(row))
@@ -755,6 +760,12 @@ func (c *MySqlConnector) PullRecords(
 					}
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return fmt.Errorf("mysql v0 replication protocol not supported")
+				default:
+					e := exceptions.NewMySQLUnhandledRowsEventError(
+						string(ev.Table.Schema), string(ev.Table.Table),
+						event.Header.EventType.String(), uint16(event.Header.EventType))
+					c.logger.Error(e.Error())
+					return e
 				}
 			}
 			if event.Header.Timestamp > 0 {
