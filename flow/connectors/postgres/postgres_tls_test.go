@@ -16,7 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
-const testTLSConnString = "postgres://user:password@localhost:5432/testdb?sslmode=require"
+const testTLSConnString = "postgres://user@localhost:5432/testdb?sslmode=require"
 
 // generateClientCertKey returns a self-signed client certificate and its private key, PEM-encoded.
 func generateClientCertKey(t *testing.T, commonName string) (string, string) {
@@ -69,7 +69,7 @@ func TestParseConfigClientTLS(t *testing.T) {
 	})
 
 	t.Run("client cert is not applied when TLS is not enabled", func(t *testing.T) {
-		connConfig, err := ParseConfig("postgres://user:password@localhost:5432/testdb", &protos.PostgresConfig{
+		connConfig, err := ParseConfig("postgres://user@localhost:5432/testdb", &protos.PostgresConfig{
 			Host:     "localhost",
 			Port:     5432,
 			User:     "user",
