@@ -1,16 +1,130 @@
 package connmysql
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
+	"sync"
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
+	temporalLog "go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
+
+type recordingInt64Counter struct {
+	noop.Int64Counter
+
+	mu             sync.Mutex
+	value          int64
+	lastAttributes []attribute.KeyValue
+}
+
+func (c *recordingInt64Counter) Add(_ context.Context, incr int64, opts ...metric.AddOption) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.value += incr
+	attrs := metric.NewAddConfig(opts).Attributes()
+	c.lastAttributes = attrs.ToSlice()
+}
+
+func installRecordingCodeNotificationCounter(t *testing.T) *recordingInt64Counter {
+	t.Helper()
+
+	counter := &recordingInt64Counter{}
+	previousCounter := otel_metrics.CodeNotificationCounter
+	otel_metrics.CodeNotificationCounter = counter
+	t.Cleanup(func() {
+		otel_metrics.CodeNotificationCounter = previousCounter
+	})
+	return counter
+}
+
+func newRenameObserverTestConnector() (*MySqlConnector, *bytes.Buffer) {
+	var logBuffer bytes.Buffer
+	logger := temporalLog.NewStructuredLogger(slog.New(slog.NewTextHandler(&logBuffer, nil)))
+	return &MySqlConnector{logger: logger}, &logBuffer
+}
+
+func parseSingleDDLStmt(t *testing.T, query string) ast.StmtNode {
+	t.Helper()
+
+	stmts, warns, err := parser.New().ParseSQL(query)
+	require.NoError(t, err)
+	require.Empty(t, warns)
+	require.Len(t, stmts, 1)
+	return stmts[0]
+}
+
+func TestProcessQueryEventStatementObservesRenameTablePairs(t *testing.T) {
+	counter := installRecordingCodeNotificationCounter(t)
+	connector, logBuffer := newRenameObserverTestConnector()
+
+	stmt, ok := parseSingleDDLStmt(t,
+		"RENAME TABLE original TO _original_del, _original_gho TO original").(*ast.RenameTableStmt)
+	require.True(t, ok)
+
+	require.NoError(t, connector.processQueryEventStatement(
+		t.Context(), shared.CatalogPool{}, &model.PullRecordsRequest[model.RecordItems]{}, stmt, "app", true))
+
+	counter.mu.Lock()
+	counterValue := counter.value
+	counterAttributes := counter.lastAttributes
+	counter.mu.Unlock()
+	require.Equal(t, int64(2), counterValue)
+	require.Contains(t, counterAttributes, attribute.String("message", mysqlTableRenameObservedMessage))
+
+	logs := logBuffer.String()
+	require.Contains(t, logs, `msg="table rename observed"`)
+	require.Contains(t, logs, "oldTable=app.original")
+	require.Contains(t, logs, "newTable=app._original_del")
+	require.Contains(t, logs, "oldTable=app._original_gho")
+	require.Contains(t, logs, "newTable=app.original")
+}
+
+func TestProcessAlterTableRenameObservesRename(t *testing.T) {
+	counter := installRecordingCodeNotificationCounter(t)
+	connector, logBuffer := newRenameObserverTestConnector()
+
+	stmt, ok := parseSingleDDLStmt(t, "ALTER TABLE source_db.original RENAME TO renamed").(*ast.AlterTableStmt)
+	require.True(t, ok)
+
+	req := &model.PullRecordsRequest[model.RecordItems]{
+		TableNameMapping: map[string]model.NameAndExclude{
+			"source_db.original": {Name: "dst"},
+		},
+		TableNameSchemaMapping: map[string]*protos.TableSchema{
+			"dst": {},
+		},
+	}
+	require.NoError(t, connector.processAlterTableQuery(
+		t.Context(), shared.CatalogPool{}, req, stmt, "app", true, shared.InternalVersion_Latest))
+
+	counter.mu.Lock()
+	counterValue := counter.value
+	counterAttributes := counter.lastAttributes
+	counter.mu.Unlock()
+	require.Equal(t, int64(1), counterValue)
+	require.Contains(t, counterAttributes, attribute.String("message", mysqlTableRenameObservedMessage))
+
+	logs := logBuffer.String()
+	require.Contains(t, logs, `msg="table rename observed"`)
+	require.Contains(t, logs, "oldTable=source_db.original")
+	require.Contains(t, logs, "newTable=source_db.renamed")
+}
 
 func newTestConnector(t *testing.T, ctx context.Context) *MySqlConnector {
 	t.Helper()
