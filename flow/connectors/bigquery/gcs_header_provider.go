@@ -45,3 +45,9 @@ func (p *GCSHeaderProvider) GetHeaders(ctx context.Context) (http.Header, error)
 	headers.Set("Authorization", "Bearer "+p.token.Value)
 	return headers, nil
 }
+
+func (p *GCSHeaderProvider) InvalidateToken() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.token = nil
+}
