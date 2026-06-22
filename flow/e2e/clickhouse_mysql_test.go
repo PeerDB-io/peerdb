@@ -26,6 +26,21 @@ func mysqlEnumUsesOrdinals() bool {
 	return internal.MySQLTestVersionIsMySQLPos()
 }
 
+func (s ClickHouseSuite) requireMySQLVersionAtLeast(version string) {
+	s.t.Helper()
+
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok || mySource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+		s.t.Skip("only applies to mysql")
+	}
+
+	cmp, err := mySource.CompareServerVersion(s.t.Context(), version)
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skipf("requires MySQL %s+", version)
+	}
+}
+
 func (s ClickHouseSuite) Test_UnsignedMySQL() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
@@ -587,6 +602,159 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 	} else {
 		require.Equal(s.t, "active", rows.Records[1][1].Value())
 	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_InvisibleColumn_Consistency() {
+	s.requireMySQLVersionAtLeast("8.0.23")
+
+	srcTableName := "test_invisible_column"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_invisible_column_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			vis INT NOT NULL,
+			invis INT INVISIBLE NOT NULL
+		)
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, vis, invis) VALUES (1, 10, 100), (2, 20, 200)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on invisible snapshot",
+		srcTableName, dstTableName, "id,vis,invis")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, vis, invis) VALUES (3, 30, 300)`, srcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on invisible cdc",
+		srcTableName, dstTableName, "id,vis,invis")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_GeneratedInvisiblePrimaryKey_Consistency() {
+	s.requireMySQLVersionAtLeast("8.0.30")
+
+	srcTableName := "test_gipk"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_gipk_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), `SET SESSION sql_generate_invisible_primary_key=ON`))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			val INT NOT NULL
+		)
+	`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), `SET SESSION sql_generate_invisible_primary_key=OFF`))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (val) VALUES (10), (20)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix(srcTableName),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			ShardingKey:                "my_row_id",
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on gipk snapshot",
+		srcTableName, dstTableName, "my_row_id AS id,val")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (val) VALUES (30)`, srcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on gipk cdc",
+		srcTableName, dstTableName, "my_row_id AS id,val")
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	var rowCount, missingRowIDCount uint64
+	require.NoError(s.t, ch.QueryRow(s.t.Context(), fmt.Sprintf(
+		`SELECT count(), countIf(my_row_id IS NULL OR my_row_id = 0)
+		FROM %s FINAL WHERE _peerdb_is_deleted = 0`,
+		clickhouse.QuoteIdentifier(dstTableName),
+	)).Scan(&rowCount, &missingRowIDCount))
+	require.Equal(s.t, uint64(3), rowCount)
+	require.Zero(s.t, missingRowIDCount)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_InvisibleColumn_WithExcludedColumn() {
+	s.requireMySQLVersionAtLeast("8.0.23")
+
+	srcTableName := "test_invisible_with_exclude"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_invisible_with_exclude_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			visible INT NOT NULL,
+			skipped INT NOT NULL,
+			invis INT INVISIBLE NOT NULL
+		)
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, visible, skipped, invis) VALUES (1, 10, 1000, 100), (2, 20, 2000, 200)`,
+		srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix(srcTableName),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			ShardingKey:                "id",
+			Exclude:                    []string{"skipped"},
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on excluded invisible snapshot",
+		srcTableName, dstTableName, "id,visible,invis")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, visible, skipped, invis) VALUES (3, 30, 3000, 300)`, srcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on excluded invisible cdc",
+		srcTableName, dstTableName, "id,visible,invis")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
