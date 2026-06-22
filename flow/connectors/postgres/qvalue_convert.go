@@ -255,6 +255,9 @@ func (c *PostgresConnector) convertToString(oid uint32, value any) string {
 	if value == nil {
 		return ""
 	}
+	if hwAddr, ok := value.(net.HardwareAddr); ok {
+		return hwAddr.String()
+	}
 	if buf, err := c.typeMap.Encode(oid, pgtype.TextFormatCode, value, nil); err == nil {
 		return shared.UnsafeFastReadOnlyBytesToString(buf)
 	}
