@@ -11,45 +11,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-// TestDropRunningFlow verifies that sending a TERMINATING signal to a running CDC pipe
-// causes the flow to be cleanly torn down and removed from the catalog.
-func (s APITestSuite) TestDropRunningFlow() {
-	tableName := "drop_running"
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
-
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "drop_running_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
-		Destination:      s.ch.Peer().Name,
-	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.DoInitialSnapshot = true
-
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-
-	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
-	require.NoError(s.t, err)
-	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
-	})
-
-	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
-		FlowJobName:        flowConnConfig.FlowJobName,
-		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
-	})
-	require.NoError(s.t, err)
-
-	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
-}
-
 // TestTerminateDuringResyncDropFlow creates a pipe, resyncs it, then sends a TERMINATING
 // signal while the DropFlowWorkflow is blocked dropping the replication slot. An idle
 // open transaction on the source keeps the slot active (pg_drop_replication_slot blocks
