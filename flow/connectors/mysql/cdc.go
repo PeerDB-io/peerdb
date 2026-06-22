@@ -1,6 +1,7 @@
 package connmysql
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/tls"
@@ -42,6 +43,10 @@ const (
 
 func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
 	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
+}
+
+func trimQueryEventSQL(query []byte) string {
+	return shared.UnsafeFastReadOnlyBytesToString(bytes.TrimRight(query, "\x00"))
 }
 
 func (c *MySqlConnector) GetTableSchema(
@@ -569,7 +574,7 @@ func (c *MySqlConnector) PullRecords(
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
 			}
-			stmts, warns, err := mysqlParser.ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
+			stmts, warns, err := mysqlParser.ParseSQL(trimQueryEventSQL(ev.Query))
 			if err != nil {
 				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
 				break
@@ -577,11 +582,30 @@ func (c *MySqlConnector) PullRecords(
 			if len(warns) > 0 {
 				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
 			}
+			advanceTransactionCheckpoint := func() {
+				if gset != nil {
+					gset = ev.GSet
+					updatedOffset = gset.String()
+					req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+				} else if event.Header.LogPos > pos.Pos {
+					pos.Pos = event.Header.LogPos
+					updatedOffset = posToOffsetText(pos)
+					req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+				}
+				inTx = false
+			}
 			for _, stmt := range stmts {
-				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
+				switch stmt := stmt.(type) {
+				case *ast.AlterTableStmt:
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, req, alterTableStmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
+						ctx, catalogPool, req, stmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
+					}
+				case *ast.CommitStmt:
+					advanceTransactionCheckpoint()
+				case *ast.RollbackStmt:
+					if stmt.SavepointName == "" {
+						advanceTransactionCheckpoint()
 					}
 				}
 			}

@@ -230,6 +230,48 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_NonTransactionalEngineCDC() {
+	if _, ok := s.source.(*MySqlSource); !ok || internal.MySQLTestVersionIsMaria() {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_non_transactional_engine"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_non_transactional_engine_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			val TEXT NOT NULL
+		) ENGINE=MyISAM
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id,val) VALUES (1,'snapshot')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "snapshot", srcTableName, dstTableName, "id,val")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id,val) VALUES (2,'cdc')`, srcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "cdc", srcTableName, dstTableName, "id,val")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 // Test_MySQL_Binary_Trailing_Zeros reproduces trailing-0x00 truncation of fixed-length
 // BINARY(N) columns over CDC.
 //
