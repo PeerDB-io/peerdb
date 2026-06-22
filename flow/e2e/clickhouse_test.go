@@ -83,8 +83,10 @@ func (s ClickHouseSuite) attachSuffix(input string) string {
 func (s ClickHouseSuite) Test_Addition_Removal() {
 	tc := NewTemporalClient(s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_table_add_remove")
-	addedSrcTableName := s.attachSchemaSuffix("test_table_add_remove_added")
+	srcTable := "test_table_add_remove"
+	addedSrcTable := "test_table_add_remove_added"
+	srcTableName := s.attachSchemaSuffix(srcTable)
+	addedSrcTableName := s.attachSchemaSuffix(addedSrcTable)
 	dstTableName := "test_table_add_remove_target"
 	addedDstTableName := "test_table_add_remove_target_added"
 
@@ -115,7 +117,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, srcTableName)))
-	EnvWaitForEqualTablesWithNames(env, s, "first insert", "test_table_add_remove", dstTableName, "id,\"key\"")
+	EnvWaitForEqualTablesWithNames(env, s, "first insert", srcTable, dstTableName, "id,\"key\"")
 	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
@@ -143,9 +145,9 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	runID := EnvGetRunID(s.t, env)
 	SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		AdditionalTables: []*protos.TableMapping{{
-			SourceTableIdentifier:      addedSrcTableName,
-			DestinationTableIdentifier: addedDstTableName,
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: addedSrcTable},
+			DestinationTable: &protos.QualifiedTable{Table: addedDstTableName},
+			ShardingKey:      "id",
 		}},
 	})
 
@@ -157,7 +159,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	})
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, addedSrcTableName)))
-	EnvWaitForEqualTablesWithNames(env, s, "first insert to added table", "test_table_add_remove_added", addedDstTableName, "id,\"key\"")
+	EnvWaitForEqualTablesWithNames(env, s, "first insert to added table", addedSrcTable, addedDstTableName, "id,\"key\"")
 	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	EnvWaitFor(s.t, env, 3*time.Minute, "pausing again for removing table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
@@ -184,8 +186,8 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 
 	SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		RemovedTables: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcTableName,
-			DestinationTableIdentifier: dstTableName,
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTable},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
 		}},
 	})
 
@@ -198,7 +200,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, srcTableName)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, addedSrcTableName)))
 
-	EnvWaitForEqualTablesWithNames(env, s, "second insert to added table", "test_table_add_remove_added", addedDstTableName, "id,\"key\"")
+	EnvWaitForEqualTablesWithNames(env, s, "second insert to added table", addedSrcTable, addedDstTableName, "id,\"key\"")
 
 	rows, err := s.GetRows(dstTableName, "id")
 	require.NoError(s.t, err)
@@ -582,10 +584,10 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("ch_weird_table_" + strings.ToLower(qvalue.ConvertToAvroCompatibleName(tableName))),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
-			DestinationTableIdentifier: dstTableName,
-			Exclude:                    []string{"excludedColumn?"},
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			Exclude:          []string{"excludedColumn?"},
+			ShardingKey:      "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -1978,10 +1980,10 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 		FlowJobName:     s.attachSuffix(tableName),
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
-			Exclude:                    []string{"c2"},
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			Exclude:          []string{"c2"},
+			ShardingKey:      "id",
 		}},
 		SourceName:        s.Source().GeneratePeer(s.t).Name,
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -2191,10 +2193,10 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("ch_unprivileged_columns"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
-			Exclude:                    []string{"se'cret"},
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			Exclude:          []string{"se'cret"},
+			ShardingKey:      "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -2685,10 +2687,10 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_nullengine"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
-			Engine:                     protos.TableEngine_CH_ENGINE_NULL,
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			Engine:           protos.TableEngine_CH_ENGINE_NULL,
+			ShardingKey:      "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -2836,10 +2838,10 @@ func (s ClickHouseSuite) Test_CoalescingEngine() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_nullengine"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
-			Engine:                     protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE,
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			Engine:           protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE,
+			ShardingKey:      "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -2888,10 +2890,10 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_key_integer"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
-			PartitionKey:               "id",
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			PartitionKey:     "id",
+			ShardingKey:      "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -2946,10 +2948,10 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_key_timestamp"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
-			PartitionKey:               "updated_at",
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			PartitionKey:     "updated_at",
+			ShardingKey:      "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -2991,10 +2993,10 @@ func (s ClickHouseSuite) Test_Partition_Key_Empty() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_key_empty"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
-			PartitionKey:               "id",
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			PartitionKey:     "id",
+			ShardingKey:      "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -3041,10 +3043,10 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_key_null"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
-			PartitionKey:               "updated_at",
-			ShardingKey:                "id",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			PartitionKey:     "updated_at",
+			ShardingKey:      "id",
 			Columns: []*protos.ColumnSetting{
 				{SourceName: "id", NullableEnabled: true},
 				{SourceName: "myname", NullableEnabled: true},
@@ -3087,8 +3089,8 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_by"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
 			Columns: []*protos.ColumnSetting{
 				{SourceName: "id", NullableEnabled: true},
 				{SourceName: "num", NullableEnabled: true, Partitioning: 1},
@@ -3139,9 +3141,9 @@ func (s ClickHouseSuite) Test_PartitionByExpr() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_partition_by"),
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcFullName,
-			DestinationTableIdentifier: dstTableName,
-			PartitionByExpr:            "num%2,val",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: srcTableName},
+			DestinationTable: &protos.QualifiedTable{Table: dstTableName},
+			PartitionByExpr:  "num%2,val",
 			Columns: []*protos.ColumnSetting{
 				{SourceName: "id", NullableEnabled: true},
 				{SourceName: "num", NullableEnabled: true},

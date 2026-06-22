@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -61,8 +62,8 @@ func (c *MongoConnector) GetTableSchema(
 	internalVersion uint32,
 	_ protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
-) (map[string]*protos.TableSchema, error) {
-	result := make(map[string]*protos.TableSchema, len(tableMappings))
+) (map[common.QualifiedTable]*protos.TableSchema, error) {
+	result := make(map[common.QualifiedTable]*protos.TableSchema, len(tableMappings))
 	idFieldDescription := &protos.FieldDescription{
 		Name:         DefaultDocumentKeyColumnName,
 		Type:         string(types.QValueKindString),
@@ -81,8 +82,8 @@ func (c *MongoConnector) GetTableSchema(
 	}
 
 	for _, tm := range tableMappings {
-		result[tm.SourceTableIdentifier] = &protos.TableSchema{
-			TableIdentifier:       tm.SourceTableIdentifier,
+		result[internal.QualifiedTableFromProto(tm.SourceTable)] = &protos.TableSchema{
+			Table:                 tm.SourceTable,
 			PrimaryKeyColumns:     []string{DefaultDocumentKeyColumnName},
 			IsReplicaIdentityFull: true,
 			System:                protos.TypeSystem_Q,
@@ -98,14 +99,12 @@ func (c *MongoConnector) GetTableSchema(
 }
 
 func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+	internal.NormalizeSetupReplicationInput(input)
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream").
 		SetFullDocument(options.UpdateLookup)
 
-	pipeline, err := createPipeline(nil)
-	if err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("failed to create changestream pipeline: %w", err)
-	}
+	pipeline := createPipeline(nil)
 	changeStream, err := c.createChangeStream(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
@@ -186,10 +185,7 @@ func (c *MongoConnector) PullRecords(
 		changeStreamOpts.SetResumeAfter(resumeToken)
 	}
 
-	pipeline, err := createPipeline(req.TableNameMapping)
-	if err != nil {
-		return err
-	}
+	pipeline := createPipeline(req.TableNameMapping)
 
 	changeStream, err := c.createChangeStream(ctx, pipeline, changeStreamOpts)
 	if err != nil {
@@ -274,11 +270,11 @@ func (c *MongoConnector) PullRecords(
 	}
 
 	converter := NewDirectBsonConverter()
-	addRecordItems := func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
+	addRecordItems := func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, table common.QualifiedTable) error {
 		if len(documentKey) > 0 {
 			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
 			if rv.IsZero() || rv.Type == bson.TypeNull {
-				return exceptions.NewInvalidIdValueError(tableName)
+				return exceptions.NewInvalidIdValueError(table.String())
 			}
 			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
 			if err != nil {
@@ -413,52 +409,53 @@ func (c *MongoConnector) PullRecords(
 		clusterTimeNanos := clusterTime.UnixNano()
 		otelManager.Metrics.LatestConsumedLogEventGauge.Record(ctx, clusterTime.Unix())
 
-		sourceTableName := fmt.Sprintf("%s.%s", changeEvent.Ns.Db, changeEvent.Ns.Coll)
-		destinationTableName := req.TableNameMapping[sourceTableName].Name
-		if destinationTableName == "" {
+		sourceTable := common.QualifiedTable{Namespace: changeEvent.Ns.Db, Table: changeEvent.Ns.Coll}
+		destination, ok := req.TableNameMapping[sourceTable]
+		if !ok {
 			// should never happen since pipeline should filter out irrelevant tables
-			c.logger.Warn("Skipping event that cannot be mapped to a destination table %s", sourceTableName)
+			c.logger.Warn("Skipping event that cannot be mapped to a destination table", slog.String("table", sourceTable.String()))
 			continue
 		}
+		destinationTable := destination.Name
 
 		items := model.NewMongoRecordItems(2)
 		switch changeEvent.OperationType {
 		case "insert":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTable); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
 			if err = addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
-				Items:                items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
+				BaseRecord:       model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				Items:            items,
+				SourceTable:      sourceTable,
+				DestinationTable: destinationTable,
 			}); err != nil {
 				return fmt.Errorf("failed to add insert record: %w", err)
 			}
 		case "update", "replace":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTable); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
 			if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
-				NewItems:             items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
+				BaseRecord:       model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				NewItems:         items,
+				SourceTable:      sourceTable,
+				DestinationTable: destinationTable,
 			}); err != nil {
 				return fmt.Errorf("failed to add update record: %w", err)
 			}
 		case "delete":
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTable); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
 			if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
-				Items:                items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
+				BaseRecord:       model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				Items:            items,
+				SourceTable:      sourceTable,
+				DestinationTable: destinationTable,
 			}); err != nil {
 				return fmt.Errorf("failed to add delete record: %w", err)
 			}
@@ -474,20 +471,14 @@ func (c *MongoConnector) PullRecords(
 	return nil
 }
 
-func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pipeline, error) {
+func createPipeline(tableNameMapping map[common.QualifiedTable]model.NameAndExclude) mongo.Pipeline {
 	pipeline := mongo.Pipeline{}
 
 	// filter out events from tables that are not in the mapping
 	if tableNameMapping != nil {
 		dbCollMap := make(map[string][]string)
-		for dbAndTable := range tableNameMapping {
-			parts := strings.SplitN(dbAndTable, ".", 2)
-			if len(parts) != 2 {
-				return nil, fmt.Errorf("failed to create pipeline due to invalid table name: %s", dbAndTable)
-			}
-			db := parts[0]
-			table := parts[1]
-			dbCollMap[db] = append(dbCollMap[db], table)
+		for sourceTable := range tableNameMapping {
+			dbCollMap[sourceTable.Namespace] = append(dbCollMap[sourceTable.Namespace], sourceTable.Table)
 		}
 
 		var orCondition bson.A
@@ -520,7 +511,7 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 		}}},
 	)
 
-	return pipeline, nil
+	return pipeline
 }
 
 // This can happen if the resumeToken we are attempting to `ResumeAfter` refers to a table that has been

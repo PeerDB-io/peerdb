@@ -221,10 +221,7 @@ func (s *PostgresSource) GetRowsOnly(ctx context.Context, suffix string, table s
 }
 
 func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableIdentifier string, selectedColumns []string) error {
-	schemaTable, err := common.ParseTableIdentifier(tableIdentifier)
-	if err != nil {
-		return fmt.Errorf("failed to parse table identifier %s: %w", tableIdentifier, err)
-	}
+	schemaTable := common.NormalizeTableIdentifier(tableIdentifier)
 
 	// 1. Revoke all permissions on the table
 	if _, err := conn.Exec(ctx, fmt.Sprintf("REVOKE ALL ON TABLE %s FROM postgres", schemaTable)); err != nil {

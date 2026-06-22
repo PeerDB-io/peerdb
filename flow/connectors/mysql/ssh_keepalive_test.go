@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -179,8 +180,8 @@ func setupCDCPullRecords(
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            flowJobName,
 		RecordStream:           model.NewCDCStream[model.RecordItems](100),
-		TableNameMapping:       map[string]model.NameAndExclude{},
-		TableNameSchemaMapping: map[string]*protos.TableSchema{},
+		TableNameMapping:       map[common.QualifiedTable]model.NameAndExclude{},
+		TableNameSchemaMapping: map[common.QualifiedTable]*protos.TableSchema{},
 		LastOffset:             model.CdcCheckpoint{Text: offsetText},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,

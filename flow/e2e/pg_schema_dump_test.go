@@ -193,12 +193,12 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 		DestinationName: dstPeerName,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcParent,
-				DestinationTableIdentifier: dstParent,
+				SourceTable:      &protos.QualifiedTable{Namespace: srcSchema, Table: "parent_tbl"},
+				DestinationTable: &protos.QualifiedTable{Namespace: srcSchema, Table: "parent_tbl"},
 			},
 			{
-				SourceTableIdentifier:      srcChild,
-				DestinationTableIdentifier: dstChild,
+				SourceTable:      &protos.QualifiedTable{Namespace: srcSchema, Table: "child_tbl"},
+				DestinationTable: &protos.QualifiedTable{Namespace: srcSchema, Table: "child_tbl"},
 			},
 		},
 		SourceName:        srcPeerName,
@@ -416,8 +416,8 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_No_Owner_No_Privileges() {
 		FlowJobName:     s.attachSuffix("test_pgdump_noowner"),
 		DestinationName: dstPeerName,
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      qualified,
-			DestinationTableIdentifier: qualified,
+			SourceTable:      &protos.QualifiedTable{Namespace: srcSchema, Table: tableName},
+			DestinationTable: &protos.QualifiedTable{Namespace: srcSchema, Table: tableName},
 		}},
 		SourceName:        srcPeerName,
 		MaxBatchSize:      100,

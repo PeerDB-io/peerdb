@@ -8,7 +8,10 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
+
+var testDstTable = common.QualifiedTable{Namespace: "public", Table: "test_table"}
 
 func TestGenerateMergeUpdateStatement(t *testing.T) {
 	allCols := []string{`"col1"`, `"col2"`, `"col3"`}
@@ -144,7 +147,7 @@ func TestGenerateMergeUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *tes
 // helper to build a simple PG-typed TableSchema for merge tests
 func buildTableSchema(columns []*protos.FieldDescription, pks []string) *protos.TableSchema {
 	return &protos.TableSchema{
-		TableIdentifier:   "test_table",
+		Table:             &protos.QualifiedTable{Namespace: "public", Table: "test_table"},
 		System:            protos.TypeSystem_PG,
 		PrimaryKeyColumns: pks,
 		Columns:           columns,
@@ -164,8 +167,8 @@ func TestGenerateMergeStatement_BasicColumns(t *testing.T) {
 
 	gen := normalizeStmtGenerator{
 		rawTableName:             "_peerdb_raw_test",
-		tableSchemaMapping:       map[string]*protos.TableSchema{"public.test_table": schema},
-		unchangedToastColumnsMap: map[string][]string{"public.test_table": {""}},
+		tableSchemaMapping:       map[common.QualifiedTable]*protos.TableSchema{testDstTable: schema},
+		unchangedToastColumnsMap: map[common.QualifiedTable][]string{testDstTable: {""}},
 		peerdbCols: &protos.PeerDBColumns{
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "",
@@ -174,7 +177,7 @@ func TestGenerateMergeStatement_BasicColumns(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	result := gen.generateMergeStatement(testDstTable, schema, []string{""})
 
 	// CTE uses jsonb_to_record with record definitions
 	require.Contains(t, result, "jsonb_to_record(_peerdb_data)")
@@ -197,8 +200,8 @@ func TestGenerateMergeStatement_JsonColumns(t *testing.T) {
 
 	gen := normalizeStmtGenerator{
 		rawTableName:             "_peerdb_raw_test",
-		tableSchemaMapping:       map[string]*protos.TableSchema{"public.test_table": schema},
-		unchangedToastColumnsMap: map[string][]string{"public.test_table": {""}},
+		tableSchemaMapping:       map[common.QualifiedTable]*protos.TableSchema{testDstTable: schema},
+		unchangedToastColumnsMap: map[common.QualifiedTable][]string{testDstTable: {""}},
 		peerdbCols: &protos.PeerDBColumns{
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "",
@@ -207,7 +210,7 @@ func TestGenerateMergeStatement_JsonColumns(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	result := gen.generateMergeStatement(testDstTable, schema, []string{""})
 
 	// json/jsonb columns: record defs should declare them as jsonb
 	require.Contains(t, result, `"metadata" jsonb`)
@@ -225,8 +228,8 @@ func TestGenerateMergeStatement_SoftDelete(t *testing.T) {
 
 	gen := normalizeStmtGenerator{
 		rawTableName:             "_peerdb_raw_test",
-		tableSchemaMapping:       map[string]*protos.TableSchema{"public.test_table": schema},
-		unchangedToastColumnsMap: map[string][]string{"public.test_table": {""}},
+		tableSchemaMapping:       map[common.QualifiedTable]*protos.TableSchema{testDstTable: schema},
+		unchangedToastColumnsMap: map[common.QualifiedTable][]string{testDstTable: {""}},
 		peerdbCols: &protos.PeerDBColumns{
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "_peerdb_soft_delete",
@@ -235,7 +238,7 @@ func TestGenerateMergeStatement_SoftDelete(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	result := gen.generateMergeStatement(testDstTable, schema, []string{""})
 
 	// soft delete: WHEN NOT MATCHED with record_type=2 inserts with soft delete TRUE
 	require.Contains(t, normalizeSQL(result),
@@ -255,8 +258,8 @@ func TestGenerateMergeStatement_CompositePK(t *testing.T) {
 
 	gen := normalizeStmtGenerator{
 		rawTableName:             "_peerdb_raw_test",
-		tableSchemaMapping:       map[string]*protos.TableSchema{"public.test_table": schema},
-		unchangedToastColumnsMap: map[string][]string{"public.test_table": {""}},
+		tableSchemaMapping:       map[common.QualifiedTable]*protos.TableSchema{testDstTable: schema},
+		unchangedToastColumnsMap: map[common.QualifiedTable][]string{testDstTable: {""}},
 		peerdbCols: &protos.PeerDBColumns{
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "",
@@ -265,7 +268,7 @@ func TestGenerateMergeStatement_CompositePK(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	result := gen.generateMergeStatement(testDstTable, schema, []string{""})
 
 	// composite PK: PARTITION BY should use both PK columns
 	require.Contains(t, normalizeSQL(result), normalizeSQL(`PARTITION BY "tenant_id","user_id"`))
@@ -283,8 +286,8 @@ func TestGenerateMergeStatement_ToastColumns(t *testing.T) {
 
 	gen := normalizeStmtGenerator{
 		rawTableName:             "_peerdb_raw_test",
-		tableSchemaMapping:       map[string]*protos.TableSchema{"public.test_table": schema},
-		unchangedToastColumnsMap: map[string][]string{"public.test_table": {"", "big_col"}},
+		tableSchemaMapping:       map[common.QualifiedTable]*protos.TableSchema{testDstTable: schema},
+		unchangedToastColumnsMap: map[common.QualifiedTable][]string{testDstTable: {"", "big_col"}},
 		peerdbCols: &protos.PeerDBColumns{
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "",
@@ -293,7 +296,7 @@ func TestGenerateMergeStatement_ToastColumns(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{"", "big_col"})
+	result := gen.generateMergeStatement(testDstTable, schema, []string{"", "big_col"})
 
 	normalized := normalizeSQL(result)
 	// Should have an update branch for unchanged toast col = '' (all cols updated)
@@ -311,8 +314,8 @@ func TestGenerateMergeStatement_UserDefinedType(t *testing.T) {
 
 	gen := normalizeStmtGenerator{
 		rawTableName:             "_peerdb_raw_test",
-		tableSchemaMapping:       map[string]*protos.TableSchema{"public.test_table": schema},
-		unchangedToastColumnsMap: map[string][]string{"public.test_table": {""}},
+		tableSchemaMapping:       map[common.QualifiedTable]*protos.TableSchema{testDstTable: schema},
+		unchangedToastColumnsMap: map[common.QualifiedTable][]string{testDstTable: {""}},
 		peerdbCols: &protos.PeerDBColumns{
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "",
@@ -321,7 +324,7 @@ func TestGenerateMergeStatement_UserDefinedType(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	result := gen.generateMergeStatement(testDstTable, schema, []string{""})
 
 	// User-defined types should be schema-qualified in the record definition
 	require.Contains(t, result, `"status" "my_schema"."my_enum"`)
@@ -335,8 +338,8 @@ func TestGenerateNormalizeStatements_Merge(t *testing.T) {
 
 	gen := normalizeStmtGenerator{
 		rawTableName:             "_peerdb_raw_test",
-		tableSchemaMapping:       map[string]*protos.TableSchema{"public.test_table": schema},
-		unchangedToastColumnsMap: map[string][]string{"public.test_table": {""}},
+		tableSchemaMapping:       map[common.QualifiedTable]*protos.TableSchema{testDstTable: schema},
+		unchangedToastColumnsMap: map[common.QualifiedTable][]string{testDstTable: {""}},
 		peerdbCols: &protos.PeerDBColumns{
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "",
@@ -345,7 +348,7 @@ func TestGenerateNormalizeStatements_Merge(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	stmts := gen.generateNormalizeStatements("public.test_table")
+	stmts := gen.generateNormalizeStatements(testDstTable)
 	require.Len(t, stmts, 1)
 	require.Contains(t, stmts[0], "jsonb_to_record")
 	require.Contains(t, stmts[0], "MERGE INTO")

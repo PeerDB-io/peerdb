@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -25,8 +26,8 @@ func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
 	}
 
 	tableMappingForTest := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "my id",
@@ -80,8 +81,8 @@ func Test_GetOrderByColumns_NoOrdering_NoColMap(t *testing.T) {
 	}
 
 	tableMappingForTest := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "my id",
@@ -128,8 +129,8 @@ func Test_GetOrderByColumns_WithColMap_NoOrdering(t *testing.T) {
 	}
 
 	tableMappingForTest := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "my id",
@@ -180,8 +181,8 @@ func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
 	}
 
 	tableMappingForTest := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "my id",
@@ -218,7 +219,7 @@ func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
 
 func TestBuildQuery_Basic(t *testing.T) {
 	ctx := t.Context()
-	tableName := "my_table"
+	tableName := common.QualifiedTable{Table: "my_table"}
 	rawTableName := "raw_my_table"
 	endBatchID := int64(10)
 	lastNormBatchID := int64(5)
@@ -234,14 +235,14 @@ func TestBuildQuery_Basic(t *testing.T) {
 		},
 		NullableEnabled: false,
 	}
-	tableNameSchemaMapping := map[string]*protos.TableSchema{
+	tableNameSchemaMapping := map[common.QualifiedTable]*protos.TableSchema{
 		tableName: tableSchema,
 	}
 
 	tableMappings := []*protos.TableMapping{
 		{
-			SourceTableIdentifier:      "public.my_table",
-			DestinationTableIdentifier: tableName,
+			SourceTable:      &protos.QualifiedTable{Namespace: "public", Table: "my_table"},
+			DestinationTable: &protos.QualifiedTable{Table: tableName.Table},
 		},
 	}
 
@@ -273,9 +274,47 @@ func TestBuildQuery_Basic(t *testing.T) {
 	require.Contains(t, query, "_peerdb_destination_table_name = 'my_table'")
 }
 
+// ClickHouse destination names may contain dots; the INSERT must treat the whole name
+// as one identifier while the raw-table filter matches the dotted literal
+func TestBuildQuery_DottedTableName(t *testing.T) {
+	ctx := t.Context()
+	tableName := common.QualifiedTable{Table: "dst.table"}
+	tableSchema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+		},
+	}
+	g := NewNormalizeQueryGenerator(
+		tableName,
+		map[common.QualifiedTable]*protos.TableSchema{tableName: tableSchema},
+		[]*protos.TableMapping{
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: "sch.ema", Table: "ta.ble"},
+				DestinationTable: &protos.QualifiedTable{Table: tableName.Table},
+			},
+		},
+		10,
+		5,
+		false,
+		false,
+		map[string]string{},
+		"raw_my_table",
+		nil,
+		false,
+		"",
+		shared.InternalVersion_Latest,
+		nil,
+	)
+
+	query, err := g.BuildQuery(ctx)
+	require.NoError(t, err)
+	require.Contains(t, query, "INSERT INTO `dst.table`")
+	require.Contains(t, query, "_peerdb_destination_table_name = 'dst.table'")
+}
+
 func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 	ctx := t.Context()
-	tableName := "my_table"
+	tableName := common.QualifiedTable{Table: "my_table"}
 	rawTableName := "raw_my_table"
 	endBatchID := int64(10)
 	lastNormBatchID := int64(5)
@@ -289,14 +328,14 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		},
 		NullableEnabled: false,
 	}
-	tableNameSchemaMapping := map[string]*protos.TableSchema{
+	tableNameSchemaMapping := map[common.QualifiedTable]*protos.TableSchema{
 		tableName: tableSchema,
 	}
 
 	tableMappings := []*protos.TableMapping{
 		{
-			SourceTableIdentifier:      "public.my_table",
-			DestinationTableIdentifier: tableName,
+			SourceTable:      &protos.QualifiedTable{Namespace: "public", Table: "my_table"},
+			DestinationTable: &protos.QualifiedTable{Table: tableName.Table},
 		},
 	}
 
@@ -327,7 +366,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 
 func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 	ctx := t.Context()
-	tableName := "my_table"
+	tableName := common.QualifiedTable{Table: "my_table"}
 	rawTableName := "raw_my_table"
 	endBatchID := int64(10)
 	lastNormBatchID := int64(5)
@@ -341,14 +380,14 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		},
 		NullableEnabled: false,
 	}
-	tableNameSchemaMapping := map[string]*protos.TableSchema{
+	tableNameSchemaMapping := map[common.QualifiedTable]*protos.TableSchema{
 		tableName: tableSchema,
 	}
 
 	tableMappings := []*protos.TableMapping{
 		{
-			SourceTableIdentifier:      "public.my_table",
-			DestinationTableIdentifier: tableName,
+			SourceTable:      &protos.QualifiedTable{Namespace: "public", Table: "my_table"},
+			DestinationTable: &protos.QualifiedTable{Table: tableName.Table},
 		},
 	}
 
@@ -393,8 +432,8 @@ func TestGetOrderedPartitionByColumns(t *testing.T) {
 	}
 
 	tableMapping := &protos.TableMapping{
-		SourceTableIdentifier:      "test_table",
-		DestinationTableIdentifier: "test_table_ch",
+		SourceTable:      &protos.QualifiedTable{Table: "test_table"},
+		DestinationTable: &protos.QualifiedTable{Table: "test_table_ch"},
 		Columns: []*protos.ColumnSetting{
 			{
 				SourceName:      "col1",
@@ -497,14 +536,15 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 				Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
 				TableMappings: []*protos.TableMapping{
 					{
-						SourceTableIdentifier:      tableIdentifier,
-						DestinationTableIdentifier: tableIdentifier,
+						SourceTable:      &protos.QualifiedTable{Table: tableIdentifier},
+						DestinationTable: &protos.QualifiedTable{Table: tableIdentifier},
 					},
 				},
 				IsResync: tc.isResync,
 			}
 
-			result, err := c.generateCreateTableSQLForNormalizedTable(ctx, config, tableIdentifier, tableSchema, tc.chVersion, nil)
+			result, err := c.generateCreateTableSQLForNormalizedTable(
+				ctx, config, common.QualifiedTable{Table: tableIdentifier}, tableSchema, tc.chVersion, nil)
 			require.NoError(t, err)
 			require.Len(t, result, 1)
 			sql := result[0]
@@ -516,4 +556,43 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 			}
 		})
 	}
+}
+
+// a pre-QualifiedTable config with destination string "dst.table" arrives first-dot-split
+// as {Namespace: "dst", Table: "table"}; the physical ClickHouse table and the raw-table
+// lookup must still both resolve to the original single-part name "dst.table"
+func TestBuildQuery_LegacyNormalizedDottedDestination(t *testing.T) {
+	ctx := t.Context()
+	tableName := common.QualifiedTable{Namespace: "dst", Table: "table"}
+	tableSchema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+		},
+	}
+	g := NewNormalizeQueryGenerator(
+		tableName,
+		map[common.QualifiedTable]*protos.TableSchema{tableName: tableSchema},
+		[]*protos.TableMapping{
+			{
+				SourceTable:      &protos.QualifiedTable{Namespace: "public", Table: "src"},
+				DestinationTable: &protos.QualifiedTable{Namespace: tableName.Namespace, Table: tableName.Table},
+			},
+		},
+		10,
+		5,
+		false,
+		false,
+		map[string]string{},
+		"raw_my_table",
+		nil,
+		false,
+		"",
+		shared.InternalVersion_Latest,
+		nil,
+	)
+
+	query, err := g.BuildQuery(ctx)
+	require.NoError(t, err)
+	require.Contains(t, query, "INSERT INTO `dst.table`")
+	require.Contains(t, query, "_peerdb_destination_table_name = 'dst.table'")
 }

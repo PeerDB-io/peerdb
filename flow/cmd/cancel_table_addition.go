@@ -60,5 +60,8 @@ func (h *FlowRequestHandler) CancelTableAddition(
 		slog.String("flowJobName", req.FlowJobName),
 		slog.String("workflowID", workflowID))
 
+	// populate legacy string identifiers for clients that predate QualifiedTable
+	internal.DenormalizeTableMappings(output.GetTablesAfterCancellation())
+
 	return output, nil
 }

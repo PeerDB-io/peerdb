@@ -62,8 +62,8 @@ func (s PeerFlowE2ETestSuiteBQ) Peer() *protos.Peer {
 	return ret
 }
 
-func (s PeerFlowE2ETestSuiteBQ) DestinationTable(table string) string {
-	return table
+func (s PeerFlowE2ETestSuiteBQ) DestinationTable(table string) common.QualifiedTable {
+	return common.QualifiedTable{Table: table}
 }
 
 func (s PeerFlowE2ETestSuiteBQ) GetRows(tableName string, colsString string) (*model.QRecordBatch, error) {

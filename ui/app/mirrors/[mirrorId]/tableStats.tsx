@@ -3,6 +3,7 @@ import { CDCTableRowCounts } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { displayQualifiedTable } from '@/lib/utils/tableIdentifier';
 import { useMemo, useState } from 'react';
 import { RowDataFormatter } from './rowsDisplay';
 
@@ -12,9 +13,15 @@ export default function TableStats({
   tableSyncs: CDCTableRowCounts[];
 }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const tableDisplayName = (tableSync: CDCTableRowCounts) =>
+    tableSync.table
+      ? displayQualifiedTable(tableSync.table)
+      : tableSync.tableName;
   const tableDataToShow = useMemo(() => {
     return tableSyncs.filter((tableSync) =>
-      tableSync.tableName.toLowerCase().includes(searchQuery.toLowerCase())
+      tableDisplayName(tableSync)
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase())
     );
   }, [tableSyncs, searchQuery]);
 
@@ -49,9 +56,9 @@ export default function TableStats({
         >
           {tableDataToShow.map((tableSync) => {
             return (
-              <TableRow key={tableSync.tableName}>
+              <TableRow key={tableDisplayName(tableSync)}>
                 <TableCell>
-                  <Label>{tableSync.tableName}</Label>
+                  <Label>{tableDisplayName(tableSync)}</Label>
                 </TableCell>
                 {[
                   tableSync.counts?.totalCount,

@@ -99,7 +99,10 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 			connectionConfigs.DestinationName, dstErr)
 	}
 
-	cfgBytes, err := proto.Marshal(connectionConfigs)
+	// keep legacy strings in the persisted config for one release (rollback safety)
+	persistedConfig := proto.CloneOf(connectionConfigs)
+	internal.DenormalizeFlowConfigCore(persistedConfig)
+	cfgBytes, err := proto.Marshal(persistedConfig)
 	if err != nil {
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
@@ -133,7 +136,10 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 			destinationPeerName, dstErr)
 	}
 
-	cfgBytes, err := proto.Marshal(req.QrepConfig)
+	// keep legacy strings in the persisted config for one release (rollback safety)
+	persistedConfig := proto.CloneOf(req.QrepConfig)
+	internal.DenormalizeQRepConfig(persistedConfig)
+	cfgBytes, err := proto.Marshal(persistedConfig)
 	if err != nil {
 		return fmt.Errorf("unable to marshal qrep config: %w", err)
 	}
@@ -145,7 +151,7 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 		req.QrepConfig.Query,
 	); err != nil {
 		return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
-			flowName, req.QrepConfig.WatermarkTable, err)
+			flowName, internal.QualifiedTableFromProto(req.QrepConfig.QualifiedWatermarkTable), err)
 	}
 
 	return nil
@@ -162,6 +168,8 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if cfg == nil {
 		return nil, NewInvalidArgumentApiError(fmt.Errorf("connection configs cannot be nil"))
 	}
+	// legacy clients (nexus, older UIs) send only dotted string identifiers
+	internal.NormalizeFlowConfigAPI(cfg)
 	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, cfg.Env); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
@@ -210,6 +218,11 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 			return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 		}
+	} else if err := validateTableMappingIdentifiers(connectionConfigsCore.TableMappings); err != nil {
+		// SkipValidation skips environmental checks only; structural identifier
+		// invariants (duplicates, dotted-name collisions, empty components) are
+		// relied on by the raw-table round-trip and must always hold
+		return nil, NewInvalidArgumentApiError(err)
 	}
 
 	if resp, err := h.createCDCFlow(ctx, connectionConfigsCore, workflowID); err != nil {
@@ -250,6 +263,11 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, APIError) {
 	cfg := req.QrepConfig
+	// legacy clients (nexus, older UIs) send only dotted string identifiers
+	internal.NormalizeQRepConfig(cfg)
+	if err := validateQRepIdentifiers(cfg); err != nil {
+		return nil, NewInvalidArgumentApiError(err)
+	}
 	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, cfg.Env); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
@@ -446,6 +464,28 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if err != nil {
 		slog.ErrorContext(ctx, "[flow-state-change] unable to get workflow status", logs, slog.Any("error", err))
 		return nil, NewInternalApiError(err)
+	}
+
+	// legacy clients (nexus, older UIs) send only dotted string identifiers
+	internal.NormalizeCDCFlowConfigUpdate(req.FlowConfigUpdate.GetCdcFlowConfigUpdate())
+	if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
+		if err := validateTableMappingIdentifiers(cdcUpdate.AdditionalTables); err != nil {
+			return nil, NewInvalidArgumentApiError(err)
+		}
+		if len(cdcUpdate.AdditionalTables) > 0 {
+			// added tables must not duplicate or dotted-collide with the flow's
+			// EXISTING tables either, not just within the additions batch
+			config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+			if err != nil {
+				return nil, NewInternalApiError(fmt.Errorf("unable to load flow config to validate additional tables: %w", err))
+			}
+			combined := make([]*protos.TableMapping, 0, len(config.TableMappings)+len(cdcUpdate.AdditionalTables))
+			combined = append(combined, config.TableMappings...)
+			combined = append(combined, cdcUpdate.AdditionalTables...)
+			if err := validateTableMappingIdentifiers(combined); err != nil {
+				return nil, NewInvalidArgumentApiError(fmt.Errorf("additional tables conflict with existing tables: %w", err))
+			}
+		}
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil &&

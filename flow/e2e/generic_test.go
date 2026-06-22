@@ -240,7 +240,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", srcTable, dstTable, "id,c1")
 
 	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		Table: ExpectedDestinationTableName(s, dstTable),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -265,7 +265,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		},
 	}
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+		[]*protos.TableMapping{{SourceTable: internal.QualifiedTableProto(dstTableName)}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 
@@ -276,7 +276,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	// verify we got our two rows, if schema did not match up it will error.
 	EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
 	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		Table: ExpectedDestinationTableName(s, dstTable),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -301,7 +301,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		},
 	}
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+		[]*protos.TableMapping{{SourceTable: internal.QualifiedTableProto(dstTableName)}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
@@ -313,7 +313,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	// verify we got our two rows, if schema did not match up it will error.
 	EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c2 column", srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
 	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		Table: ExpectedDestinationTableName(s, dstTable),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -343,7 +343,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		},
 	}
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+		[]*protos.TableMapping{{SourceTable: internal.QualifiedTableProto(dstTableName)}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
@@ -355,7 +355,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	// verify we got our two rows, if schema did not match up it will error.
 	EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c3 column", srcTable, dstTable, "id,c1")
 	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		Table: ExpectedDestinationTableName(s, dstTable),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -385,7 +385,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		},
 	}
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+		[]*protos.TableMapping{{SourceTable: internal.QualifiedTableProto(dstTableName)}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")
@@ -614,7 +614,7 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	EnvWaitForEqualTablesWithNames(env, s, "table2 not added column", srcTable2, dstTable2, "id,c1")
 
 	expectedTableSchema1 := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable1),
+		Table: ExpectedDestinationTableName(s, dstTable1),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -644,7 +644,7 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 		},
 	}
 	expectedTableSchema2 := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable1),
+		Table: ExpectedDestinationTableName(s, dstTable1),
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -669,7 +669,10 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 		},
 	}
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
+		[]*protos.TableMapping{
+			{SourceTable: internal.QualifiedTableProto(dstTableName1)},
+			{SourceTable: internal.QualifiedTableProto(dstTableName2)},
+		})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema2, output[dstTableName2]))
@@ -681,7 +684,10 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	EnvWaitForEqualTablesWithNames(env, s, "table1 added column", srcTable1, dstTable1, "id,c1,coalesce(c2,0) c2")
 	EnvWaitForEqualTablesWithNames(env, s, "table2 added column", srcTable2, dstTable2, "id,c1,coalesce(c2,0) c2")
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
+		[]*protos.TableMapping{
+			{SourceTable: internal.QualifiedTableProto(dstTableName1)},
+			{SourceTable: internal.QualifiedTableProto(dstTableName2)},
+		})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
 	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName2]))
@@ -744,7 +750,7 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 	}
 
 	expectedCatalogSchema := &protos.TableSchema{
-		TableIdentifier:       srcTableName,
+		Table:                 &protos.QualifiedTable{Namespace: Schema(s), Table: srcTable},
 		PrimaryKeyColumns:     []string{"id"},
 		IsReplicaIdentityFull: false,
 		NullableEnabled:       false,
@@ -779,7 +785,8 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
 	EnvNoError(t, env, err)
-	catalogSchemas, err := internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	catalogSchemas, err := internal.LoadTableSchemasFromCatalog(
+		t.Context(), catalogPool, connectionGen.FlowJobName, []common.QualifiedTable{dstTableName})
 	EnvNoError(t, env, err)
 	assert.Len(t, catalogSchemas, 1)
 	catalogSchema := catalogSchemas[dstTableName]
@@ -799,7 +806,8 @@ func (s Generic) Test_Schema_Change_Lost_Column_Bug() {
 			TypeSchemaName: "pg_catalog",
 		})
 	}
-	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(
+		t.Context(), catalogPool, connectionGen.FlowJobName, []common.QualifiedTable{dstTableName})
 	EnvNoError(t, env, err)
 	assert.Len(t, catalogSchemas, 1)
 	catalogSchema = catalogSchemas[dstTableName]
@@ -861,7 +869,7 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 
 	// dropped columns persist in catalog
 	expectedCatalogSchema := &protos.TableSchema{
-		TableIdentifier:       srcTableName,
+		Table:                 &protos.QualifiedTable{Namespace: Schema(s), Table: srcTable},
 		PrimaryKeyColumns:     []string{"id"},
 		IsReplicaIdentityFull: false,
 		NullableEnabled:       false,
@@ -893,7 +901,8 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
 	EnvNoError(t, env, err)
-	catalogSchemas, err := internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	catalogSchemas, err := internal.LoadTableSchemasFromCatalog(
+		t.Context(), catalogPool, connectionGen.FlowJobName, []common.QualifiedTable{dstTableName})
 	EnvNoError(t, env, err)
 	assert.Len(t, catalogSchemas, 1)
 	catalogSchema := catalogSchemas[dstTableName]
@@ -914,7 +923,8 @@ func (s Generic) Test_Schema_Change_Drop_Consecutive_Columns() {
 		TypeSchemaName: "pg_catalog",
 	})
 
-	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(t.Context(), catalogPool, connectionGen.FlowJobName, []string{dstTableName})
+	catalogSchemas, err = internal.LoadTableSchemasFromCatalog(
+		t.Context(), catalogPool, connectionGen.FlowJobName, []common.QualifiedTable{dstTableName})
 	EnvNoError(t, env, err)
 	assert.Len(t, catalogSchemas, 1)
 	catalogSchema = catalogSchemas[dstTableName]

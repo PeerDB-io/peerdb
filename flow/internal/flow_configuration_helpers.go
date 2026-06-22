@@ -24,6 +24,8 @@ func FetchConfigFromDB(ctx context.Context, catalogPool shared.CatalogPool, flow
 		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}
 
+	// configs persisted before QualifiedTable carry only legacy string identifiers
+	NormalizeFlowConfig(&cfgFromDB)
 	return &cfgFromDB, nil
 }
 

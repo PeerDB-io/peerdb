@@ -64,7 +64,7 @@ func TestRemoveTablesFromPublication(t *testing.T) {
 	err = connector.RemoveTablesFromPublication(t.Context(), &protos.RemoveTablesFromPublicationInput{
 		FlowJobName: flowJobName,
 		TablesToRemove: []*protos.TableMapping{
-			{SourceTableIdentifier: schema + ".to_remove"},
+			{SourceTable: &protos.QualifiedTable{Namespace: schema, Table: "to_remove"}},
 		},
 	})
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestRemoveTablesFromPublication(t *testing.T) {
 	err = connector.RemoveTablesFromPublication(t.Context(), &protos.RemoveTablesFromPublicationInput{
 		FlowJobName: flowJobName,
 		TablesToRemove: []*protos.TableMapping{
-			{SourceTableIdentifier: schema + ".to_remove"},
+			{SourceTable: &protos.QualifiedTable{Namespace: schema, Table: "to_remove"}},
 		},
 	})
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestRemoveTablesFromPublication(t *testing.T) {
 	err = connector.RemoveTablesFromPublication(t.Context(), &protos.RemoveTablesFromPublicationInput{
 		FlowJobName: flowJobName,
 		TablesToRemove: []*protos.TableMapping{
-			{SourceTableIdentifier: schema + ".to_drop"},
+			{SourceTable: &protos.QualifiedTable{Namespace: schema, Table: "to_drop"}},
 		},
 	})
 	require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestRemoveTablesFromPublication(t *testing.T) {
 		FlowJobName:     flowJobName,
 		PublicationName: customPub,
 		TablesToRemove: []*protos.TableMapping{
-			{SourceTableIdentifier: schema + ".custom_stay"},
+			{SourceTable: &protos.QualifiedTable{Namespace: schema, Table: "custom_stay"}},
 		},
 	}))
 	rows, err = connector.conn.Query(t.Context(),

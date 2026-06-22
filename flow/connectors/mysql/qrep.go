@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -54,10 +55,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	numPartitions := int64(config.NumPartitionsOverride)
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 
-	parsedWatermarkTable, err := common.ParseTableIdentifier(config.WatermarkTable)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse watermark table %s: %w", config.WatermarkTable, err)
-	}
+	parsedWatermarkTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
 
 	minmaxQuery := fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s",
 		parsedWatermarkTable.MySQL(), config.WatermarkColumn)
@@ -90,7 +88,6 @@ func (c *MySqlConnector) GetQRepPartitions(
 		}
 	}
 
-	var rs *mysql.Result
 	if last != nil && last.Range != nil {
 		var minVal string
 		switch lastRange := last.Range.Range.(type) {
@@ -110,7 +107,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		minmaxQuery = fmt.Sprintf("%s WHERE `%s` > %s", minmaxQuery, config.WatermarkColumn, minVal)
 	}
 	c.logger.Info("querying min/max", slog.String("query", minmaxQuery))
-	rs, err = c.Execute(ctx, minmaxQuery)
+	rs, err := c.Execute(ctx, minmaxQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -211,19 +208,15 @@ func (c *MySqlConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
+	parsedSrcTable := internal.QualifiedTableFromProto(config.QualifiedWatermarkTable)
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
-		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q,
+		&protos.TableMapping{SourceTable: config.QualifiedWatermarkTable}, protos.TypeSystem_Q,
 		config.Version)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
+		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", parsedSrcTable, err)
 	}
 
 	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude)
-	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
-	if err != nil {
-		c.logger.Error("unable to parse source table", slog.Any("error", err))
-		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
-	}
 
 	c.logger.Info("[mysql] pulling records start")
 

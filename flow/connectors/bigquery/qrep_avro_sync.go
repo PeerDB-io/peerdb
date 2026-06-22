@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -44,7 +45,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	dstTableMetadata *bigquery.TableMetadata,
 	syncBatchID int64,
 	stream *model.QRecordStream,
-	tableNameRowsMapping map[string]*model.RecordTypeCounts,
+	tableNameRowsMapping map[common.QualifiedTable]*model.RecordTypeCounts,
 ) (*model.SyncResponse, error) {
 	s.connector.logger.Info(
 		fmt.Sprintf("Obtaining Avro schema for destination table %s and sync batch ID %d",
@@ -143,7 +144,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	ctx context.Context,
 	env map[string]string,
 	flowJobName string,
-	dstTableName string,
+	dstTable common.QualifiedTable,
 	partition *protos.QRepPartition,
 	dstTableMetadata *bigquery.TableMetadata,
 	stream *model.QRecordStream,
@@ -154,16 +155,17 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	flowLog := slog.Group("sync_metadata",
 		slog.String(string(shared.FlowNameKey), flowJobName),
 		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
-		slog.String("destinationTable", dstTableName),
+		slog.String("destinationTable", dstTable.String()),
 	)
 	// You will need to define your Avro schema as a string
-	avroSchema, err := DefineAvroSchema(dstTableName, dstTableMetadata, syncedAtCol, softDeleteCol)
+	// LegacyDotted: avro record names in staged files keep the historical dotted form
+	avroSchema, err := DefineAvroSchema(dstTable.LegacyDotted(), dstTableMetadata, syncedAtCol, softDeleteCol)
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
 	s.connector.logger.Info("Obtained Avro schema for destination table", flowLog, slog.Any("avroSchema", avroSchema))
 	// create a staging table name with partitionID replace hyphens with underscores
-	dstDatasetTable, _ := s.connector.convertToDatasetTable(dstTableName)
+	dstDatasetTable, _ := s.connector.convertToDatasetTable(dstTable)
 	stagingDatasetTable := &datasetTable{
 		project: s.connector.projectID,
 		dataset: dstDatasetTable.dataset,
@@ -190,7 +192,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	if numRecords > 0 {
 		// Insert the records from the staging table into the destination table
 		insertStmt := fmt.Sprintf("INSERT INTO `%s`(%s) SELECT %s FROM `%s`;",
-			dstTableName, insertColumnSQL, selector, stagingDatasetTable.string())
+			dstDatasetTable.string(), insertColumnSQL, selector, stagingDatasetTable.string())
 
 		s.connector.logger.Info("Performing transaction inside QRep sync function", flowLog)
 
@@ -218,7 +220,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 			flowLog)
 	}
 
-	s.connector.logger.Info("loaded stage into "+dstTableName, flowLog)
+	s.connector.logger.Info("loaded stage into "+dstTable.String(), flowLog)
 	return numRecords, nil
 }
 

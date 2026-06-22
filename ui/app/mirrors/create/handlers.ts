@@ -5,6 +5,7 @@ import {
   FlowConnectionConfigs,
   QRepConfig,
   QRepWriteType,
+  QualifiedTable,
   TableEngine,
   TableMapping,
   TypeSystem,
@@ -20,6 +21,11 @@ import {
   SchemaTablesResponse,
   TableColumnsResponse,
 } from '@/grpc_generated/route';
+import {
+  displayQualifiedTable,
+  parseDestinationInput,
+  qualifiedTableFromParts,
+} from '@/lib/utils/tableIdentifier';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 
 import {
@@ -61,7 +67,7 @@ export function IsClickHousePeer(peerType?: DBType): boolean {
 
 function ValidSchemaQualifiedTarget(
   peerType: DBType,
-  tableName: string
+  table: QualifiedTable | undefined
 ): boolean {
   const schemaRequiredPeer =
     peerType === DBType.POSTGRES || peerType === DBType.SNOWFLAKE;
@@ -69,7 +75,7 @@ function ValidSchemaQualifiedTarget(
     return true;
   }
 
-  return !!tableName && tableName.includes('.') && !tableName.startsWith('.');
+  return !!table && !!table.namespace && !!table.table;
 }
 
 function CDCCheck(
@@ -91,7 +97,7 @@ function CDCCheck(
     }
   }
 
-  const tableNameMapping = reformattedTableMapping(rows);
+  const tableNameMapping = reformattedTableMapping(rows, destinationType);
   const fieldErr = validateCDCFields(tableNameMapping, config, destinationType);
   if (fieldErr) {
     return fieldErr;
@@ -129,15 +135,10 @@ function validateSchemaQualification(
   destinationType: DBType
 ): string {
   for (const table of tableMapping) {
-    if (
-      !ValidSchemaQualifiedTarget(
-        destinationType,
-        table!.destinationTableIdentifier
-      )
-    ) {
-      return `Destination table ${
-        table?.destinationTableIdentifier
-      } should be schema qualified`;
+    if (!ValidSchemaQualifiedTarget(destinationType, table?.destinationTable)) {
+      return `Destination table ${displayQualifiedTable(
+        table?.destinationTable
+      )} should be schema qualified`;
     }
   }
   return '';
@@ -180,34 +181,46 @@ function validateQRepFields(
 }
 
 export function reformattedTableMapping(
-  tableMapping: TableMapRow[]
+  tableMapping: TableMapRow[],
+  destinationType: DBType
 ): TableMapping[] {
   return tableMapping
     .filter((row) => row?.selected === true && row?.canMirror === true)
-    .map((row) => ({
-      sourceTableIdentifier: row.source,
-      destinationTableIdentifier: row.destination,
-      partitionKey: row.partitionKey,
-      exclude: Array.from(row.exclude),
-      columns: row.columns,
-      engine: row.engine,
-      shardingKey: row.shardingKey,
-      policyName: row.policyName,
-      partitionByExpr: row.partitionByExpr,
-    }));
+    .map(
+      (row) =>
+        ({
+          sourceTable: row.sourceTable,
+          destinationTable: parseDestinationInput(
+            row.destination,
+            destinationType
+          ),
+          partitionKey: row.partitionKey,
+          exclude: Array.from(row.exclude),
+          columns: row.columns,
+          engine: row.engine,
+          shardingKey: row.shardingKey,
+          policyName: row.policyName,
+          partitionByExpr: row.partitionByExpr,
+        }) as TableMapping
+    );
 }
 
 export function changesToTablesMapping(
   tableMapping: TableMapRow[],
   currentTableMapping: Map<string, TableMapping[]>,
-  isRemoval: boolean
+  isRemoval: boolean,
+  destinationType: DBType
 ): TableMapping[] {
   const mapping = tableMapping
     .filter((row) => {
       const isSelected = row?.selected === true && row?.canMirror === true;
       const isCurrentMapping = currentTableMapping
         .get(row.schema)
-        ?.map((tableMap) => tableMap.sourceTableIdentifier)
+        ?.map((tableMap) =>
+          tableMap.sourceTable
+            ? displayQualifiedTable(tableMap.sourceTable)
+            : tableMap.sourceTableIdentifier
+        )
         .includes(row.source);
       // if not in current mapping, and selected, it's an addition
       if (!isCurrentMapping && isSelected && !isRemoval) {
@@ -219,20 +232,39 @@ export function changesToTablesMapping(
       }
       return false;
     })
-    .map(
-      (row) =>
-        ({
-          sourceTableIdentifier: row.source,
-          destinationTableIdentifier: row.destination,
-          partitionKey: row.partitionKey,
-          exclude: Array.from(row.exclude),
-          columns: row.columns,
-          engine: row.engine,
-          shardingKey: row.shardingKey,
-          policyName: row.policyName,
-          partitionByExpr: row.partitionByExpr,
-        }) as TableMapping
-    );
+    .map((row) => {
+      if (isRemoval) {
+        // removals must reference the exact identifiers stored in the mirror
+        // config; re-parsing the display text can mismatch legacy mirrors whose
+        // dotted destination was split differently than the current peer-type
+        // parse (e.g. table-only destinations with dots in the name)
+        const canonical = currentTableMapping
+          .get(row.schema)
+          ?.find(
+            (tableMap) =>
+              (tableMap.sourceTable
+                ? displayQualifiedTable(tableMap.sourceTable)
+                : tableMap.sourceTableIdentifier) === row.source
+          );
+        if (canonical) {
+          return canonical;
+        }
+      }
+      return {
+        sourceTable: row.sourceTable,
+        destinationTable: parseDestinationInput(
+          row.destination,
+          destinationType
+        ),
+        partitionKey: row.partitionKey,
+        exclude: Array.from(row.exclude),
+        columns: row.columns,
+        engine: row.engine,
+        shardingKey: row.shardingKey,
+        policyName: row.policyName,
+        partitionByExpr: row.partitionByExpr,
+      } as TableMapping;
+    });
   return mapping;
 }
 
@@ -274,12 +306,11 @@ export async function handleCreateCDC(
   route();
 }
 
-function quotedWatermarkTable(watermarkTable: string): string {
-  if (watermarkTable.includes('.')) {
-    const [schema, table] = watermarkTable.split('.');
-    return `"${schema}"."${table}"`;
+function quotedWatermarkTable(watermarkTable: QualifiedTable): string {
+  if (watermarkTable.namespace) {
+    return `"${watermarkTable.namespace}"."${watermarkTable.table}"`;
   } else {
-    return `"${watermarkTable}"`;
+    return `"${watermarkTable.table}"`;
   }
 }
 
@@ -315,8 +346,12 @@ export async function handleCreateQRep(
   }
 
   if (xmin == true) {
+    if (!config.qualifiedWatermarkTable) {
+      notifyErr('Watermark table is required');
+      return;
+    }
     config.watermarkColumn = 'xmin';
-    config.query = `SELECT * FROM ${quotedWatermarkTable(config.watermarkTable)}`;
+    config.query = `SELECT * FROM ${quotedWatermarkTable(config.qualifiedWatermarkTable)}`;
     query = config.query;
     config.initialCopyOnly = false;
   }
@@ -337,12 +372,16 @@ export async function handleCreateQRep(
   config.flowJobName = flowJobName;
   config.query = query;
 
-  if (
-    !ValidSchemaQualifiedTarget(
-      destinationType,
-      config.destinationTableIdentifier
-    )
-  ) {
+  // the destination was parsed as the user typed, possibly before the destination
+  // peer was selected; re-parse the displayed text with the final peer type
+  if (config.destinationTable) {
+    config.destinationTable = parseDestinationInput(
+      displayQualifiedTable(config.destinationTable),
+      destinationType
+    );
+  }
+
+  if (!ValidSchemaQualifiedTarget(destinationType, config.destinationTable)) {
     notifyErr(
       `Destination table should be schema qualified for ${DBTypeToGoodText(
         destinationType
@@ -440,9 +479,14 @@ export async function fetchTables(
         targetSchemaName,
         tableObject.tableName
       );
+      const sourceTable = qualifiedTableFromParts(
+        schemaName,
+        tableObject.tableName
+      );
       tables.push({
         schema: schemaName,
-        source: `${schemaName}.${tableObject.tableName}`,
+        sourceTable,
+        source: displayQualifiedTable(sourceTable),
         destination: dstName,
         partitionKey: '',
         exclude: new Set(),

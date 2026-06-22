@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -35,10 +36,10 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	ctx = c.withMirrorNameQueryTag(ctx, config.FlowJobName)
 
 	// Ensure the destination table is available.
-	destTable := config.DestinationTableIdentifier
+	destTable := internal.QualifiedTableFromProto(config.DestinationTable)
 	flowLog := slog.Group("sync_metadata",
 		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
-		slog.String("destinationTable", destTable),
+		slog.String("destinationTable", destTable.String()),
 	)
 	tblSchema, err := c.getTableSchema(ctx, destTable)
 	if err != nil {
@@ -50,14 +51,9 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }
 
-func (c *SnowflakeConnector) getTableSchema(ctx context.Context, tableName string) ([]*sql.ColumnType, error) {
-	schematable, err := common.ParseTableIdentifier(tableName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse table '%s'", tableName)
-	}
-
+func (c *SnowflakeConnector) getTableSchema(ctx context.Context, table common.QualifiedTable) ([]*sql.ColumnType, error) {
 	//nolint:rowserrcheck
-	rows, err := c.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(schematable)))
+	rows, err := c.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(table)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -88,7 +84,8 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		if _, err := c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier); err != nil {
+		destTable := internal.QualifiedTableFromProto(config.DestinationTable)
+		if _, err := c.execWithLogging(ctx, "TRUNCATE TABLE "+snowflakeSchemaTableNormalize(destTable)); err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
 	}
@@ -158,7 +155,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 func (c *SnowflakeConnector) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error {
 	ctx = c.withMirrorNameQueryTag(ctx, config.FlowJobName)
 
-	destTable := config.DestinationTableIdentifier
+	destTable := internal.QualifiedTableFromProto(config.DestinationTable)
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
 	writeHandler := NewSnowflakeAvroConsolidateHandler(c, config, destTable, stageName)
@@ -177,14 +174,8 @@ func (c *SnowflakeConnector) CleanupQRepFlow(ctx context.Context, config *protos
 	return c.dropStage(ctx, config.StagingPath, config.FlowJobName)
 }
 
-func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName string) ([]SnowflakeTableColumn, error) {
-	// parse the table name to get the schema and table name
-	schemaTable, err := common.ParseTableIdentifier(tableName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse table name: %w", err)
-	}
-
-	fq := snowflakeSchemaTableNormalize(schemaTable)
+func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, table common.QualifiedTable) ([]SnowflakeTableColumn, error) {
+	fq := snowflakeSchemaTableNormalize(table)
 
 	channel := make(chan string, 1)
 	ctxWithOpt := gosnowflake.WithQueryIDChan(ctx, channel)
@@ -235,7 +226,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 	}
 
 	if len(cols) == 0 {
-		return nil, fmt.Errorf("cannot load schema: table %s.%s does not exist", schemaTable.Namespace, schemaTable.Table)
+		return nil, fmt.Errorf("cannot load schema: table %s.%s does not exist", table.Namespace, table.Table)
 	}
 
 	return cols, nil

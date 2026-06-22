@@ -67,8 +67,8 @@ func (s APITestSuite) Connector() *connpostgres.PostgresConnector {
 	return s.pg.PostgresConnector
 }
 
-func (s APITestSuite) DestinationTable(table string) string {
-	return table
+func (s APITestSuite) DestinationTable(table string) common.QualifiedTable {
+	return common.QualifiedTable{Table: table}
 }
 
 // checkMigrationCompleted checks if a migration has been completed for a given flow
@@ -163,7 +163,7 @@ func (s APITestSuite) loadConfigFromCatalog(
 func (s APITestSuite) checkCatalogTableMapping(
 	ctx context.Context,
 	flowName string,
-	expectedSourceTableNames []string,
+	expectedSourceTableNames []common.QualifiedTable,
 ) (bool, error) {
 	config, err := s.loadConfigFromCatalog(ctx, flowName)
 	if err != nil {
@@ -173,9 +173,9 @@ func (s APITestSuite) checkCatalogTableMapping(
 	if len(config.TableMappings) != len(expectedSourceTableNames) {
 		return false, fmt.Errorf("expected %d table mappings, got %d", len(expectedSourceTableNames), len(config.TableMappings))
 	}
-	sourceTableNames := make([]string, len(config.TableMappings))
+	sourceTableNames := make([]common.QualifiedTable, len(config.TableMappings))
 	for i, tableMapping := range config.TableMappings {
-		sourceTableNames[i] = tableMapping.SourceTableIdentifier
+		sourceTableNames[i] = internal.QualifiedTableFromProto(tableMapping.SourceTable)
 	}
 
 	if len(sourceTableNames) != len(expectedSourceTableNames) {
@@ -190,15 +190,17 @@ func (s APITestSuite) checkCatalogTableMapping(
 	return true, nil
 }
 
-func (s APITestSuite) getCatalogTableSchemaForSourceTable(
+// table_schema_mapping is keyed by destination table; the stored schema value carries
+// the source identifier
+func (s APITestSuite) getCatalogTableSchemaForDestinationTable(
 	ctx context.Context,
 	flowName string,
-	sourceTableIdentifier string,
+	destinationTable common.QualifiedTable,
 ) (*protos.TableSchema, error) {
 	var configBytes sql.RawBytes
 	if err := s.catalog.QueryRow(ctx,
-		`SELECT table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_name = $2`,
-		flowName, sourceTableIdentifier,
+		`SELECT table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_namespace = $2 AND table_name = $3`,
+		flowName, destinationTable.Namespace, destinationTable.Table,
 	).Scan(&configBytes); err != nil {
 		return nil, err
 	}
@@ -337,7 +339,7 @@ func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
 	isAtLeast25_12 := chproto.CheckMinVersion(
 		chproto.Version{Major: 25, Minor: 12, Patch: 0}, chproto.ParseVersion(chVersion))
 
-	srcTable := AttachSchema(s, "no_pkey")
+	srcTable := &protos.QualifiedTable{Namespace: Schema(s), Table: "no_pkey"}
 
 	tests := []struct {
 		name      string
@@ -368,9 +370,9 @@ func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
 			connectionGen := FlowConnectionGenerationConfig{
 				FlowJobName: "ch_no_pkey_" + tc.dstTable + "_" + s.suffix,
 				TableMappings: []*protos.TableMapping{{
-					SourceTableIdentifier:      srcTable,
-					DestinationTableIdentifier: tc.dstTable,
-					Engine:                     tc.engine,
+					SourceTable:      srcTable,
+					DestinationTable: &protos.QualifiedTable{Table: tc.dstTable},
+					Engine:           tc.engine,
 				}},
 				Destination: s.ch.Peer().Name,
 			}
@@ -404,14 +406,12 @@ func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey_ReplicaIdentit
 		s.t.Skip("replica identity full only applies to Postgres")
 	}
 
-	srcTable := AttachSchema(s, "no_pkey_rif")
-
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: "ch_no_pkey_rif_" + s.suffix,
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcTable,
-			DestinationTableIdentifier: "no_pkey_rif",
-			Engine:                     protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE,
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "no_pkey_rif"},
+			DestinationTable: &protos.QualifiedTable{Table: "no_pkey_rif"},
+			Engine:           protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE,
 		}},
 		Destination: s.ch.Peer().Name,
 	}
@@ -472,7 +472,7 @@ func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
 
 			st, ok := status.FromError(err)
 			require.True(t, ok, "expected gRPC status error")
-			require.Equal(t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition error code")
+			require.Equal(t, codes.InvalidArgument, st.Code(), "expected InvalidArgument error code")
 		})
 	}
 }
@@ -501,8 +501,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_MissingColumns() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -542,8 +542,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_ExtraColumnsOk() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_extra"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst_extra"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -578,9 +578,9 @@ func (s APITestSuite) TestPostgresDestinationValidation_WithExcludedColumns() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
-				Exclude:                    []string{"excluded_col"},
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_exclude"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst_exclude"},
+				Exclude:          []string{"excluded_col"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -621,8 +621,8 @@ func (s APITestSuite) postgresDestinationValidationNonEmptyTable(doInitialSnapsh
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_nonempty_" + suffix},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst_nonempty_" + suffix},
 			},
 		},
 		DoInitialSnapshot: doInitialSnapshot,
@@ -667,8 +667,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_MissingSchema() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: "nonexistent_schema_" + s.suffix + ".some_table",
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_noschema"},
+				DestinationTable: &protos.QualifiedTable{Namespace: "nonexistent_schema_" + s.suffix, Table: "some_table"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -706,8 +706,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_NumericPrecisionMismatch
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_numericmismatch"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst_numericmismatch"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -746,8 +746,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_NumericSuperset() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_numericsuperset"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst_numericsuperset"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -782,8 +782,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_UnboundedNumeric() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_unboundednumeric"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst_unboundednumeric"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -818,8 +818,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_TypeCompatible() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_typecompat"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst_typecompat"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -857,8 +857,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_UserDefinedTypeMatch() {
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_udt"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst_udt"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -897,8 +897,8 @@ func (s APITestSuite) TestPostgresDestinationValidation_UserDefinedTypeMismatch(
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_src_udtmismatch"},
+				DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "validation_dst_udtmismatch"},
 			},
 		},
 		DoInitialSnapshot: true,
@@ -2358,8 +2358,8 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					AdditionalTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      AttachSchema(s, "added"),
-							DestinationTableIdentifier: "added",
+							SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "added"},
+							DestinationTable: &protos.QualifiedTable{Table: "added"},
 						},
 					},
 				},
@@ -2368,9 +2368,9 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	})
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
-		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
-			AttachSchema(s, "added"),
-			AttachSchema(s, "original"),
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []common.QualifiedTable{
+			{Namespace: Schema(s), Table: "added"},
+			{Namespace: Schema(s), Table: "original"},
 		})
 		if err != nil {
 			return false
@@ -2420,8 +2420,8 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					RemovedTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      AttachSchema(s, "original"),
-							DestinationTableIdentifier: "original",
+							SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "original"},
+							DestinationTable: &protos.QualifiedTable{Table: "original"},
 						},
 					},
 				},
@@ -2431,8 +2431,8 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	require.NoError(s.t, err)
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table removal to finish", func() bool {
-		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
-			AttachSchema(s, "added"),
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []common.QualifiedTable{
+			{Namespace: Schema(s), Table: "added"},
 		})
 		if err != nil {
 			return false
@@ -2740,22 +2740,22 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 	require.NotEqual(s.t, uint32(0), table1OID)
 	require.NotEqual(s.t, uint32(0), table2OID)
 
-	schema1, err := s.getCatalogTableSchemaForSourceTable(
+	schema1, err := s.getCatalogTableSchemaForDestinationTable(
 		s.t.Context(),
 		flowConnConfig.FlowJobName,
-		"table1",
+		common.QualifiedTable{Table: "table1"},
 	)
 	require.NoError(s.t, err)
-	require.Equal(s.t, AttachSchema(s, "table1"), schema1.TableIdentifier)
+	require.Equal(s.t, common.QualifiedTable{Namespace: Schema(s), Table: "table1"}, internal.QualifiedTableFromProto(schema1.Table))
 	require.Equal(s.t, table1OID, schema1.TableOid)
 
-	schema2, err := s.getCatalogTableSchemaForSourceTable(
+	schema2, err := s.getCatalogTableSchemaForDestinationTable(
 		s.t.Context(),
 		flowConnConfig.FlowJobName,
-		"table2",
+		common.QualifiedTable{Table: "table2"},
 	)
 	require.NoError(s.t, err)
-	require.Equal(s.t, AttachSchema(s, "table2"), schema2.TableIdentifier)
+	require.Equal(s.t, common.QualifiedTable{Namespace: Schema(s), Table: "table2"}, internal.QualifiedTableFromProto(schema2.Table))
 	require.Equal(s.t, table2OID, schema2.TableOid)
 
 	ok, err = s.checkMigrationCompleted(
@@ -2997,8 +2997,8 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					AdditionalTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      AttachSchema(s, "added"),
-							DestinationTableIdentifier: "added",
+							SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "added"},
+							DestinationTable: &protos.QualifiedTable{Table: "added"},
 						},
 					},
 					SkipInitialSnapshotForTableAdditions: true,
@@ -3008,9 +3008,9 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	})
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
-		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
-			AttachSchema(s, "added"),
-			AttachSchema(s, "original"),
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []common.QualifiedTable{
+			{Namespace: Schema(s), Table: "added"},
+			{Namespace: Schema(s), Table: "original"},
 		})
 		if err != nil {
 			return false
@@ -3535,8 +3535,8 @@ func (s APITestSuite) TestResetMirrorSequences() {
 		SourceName:      s.source.GeneratePeer(s.t).Name,
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcTable,
-			DestinationTableIdentifier: dstTable,
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "seq_src"},
+			DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "seq_dst"},
 		}},
 		DoInitialSnapshot:   true,
 		InitialSnapshotOnly: true,
@@ -3617,8 +3617,8 @@ func (s APITestSuite) TestResetMirrorSequences_EmptyTable() {
 		SourceName:      s.source.GeneratePeer(s.t).Name,
 		DestinationName: s.pg.GeneratePeer(s.t).Name,
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      srcTable,
-			DestinationTableIdentifier: dstTable,
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "seq_empty_src"},
+			DestinationTable: &protos.QualifiedTable{Namespace: Schema(s), Table: "seq_empty_dst"},
 		}},
 		DoInitialSnapshot:   true,
 		InitialSnapshotOnly: true,
@@ -3703,9 +3703,9 @@ func (s APITestSuite) TestSnapshotNullPartitionKey() {
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: "snapshot_null_pk_" + s.suffix,
 		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      AttachSchema(s, tableName),
-			DestinationTableIdentifier: tableName,
-			PartitionKey:               "updated_at",
+			SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+			DestinationTable: &protos.QualifiedTable{Table: tableName},
+			PartitionKey:     "updated_at",
 		}},
 		Destination: s.ch.Peer().Name,
 	}

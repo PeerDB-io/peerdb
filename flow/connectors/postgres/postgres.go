@@ -404,14 +404,10 @@ func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.Data
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
 
-func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableIdentifier string) (int64, error) {
-	parsed, err := common.ParseTableIdentifier(tableIdentifier)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse table identifier %s: %w", tableIdentifier, err)
-	}
+func (c *PostgresConnector) GetTableSizeEstimatedBytes(ctx context.Context, table common.QualifiedTable) (int64, error) {
 	tableSizeQuery := "SELECT pg_relation_size(to_regclass($1))"
 	var tableSizeBytes pgtype.Int8
-	if err := c.conn.QueryRow(ctx, tableSizeQuery, parsed.String()).Scan(&tableSizeBytes); err != nil {
+	if err := c.conn.QueryRow(ctx, tableSizeQuery, table.String()).Scan(&tableSizeBytes); err != nil {
 		return 0, err
 	}
 	if !tableSizeBytes.Valid {

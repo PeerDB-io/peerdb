@@ -148,7 +148,7 @@ func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
 func (c *BigQueryConnector) ValidateMirrorDestination(
 	ctx context.Context,
 	_ *protos.FlowConnectionConfigsCore,
-	_ map[string]*protos.TableSchema,
+	_ map[common.QualifiedTable]*protos.TableSchema,
 ) error {
 	dummyTable := "peerdb_validate_dummy_" + common.RandomString(4)
 
@@ -247,24 +247,25 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 			continue
 		}
 
+		dstTable := internal.QualifiedTableFromProto(schemaDelta.DstTable)
+		dstDatasetTable, err := c.convertToDatasetTable(dstTable)
+		if err != nil {
+			return err
+		}
+
 	AddedColumnsLoop:
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			dstDatasetTable, err := c.convertToDatasetTable(schemaDelta.DstTableName)
-			if err != nil {
-				return err
-			}
-
 			table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
 			dstMetadata, metadataErr := table.Metadata(ctx)
 			if metadataErr != nil {
-				return fmt.Errorf("failed to get metadata for table %s: %w", schemaDelta.DstTableName, metadataErr)
+				return fmt.Errorf("failed to get metadata for table %s: %w", dstTable, metadataErr)
 			}
 
 			// check if the column already exists
 			for _, field := range dstMetadata.Schema {
 				if field.Name == addedColumn.Name {
 					c.logger.Info(fmt.Sprintf("[schema delta replay] column %s already exists in table %s",
-						addedColumn.Name, schemaDelta.DstTableName))
+						addedColumn.Name, dstTable))
 					continue AddedColumnsLoop
 				}
 			}
@@ -277,10 +278,10 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 			query.DefaultDatasetID = dstDatasetTable.dataset
 			if _, err := query.Read(ctx); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
-					schemaDelta.DstTableName, err)
+					dstTable, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s to table %s",
-				addedColumn.Name, addedColumnBigQueryType, schemaDelta.DstTableName))
+				addedColumn.Name, addedColumnBigQueryType, dstTable))
 		}
 	}
 
@@ -291,8 +292,8 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	batchId int64,
-	tableToSchema map[string]*protos.TableSchema,
-) ([]string, error) {
+	tableToSchema map[common.QualifiedTable]*protos.TableSchema,
+) ([]common.QualifiedTable, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
 	// Prepare the query to retrieve distinct tables in that batch
@@ -308,8 +309,14 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 		return nil, fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
 	}
 
+	// raw table rows hold the legacy dotted destination name
+	tablesByLegacyName := make(map[string]common.QualifiedTable, len(tableToSchema))
+	for table := range tableToSchema {
+		tablesByLegacyName[table.LegacyDotted()] = table
+	}
+
 	// Store the distinct values in an array
-	var distinctTableNames []string
+	var distinctTableNames []common.QualifiedTable
 	for {
 		var row []bigquery.Value
 		err := it.Next(&row)
@@ -321,8 +328,8 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 		}
 		if len(row) > 0 {
 			value := row[0].(string)
-			if _, ok := tableToSchema[value]; ok {
-				distinctTableNames = append(distinctTableNames, value)
+			if table, ok := tablesByLegacyName[value]; ok {
+				distinctTableNames = append(distinctTableNames, table)
 			} else {
 				c.logger.Warn("table not found in table to schema mapping", "table", value)
 			}
@@ -484,7 +491,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 	batchId int64,
 	flowName string,
 	rawTableName string,
-	tableToSchema map[string]*protos.TableSchema,
+	tableToSchema map[common.QualifiedTable]*protos.TableSchema,
 	unchangedToastMergeChunking uint32,
 	peerdbColumns *protos.PeerDBColumns,
 ) error {
@@ -520,7 +527,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 	}
 
 	for _, tableName := range tableNames {
-		unchangedToastColumns := tableNametoUnchangedToastCols[tableName]
+		unchangedToastColumns := tableNametoUnchangedToastCols[tableName.LegacyDotted()]
 		dstDatasetTable, err := c.convertToDatasetTable(tableName)
 		if err != nil {
 			return err
@@ -528,7 +535,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 
 		// normalize anything between last normalized batch id to last sync batchid
 		if len(unchangedToastColumns) == 0 {
-			c.logger.Info("running single merge statement", slog.String("table", tableName))
+			c.logger.Info("running single merge statement", slog.String("table", tableName.String()))
 			mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, nil)
 			if err := c.runMergeStatement(ctx, dstDatasetTable.dataset, mergeStmt); err != nil {
 				return err
@@ -539,7 +546,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 			chunkNumber := 0
 			for chunk := range slices.Chunk(unchangedToastColumns, int(unchangedToastMergeChunking)) {
 				chunkNumber += 1
-				c.logger.Info("running merge statement", slog.Int("chunk", chunkNumber), slog.String("table", tableName))
+				c.logger.Info("running merge statement", slog.Int("chunk", chunkNumber), slog.String("table", tableName.String()))
 				mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, chunk)
 				if err := c.runMergeStatement(ctx, dstDatasetTable.dataset, mergeStmt); err != nil {
 					return err
@@ -562,6 +569,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 // _peerdb_record_type INT - 0 for insert, 1 for update, 2 for delete
 // _peerdb_match_data STRING - json of the match data (only for update and delete)
 func (c *BigQueryConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+	internal.NormalizeCreateRawTableInput(req)
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	schema := bigquery.Schema{
@@ -649,13 +657,13 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
+	destinationTable common.QualifiedTable,
 	tableSchema *protos.TableSchema,
 ) (bool, error) {
 	datasetTablesSet := tx.(map[datasetTable]struct{})
 
 	// only place where we check for parsing errors
-	datasetTable, err := c.convertToDatasetTable(tableIdentifier)
+	datasetTable, err := c.convertToDatasetTable(destinationTable)
 	if err != nil {
 		return false, err
 	}
@@ -685,21 +693,21 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	if err == nil {
 		if config.IsResync {
 			c.logger.Info("[bigquery] deleting existing resync table",
-				slog.String("table", tableIdentifier))
+				slog.String("table", destinationTable.String()))
 			deleteErr := table.Delete(ctx)
 			if deleteErr != nil {
-				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
+				return false, fmt.Errorf("failed to delete table %s: %w", destinationTable, deleteErr)
 			}
 		} else {
 			// table exists, go to next table
 			c.logger.Info("[bigquery] table already exists, skipping",
-				slog.String("table", tableIdentifier),
+				slog.String("table", destinationTable.String()),
 				slog.Any("existingMetadata", existingMetadata))
 			return true, nil
 		}
 	} else if !strings.Contains(err.Error(), "notFound") {
 		return false, fmt.Errorf("error while checking metadata for BigQuery table existence %s: %w",
-			tableIdentifier, err)
+			destinationTable, err)
 	}
 
 	// convert the column names and types to bigquery types
@@ -759,10 +767,10 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	}
 
 	c.logger.Info("[bigquery] creating table",
-		slog.String("table", tableIdentifier),
+		slog.String("table", destinationTable.String()),
 		slog.Any("metadata", metadata))
 	if err := table.Create(ctx, metadata); err != nil {
-		return false, fmt.Errorf("failed to create table %s: %w", tableIdentifier, err)
+		return false, fmt.Errorf("failed to create table %s: %w", destinationTable, err)
 	}
 
 	datasetTablesSet[datasetTable] = struct{}{}
@@ -792,12 +800,14 @@ func (c *BigQueryConnector) getRawTableName(flowJobName string) string {
 func (c *BigQueryConnector) RenameTables(
 	ctx context.Context,
 	req *protos.RenameTablesInput,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
+	tableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
+	internal.NormalizeRenameTablesInput(req)
 	// BigQuery doesn't really do transactions properly anyway so why bother?
 	for _, renameRequest := range req.RenameTableOptions {
-		srcDatasetTable, _ := c.convertToDatasetTable(renameRequest.CurrentName)
-		dstDatasetTable, _ := c.convertToDatasetTable(renameRequest.NewName)
+		currentTable := internal.QualifiedTableFromProto(renameRequest.CurrentTable)
+		srcDatasetTable, _ := c.convertToDatasetTable(currentTable)
+		dstDatasetTable, _ := c.convertToDatasetTable(internal.QualifiedTableFromProto(renameRequest.NewTable))
 		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", srcDatasetTable.string(),
 			dstDatasetTable.string()))
 
@@ -825,7 +835,7 @@ func (c *BigQueryConnector) RenameTables(
 			// For a table with replica identity full and a JSON column
 			// the equals to comparison we do down below will fail
 			// so we need to use TO_JSON_STRING for those columns
-			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
+			tableSchema := tableNameSchemaMapping[currentTable]
 			columnIsJSON := make(map[string]bool, len(tableSchema.Columns))
 			columnNames := make([]string, 0, len(tableSchema.Columns))
 			for _, col := range tableSchema.Columns {
@@ -944,7 +954,9 @@ func (c *BigQueryConnector) CreateTablesFromExisting(
 	ctx context.Context,
 	req *protos.CreateTablesFromExistingInput,
 ) (*protos.CreateTablesFromExistingOutput, error) {
-	for newTable, existingTable := range req.NewToExistingTableMapping {
+	for _, mapping := range req.NewToExisting {
+		newTable := internal.QualifiedTableFromProto(mapping.Source)
+		existingTable := internal.QualifiedTableFromProto(mapping.Destination)
 		newDatasetTable, _ := c.convertToDatasetTable(newTable)
 		existingDatasetTable, _ := c.convertToDatasetTable(existingTable)
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
@@ -970,19 +982,22 @@ func (c *BigQueryConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
 	req *protos.RemoveTablesFromRawTableInput,
 ) error {
+	internal.NormalizeRemoveTablesFromRawTableInput(req)
 	rawTableIdentifier := c.getRawTableName(req.FlowJobName)
-	for _, tableName := range req.DestinationTableNames {
-		c.logger.Info(fmt.Sprintf("removing entries for table '%s' from raw table...", tableName))
+	for _, table := range req.DestinationTables {
+		destinationTable := internal.QualifiedTableFromProto(table)
+		c.logger.Info(fmt.Sprintf("removing entries for table '%s' from raw table...", destinationTable))
+		// raw table rows hold the legacy dotted destination name
 		deleteCmd := c.queryWithLogging(fmt.Sprintf("DELETE FROM `%s` WHERE _peerdb_destination_table_name = '%s'"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
+			rawTableIdentifier, destinationTable.LegacyDotted(), req.NormalizeBatchId, req.SyncBatchId))
 		deleteCmd.DefaultProjectID = c.projectID
 		deleteCmd.DefaultDatasetID = c.datasetID
 		if _, err := deleteCmd.Read(ctx); err != nil {
 			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
-		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
+		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", destinationTable))
 	}
 
 	return nil
@@ -1009,27 +1024,33 @@ func (d *datasetTable) stringQuoted() string {
 	return fmt.Sprintf("%s.%s.%s", quotedIdentifier(d.project), quotedIdentifier(d.dataset), quotedIdentifier(d.table))
 }
 
-func (c *BigQueryConnector) convertToDatasetTable(tableName string) (datasetTable, error) {
-	parts := strings.Split(tableName, ".")
-	if len(parts) == 1 {
-		return datasetTable{
-			dataset: c.datasetID,
-			table:   parts[0],
-		}, nil
-	} else if len(parts) == 2 {
-		return datasetTable{
-			dataset: parts[0],
-			table:   parts[1],
-		}, nil
-	} else if len(parts) == 3 {
-		return datasetTable{
-			project: parts[0],
-			dataset: parts[1],
-			table:   parts[2],
-		}, nil
-	} else {
-		return datasetTable{}, fmt.Errorf("invalid BigQuery table name: %s", tableName)
+// convertToDatasetTable resolves a QualifiedTable into BigQuery's project/dataset/table parts.
+// Namespace is the dataset, optionally prefixed with the project ("project.dataset"); an empty
+// Namespace falls back to the connector's default dataset. Identifiers normalized from legacy
+// 3-part dotted strings split at the first dot, landing as {project, "dataset.table"}; since
+// BigQuery table names cannot contain dots, a dot in Table unambiguously signals that form and
+// Table is re-split.
+func (c *BigQueryConnector) convertToDatasetTable(table common.QualifiedTable) (datasetTable, error) {
+	project := ""
+	dataset := table.Namespace
+	tableName := table.Table
+	if strings.Contains(tableName, ".") && !strings.Contains(dataset, ".") {
+		project = dataset
+		dataset, tableName, _ = strings.Cut(tableName, ".")
+	} else if strings.Contains(dataset, ".") {
+		project, dataset, _ = strings.Cut(dataset, ".")
 	}
+	if dataset == "" {
+		dataset = c.datasetID
+	}
+	if strings.Contains(project, ".") || strings.Contains(dataset, ".") || strings.Contains(tableName, ".") {
+		return datasetTable{}, fmt.Errorf("invalid BigQuery table name: %s", table)
+	}
+	return datasetTable{
+		project: project,
+		dataset: dataset,
+		table:   tableName,
+	}, nil
 }
 
 func (c *BigQueryConnector) queryWithLogging(query string) *bigquery.Query {

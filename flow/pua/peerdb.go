@@ -502,10 +502,11 @@ func LuaRecordIndex(ls *lua.LState) int {
 		ls.Push(shared.LuaTime.New(ls, record.GetCommitTime()))
 	case "transaction_id":
 		ls.Push(glua64.U64.New(ls, record.GetTransactionID()))
+	// LegacyDotted: user scripts predate QualifiedTable and match on the dotted format
 	case "target":
-		ls.Push(lua.LString(record.GetDestinationTableName()))
+		ls.Push(lua.LString(record.GetDestinationTable().LegacyDotted()))
 	case "source":
-		ls.Push(lua.LString(record.GetSourceTableName()))
+		ls.Push(lua.LString(record.GetSourceTable().LegacyDotted()))
 	case "unchanged_columns":
 		if ur, ok := record.(*model.UpdateRecord[model.RecordItems]); ok {
 			tbl := ls.CreateTable(0, len(ur.UnchangedToastColumns))

@@ -775,7 +775,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 
 	tableName := "test_exclude_sf"
 	srcTableName := s.attachSchemaSuffix(tableName)
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -794,9 +793,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
-				Exclude:                    []string{"c2"},
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+				DestinationTable: &protos.QualifiedTable{Namespace: s.sfHelper.testSchemaName, Table: tableName},
+				Exclude:          []string{"c2"},
 			},
 		},
 		SourceName:      GeneratePostgresPeer(s.t).Name,
@@ -862,8 +861,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+				DestinationTable: &protos.QualifiedTable{Namespace: s.sfHelper.testSchemaName, Table: dstName},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -927,8 +926,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: "test_softdel_iud_src"},
+				DestinationTable: &protos.QualifiedTable{Namespace: s.sfHelper.testSchemaName, Table: "test_softdel_iud"},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -998,8 +997,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+				DestinationTable: &protos.QualifiedTable{Namespace: s.sfHelper.testSchemaName, Table: dstName},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -1073,8 +1072,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+				DestinationTable: &protos.QualifiedTable{Namespace: s.sfHelper.testSchemaName, Table: tableName},
 			},
 		},
 		SourceName:        GeneratePostgresPeer(s.t).Name,
@@ -1178,7 +1177,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 
 	tableName := "test_exclude_schema_changes_sf"
 	srcTableName := s.attachSchemaSuffix(tableName)
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -1196,9 +1194,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
-				Exclude:                    []string{"c2"},
+				SourceTable:      &protos.QualifiedTable{Namespace: Schema(s), Table: tableName},
+				DestinationTable: &protos.QualifiedTable{Namespace: s.sfHelper.testSchemaName, Table: tableName},
+				Exclude:          []string{"c2"},
 			},
 		},
 		SourceName:   GeneratePostgresPeer(s.t).Name,

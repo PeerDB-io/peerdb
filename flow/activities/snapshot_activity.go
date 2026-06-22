@@ -63,6 +63,7 @@ func (a *SnapshotActivity) SetupReplication(
 	ctx context.Context,
 	config *protos.SetupReplicationInput,
 ) (*protos.SetupReplicationOutput, error) {
+	internal.NormalizeSetupReplicationInput(config)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Setting up replication slot and publication")
@@ -175,7 +176,7 @@ func (a *SnapshotActivity) WaitForExportSnapshot(ctx context.Context, sessionID 
 func (a *SnapshotActivity) LoadTableSchema(
 	ctx context.Context,
 	flowName string,
-	tableName string,
+	tableName common.QualifiedTable,
 ) (*protos.TableSchema, error) {
 	return internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
 }
@@ -188,6 +189,7 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.FlowConnectionConfigsCore,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
+	internal.NormalizeFlowConfig(input)
 	conn, connClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, nil, a.CatalogPool, input.SourceName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to get connector: %w", err))

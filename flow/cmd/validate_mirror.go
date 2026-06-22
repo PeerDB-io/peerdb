@@ -32,10 +32,24 @@ var FlagConstraints = map[string]flagConstraint{
 	},
 }
 
+// validateQRepIdentifiers checks that a normalized QRepConfig has a usable
+// destination (and watermark table when a watermark column is configured).
+func validateQRepIdentifiers(cfg *protos.QRepConfig) error {
+	if cfg.DestinationTable.GetTable() == "" {
+		return errors.New("destination table name is empty")
+	}
+	if cfg.WatermarkColumn != "" && cfg.QualifiedWatermarkTable.GetTable() == "" {
+		return errors.New("watermark table is required when a watermark column is configured")
+	}
+	return nil
+}
+
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
 	if req.ConnectionConfigs != nil {
+		// legacy clients (nexus, older UIs) send only dotted string identifiers
+		internal.NormalizeFlowConfigAPI(req.ConnectionConfigs)
 		if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env); err != nil {
 			return nil, NewInternalApiError(err)
 		} else {
@@ -94,6 +108,10 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			fmt.Errorf("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
+	if err := validateTableMappingIdentifiers(connectionConfigs.TableMappings); err != nil {
+		return nil, NewInvalidArgumentApiError(err)
+	}
+
 	for _, tm := range connectionConfigs.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
@@ -141,7 +159,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 	defer dstClose(ctx)
 
-	var tableSchemaMap map[string]*protos.TableSchema
+	var tableSchemaMap map[common.QualifiedTable]*protos.TableSchema
 	if !connectionConfigs.Resync {
 		var getTableSchemaError error
 		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, connectionConfigs.Env, connectionConfigs.Version,
@@ -156,6 +174,46 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	return &protos.ValidateCDCMirrorResponse{}, nil
+}
+
+// validateTableMappingIdentifiers rejects duplicate sources, empty table components,
+// and source/destination pairs whose LegacyDotted renderings collide (e.g.
+// {"a","b.c"} vs {"a.b","c"}) — colliding destinations would merge in the raw table,
+// which stores the dotted format, and colliding sources would produce duplicate
+// snapshot clone child-workflow IDs. The exact same destination MAY repeat: N:1
+// mappings (multiple sources sharing one destination) are supported.
+func validateTableMappingIdentifiers(tableMappings []*protos.TableMapping) error {
+	sources := make(map[common.QualifiedTable]struct{}, len(tableMappings))
+	sourcesDotted := make(map[string]common.QualifiedTable, len(tableMappings))
+	destinationsDotted := make(map[string]common.QualifiedTable, len(tableMappings))
+	for _, tm := range tableMappings {
+		source := internal.QualifiedTableFromProto(tm.SourceTable)
+		destination := internal.QualifiedTableFromProto(tm.DestinationTable)
+		if source.Table == "" {
+			return fmt.Errorf("source table name is empty for destination %s", destination)
+		}
+		if source.Namespace == "" {
+			return fmt.Errorf("source namespace is empty for table %s", source.Table)
+		}
+		if destination.Table == "" {
+			return fmt.Errorf("destination table name is empty for source %s", source)
+		}
+		if _, ok := sources[source]; ok {
+			return fmt.Errorf("duplicate source table %s", source)
+		}
+		sources[source] = struct{}{}
+		if other, ok := sourcesDotted[source.LegacyDotted()]; ok {
+			return fmt.Errorf("source tables %s and %s are ambiguous with each other due to dots in names",
+				source, other)
+		}
+		sourcesDotted[source.LegacyDotted()] = source
+		if other, ok := destinationsDotted[destination.LegacyDotted()]; ok && other != destination {
+			return fmt.Errorf("destination tables %s and %s are ambiguous with each other due to dots in names",
+				destination, other)
+		}
+		destinationsDotted[destination.LegacyDotted()] = destination
+	}
+	return nil
 }
 
 func (h *FlowRequestHandler) checkIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {
@@ -180,9 +238,9 @@ func (h *FlowRequestHandler) checkFlagsCompatibility(
 	}
 
 	schemaHasColumnTypes := func(colTypes []types.QValueKind) (bool, error) {
-		tableNames := make([]string, 0, len(cfg.TableMappings))
+		tableNames := make([]common.QualifiedTable, 0, len(cfg.TableMappings))
 		for _, tm := range cfg.TableMappings {
-			tableNames = append(tableNames, tm.DestinationTableIdentifier)
+			tableNames = append(tableNames, internal.QualifiedTableFromProto(tm.DestinationTable))
 		}
 		schemas, err := internal.LoadTableSchemasFromCatalog(ctx, h.pool, cfg.FlowJobName, tableNames)
 		if err != nil {

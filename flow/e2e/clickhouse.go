@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -98,8 +99,8 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 	return ret
 }
 
-func (s ClickHouseSuite) DestinationTable(table string) string {
-	return table
+func (s ClickHouseSuite) DestinationTable(table string) common.QualifiedTable {
+	return common.QualifiedTable{Table: table}
 }
 
 func (s ClickHouseSuite) Teardown(ctx context.Context) {
@@ -176,7 +177,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	batch := &model.QRecordBatch{}
 	colTypes := rows.ColumnTypes()
 	scanTypes := make([]reflect.Type, len(colTypes))
-	tableSchema, err := connclickhouse.GetTableSchemaForTable(&protos.TableMapping{SourceTableIdentifier: table}, colTypes)
+	tableSchema, err := connclickhouse.GetTableSchemaForTable(
+		&protos.TableMapping{SourceTable: &protos.QualifiedTable{Table: table}}, colTypes)
 	if err != nil {
 		return nil, err
 	}

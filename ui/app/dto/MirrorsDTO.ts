@@ -1,4 +1,8 @@
-import { FlowConnectionConfigs, TableMapping } from '@/grpc_generated/flow';
+import {
+  FlowConnectionConfigs,
+  QualifiedTable,
+  TableMapping,
+} from '@/grpc_generated/flow';
 
 export enum MirrorType {
   CDC = 'CDC',
@@ -13,10 +17,17 @@ export type CDCConfig = FlowConnectionConfigs & {
 
 export type TableMapRow = Omit<
   TableMapping,
-  'exclude' | 'sourceTableIdentifier' | 'destinationTableIdentifier'
+  | 'exclude'
+  | 'sourceTableIdentifier'
+  | 'destinationTableIdentifier'
+  | 'sourceTable'
+  | 'destinationTable'
 > & {
   schema: string;
+  // structured source table; `source` is its dotted display form, also used as row key
+  sourceTable: QualifiedTable;
   source: string;
+  // free-text destination input, parsed into a QualifiedTable on submit
   destination: string;
   exclude: Set<string>;
   selected: boolean;

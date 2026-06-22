@@ -13,7 +13,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -138,12 +137,12 @@ func buildInsertFromTableFunctionQuery(
 
 	// Add source schema column if needed
 	if sourceSchemaAsDestinationColumn {
-		qualifiedTable, err := common.ParseTableIdentifier(config.config.WatermarkTable)
-		if err != nil {
-			return "", err
+		watermarkTable := internal.QualifiedTableFromProto(config.config.QualifiedWatermarkTable)
+		if watermarkTable.Namespace == "" {
+			return "", fmt.Errorf("watermark table %s has no namespace to use as source schema", watermarkTable)
 		}
 
-		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(qualifiedTable.Namespace))
+		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(watermarkTable.Namespace))
 		insertedColumnNames = append(insertedColumnNames, sourceSchemaColName)
 	}
 

@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -92,7 +93,7 @@ func lvalueToEventData(ls *lua.LState, value lua.LValue) (ScopedEventhubData, er
 			return scoped, fmt.Errorf("invalid destination, %w", err)
 		}
 		if destination != "" {
-			scoped.Hub, err = NewScopedEventhub(destination)
+			scoped.Hub, err = NewScopedEventhubFromString(destination)
 			if err != nil {
 				return scoped, fmt.Errorf("invalid topic, %w", err)
 			}
@@ -228,7 +229,7 @@ func (c *EventHubConnector) processBatch(
 			}
 
 			var events []ScopedEventhubData
-			destinationString := record.GetDestinationTableName()
+			destinationTable := record.GetDestinationTable()
 			if fn != nil {
 				ls.Push(fn)
 				ls.Push(pua.LuaRecord.New(ls, record))
@@ -246,7 +247,7 @@ func (c *EventHubConnector) processBatch(
 
 					if scoped.Data != nil {
 						if scoped.Hub.NamespaceName == "" {
-							scoped.Hub, err = NewScopedEventhub(destinationString)
+							scoped.Hub, err = NewScopedEventhub(destinationTable)
 							if err != nil {
 								c.logger.Error("failed to get topic name", slog.Any("error", err))
 								return 0, err
@@ -262,7 +263,7 @@ func (c *EventHubConnector) processBatch(
 					c.logger.Info("failed to convert record to json", slog.Any("error", err))
 					return 0, err
 				}
-				scopedHub, err := NewScopedEventhub(destinationString)
+				scopedHub, err := NewScopedEventhub(destinationTable)
 				if err != nil {
 					c.logger.Error("failed to get topic name", slog.Any("error", err))
 					return 0, err
@@ -339,28 +340,27 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		CurrentSyncBatchID:   req.SyncBatchID,
 		LastSyncedCheckpoint: lastCheckpoint,
 		NumRecordsSynced:     int64(numRecords),
-		TableNameRowsMapping: make(map[string]*model.RecordTypeCounts),
+		TableNameRowsMapping: make(map[common.QualifiedTable]*model.RecordTypeCounts),
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 
 func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+	internal.NormalizeCreateRawTableInput(req)
 	// create topics for each table
-	// key is the source table and value is the "eh_peer.eh_topic" that ought to be used.
-	tableMap := req.GetTableNameMapping()
-
-	for _, destinationTable := range tableMap {
+	for _, mapping := range req.QualifiedTableMappings {
+		destinationTable := internal.QualifiedTableFromProto(mapping.Destination)
 		// parse peer name and topic name.
 		name, err := NewScopedEventhub(destinationTable)
 		if err != nil {
 			c.logger.Error("failed to parse scoped eventhub name",
-				slog.Any("error", err), slog.String("destinationTable", destinationTable))
+				slog.Any("error", err), slog.String("destinationTable", destinationTable.String()))
 			return nil, err
 		}
 
 		if err := c.hubManager.EnsureEventHubExists(ctx, name); err != nil {
 			c.logger.Error("failed to ensure eventhub exists",
-				slog.Any("error", err), slog.String("destinationTable", destinationTable))
+				slog.Any("error", err), slog.String("destinationTable", destinationTable.String()))
 			return nil, err
 		}
 	}

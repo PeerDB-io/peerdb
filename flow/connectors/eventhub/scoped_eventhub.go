@@ -3,6 +3,8 @@ package conneventhub
 import (
 	"fmt"
 	"strings"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 // Scoped eventhub is of the form namespace.eventhub_name.partition_column.partition_key_value
@@ -15,22 +17,28 @@ type ScopedEventhub struct {
 	PartitionKeyValue  string
 }
 
-func NewScopedEventhub(dstTableName string) (ScopedEventhub, error) {
-	// split by dot, the model is namespace.eventhub.partition_key_column
-	parts := strings.Split(dstTableName, ".")
-
-	if len(parts) != 3 {
-		return ScopedEventhub{}, fmt.Errorf("invalid scoped eventhub '%s'", dstTableName)
+// The destination QualifiedTable packs "eventhub.partition_key_column" into Table
+// (EventHub names containing dots remain unsupported, as before QualifiedTable).
+func NewScopedEventhub(destination common.QualifiedTable) (ScopedEventhub, error) {
+	eventhubPart, partitionPart, hasDot := strings.Cut(destination.Table, ".")
+	// exactly namespace.eventhub.partition_key_column; extra dots were rejected
+	// before QualifiedTable too
+	if destination.Namespace == "" || !hasDot || strings.ContainsRune(partitionPart, '.') {
+		return ScopedEventhub{}, fmt.Errorf("invalid scoped eventhub '%s'", destination.LegacyDotted())
 	}
 
 	// support eventhub name and partition key with hyphens etc.
-	eventhubPart := strings.Trim(parts[1], `"`)
-	partitionPart := strings.Trim(parts[2], `"`)
 	return ScopedEventhub{
-		NamespaceName:      parts[0],
-		Eventhub:           eventhubPart,
-		PartitionKeyColumn: partitionPart,
+		NamespaceName:      destination.Namespace,
+		Eventhub:           strings.Trim(eventhubPart, `"`),
+		PartitionKeyColumn: strings.Trim(partitionPart, `"`),
 	}, nil
+}
+
+// NewScopedEventhubFromString parses the legacy namespace.eventhub.partition_key_column
+// form still used by Lua script destinations.
+func NewScopedEventhubFromString(destination string) (ScopedEventhub, error) {
+	return NewScopedEventhub(common.NormalizeTableIdentifier(destination))
 }
 
 func (s ScopedEventhub) Equals(other ScopedEventhub) bool {

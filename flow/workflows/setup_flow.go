@@ -14,6 +14,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/activities"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -34,13 +36,15 @@ import (
 //     - creating the normalized table on the destination peer
 type SetupFlowExecution struct {
 	log.Logger
-	tableNameMapping map[string]string
+	tableNameMapping map[common.QualifiedTable]common.QualifiedTable
 	cdcFlowName      string
 	executionID      string
 }
 
 // NewSetupFlowExecution creates a new instance of SetupFlowExecution.
-func NewSetupFlowExecution(ctx workflow.Context, tableNameMapping map[string]string, cdcFlowName string) *SetupFlowExecution {
+func NewSetupFlowExecution(
+	ctx workflow.Context, tableNameMapping map[common.QualifiedTable]common.QualifiedTable, cdcFlowName string,
+) *SetupFlowExecution {
 	return &SetupFlowExecution{
 		Logger:           log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cdcFlowName)),
 		tableNameMapping: tableNameMapping,
@@ -108,7 +112,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigsCore,
 	checkConstraints bool,
-) (map[uint32]string, error) {
+) (map[uint32]*protos.QualifiedTable, error) {
 	s.Info("ensuring pullability for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -118,12 +122,16 @@ func (s *SetupFlowExecution) ensurePullability(
 		},
 	})
 
-	// create EnsurePullabilityInput for the srcTableName
+	sortedSourceTables := s.sortedSourceTables()
+	sourceTables := make([]*protos.QualifiedTable, 0, len(sortedSourceTables))
+	for _, sourceTable := range sortedSourceTables {
+		sourceTables = append(sourceTables, internal.QualifiedTableProto(sourceTable))
+	}
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
-		PeerName:               config.SourceName,
-		FlowJobName:            s.cdcFlowName,
-		SourceTableIdentifiers: slices.Sorted(maps.Keys(s.tableNameMapping)),
-		CheckConstraints:       checkConstraints,
+		PeerName:         config.SourceName,
+		FlowJobName:      s.cdcFlowName,
+		SourceTables:     sourceTables,
+		CheckConstraints: checkConstraints,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
@@ -137,15 +145,36 @@ func (s *SetupFlowExecution) ensurePullability(
 		return nil, nil
 	}
 
-	sortedTableNames := slices.Sorted(maps.Keys(ensurePullabilityOutput.TableIdentifierMapping))
-
-	srcTableIdNameMapping := make(map[uint32]string, len(sortedTableNames))
-	for _, tableName := range sortedTableNames {
-		tableIdentifier := ensurePullabilityOutput.TableIdentifierMapping[tableName]
-		srcTableIdNameMapping[tableIdentifier.RelId] = tableName
+	tableRelIds := ensurePullabilityOutput.TableRelIds
+	if len(tableRelIds) == 0 && len(ensurePullabilityOutput.TableIdentifierMapping) > 0 {
+		// output recorded by a pre-QualifiedTable release carries only the legacy map
+		tableRelIds = make([]*protos.EnsurePullabilityBatchOutput_TableRelId, 0, len(ensurePullabilityOutput.TableIdentifierMapping))
+		for name, tableIdentifier := range ensurePullabilityOutput.TableIdentifierMapping {
+			tableRelIds = append(tableRelIds, &protos.EnsurePullabilityBatchOutput_TableRelId{
+				Table: internal.QualifiedTableProto(common.NormalizeTableIdentifier(name)),
+				RelId: tableIdentifier.RelId,
+			})
+		}
 	}
 
-	return srcTableIdNameMapping, nil
+	srcTableIdMapping := make(map[uint32]*protos.QualifiedTable, len(tableRelIds))
+	for _, tableRelId := range tableRelIds {
+		if existing, ok := srcTableIdMapping[tableRelId.RelId]; ok {
+			return nil, fmt.Errorf("duplicate relation id %d for tables %s and %s",
+				tableRelId.RelId,
+				internal.QualifiedTableFromProto(existing),
+				internal.QualifiedTableFromProto(tableRelId.Table))
+		}
+		srcTableIdMapping[tableRelId.RelId] = tableRelId.Table
+	}
+
+	return srcTableIdMapping, nil
+}
+
+func (s *SetupFlowExecution) sortedSourceTables() []common.QualifiedTable {
+	sorted := slices.Collect(maps.Keys(s.tableNameMapping))
+	slices.SortFunc(sorted, internal.CompareQualifiedTables)
+	return sorted
 }
 
 // createRawTable creates the raw table on the destination peer.
@@ -162,10 +191,17 @@ func (s *SetupFlowExecution) createRawTable(
 	})
 
 	// attempt to create the tables.
+	qualifiedTableMappings := make([]*protos.QualifiedTableMapping, 0, len(s.tableNameMapping))
+	for _, sourceTable := range s.sortedSourceTables() {
+		qualifiedTableMappings = append(qualifiedTableMappings, &protos.QualifiedTableMapping{
+			Source:      internal.QualifiedTableProto(sourceTable),
+			Destination: internal.QualifiedTableProto(s.tableNameMapping[sourceTable]),
+		})
+	}
 	createRawTblInput := &protos.CreateRawTableInput{
-		PeerName:         config.DestinationName,
-		FlowJobName:      s.cdcFlowName,
-		TableNameMapping: s.tableNameMapping,
+		PeerName:               config.DestinationName,
+		FlowJobName:            s.cdcFlowName,
+		QualifiedTableMappings: qualifiedTableMappings,
 	}
 
 	rawTblFuture := workflow.ExecuteActivity(ctx, flowable.CreateRawTable, createRawTblInput)
@@ -312,7 +348,7 @@ func (s *SetupFlowExecution) executeSetupFlow(
 		return nil, fmt.Errorf("failed to check connections and setup metadata tables: %w", err)
 	}
 
-	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly)
+	srcTableIdMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
 	}
@@ -350,15 +386,18 @@ func (s *SetupFlowExecution) executeSetupFlow(
 	}
 
 	return &protos.SetupFlowOutput{
-		SrcTableIdNameMapping: srcTableIdNameMapping,
+		SrcTableIdMapping: srcTableIdMapping,
 	}, nil
 }
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
 func SetupFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigsCore) (*protos.SetupFlowOutput, error) {
-	tblNameMapping := make(map[string]string, len(config.TableMappings))
+	// inputs recorded by pre-QualifiedTable releases carry legacy string identifiers
+	internal.NormalizeFlowConfig(config)
+
+	tblNameMapping := make(map[common.QualifiedTable]common.QualifiedTable, len(config.TableMappings))
 	for _, v := range config.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
+		tblNameMapping[internal.QualifiedTableFromProto(v.SourceTable)] = internal.QualifiedTableFromProto(v.DestinationTable)
 	}
 
 	// create the setup flow execution

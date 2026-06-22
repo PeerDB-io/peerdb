@@ -523,22 +523,18 @@ func (c *PostgresConnector) createSlotAndPublication(
 	s SlotCheckResult,
 	slot string,
 	publication string,
-	tableNameMapping map[string]model.NameAndExclude,
+	tableNameMapping map[common.QualifiedTable]model.NameAndExclude,
 	doInitialCopy bool,
 	skipSnapshotExport bool,
 	env map[string]string,
 ) (model.SetupReplicationResult, error) {
-	// iterate through source tables and create publication,
-	// expecting tablenames to be schema qualified
+	// iterate through source tables and create publication
 	if !s.PublicationExists {
 		srcTableNames := make([]string, 0, len(tableNameMapping))
 		for srcTableName := range tableNameMapping {
-			parsedSrcTableName, err := common.ParseTableIdentifier(srcTableName)
-			if err != nil {
-				return model.SetupReplicationResult{}, fmt.Errorf("[publication-creation] source table identifier %s is invalid", srcTableName)
-			}
-			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
+			srcTableNames = append(srcTableNames, srcTableName.String())
 		}
+		slices.Sort(srcTableNames)
 		if err := c.CreatePublication(ctx, srcTableNames, publication); err != nil {
 			return model.SetupReplicationResult{}, err
 		}
@@ -637,7 +633,7 @@ func getRawTableIdentifier(jobName string) string {
 
 func generateCreateTableSQLForNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
-	dstSchemaTable *common.QualifiedTable,
+	dstSchemaTable common.QualifiedTable,
 	tableSchema *protos.TableSchema,
 ) string {
 	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
@@ -762,8 +758,8 @@ func (c *PostgresConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	currentBatchID int64,
-	tableToSchema map[string]*protos.TableSchema,
-) ([]string, error) {
+	destinationTables map[string]common.QualifiedTable,
+) ([]common.QualifiedTable, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.conn.Query(ctx, fmt.Sprintf(getDistinctDestinationTableNamesSQL, c.metadataSchema,
@@ -776,13 +772,16 @@ func (c *PostgresConnector) getDistinctTableNamesInBatch(
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
-	return slices.DeleteFunc(destinationTableNames, func(name string) bool {
-		if _, ok := tableToSchema[name]; !ok {
+	tables := make([]common.QualifiedTable, 0, len(destinationTableNames))
+	for _, name := range destinationTableNames {
+		table, ok := destinationTables[name]
+		if !ok {
 			c.logger.Warn("table not found in table to schema mapping", "table", name)
-			return true
+			continue
 		}
-		return false
-	}), nil
+		tables = append(tables, table)
+	}
+	return tables, nil
 }
 
 func (c *PostgresConnector) getTableNametoUnchangedCols(

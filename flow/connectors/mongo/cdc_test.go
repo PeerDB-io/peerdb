@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -136,10 +137,12 @@ func TestChangeStreamIdleConnectionAdvancesOffset(t *testing.T) {
 	require.NoError(t, err)
 
 	req := &model.PullRecordsRequest[model.RecordItems]{
-		FlowJobName:            "test_mongo_idle",
-		RecordStream:           model.NewCDCStream[model.RecordItems](100),
-		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
-		TableNameSchemaMapping: map[string]*protos.TableSchema{},
+		FlowJobName:  "test_mongo_idle",
+		RecordStream: model.NewCDCStream[model.RecordItems](100),
+		TableNameMapping: map[common.QualifiedTable]model.NameAndExclude{
+			{Namespace: "db", Table: "coll"}: {Name: common.QualifiedTable{Table: "db_coll"}},
+		},
+		TableNameSchemaMapping: map[common.QualifiedTable]*protos.TableSchema{},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,
 	}

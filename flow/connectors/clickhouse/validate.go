@@ -3,13 +3,12 @@ package connclickhouse
 import (
 	"context"
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func engineToString(e protos.TableEngine) (string, error) {
@@ -34,7 +33,7 @@ func engineToString(e protos.TableEngine) (string, error) {
 func (c *ClickHouseConnector) ValidateMirrorDestination(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigsCore,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
+	tableNameSchemaMapping map[common.QualifiedTable]*protos.TableSchema,
 ) error {
 	if err := chvalidate.CheckNotSystemDatabase(c.Config.Database); err != nil {
 		return err
@@ -63,7 +62,15 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 
 	// this is for handling column exclusion, processed schema does that in a step
 	processedMapping := internal.BuildProcessedSchemaMapping(cfg.TableMappings, tableNameSchemaMapping, c.logger)
-	dstTableNames := slices.Collect(maps.Keys(processedMapping))
+	dstTableNames := make([]string, 0, len(processedMapping))
+	for dstTable := range processedMapping {
+		// ClickHouse destination tables live in the peer's configured database, so the
+		// identifier must be a bare table name
+		if dstTable.Namespace != "" {
+			return fmt.Errorf("destination table %s must not be qualified with a namespace for ClickHouse", dstTable)
+		}
+		dstTableNames = append(dstTableNames, dstTable.Table)
+	}
 
 	// In the case of resync, we don't need to check the content or structure of the original tables;
 	// they'll always get swapped out with the _resync tables which we CREATE OR REPLACE
@@ -93,14 +100,18 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	}
 
 	for _, tableMapping := range cfg.TableMappings {
-		dstTableName := tableMapping.DestinationTableIdentifier
-		if dstTableName == "" {
+		dstTable := internal.QualifiedTableFromProto(tableMapping.DestinationTable)
+		if dstTable.Table == "" {
 			return fmt.Errorf("destination table identifier is empty")
 		}
-		processedSchema, ok := processedMapping[dstTableName]
+		if dstTable.Namespace != "" {
+			return fmt.Errorf("destination table %s must not be qualified with a namespace for ClickHouse", dstTable)
+		}
+		processedSchema, ok := processedMapping[dstTable]
 		if !ok {
 			// if destination table is not a key, that means source table was not a key in the original schema mapping(?)
-			return fmt.Errorf("source table %s not found in schema mapping", tableMapping.SourceTableIdentifier)
+			return fmt.Errorf("source table %s not found in schema mapping",
+				internal.QualifiedTableFromProto(tableMapping.SourceTable))
 		}
 
 		var sortingKeys []string
@@ -114,7 +125,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 			return err
 		}
 		if err := chvalidate.ValidateOrderingKeys(ctx, c.logger, c.database,
-			c.chVersion, tableMapping.SourceTableIdentifier,
+			c.chVersion, internal.QualifiedTableFromProto(tableMapping.SourceTable).String(),
 			len(processedSchema.PrimaryKeyColumns) > 0,
 			sortingKeys, engine,
 		); err != nil {
@@ -122,14 +133,14 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		}
 
 		// if destination table does not exist, we're good
-		if _, ok := chTableColumnsMapping[dstTableName]; !ok {
+		if _, ok := chTableColumnsMapping[dstTable.Table]; !ok {
 			continue
 		}
 
 		// for resync, we don't need to check the content or structure of the original tables;
 		// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
-		if err := c.processTableComparison(dstTableName, processedMapping[dstTableName],
-			chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping,
+		if err := c.processTableComparison(dstTable.Table, processedSchema,
+			chTableColumnsMapping[dstTable.Table], peerDBColumns, tableMapping,
 		); err != nil {
 			return err
 		}
