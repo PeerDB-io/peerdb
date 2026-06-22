@@ -1386,6 +1386,71 @@ func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_Unparsed_Column_Alter_Error() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mySource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("uses MariaDB UUID column DDL that the TiDB parser rejects")
+	}
+
+	srcTableName := "test_unparsed_column_alter"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_unparsed_column_alter_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, c1 INT)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, c1) VALUES (1, 10)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,c1")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN uuid_col UUID`, srcFullName)))
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for unparsed column alter error", func() bool {
+		rows, err := catalogPool.Query(s.t.Context(), `
+			SELECT COUNT(*) FROM peerdb_stats.flow_errors
+			WHERE error_type='error'
+			AND flow_name = $1
+			AND error_message ILIKE '%Failed to parse column ALTER TABLE statement for mapped MySQL table%'
+			AND error_message ILIKE $2
+		`, flowConnConfig.FlowJobName, "%"+srcFullName+"%")
+		if err != nil {
+			s.t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		defer rows.Close()
+
+		if rows.Next() {
+			var count int64
+			if err := rows.Scan(&count); err != nil {
+				s.t.Log("Error scanning count:", err)
+				return false
+			}
+			return count > 0
+		}
+		return false
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
 	mySource, ok := s.source.(*MySqlSource)
 	if !ok {
