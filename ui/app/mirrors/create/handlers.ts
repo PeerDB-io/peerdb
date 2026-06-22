@@ -20,6 +20,10 @@ import {
   SchemaTablesResponse,
   TableColumnsResponse,
 } from '@/grpc_generated/route';
+import {
+  deparseTableIdentifier,
+  parseTableIdentifier,
+} from '@/lib/utils/tableIdentifier';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 
 import {
@@ -275,10 +279,10 @@ export async function handleCreateCDC(
 }
 
 function quotedWatermarkTable(watermarkTable: string): string {
-  if (watermarkTable.includes('.')) {
-    const [schema, table] = watermarkTable.split('.');
+  try {
+    const { schema, table } = parseTableIdentifier(watermarkTable);
     return `"${schema}"."${table}"`;
-  } else {
+  } catch {
     return `"${watermarkTable}"`;
   }
 }
@@ -442,7 +446,7 @@ export async function fetchTables(
       );
       tables.push({
         schema: schemaName,
-        source: `${schemaName}.${tableObject.tableName}`,
+        source: deparseTableIdentifier(schemaName, tableObject.tableName),
         destination: dstName,
         partitionKey: '',
         exclude: new Set(),

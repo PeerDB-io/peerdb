@@ -8,7 +8,9 @@ import (
 )
 
 func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
-	srcTableName := AttachSchema(s, "es_simple_pkey_cdc")
+	srcTableQualified := AttachSchema(s, "es_simple_pkey_cdc")
+	srcTableName := srcTableQualified.String()
+	srcTableIdent := srcTableQualified.Deparse()
 
 	_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -23,7 +25,7 @@ func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
 	tc := NewTemporalClient(s.t)
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      AddSuffix(s, "es_simple_pkey_cdc"),
-		TableNameMapping: map[string]string{srcTableName: srcTableName},
+		TableNameMapping: map[string]string{srcTableIdent: srcTableIdent},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -48,7 +50,7 @@ func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
 		require.NoError(s.t, err, "failed to insert row")
 	}
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial snapshot + inserted rows", func() bool {
-		return s.countDocumentsInIndex(srcTableName) == int64(2*rowCount)
+		return s.countDocumentsInIndex(srcTableIdent) == int64(2*rowCount)
 	})
 
 	_, err = s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -61,14 +63,14 @@ func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
 		require.NoError(s.t, err, "failed to insert row")
 	}
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for updates + new inserts", func() bool {
-		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount)
+		return s.countDocumentsInIndex(srcTableIdent) == int64(3*rowCount)
 	})
 
 	_, err = s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	DELETE FROM %s WHERE id%%2=1;`, srcTableName))
 	require.NoError(s.t, err, "failed to delete rows on source")
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for deletes", func() bool {
-		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount/2)
+		return s.countDocumentsInIndex(srcTableIdent) == int64(3*rowCount/2)
 	})
 
 	env.Cancel(s.t.Context())
@@ -76,7 +78,9 @@ func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
 }
 
 func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
-	srcTableName := AttachSchema(s, "es_composite_pkey_cdc")
+	srcTableQualified := AttachSchema(s, "es_composite_pkey_cdc")
+	srcTableName := srcTableQualified.String()
+	srcTableIdent := srcTableQualified.Deparse()
 
 	_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -92,7 +96,7 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 	tc := NewTemporalClient(s.t)
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      AddSuffix(s, "es_composite_pkey_cdc"),
-		TableNameMapping: map[string]string{srcTableName: srcTableName},
+		TableNameMapping: map[string]string{srcTableIdent: srcTableIdent},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -117,7 +121,7 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 		require.NoError(s.t, err, "failed to insert row")
 	}
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial snapshot + inserted rows", func() bool {
-		return s.countDocumentsInIndex(srcTableName) == int64(2*rowCount)
+		return s.countDocumentsInIndex(srcTableIdent) == int64(2*rowCount)
 	})
 
 	_, err = s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -130,14 +134,14 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 		require.NoError(s.t, err, "failed to insert row")
 	}
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for updates + new inserts", func() bool {
-		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount)
+		return s.countDocumentsInIndex(srcTableIdent) == int64(3*rowCount)
 	})
 
 	_, err = s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	DELETE FROM %s WHERE id%%2=1;`, srcTableName))
 	require.NoError(s.t, err, "failed to delete rows on source")
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for deletes", func() bool {
-		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount/2)
+		return s.countDocumentsInIndex(srcTableIdent) == int64(3*rowCount/2)
 	})
 
 	env.Cancel(s.t.Context())

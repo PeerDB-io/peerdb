@@ -123,7 +123,8 @@ func Test_PubSub(t *testing.T) {
 }
 
 func (s PubSubSuite) TestCreateTopic() {
-	srcTableName := AttachSchema(s, "pscreate")
+	srcTableQualified := AttachSchema(s, "pscreate")
+	srcTableName := srcTableQualified.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -143,7 +144,7 @@ func (s PubSubSuite) TestCreateTopic() {
 	flowName := AddSuffix(s, "e2epscreate")
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: flowName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): flowName},
 		Destination:      s.Peer(sa).Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -180,7 +181,8 @@ func (s PubSubSuite) TestCreateTopic() {
 }
 
 func (s PubSubSuite) TestSimple() {
-	srcTableName := AttachSchema(s, "pssimple")
+	srcTableQualified := AttachSchema(s, "pssimple")
+	srcTableName := srcTableQualified.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -200,7 +202,7 @@ func (s PubSubSuite) TestSimple() {
 	flowName := AddSuffix(s, "e2epssimple")
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: flowName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): flowName},
 		Destination:      s.Peer(sa).Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -255,7 +257,8 @@ func (s PubSubSuite) TestSimple() {
 }
 
 func (s PubSubSuite) TestInitialLoad() {
-	srcTableName := AttachSchema(s, "psinitial")
+	srcTableQualified := AttachSchema(s, "psinitial")
+	srcTableName := srcTableQualified.String()
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -275,7 +278,7 @@ func (s PubSubSuite) TestInitialLoad() {
 	flowName := AddSuffix(s, "e2epsinitial")
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: flowName},
+		TableNameMapping: map[string]string{srcTableQualified.Deparse(): flowName},
 		Destination:      s.Peer(sa).Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
