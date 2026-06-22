@@ -38,10 +38,22 @@ import (
 const (
 	defaultBinlogHeartbeatPeriod = time.Minute
 	binlogStalenessMultiplier    = 3
+	defaultBinlogStaleness       = binlogStalenessMultiplier * defaultBinlogHeartbeatPeriod
 )
 
 func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
 	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
+}
+
+func (c *MySqlConnector) binlogStalenessThresholdFromEnv(ctx context.Context, env map[string]string) (time.Duration, error) {
+	binlogStalenessThreshold, err := internal.PeerDBMySQLBinlogStalenessSeconds(ctx, env)
+	if err != nil {
+		return 0, err
+	}
+	if binlogStalenessThreshold == defaultBinlogStaleness {
+		return c.binlogStalenessThreshold(), nil
+	}
+	return binlogStalenessThreshold, nil
 }
 
 func (c *MySqlConnector) GetTableSchema(
@@ -383,6 +395,11 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
+	binlogStalenessThreshold, err := c.binlogStalenessThresholdFromEnv(ctx, req.Env)
+	if err != nil {
+		return err
+	}
+
 	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
@@ -440,7 +457,7 @@ func (c *MySqlConnector) PullRecords(
 	})
 	defer shutdown()
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, c.binlogStalenessThreshold())
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, binlogStalenessThreshold)
 	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
 	defer func() {
 		cancelTimeout()
@@ -488,7 +505,7 @@ func (c *MySqlConnector) PullRecords(
 
 			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount == 0 || inTx {
-					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
+					if since := time.Since(lastEventAt); since > binlogStalenessThreshold {
 						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
 					}
 
@@ -502,7 +519,7 @@ func (c *MySqlConnector) PullRecords(
 								updatedOffset = ""
 							}
 						}
-						resetTimeout(c.binlogStalenessThreshold())
+						resetTimeout(binlogStalenessThreshold)
 					} else {
 						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 							slog.Uint64("records", uint64(recordCount)),

@@ -485,6 +485,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_MYSQL_BINLOG_STALENESS_SECONDS",
+		Description:      "Maximum time to wait for MySQL binlog events before treating the CDC connection as stale",
+		DefaultValue:     "180",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -640,6 +648,14 @@ func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int
 
 func PeerDBMySQLEventCacheCount(ctx context.Context, env map[string]string) (int, error) {
 	return dynamicConfSigned[int](ctx, env, "PEERDB_MYSQL_EVENT_CACHE_COUNT")
+}
+
+func PeerDBMySQLBinlogStalenessSeconds(ctx context.Context, env map[string]string) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_MYSQL_BINLOG_STALENESS_SECONDS")
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(x) * time.Second, nil
 }
 
 func PeerDBNormalizeBufferHours(ctx context.Context, env map[string]string) (int64, error) {
