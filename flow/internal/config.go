@@ -69,6 +69,10 @@ func PeerDBCatalogPassword(ctx context.Context) string {
 	return val
 }
 
+func TryGetCatalogPassword(ctx context.Context) (string, error) {
+	return GetKmsDecryptedEnvString(ctx, "PEERDB_CATALOG_PASSWORD", "")
+}
+
 // PEERDB_CATALOG_DATABASE
 func PeerDBCatalogDatabase() string {
 	return GetEnvString("PEERDB_CATALOG_DATABASE", "")

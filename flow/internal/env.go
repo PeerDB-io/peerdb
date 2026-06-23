@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -15,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"golang.org/x/exp/constraints"
 )
 
@@ -122,6 +124,33 @@ func decryptWithGcpKms(ctx context.Context, data []byte, keyID string) ([]byte, 
 	}
 
 	return resp.Plaintext, nil
+}
+
+func IsKmsKeyUnavailableErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// AWS: a key pending deletion or disabled surfaces as KMSInvalidStateException.
+	var awsInvalidState *kmstypes.KMSInvalidStateException
+	if errors.As(err, &awsInvalidState) {
+		return true
+	}
+
+	// Fall back to message inspection to stay robust across providers (GCP
+	// returns a FailedPrecondition gRPC error) and error wrapping.
+	msg := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"destroy_scheduled", // GCP: cryptoKeyVersion is scheduled for destruction
+		"is not enabled",    // GCP: current state is DISABLED/DESTROY_SCHEDULED/DESTROYED
+		"pending deletion",  // AWS: key is pending deletion
+		"is disabled",       // AWS: key is disabled
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 var kmsCache sync.Map

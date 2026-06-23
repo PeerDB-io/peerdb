@@ -51,6 +51,16 @@ type StartMaintenanceResult struct {
 // running the requested maintenance workflow
 func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 	slog.InfoContext(ctx, "Starting Maintenance Mode CLI")
+
+	if _, err := internal.TryGetCatalogPassword(ctx); err != nil {
+		if internal.IsKmsKeyUnavailableErr(err) {
+			slog.WarnContext(ctx, "catalog KMS key is unavailable; service is being deprovisioned, skipping maintenance",
+				slog.Any("error", err))
+			return nil
+		}
+		return fmt.Errorf("failed to verify catalog credentials before maintenance: %w", err)
+	}
+
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
