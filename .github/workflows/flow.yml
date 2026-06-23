@@ -33,9 +33,13 @@ jobs:
       matrix:
         runner: [ubuntu-latest-16-cores]
         db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
-          {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql: 'maria', mongo: '8.0', ch: 'latest'},
+          # Important note: Given that MySQL and MariaDB share the same configuration environment variables
+          # as inputs for the e2e tests, including `CI_MYSQL_VERSION` used in these tests to determine which database is being tested,
+          # we can not have an entry in this table with both MySQL and MariaDB versions.
+          # This will be addressed in the future.
+          {pg: 16, mysql: 'mysql-gtid', mariadb: '', mongo: '6.0', ch: 'lts'},
+          {pg: 17, mysql: 'mysql-pos', mariadb: '', mongo: '7.0', ch: 'stable'},
+          {pg: 18, mysql: '', mariadb: 'lts', mongo: '8.0', ch: 'latest'},
         ]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -115,6 +119,13 @@ jobs:
           DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
+      # MySQL and MariaDB share the same e2e test configuration env vars (e.g. CI_MYSQL_VERSION),
+      # so a single db-version entry must not set both. Fail fast if it does.
+      - name: Validate MySQL/MariaDB are mutually exclusive
+        if: matrix.db-version.mysql != '' && matrix.db-version.mariadb != ''
+        run: |
+          echo "::error::db-version entry sets both mysql ('${{ matrix.db-version.mysql }}') and mariadb ('${{ matrix.db-version.mariadb }}'); only one may be set per entry."
+          exit 1
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
@@ -190,12 +201,18 @@ jobs:
           output-credentials: true
 
       - name: MySQL
+        if: matrix.db-version.mysql != ''
         run: |
           if [ "${{ matrix.db-version.mysql }}" = "mysql-gtid" ]; then
             docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:9.5
           elif [ "${{ matrix.db-version.mysql }}" = "mysql-pos" ]; then
             docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:5.7 --log_bin=mysql-bin --server-id=1 --bind-address=::
-          elif [ "${{ matrix.db-version.mysql }}" = "maria" ]; then
+          fi
+
+      - name: MariaDB
+        if: matrix.db-version.mariadb != ''
+        run: |
+          if [ "${{ matrix.db-version.mariadb }}" = "lts" ]; then
             docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
           fi
 
@@ -608,7 +625,8 @@ jobs:
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
-          CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          # Backwards compatibility with exsiting e2e test codebase, signals whether to use MySQL or MariaDB for the test run.
+          CI_MYSQL_VERSION: ${{ matrix.db-version.mysql || (matrix.db-version.mariadb && 'maria') }}
           CI_MONGO_ADMIN_URI: mongodb://localhost:27017
           CI_MONGO_ADMIN_USERNAME: "admin"
           CI_MONGO_ADMIN_PASSWORD: "admin"
@@ -647,7 +665,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
+          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql || matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}
           path: logs/
           retention-days: 30
 
@@ -671,7 +689,7 @@ jobs:
           WORKFLOW_RUN_NUMBER: ${{ github.run_attempt }}
           COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           SUMMARY_HEADER: "x-clickhouse-summary"
-          COMBINATION_ID: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
+          COMBINATION_ID: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql || matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
         run: |
           if [ -z "${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}" ] \
             || [ -z "${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}" ] \
