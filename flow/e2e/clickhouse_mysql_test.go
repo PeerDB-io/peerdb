@@ -1590,3 +1590,64 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_MySQL_Default_Partition_Key_Parallel_Snapshot() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTable := "test_default_partition_key_parallel"
+	srcFullName := s.attachSchemaSuffix(srcTable)
+	dstTable := "test_default_partition_key_parallel_dst"
+
+	const numRows = 100
+	const numPartitions = 8
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s (id BIGINT PRIMARY KEY, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)", srcFullName)))
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s (id) VALUES (%d)", srcFullName, i)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("default_partition_key_parallel"),
+		// PartitionKey is not specified to test default partition key detection
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumPartitionsOverride = numPartitions
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,created_at")
+
+	partitionRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
+		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer partitionRows.Close()
+
+	var partitionCount int32
+	var totalRows int64
+	for partitionRows.Next() {
+		var partitionStart, partitionEnd *string
+		var rowsInPartition int64
+		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
+		require.NotNil(s.t, partitionStart)
+		require.NotNil(s.t, partitionEnd)
+		totalRows += rowsInPartition
+		partitionCount++
+	}
+	require.NoError(s.t, partitionRows.Err())
+	require.EqualValues(s.t, numPartitions, partitionCount)
+	require.EqualValues(s.t, numRows, totalRows)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
