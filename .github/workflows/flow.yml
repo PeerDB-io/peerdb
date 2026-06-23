@@ -36,7 +36,8 @@ jobs:
         db-version: [
           {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
           {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql: 'maria-lts', mongo: '8.0', ch: 'latest'},
+          {pg: 18, mysql: 'maria-pos', mongo: '8.0', ch: 'latest'},
+          {pg: 18, mysql: 'mysql-gtid', mongo: '8.0', ch: 'stable'},
         ]
         # Per-version container settings consumed by the "MySQL" step, keyed by the matrix
         # db-version.mysql value. Grouped under "mysql" since these are MySQL/MariaDB families;
@@ -52,10 +53,14 @@ jobs:
                 img: 'mysql:5.7'
                 env: ['MYSQL_ROOT_PASSWORD=cipass']
                 parameters: ['--log_bin=mysql-bin', '--server-id=1', '--bind-address=::']
-              maria-lts:
+              maria-pos:
                 img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
                 env: ['MARIADB_ROOT_PASSWORD=cipass']
                 parameters: ['--log-bin=maria']
+              maria-gtid:
+                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+                env: ['MARIADB_ROOT_PASSWORD=cipass']
+                parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:

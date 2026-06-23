@@ -37,7 +37,10 @@ func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	case "mysql-pos":
 		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
 		mysqlFlavor = protos.MySqlFlavor_MYSQL_MYSQL
-	case "maria":
+	case "maria-pos":
+		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+		mysqlFlavor = protos.MySqlFlavor_MYSQL_MARIA
+	case "maria-gtid":
 		replicationMode = protos.MySqlReplicationMechanism_MYSQL_GTID
 		mysqlFlavor = protos.MySqlFlavor_MYSQL_MARIA
 	default:
