@@ -8,12 +8,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func setupDB(t *testing.T, testName string) (*PostgresConnector, string) {
@@ -40,6 +44,109 @@ func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
 	_, err := conn.Exec(t.Context(),
 		fmt.Sprintf("DROP SCHEMA %s CASCADE", common.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while dropping schema")
+}
+
+func TestValidateQRepJSONPassthroughFields(t *testing.T) {
+	t.Parallel()
+
+	allowlist := map[string]struct{}{"payload": {}}
+
+	tests := []struct {
+		name        string
+		destination protos.DBType
+		columns     map[string]struct{}
+		fields      []pgconn.FieldDescription
+		wantErr     string
+	}{
+		{
+			name:        "allows scalar json",
+			destination: protos.DBType_BIGQUERY,
+			columns:     allowlist,
+			fields:      []pgconn.FieldDescription{{Name: "payload", DataTypeOID: pgtype.JSONOID}},
+		},
+		{
+			name:        "allows scalar jsonb",
+			destination: protos.DBType_BIGQUERY,
+			columns:     allowlist,
+			fields:      []pgconn.FieldDescription{{Name: "payload", DataTypeOID: pgtype.JSONBOID}},
+		},
+		{
+			name:        "ignores empty config for non BigQuery",
+			destination: protos.DBType_POSTGRES,
+			fields:      []pgconn.FieldDescription{{Name: "payload", DataTypeOID: pgtype.JSONOID}},
+		},
+		{
+			name:        "rejects non BigQuery destination",
+			destination: protos.DBType_POSTGRES,
+			columns:     allowlist,
+			fields:      []pgconn.FieldDescription{{Name: "payload", DataTypeOID: pgtype.JSONOID}},
+			wantErr:     "non-BigQuery destination",
+		},
+		{
+			name:        "rejects json array",
+			destination: protos.DBType_BIGQUERY,
+			columns:     allowlist,
+			fields:      []pgconn.FieldDescription{{Name: "payload", DataTypeOID: pgtype.JSONArrayOID}},
+			wantErr:     "unsupported Postgres JSON array type OID",
+		},
+		{
+			name:        "rejects jsonb array",
+			destination: protos.DBType_BIGQUERY,
+			columns:     allowlist,
+			fields:      []pgconn.FieldDescription{{Name: "payload", DataTypeOID: pgtype.JSONBArrayOID}},
+			wantErr:     "unsupported Postgres JSON array type OID",
+		},
+		{
+			name:        "rejects non JSON",
+			destination: protos.DBType_BIGQUERY,
+			columns:     allowlist,
+			fields:      []pgconn.FieldDescription{{Name: "payload", DataTypeOID: pgtype.TextOID}},
+			wantErr:     "non-JSON Postgres type OID",
+		},
+		{
+			name:        "rejects missing output column",
+			destination: protos.DBType_BIGQUERY,
+			columns:     allowlist,
+			fields:      []pgconn.FieldDescription{{Name: "other_payload", DataTypeOID: pgtype.JSONOID}},
+			wantErr:     "was not found in Postgres query result",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateQRepJSONPassthroughFields(tt.destination, tt.columns, tt.fields)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseFieldFromPostgresOIDPreservesQValueJSONPassthrough(t *testing.T) {
+	t.Parallel()
+
+	rawJSON := `{"items":[{"n":1000000000000000000000000000000000000000}],"deep":{"array":[1,2,{"ok":true}]}}`
+	connector := &PostgresConnector{typeMap: pgtype.NewMap()}
+
+	qvalue, err := connector.parseFieldFromPostgresOID(
+		pgtype.JSONOID,
+		-1,
+		true,
+		protos.DBType_BIGQUERY,
+		types.QValueJSON{Val: rawJSON},
+		nil,
+		0,
+	)
+
+	require.NoError(t, err)
+	jsonValue, ok := qvalue.(types.QValueJSON)
+	require.True(t, ok)
+	require.Equal(t, rawJSON, jsonValue.Val)
+	require.False(t, jsonValue.IsArray)
 }
 
 func TestExecuteAndProcessQuery(t *testing.T) {

@@ -111,6 +111,14 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		}
 	}
 
+	if err := validateCDCJSONPassthroughConfig(
+		cdcConfig.DestinationType,
+		cdcConfig.TableNameMapping,
+		cdcConfig.TableNameSchemaMapping,
+	); err != nil {
+		return nil, err
+	}
+
 	var schemaNameForRelID map[uint32]string
 	if cdcConfig.SourceSchemaAsDestinationColumn {
 		schemaNameForRelID = make(map[uint32]string, len(cdcConfig.TableNameSchemaMapping))
@@ -319,6 +327,31 @@ func validateJSONPassthroughTableSchema(tableSchema *protos.TableSchema, tableNa
 
 	return fmt.Errorf("json passthrough column %s.%s configured but destination column was not found",
 		tableName, columnName)
+}
+
+func validateCDCJSONPassthroughConfig(
+	destinationType protos.DBType,
+	tableNameMapping map[string]model.NameAndExclude,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) error {
+	for sourceTableName, nameAndExclude := range tableNameMapping {
+		if len(nameAndExclude.JSONPassthroughColumns) == 0 {
+			continue
+		}
+		if destinationType != protos.DBType_BIGQUERY {
+			return fmt.Errorf("json passthrough columns configured for source table %s with non-BigQuery destination %s",
+				sourceTableName, destinationType)
+		}
+
+		for columnName := range nameAndExclude.JSONPassthroughColumns {
+			if err := validateJSONPassthroughTableSchema(
+				tableNameSchemaMapping[nameAndExclude.Name], nameAndExclude.Name, columnName,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (p *PostgresCDCSource) shouldPassthroughJSONColumn(

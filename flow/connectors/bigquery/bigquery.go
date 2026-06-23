@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -691,6 +692,15 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
 			}
 		} else {
+			if err := validateCDCJSONPassthroughColumns(
+				tableIdentifier,
+				jsonPassthroughColumnsForDestination(config.TableMappings, tableIdentifier),
+				tableSchema,
+				existingMetadata.Schema,
+			); err != nil {
+				return false, err
+			}
+
 			// table exists, go to next table
 			c.logger.Info("[bigquery] table already exists, skipping",
 				slog.String("table", tableIdentifier),
@@ -767,6 +777,69 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 
 	datasetTablesSet[datasetTable] = struct{}{}
 	return false, nil
+}
+
+func jsonPassthroughColumnsForDestination(
+	tableMappings []*protos.TableMapping,
+	tableIdentifier string,
+) []string {
+	for _, tableMapping := range tableMappings {
+		if tableMapping.DestinationTableIdentifier == tableIdentifier {
+			return tableMapping.JsonPassthroughColumns
+		}
+	}
+	return nil
+}
+
+func validateCDCJSONPassthroughColumns(
+	tableIdentifier string,
+	jsonPassthroughColumns []string,
+	tableSchema *protos.TableSchema,
+	dstSchema bigquery.Schema,
+) error {
+	if len(jsonPassthroughColumns) == 0 {
+		return nil
+	}
+	if tableSchema == nil {
+		return fmt.Errorf("json passthrough configured for table %s but table schema was not found", tableIdentifier)
+	}
+
+	sourceTypes := make(map[string]types.QValueKind, len(tableSchema.Columns))
+	for _, field := range tableSchema.Columns {
+		sourceTypes[field.Name] = types.QValueKind(field.Type)
+	}
+	destinationTypes := make(map[string]bigquery.FieldType, len(dstSchema))
+	for _, field := range dstSchema {
+		destinationTypes[field.Name] = field.Type
+	}
+
+	for _, columnName := range jsonPassthroughColumns {
+		sourceType, ok := sourceTypes[columnName]
+		if !ok {
+			return fmt.Errorf("json passthrough column %s.%s was not found in table schema",
+				tableIdentifier, columnName)
+		}
+		switch sourceType {
+		case types.QValueKindJSON, types.QValueKindJSONB:
+		case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
+			return fmt.Errorf("json passthrough column %s.%s has unsupported JSON array source type %s",
+				tableIdentifier, columnName, sourceType)
+		default:
+			return fmt.Errorf("json passthrough column %s.%s has non-JSON source type %s",
+				tableIdentifier, columnName, sourceType)
+		}
+
+		destinationType, ok := destinationTypes[columnName]
+		if !ok {
+			return fmt.Errorf("json passthrough column %s.%s was not found in BigQuery destination schema",
+				tableIdentifier, columnName)
+		}
+		if destinationType != bigquery.JSONFieldType {
+			return fmt.Errorf("json passthrough column %s.%s has non-JSON BigQuery destination type %s",
+				tableIdentifier, columnName, destinationType)
+		}
+	}
+	return nil
 }
 
 func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
