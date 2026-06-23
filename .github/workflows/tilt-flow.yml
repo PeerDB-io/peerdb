@@ -309,6 +309,12 @@ jobs:
           go tool covdata textfmt -i=coverage -o ../coverage.out || true
           exit "$rc"
 
+      - name: Report Tilt environment status on test failure
+        if: failure()
+        run: |
+          echo "Tilt environment status:"
+          tilt --port=10352 get uiresource -o json
+
       - name: Upload logs and test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
