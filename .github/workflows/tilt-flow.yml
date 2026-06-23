@@ -168,11 +168,15 @@ jobs:
             json="$(tilt --port "$TILT_PORT" get uiresource "$res" -o json 2>/dev/null)" || { echo pending; return; }
             upd="$(echo "$json" | jq -r '.status.updateStatus // "none"')"
             run="$(echo "$json" | jq -r '.status.runtimeStatus // "none"')"
-            # A failed build/update or a crashed runtime means this attempt failed.
+            # A failed build/update or a crashed runtime means this attempt
+            # failed -> the caller reloads the resource.
             if [ "$upd" = "error" ] || [ "$run" = "error" ]; then echo error; return; fi
-            # Ready: the update succeeded and the runtime is healthy (or absent,
-            # e.g. proto-gen which has no long-running process).
-            if [ "$upd" = "ok" ] && { [ "$run" = "ok" ] || [ "$run" = "not_applicable" ] || [ "$run" = "none" ]; }; then
+            # Ready: the update succeeded and the runtime is healthy (ok) or the
+            # resource genuinely has no long-running process (not_applicable, e.g.
+            # proto-gen). A missing/empty runtime status (jq's "none" fallback)
+            # means it hasn't come up yet, so fall through to "pending" and keep
+            # probing rather than declaring it ready prematurely.
+            if [ "$upd" = "ok" ] && { [ "$run" = "ok" ] || [ "$run" = "not_applicable" ]; }; then
               echo ready; return
             fi
             echo pending
