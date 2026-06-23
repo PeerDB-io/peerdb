@@ -317,11 +317,37 @@ jobs:
           go tool covdata textfmt -i="$coverdir" -o ../coverage.out || true
           exit "$rc"
 
-      - name: Report Tilt environment status on test failure
+      - name: Capture Tilt state and service logs on failure
         if: failure()
         run: |
-          echo "Tilt environment status:"
-          tilt --port=10352 get uiresource -o json
+          set +e -u
+          mkdir -p logs
+
+          # Full resource state -> step log + artifact (queryable with jq).
+          echo "===== Tilt resource state ====="
+          tilt --port "$TILT_PORT" get uiresource -o json | tee logs/tilt-resources.json
+
+          # Highlight non-test resources that weren't healthy at failure time.
+          echo "===== Non-test resources not in updateStatus=ok ====="
+          jq '.items[]
+                | select((.metadata.name | startswith("e2e_")) or (.metadata.name | startswith("connector_")) | not)
+                | select(.status.updateStatus != "ok" and .status.updateStatus != "none")
+                | {name: .metadata.name, updateStatus: .status.updateStatus, runtimeStatus: .status.runtimeStatus}' \
+             logs/tilt-resources.json 2>/dev/null || true
+
+          # Capture per-service logs for the snapshot path (snapshot-worker writes
+          # to MinIO/S3, ClickHouse loads from it) so server-side failures like a
+          # stuck initial snapshot are visible in the uploaded artifact. The Tilt
+          # test launchers run go test on the host, so the worker logs are the only
+          # window into why a mirror hangs in STATUS_SNAPSHOT.
+          for svc in flow-snapshot-worker flow-worker flow-api peerdb catalog minio \
+                     clickhouse postgres postgres2 mongodb mysql-gtid mysql-pos mariadb \
+                     provision-clickhouse provision-postgres setup-clickhouse-peer setup-postgres-peer; do
+            if tilt --port "$TILT_PORT" get uiresource "$svc" >/dev/null 2>&1; then
+              echo "Capturing logs for $svc -> logs/tilt-$svc.log"
+              tilt --port "$TILT_PORT" logs "$svc" > "logs/tilt-$svc.log" 2>&1 || true
+            fi
+          done
 
       - name: Upload logs and test results
         if: always()
