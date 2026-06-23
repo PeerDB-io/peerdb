@@ -194,6 +194,7 @@ export function reformattedTableMapping(
       shardingKey: row.shardingKey,
       policyName: row.policyName,
       partitionByExpr: row.partitionByExpr,
+      jsonPassthroughColumns: [],
     }));
 }
 
@@ -231,6 +232,7 @@ export function changesToTablesMapping(
           shardingKey: row.shardingKey,
           policyName: row.policyName,
           partitionByExpr: row.partitionByExpr,
+          jsonPassthroughColumns: [],
         }) as TableMapping
     );
   return mapping;

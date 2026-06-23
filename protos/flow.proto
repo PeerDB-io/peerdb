@@ -41,6 +41,7 @@ message TableMapping {
   string sharding_key = 7;
   string policy_name = 8;
   string partition_by_expr = 9;
+  repeated string json_passthrough_columns = 10;
 }
 
 message SetupInput {
@@ -427,6 +428,8 @@ message QRepConfig {
   repeated string flags = 31; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
   bool add_null_partition = 32; // internal
+
+  repeated string json_passthrough_columns = 33;
 }
 
 message ChildTableRange {
