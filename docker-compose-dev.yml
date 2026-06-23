@@ -9,7 +9,7 @@ x-ports:
   - &peerdb-ui-port           ${PEERBD_UI_PORT:-3030}:3000
   - &temporal-port            ${TEMPORAL_PORT:-7233}:7233
   - &temporal-ui-port         ${TEMPORAL_UI_PORT:-8085}:8080
-  - &flow-api-grpc-port            ${FLOW_API_PORT:-8112}:8112
+  - &flow-api-grpc-port       ${FLOW_API_PORT:-8112}:8112
   - &flow-api-http-port       ${FLOW_API_HTTP_PORT:-8113}:8113
   - &flow-worker-debug-port   ${DOCKER_GO_DEBUG_PORT_FLOW_WORKER:-40001}:40000
   - &flow-snapshot-worker-debug-port ${DOCKER_GO_DEBUG_PORT_FLOW_SNAPSHOT_WORKER:-40002}:40000
