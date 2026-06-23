@@ -23,6 +23,7 @@ permissions:
 
 jobs:
   flow_test:
+    name: flow_test (${{ matrix.runner }}, ${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mongo }}, ${{ matrix.db-version.ch }})
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) ||
@@ -35,8 +36,26 @@ jobs:
         db-version: [
           {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
           {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql: 'maria', mongo: '8.0', ch: 'latest'},
+          {pg: 18, mysql: 'maria-lts', mongo: '8.0', ch: 'latest'},
         ]
+        # Per-version container settings consumed by the "MySQL" step, keyed by the matrix
+        # db-version.mysql value. Grouped under "mysql" since these are MySQL/MariaDB families;
+        # only the databases handled by the MySQL step are listed here. Wrapped in a single-item
+        # list because matrix values must be arrays; it stays a single shared value (no extra jobs).
+        version-configs:
+          - mysql:
+              mysql-gtid:
+                img: 'mysql:9.5'
+                env: ['MYSQL_ROOT_PASSWORD=cipass']
+                parameters: []
+              mysql-pos:
+                img: 'mysql:5.7'
+                env: ['MYSQL_ROOT_PASSWORD=cipass']
+                parameters: ['--log_bin=mysql-bin', '--server-id=1', '--bind-address=::']
+              maria-lts:
+                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+                env: ['MARIADB_ROOT_PASSWORD=cipass']
+                parameters: ['--log-bin=maria']
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -190,14 +209,13 @@ jobs:
           output-credentials: true
 
       - name: MySQL
+        env:
+          DB_IMG: ${{ matrix.version-configs.mysql[matrix.db-version.mysql].img }}
+          DB_ENV: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].env, ' -e ') }}
+          DB_PARAMS: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].parameters, ' ') }}
         run: |
-          if [ "${{ matrix.db-version.mysql }}" = "mysql-gtid" ]; then
-            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:9.5
-          elif [ "${{ matrix.db-version.mysql }}" = "mysql-pos" ]; then
-            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:5.7 --log_bin=mysql-bin --server-id=1 --bind-address=::
-          elif [ "${{ matrix.db-version.mysql }}" = "maria" ]; then
-            docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
-          fi
+          docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 \
+            -e $DB_ENV $DB_IMG $DB_PARAMS
 
       - name: Mongo
         run: |
