@@ -63,6 +63,7 @@ type PostgresCDCSource struct {
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
 	jsonApi                                  jsoniter.API
+	destinationType                          protos.DBType
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
@@ -82,6 +83,7 @@ type PostgresCDCConfig struct {
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
 	OriginMetaAsDestinationColumn            bool
+	DestinationType                          protos.DBType
 	InternalVersion                          uint32
 }
 
@@ -134,6 +136,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
 		jsonApi:                                  jsonApi,
+		destinationType:                          cdcConfig.DestinationType,
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
@@ -202,6 +205,7 @@ type replProcessor[Items model.Items] interface {
 		tuple *pglogrepl.TupleDataColumn,
 		col *pglogrepl.RelationMessageColumn,
 		customTypeMapping map[uint32]pkg_pg.CustomDataType,
+		jsonPassthrough bool,
 	) error
 
 	AddStringColumn(items Items, name string, value string)
@@ -219,6 +223,7 @@ func (pgProcessor) Process(
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+	_ bool,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -254,6 +259,7 @@ func (qProcessor) Process(
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+	jsonPassthrough bool,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -262,6 +268,7 @@ func (qProcessor) Process(
 		// bytea also appears here as a hex
 		data, err := p.decodeColumnData(
 			tuple.Data, col.DataType, col.TypeModifier, pgtype.TextFormatCode, customTypeMapping, p.internalVersion,
+			jsonPassthrough,
 		)
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
@@ -272,6 +279,7 @@ func (qProcessor) Process(
 	case 'b': // binary
 		data, err := p.decodeColumnData(
 			tuple.Data, col.DataType, col.TypeModifier, pgtype.BinaryFormatCode, customTypeMapping, p.internalVersion,
+			jsonPassthrough,
 		)
 		if err != nil {
 			return fmt.Errorf("error decoding binary data for column %s: %w", col.Name, err)
@@ -285,6 +293,62 @@ func (qProcessor) Process(
 
 func (qProcessor) AddStringColumn(items model.RecordItems, name string, value string) {
 	items.AddColumn(name, types.QValueString{Val: value})
+}
+
+func validateJSONPassthroughTableSchema(tableSchema *protos.TableSchema, tableName string, columnName string) error {
+	if tableSchema == nil {
+		return fmt.Errorf("json passthrough column %s.%s configured but destination table schema was not found",
+			tableName, columnName)
+	}
+
+	for _, column := range tableSchema.Columns {
+		if column.Name != columnName {
+			continue
+		}
+		switch types.QValueKind(column.Type) {
+		case types.QValueKindJSON, types.QValueKindJSONB:
+			return nil
+		case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
+			return fmt.Errorf("json passthrough column %s.%s has unsupported JSON array type %s",
+				tableName, columnName, column.Type)
+		default:
+			return fmt.Errorf("json passthrough column %s.%s maps to non-JSON destination type %s",
+				tableName, columnName, column.Type)
+		}
+	}
+
+	return fmt.Errorf("json passthrough column %s.%s configured but destination column was not found",
+		tableName, columnName)
+}
+
+func (p *PostgresCDCSource) shouldPassthroughJSONColumn(
+	nameAndExclude model.NameAndExclude,
+	col *pglogrepl.RelationMessageColumn,
+) (bool, error) {
+	if _, ok := nameAndExclude.JSONPassthroughColumns[col.Name]; !ok {
+		return false, nil
+	}
+	if p.destinationType != protos.DBType_BIGQUERY {
+		return false, fmt.Errorf("json passthrough column %s.%s configured for non-BigQuery destination %s",
+			nameAndExclude.Name, col.Name, p.destinationType)
+	}
+
+	switch col.DataType {
+	case pgtype.JSONOID, pgtype.JSONBOID:
+	case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
+		return false, fmt.Errorf("json passthrough column %s.%s has unsupported Postgres JSON array type OID %d",
+			nameAndExclude.Name, col.Name, col.DataType)
+	default:
+		return false, fmt.Errorf("json passthrough column %s.%s has non-JSON Postgres type OID %d",
+			nameAndExclude.Name, col.Name, col.DataType)
+	}
+
+	if err := validateJSONPassthroughTableSchema(
+		p.tableNameSchemaMapping[nameAndExclude.Name], nameAndExclude.Name, col.Name,
+	); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func processTuple[Items model.Items](
@@ -319,12 +383,16 @@ func processTuple[Items model.Items](
 		if _, ok := nameAndExclude.Exclude[rcol.Name]; ok {
 			continue
 		}
+		jsonPassthrough, err := p.shouldPassthroughJSONColumn(nameAndExclude, rcol)
+		if err != nil {
+			return none, nil, err
+		}
 		if tcol.DataType == 'u' {
 			if unchangedToastColumns == nil {
 				unchangedToastColumns = make(map[string]struct{})
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
-		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping); err != nil {
+		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping, jsonPassthrough); err != nil {
 			return none, nil, err
 		}
 	}
@@ -342,6 +410,7 @@ func processTuple[Items model.Items](
 
 func (p *PostgresCDCSource) decodeColumnData(
 	data []byte, dataType uint32, typmod int32, formatCode int16, customTypeMapping map[uint32]pkg_pg.CustomDataType, version uint32,
+	jsonPassthrough bool,
 ) (types.QValue, error) {
 	var parsedData any
 	var err error
@@ -354,6 +423,9 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return nil, fmt.Errorf("failed to scan json: %w", err)
 		}
 		if text.Valid {
+			if jsonPassthrough {
+				return types.QValueJSON{Val: text.String}, nil
+			}
 			if err := p.jsonApi.UnmarshalFromString(text.String, &parsedData); err != nil {
 				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)

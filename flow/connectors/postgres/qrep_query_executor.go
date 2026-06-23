@@ -286,10 +286,15 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	stream *model.QRecordStream,
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
+	jsonPassthroughColumns map[string]struct{},
 ) (int64, int64, error) {
 	var numRows int64
 	var numBytes int64
 	const logPerRows = 50000
+
+	if err := validateQRepJSONPassthroughFields(dstType, jsonPassthroughColumns, fieldDescriptions); err != nil {
+		return 0, 0, err
+	}
 
 	jsonApi := createExtendedJSONUnmarshaler()
 	schema, err := stream.Schema()
@@ -309,7 +314,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			return numRows, numBytes, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, dstType, nullableFields, fieldDescriptions, jsonApi)
+		record, err := qe.mapRowToQRecord(rows, dstType, nullableFields, fieldDescriptions, jsonApi, jsonPassthroughColumns)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -350,6 +355,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	fetchSize int,
 	dstType protos.DBType,
 	stream *model.QRecordStream,
+	jsonPassthroughColumns map[string]struct{},
 ) (int64, int64, error) {
 	qe.logger.Info("[pg_query_executor] fetching from cursor", slog.String("cursor", cursorName))
 
@@ -362,7 +368,8 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	defer rows.Close()
 
 	fieldDescriptions := rows.FieldDescriptions()
-	numRows, numBytes, err := qe.processRowsStream(ctx, cursorName, dstType, stream, rows, fieldDescriptions)
+	numRows, numBytes, err := qe.processRowsStream(
+		ctx, cursorName, dstType, stream, rows, fieldDescriptions, jsonPassthroughColumns)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to process rows", slog.Any("error", err))
 		return numRows, numBytes, fmt.Errorf("failed to process rows: %w", err)
@@ -501,12 +508,62 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	return totalRecords, totalBytes, currentSnapshotXmin.Int64, err
 }
 
+func shouldPassthroughJSONColumn(
+	dstType protos.DBType,
+	columnName string,
+	jsonPassthroughColumns map[string]struct{},
+) bool {
+	if dstType != protos.DBType_BIGQUERY {
+		return false
+	}
+	_, ok := jsonPassthroughColumns[columnName]
+	return ok
+}
+
+func validateQRepJSONPassthroughFields(
+	dstType protos.DBType,
+	jsonPassthroughColumns map[string]struct{},
+	fds []pgconn.FieldDescription,
+) error {
+	if len(jsonPassthroughColumns) == 0 {
+		return nil
+	}
+	if dstType != protos.DBType_BIGQUERY {
+		return fmt.Errorf("json passthrough columns configured for non-BigQuery destination %s", dstType)
+	}
+
+	foundColumns := make(map[string]struct{}, len(jsonPassthroughColumns))
+	for _, fd := range fds {
+		if _, ok := jsonPassthroughColumns[fd.Name]; !ok {
+			continue
+		}
+		foundColumns[fd.Name] = struct{}{}
+		switch fd.DataTypeOID {
+		case pgtype.JSONOID, pgtype.JSONBOID:
+		case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
+			return fmt.Errorf("json passthrough column %s has unsupported Postgres JSON array type OID %d",
+				fd.Name, fd.DataTypeOID)
+		default:
+			return fmt.Errorf("json passthrough column %s has non-JSON Postgres type OID %d",
+				fd.Name, fd.DataTypeOID)
+		}
+	}
+
+	for column := range jsonPassthroughColumns {
+		if _, ok := foundColumns[column]; !ok {
+			return fmt.Errorf("json passthrough column %s was not found in Postgres query result", column)
+		}
+	}
+	return nil
+}
+
 func (qe *QRepQueryExecutor) mapRowToQRecord(
 	row pgx.Rows,
 	dstType protos.DBType,
 	nullableFields map[string]struct{},
 	fds []pgconn.FieldDescription,
 	jsonApi jsoniter.API,
+	jsonPassthroughColumns map[string]struct{},
 ) ([]types.QValue, error) {
 	rawValues := row.RawValues()
 	values := make([]any, len(fds))
@@ -521,6 +578,17 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 		// Special handling for JSON types
 		switch fd.DataTypeOID {
 		case pgtype.JSONOID, pgtype.JSONBOID:
+			if shouldPassthroughJSONColumn(dstType, fd.Name, jsonPassthroughColumns) {
+				var text pgtype.Text
+				if err := qe.conn.TypeMap().Scan(fd.DataTypeOID, fd.Format, buf, &text); err != nil {
+					qe.logger.Error("[pg_query_executor] failed to scan json passthrough", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to scan json passthrough: %w", err)
+				}
+				if text.Valid {
+					values[i] = types.QValueJSON{Val: text.String}
+				}
+				continue
+			}
 			if err := jsonApi.Unmarshal(buf, &values[i]); err != nil {
 				qe.logger.Error("[pg_query_executor] failed to unmarshal json", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)

@@ -485,6 +485,9 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		boolVal := value.(bool)
 		return types.QValueBoolean{Val: boolVal}, nil
 	case types.QValueKindJSON, types.QValueKindJSONB:
+		if jsonVal, ok := value.(types.QValueJSON); ok {
+			return jsonVal, nil
+		}
 		tmp, err := parseJSON(value, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON: %w", err)

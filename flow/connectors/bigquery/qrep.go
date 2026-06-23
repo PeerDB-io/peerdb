@@ -33,6 +33,10 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		return 0, nil, err
 	}
 
+	if err := validateQRepJSONPassthroughColumns(config.JsonPassthroughColumns, srcSchema, tblMetadata.Schema); err != nil {
+		return 0, nil, err
+	}
+
 	c.logger.Info(fmt.Sprintf("QRep sync function called and partition existence checked for"+
 		" partition %s of destination table %s",
 		partition.PartitionId, destTable))
@@ -96,6 +100,50 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destDatasetTable, err)
 	}
 	return dstTableMetadata, nil
+}
+
+func validateQRepJSONPassthroughColumns(
+	jsonPassthroughColumns []string,
+	srcSchema types.QRecordSchema,
+	dstSchema bigquery.Schema,
+) error {
+	if len(jsonPassthroughColumns) == 0 {
+		return nil
+	}
+
+	sourceTypes := make(map[string]types.QValueKind, len(srcSchema.Fields))
+	for _, field := range srcSchema.Fields {
+		sourceTypes[field.Name] = field.Type
+	}
+	destinationTypes := make(map[string]bigquery.FieldType, len(dstSchema))
+	for _, field := range dstSchema {
+		destinationTypes[field.Name] = field.Type
+	}
+
+	for _, columnName := range jsonPassthroughColumns {
+		sourceType, ok := sourceTypes[columnName]
+		if !ok {
+			return fmt.Errorf("json passthrough column %s was not found in source schema", columnName)
+		}
+		switch sourceType {
+		case types.QValueKindJSON, types.QValueKindJSONB:
+		case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
+			return fmt.Errorf("json passthrough column %s has unsupported JSON array source type %s",
+				columnName, sourceType)
+		default:
+			return fmt.Errorf("json passthrough column %s has non-JSON source type %s", columnName, sourceType)
+		}
+
+		destinationType, ok := destinationTypes[columnName]
+		if !ok {
+			return fmt.Errorf("json passthrough column %s was not found in BigQuery destination schema", columnName)
+		}
+		if destinationType != bigquery.JSONFieldType {
+			return fmt.Errorf("json passthrough column %s has non-JSON BigQuery destination type %s",
+				columnName, destinationType)
+		}
+	}
+	return nil
 }
 
 func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {

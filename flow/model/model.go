@@ -14,19 +14,32 @@ import (
 )
 
 type NameAndExclude struct {
-	Exclude map[string]struct{}
-	Name    string
+	Exclude                map[string]struct{}
+	JSONPassthroughColumns map[string]struct{}
+	Name                   string
 }
 
-func NewNameAndExclude(name string, exclude []string) NameAndExclude {
-	var exset map[string]struct{}
-	if len(exclude) != 0 {
-		exset = make(map[string]struct{}, len(exclude))
-		for _, col := range exclude {
-			exset[col] = struct{}{}
-		}
+func newStringSet(values []string) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
 	}
-	return NameAndExclude{Name: name, Exclude: exset}
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return set
+}
+
+func NewNameAndExclude(name string, exclude []string, jsonPassthroughColumns ...[]string) NameAndExclude {
+	var passthroughColumns []string
+	if len(jsonPassthroughColumns) != 0 {
+		passthroughColumns = jsonPassthroughColumns[0]
+	}
+	return NameAndExclude{
+		Exclude:                newStringSet(exclude),
+		JSONPassthroughColumns: newStringSet(passthroughColumns),
+		Name:                   name,
+	}
 }
 
 type RecordTypeCounts struct {
@@ -76,6 +89,8 @@ type PullRecordsRequest[T Items] struct {
 	TableNameMapping map[string]NameAndExclude
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
+	// DestinationType is the destination peer type for destination-specific source decoding.
+	DestinationType protos.DBType
 	// overrides dynamic configuration
 	Env map[string]string
 	// override publication name

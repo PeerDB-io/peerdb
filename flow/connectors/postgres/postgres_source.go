@@ -330,6 +330,7 @@ func pullCore[Items model.Items](
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
+		DestinationType:                          req.DestinationType,
 		InternalVersion:                          req.InternalVersion,
 	})
 	if err != nil {

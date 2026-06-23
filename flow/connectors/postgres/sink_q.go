@@ -19,7 +19,19 @@ import (
 
 type RecordStreamSink struct {
 	*model.QRecordStream
-	DestinationType protos.DBType
+	DestinationType        protos.DBType
+	JSONPassthroughColumns map[string]struct{}
+}
+
+func newColumnSet(columns []string) map[string]struct{} {
+	if len(columns) == 0 {
+		return nil
+	}
+	columnSet := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		columnSet[column] = struct{}{}
+	}
+	return columnSet
 }
 
 func (stream RecordStreamSink) ExecuteQueryWithTx(
@@ -78,7 +90,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	var totalNumBytes int64
 	for {
 		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.QRepFetchSize,
-			stream.DestinationType, stream.QRecordStream)
+			stream.DestinationType, stream.QRecordStream, stream.JSONPassthroughColumns)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))
 			return totalNumRows, totalNumBytes, err

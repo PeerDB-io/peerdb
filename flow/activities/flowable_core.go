@@ -145,7 +145,13 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
+		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(
+			v.DestinationTableIdentifier, v.Exclude, v.JsonPassthroughColumns)
+	}
+
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load destination peer type: %w", err)
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
@@ -244,6 +250,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			MaxBatchSize:                batchSize,
 			IdleTimeout:                 idleTimeout,
 			TableNameSchemaMapping:      tableNameSchemaMapping,
+			DestinationType:             destinationType,
 			OverridePublicationName:     config.PublicationName,
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
