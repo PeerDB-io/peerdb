@@ -1,26 +1,28 @@
 name: tilt-flow
+run-name: 'tilt-flow: ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary_services }}]'
 
 # Like flow.yml, but instead of provisioning every service from scratch on the
 # runner, it brings the whole stack up through Tilt (repo_root/Tiltfile). Tilt
 # drives docker-compose-dev.yml (core PeerDB services) and
-# ancillary-docker-compose.yml (test databases + infra), and exposes the
-# e2e_*/connector_* test launchers as Tilt resources we can trigger on demand.
+# ancillary-docker-compose.yml (test databases + infra). The tests themselves run
+# on the host via gotestsum (selected by a Go test matcher) against that stack,
+# and coverage + results are uploaded to Codecov, mirroring flow.yml.
 #
-# This is a manually dispatched workflow: pick a single test resource to run and
-# the ancillary services it needs.
+# This is a manually dispatched workflow: pick the Go test matcher to run and the
+# ancillary services it needs.
 
 on:
   workflow_dispatch:
     inputs:
-      test_resources:
+      test_matcher:
         description: >-
-          Space-separated list of test resources to run (Tilt e2e_* or connector_*
-          resources). They run in parallel (the launchers are allow_parallel).
-          Examples: "e2e_postgres", "e2e_postgres connector_postgres",
-          "e2e_mysql-gtid e2e_mysql-pos e2e_mariadb".
+          Go test matcher passed to `go test -run` (a regex). The tests run on the
+          host against the Tilt-provided stack, over ./... so the matcher alone
+          selects what runs. Examples: "TestGenericCH_PG", "TestMongoClickhouseSuite",
+          "^TestPeerFlowE2ETestSuitePG_CH$", "TestApiPg". Leave empty to run everything.
         type: string
         required: true
-        default: e2e_postgres
+        default: TestGenericCH_PG
       ancillary_services:
         description: >-
           Space-separated ancillary Tilt resources to start before the test.
@@ -35,7 +37,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: tilt-flow-${{ github.ref }}-${{ github.event.inputs.test_resources }}
+  group: tilt-flow-${{ github.ref }}-${{ github.event.inputs.test_matcher }}
   cancel-in-progress: true
 
 env:
@@ -268,83 +270,61 @@ jobs:
           done
           echo "All requested ancillary services are up and running."
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
       # ----------------------------------------------------------------------
-      # Last step: invoke the requested test resource(s) and report their result.
-      # The launchers are allow_parallel, so all are triggered up front and then
-      # polled to completion concurrently.
+      # Run the tests on the host against the Tilt-provided stack, selected by
+      # the Go test matcher. Unlike flow.yml we do NOT start temporal/peer-flow
+      # here — those run as containers managed by Tilt — but the gotestsum +
+      # coverage invocation otherwise mirrors flow.yml's "run tests" step. The
+      # tests auto-load connection settings from the project-root .env.
       # ----------------------------------------------------------------------
-      - name: Run requested test resources
+      - name: Run tests
+        working-directory: ./flow
         env:
-          TEST_RESOURCES: ${{ github.event.inputs.test_resources }}
+          TEST_MATCHER: ${{ github.event.inputs.test_matcher }}
         run: |
-          set -uo pipefail
-          if [ -z "${TEST_RESOURCES// /}" ]; then
-            echo "::error::No test resources specified."
-            exit 1
+          # Disable errexit so we can capture gotestsum's exit code and still emit
+          # coverage for the Codecov upload; keep nounset.
+          set +e -u
+          mkdir -p coverage ../logs
+
+          # Only scope by -run when a matcher was provided (empty => run everything).
+          run_args=()
+          if [ -n "${TEST_MATCHER// /}" ]; then
+            run_args=(-run "$TEST_MATCHER")
           fi
 
-          echo "Enabling and triggering test resources: $TEST_RESOURCES"
-          # enable accepts multiple resources...
-          tilt --port "$TILT_PORT" enable $TEST_RESOURCES
-          # ...but each must be triggered individually to start.
-          for t in $TEST_RESOURCES; do
-            echo "Triggering $t"
-            tilt --port "$TILT_PORT" trigger "$t"
-          done
+          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- \
+            -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... "${run_args[@]}" -timeout 1200s \
+            -args -test.gocoverdir="$PWD/coverage"
+          rc=$?
 
-          # Each launcher is a one-shot local_resource: poll its update status
-          # until it succeeds (ok) or fails (error). Anything else means it is
-          # still queued/running. Track each resource's outcome; report a per-test
-          # log dump as soon as it finishes, then a summary at the end.
-          TIMEOUT=1800
-          pending="$TEST_RESOURCES"
-          failed=""
-          deadline=$((SECONDS + TIMEOUT))
-          while [ -n "${pending// /}" ] && [ "$SECONDS" -lt "$deadline" ]; do
-            still_pending=""
-            for t in $pending; do
-              update_status="$(tilt --port "$TILT_PORT" get uiresource "$t" -o json 2>/dev/null | jq -r '.status.updateStatus // "unknown"')"
-              case "$update_status" in
-                ok)
-                  echo "Test '$t' succeeded."
-                  echo "----- logs for '$t' -----"
-                  tilt --port "$TILT_PORT" logs "$t" || true
-                  ;;
-                error)
-                  echo "::error::Test '$t' failed."
-                  echo "----- logs for '$t' -----"
-                  tilt --port "$TILT_PORT" logs "$t" || true
-                  failed="$failed $t"
-                  ;;
-                *)
-                  still_pending="$still_pending $t"
-                  ;;
-              esac
-            done
-            pending="$still_pending"
-            [ -n "${pending// /}" ] && sleep 5
-          done
+          # Emit coverage even on test failure so the Codecov step always has data.
+          go tool covdata textfmt -i=coverage -o ../coverage.out || true
+          exit "$rc"
 
-          # Anything still pending hit the overall timeout.
-          if [ -n "${pending// /}" ]; then
-            for t in $pending; do
-              echo "::error::Test '$t' did not finish within ${TIMEOUT}s."
-              echo "----- logs for '$t' (timed out) -----"
-              tilt --port "$TILT_PORT" logs "$t" || true
-              failed="$failed $t"
-            done
-          fi
+      - name: Upload logs and test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tilt-flow-logs
+          path: |
+            logs/
+            coverage.out
+          retention-days: 30
 
-          echo "===== Summary ====="
-          for t in $TEST_RESOURCES; do
-            case " $failed " in
-              *" $t "*) echo "  $t: FAILED" ;;
-              *) echo "  $t: PASSED" ;;
-            esac
-          done
+      - name: Upload test results to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
+        with:
+          report_type: test_results
+          files: logs/test-results.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
 
-          if [ -n "${failed// /}" ]; then
-            echo "::error::One or more test resources failed:$failed"
-            exit 1
-          fi
-          echo "All requested test resources passed."
+      - name: Upload coverage reports to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
