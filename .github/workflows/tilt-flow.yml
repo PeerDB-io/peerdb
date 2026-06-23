@@ -1,0 +1,350 @@
+name: tilt-flow
+
+# Like flow.yml, but instead of provisioning every service from scratch on the
+# runner, it brings the whole stack up through Tilt (repo_root/Tiltfile). Tilt
+# drives docker-compose-dev.yml (core PeerDB services) and
+# ancillary-docker-compose.yml (test databases + infra), and exposes the
+# e2e_*/connector_* test launchers as Tilt resources we can trigger on demand.
+#
+# This is a manually dispatched workflow: pick a single test resource to run and
+# the ancillary services it needs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_resources:
+        description: >-
+          Space-separated list of test resources to run (Tilt e2e_* or connector_*
+          resources). They run in parallel (the launchers are allow_parallel).
+          Examples: "e2e_postgres", "e2e_postgres connector_postgres",
+          "e2e_mysql-gtid e2e_mysql-pos e2e_mariadb".
+        type: string
+        required: true
+        default: e2e_postgres
+      ancillary_services:
+        description: >-
+          Space-separated ancillary Tilt resources to start before the test.
+          e2e tests need clickhouse plus their source DB (e.g. "postgres clickhouse",
+          "mysql-gtid clickhouse", "mongodb clickhouse"); connector tests need just
+          their DB. Append "toxiproxy openssh" for SSH/chaos tests.
+        type: string
+        required: true
+        default: postgres clickhouse
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tilt-flow-${{ github.ref }}-${{ github.event.inputs.test_resources }}
+  cancel-in-progress: true
+
+env:
+  # All tilt CLI calls in this repo talk to the control API on this port (see tilt.sh).
+  TILT_PORT: "10352"
+  # Pin Tilt for reproducible runs (matches the version used locally).
+  TILT_VERSION: "0.37.0"
+  # Don't phone home from CI.
+  DO_NOT_TRACK: "1"
+  # How many times to (re)load an unhealthy core PeerDB service before giving up.
+  # Core services like flow-api/peerdb occasionally fail to initialize on a cold
+  # start; reloading the individual resource recovers them. Bump this if the
+  # runner is flaky.
+  CORE_SERVICE_RECOVERY_ATTEMPTS: "3"
+  # Bounds (seconds, inclusive) for the randomized wait between core-service
+  # health polls.
+  MIN_RECOVERY_TIME: "3"
+  MAX_RECOVERY_TIME: "5"
+
+jobs:
+  tilt_flow_test:
+    runs-on: ubuntu-latest-16-cores
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.26.4'
+          cache-dependency-path: flow/go.sum
+
+      # Tilt's `proto-gen` resource runs ./generate-protos.sh (buf generate +
+      # go generate) on `tilt up`. The flow docker images and the host-run tests
+      # both consume the resulting flow/generated code, so buf must be on PATH.
+      - name: Install buf
+        uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
+        with:
+          setup_only: true
+          github_token: ${{ github.token }}
+
+      - name: install lib-geos and pg_dump
+        run: |
+          # No need to update man pages on package install
+          sudo apt-get remove --purge man-db
+          # Add PGDG apt repo for latest PostgreSQL client packages
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y libgeos-dev
+          # pg_dump must be >= the server major version; install v18 so it
+          # can dump PG 16, 17, and 18 (backward compatible).
+          sudo apt-get install -y postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> $GITHUB_PATH
+
+      - run: go mod download
+        working-directory: ./flow
+
+      - name: Install Tilt
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+          tilt version
+
+      - name: Prepare environment for Tilt
+        run: |
+          # Tilt reads .env at the project root; it is gitignored, so seed it
+          # from the checked-in template.
+          if [ ! -f .env ]; then
+            cp .env.example .env
+          fi
+          # The test launchers run `go test` on the host (Tilt local_resource),
+          # but .env points the DBs at host.docker.internal. Map that name to the
+          # loopback so the host can reach the docker-compose published ports.
+          echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+
+      # ----------------------------------------------------------------------
+      # Start Tilt. This replaces all of flow.yml's per-service provisioning:
+      # `tilt up` builds/starts the core PeerDB services (and proto-gen) via
+      # docker-compose. Ancillary DBs and test launchers are auto_init=False and
+      # are started explicitly in the steps below.
+      # ----------------------------------------------------------------------
+      - name: Start Tilt
+        run: |
+          set -euo pipefail
+          # `tilt up` serves the control API and runs until torn down, so launch
+          # it in the background and drive it via the CLI in later steps.
+          nohup tilt up --port "$TILT_PORT" --stream=true > "$RUNNER_TEMP/tilt-up.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/tilt.pid"
+
+          echo "Waiting for the Tilt API to come up..."
+          for i in $(seq 1 60); do
+            if tilt --port "$TILT_PORT" get uiresource >/dev/null 2>&1; then
+              echo "Tilt API is reachable."
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "::error::Tilt API did not become reachable."
+              cat "$RUNNER_TEMP/tilt-up.log" || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+      # ----------------------------------------------------------------------
+      # Bring up the core PeerDB services, recovering any that fail to
+      # initialize on the first attempt. Core services (e.g. flow-api, peerdb)
+      # occasionally come up unhealthy on a cold start; when that happens we
+      # reload the individual resource with `tilt trigger` and wait again, up to
+      # CORE_SERVICE_RECOVERY_ATTEMPTS times before failing the run.
+      # ----------------------------------------------------------------------
+      - name: Bring up core PeerDB services (with recovery)
+        run: |
+          set -uo pipefail
+
+          # Main PeerDB services that must be healthy before tests run. proto-gen
+          # feeds the image builds; catalog/flow-api/flow-worker/flow-snapshot-worker
+          # back the suites; peerdb and minio support peer setup and S3 staging.
+          MAIN_SERVICES="proto-gen catalog flow-api flow-worker flow-snapshot-worker peerdb minio"
+          # Per-attempt wait budget (generous, since flow images are built here).
+          PER_ATTEMPT_TIMEOUT=600
+
+          # Classify a resource as "ready", "error", or "pending".
+          ready_status() {
+            local res="$1" json upd run
+            json="$(tilt --port "$TILT_PORT" get uiresource "$res" -o json 2>/dev/null)" || { echo pending; return; }
+            upd="$(echo "$json" | jq -r '.status.updateStatus // "none"')"
+            run="$(echo "$json" | jq -r '.status.runtimeStatus // "none"')"
+            # A failed build/update or a crashed runtime means this attempt failed.
+            if [ "$upd" = "error" ] || [ "$run" = "error" ]; then echo error; return; fi
+            # Ready: the update succeeded and the runtime is healthy (or absent,
+            # e.g. proto-gen which has no long-running process).
+            if [ "$upd" = "ok" ] && { [ "$run" = "ok" ] || [ "$run" = "not_applicable" ] || [ "$run" = "none" ]; }; then
+              echo ready; return
+            fi
+            echo pending
+          }
+
+          # Randomized backoff (seconds) between health polls, in
+          # [MIN_RECOVERY_TIME, MAX_RECOVERY_TIME] inclusive.
+          recovery_sleep() {
+            local span=$(( MAX_RECOVERY_TIME - MIN_RECOVERY_TIME + 1 ))
+            [ "$span" -lt 1 ] && span=1
+            sleep "$(( MIN_RECOVERY_TIME + RANDOM % span ))"
+          }
+
+          # Wait for a resource to become ready; on error or per-attempt timeout,
+          # reload it (`tilt trigger`) and retry, up to the configured attempts.
+          wait_or_recover() {
+            local res="$1" attempt st deadline
+            for attempt in $(seq 1 "$CORE_SERVICE_RECOVERY_ATTEMPTS"); do
+              echo "[$res] readiness attempt ${attempt}/${CORE_SERVICE_RECOVERY_ATTEMPTS} (timeout ${PER_ATTEMPT_TIMEOUT}s)"
+              deadline=$((SECONDS + PER_ATTEMPT_TIMEOUT))
+              st=pending
+              while [ "$SECONDS" -lt "$deadline" ]; do
+                st="$(ready_status "$res")"
+                case "$st" in
+                  ready) echo "[$res] is Ready."; return 0 ;;
+                  error) echo "::warning::[$res] entered an error state."; break ;;
+                  *) recovery_sleep ;;
+                esac
+              done
+              # Don't reload after the final attempt (nothing left to wait on).
+              if [ "$attempt" -lt "$CORE_SERVICE_RECOVERY_ATTEMPTS" ]; then
+                echo "::warning::[$res] not healthy (status: ${st}); reloading the resource."
+                tilt --port "$TILT_PORT" logs --tail 100 "$res" || true
+                tilt --port "$TILT_PORT" trigger "$res" || true
+              fi
+            done
+            echo "::error::[$res] failed to become Ready after ${CORE_SERVICE_RECOVERY_ATTEMPTS} attempts."
+            tilt --port "$TILT_PORT" logs --tail 200 "$res" || true
+            return 1
+          }
+
+          rc=0
+          for res in $MAIN_SERVICES; do
+            wait_or_recover "$res" || rc=1
+          done
+
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::One or more core PeerDB services could not be recovered."
+            cat "$RUNNER_TEMP/tilt-up.log" || true
+            exit 1
+          fi
+          echo "Core PeerDB services are up."
+
+      # ----------------------------------------------------------------------
+      # Previous-to-last step: start the requested ancillary services and wait
+      # until they (and their provisioning steps) are confirmed up and running.
+      # ----------------------------------------------------------------------
+      - name: Start requested ancillary services
+        env:
+          ANCILLARY_SERVICES: ${{ github.event.inputs.ancillary_services }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ANCILLARY_SERVICES// /}" ]; then
+            echo "::error::No ancillary services specified."
+            exit 1
+          fi
+
+          echo "Enabling ancillary services: $ANCILLARY_SERVICES"
+          # enable accepts multiple resources at once...
+          tilt --port "$TILT_PORT" enable $ANCILLARY_SERVICES
+          # ...but enabling is not enough: each must be triggered to start.
+          for svc in $ANCILLARY_SERVICES; do
+            echo "Triggering $svc"
+            tilt --port "$TILT_PORT" trigger "$svc"
+          done
+
+          # Wait until each service is Ready. Data stores also have an autostarted
+          # provision-<svc> step (gated on the DB) — wait for that too so the
+          # service is genuinely usable before the test runs.
+          for svc in $ANCILLARY_SERVICES; do
+            echo "Waiting for $svc to be Ready..."
+            if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/$svc" --timeout=600s; then
+              echo "::error::$svc did not become Ready."
+              tilt --port "$TILT_PORT" logs --tail 200 "$svc" || true
+              exit 1
+            fi
+            if tilt --port "$TILT_PORT" get uiresource "provision-$svc" >/dev/null 2>&1; then
+              echo "Waiting for provision-$svc to be Ready..."
+              if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/provision-$svc" --timeout=600s; then
+                echo "::error::provision-$svc did not become Ready."
+                tilt --port "$TILT_PORT" logs --tail 200 "provision-$svc" || true
+                exit 1
+              fi
+            fi
+          done
+          echo "All requested ancillary services are up and running."
+
+      # ----------------------------------------------------------------------
+      # Last step: invoke the requested test resource(s) and report their result.
+      # The launchers are allow_parallel, so all are triggered up front and then
+      # polled to completion concurrently.
+      # ----------------------------------------------------------------------
+      - name: Run requested test resources
+        env:
+          TEST_RESOURCES: ${{ github.event.inputs.test_resources }}
+        run: |
+          set -uo pipefail
+          if [ -z "${TEST_RESOURCES// /}" ]; then
+            echo "::error::No test resources specified."
+            exit 1
+          fi
+
+          echo "Enabling and triggering test resources: $TEST_RESOURCES"
+          # enable accepts multiple resources...
+          tilt --port "$TILT_PORT" enable $TEST_RESOURCES
+          # ...but each must be triggered individually to start.
+          for t in $TEST_RESOURCES; do
+            echo "Triggering $t"
+            tilt --port "$TILT_PORT" trigger "$t"
+          done
+
+          # Each launcher is a one-shot local_resource: poll its update status
+          # until it succeeds (ok) or fails (error). Anything else means it is
+          # still queued/running. Track each resource's outcome; report a per-test
+          # log dump as soon as it finishes, then a summary at the end.
+          TIMEOUT=1800
+          pending="$TEST_RESOURCES"
+          failed=""
+          deadline=$((SECONDS + TIMEOUT))
+          while [ -n "${pending// /}" ] && [ "$SECONDS" -lt "$deadline" ]; do
+            still_pending=""
+            for t in $pending; do
+              update_status="$(tilt --port "$TILT_PORT" get uiresource "$t" -o json 2>/dev/null | jq -r '.status.updateStatus // "unknown"')"
+              case "$update_status" in
+                ok)
+                  echo "Test '$t' succeeded."
+                  echo "----- logs for '$t' -----"
+                  tilt --port "$TILT_PORT" logs "$t" || true
+                  ;;
+                error)
+                  echo "::error::Test '$t' failed."
+                  echo "----- logs for '$t' -----"
+                  tilt --port "$TILT_PORT" logs "$t" || true
+                  failed="$failed $t"
+                  ;;
+                *)
+                  still_pending="$still_pending $t"
+                  ;;
+              esac
+            done
+            pending="$still_pending"
+            [ -n "${pending// /}" ] && sleep 5
+          done
+
+          # Anything still pending hit the overall timeout.
+          if [ -n "${pending// /}" ]; then
+            for t in $pending; do
+              echo "::error::Test '$t' did not finish within ${TIMEOUT}s."
+              echo "----- logs for '$t' (timed out) -----"
+              tilt --port "$TILT_PORT" logs "$t" || true
+              failed="$failed $t"
+            done
+          fi
+
+          echo "===== Summary ====="
+          for t in $TEST_RESOURCES; do
+            case " $failed " in
+              *" $t "*) echo "  $t: FAILED" ;;
+              *) echo "  $t: PASSED" ;;
+            esac
+          done
+
+          if [ -n "${failed// /}" ]; then
+            echo "::error::One or more test resources failed:$failed"
+            exit 1
+          fi
+          echo "All requested test resources passed."
