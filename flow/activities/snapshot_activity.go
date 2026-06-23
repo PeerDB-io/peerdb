@@ -74,24 +74,7 @@ func (a *SnapshotActivity) SetupReplication(
 	}
 
 	logger.Info("waiting for slot to be created...")
-	slotCreateStart := time.Now()
-	stopSlotCreateWarning := common.Interval(ctx, 5*time.Minute, func() {
-		elapsed := time.Since(slotCreateStart)
-		if elapsed >= 15*time.Minute {
-			msg := fmt.Sprintf(
-				"Replication slot creation is taking very long (%s), possibly blocked by an open transaction."+
-					" Run the following on the source to identify blockers:"+
-					" SELECT pid, usename, application_name, state, now() - xact_start AS duration, query"+
-					" FROM pg_stat_activity WHERE xact_start IS NOT NULL AND pid != pg_backend_pid() ORDER BY xact_start;",
-				elapsed.Round(time.Second),
-			)
-			if err := alerting.InsertFlowLog(ctx, a.CatalogPool, config.FlowJobName, msg, alerting.FlowErrorTypeWarn); err != nil {
-				logger.Error("failed to insert slot creation warning", slog.Any("error", err))
-			}
-		}
-	})
 	slotInfo, err := conn.SetupReplication(ctx, a.CatalogPool, config)
-	stopSlotCreateWarning()
 
 	if err != nil {
 		connClose(ctx)
