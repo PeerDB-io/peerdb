@@ -37,7 +37,7 @@ jobs:
           {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
           {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
           {pg: 18, mysql: 'maria-pos', mongo: '8.0', ch: 'latest'},
-          {pg: 18, mysql: 'mysql-gtid', mongo: '8.0', ch: 'stable'},
+          {pg: 18, mysql: 'maria-gtid', mongo: '8.0', ch: 'stable'},
         ]
         # Per-version container settings consumed by the "MySQL" step, keyed by the matrix
         # db-version.mysql value. Grouped under "mysql" since these are MySQL/MariaDB families;
