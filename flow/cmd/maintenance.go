@@ -51,6 +51,20 @@ type StartMaintenanceResult struct {
 // running the requested maintenance workflow
 func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 	slog.InfoContext(ctx, "Starting Maintenance Mode CLI")
+
+	if _, err := internal.TryGetCatalogPassword(ctx); err != nil {
+		if internal.IsKmsKeyScheduledForDestructionErr(err) {
+			// The catalog KMS key is scheduled for destruction, i.e. the service is
+			// being deprovisioned. There is no maintenance to run; record it and exit
+			// cleanly instead of crash-looping on the panic in PeerDBCatalogPassword.
+			slog.WarnContext(ctx, "catalog KMS key is scheduled for destruction; service is being deprovisioned, skipping maintenance",
+				slog.String("mode", args.Mode), slog.Any("error", err))
+			telemetry.LogActivitySkipMaintenance(ctx, args.Mode, "catalog KMS key scheduled for destruction")
+			return nil
+		}
+		return fmt.Errorf("failed to verify catalog credentials before maintenance: %w", err)
+	}
+
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,

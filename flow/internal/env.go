@@ -124,6 +124,28 @@ func decryptWithGcpKms(ctx context.Context, data []byte, keyID string) ([]byte, 
 	return resp.Plaintext, nil
 }
 
+// IsKmsKeyScheduledForDestructionErr reports whether err indicates the KMS key
+// used to decrypt an environment value has been scheduled for destruction. That
+// is the unambiguous signal that the owning service is being deprovisioned, and
+// lets short-lived jobs (e.g. maintenance hooks) exit cleanly instead of
+// panicking in PeerDBCatalogPassword.
+//
+// It deliberately matches ONLY the scheduled-for-destruction states, not
+// disabled keys, permission errors, or transient KMS failures: those are
+// returned to the caller so the job fails loudly rather than silently skipping
+// work it should have done.
+func IsKmsKeyScheduledForDestructionErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	// GCP: decrypting with a key version pending destruction returns
+	//   "...is not enabled, current state is: DESTROY_SCHEDULED".
+	// AWS: ScheduleKeyDeletion leaves the key "pending deletion".
+	return strings.Contains(msg, "destroy_scheduled") || strings.Contains(msg, "pending deletion")
+}
+
 var kmsCache sync.Map
 
 func GetKmsDecryptedEnvBase64EncodedBytes(ctx context.Context, name string, defaultValue []byte) ([]byte, error) {

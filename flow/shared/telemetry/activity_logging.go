@@ -28,6 +28,7 @@ const (
 	ActionUpdateFlowConfig      = "update_flow_config"
 	ActionStartMaintenance      = "start_maintenance"
 	ActionEndMaintenance        = "end_maintenance"
+	ActionSkipMaintenance       = "skip_maintenance"
 	ActionSkipSnapshotWaitFlows = "skip_snapshot_wait_flows"
 	ActionCreatePeer            = "create_peer"
 	ActionDropPeer              = "drop_peer"
@@ -59,6 +60,10 @@ func LogActivityStartMaintenance(ctx context.Context) {
 
 func LogActivityEndMaintenance(ctx context.Context) {
 	logActivity(ctx, ActionEndMaintenance)
+}
+
+func LogActivitySkipMaintenance(ctx context.Context, mode string, reason string) {
+	logActivity(ctx, ActionSkipMaintenance, slog.String("mode", mode), slog.String("reason", reason))
 }
 
 func LogActivitySkipSnapshotWaitFlows(ctx context.Context) {
