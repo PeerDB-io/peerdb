@@ -147,6 +147,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 
 	logger := workflow.GetLogger(ctx)
 
+	finalDrop := false
 	if input.Resync {
 		flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
 		flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
@@ -154,21 +155,22 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 			sigSelector := workflow.NewNamedSelector(gCtx, input.FlowJobName+"-drop-signals")
 			sigSelector.AddReceive(gCtx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
-			var onFlowSignal func(model.CDCFlowSignal, bool)
-			onFlowSignal = func(val model.CDCFlowSignal, _ bool) {
+			flowSignalChan.AddToSelector(sigSelector, func(val model.CDCFlowSignal, _ bool) {
+				prev := activeSignal
 				activeSignal = model.FlowSignalHandler(activeSignal, val, logger)
-				flowSignalChan.AddToSelector(sigSelector, onFlowSignal)
-			}
-			flowSignalChan.AddToSelector(sigSelector, onFlowSignal)
+				if prev != model.TerminateSignal && activeSignal == model.TerminateSignal {
+					finalDrop = true
+				}
+			})
 
-			var onStateChange func(*protos.FlowStateChangeRequest, bool)
-			onStateChange = func(req *protos.FlowStateChangeRequest, _ bool) {
+			flowSignalStateChangeChan.AddToSelector(sigSelector, func(req *protos.FlowStateChangeRequest, _ bool) {
 				if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 					activeSignal = model.TerminateSignal
+					input.DropFlowStats = req.DropMirrorStats
+					input.SkipDestinationDrop = req.SkipDestinationDrop
+					finalDrop = true
 				}
-				flowSignalStateChangeChan.AddToSelector(sigSelector, onStateChange)
-			}
-			flowSignalStateChangeChan.AddToSelector(sigSelector, onStateChange)
+			})
 
 			for gCtx.Err() == nil {
 				sigSelector.Select(gCtx)
@@ -249,6 +251,21 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	).Get(ctx, nil); err != nil {
 		workflow.GetLogger(ctx).Error("failed to remove flow details from catalog", slog.Any("error", err))
 		return err
+	}
+
+	// If a terminate signal arrived during RemoveFlowDetailsFromCatalog while it ran
+	// in resync mode, the catalog row was left as RESYNC — do a final cleanup now.
+	if finalDrop && req.Resync {
+		finalReq := model.RemoveFlowDetailsFromCatalogRequest{
+			FlowName: input.FlowJobName,
+			Resync:   false,
+		}
+		if err := workflow.ExecuteActivity(
+			removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, &finalReq,
+		).Get(ctx, nil); err != nil {
+			workflow.GetLogger(ctx).Error("failed to remove flow details from catalog (final drop)", slog.Any("error", err))
+			return err
+		}
 	}
 
 	if input.Resync && activeSignal != model.TerminateSignal {
