@@ -170,6 +170,8 @@ services:
       - *flow-snapshot-worker-debug-port
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
