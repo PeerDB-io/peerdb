@@ -196,6 +196,7 @@ func (c *MySqlConnector) FinishExport(any) error {
 
 func (c *MySqlConnector) SetupReplication(
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
 	var gtidModeOn bool

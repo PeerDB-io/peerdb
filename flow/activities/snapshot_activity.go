@@ -90,7 +90,7 @@ func (a *SnapshotActivity) SetupReplication(
 			}
 		}
 	})
-	slotInfo, err := conn.SetupReplication(ctx, config)
+	slotInfo, err := conn.SetupReplication(ctx, a.CatalogPool, config)
 	stopSlotCreateWarning()
 
 	if err != nil {

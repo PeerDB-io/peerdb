@@ -97,7 +97,7 @@ func (c *MongoConnector) GetTableSchema(
 	return result, nil
 }
 
-func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+func (c *MongoConnector) SetupReplication(ctx context.Context, catalogPool shared.CatalogPool, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream").
 		SetFullDocument(options.UpdateLookup)

@@ -507,6 +507,6 @@ func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
 	return nil
 }
 
-func (c *BigQueryConnector) SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+func (c *BigQueryConnector) SetupReplication(context.Context, shared.CatalogPool, *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
 	return model.SetupReplicationResult{}, nil
 }
