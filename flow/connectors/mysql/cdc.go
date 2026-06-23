@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -882,14 +883,16 @@ func posToOffsetText(pos mysql.Position) string {
 }
 
 // parseIncidentEvent extracts the incident number and human-readable message.
-// Best-effort: returns what it can if the body is truncated.
+// Best-effort: returns a diagnostic message if the body is malformed.
 func parseIncidentEvent(data []byte) (uint16, string) {
 	if len(data) < 2 {
-		return 0, ""
+		return 0, fmt.Sprintf("(payload too short: len=%d, raw=0x%s)",
+			len(data), hex.EncodeToString(data))
 	}
 	incident := binary.LittleEndian.Uint16(data[:2])
 	if len(data) < 3 {
-		return incident, ""
+		return incident, fmt.Sprintf("(payload too short: len=%d, raw=0x%s)",
+			len(data), hex.EncodeToString(data))
 	}
 	end := min(3+int(data[2]), len(data))
 	return incident, string(data[3:end])
