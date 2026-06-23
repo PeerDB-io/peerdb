@@ -335,18 +335,23 @@ jobs:
                 | {name: .metadata.name, updateStatus: .status.updateStatus, runtimeStatus: .status.runtimeStatus}' \
              logs/tilt-resources.json 2>/dev/null || true
 
-          # Capture per-service logs for the snapshot path (snapshot-worker writes
-          # to MinIO/S3, ClickHouse loads from it) so server-side failures like a
-          # stuck initial snapshot are visible in the uploaded artifact. The Tilt
-          # test launchers run go test on the host, so the worker logs are the only
-          # window into why a mirror hangs in STATUS_SNAPSHOT.
-          for svc in flow-snapshot-worker flow-worker flow-api peerdb catalog minio \
-                     clickhouse postgres postgres2 mongodb mysql-gtid mysql-pos mariadb \
-                     provision-clickhouse provision-postgres setup-clickhouse-peer setup-postgres-peer; do
-            if tilt --port "$TILT_PORT" get uiresource "$svc" >/dev/null 2>&1; then
-              echo "Capturing logs for $svc -> logs/tilt-$svc.log"
-              tilt --port "$TILT_PORT" logs "$svc" > "logs/tilt-$svc.log" 2>&1 || true
-            fi
+          # Capture container logs for the snapshot path (snapshot-worker writes to
+          # MinIO/S3, ClickHouse loads from it) so server-side failures like a stuck
+          # initial snapshot are visible in the artifact. The mirror runs in the
+          # flow-worker/flow-snapshot-worker containers, so these are the only window
+          # into why it hangs in STATUS_SNAPSHOT.
+          #
+          # NOTE: `tilt logs` is unavailable here — in this headless `tilt up --stream`
+          # run Tilt serves the apiserver (so `tilt get/enable/trigger/wait` work) but
+          # not the web-UI websocket `tilt logs` needs ("websocket: bad handshake").
+          # Tilt drives docker-compose, so read the logs straight from Docker instead.
+          echo "===== Containers ====="
+          docker ps -a --format '{{.Names}}\t{{.Status}}' | tee logs/docker-ps.txt
+          echo "===== Capturing docker container logs ====="
+          docker ps -a --format '{{.Names}}' | while read -r c; do
+            [ -n "$c" ] || continue
+            echo "  $c -> logs/docker-$c.log"
+            docker logs --timestamps "$c" > "logs/docker-$c.log" 2>&1 || true
           done
 
       - name: Upload logs and test results
