@@ -292,7 +292,15 @@ jobs:
           # Disable errexit so we can capture gotestsum's exit code and still emit
           # coverage for the Codecov upload; keep nounset.
           set +e -u
-          mkdir -p coverage ../logs
+
+          # Write coverage OUTSIDE the flow/ tree. `tilt up` keeps live-watching
+          # flow/ for the whole job (the flow images use docker_build only=['flow/']),
+          # so writing coverage into flow/coverage during the run would trigger Tilt
+          # to rebuild flow-worker/flow-api/flow-snapshot-worker mid-test, knocking
+          # them back to in_progress. $RUNNER_TEMP is outside the repo, so it's never
+          # watched.
+          coverdir="$RUNNER_TEMP/gocoverdir"
+          mkdir -p "$coverdir" ../logs
 
           # Only scope by -run when a matcher was provided (empty => run everything).
           run_args=()
@@ -302,11 +310,11 @@ jobs:
 
           gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- \
             -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... "${run_args[@]}" -timeout 1200s \
-            -args -test.gocoverdir="$PWD/coverage"
+            -args -test.gocoverdir="$coverdir"
           rc=$?
 
           # Emit coverage even on test failure so the Codecov step always has data.
-          go tool covdata textfmt -i=coverage -o ../coverage.out || true
+          go tool covdata textfmt -i="$coverdir" -o ../coverage.out || true
           exit "$rc"
 
       - name: Report Tilt environment status on test failure
