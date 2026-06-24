@@ -5,8 +5,9 @@ run-name: 'tilt-flow: ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary
 # runner, it brings the whole stack up through Tilt (repo_root/Tiltfile). Tilt
 # drives docker-compose-dev.yml (core PeerDB services) and
 # ancillary-docker-compose.yml (test databases + infra). The tests themselves run
-# on the host via gotestsum (selected by a Go test matcher) against that stack,
-# and coverage + results are uploaded to Codecov, mirroring flow.yml.
+# on the host via gotestsum (selected by a Go test matcher) against that stack.
+# Coverage and results are saved as a build artifact, and the test results are
+# ingested into the CI observability store (shared with flow.yml).
 #
 # This is a manually dispatched workflow: pick the Go test matcher to run and the
 # ancillary services it needs.
@@ -90,7 +91,9 @@ jobs:
             https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
-          sudo apt-get install -y libgeos-dev
+          # libgeos-dev: geometry support; retry: used by the test-results
+          # ingestion composite action's upload backoff.
+          sudo apt-get install -y libgeos-dev retry
           # pg_dump must be >= the server major version; install v18 so it
           # can dump PG 16, 17, and 18 (backward compatible).
           sudo apt-get install -y postgresql-client-18
@@ -290,7 +293,7 @@ jobs:
           TEST_MATCHER: ${{ github.event.inputs.test_matcher }}
         run: |
           # Disable errexit so we can capture gotestsum's exit code and still emit
-          # coverage for the Codecov upload; keep nounset.
+          # coverage for the artifact upload; keep nounset.
           set +e -u
 
           # Write coverage OUTSIDE the flow/ tree. `tilt up` keeps live-watching
@@ -313,7 +316,7 @@ jobs:
             -args -test.gocoverdir="$coverdir"
           rc=$?
 
-          # Emit coverage even on test failure so the Codecov step always has data.
+          # Emit coverage even on test failure so the uploaded artifact always has data.
           go tool covdata textfmt -i="$coverdir" -o ../coverage.out || true
           exit "$rc"
 
@@ -364,16 +367,11 @@ jobs:
             coverage.out
           retention-days: 30
 
-      - name: Upload test results to Codecov
+      - name: Ingest tests results for analysis
         if: success() || failure()
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
+        uses: ./.github/actions/ingest-test-results
         with:
-          report_type: test_results
-          files: logs/test-results.xml
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Upload coverage reports to Codecov
-        if: success() || failure()
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          combination-id: "tilt-${{ github.event.inputs.test_matcher }}"
+          o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
+          o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
+          o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
