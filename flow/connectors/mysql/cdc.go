@@ -879,16 +879,13 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 				// If the column already exists, this is a MODIFY COLUMN that may change
 				// its type rather than an ADD COLUMN. Record the type change for telemetry;
 				// we don't propagate column type changes yet.
-				if oldType, exists := existingColTypes[col.Name.OrigColName()]; exists {
-					if oldType != string(qkind) {
-						c.logger.Warn("column type change detected via ALTER TABLE, not propagating",
-							slog.String("table", sourceTableName),
-							slog.String("column", col.Name.OrigColName()),
-							slog.String("from", oldType),
-							slog.String("to", string(qkind)))
-						c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(oldType), qkind)
-					}
-					continue
+				if oldType, exists := existingColTypes[col.Name.OrigColName()]; exists && oldType != string(qkind) {
+					c.logger.Warn("column type change detected via ALTER TABLE, not propagating",
+						slog.String("table", sourceTableName),
+						slog.String("column", col.Name.OrigColName()),
+						slog.String("from", oldType),
+						slog.String("to", string(qkind)))
+					c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(oldType), qkind)
 				}
 
 				if spec.Position != nil && spec.Position.Tp != ast.ColumnPositionNone {
