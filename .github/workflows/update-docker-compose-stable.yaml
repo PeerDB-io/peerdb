@@ -1,8 +1,6 @@
 name: Update Deployment tags (Docker Compose and Helm Charts)
 
 on:
-  workflow_dispatch:
-    inputs: {}
   release:
     types:
       - published
@@ -25,15 +23,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # On a release event use the published tag directly; fall back to
-          # the latest release for manual workflow_dispatch runs.
           latest_tag="${{ github.event.release.tag_name }}"
-          if [ -z "${latest_tag}" ]; then
-            latest_tag="$(gh api \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/${{ github.repository }}/releases/latest | jq -r '.tag_name')"
-          fi
           echo "latest_tag=${latest_tag}" >> "$GITHUB_OUTPUT"
   update-docker-compose-tag:
     runs-on: ubuntu-latest
