@@ -78,6 +78,7 @@ const (
 	LogRetentionGaugeName                = "log_retention"
 	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
+	UnhandledBinlogEventCounterName      = "unhandled_binlog_events"
 	CodeNotificationCounterName          = "code_notification"
 	ServerWalEndLagGaugeName             = "wal_end_lag"
 )
@@ -133,6 +134,7 @@ type Metrics struct {
 	LatestConsumedLogEventGauge      metric.Int64Gauge
 	LogRetentionGauge                metric.Float64Gauge
 	UnchangedToastValuesCounter      metric.Int64Counter
+	UnhandledBinlogEventCounter      metric.Int64Counter
 	ServerWalEndLagGauge             metric.Int64Gauge
 }
 
@@ -569,6 +571,12 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
 		metric.WithDescription(
 			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.UnhandledBinlogEventCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnhandledBinlogEventCounterName),
+		metric.WithDescription("Counter of unexpected MySQL binlog events not handled by CDC dispatch, labeled by event type"),
 	); err != nil {
 		return err
 	}

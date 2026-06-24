@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
@@ -399,6 +400,7 @@ func (c *MySqlConnector) PullRecords(
 
 	var skewLossReported bool
 	var coercionReported bool
+	var unhandledBinlogEventReported bool
 	var updatedOffset string
 	var inTx bool
 	var recordCount uint32
@@ -561,6 +563,7 @@ func (c *MySqlConnector) PullRecords(
 					slog.Uint64("incident", uint64(incident)), slog.String("message", message))
 				return exceptions.NewMySQLBinlogIncidentError(incident, message)
 			}
+			c.reportUnhandledBinlogEvent(ctx, otelManager, event, &unhandledBinlogEventReported)
 		case *replication.QueryEvent:
 			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
 				pos.Pos = event.Header.LogPos
@@ -756,6 +759,8 @@ func (c *MySqlConnector) PullRecords(
 					}
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return fmt.Errorf("mysql v0 replication protocol not supported")
+				default:
+					c.reportUnhandledBinlogEvent(ctx, otelManager, event, &unhandledBinlogEventReported)
 				}
 			}
 			if event.Header.Timestamp > 0 {
@@ -764,9 +769,54 @@ func (c *MySqlConnector) PullRecords(
 					int64(event.Header.Timestamp),
 				)
 			}
+		default:
+			c.reportUnhandledBinlogEvent(ctx, otelManager, event, &unhandledBinlogEventReported)
 		}
 	}
 	return nil
+}
+
+func expectedUnhandledBinlogEvent(eventType replication.EventType) bool {
+	// These event types are routine no-ops for PeerDB or are consumed indirectly by
+	// row/query processing. Counting them would make the unexpected-event signal noisy.
+	switch eventType {
+	case replication.FORMAT_DESCRIPTION_EVENT,
+		replication.INTVAR_EVENT,
+		replication.TABLE_MAP_EVENT,
+		replication.HEARTBEAT_EVENT,
+		replication.ROWS_QUERY_EVENT,
+		replication.PREVIOUS_GTIDS_EVENT,
+		replication.HEARTBEAT_LOG_EVENT_V2,
+		replication.GTID_TAGGED_LOG_EVENT,
+		replication.MARIADB_ANNOTATE_ROWS_EVENT,
+		replication.MARIADB_BINLOG_CHECKPOINT_EVENT,
+		replication.MARIADB_GTID_EVENT,
+		replication.MARIADB_GTID_LIST_EVENT:
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *MySqlConnector) reportUnhandledBinlogEvent(
+	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
+	event *replication.BinlogEvent,
+	warningReported *bool,
+) {
+	if event == nil || event.Header == nil || expectedUnhandledBinlogEvent(event.Header.EventType) {
+		return
+	}
+
+	eventType := event.Header.EventType
+	otelManager.Metrics.UnhandledBinlogEventCounter.Add(ctx, 1,
+		metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.EventTypeKey, eventType.String()))))
+	if !*warningReported {
+		*warningReported = true
+		c.logger.Warn("[mysql] unhandled binlog event type",
+			slog.String("eventType", eventType.String()),
+			slog.Uint64("eventTypeCode", uint64(eventType)))
+	}
 }
 
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
