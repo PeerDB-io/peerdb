@@ -78,11 +78,6 @@ func PeerDBCatalogRequireTls() bool {
 	return getEnvConvert("PEERDB_CATALOG_REQUIRE_TLS", false, strconv.ParseBool)
 }
 
-// PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN
-func PeerDBTelemetryAWSSNSTopicArn() string {
-	return GetEnvString("PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN", "")
-}
-
 func PeerDBAlertingEmailSenderSourceEmail() string {
 	return GetEnvString("PEERDB_ALERTING_EMAIL_SENDER_SOURCE_EMAIL", "")
 }
@@ -193,16 +188,6 @@ func PeerDBSetupFlowHeartbeatTimeoutSeconds() int {
 // workflow. Raise for mirrors with many tables where default 60s causes context deadline exceeded
 func PeerDBSetupFlowWorkflowTaskTimeoutSeconds() int {
 	return getEnvConvert("PEERDB_SETUP_FLOW_WORKFLOW_TASK_TIMEOUT_SECONDS", 60, strconv.Atoi)
-}
-
-// PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED is whether to send error alerts to the telemetry sender
-func PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx context.Context) bool {
-	enabled, err := strconv.ParseBool(GetEnvString("PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED", "false"))
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to parse PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED to bool", slog.Any("error", err))
-		return false
-	}
-	return enabled
 }
 
 // PEERDB_SWITCHBOARD_ENABLED enables the Switchboard server
