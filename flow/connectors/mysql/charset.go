@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/text/encoding"
@@ -17,6 +16,8 @@ import (
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/encoding/unicode/utf32"
 	"golang.org/x/text/transform"
+
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 )
 
 // charsetsNoTranscode lists the MySQL character sets whose stored bytes are
@@ -71,7 +72,9 @@ var mysqlCharsetEncodings = map[string]encoding.Encoding{
 // collationEncoding resolves a MySQL collation id (as carried in binlog
 // TABLE_MAP metadata) to the x/text encoding needed to convert that column's
 // bytes to UTF-8.
-func (c *MySqlConnector) collationEncoding(ctx context.Context, collationID uint64, otelManager *otel_metrics.OtelManager) (encoding.Encoding, error) {
+func (c *MySqlConnector) collationEncoding(
+	ctx context.Context, collationID uint64, otelManager *otel_metrics.OtelManager,
+) (encoding.Encoding, error) {
 	if collationID == 0 {
 		return nil, nil
 	}

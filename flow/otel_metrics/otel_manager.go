@@ -577,7 +577,7 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if om.Metrics.UsedMySQLCharsetsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UsedMySQLCharsetsName),
 		metric.WithDescription(
-			"Counter of used MySQL charsets, with string `charset` label and `status` label indicating whether a charset is unsupported/transcoded/not_transcoded"),
+			"Counter of used MySQL charsets, with `charset` label and `status` label indicating unsupported/transcoded/not_transcoded"),
 	); err != nil {
 		return err
 	}
