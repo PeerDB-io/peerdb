@@ -38,6 +38,20 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: source_connector
+    attributes:
+      label: Source connector
+      description: If this issue relates to a source connector, select it here. Leave blank if not applicable.
+      options:
+        - Postgres
+        - MySQL
+        - MongoDB
+        - BigQuery
+        - Other
+    validations:
+      required: false
+
   - type: markdown
     attributes:
       value: |
@@ -45,13 +59,13 @@ body:
 
         The following destination connectors are **deprecated**: **Snowflake**, **BigQuery**, **ElasticSearch**, **Kafka**, **Redpanda**, **Confluent**, **Azure Event Hubs**, **Google Pub/Sub**, and **S3**.
 
-        These destinations are no longer actively maintained, but remain functional. Bugs affecting only these destinations are unlikely to be prioritized. Note: BigQuery is deprecated **only as a destination** — it remains a supported source. See the [deprecated connectors documentation](https://github.com/PeerDB-io/peerdb/blob/main/docs/deprecated-connectors.md) ([../../docs/deprecated-connectors.md](../../docs/deprecated-connectors.md)) for details and migration guidance.
+        These destinations are no longer actively maintained, but remain functional. Bugs affecting only these destinations are unlikely to be prioritized. Note: BigQuery is deprecated **only as a destination** — it remains a supported source. See the [deprecated connectors documentation](https://github.com/PeerDB-io/peerdb/blob/main/docs/deprecated-connectors.md) for details and migration guidance.
 
   - type: dropdown
     id: destination_connector
     attributes:
       label: Destination connector
-      description: Which destination connector is affected? (See the deprecation notice above.)
+      description: If this issue relates to a destination connector, select it here (see the deprecation notice above). Leave blank if not applicable.
       options:
         - ClickHouse
         - ClickHouse Cloud
@@ -65,6 +79,6 @@ body:
         - Confluent
         - Azure Event Hubs
         - Google Pub/Sub
-        - Other / N/A
+        - Other
     validations:
-      required: true
+      required: false

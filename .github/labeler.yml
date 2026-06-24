@@ -1,7 +1,7 @@
 # Configuration for actions/labeler@v5.
 # Applies the `deprecated` label to PRs that touch deprecated destination connectors:
-# Snowflake, BigQuery, ElasticSearch, Kafka (incl. Confluent/Redpanda), Azure Event Hubs, Google Pub/Sub.
-# S3 and ClickHouse are intentionally excluded.
+# Snowflake, BigQuery, ElasticSearch, Kafka (incl. Confluent/Redpanda), Azure Event Hubs, Google Pub/Sub, S3.
+# ClickHouse and Postgres (the actively-maintained destinations) are intentionally excluded.
 deprecated:
   - changed-files:
       - any-glob-to-any-file:
@@ -44,6 +44,7 @@ deprecated:
           # silently disables the whole labeler config in actions/labeler v5.)
           - flow/connectors/bigquery/bigquery.go
           - flow/connectors/bigquery/merge_stmt_generator.go
+          - flow/connectors/bigquery/qrep.go
           - flow/connectors/bigquery/qrep_avro_sync.go
           - flow/connectors/bigquery/clustering.go
           - flow/e2e/bigquery_test.go
