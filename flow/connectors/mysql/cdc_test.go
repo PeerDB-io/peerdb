@@ -2,58 +2,29 @@ package connmysql
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/google/uuid"
 	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
 	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-func sqlModeStatusVars(sqlMode uint64) []byte {
-	statusVars := []byte{
-		queryStatusVarFlags2,
-		0, 0, 0, 0,
-		queryStatusVarSQLMode,
-		0, 0, 0, 0, 0, 0, 0, 0,
-	}
-	binary.LittleEndian.PutUint64(statusVars[6:], sqlMode)
-	return statusVars
-}
-
-func TestSQLModeFromStatusVars(t *testing.T) {
-	want := uint64(tidbmysql.ModeANSIQuotes | tidbmysql.ModeNoBackslashEscapes)
-
-	got, ok := sqlModeFromStatusVars(sqlModeStatusVars(want))
-	require.True(t, ok)
-	require.Equal(t, want, got)
-
-	_, ok = sqlModeFromStatusVars([]byte{queryStatusVarFlags2, 1, 2, 3})
-	require.False(t, ok)
-
-	_, ok = sqlModeFromStatusVars([]byte{queryStatusVarSQLMode, 1, 2, 3})
-	require.False(t, ok)
-
-	_, ok = sqlModeFromStatusVars([]byte{queryStatusVarCatalogNZ, 3, 'd', 'b', '1'})
-	require.False(t, ok)
-}
-
-func TestSetParserSQLModeFromStatusVarsResetsParser(t *testing.T) {
-	mysqlParser := parser.New()
-	ansiQuotesDDL := `ALTER TABLE "t" ADD COLUMN "c" INT`
-
-	setParserSQLModeFromStatusVars(mysqlParser, sqlModeStatusVars(uint64(tidbmysql.ModeANSIQuotes)))
-	_, _, err := mysqlParser.ParseSQL(ansiQuotesDDL)
-	require.NoError(t, err)
-
-	setParserSQLModeFromStatusVars(mysqlParser, nil)
-	_, _, err = mysqlParser.ParseSQL(ansiQuotesDDL)
-	require.Error(t, err)
+// testDBName namespaces a database per test with a random suffix, mirroring the
+// e2e suite convention, so parallel tests and reruns don't collide.
+func testDBName(prefix string) string {
+	return prefix + "_" + strings.ToLower(common.RandomString(8))
 }
 
 func newTestConnector(t *testing.T, ctx context.Context) *MySqlConnector {
@@ -94,6 +65,104 @@ func createTestDB(t *testing.T, ctx context.Context, c *MySqlConnector, dbName s
 	})
 }
 
+func startBinlogStream(t *testing.T, ctx context.Context, c *MySqlConnector) *replication.BinlogStreamer {
+	t.Helper()
+
+	var syncer *replication.BinlogSyncer
+	var stream *replication.BinlogStreamer
+	if internal.MySQLTestVersionIsMySQLPos() {
+		pos, err := c.GetMasterPos(ctx)
+		require.NoError(t, err)
+		syncer, stream, _, _, err = c.startCdcStreamingFilePos(ctx, pos, nil)
+		require.NoError(t, err)
+	} else {
+		gset, err := c.GetMasterGTIDSet(ctx)
+		require.NoError(t, err)
+		syncer, stream, _, _, err = c.startCdcStreamingGtid(ctx, gset, nil)
+		require.NoError(t, err)
+	}
+	t.Cleanup(syncer.Close)
+	return stream
+}
+
+func waitForQueryEventContaining(
+	t *testing.T, ctx context.Context, stream *replication.BinlogStreamer, marker string,
+) ([]byte, string) {
+	t.Helper()
+
+	streamCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		event, err := stream.GetEvent(streamCtx)
+		require.NoError(t, err, "did not observe QueryEvent containing %q in the binlog", marker)
+		if qe, ok := event.Event.(*replication.QueryEvent); ok && strings.Contains(string(qe.Query), marker) {
+			// status vars alias into the event buffer, which go-mysql may reuse
+			return slices.Clone(qe.StatusVars), string(qe.Query)
+		}
+	}
+}
+
+func TestANSIQuotesDDLParsedFromBinlog(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	connector := newTestConnector(t, ctx)
+
+	dbName := testDBName("ansi_quotes_binlog")
+	createTestDB(t, ctx, connector, dbName)
+	_, err := connector.Execute(ctx, "CREATE TABLE `"+dbName+"`.`t` (id INT PRIMARY KEY)")
+	require.NoError(t, err)
+
+	stream := startBinlogStream(t, ctx, connector)
+
+	// ANSI_QUOTES makes "..." an identifier quote, so the ALTER below only parses
+	// when the mode is passed to the parser as well
+	guid := uuid.NewString()
+	_, err = connector.Execute(ctx, `SET SESSION sql_mode='ANSI_QUOTES'`)
+	require.NoError(t, err)
+
+	ddl := fmt.Sprintf(`/* %s */ ALTER TABLE "%s"."t" ADD COLUMN "c1" INT`, guid, dbName)
+	_, err = connector.Execute(ctx, ddl)
+	require.NoError(t, err)
+
+	statusVars, query := waitForQueryEventContaining(t, ctx, stream, guid)
+
+	// Validate extraction
+	mode, ok := sqlModeFromStatusVars(statusVars)
+	require.True(t, ok)
+	require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars")
+
+	// Validate parsing
+	mysqlParser := parser.New()
+	setParserSQLModeFromStatusVars(mysqlParser, statusVars)
+	stmts, _, err := mysqlParser.ParseSQL(query)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	require.IsType(t, &ast.AlterTableStmt{}, stmts[0])
+
+	// Validate parsing fails without the mode
+	_, _, err = parser.New().ParseSQL(query)
+	require.Error(t, err)
+
+	// Status vars with codes > 1 are written after sql_mode (code 1). Every
+	// QueryEvent already carries catalog (2) and charset (4); force a few more —
+	// auto_increment (3), time_zone (5), lc_time_names (7) — to confirm a fuller
+	// status-var block still doesn't interfere with extracting sql_mode.
+	_, err = connector.Execute(ctx,
+		`SET SESSION auto_increment_increment=7, auto_increment_offset=3, time_zone='+05:00', lc_time_names='fr_FR'`)
+	require.NoError(t, err)
+
+	guid = uuid.NewString()
+	ddl = fmt.Sprintf(`/* %s */ ALTER TABLE "%s"."t" ADD COLUMN "c2" INT`, guid, dbName)
+	_, err = connector.Execute(ctx, ddl)
+	require.NoError(t, err)
+
+	statusVars, _ = waitForQueryEventContaining(t, ctx, stream, guid)
+
+	mode, ok = sqlModeFromStatusVars(statusVars)
+	require.True(t, ok)
+	require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars with extra status vars present")
+}
+
 func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -106,8 +175,8 @@ func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(0), lctn)
 
-	lowerDB := "cs"
-	upperDB := "CS_IDS_TEST"
+	lowerDB := testDBName("cs")
+	upperDB := testDBName("CS_IDS_TEST")
 	createTestDB(t, ctx, connector, lowerDB)
 	createTestDB(t, ctx, connector, upperDB)
 
@@ -156,7 +225,7 @@ func TestGetTableSchemaPrimaryKeyVariants(t *testing.T) {
 	ctx := t.Context()
 	connector := newTestConnector(t, ctx)
 
-	dbName := "pk_variants_test"
+	dbName := testDBName("pk_variants")
 	createTestDB(t, ctx, connector, dbName)
 
 	exec := func(sql string) {

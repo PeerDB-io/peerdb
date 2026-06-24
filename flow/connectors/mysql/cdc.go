@@ -42,44 +42,28 @@ const (
 )
 
 const (
-	queryStatusVarFlags2        = 0
-	queryStatusVarSQLMode       = 1
-	queryStatusVarCatalog       = 2
-	queryStatusVarAutoIncrement = 3
-	queryStatusVarCharset       = 4
-	queryStatusVarTimeZone      = 5
-	queryStatusVarCatalogNZ     = 6
+	queryStatusVarFlags2  = 0
+	queryStatusVarSQLMode = 1
 )
 
+// sqlModeFromStatusVars extracts the sql_mode bitmask from a QueryEvent's status vars.
+// Both MySQL and MariaDB guarantee status vars are written in increasing order,
+// so we only need to parse 0 and 1 to get to 1
+// https://dev.mysql.com/doc/dev/mysql-server/latest/classmysql_1_1binlog_1_1event_1_1Query__event.html#Query_event_binary_format
+// https://github.com/MariaDB/server/blob/c3ec2dc368a8c7165cdbea58208eb828e76ebc57/sql/log_event_server.cc#L1083-L1087
 func sqlModeFromStatusVars(statusVars []byte) (uint64, bool) {
 	for pos := 0; pos < len(statusVars); {
 		code := statusVars[pos]
 		pos++
 
 		switch code {
-		case queryStatusVarFlags2, queryStatusVarAutoIncrement:
+		case queryStatusVarFlags2:
 			pos += 4
 		case queryStatusVarSQLMode:
 			if pos+8 > len(statusVars) {
 				return 0, false
 			}
 			return binary.LittleEndian.Uint64(statusVars[pos : pos+8]), true
-		case queryStatusVarCatalog:
-			payload := statusVars[pos:]
-			if len(payload) == 0 {
-				return 0, false
-			}
-			statusVarLength := int(payload[0])
-			pos += 1 + statusVarLength + 1
-		case queryStatusVarCharset:
-			pos += 6
-		case queryStatusVarTimeZone, queryStatusVarCatalogNZ:
-			payload := statusVars[pos:]
-			if len(payload) == 0 {
-				return 0, false
-			}
-			statusVarLength := int(payload[0])
-			pos += 1 + statusVarLength
 		default:
 			return 0, false
 		}
