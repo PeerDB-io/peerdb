@@ -619,7 +619,7 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 		initialInsertSQL = `INSERT INTO %s (val) VALUES (Vec_FromText('[1.1,1.0]'))`
 		cdcInsertSQL = `INSERT INTO %s (val) VALUES (Vec_FromText('[2.718, 1.414]'))`
 	default:
-		require.FailNow(s.t, "unsupported MySQL flavor: %s", mysource.Config.Flavor)
+		require.FailNow(s.t, fmt.Sprintf("unsupported MySQL flavor: %s", mysource.Config.Flavor))
 	}
 
 	srcTableName := "test_vector"
