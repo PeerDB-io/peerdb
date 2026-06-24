@@ -168,13 +168,64 @@ func (c *MySqlConnector) GetQRepPartitions(
 	return partitionHelper.GetPartitions(), nil
 }
 
+func supportsRangePartition(qkind types.QValueKind) bool {
+	switch qkind {
+	// integer types
+	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
+		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64:
+		return true
+	// temporal types
+	case types.QValueKindDate, types.QValueKindTimestamp:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.GetDefaultPartitionKeyForTablesInput,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
-	return &protos.GetDefaultPartitionKeyForTablesOutput{
-		TableDefaultPartitionKeyMapping: nil,
-	}, nil
+	c.logger.Info("Evaluating if tables can perform parallel load")
+
+	output := &protos.GetDefaultPartitionKeyForTablesOutput{
+		TableDefaultPartitionKeyMapping: make(map[string]string, len(input.TableMappings)),
+	}
+	for _, tm := range input.TableMappings {
+		source := tm.SourceTableIdentifier
+		schema, ok := input.TableSchemaMapping[source]
+		if !ok {
+			c.logger.Warn("[mysql] table schema not found, defaulting to full table snapshot",
+				slog.String("table", source))
+			continue
+		}
+		if len(schema.PrimaryKeyColumns) == 0 {
+			c.logger.Info("[mysql] table has no primary key, defaulting to full table snapshot",
+				slog.String("table", source))
+			continue
+		}
+		pkColumn := schema.PrimaryKeyColumns[0]
+		var pkQKind types.QValueKind
+		for _, col := range schema.Columns {
+			if col.Name == pkColumn {
+				pkQKind = types.QValueKind(col.Type)
+				break
+			}
+		}
+		if !supportsRangePartition(pkQKind) {
+			c.logger.Info("[mysql] primary key type does not support range partitioning, defaulting to full table snapshot",
+				slog.String("table", source),
+				slog.String("column", pkColumn),
+				slog.String("qkind", string(pkQKind)))
+			continue
+		}
+		c.logger.Info("[mysql] using primary key as default partition key",
+			slog.String("table", source),
+			slog.String("column", pkColumn),
+			slog.String("qkind", string(pkQKind)))
+		output.TableDefaultPartitionKeyMapping[source] = pkColumn
+	}
+	return output, nil
 }
 
 func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string) string {

@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -10,12 +11,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -587,6 +591,73 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 	} else {
 		require.Equal(s.t, "active", rows.Records[1][1].Value())
 	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Charset_Consistency() {
+	if mySource, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	} else {
+		// Transcoding relies on collation metadata in TABLE_MAP, only present with binlog_row_metadata.
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("only applies to mysql versions with binlog_row_metadata")
+		}
+	}
+
+	srcTableName := "test_my_charset"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_my_charset_dst"
+
+	// latin1 (Windows-1252) and gbk columns: their stored bytes are NOT UTF-8.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			latin1_col VARCHAR(50) CHARACTER SET latin1 NOT NULL,
+			gbk_col VARCHAR(50) CHARACTER SET gbk NOT NULL
+		)
+	`, quotedSrcFullName)))
+
+	// Insert before snapshot. The source connection runs SET NAMES utf8mb4, so the server
+	// transcodes these UTF-8 literals down into the columns' latin1/gbk storage encodings.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (latin1_col, gbk_col) VALUES ('café', '你好')`, quotedSrcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,latin1_col,gbk_col", 1)
+
+	// Same values via CDC (binlog path).
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (latin1_col, gbk_col) VALUES ('café', '你好')`, quotedSrcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,latin1_col,gbk_col", 2)
+
+	rows, err := s.GetRows(dstTableName, "id,latin1_col,gbk_col")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+
+	// Snapshot (row 0) and CDC (row 1) must be byte-identical and correctly decoded.
+	require.Equal(s.t, rows.Records[0][1].Value(), rows.Records[1][1].Value(),
+		"snapshot and CDC latin1 values should be consistent")
+	require.Equal(s.t, rows.Records[0][2].Value(), rows.Records[1][2].Value(),
+		"snapshot and CDC gbk values should be consistent")
+	require.Equal(s.t, "café", rows.Records[1][1].Value())
+	require.Equal(s.t, "你好", rows.Records[1][2].Value())
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
@@ -1467,4 +1538,183 @@ func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
 			RequireEnvCanceled(s.t, env)
 		})
 	}
+}
+
+// Test_MySQL_BinlogIncident verifies that a MySQL binlog INCIDENT_EVENT (LOST_EVENTS) surfaces as
+// a resync-required error on the mirror. It runs its own throwaway debug-build MySQL because the
+// incident must be injected via the DBUG facility and requires a custom image.
+func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
+	if s.cluster {
+		s.t.Skip("source-side incident coverage does not need to run against ClickHouse cluster")
+	}
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if internal.MySQLTestVersionIsMaria() {
+		s.t.Skip("binlog incident injection requires a MySQL debug build; not available for MariaDB")
+	}
+
+	req := testcontainers.ContainerRequest{
+		Image: "ghcr.io/peerdb-io/mysql-debug:8.0.46",
+		Env: map[string]string{
+			"MYSQL_ROOT_PASSWORD": internal.MySQLTestRootPasswordWithFallback("cipass"),
+			"MYSQL_ROOT_HOST":     "%",
+		},
+		// Keep the debug server small for the one-off testcontainers
+		Cmd: []string{
+			"mysqld",
+			"--server-id=1",
+			"--log-bin=mysql-bin",
+			"--binlog-format=ROW",
+			"--innodb-buffer-pool-size=64M",
+			"--performance-schema=OFF",
+			"--mysqlx=0",
+			"--max-connections=20",
+			"--table-open-cache=64",
+			"--table-definition-cache=128",
+			"--innodb-log-buffer-size=8M",
+		},
+		ExposedPorts: []string{"3306/tcp"},
+		WaitingFor:   wait.ForListeningPort("3306/tcp").WithStartupTimeout(3 * time.Minute),
+	}
+
+	ctr, err := testcontainers.GenericContainer(s.t.Context(), testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	testcontainers.CleanupContainer(s.t, ctr, testcontainers.StopTimeout(30*time.Second))
+	require.NoError(s.t, err)
+
+	mapped, err := ctr.MappedPort(s.t.Context(), "3306/tcp")
+	require.NoError(s.t, err)
+	port, err := strconv.Atoi(mapped.Port())
+	require.NoError(s.t, err)
+
+	replication := protos.MySqlReplicationMechanism_MYSQL_GTID
+	if internal.MySQLTestVersionIsMySQLPos() {
+		replication = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	}
+
+	suffix := "mydbginc_" + strings.ToLower(common.RandomString(8))
+	config := &protos.MySqlConfig{
+		// host.docker.internal resolves both from the test process (to the published port) and
+		// from the flow worker container (via host-gateway), unlike the container's own host.
+		Host:                 internal.MySQLTestHost(),
+		Port:                 uint32(port),
+		User:                 "root",
+		Password:             internal.MySQLTestRootPasswordWithFallback("cipass"),
+		DisableTls:           true,
+		Flavor:               protos.MySqlFlavor_MYSQL_MYSQL,
+		ReplicationMechanism: replication,
+	}
+	src, err := setupMyConnector(s.t, suffix, config, "mysql_debug_"+suffix)
+	require.NoError(s.t, err)
+	s.t.Cleanup(func() { src.Teardown(s.t, context.Background(), suffix) })
+
+	srcTableName := "incident"
+	srcFullName := fmt.Sprintf("e2e_test_%s.%s", suffix, srcTableName)
+	dstTableName := "incident_dst"
+
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, val TEXT)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "test_mysql_binlog_incident_" + suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	// The suite source is the shared CI MySQL; point the mirror at our debug source instead.
+	flowConnConfig.SourceName = src.GeneratePeer(s.t).Name
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Inject a binlog incident (LOST_EVENTS). The DBUG symbol takes effect for the session that
+	// runs the committing statement, so the SET and the INSERT must share a connection - the
+	// connector reuses a single connection, so sequential Exec calls satisfy this.
+	require.NoError(s.t, src.Exec(s.t.Context(), "SET SESSION debug='+d,binlog_inject_incident'"))
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, val) VALUES (1, 'incident')`, srcFullName)))
+	require.NoError(s.t, src.Exec(s.t.Context(), "SET SESSION debug='-d,binlog_inject_incident'"))
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for binlog incident error", func() bool {
+		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "binlog incident event received")
+		if err != nil {
+			s.t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Default_Partition_Key_Parallel_Snapshot() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTable := "test_default_partition_key_parallel"
+	srcFullName := s.attachSchemaSuffix(srcTable)
+	dstTable := "test_default_partition_key_parallel_dst"
+
+	const numRows = 100
+	const numPartitions = 8
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s (id BIGINT PRIMARY KEY, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)", srcFullName)))
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s (id) VALUES (%d)", srcFullName, i)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("default_partition_key_parallel"),
+		// PartitionKey is not specified to test default partition key detection
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumPartitionsOverride = numPartitions
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,created_at")
+
+	partitionRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
+		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer partitionRows.Close()
+
+	var partitionCount int32
+	var totalRows int64
+	for partitionRows.Next() {
+		var partitionStart, partitionEnd *string
+		var rowsInPartition int64
+		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
+		require.NotNil(s.t, partitionStart)
+		require.NotNil(s.t, partitionEnd)
+		totalRows += rowsInPartition
+		partitionCount++
+	}
+	require.NoError(s.t, partitionRows.Err())
+	require.EqualValues(s.t, numPartitions, partitionCount)
+	require.EqualValues(s.t, numRows, totalRows)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }

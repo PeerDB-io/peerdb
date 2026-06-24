@@ -57,6 +57,20 @@ func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
 	assert.Regexp(t, "^lookup "+hostName+"( on [\\w\\d\\.:]*)?: no such host$", errInfo.Code, "Unexpected error code")
 }
 
+func TestSSHTunnelConnectionErrorShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors how the Postgres CDC loop wraps a read failure once the SSH tunnel has gone bad.
+	err := fmt.Errorf("error in PullRecords: %w",
+		exceptions.NewSSHTunnelConnectionError(fmt.Errorf("ReceiveMessage failed: %w", net.ErrClosed)))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_CONNECTION_LOST",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestNeonConnectivityErrorShouldBeConnectivity(t *testing.T) {
 	t.Skip("Not a good idea to run this test in CI as it goes to Neon, maybe we need a better mock")
 	config, err := pgx.ParseConfig("postgres://random-endpoint-id-here.us-east-2.aws.neon.tech:5432/db?options=endpoint%3Dtest_endpoint")
