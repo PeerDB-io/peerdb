@@ -3,9 +3,9 @@ name: Update Deployment tags (Docker Compose and Helm Charts)
 on:
   workflow_dispatch:
     inputs: {}
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+  release:
+    types:
+      - published
 
 permissions:
   issues: write
