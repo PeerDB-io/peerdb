@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/encoding/japanese"
@@ -68,9 +71,18 @@ var mysqlCharsetEncodings = map[string]encoding.Encoding{
 // collationEncoding resolves a MySQL collation id (as carried in binlog
 // TABLE_MAP metadata) to the x/text encoding needed to convert that column's
 // bytes to UTF-8.
-func (c *MySqlConnector) collationEncoding(ctx context.Context, collationID uint64) (encoding.Encoding, error) {
+func (c *MySqlConnector) collationEncoding(ctx context.Context, collationID uint64, otelManager *otel_metrics.OtelManager) (encoding.Encoding, error) {
 	if collationID == 0 {
 		return nil, nil
+	}
+
+	recordUsedCharsetMetrics := func(ctx context.Context, charset string, status string) {
+		otelManager.Metrics.UsedMySQLCharsetsCounter.Add(ctx, 1,
+			metric.WithAttributeSet(attribute.NewSet(
+				attribute.String("charset", charset),
+				attribute.String("status", status),
+			)),
+		)
 	}
 
 	charset, err := c.charsetForCollation(ctx, collationID)
@@ -86,16 +98,20 @@ func (c *MySqlConnector) collationEncoding(ctx context.Context, collationID uint
 	}
 
 	if _, skip := charsetsNoTranscode[charset]; skip {
+		recordUsedCharsetMetrics(ctx, charset, "not_transcoded")
 		return nil, nil
 	}
 	if enc, ok := mysqlCharsetEncodings[charset]; ok {
+		recordUsedCharsetMetrics(ctx, charset, "transcoded")
 		return enc, nil
 	}
 
+	recordUsedCharsetMetrics(ctx, charset, "unsupported")
 	c.warnCharsetOnce(charset, func() {
 		c.logger.Warn("unsupported MySQL character set on CDC path, passing bytes through untranscoded",
 			slog.String("charset", charset), slog.Uint64("collationID", collationID))
 	})
+
 	return nil, nil
 }
 

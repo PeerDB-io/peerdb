@@ -613,14 +613,14 @@ func (c *MySqlConnector) PullRecords(
 					if colIdx < 0 || colIdx >= len(colEncodings) {
 						continue
 					}
-					enc, err := c.collationEncoding(ctx, collationID)
+					enc, err := c.collationEncoding(ctx, collationID, otelManager)
 					if err != nil {
 						return err
 					}
 					colEncodings[colIdx] = enc
 				}
 				for colIdx, collationID := range ev.Table.EnumSetCollationMap() {
-					enc, err := c.collationEncoding(ctx, collationID)
+					enc, err := c.collationEncoding(ctx, collationID, otelManager)
 					if err != nil {
 						return err
 					}
