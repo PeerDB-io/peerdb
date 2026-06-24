@@ -52,7 +52,7 @@ func createTestDB(t *testing.T, ctx context.Context, c *MySqlConnector, dbName s
 	})
 }
 
-func TestTrimQueryEventSQLParsesTrailingNull(t *testing.T) {
+func TestParseSQLParsesTrailingNull(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		query  []byte
@@ -80,7 +80,7 @@ func TestTrimQueryEventSQLParsesTrailingNull(t *testing.T) {
 			_, _, err := mysqlParser.ParseSQL(string(tc.query))
 			require.Error(t, err)
 
-			stmts, warns, err := mysqlParser.ParseSQL(trimQueryEventSQL(tc.query))
+			stmts, warns, err := parseSQL(mysqlParser, tc.query)
 			require.NoError(t, err)
 			require.Empty(t, warns)
 			require.Len(t, stmts, 1)
