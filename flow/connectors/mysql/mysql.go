@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,6 +38,8 @@ type MySqlConnector struct {
 	logger                log.Logger
 	rdsAuth               *utils.RDSAuth
 	serverVersion         string
+	collationCharset      atomic.Pointer[map[uint64]string]
+	warnedCharsets        sync.Map
 	binlogHeartbeatPeriod time.Duration
 	totalBytesRead        atomic.Int64
 	deltaBytesRead        atomic.Int64

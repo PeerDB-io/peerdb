@@ -469,6 +469,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_MYSQL_DEFAULT_PARTITION_KEY_ENABLED",
+		Description:      "Enables automatic detection of a default partition key from primary key for MySQL initial load",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_PG_AUTOMATED_SCHEMA_DUMP",
 		Description: "For PG-to-PG mirrors, run pg_dump --schema-only from source into psql on destination " +
 			"during setup so destination schema/tables/indexes match the source.",
@@ -856,6 +864,10 @@ func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]st
 
 func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
+}
+
+func PeerDBMySQLDefaultPartitionKeyEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MYSQL_DEFAULT_PARTITION_KEY_ENABLED")
 }
 
 func PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {
