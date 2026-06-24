@@ -17,6 +17,8 @@ At PeerDB, we are building a fast, simple and the most cost effective way to str
 
 We support different modes of streaming - log based (CDC), cursor based (timestamp or integer) and XMIN based. Performance wise, we are 10x faster than existing tools. Features wise, we support native Postgres features such as comprehensive set of data-types incl. jsonb/arrays/geospatial, efficiently streaming TOAST columns, schema changes and so on.
 
+> **Connector deprecation notice:** The Snowflake, BigQuery, ElasticSearch, Kafka (including Confluent and Redpanda variants), Azure Event Hubs, Google Pub/Sub, and S3 **destination** connectors are deprecated and no longer actively maintained. They remain fully functional in the current and all prior releases, and no code is being removed. The actively-maintained paths going forward are Postgres → ClickHouse, Postgres → ClickHouse Cloud, and Postgres → Postgres. This deprecation applies to the **destination** role only — BigQuery remains a supported **source**. See the [connector status matrix](#status) and the [deprecated connectors migration guide](docs/deprecated-connectors.md) for how to pin to a release or fork the relevant code.
+
 ## Get started
 
 ```bash
@@ -89,7 +91,26 @@ You can use Postgres’ ecosystem to manage your ETL —
 
 ## Status
 
-We have expanded our connector ecosystem to support multiple source connectors beyond Postgres, including MySQL and MongoDB. You can check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors)
+We have expanded our connector ecosystem to support multiple source connectors beyond Postgres, including MySQL and MongoDB. You can check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors).
+
+| Connector | Direction (source/destination) | Status |
+| --- | --- | --- |
+| Postgres | Source | **Actively maintained** |
+| MySQL | Source | **Actively maintained** |
+| MongoDB | Source | **Actively maintained** |
+| BigQuery | Source | **Actively maintained** |
+| ClickHouse | Destination | **Actively maintained** |
+| ClickHouse Cloud | Destination | **Actively maintained** |
+| Postgres | Destination | **Actively maintained** |
+| S3 | Destination | **Deprecated** |
+| Snowflake | Destination | **Deprecated** |
+| BigQuery | Destination | **Deprecated** |
+| ElasticSearch | Destination | **Deprecated** |
+| Kafka | Destination | **Deprecated** |
+| Redpanda | Destination | **Deprecated** |
+| Confluent | Destination | **Deprecated** |
+| Azure Event Hubs | Destination | **Deprecated** |
+| Google Pub/Sub | Destination | **Deprecated** |
 
 ## Local End to End testing
 
