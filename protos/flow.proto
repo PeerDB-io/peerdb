@@ -666,6 +666,7 @@ message AdditionalContextMetadata{
 
 message GetDefaultPartitionKeyForTablesInput {
   repeated TableMapping table_mappings = 1;
+  map<string, TableSchema> table_schema_mapping = 2;
 }
 
 message GetDefaultPartitionKeyForTablesOutput {

@@ -137,3 +137,19 @@ func (e *MySQLStaleConnectionError) Error() string {
 	return fmt.Sprintf("MySQL connection is stale: no events received in %v (heartbeat=%v)",
 		e.Since, e.HeartbeatPeriod)
 }
+
+type MySQLBinlogIncidentError struct {
+	Message  string
+	Incident uint16
+}
+
+func NewMySQLBinlogIncidentError(incident uint16, message string) *MySQLBinlogIncidentError {
+	return &MySQLBinlogIncidentError{Incident: incident, Message: message}
+}
+
+func (e *MySQLBinlogIncidentError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("MySQL binlog incident event received (incident=%d): %s; a resync is required", e.Incident, e.Message)
+	}
+	return fmt.Sprintf("MySQL binlog incident event received (incident=%d); a resync is required", e.Incident)
+}
