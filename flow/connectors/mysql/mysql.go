@@ -427,10 +427,6 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 		return mysql.Position{}, fmt.Errorf("failed to %s: %w", showBinlogStatus, err)
 	}
 
-	return decodeMasterPosResult(rr, showBinlogStatus)
-}
-
-func decodeMasterPosResult(rr *mysql.Result, showBinlogStatus string) (mysql.Position, error) {
 	if rr == nil || rr.Resultset == nil || rr.RowNumber() == 0 {
 		return mysql.Position{}, fmt.Errorf("%s returned no binary log position; "+
 			"binary logging may be disabled or the position is unreadable", showBinlogStatus)
