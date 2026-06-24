@@ -513,6 +513,7 @@ func PullCdcRecords[Items model.Items](
 	)
 
 	records := req.RecordStream
+	warnedReplIdentTables := make(map[string]struct{})
 	var totalRecords int64
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
@@ -764,7 +765,7 @@ func PullCdcRecords[Items model.Items](
 
 				logger.Debug("XLogData",
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
-				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
+				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor, warnedReplIdentTables)
 				if err != nil {
 					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
@@ -937,6 +938,7 @@ func processMessage[Items model.Items](
 	xld pglogrepl.XLogData,
 	currentClientXlogPos pglogrepl.LSN,
 	processor replProcessor[Items],
+	warnedReplIdentTables map[string]struct{},
 ) (model.Record[Items], error) {
 	logger := internal.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
@@ -959,7 +961,7 @@ func processMessage[Items model.Items](
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor, customTypeMapping)
 	case *pglogrepl.UpdateMessage:
-		return processUpdateMessage(p, xld.WALStart, msg, processor, customTypeMapping)
+		return processUpdateMessage(p, xld.WALStart, msg, processor, customTypeMapping, warnedReplIdentTables)
 	case *pglogrepl.DeleteMessage:
 		return processDeleteMessage(p, xld.WALStart, msg, processor, customTypeMapping)
 	case *pglogrepl.CommitMessage:
@@ -1071,6 +1073,7 @@ func processUpdateMessage[Items model.Items](
 	msg *pglogrepl.UpdateMessage,
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+	warnedReplIdentTables map[string]struct{},
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -1081,6 +1084,20 @@ func processUpdateMessage[Items model.Items](
 
 	// log lsn and relation id for debugging
 	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+
+	// By default, replica identity is the same as source PK/destination ordering key,
+	// so when it changes the destination can see duplicates or missed deletes.
+	// UpdateMessageTupleTypeKey fires when any replica identity column changes; if a replica identity is a superset
+	// of the dest ordering key (much rarer), the change to the extra columns is harmless and the warning doesn't apply.
+	// Replica identity full (OldTupleType=UpdateMessageTupleTypeOld) would require us to compare column values
+	// ourselves which we're avoiding for perf reasons, so absence of warning doesn't guarantee there wasn't a change.
+	if msg.OldTupleType == pglogrepl.UpdateMessageTupleTypeKey {
+		if _, warned := warnedReplIdentTables[tableName]; !warned {
+			warnedReplIdentTables[tableName] = struct{}{}
+			p.logger.Warn("UpdateMessage changed a replica identity column, destination may see duplicates/missed deletes",
+				slog.String("tableName", tableName))
+		}
+	}
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {

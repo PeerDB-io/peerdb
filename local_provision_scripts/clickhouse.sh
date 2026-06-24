@@ -4,6 +4,7 @@ set -Eeu
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
 . "$SCRIPT_DIR/../.env"
+. "$SCRIPT_DIR/../ancillary.env"
 
 CONTAINER="peerdb-clickhouse"
 

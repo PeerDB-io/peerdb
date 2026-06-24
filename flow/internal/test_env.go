@@ -95,7 +95,7 @@ func MySQLTestVersion() string {
 }
 
 func MySQLTestVersionIsMaria() bool {
-	return MySQLTestVersion() == "maria"
+	return strings.HasPrefix(MySQLTestVersion(), "maria")
 }
 
 func MySQLTestVersionIsMySQLPos() bool {

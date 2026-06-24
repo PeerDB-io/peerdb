@@ -1,0 +1,74 @@
+name: 'Ingest test results'
+description: >-
+  Normalize JUnit test results and ingest them into the CI observability store
+  for analysis. No-op when the o11y target secrets are not configured. Must run
+  from the workspace root (uses .github/scripts/test-results.sh) and requires the
+  `retry` CLI on PATH.
+
+inputs:
+  combination-id:
+    description: >-
+      Identifier for the combination/compatibility this run covers (stored as
+      compatibility_matrix_id). e.g. "pg17-my8-mo7-ch24" or "tilt-TestApiPg".
+    required: true
+  test-results-file:
+    description: Path to the JUnit XML test results file (relative to the workspace root).
+    required: false
+    default: logs/test-results.xml
+  o11y-api-key-id:
+    description: API key id for the o11y ingestion endpoint. Ingestion is skipped when empty.
+    required: false
+    default: ''
+  o11y-api-key-secret:
+    description: API key secret for the o11y ingestion endpoint. Ingestion is skipped when empty.
+    required: false
+    default: ''
+  o11y-query-endpoint:
+    description: Query endpoint the normalized results are POSTed to. Ingestion is skipped when empty.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Ingest tests results for analysis
+      shell: bash
+      env:
+        WORKFLOW_RUN_ID: ${{ github.run_id }}
+        WORKFLOW_RUN_LINK: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        WORKFLOW_HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
+        WORKFLOW_RUN_NUMBER: ${{ github.run_attempt }}
+        COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        SUMMARY_HEADER: "x-clickhouse-summary"
+        COMBINATION_ID: ${{ inputs.combination-id }}
+        TEST_RESULTS_FILE: ${{ inputs.test-results-file }}
+        O11Y_API_KEY_ID: ${{ inputs.o11y-api-key-id }}
+        O11Y_API_KEY_SECRET: ${{ inputs.o11y-api-key-secret }}
+        O11Y_QUERY_ENDPOINT: ${{ inputs.o11y-query-endpoint }}
+      run: |
+        if [ -z "$O11Y_API_KEY_ID" ] \
+          || [ -z "$O11Y_API_KEY_SECRET" ] \
+          || [ -z "$O11Y_QUERY_ENDPOINT" ]; then
+            echo "Secrets not configured; Test results ingestion is disabled."
+            exit 0
+        fi
+        .github/scripts/test-results.sh "$TEST_RESULTS_FILE" > logs/normalized-test-results.ndjson
+        if [ ! -s logs/normalized-test-results.ndjson ]; then
+            echo "Failed to extract test results"
+            exit 1
+        fi
+        # Retry upload with exponential backoff
+        retry --times=5 --delay "1,2,4,8,16,32,64,128" -- \
+        curl --fail-with-body -i -H "Content-Type: application/octet-stream" \
+          --user "$O11Y_API_KEY_ID:$O11Y_API_KEY_SECRET" \
+          "$O11Y_QUERY_ENDPOINT" \
+          --data-binary @logs/normalized-test-results.ndjson \
+          | tee upload.log
+        WRITTEN_ROWS=$(cat upload.log | grep $SUMMARY_HEADER | sed "s/$SUMMARY_HEADER: //" | jq '.written_rows' -r)
+        if [ -z "$WRITTEN_ROWS" ] || [ "$WRITTEN_ROWS" -eq 0 ]; then
+            echo "No results uploaded. Query client logs:"
+            cat upload.log
+            exit 2
+        fi
+        echo "Number of ingested test results: $WRITTEN_ROWS"
+        exit 0
