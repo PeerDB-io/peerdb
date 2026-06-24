@@ -607,17 +607,34 @@ func (c *MySqlConnector) PullRecords(
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()
 
-				// build colIdx -> encoding map based on event collation map
-				colEncodings := make([]encoding.Encoding, len(ev.Table.ColumnType))
+				// build colIdx -> encoding map based on event collation map.
+				// Allocated lazily: tables whose character columns are all utf8/ascii/binary
+				// (the common case) resolve every collation to a nil encoding and never allocate.
+				var colEncodings []encoding.Encoding
+				encFor := func(idx int) encoding.Encoding {
+					if idx >= 0 && idx < len(colEncodings) {
+						return colEncodings[idx]
+					}
+					return nil
+				}
+				setColEncoding := func(colIdx int, enc encoding.Encoding) {
+					if colEncodings == nil {
+						colEncodings = make([]encoding.Encoding, len(ev.Table.ColumnType))
+					}
+					colEncodings[colIdx] = enc
+				}
 				for colIdx, collationID := range ev.Table.CollationMap() {
-					if colIdx < 0 || colIdx >= len(colEncodings) {
+					if colIdx < 0 || colIdx >= len(ev.Table.ColumnType) {
 						continue
 					}
 					enc, err := c.collationEncoding(ctx, collationID, otelManager)
 					if err != nil {
 						return err
 					}
-					colEncodings[colIdx] = enc
+					if enc == nil {
+						continue
+					}
+					setColEncoding(colIdx, enc)
 				}
 				for colIdx, collationID := range ev.Table.EnumSetCollationMap() {
 					enc, err := c.collationEncoding(ctx, collationID, otelManager)
@@ -627,7 +644,7 @@ func (c *MySqlConnector) PullRecords(
 					if enc == nil {
 						continue
 					}
-					colEncodings[colIdx] = enc
+					setColEncoding(colIdx, enc)
 					for labels := range slices.Values([][]string{enumMap[colIdx], setMap[colIdx]}) {
 						for i, label := range labels {
 							decoded, err := decodeMySQLString(enc, label)
@@ -678,7 +695,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, colEncodings[idx], c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -715,7 +732,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, colEncodings[idx], c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -729,7 +746,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, colEncodings[idx], c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -767,7 +784,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, colEncodings[idx], c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
