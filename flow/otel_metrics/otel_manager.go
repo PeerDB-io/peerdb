@@ -81,6 +81,7 @@ const (
 	CodeNotificationCounterName          = "code_notification"
 	ServerWalEndLagGaugeName             = "wal_end_lag"
 	UsedMySQLCharsetsName                = "used_mysql_charsets"
+	ColumnTypeChangesName                = "column_type_changes"
 )
 
 type Metrics struct {
@@ -136,6 +137,7 @@ type Metrics struct {
 	UnchangedToastValuesCounter      metric.Int64Counter
 	ServerWalEndLagGauge             metric.Int64Gauge
 	UsedMySQLCharsetsCounter         metric.Int64Counter
+	ColumnTypeChangesCounter         metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -578,6 +580,14 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UsedMySQLCharsetsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UsedMySQLCharsetsName),
 		metric.WithDescription(
 			"Counter of used MySQL charsets, with `charset` label and `status` label indicating unsupported/transcoded/not_transcoded"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ColumnTypeChangesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ColumnTypeChangesName),
+		metric.WithDescription(
+			"Counter of column type changes detected on the CDC path, with `source` label holding the source peer type "+
+				"and `from`/`to` labels holding the source/target type"),
 	); err != nil {
 		return err
 	}

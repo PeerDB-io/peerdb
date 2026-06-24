@@ -46,6 +46,9 @@ const (
 	EndBatchIDKey              = "endBatchID"
 	ResumeTokenKey             = "resumeToken"
 	GtidKey                    = "gtid"
+	TypeChangeSourceKey        = "source"
+	TypeChangeFromKey          = "from"
+	TypeChangeToKey            = "to"
 )
 
 const (

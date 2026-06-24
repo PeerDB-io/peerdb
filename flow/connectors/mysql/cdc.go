@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/text/encoding"
 	"google.golang.org/protobuf/proto"
@@ -582,7 +583,8 @@ func (c *MySqlConnector) PullRecords(
 			for _, stmt := range stmts {
 				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, req, alterTableStmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
+						ctx, catalogPool, otelManager, req, alterTableStmt,
+						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
 				}
@@ -661,7 +663,7 @@ func (c *MySqlConnector) PullRecords(
 				if ev.Table.ColumnName != nil {
 					var err error
 					fields, err = c.processTableMapEventSchema(
-						ctx, catalogPool, req, ev.Table,
+						ctx, catalogPool, otelManager, req, ev.Table,
 						sourceTableName, destinationTableName, schema, exclusion,
 					)
 					if err != nil {
@@ -820,6 +822,7 @@ func (c *MySqlConnector) PullRecords(
 }
 
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
 	binlogRowMetadataSupported bool, mirrorVersion uint32,
 ) error {
@@ -847,6 +850,13 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		NullableEnabled: currentSchema != nil && currentSchema.NullableEnabled,
 	}
 
+	existingColTypes := make(map[string]string)
+	if currentSchema != nil {
+		for _, col := range currentSchema.Columns {
+			existingColTypes[col.Name] = col.Type
+		}
+	}
+
 	hasPositionShiftingDdlChanges := false
 
 	for _, spec := range stmt.Specs {
@@ -861,16 +871,31 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					continue
 				}
 
+				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
+				if err != nil {
+					return err
+				}
+
+				// If the column already exists, this is a MODIFY COLUMN that may change
+				// its type rather than an ADD COLUMN. Record the type change for telemetry;
+				// we don't propagate column type changes yet.
+				if oldType, exists := existingColTypes[col.Name.OrigColName()]; exists {
+					if oldType != string(qkind) {
+						c.logger.Warn("column type change detected via ALTER TABLE, not propagating",
+							slog.String("table", sourceTableName),
+							slog.String("column", col.Name.OrigColName()),
+							slog.String("from", oldType),
+							slog.String("to", string(qkind)))
+						c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(oldType), qkind)
+					}
+					continue
+				}
+
 				if spec.Position != nil && spec.Position.Tp != ast.ColumnPositionNone {
 					hasPositionShiftingDdlChanges = true
 					c.logger.Warn("column added with position specifier (FIRST/AFTER)",
 						slog.String("columnName", col.Name.String()),
 						slog.String("tableName", sourceTableName))
-				}
-
-				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
-				if err != nil {
-					return err
 				}
 
 				nullable := true
@@ -948,12 +973,23 @@ func parseIncidentEvent(data []byte) (uint16, string) {
 	return incident, string(data[3:end])
 }
 
+func (c *MySqlConnector) recordColumnTypeChange(
+	ctx context.Context, otelManager *otel_metrics.OtelManager, from types.QValueKind, to types.QValueKind,
+) {
+	otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.TypeChangeSourceKey, "mysql"),
+		attribute.String(otel_metrics.TypeChangeFromKey, string(from)),
+		attribute.String(otel_metrics.TypeChangeToKey, string(to)),
+	)))
+}
+
 // processTableMapEventSchema compares the TABLE_MAP_EVENT schema against the cached schema
 // and returns a TableSchemaDelta if new columns are detected (e.g., after gh-ost migration).
 // It also returns a slice mapping binlog column index to FieldDescription for efficient row processing.
 func (c *MySqlConnector) processTableMapEventSchema(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
 	tableMap *replication.TableMapEvent,
 	sourceTableName string,
@@ -981,14 +1017,26 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			continue
 		}
 
+		var charset uint16
+		if collation, ok := collationMap[idx]; ok {
+			charset = uint16(collation)
+		}
+
 		if fd, exists := existingCols[colName]; exists {
 			newFds[idx] = fd
+
+			if qkind, err := qkindFromMysqlType(
+				tableMap.ColumnType[idx], unsignedMap[idx], charset, req.InternalVersion,
+			); err == nil && qkind != types.QValueKind(fd.Type) {
+				c.logger.Warn("column type change detected from TABLE_MAP_EVENT, not propagating",
+					slog.String("table", sourceTableName),
+					slog.String("column", colName),
+					slog.String("from", fd.Type),
+					slog.String("to", string(qkind)))
+				c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(fd.Type), qkind)
+			}
 		} else {
 			// New column detected - get type from TABLE_MAP_EVENT
-			var charset uint16
-			if collation, ok := collationMap[idx]; ok {
-				charset = uint16(collation)
-			}
 			mytype := tableMap.ColumnType[idx]
 			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset, req.InternalVersion)
 			if err != nil {
