@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -44,6 +45,17 @@ func (c *ClickHouseConnector) ConsolidateQRepPartitions(_ context.Context, confi
 // CleanupQRepFlow function for clickhouse connector
 func (c *ClickHouseConnector) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
 	flowName := config.FlowJobName
+
+	skipCleanup, err := internal.PeerDBClickHouseSkipStagingCleanup(ctx, config.Env)
+	if err != nil {
+		return fmt.Errorf("failed to read staging cleanup config: %w", err)
+	}
+	if skipCleanup {
+		c.logger.Info("Skipping staging cleanup after QRepFlow (PEERDB_CLICKHOUSE_SKIP_STAGING_CLEANUP enabled)",
+			slog.String("stagingPath", c.staging.BucketPath()), slog.String("flowName", flowName))
+		return nil
+	}
+
 	c.logger.Info("Cleaning up stage after QRepFlow",
 		slog.String("stagingPath", c.staging.BucketPath()), slog.String("flowName", flowName))
 

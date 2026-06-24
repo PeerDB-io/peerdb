@@ -194,8 +194,40 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	}
 	defer connClose(ctx)
 
+	srcType, err := connectors.LoadPeerType(ctx, a.CatalogPool, input.SourceName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to load source peer type: %w", err))
+	}
+
+	var tableSchemaMapping map[string]*protos.TableSchema
+	if srcType == protos.DBType_MYSQL {
+		mysqlDefaultPartitionKeyEnabled, err := internal.PeerDBMySQLDefaultPartitionKeyEnabled(ctx, input.Env)
+		if err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName,
+				fmt.Errorf("failed to check if mysql default partition key detection is enabled: %w", err))
+		}
+
+		if mysqlDefaultPartitionKeyEnabled {
+			dstTableNames := make([]string, 0, len(input.TableMappings))
+			for _, tm := range input.TableMappings {
+				dstTableNames = append(dstTableNames, tm.DestinationTableIdentifier)
+			}
+			schemasByDstTable, err := internal.LoadTableSchemasFromCatalog(ctx, a.CatalogPool.Pool, input.FlowJobName, dstTableNames)
+			if err != nil {
+				return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to load table schemas from catalog: %w", err))
+			}
+			tableSchemaMapping = make(map[string]*protos.TableSchema, len(input.TableMappings))
+			for _, tm := range input.TableMappings {
+				if schema, ok := schemasByDstTable[tm.DestinationTableIdentifier]; ok {
+					tableSchemaMapping[tm.SourceTableIdentifier] = schema
+				}
+			}
+		}
+	}
+
 	output, err := conn.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
-		TableMappings: input.TableMappings,
+		TableMappings:      input.TableMappings,
+		TableSchemaMapping: tableSchemaMapping,
 	})
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to check if tables can parallel load: %w", err))

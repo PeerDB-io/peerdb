@@ -418,6 +418,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// An SSH-tunneled connection that goes bad (e.g. keepalive failure) is wrapped explicitly.
+	if _, ok := errors.AsType[*exceptions.SSHTunnelConnectionError](err); ok {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   "TUNNEL_CONNECTION_LOST",
+		}
+	}
+
 	// Other connection reset errors can mostly be ignored
 	if errors.Is(err, syscall.ECONNRESET) {
 		return ErrorIgnoreConnTemporary, ErrorInfo{
