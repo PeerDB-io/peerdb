@@ -4,6 +4,9 @@ import (
 	"cmp"
 	"fmt"
 	"log/slog"
+	"math/big"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,7 +18,20 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+var (
+	UuidLowerRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	UuidUpperRe = regexp.MustCompile(`^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$`)
+)
+
 const FullTablePartitionID = "full-table-partition-id"
+
+func FullTablePartition() []*protos.QRepPartition {
+	return []*protos.QRepPartition{{
+		PartitionId:        FullTablePartitionID,
+		Range:              nil,
+		FullTablePartition: true,
+	}}
+}
 
 type PartitionRangeType string
 
@@ -135,6 +151,21 @@ func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
 				UintRange: &protos.UIntPartitionRange{
 					Start: start,
 					End:   end,
+				},
+			},
+		},
+	}
+}
+
+func createStringPartition(start string, end string, endInclusive bool) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_StringRange{
+				StringRange: &protos.StringPartitionRange{
+					Start:        start,
+					End:          end,
+					EndInclusive: endInclusive,
 				},
 			},
 		},
@@ -330,6 +361,84 @@ func (p *PartitionHelper) AddPartitionsWithRange(start any, end any, numPartitio
 		}
 	}
 	return nil
+}
+
+type HexCasing int
+
+const (
+	Unknown HexCasing = iota
+	Lower
+	Upper
+)
+
+// AddUuidStringPartitionsWithRange splits a UUID watermark range into partitions.
+func (p *PartitionHelper) AddUuidStringPartitionsWithRange(
+	minVal string, maxVal string, hexCasing HexCasing, numPartitions int64,
+) error {
+	minInt, err := uuidToBigInt(minVal)
+	if err != nil {
+		return fmt.Errorf("failed to convert min uuid to bigint: %w", err)
+	}
+	maxInt, err := uuidToBigInt(maxVal)
+	if err != nil {
+		return fmt.Errorf("failed to convert max uuid to bigint: %w", err)
+	}
+
+	start := minVal
+	step := shared.BigIntDivCeil(new(big.Int).Sub(maxInt, minInt), big.NewInt(numPartitions))
+	for value := new(big.Int).Add(minInt, step); value.Cmp(maxInt) < 0; value.Add(value, step) {
+		end, err := bigIntToUUID(value, hexCasing)
+		if err != nil {
+			return fmt.Errorf("failed to convert bigint to uuid: %w", err)
+		}
+		p.partitions = append(p.partitions, createStringPartition(start, end, false))
+		start = end
+	}
+	p.partitions = append(p.partitions, createStringPartition(start, maxVal, true))
+	return nil
+}
+
+// DetectUuidWithHexCasing best-effort classifies a string watermark column by
+// inspecting only its min and max bounds: it determines whether both are
+// canonical UUIDs, and if so, the shared casing of their hex letters.
+//
+// Because only the bounds are examined, the classification can be wrong in
+// the following rare cases:
+//   - non-UUID rows can exist between UUID-shaped min/max bounds;
+//   - non-boundary UUIDs contain a mix of upper and lower case
+//   - min/max bounds both don't contain hex, so casing blindly defaults to lower
+//
+// These cases may lead to partition skew, but will not affect correctness.
+func DetectUuidWithHexCasing(minVal string, maxVal string) (bool, HexCasing) {
+	switch {
+	case UuidLowerRe.MatchString(minVal) && UuidLowerRe.MatchString(maxVal):
+		return true, Lower
+	case UuidUpperRe.MatchString(minVal) && UuidUpperRe.MatchString(maxVal):
+		return true, Upper
+	default:
+		return false, Unknown
+	}
+}
+
+func uuidToBigInt(s string) (*big.Int, error) {
+	u, err := uuid.Parse(s)
+	if err != nil {
+		return nil, err
+	}
+	return new(big.Int).SetBytes(u[:]), nil
+}
+
+func bigIntToUUID(n *big.Int, hexCasing HexCasing) (string, error) {
+	if n.BitLen() > 128 {
+		return "", fmt.Errorf("value does not fit in a UUID (%d bits)", n.BitLen())
+	}
+	var b [16]byte
+	n.FillBytes(b[:])
+	s := uuid.UUID(b).String()
+	if hexCasing == Upper {
+		s = strings.ToUpper(s)
+	}
+	return s, nil
 }
 
 func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*protos.QRepPartition, error) {
