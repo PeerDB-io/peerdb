@@ -9,12 +9,24 @@ run-name: 'tilt-flow: ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary
 # Coverage and results are saved as a build artifact, and the test results are
 # ingested into the CI observability store (shared with flow.yml).
 #
-# This is a manually dispatched workflow: pick the Go test matcher to run and the
+# This workflow can be triggered manually (workflow_dispatch) or reused by another
+# workflow (workflow_call, e.g. flow.yml): pick the Go test matcher to run and the
 # ancillary services it needs.
+#
+# How a caller would invoke it (a reusable workflow runs as its own job, so it is
+# referenced at jobs.<id>.uses, not as a step):
+#
+#   jobs:
+#     pg-ch-e2e:
+#       uses: ./.github/workflows/tilt-flow.yml
+#       with:
+#         test_matcher: TestGenericCH_PG
+#         ancillary_services: postgres clickhouse
+#       secrets: inherit   # or pass CI_O11Y_TARGET_* explicitly; omit to skip ingestion
 
 on:
   workflow_dispatch:
-    inputs:
+    inputs: &tilt_flow_inputs
       test_matcher:
         description: >-
           Go test matcher passed to `go test -run` (a regex). The tests run on the
@@ -22,7 +34,7 @@ on:
           selects what runs. Examples: "TestGenericCH_PG", "TestMongoClickhouseSuite",
           "^TestPeerFlowE2ETestSuitePG_CH$", "TestApiPg". Leave empty to run everything.
         type: string
-        required: true
+        required: false
         default: TestGenericCH_PG
       ancillary_services:
         description: >-
@@ -31,14 +43,26 @@ on:
           "mysql-gtid clickhouse", "mongodb clickhouse"); connector tests need just
           their DB. Append "toxiproxy openssh" for SSH/chaos tests.
         type: string
-        required: true
+        required: false
         default: postgres clickhouse
+  # Reuse the exact same inputs when invoked from another workflow. The o11y
+  # secrets are optional: a caller can pass them explicitly or via
+  # `secrets: inherit`; when absent, test-results ingestion is skipped.
+  workflow_call:
+    inputs: *tilt_flow_inputs
+    secrets:
+      CI_O11Y_TARGET_API_KEY_ID:
+        required: false
+      CI_O11Y_TARGET_API_KEY_SECRET:
+        required: false
+      CI_O11Y_TARGET_QUERY_ENDPOINT:
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: tilt-flow-${{ github.ref }}-${{ github.event.inputs.test_matcher }}
+  group: tilt-flow-${{ github.ref }}-${{ inputs.test_matcher }}
   cancel-in-progress: true
 
 env:
@@ -239,7 +263,7 @@ jobs:
       # ----------------------------------------------------------------------
       - name: Start requested ancillary services
         env:
-          ANCILLARY_SERVICES: ${{ github.event.inputs.ancillary_services }}
+          ANCILLARY_SERVICES: ${{ inputs.ancillary_services }}
         run: |
           set -euo pipefail
           if [ -z "${ANCILLARY_SERVICES// /}" ]; then
@@ -290,7 +314,7 @@ jobs:
       - name: Run tests
         working-directory: ./flow
         env:
-          TEST_MATCHER: ${{ github.event.inputs.test_matcher }}
+          TEST_MATCHER: ${{ inputs.test_matcher }}
         run: |
           # Disable errexit so we can capture gotestsum's exit code and still emit
           # coverage for the artifact upload; keep nounset.
@@ -371,7 +395,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/ingest-test-results
         with:
-          combination-id: "tilt-${{ github.event.inputs.test_matcher }}"
+          combination-id: "tilt-${{ inputs.test_matcher }}"
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
