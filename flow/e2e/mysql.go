@@ -22,6 +22,8 @@ import (
 type MySqlSource struct {
 	*connmysql.MySqlConnector
 	Config *protos.MySqlConfig
+	// peer name, defaults to "mysql"
+	Name string
 }
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
@@ -39,7 +41,10 @@ func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	case "mysql-pos":
 		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
 		mysqlFlavor = protos.MySqlFlavor_MYSQL_MYSQL
-	case "maria":
+	case "maria-pos":
+		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+		mysqlFlavor = protos.MySqlFlavor_MYSQL_MARIA
+	case "maria-gtid":
 		replicationMode = protos.MySqlReplicationMechanism_MYSQL_GTID
 		mysqlFlavor = protos.MySqlFlavor_MYSQL_MARIA
 	default:
@@ -62,7 +67,11 @@ func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicatio
 		Flavor:               flavor,
 		ReplicationMechanism: replication,
 	}
+	return setupMyConnector(t, suffix, config, "")
+}
 
+func setupMyConnector(t *testing.T, suffix string, config *protos.MySqlConfig, peerName string) (*MySqlSource, error) {
+	t.Helper()
 	connector, err := connmysql.NewMySqlConnector(t.Context(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mysql connection: %w", err)
@@ -94,7 +103,7 @@ func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicatio
 		setupSql = append(setupSql, "set global binlog_row_metadata=full")
 	}
 
-	if flavor != protos.MySqlFlavor_MYSQL_MARIA {
+	if config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
 		rs, err := connector.Execute(t.Context(), "select @@gtid_mode")
 		if err != nil {
 			connector.Close()
@@ -105,7 +114,7 @@ func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicatio
 			connector.Close()
 			return nil, err
 		}
-		if replication == protos.MySqlReplicationMechanism_MYSQL_GTID {
+		if config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID {
 			if strings.EqualFold(gtidMode, "off") {
 				// The value of @@GLOBAL.GTID_MODE can only be changed one step at a time:
 				// OFF <-> OFF_PERMISSIVE <-> ON_PERMISSIVE <-> ON
@@ -118,7 +127,7 @@ func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicatio
 					"do release_lock('settings')",
 				)
 			}
-		} else if replication == protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
+		} else if config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
 			if strings.EqualFold(gtidMode, "on") {
 				// The value of @@GLOBAL.GTID_MODE can only be changed one step at a time:
 				// ON <-> ON_PERMISSIVE <-> OFF_PERMISSIVE <-> OFF
@@ -132,7 +141,7 @@ func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicatio
 				)
 			}
 		} else {
-			return nil, fmt.Errorf("unexpected replication mechanism: %v", replication)
+			return nil, fmt.Errorf("unexpected replication mechanism: %v", config.ReplicationMechanism)
 		}
 	}
 
@@ -143,7 +152,7 @@ func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicatio
 		}
 	}
 
-	return &MySqlSource{MySqlConnector: connector, Config: config}, nil
+	return &MySqlSource{MySqlConnector: connector, Config: config, Name: peerName}, nil
 }
 
 func (s *MySqlSource) Connector() connectors.Connector {
@@ -163,8 +172,12 @@ func (s *MySqlSource) Teardown(t *testing.T, ctx context.Context, suffix string)
 func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 
+	name := s.Name
+	if name == "" {
+		name = "mysql"
+	}
 	peer := &protos.Peer{
-		Name: "mysql",
+		Name: name,
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: s.Config,

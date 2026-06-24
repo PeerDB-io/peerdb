@@ -176,6 +176,13 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
+	// Explicitly set the max protocol version. This removes the risk of inadvertedly
+	// changing the protocol, for example, through a dependency update.
+	// The version currently set is the default defined but the previsously pinned
+	// PG client library jackc/pgx/v5 v5.9.1 -> 3.0
+	// Reference: https://github.com/jackc/pgx/blob/4e4eaedb47b7b3cfba0a1b0a9e6a3f015764f046/pgconn/config.go#L472-L474
+	connConfig.Config.MaxProtocolVersion = "3.0"
+
 	shouldUseTls := internal.PGMustUseTlsConnection(pgConfig)
 
 	if shouldUseTls || pgConfig.RootCa != nil {

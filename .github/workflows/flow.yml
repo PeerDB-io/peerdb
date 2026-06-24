@@ -23,6 +23,7 @@ permissions:
 
 jobs:
   flow_test:
+    name: flow_test (${{ matrix.runner }}, ${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mongo }}, ${{ matrix.db-version.ch }})
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) ||
@@ -35,8 +36,31 @@ jobs:
         db-version: [
           {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
           {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql: 'maria', mongo: '8.0', ch: 'latest'},
+          {pg: 18, mysql: 'maria-pos', mongo: '8.0', ch: 'latest'},
+          {pg: 18, mysql: 'maria-gtid', mongo: '8.0', ch: 'stable'},
         ]
+        # Per-version container settings consumed by the "MySQL" step, keyed by the matrix
+        # db-version.mysql value. Grouped under "mysql" since these are MySQL/MariaDB families;
+        # only the databases handled by the MySQL step are listed here. Wrapped in a single-item
+        # list because matrix values must be arrays; it stays a single shared value (no extra jobs).
+        version-configs:
+          - mysql:
+              mysql-gtid:
+                img: 'mysql:9.5'
+                env: ['MYSQL_ROOT_PASSWORD=cipass']
+                parameters: []
+              mysql-pos:
+                img: 'mysql:5.7'
+                env: ['MYSQL_ROOT_PASSWORD=cipass']
+                parameters: ['--log_bin=mysql-bin', '--server-id=1', '--bind-address=::']
+              maria-pos:
+                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+                env: ['MARIADB_ROOT_PASSWORD=cipass']
+                parameters: ['--log-bin=maria']
+              maria-gtid:
+                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+                env: ['MARIADB_ROOT_PASSWORD=cipass']
+                parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -82,7 +106,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.153.0@sha256:93aad750175cbf1a973ae1c5886c3371f4d800f61be25cdd26870b8441ffe9fa
+        image: otel/opentelemetry-collector-contrib:0.154.0@sha256:b3079f45e19bdb7326bf49cdddce6cf60dfd865138db39f2733ea48ab17bc4cb
         ports:
           - 4317:4317
       toxiproxy:
@@ -102,7 +126,7 @@ jobs:
           - 14002:14002
           - 14003:14003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:d7ba00e0f66af202beebfa5cd96bad6698aa1543d5196e4d85dba340ea40d092
+        image: linuxserver/openssh-server:latest@sha256:835c1f321ff16b10e1e3d82ec3808a5253f02f73a98d7dca5b0786184f44e69a
         ports:
           - 2222:2222
         env:
@@ -190,14 +214,13 @@ jobs:
           output-credentials: true
 
       - name: MySQL
+        env:
+          DB_IMG: ${{ matrix.version-configs.mysql[matrix.db-version.mysql].img }}
+          DB_ENV: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].env, ' -e ') }}
+          DB_PARAMS: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].parameters, ' ') }}
         run: |
-          if [ "${{ matrix.db-version.mysql }}" = "mysql-gtid" ]; then
-            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:9.5
-          elif [ "${{ matrix.db-version.mysql }}" = "mysql-pos" ]; then
-            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:5.7 --log_bin=mysql-bin --server-id=1 --bind-address=::
-          elif [ "${{ matrix.db-version.mysql }}" = "maria" ]; then
-            docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
-          fi
+          docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 \
+            -e $DB_ENV $DB_IMG $DB_PARAMS
 
       - name: Mongo
         run: |
@@ -664,38 +687,9 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Ingest tests results for analysis
         if: success() || failure()
-        env:
-          WORKFLOW_RUN_ID: ${{ github.run_id }}
-          WORKFLOW_RUN_LINK: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          WORKFLOW_HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
-          WORKFLOW_RUN_NUMBER: ${{ github.run_attempt }}
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          SUMMARY_HEADER: "x-clickhouse-summary"
-          COMBINATION_ID: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
-        run: |
-          if [ -z "${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}" ] \
-            || [ -z "${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}" ] \
-            || [ -z "${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}" ]; then
-              echo "Secrets not configured; Test results ingestion is disabled."
-              exit 0
-          fi
-          .github/scripts/test-results.sh logs/test-results.xml > logs/normalized-test-results.ndjson
-          if [ ! -s logs/normalized-test-results.ndjson ]; then
-              echo "Failed to extract test results"
-              exit 1
-          fi
-          # Retry upload with exponential backoff
-          retry --times=5 --delay "1,2,4,8,16,32,64,128" -- \
-          curl --fail-with-body -i -H "Content-Type: application/octet-stream" \
-            --user "${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}:${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}" \
-            "${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}" \
-            --data-binary @logs/normalized-test-results.ndjson \
-            | tee upload.log
-          WRITTEN_ROWS=$(cat upload.log | grep $SUMMARY_HEADER | sed "s/$SUMMARY_HEADER: //" | jq '.written_rows' -r)
-          if [ -z "$WRITTEN_ROWS" ] || [ "$WRITTEN_ROWS" -eq 0 ]; then
-              echo "No results uploaded. Query client logs:"
-              cat upload.log
-              exit 2
-          fi
-          echo "Number of ingested test results: $WRITTEN_ROWS"
-          exit 0
+        uses: ./.github/actions/ingest-test-results
+        with:
+          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
+          o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
+          o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
+          o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
