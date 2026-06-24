@@ -82,7 +82,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.153.0@sha256:93aad750175cbf1a973ae1c5886c3371f4d800f61be25cdd26870b8441ffe9fa
+        image: otel/opentelemetry-collector-contrib:0.154.0@sha256:b3079f45e19bdb7326bf49cdddce6cf60dfd865138db39f2733ea48ab17bc4cb
         ports:
           - 4317:4317
       toxiproxy:
@@ -102,7 +102,7 @@ jobs:
           - 14002:14002
           - 14003:14003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:d7ba00e0f66af202beebfa5cd96bad6698aa1543d5196e4d85dba340ea40d092
+        image: linuxserver/openssh-server:latest@sha256:835c1f321ff16b10e1e3d82ec3808a5253f02f73a98d7dca5b0786184f44e69a
         ports:
           - 2222:2222
         env:
