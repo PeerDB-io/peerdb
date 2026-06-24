@@ -219,6 +219,8 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 		switch qkind {
 		case types.QValueKindUint16Enum:
 			return types.QValueUint16Enum{Val: uint16(v)}, nil
+		case types.QValueKindUint64Set:
+			return types.QValueUint64Set{Val: v}, nil
 		case types.QValueKindBoolean:
 			return types.QValueBoolean{Val: v != 0}, nil
 		case types.QValueKindInt8:
@@ -245,6 +247,8 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 		switch qkind {
 		case types.QValueKindBoolean:
 			return types.QValueBoolean{Val: v != 0}, nil
+		case types.QValueKindUint64Set:
+			return types.QValueUint64Set{Val: uint64(v)}, nil
 		case types.QValueKindInt8:
 			return types.QValueInt8{Val: int8(v)}, nil
 		case types.QValueKindInt16:
@@ -443,6 +447,8 @@ func QValueFromMysqlRowEvent(
 		switch qkind {
 		case types.QValueKindUInt64:
 			return types.QValueUInt64{Val: uint64(val)}, nil
+		case types.QValueKindUint64Set:
+			return types.QValueUint64Set{Val: uint64(val)}, nil
 		case types.QValueKindInt64:
 			return types.QValueInt64{Val: val}, nil
 		case types.QValueKindString: // set
@@ -477,6 +483,8 @@ func QValueFromMysqlRowEvent(
 		switch qkind {
 		case types.QValueKindInt64:
 			return types.QValueInt64{Val: int64(val)}, nil
+		case types.QValueKindUint64Set:
+			return types.QValueUint64Set{Val: val}, nil
 		case types.QValueKindString:
 			return types.QValueString{Val: strconv.FormatUint(val, 10)}, nil
 		default:

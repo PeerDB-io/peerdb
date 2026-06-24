@@ -109,6 +109,7 @@ func TestAvroQValueSize(t *testing.T) {
 		types.QValueUInt16{Val: 5000},
 		types.QValueUInt32{Val: 100000},
 		types.QValueUInt64{Val: 1000000000},
+		types.QValueUint64Set{Val: 5},
 
 		// String types (varint length + bytes)
 		types.QValueString{Val: ""},

@@ -48,6 +48,15 @@ func TestBuildSelectedColumns(t *testing.T) {
 			expectedSelectedColumns: "`id`, CAST(`status` AS UNSIGNED) AS `status`",
 		},
 		{
+			name: "uint64set column is cast to unsigned",
+			cols: []*protos.FieldDescription{
+				{Name: "id", Type: string(types.QValueKindInt32)},
+				{Name: "perms", Type: string(types.QValueKindUint64Set)},
+			},
+			exclude:                 []string{},
+			expectedSelectedColumns: "`id`, CAST(`perms` AS UNSIGNED) AS `perms`",
+		},
+		{
 			name: "string enum column is not cast",
 			cols: []*protos.FieldDescription{
 				{Name: "id", Type: string(types.QValueKindInt32)},
