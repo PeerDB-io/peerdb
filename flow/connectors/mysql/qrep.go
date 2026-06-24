@@ -157,10 +157,12 @@ func (c *MySqlConnector) GetQRepPartitions(
 	start, startIsString := val1.Value().(string)
 	end, endIsString := val2.Value().(string)
 	if startIsString && endIsString {
-		if isUuid, hexCasing := utils.DetectUuidWithHexCasing(start, end); isUuid {
-			if err := partitionHelper.AddUuidStringPartitionsWithRange(start, end, hexCasing, numPartitions); err != nil {
+		if isUUID, casing := detectUuidWithHexCasing(start, end); isUUID {
+			uuidPartitions, err := buildUuidStringPartitions(start, end, casing, numPartitions)
+			if err != nil {
 				return nil, fmt.Errorf("failed to add uuid string partitions: %w", err)
 			}
+			partitionHelper.AddPartitions(uuidPartitions)
 		} else {
 			c.logger.Info("string watermark column is not uuid, falling back to full table partition")
 			return utils.FullTablePartition(), nil
