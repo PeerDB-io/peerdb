@@ -596,6 +596,73 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_Charset_Consistency() {
+	if mySource, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	} else {
+		// Transcoding relies on collation metadata in TABLE_MAP, only present with binlog_row_metadata.
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("only applies to mysql versions with binlog_row_metadata")
+		}
+	}
+
+	srcTableName := "test_my_charset"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_my_charset_dst"
+
+	// latin1 (Windows-1252) and gbk columns: their stored bytes are NOT UTF-8.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			latin1_col VARCHAR(50) CHARACTER SET latin1 NOT NULL,
+			gbk_col VARCHAR(50) CHARACTER SET gbk NOT NULL
+		)
+	`, quotedSrcFullName)))
+
+	// Insert before snapshot. The source connection runs SET NAMES utf8mb4, so the server
+	// transcodes these UTF-8 literals down into the columns' latin1/gbk storage encodings.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (latin1_col, gbk_col) VALUES ('café', '你好')`, quotedSrcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,latin1_col,gbk_col", 1)
+
+	// Same values via CDC (binlog path).
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (latin1_col, gbk_col) VALUES ('café', '你好')`, quotedSrcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,latin1_col,gbk_col", 2)
+
+	rows, err := s.GetRows(dstTableName, "id,latin1_col,gbk_col")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+
+	// Snapshot (row 0) and CDC (row 1) must be byte-identical and correctly decoded.
+	require.Equal(s.t, rows.Records[0][1].Value(), rows.Records[1][1].Value(),
+		"snapshot and CDC latin1 values should be consistent")
+	require.Equal(s.t, rows.Records[0][2].Value(), rows.Records[1][2].Value(),
+		"snapshot and CDC gbk values should be consistent")
+	require.Equal(s.t, "café", rows.Records[1][1].Value())
+	require.Equal(s.t, "你好", rows.Records[1][2].Value())
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Vector() {
 	mysource, ok := s.source.(*MySqlSource)
 	if !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
