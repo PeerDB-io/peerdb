@@ -21,6 +21,7 @@ import (
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/text/encoding"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -606,6 +607,55 @@ func (c *MySqlConnector) PullRecords(
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()
 
+				// build colIdx -> encoding map based on event collation map.
+				// Allocated lazily: tables whose character columns are all utf8/ascii/binary
+				// (the common case) resolve every collation to a nil encoding and never allocate.
+				var colEncodings []encoding.Encoding
+				encFor := func(idx int) encoding.Encoding {
+					if idx >= 0 && idx < len(colEncodings) {
+						return colEncodings[idx]
+					}
+					return nil
+				}
+				setColEncoding := func(colIdx int, enc encoding.Encoding) {
+					if colEncodings == nil {
+						colEncodings = make([]encoding.Encoding, len(ev.Table.ColumnType))
+					}
+					colEncodings[colIdx] = enc
+				}
+				for colIdx, collationID := range ev.Table.CollationMap() {
+					if colIdx < 0 || colIdx >= len(ev.Table.ColumnType) {
+						continue
+					}
+					enc, err := c.collationEncoding(ctx, collationID, otelManager)
+					if err != nil {
+						return err
+					}
+					if enc == nil {
+						continue
+					}
+					setColEncoding(colIdx, enc)
+				}
+				for colIdx, collationID := range ev.Table.EnumSetCollationMap() {
+					enc, err := c.collationEncoding(ctx, collationID, otelManager)
+					if err != nil {
+						return err
+					}
+					if enc == nil {
+						continue
+					}
+					setColEncoding(colIdx, enc)
+					for labels := range slices.Values([][]string{enumMap[colIdx], setMap[colIdx]}) {
+						for i, label := range labels {
+							decoded, err := decodeMySQLString(enc, label)
+							if err != nil {
+								return err
+							}
+							labels[i] = decoded
+						}
+					}
+				}
+
 				// Process TABLE_MAP_EVENT schema to detect new columns
 				var fields []*protos.FieldDescription
 				if ev.Table.ColumnName != nil {
@@ -645,7 +695,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -682,7 +732,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -696,7 +746,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -734,7 +784,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}

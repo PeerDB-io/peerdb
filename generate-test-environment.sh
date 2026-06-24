@@ -26,7 +26,7 @@ if [ -z "$MONGODB_VERSION" ]; then
 fi;
 
 if [ -z "$CLICKHOUSE_VERSION" ]; then
-    CLICKHOUSE_VERSION=$(echo "$VERSIONS" | yq -r '.ch')
+    CLICKHOUSE_VERSION="latest"
 fi;
 
 if [ -z "$POSTGRES_VERSION" ] || [ -z "$MYSQL_VERSION" ] || [ -z "$MONGODB_VERSION" ] || [ -z "$CLICKHOUSE_VERSION" ]; then
