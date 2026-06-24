@@ -31,9 +31,8 @@ import (
 // alerting service, no cool name :(
 type Alerter struct {
 	shared.CatalogPool
-	snsTelemetrySender        telemetry.Sender
-	incidentIoTelemetrySender telemetry.Sender
-	otelManager               *otel_metrics.OtelManager
+	snsTelemetrySender telemetry.Sender
+	otelManager        *otel_metrics.OtelManager
 }
 
 type AlertSenderConfig struct {
@@ -66,26 +65,10 @@ func NewAlerter(ctx context.Context, catalogPool shared.CatalogPool, otelManager
 		}
 	}
 
-	incidentIoURL := internal.PeerDBGetIncidentIoUrl()
-	incidentIoAuth := internal.PeerDBGetIncidentIoToken()
-	var incidentIoTelemetrySender telemetry.Sender
-	if incidentIoURL != "" && incidentIoAuth != "" {
-		var err error
-		incidentIoTelemetrySender, err = telemetry.NewIncidentIoMessageSender(ctx, telemetry.IncidentIoMessageSenderConfig{
-			URL:   incidentIoURL,
-			Token: incidentIoAuth,
-		})
-		internal.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
-		if err != nil {
-			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
-		}
-	}
-
 	return &Alerter{
-		CatalogPool:               catalogPool,
-		snsTelemetrySender:        snsMessageSender,
-		incidentIoTelemetrySender: incidentIoTelemetrySender,
-		otelManager:               otelManager,
+		CatalogPool:        catalogPool,
+		snsTelemetrySender: snsMessageSender,
+		otelManager:        otelManager,
 	}
 }
 
@@ -401,14 +384,6 @@ func (a *Alerter) sendTelemetryMessage(
 			logger.Debug("received response from snsTelemetrySender", slog.String("response", response))
 		}
 	}
-
-	if a.incidentIoTelemetrySender != nil {
-		if status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
-			logger.Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
-		} else {
-			logger.Debug("received response from incident.io", slog.String("response", status))
-		}
-	}
 }
 
 func (a *Alerter) emitNonFlowTelemetryEvent(
@@ -485,7 +460,7 @@ func (a *Alerter) recordFlowErrorInternal(
 		logger.Error("failed to insert flow error", slog.Any("error", err))
 	}
 
-	// 3. Only send alerts to telemetry sender (incident.io) if the env is enabled
+	// 3. Only send alerts to telemetry sender if the env is enabled
 	if internal.PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx) {
 		var tags []string
 		if errors.Is(err, context.Canceled) {

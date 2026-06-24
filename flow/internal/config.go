@@ -169,14 +169,6 @@ func PeerDBTemporalTLSServerName() string {
 	return GetEnvString("TEMPORAL_TLS_SERVER_NAME", "")
 }
 
-func PeerDBGetIncidentIoUrl() string {
-	return GetEnvString("PEERDB_INCIDENTIO_URL", "")
-}
-
-func PeerDBGetIncidentIoToken() string {
-	return GetEnvString("PEERDB_INCIDENTIO_TOKEN", "")
-}
-
 func PeerDBRAPIRequestLoggingEnabled(ctx context.Context) bool {
 	requestLoggingEnabled, err := strconv.ParseBool(GetEnvString("PEERDB_API_REQUEST_LOGGING_ENABLED", "false"))
 	if err != nil {
