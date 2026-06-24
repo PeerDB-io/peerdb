@@ -664,38 +664,9 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Ingest tests results for analysis
         if: success() || failure()
-        env:
-          WORKFLOW_RUN_ID: ${{ github.run_id }}
-          WORKFLOW_RUN_LINK: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          WORKFLOW_HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
-          WORKFLOW_RUN_NUMBER: ${{ github.run_attempt }}
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          SUMMARY_HEADER: "x-clickhouse-summary"
-          COMBINATION_ID: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
-        run: |
-          if [ -z "${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}" ] \
-            || [ -z "${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}" ] \
-            || [ -z "${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}" ]; then
-              echo "Secrets not configured; Test results ingestion is disabled."
-              exit 0
-          fi
-          .github/scripts/test-results.sh logs/test-results.xml > logs/normalized-test-results.ndjson
-          if [ ! -s logs/normalized-test-results.ndjson ]; then
-              echo "Failed to extract test results"
-              exit 1
-          fi
-          # Retry upload with exponential backoff
-          retry --times=5 --delay "1,2,4,8,16,32,64,128" -- \
-          curl --fail-with-body -i -H "Content-Type: application/octet-stream" \
-            --user "${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}:${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}" \
-            "${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}" \
-            --data-binary @logs/normalized-test-results.ndjson \
-            | tee upload.log
-          WRITTEN_ROWS=$(cat upload.log | grep $SUMMARY_HEADER | sed "s/$SUMMARY_HEADER: //" | jq '.written_rows' -r)
-          if [ -z "$WRITTEN_ROWS" ] || [ "$WRITTEN_ROWS" -eq 0 ]; then
-              echo "No results uploaded. Query client logs:"
-              cat upload.log
-              exit 2
-          fi
-          echo "Number of ingested test results: $WRITTEN_ROWS"
-          exit 0
+        uses: ./.github/actions/ingest-test-results
+        with:
+          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
+          o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
+          o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
+          o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
