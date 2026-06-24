@@ -31,6 +31,40 @@ func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*co
 	return nil
 }
 
+func (c *MySqlConnector) CheckSupportedColumnTypes(ctx context.Context, tableNames []*common.QualifiedTable) error {
+	for _, parsedTable := range tableNames {
+		rs, err := c.Execute(ctx, fmt.Sprintf(`
+			SELECT column_name, column_type
+			FROM information_schema.columns
+			WHERE table_schema = '%s'
+			  AND table_name = '%s'
+			ORDER BY ordinal_position`,
+			mysql.Escape(parsedTable.Namespace), mysql.Escape(parsedTable.Table)))
+		if err != nil {
+			return fmt.Errorf("error checking columns for table %s: %w", parsedTable.MySQL(), err)
+		}
+
+		for idx := range rs.RowNumber() {
+			columnName, err := rs.GetString(idx, 0)
+			if err != nil {
+				return fmt.Errorf("error reading column name for table %s: %w", parsedTable.MySQL(), err)
+			}
+			columnType, err := rs.GetString(idx, 1)
+			if err != nil {
+				return fmt.Errorf("error reading column type for table %s column %s: %w",
+					parsedTable.MySQL(), common.QuoteMySQLIdentifier(columnName), err)
+			}
+			if isCompressedColumnType(columnType) {
+				return fmt.Errorf("unsupported MySQL column type on table %s column %s: "+
+					"MariaDB COMPRESSED columns are unsupported; decompress the column or drop column compression "+
+					"before replicating",
+					parsedTable.MySQL(), common.QuoteMySQLIdentifier(columnName))
+			}
+		}
+	}
+	return nil
+}
+
 func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
 	// GTID -> check GTID and error out if not enabled, check filepos as well
 	// AUTO -> check GTID and fall back to filepos check
@@ -96,6 +130,9 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	}
 
 	if err := c.CheckSourceTables(ctx, sourceTables); err != nil {
+		return fmt.Errorf("provided source tables invalidated: %w", err)
+	}
+	if err := c.CheckSupportedColumnTypes(ctx, sourceTables); err != nil {
 		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 	// no need to check replication stuff for initial snapshot only mirrors

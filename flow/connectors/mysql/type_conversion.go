@@ -8,7 +8,25 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+func isCompressedColumnType(ct string) bool {
+	upperColumnType := strings.ToUpper(ct)
+	markerStart := strings.Index(upperColumnType, "/*M!")
+	if markerStart == -1 {
+		return false
+	}
+	markerEnd := strings.Index(upperColumnType[markerStart:], "*/")
+	if markerEnd == -1 {
+		return false
+	}
+	return strings.Contains(upperColumnType[markerStart:markerStart+markerEnd], " COMPRESSED")
+}
+
 func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, version uint32) (types.QValueKind, error) {
+	if isCompressedColumnType(ct) {
+		return types.QValueKind(""), fmt.Errorf("unsupported mysql type %s: "+
+			"MariaDB COMPRESSED columns are unsupported; decompress the column or drop column compression before replicating", ct)
+	}
+
 	// https://mariadb.com/docs/server/reference/data-types/date-and-time-data-types/timestamp#tab-current-1
 	ct, _ = strings.CutSuffix(ct, " /* mariadb-5.3 */")
 	ct, _ = strings.CutSuffix(ct, " zerofill")

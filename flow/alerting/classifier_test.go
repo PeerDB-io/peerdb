@@ -940,6 +940,18 @@ func TestMySQLExecuteError(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMySQLUnsupportedBinlogTypeShouldBeUnsupportedDatatype(t *testing.T) {
+	err := fmt.Errorf("failed to sync records: %w",
+		fmt.Errorf("error processing binlog event: %w",
+			fmt.Errorf("unsupport type 141 in binlog and don't know how to handle")))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorUnsupportedDatatype, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_BINLOG_TYPE",
+	}, errInfo)
+}
+
 func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
 	err := &clickhouse.Exception{
 		Code: int32(chproto.ErrTooManyParts),
