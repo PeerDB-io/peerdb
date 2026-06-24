@@ -336,7 +336,7 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
-	stream, err := syncer.StartSyncGTID(gset.Clone())
+	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
 		syncer.Close()
 		return nil, nil, nil, mysql.Position{}, exceptions.NewMySQLExecuteError(err)
@@ -472,46 +472,24 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	recordCommitLagMetric := func(ctx context.Context, commitTs uint64) {
+		if commitTs > 0 {
+			otelManager.Metrics.CommitLagGauge.Record(ctx,
+				time.Now().UTC().Sub(time.UnixMicro(int64(commitTs))).Microseconds())
+		}
+	}
+
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
-	// advanceGset folds a transaction's GTID into our running set so XID/commit can
-	// checkpoint it. Needed because events inside a TRANSACTION_PAYLOAD_EVENT don't have ev.GSet set.
-	// We can rely on inner event GSet once this PR is merged: https://github.com/go-mysql-org/go-mysql/pull/1153
-	advanceGset := func(next mysql.GTIDSet, err error) error {
-		if err != nil {
-			return fmt.Errorf("failed to compute next GTID: %w", err)
-		}
-		if gset != nil {
-			if err := gset.Update(next.String()); err != nil {
-				return fmt.Errorf("failed to accumulate GTID %s: %w", next, err)
-			}
-		}
-		return nil
-	}
 	processEvent := func(event *replication.BinlogEvent) error {
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
-			if ev.ImmediateCommitTimestamp > 0 {
-				otelManager.Metrics.CommitLagGauge.Record(ctx,
-					time.Now().UTC().Sub(time.UnixMicro(int64(ev.ImmediateCommitTimestamp))).Microseconds())
-			}
-			if err := advanceGset(ev.GTIDNext()); err != nil {
-				return err
-			}
+			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
 		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
-			if ev.ImmediateCommitTimestamp > 0 {
-				otelManager.Metrics.CommitLagGauge.Record(ctx,
-					time.Now().UTC().Sub(time.UnixMicro(int64(ev.ImmediateCommitTimestamp))).Microseconds())
-			}
-			if err := advanceGset(ev.GTIDNext()); err != nil {
-				return err
-			}
-		case *replication.MariadbGTIDEvent:
-			if err := advanceGset(ev.GTIDNext()); err != nil {
-				return err
-			}
+			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
 		case *replication.XIDEvent:
 			if gset != nil {
+				gset = ev.GSet
 				updatedOffset = gset.String() // accumulated from GTID events above
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			} else if event.Header.LogPos > pos.Pos {

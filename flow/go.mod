@@ -36,7 +36,7 @@ require (
 	github.com/cockroachdb/pebble/v2 v2.1.5
 	github.com/elastic/go-elasticsearch/v8 v8.19.6
 	github.com/go-logr/logr v1.4.3
-	github.com/go-mysql-org/go-mysql v1.15.1-0.20260615132323-06b4fb6b476d
+	github.com/go-mysql-org/go-mysql v1.15.1-0.20260622021642-60bfbfea8dd0
 	github.com/gogo/googleapis v1.4.1
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
