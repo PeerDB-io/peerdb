@@ -169,7 +169,7 @@ func (c *MySqlConnector) addTableMapColumnEncodings(
 
 		defaultCollation := defaultCharset[0]
 		collationPos := 0
-		for colIdx := 0; colIdx < int(tableMap.ColumnCount); colIdx++ {
+		for colIdx := range int(tableMap.ColumnCount) {
 			if !tableMapIncludesCollation(tableMap, collationType, colIdx) {
 				continue
 			}
@@ -187,7 +187,7 @@ func (c *MySqlConnector) addTableMapColumnEncodings(
 
 	if len(columnCharset) != 0 {
 		collationPos := 0
-		for colIdx := 0; colIdx < int(tableMap.ColumnCount); colIdx++ {
+		for colIdx := range int(tableMap.ColumnCount) {
 			if !tableMapIncludesCollation(tableMap, collationType, colIdx) {
 				continue
 			}
