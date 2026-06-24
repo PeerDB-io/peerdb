@@ -34,7 +34,7 @@ var mysqlCharsetEncodings = map[string]encoding.Encoding{
 	// Single-byte / Windows & ISO code pages.
 	"latin1":   charmap.Windows1252,
 	"latin2":   charmap.ISO8859_2,
-	"latin5":   charmap.Windows1254,
+	"latin5":   charmap.ISO8859_9,
 	"latin7":   charmap.ISO8859_13,
 	"cp1250":   charmap.Windows1250,
 	"cp1251":   charmap.Windows1251,
