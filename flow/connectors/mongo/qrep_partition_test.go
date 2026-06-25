@@ -44,13 +44,13 @@ func TestIsNumericIDType(t *testing.T) {
 }
 
 // assertContiguous verifies the ranges form a gap-free, non-overlapping cover of
-// [min, max+sentinel): first start == min, last end == max+sentinel, and each
-// range's end equals the next range's start.
+// [min, max]: first start == min, last end == max, and each range's end equals
+// the next range's start (half-open except for the last which is closed).
 func assertContiguous(t *testing.T, ranges [][2]string, minVal, maxVal string) {
 	t.Helper()
 	require.NotEmpty(t, ranges)
 	require.Equal(t, minVal, ranges[0][0], "first partition must start at min")
-	require.Equal(t, maxVal+stringPartitionUpperSentinel, ranges[len(ranges)-1][1], "last partition must end just past max")
+	require.Equal(t, maxVal, ranges[len(ranges)-1][1], "last partition must end at max")
 	for i := range ranges {
 		require.Less(t, ranges[i][0], ranges[i][1], "range start must be < end")
 		if i+1 < len(ranges) {
@@ -88,9 +88,10 @@ func TestComputeStringBoundaries(t *testing.T) {
 		assertContiguous(t, ranges, "a", "z")
 	})
 
-	t.Run("samples outside (min,max) ignored", func(t *testing.T) {
-		// "a" == min and "z" == max must be dropped; only "m" is a valid interior boundary
-		samples := []string{"a", "z", "m", "0", "zzzz"}
+	t.Run("boundary samples ignored", func(t *testing.T) {
+		// "a" == min and "z" == max must be dropped to avoid zero-width partitions;
+		// only "m" is a valid interior boundary. Samples come pre-sorted from MongoDB.
+		samples := []string{"a", "m", "z"}
 		ranges := computeStringBoundaries("a", "z", samples, 4)
 		require.Len(t, ranges, 2)
 		assertContiguous(t, ranges, "a", "z")
@@ -122,9 +123,9 @@ func intPartition(start, end int64) *protos.PartitionRange {
 	}}
 }
 
-func stringPartition(start, end string) *protos.PartitionRange {
+func stringPartition(start, end string, endInclusive bool) *protos.PartitionRange {
 	return &protos.PartitionRange{Range: &protos.PartitionRange_StringRange{
-		StringRange: &protos.StringPartitionRange{Start: start, End: end},
+		StringRange: &protos.StringPartitionRange{Start: start, End: end, EndInclusive: endInclusive},
 	}}
 }
 
@@ -141,12 +142,23 @@ func TestToRangeFilter(t *testing.T) {
 	})
 
 	t.Run("string range is half-open", func(t *testing.T) {
-		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, stringPartition("com.a", "com.m"))
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, stringPartition("com.a", "com.m", false))
 		require.NoError(t, err)
 		require.Equal(t, bson.D{
 			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{
 				bson.E{Key: "$gte", Value: "com.a"},
 				bson.E{Key: "$lt", Value: "com.m"},
+			}},
+		}, filter)
+	})
+
+	t.Run("last string range is closed", func(t *testing.T) {
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, stringPartition("com.m", "org.z", true))
+		require.NoError(t, err)
+		require.Equal(t, bson.D{
+			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{
+				bson.E{Key: "$gte", Value: "com.m"},
+				bson.E{Key: "$lte", Value: "org.z"},
 			}},
 		}, filter)
 	})

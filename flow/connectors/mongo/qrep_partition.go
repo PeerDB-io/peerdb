@@ -17,14 +17,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-// stringPartitionUpperSentinel is appended to the collection's max string _id to
-// form the exclusive upper bound of the final string partition. It is the highest
-// valid Unicode code point, so `max + sentinel` sorts strictly after `max` (and
-// after every real _id, since `max` is the maximum). This lets every string
-// partition use uniform half-open [start, end) ($gte/$lt) semantics while still
-// capturing the maximum document in the last partition.
-const stringPartitionUpperSentinel = "\U0010FFFF"
-
 const (
 	// stringSampleOversample draws more samples than partitions so quantile
 	// boundaries are well distributed even with clustered keys.
@@ -150,6 +142,12 @@ func (c *MongoConnector) objectIDPartitions(
 // numericPartitions divides a numeric (int32/int64) _id range uniformly, reusing
 // the shared PartitionHelper which builds non-overlapping IntPartitionRange
 // partitions with tested +1 boundary semantics covering [min, max] inclusive.
+//
+// Limitation: IntPartitionRange uses inclusive-inclusive [start, end] boundaries,
+// so documents with double _id values that fall between two adjacent integer
+// boundaries (e.g. _id=2.5 between [1,2] and [3,4]) would be missed. This is an
+// edge case for collections with mixed int/double _ids; a follow-up will introduce
+// a NumericPartitionRange with half-open [start, end) semantics to address it.
 func (c *MongoConnector) numericPartitions(
 	minVal int64,
 	maxVal int64,
@@ -207,14 +205,15 @@ func (c *MongoConnector) stringPartitions(
 		slog.Int("sampleCount", len(samples)))
 
 	partitions := make([]*protos.QRepPartition, 0, len(ranges))
-	for _, rng := range ranges {
+	for i, rng := range ranges {
 		partitions = append(partitions, &protos.QRepPartition{
 			PartitionId: uuid.NewString(),
 			Range: &protos.PartitionRange{
 				Range: &protos.PartitionRange_StringRange{
 					StringRange: &protos.StringPartitionRange{
-						Start: rng[0],
-						End:   rng[1],
+						Start:        rng[0],
+						End:          rng[1],
+						EndInclusive: i == len(ranges)-1,
 					},
 				},
 			},
@@ -242,6 +241,7 @@ func (c *MongoConnector) sampleStringIDs(
 		{Key: "aggregate", Value: collection.Name()},
 		{Key: "pipeline", Value: bson.A{
 			bson.D{{Key: "$sample", Value: bson.D{{Key: "size", Value: int32(sampleSize)}}}},
+			bson.D{{Key: "$sort", Value: bson.D{{Key: DefaultDocumentKeyColumnName, Value: 1}}}},
 			bson.D{{Key: "$project", Value: bson.D{{Key: DefaultDocumentKeyColumnName, Value: 1}}}},
 		}},
 		{Key: "cursor", Value: bson.D{}},
@@ -267,20 +267,26 @@ func (c *MongoConnector) sampleStringIDs(
 	return samples, nil
 }
 
-// computeStringBoundaries turns a random sample of string _ids plus the real
-// min/max into a contiguous set of half-open [start, end) ranges. Interior
-// boundaries are quantiles of the (deduplicated, sorted) sample; the first range
-// starts at the real min and the last range ends just past the real max (via the
-// sentinel) so coverage of [min, max] is exact with no gaps or overlap.
+// computeStringBoundaries turns a pre-sorted (by database collation) sample of
+// string _ids plus the real min/max into a contiguous set of ranges. Interior
+// boundaries are quantiles of the (deduplicated) sample; the first range starts
+// at the real min and the last range ends at the real max. All ranges except the
+// last are half-open [start, end); the last is closed [start, end].
+//
+// samples must already be sorted in the database's collation order; this function
+// does not re-sort them, to preserve collation semantics.
 //
 // It is pure (no I/O) to keep the boundary math unit-testable. Returns fewer ranges
 // than numPartitions when the sample yields too few distinct interior boundaries.
 func computeStringBoundaries(minVal string, maxVal string, samples []string, numPartitions int64) [][2]string {
-	// Keep unique sampled values strictly inside (min, max).
+	// Keep unique sampled values strictly inside (min, max), preserving order.
+	// We use exact equality to filter boundaries: MongoDB guarantees all sampled
+	// _ids are within [minVal, maxVal] by its own collation; only exact matches
+	// with the boundary values would create zero-width partitions.
 	seen := make(map[string]struct{}, len(samples))
 	interior := make([]string, 0, len(samples))
 	for _, s := range samples {
-		if s <= minVal || s >= maxVal {
+		if s == minVal || s == maxVal {
 			continue
 		}
 		if _, ok := seen[s]; ok {
@@ -289,7 +295,6 @@ func computeStringBoundaries(minVal string, maxVal string, samples []string, num
 		seen[s] = struct{}{}
 		interior = append(interior, s)
 	}
-	slices.Sort(interior)
 
 	// Pick up to numPartitions-1 evenly spaced interior boundaries (quantiles).
 	desiredBoundaries := numPartitions - 1
@@ -308,7 +313,8 @@ func computeStringBoundaries(minVal string, maxVal string, samples []string, num
 		picked = slices.Compact(picked) // drop consecutive duplicate quantiles
 	}
 
-	// Build contiguous half-open ranges: [min, p0), [p0, p1), ..., [pLast, max+sentinel).
+	// Build ranges: [min, p0), [p0, p1), ..., [pLast-1, pLast), [pLast, max].
+	// The last range is closed (end_inclusive=true); all others are half-open.
 	starts := append([]string{minVal}, picked...)
 	ranges := make([][2]string, len(starts))
 	for i := range starts {
@@ -316,7 +322,7 @@ func computeStringBoundaries(minVal string, maxVal string, samples []string, num
 		if i+1 < len(starts) {
 			end = starts[i+1]
 		} else {
-			end = maxVal + stringPartitionUpperSentinel
+			end = maxVal
 		}
 		ranges[i] = [2]string{starts[i], end}
 	}

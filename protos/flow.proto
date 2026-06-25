@@ -327,6 +327,10 @@ message ObjectIdPartitionRange {
 message StringPartitionRange {
   string start = 1;
   string end = 2;
+  // unlike numeric/temporal ranges, string boundaries cannot be safely
+  // incremented; so the partition boundaries are [start, end) except
+  // for the last partition being [start, end]; hence this bool is needed.
+  bool end_inclusive = 3;
 }
 
 message PartitionRange {

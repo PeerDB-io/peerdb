@@ -245,13 +245,16 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 			}},
 		}, nil
 	case *protos.PartitionRange_StringRange:
-		// String _id: half-open [start, end) range. computeStringBoundaries makes
-		// ranges contiguous and sets the final end just past the real max, so $lt
-		// gives exact coverage with no gaps or overlap.
+		// String _id: half-open [start, end) for all but the last partition;
+		// the last partition is closed [start, end] (EndInclusive == true).
+		endOp := "$lt"
+		if r.StringRange.EndInclusive {
+			endOp = "$lte"
+		}
 		return bson.D{
 			bson.E{Key: watermarkColumn, Value: bson.D{
 				bson.E{Key: "$gte", Value: r.StringRange.Start},
-				bson.E{Key: "$lt", Value: r.StringRange.End},
+				bson.E{Key: endOp, Value: r.StringRange.End},
 			}},
 		}, nil
 	default:
