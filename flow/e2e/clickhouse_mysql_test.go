@@ -299,27 +299,55 @@ func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 	}
 	require.NoError(s.t, s.source.Exec(s.t.Context(), insert.String()))
 
-	hasTransactionPayloadEvent := func(ctx context.Context, from mysql.Position) (bool, error) {
+	findPayloadEndPos := func(ctx context.Context, from mysql.Position) (found bool, endLogPos uint32, err error) {
 		rs, err := mySource.Execute(ctx, fmt.Sprintf("SHOW BINLOG EVENTS IN '%s' FROM %d", from.Name, from.Pos))
 		if err != nil {
-			return false, err
+			return false, 0, err
 		}
 		for i := range rs.Values {
 			// SHOW BINLOG EVENTS columns: Log_name, Pos, Event_type, Server_id, End_log_pos, Info
 			eventType, _ := rs.GetString(i, 2)
 			if strings.Contains(strings.ToLower(eventType), "payload") {
-				return true, nil
+				pos, _ := rs.GetInt(i, 4)
+				return true, uint32(pos), nil
 			}
 		}
-		return false, nil
+		return false, 0, nil
 	}
-	// Confirm compression actually produced a payload event, otherwise the test would silently
-	// pass via the uncompressed path and not exercise the new code.
-	hasPayload, err := hasTransactionPayloadEvent(s.t.Context(), posBefore)
+	hasPayload, payloadEndPos, err := findPayloadEndPos(s.t.Context(), posBefore)
 	require.NoError(s.t, err)
 	require.True(s.t, hasPayload, "expected a TRANSACTION_PAYLOAD_EVENT in the binlog")
 
+	// for GTID "SHOW BINLOG EVENTS" returns really complex format and it's different
+	// across versions/flavors.
+	// Therefore, we just get the latest GTID from a server instead of reading it from a binglog.
+	gtidAfter, err := mySource.GetMasterGTIDSet(s.t.Context())
+	require.NoError(s.t, err)
+
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,val")
+
+	// Assert the payload transaction was checkpointed
+	pool, err := catalogTestAccessPool()
+	require.NoError(s.t, err)
+	var lastText string
+	require.NoError(s.t, pool.QueryRow(s.t.Context(),
+		"SELECT last_text FROM metadata_last_sync_state WHERE job_name = $1",
+		flowConnConfig.FlowJobName,
+	).Scan(&lastText))
+
+	if rest, isFilePos := strings.CutPrefix(lastText, "!f:"); isFilePos {
+		comma := strings.LastIndexByte(rest, ',')
+		require.NotEqual(s.t, -1, comma, "malformed file/pos offset %q", lastText)
+		storedPos, parseErr := strconv.ParseUint(rest[comma+1:], 16, 32)
+		require.NoError(s.t, parseErr)
+		require.GreaterOrEqual(s.t, uint32(storedPos), payloadEndPos,
+			"checkpoint did not advance past the TRANSACTION_PAYLOAD_EVENT")
+	} else {
+		storedSet, parseErr := mysql.ParseGTIDSet(mySource.Flavor(), lastText)
+		require.NoError(s.t, parseErr)
+		require.True(s.t, storedSet.Contain(gtidAfter),
+			"checkpoint GTID set %s does not cover the committed payload transaction %s", storedSet, gtidAfter)
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
