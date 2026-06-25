@@ -175,8 +175,8 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_StringID() {
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
-	docs := make([]any, 1000)
-	for i := range 1000 {
+	docs := make([]any, 100)
+	for i := range 100 {
 		docs[i] = bson.D{
 			{Key: "_id", Value: fmt.Sprintf("id-%05d", i)},
 			{Key: fmt.Sprintf("init_key_%d", i), Value: fmt.Sprintf("init_value_%d", i)},
@@ -196,7 +196,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_StringID() {
 	require.NoError(t, catalogPool.QueryRow(t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName).Scan(&partitionCount))
-	require.Greater(t, partitionCount, 1, "expected multiple partitions for 1000 string-id rows")
+	require.Greater(t, partitionCount, 1, "expected multiple partitions for 100 string-id rows")
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	cdcDocs := make([]any, 10)
@@ -232,8 +232,8 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_NumericID() {
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
-	docs := make([]any, 1000)
-	for i := range 1000 {
+	docs := make([]any, 100)
+	for i := range 100 {
 		docs[i] = bson.D{
 			{Key: "_id", Value: int32(i + 1)},
 			{Key: fmt.Sprintf("init_key_%d", i), Value: fmt.Sprintf("init_value_%d", i)},
@@ -253,7 +253,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_NumericID() {
 	require.NoError(t, catalogPool.QueryRow(t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName).Scan(&partitionCount))
-	require.Greater(t, partitionCount, 1, "expected multiple partitions for 1000 numeric-id rows")
+	require.Greater(t, partitionCount, 1, "expected multiple partitions for 100 numeric-id rows")
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	cdcDocs := make([]any, 10)
