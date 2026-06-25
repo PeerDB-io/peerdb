@@ -11,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -87,6 +88,45 @@ func TestParseSQLParsesTrailingNull(t *testing.T) {
 			tc.assert(t, stmts[0])
 		})
 	}
+}
+
+func TestClassifyOnlineSchemaMigrationTool(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		oldTable string
+		newTable string
+		want     string
+	}{
+		{"gh-ost", "_users_gho", "users", otel_metrics.OnlineSchemaMigrationToolGhOst},
+		{"pt-osc", "_users_new", "users", otel_metrics.OnlineSchemaMigrationToolPtOsc},
+		{"plain rename", "users_backup", "users", otel_metrics.OnlineSchemaMigrationToolOther},
+		{"gh-ost del table is not the target", "_users_del", "users", otel_metrics.OnlineSchemaMigrationToolOther},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, classifyOnlineSchemaMigrationTool(tc.oldTable, tc.newTable))
+		})
+	}
+}
+
+func TestParseSQLParsesGhOstRename(t *testing.T) {
+	mysqlParser := parser.New()
+	// the atomic swap gh-ost issues at the end of a migration
+	query := []byte("RENAME TABLE `mydb`.`users` TO `mydb`.`_users_del`, `mydb`.`_users_gho` TO `mydb`.`users`")
+	stmts, warns, err := parseSQL(mysqlParser, query)
+	require.NoError(t, err)
+	require.Empty(t, warns)
+	require.Len(t, stmts, 1)
+
+	rename, ok := stmts[0].(*ast.RenameTableStmt)
+	require.True(t, ok)
+	require.Len(t, rename.TableToTables, 2)
+
+	// the rename that lands on the tracked table is the ghost table swap
+	swap := rename.TableToTables[1]
+	require.Equal(t, "users", swap.NewTable.Name.String())
+	require.Equal(t, "_users_gho", swap.OldTable.Name.String())
+	require.Equal(t, otel_metrics.OnlineSchemaMigrationToolGhOst,
+		classifyOnlineSchemaMigrationTool(swap.OldTable.Name.String(), swap.NewTable.Name.String()))
 }
 
 func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
