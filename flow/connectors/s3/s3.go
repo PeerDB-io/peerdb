@@ -80,7 +80,7 @@ func (c *S3Connector) ConnectionActive(ctx context.Context) error {
 func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReq := model.NewRecordsToStreamRequest(
-		req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID, false, protos.DBType_S3,
+		req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID, false, protos.DBType_S3, req.Version,
 	)
 	recordStream, err := utils.RecordsToRawTableStream(streamReq, nil)
 	if err != nil {

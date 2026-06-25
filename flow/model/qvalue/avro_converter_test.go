@@ -16,6 +16,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -73,6 +74,59 @@ func TestColumnNameAvroFieldConvert(t *testing.T) {
 	for i, columnName := range testColumnNames {
 		t.Run(columnName, func(t *testing.T) {
 			assert.Equal(t, expectedColumnNames[i], ConvertToAvroCompatibleName(columnName))
+		})
+	}
+}
+
+func TestClickHouseTemporalClampVersionGate(t *testing.T) {
+	ctx := context.Background()
+	logger := log.NewStructuredLogger(nil)
+	preClampVersion := shared.InternalVersion_ClickHouseClampTemporal - 1
+
+	tests := []struct {
+		name     string
+		qv       types.QValue
+		expected time.Time
+	}{
+		{
+			name:     "date below Date32 range",
+			qv:       types.QValueDate{Val: time.Date(1000, time.January, 1, 0, 0, 0, 0, time.UTC)},
+			expected: time.Date(1900, time.January, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:     "date above Date32 range",
+			qv:       types.QValueDate{Val: time.Date(9999, time.December, 31, 0, 0, 0, 0, time.UTC)},
+			expected: time.Date(2299, time.December, 31, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "timestamp above DateTime64 range",
+			qv: types.QValueTimestamp{
+				Val: time.Date(9999, time.December, 31, 23, 59, 59, 999999000, time.UTC),
+			},
+			expected: time.Date(2299, time.December, 31, 23, 59, 59, 999999000, time.UTC),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			field := types.QField{Type: tt.qv.Kind(), Nullable: false}
+
+			oldVal, _, err := QValueToAvro(ctx, tt.qv, &field, protos.DBType_CLICKHOUSE, logger,
+				preClampVersion, false, nil, internal.BinaryFormatRaw, true)
+			require.NoError(t, err)
+			require.True(t, tt.qv.Value().(time.Time).Equal(oldVal.(time.Time)))
+
+			stat := NewNumericStat("dst", "temporal_col")
+			newVal, _, err := QValueToAvro(ctx, tt.qv, &field, protos.DBType_CLICKHOUSE, logger,
+				shared.InternalVersion_ClickHouseClampTemporal, false, &stat, internal.BinaryFormatRaw, true)
+			require.NoError(t, err)
+			require.True(t, tt.expected.Equal(newVal.(time.Time)))
+			require.Equal(t, uint64(1), stat.TemporalClampedCount)
+
+			var warnings shared.QRepWarnings
+			stat.CollectWarnings(&warnings)
+			require.Len(t, warnings, 1)
+			require.Contains(t, warnings[0].Error(), "clamped 1 temporal value to ClickHouse Date32/DateTime64 bounds")
 		})
 	}
 }
@@ -181,7 +235,7 @@ func TestAvroQValueSize(t *testing.T) {
 
 		t.Run(string(qv.Kind())+"_no_calc_size", func(t *testing.T) {
 			_, computedSize, err := QValueToAvro(ctx, qv, &field, protos.DBType_CLICKHOUSE,
-				log.NewStructuredLogger(nil), false, nil, internal.BinaryFormatRaw, false)
+				log.NewStructuredLogger(nil), shared.InternalVersion_Latest, false, nil, internal.BinaryFormatRaw, false)
 			require.NoError(t, err)
 			assert.Equal(t, int64(0), computedSize)
 		})
@@ -412,7 +466,7 @@ func qvalueToAvro(
 ) (any, int64) {
 	t.Helper()
 	avroVal, computedSize, err := QValueToAvro(ctx, qv, field, protos.DBType_CLICKHOUSE,
-		log.NewStructuredLogger(nil), unboundedNumericAsString, nil, internal.BinaryFormatRaw, true)
+		log.NewStructuredLogger(nil), shared.InternalVersion_Latest, unboundedNumericAsString, nil, internal.BinaryFormatRaw, true)
 	require.NoError(t, err)
 	return avroVal, computedSize
 }

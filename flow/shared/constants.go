@@ -39,6 +39,8 @@ const (
 	InternalVersion_MySQL5ConvertEnumsToInts
 	// MySQL: convert BIT to UInt64
 	InternalVersion_MySQLConvertBitToUInt64
+	// ClickHouse: clamp temporal values to Date32/DateTime64 bounds before inserting
+	InternalVersion_ClickHouseClampTemporal
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1

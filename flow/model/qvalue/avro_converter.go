@@ -185,6 +185,7 @@ type QValueAvroConverter struct {
 	logger                   log.Logger
 	Stat                     *NumericStat
 	TargetDWH                protos.DBType
+	InternalVersion          uint32
 	UnboundedNumericAsString bool
 	binaryFormat             internal.BinaryFormat
 }
@@ -207,7 +208,7 @@ func (s sizeOpt) nullableSize() int64 {
 func QValueToAvro(
 	ctx context.Context,
 	value types.QValue, field *types.QField, targetDWH protos.DBType, logger log.Logger,
-	unboundedNumericAsString bool, stat *NumericStat,
+	internalVersion uint32, unboundedNumericAsString bool, stat *NumericStat,
 	binaryFormat internal.BinaryFormat,
 	calcSize bool,
 ) (any, int64, error) {
@@ -229,6 +230,7 @@ func QValueToAvro(
 		logger:                   logger,
 		Stat:                     stat,
 		TargetDWH:                targetDWH,
+		InternalVersion:          internalVersion,
 		UnboundedNumericAsString: unboundedNumericAsString,
 		binaryFormat:             binaryFormat,
 	}
@@ -369,6 +371,65 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration, so sizeOpt) (any, i
 	return t, varIntSize(int64(t/time.Microsecond), so)
 }
 
+var (
+	clickHouseTemporalMin     = time.Date(1900, time.January, 1, 0, 0, 0, 0, time.UTC)
+	clickHouseDateMax         = time.Date(2299, time.December, 31, 0, 0, 0, 0, time.UTC)
+	clickHouseDateTime64MaxUS = time.Date(2299, time.December, 31, 23, 59, 59, 999999000, time.UTC)
+)
+
+func ShouldClampClickHouseTemporal(targetDWH protos.DBType, internalVersion uint32) bool {
+	return targetDWH == protos.DBType_CLICKHOUSE &&
+		internalVersion >= shared.InternalVersion_ClickHouseClampTemporal
+}
+
+func ClampClickHouseTemporalQValue(value types.QValue, stat *NumericStat) types.QValue {
+	switch v := value.(type) {
+	case types.QValueDate:
+		return types.QValueDate{Val: clampClickHouseTemporal(v.Val, clickHouseTemporalMin, clickHouseDateMax, stat)}
+	case types.QValueTimestamp:
+		return types.QValueTimestamp{Val: clampClickHouseTemporal(v.Val, clickHouseTemporalMin, clickHouseDateTime64MaxUS, stat)}
+	case types.QValueTimestampTZ:
+		return types.QValueTimestampTZ{Val: clampClickHouseTemporal(v.Val, clickHouseTemporalMin, clickHouseDateTime64MaxUS, stat)}
+	default:
+		return value
+	}
+}
+
+func clampClickHouseTemporal(t time.Time, minTime time.Time, maxTime time.Time, stat *NumericStat) time.Time {
+	tUTC := t.UTC()
+	if tUTC.Before(minTime) {
+		if stat != nil {
+			stat.TemporalClampedCount++
+		}
+		return minTime
+	}
+	if tUTC.After(maxTime) {
+		if stat != nil {
+			stat.TemporalClampedCount++
+		}
+		return maxTime
+	}
+	return t
+}
+
+func (c *QValueAvroConverter) clampClickHouseTemporal(t time.Time, kind types.QValueKind) time.Time {
+	if !ShouldClampClickHouseTemporal(c.TargetDWH, c.InternalVersion) {
+		return t
+	}
+	return ClampClickHouseTemporalQValue(qValueFromTemporal(kind, t), c.Stat).Value().(time.Time)
+}
+
+func qValueFromTemporal(kind types.QValueKind, t time.Time) types.QValue {
+	switch kind {
+	case types.QValueKindDate:
+		return types.QValueDate{Val: t}
+	case types.QValueKindTimestampTZ:
+		return types.QValueTimestampTZ{Val: t}
+	default:
+		return types.QValueTimestamp{Val: t}
+	}
+}
+
 func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, avroVal int64, so sizeOpt) (any, int64) {
 	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
 	switch c.TargetDWH {
@@ -393,14 +454,17 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, avr
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time, so sizeOpt) (any, int64) {
+	t = c.clampClickHouseTemporal(t, types.QValueKindTimestampTZ)
 	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700", t.UnixMicro(), so)
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time, so sizeOpt) (any, int64) {
+	t = c.clampClickHouseTemporal(t, types.QValueKindTimestamp)
 	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999", t.UnixMicro(), so)
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time, so sizeOpt) (any, int64) {
+	t = c.clampClickHouseTemporal(t, types.QValueKindDate)
 	// Date is days since epoch, encoded as Avro int (varint)
 	return c.processGeneralTime(t, "2006-01-02", t.Unix()/86400, so)
 }
@@ -739,6 +803,7 @@ type NumericStat struct {
 	LongIntegersClearedCount uint64
 	MaxIntegerDigits         int32
 	BigInt256ClearedCount    uint64
+	TemporalClampedCount     uint64
 }
 
 func NewNumericStat(destinationTable, destinationColumn string) NumericStat {
@@ -780,6 +845,17 @@ func (ns *NumericStat) CollectWarnings(warnings *shared.QRepWarnings) {
 			"column %s.%s: cleared %d NUMERIC value%s that do not fit into (U)Int256 type in the destination column",
 			ns.DestinationTable, ns.DestinationColumn, ns.BigInt256ClearedCount, plural)
 		warning := exceptions.NewNumericOutOfRangeError(err, ns.DestinationTable, ns.DestinationColumn)
+		*warnings = append(*warnings, warning)
+	}
+	if ns.TemporalClampedCount > 0 {
+		plural := ""
+		if ns.TemporalClampedCount > 1 {
+			plural = "s"
+		}
+		err := fmt.Errorf(
+			"column %s.%s: clamped %d temporal value%s to ClickHouse Date32/DateTime64 bounds",
+			ns.DestinationTable, ns.DestinationColumn, ns.TemporalClampedCount, plural)
+		warning := exceptions.NewTemporalClampedError(err, ns.DestinationTable, ns.DestinationColumn)
 		*warnings = append(*warnings, warning)
 	}
 }

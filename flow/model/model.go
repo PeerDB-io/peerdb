@@ -41,6 +41,7 @@ type RecordsToStreamRequest[T Items] struct {
 	BatchID                  int64
 	UnboundedNumericAsString bool
 	TargetDWH                protos.DBType
+	InternalVersion          uint32
 }
 
 func NewRecordsToStreamRequest[T Items](
@@ -49,6 +50,7 @@ func NewRecordsToStreamRequest[T Items](
 	batchID int64,
 	unboundedNumericAsString bool,
 	targetDWH protos.DBType,
+	internalVersion uint32,
 ) *RecordsToStreamRequest[T] {
 	return &RecordsToStreamRequest[T]{
 		records:                  records,
@@ -56,6 +58,7 @@ func NewRecordsToStreamRequest[T Items](
 		BatchID:                  batchID,
 		UnboundedNumericAsString: unboundedNumericAsString,
 		TargetDWH:                targetDWH,
+		InternalVersion:          internalVersion,
 	}
 }
 

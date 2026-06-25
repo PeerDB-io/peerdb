@@ -135,6 +135,172 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouseBounds() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_datetime_ch_bounds"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_datetime_ch_bounds_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			label TEXT NOT NULL,
+			d DATE NOT NULL,
+			dt6 DATETIME(6) NOT NULL
+		)
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (label,d,dt6) VALUES
+		('lower','1000-01-01','1000-01-01 00:00:00.000000'),
+		('upper','9999-12-31','9999-12-31 23:59:59.999999')`,
+		srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on bounded snapshot", dstTableName, "id", 2)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (label,d,dt6) VALUES
+		('lower','1000-01-01','1000-01-01 00:00:00.000000'),
+		('upper','9999-12-31','9999-12-31 23:59:59.999999')`,
+		srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on bounded cdc", dstTableName, "id", 4)
+	s.requireMySQLDateTimeBoundsRows(dstTableName)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouseBounds_PreClampVersion() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_datetime_ch_bounds_old"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_datetime_ch_bounds_old_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			label TEXT NOT NULL,
+			d DATE NOT NULL,
+			dt6 DATETIME(6) NOT NULL
+		)
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (label,d,dt6) VALUES
+		('upper','9999-12-31','9999-12-31 23:59:59.999999')`,
+		srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	preClampVersion := shared.InternalVersion_ClickHouseClampTemporal - 1
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(preClampVersion), 10),
+	}
+	flowConnConfig.Version = preClampVersion
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on old-version snapshot", dstTableName, "id", 1)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (label,d,dt6) VALUES
+		('upper','9999-12-31','9999-12-31 23:59:59.999999')`,
+		srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on old-version cdc", dstTableName, "id", 2)
+	s.requireMySQLDateTimeBoundsLegacyMismatch(dstTableName)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) requireMySQLDateTimeBoundsRows(dstTableName string) {
+	s.t.Helper()
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	rows, err := ch.Query(s.t.Context(), fmt.Sprintf(`
+		SELECT label, count(), uniqExact(d), uniqExact(dt6), any(toString(d)), any(toString(dt6))
+		FROM %s FINAL
+		WHERE _peerdb_is_deleted = 0
+		GROUP BY label
+		ORDER BY label`,
+		clickhouse.QuoteIdentifier(dstTableName),
+	))
+	require.NoError(s.t, err)
+	defer rows.Close()
+
+	expected := map[string]struct {
+		date     string
+		dateTime string
+	}{
+		"lower": {"1900-01-01", "1900-01-01 00:00:00.000000"},
+		"upper": {"2299-12-31", "2299-12-31 23:59:59.999999"},
+	}
+	seen := map[string]struct{}{}
+	for rows.Next() {
+		var label string
+		var count, uniqueDate, uniqueDateTime uint64
+		var dateVal, dateTimeVal string
+		require.NoError(s.t, rows.Scan(&label, &count, &uniqueDate, &uniqueDateTime, &dateVal, &dateTimeVal))
+
+		want, ok := expected[label]
+		require.True(s.t, ok, "unexpected label %s", label)
+		require.Equal(s.t, uint64(2), count)
+		require.Equal(s.t, uint64(1), uniqueDate, "snapshot and CDC DATE values should be identical")
+		require.Equal(s.t, uint64(1), uniqueDateTime, "snapshot and CDC DATETIME values should be identical")
+		require.Equal(s.t, want.date, dateVal)
+		require.Equal(s.t, want.dateTime, dateTimeVal)
+		seen[label] = struct{}{}
+	}
+	require.NoError(s.t, rows.Err())
+	require.Len(s.t, seen, len(expected))
+}
+
+func (s ClickHouseSuite) requireMySQLDateTimeBoundsLegacyMismatch(dstTableName string) {
+	s.t.Helper()
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	var count, uniqueDate, uniqueDateTime uint64
+	require.NoError(s.t, ch.QueryRow(s.t.Context(), fmt.Sprintf(`
+		SELECT count(), uniqExact(d), uniqExact(dt6)
+		FROM %s FINAL
+		WHERE _peerdb_is_deleted = 0 AND label = 'upper'`,
+		clickhouse.QuoteIdentifier(dstTableName),
+	)).Scan(&count, &uniqueDate, &uniqueDateTime))
+
+	require.Equal(s.t, uint64(2), count)
+	require.Greater(s.t, uniqueDate, uint64(1), "pre-clamp version should preserve legacy DATE mismatch")
+	require.Greater(s.t, uniqueDateTime, uint64(1), "pre-clamp version should preserve legacy DATETIME mismatch")
+}
+
 func (s ClickHouseSuite) Test_MySQL_Bit() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")

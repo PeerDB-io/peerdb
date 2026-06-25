@@ -66,7 +66,7 @@ func RecordsToRawTableStream(
 		for record := range req.GetRecords() {
 			record.PopulateCountMap(req.TableMapping)
 			qRecord, err := recordToQRecordOrError(
-				req.BatchID, record, req.TargetDWH, req.UnboundedNumericAsString, numericTruncator,
+				req.BatchID, record, req.TargetDWH, req.InternalVersion, req.UnboundedNumericAsString, numericTruncator,
 			)
 			if err != nil {
 				recordStream.Close(err)
@@ -82,15 +82,16 @@ func RecordsToRawTableStream(
 }
 
 func recordToQRecordOrError(
-	batchID int64, record model.Record[model.RecordItems], targetDWH protos.DBType, unboundedNumericAsString bool,
+	batchID int64, record model.Record[model.RecordItems], targetDWH protos.DBType, internalVersion uint32,
+	unboundedNumericAsString bool,
 	numericTruncator model.StreamNumericTruncator,
 ) ([]types.QValue, error) {
 	var entries [8]types.QValue
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[model.RecordItems]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
-		preprocessedItems := truncateNumerics(
-			typedRecord.Items, targetDWH, unboundedNumericAsString, tableNumericTruncator,
+		preprocessedItems := preprocessRecordItems(
+			typedRecord.Items, targetDWH, internalVersion, unboundedNumericAsString, tableNumericTruncator,
 		)
 		itemsJSON, err := model.ItemsToJSON(preprocessedItems)
 		if err != nil {
@@ -103,8 +104,8 @@ func recordToQRecordOrError(
 		entries[7] = types.QValueString{Val: ""}
 	case *model.UpdateRecord[model.RecordItems]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
-		preprocessedItems := truncateNumerics(
-			typedRecord.NewItems, targetDWH, unboundedNumericAsString, tableNumericTruncator,
+		preprocessedItems := preprocessRecordItems(
+			typedRecord.NewItems, targetDWH, internalVersion, unboundedNumericAsString, tableNumericTruncator,
 		)
 		newItemsJSON, err := model.ItemsToJSON(preprocessedItems)
 		if err != nil {
@@ -155,20 +156,25 @@ func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.
 	return tableNameRowsMapping
 }
 
-func truncateNumerics(
-	recordItems model.RecordItems, targetDWH protos.DBType, unboundedNumericAsString bool,
+func preprocessRecordItems(
+	recordItems model.RecordItems, targetDWH protos.DBType, internalVersion uint32, unboundedNumericAsString bool,
 	numericTruncator model.CdcTableNumericTruncator,
 ) model.RecordItems {
-	hasNumerics := false
+	shouldClampTemporal := qvalue.ShouldClampClickHouseTemporal(targetDWH, internalVersion)
+	hasChanges := false
 	for col, val := range recordItems.ColToVal {
 		if numericTruncator.Get(col).Stat != nil {
 			if val.Kind() == types.QValueKindNumeric || val.Kind() == types.QValueKindArrayNumeric {
-				hasNumerics = true
+				hasChanges = true
+				break
+			}
+			if shouldClampTemporal && isTemporalKind(val.Kind()) {
+				hasChanges = true
 				break
 			}
 		}
 	}
-	if !hasNumerics {
+	if !hasChanges {
 		return recordItems
 	}
 
@@ -222,8 +228,15 @@ func truncateNumerics(
 					}
 				}
 			}
+			if shouldClampTemporal {
+				newVal = qvalue.ClampClickHouseTemporalQValue(newVal, columnTruncator.Stat)
+			}
 		}
 		newItems.ColToVal[col] = newVal
 	}
 	return newItems
+}
+
+func isTemporalKind(kind types.QValueKind) bool {
+	return kind == types.QValueKindDate || kind == types.QValueKindTimestamp || kind == types.QValueKindTimestampTZ
 }

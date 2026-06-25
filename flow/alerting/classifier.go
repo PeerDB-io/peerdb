@@ -1094,6 +1094,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if temporalClampedError, ok := errors.AsType[*exceptions.TemporalClampedError](err); ok {
+		return ErrorLossyConversion, ErrorInfo{
+			Source: "typeConversion",
+			Code:   "TEMPORAL_CLAMPED",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  temporalClampedError.DestinationTable,
+				ErrorAttributeKeyColumn: temporalClampedError.DestinationColumn,
+			},
+		}
+	}
+
 	if incompatibleColumnTypeError, ok := errors.AsType[*exceptions.MySQLIncompatibleColumnTypeError](err); ok {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
 			Source: ErrorSourceMySQL,
