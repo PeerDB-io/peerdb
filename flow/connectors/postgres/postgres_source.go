@@ -114,6 +114,22 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 }
 
 func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]string) error {
+	// For IAM-authenticated connections, force a fresh token before connecting.
+	// This guarantees each activity retry uses a new token rather than a potentially
+	// stale cached one (cache TTL 10 min; token validity 15 min).
+	if c.rdsAuth != nil {
+		host := c.Config.Host
+		if c.Config.TlsHost != "" {
+			host = c.Config.TlsHost
+		}
+		if _, err := c.rdsAuth.ForceRefreshToken(ctx, utils.RDSConnectionConfig{
+			Host: host,
+			Port: c.Config.Port,
+			User: c.Config.User,
+		}, "POSTGRES"); err != nil {
+			return fmt.Errorf("failed to refresh RDS IAM token before replication setup: %w", err)
+		}
+	}
 	conn, wst, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return err
