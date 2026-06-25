@@ -10,7 +10,7 @@ The following **destination** connectors are deprecated and no longer actively m
 - Google Pub/Sub
 - S3
 
-These connectors remain **fully functional** in the current and all prior releases. No code is being removed, and they will **not** be automatically removed from existing deployments. The actively-maintained paths going forward are Postgres → ClickHouse, Postgres → ClickHouse Cloud, and Postgres → Postgres. Sources (Postgres, MySQL, MongoDB) are not affected by this deprecation.
+These connectors remain **fully functional** in the current and all prior releases. No code is currently being removed, and they will **not** be automatically removed from existing deployments. The actively-maintained paths going forward are Postgres → ClickHouse, Postgres → ClickHouse Cloud, and Postgres → Postgres. Sources (Postgres, MySQL, MongoDB) are not affected by this deprecation.
 
 > **BigQuery is deprecated only as a destination.** BigQuery remains a **supported source** for QRep mirrors and is not deprecated in that role. The migration guidance below applies to BigQuery's use as a *destination*.
 
@@ -27,7 +27,7 @@ Pin to the latest release tag before any future removal so that you have the mos
 
 ## How to fork
 
-Because no code is being removed, you can fork PeerDB and carry the relevant connector code yourself. The connectors are self-contained enough that forking and maintaining a single connector is practical:
+Because the connector code is still present, you can fork PeerDB and carry the relevant connector code yourself. The connectors are self-contained enough that forking and maintaining a single connector is practical:
 
 1. Fork the repository.
 2. Keep the connector's flow code, its UI form and helper, and (optionally) its end-to-end tests so you can continue validating it.

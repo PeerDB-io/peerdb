@@ -15,6 +15,7 @@ export async function GET(_: NextRequest) {
       description:
         'Query Replication allows you to specify a set of rows to be synced via a SELECT query. Useful for replicating views and tables without primary keys.',
       link: 'https://docs.peerdb.io/usecases/Streaming%20Query%20Replication/overview',
+      deprecated: true,
     },
   ];
   const xminCard = {
@@ -22,6 +23,7 @@ export async function GET(_: NextRequest) {
     description:
       'XMIN mode uses the xmin system column of PostgreSQL as a watermark column for replication.',
     link: 'https://docs.peerdb.io/sql/commands/create-mirror#xmin-query-replication',
+    deprecated: true,
   };
 
   if (!GetPeerDBClickHouseMode()) {
