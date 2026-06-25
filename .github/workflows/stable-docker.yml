@@ -1,9 +1,9 @@
 name: Stable Docker images
 
 on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+  release:
+    types:
+      - published
 
 jobs:
   docker-build:
@@ -36,5 +36,5 @@ jobs:
           files: ./docker-bake.hcl
           push: true
         env:
-          SHA_SHORT: stable-${{ github.ref_name }}
+          SHA_SHORT: stable-${{ github.event.release.tag_name }}
           TAG: latest-stable

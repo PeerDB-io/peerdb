@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"math"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +38,8 @@ type MySqlConnector struct {
 	logger                log.Logger
 	rdsAuth               *utils.RDSAuth
 	serverVersion         string
+	collationCharset      atomic.Pointer[map[uint64]string]
+	warnedCharsets        sync.Map
 	binlogHeartbeatPeriod time.Duration
 	totalBytesRead        atomic.Int64
 	deltaBytesRead        atomic.Int64
@@ -426,8 +430,28 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 		return mysql.Position{}, fmt.Errorf("failed to %s: %w", showBinlogStatus, err)
 	}
 
-	name, _ := rr.GetString(0, 0)
-	pos, _ := rr.GetUint(0, 1)
+	if rr == nil || rr.Resultset == nil || rr.RowNumber() == 0 {
+		return mysql.Position{}, fmt.Errorf("%s returned no binary log position; "+
+			"binary logging may be disabled or the position is unreadable", showBinlogStatus)
+	}
+
+	name, err := rr.GetString(0, 0)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to read log file from %s: %w", showBinlogStatus, err)
+	}
+	pos, err := rr.GetUint(0, 1)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to read log position from %s: %w", showBinlogStatus, err)
+	}
+	if name == "" || pos == 0 {
+		return mysql.Position{}, fmt.Errorf("%s returned no binary log position; "+
+			"binary logging may be disabled or the position is unreadable", showBinlogStatus)
+	}
+	if pos > math.MaxUint32 {
+		return mysql.Position{}, fmt.Errorf("%s returned binary log position %d in file %s, "+
+			"which exceeds 4GiB and cannot be represented in file/position replication; use GTID replication",
+			showBinlogStatus, pos, name)
+	}
 	return mysql.Position{Name: name, Pos: uint32(pos)}, nil
 }
 
