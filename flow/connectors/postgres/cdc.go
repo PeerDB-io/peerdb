@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
@@ -59,6 +60,7 @@ type PostgresCDCSource struct {
 
 	// for storing schema delta audit logs to catalog
 	catalogPool                              shared.CatalogPool
+	alerter                                  *alerting.Alerter
 	otelManager                              *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
@@ -130,6 +132,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		idToRelKindMap:                           idToRelKindMap,
 		publishViaPartitionRoot:                  publishViaPartitionRoot,
 		catalogPool:                              cdcConfig.CatalogPool,
+		alerter:                                  alerting.NewAlerter(ctx, cdcConfig.CatalogPool, cdcConfig.OtelManager),
 		otelManager:                              cdcConfig.OtelManager,
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
@@ -584,6 +587,7 @@ func PullCdcRecords[Items model.Items](
 	defer shutdown()
 
 	var standByLastLogged time.Time
+	var largeTxnLastLogged time.Time
 	nextRecordDeadline := time.Now().Add(req.IdleTimeout)
 	pkmRequiresResponse := false
 
@@ -679,11 +683,21 @@ func PullCdcRecords[Items model.Items](
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					return nil
 				} else {
+					accumulatedBytes := totalFetchedBytes.Load()
 					logger.Info("commit lock, waiting for commit to return records",
 						slog.Int64("records", totalRecords),
-						slog.Int64("bytes", totalFetchedBytes.Load()),
+						slog.Int64("bytes", accumulatedBytes),
 						slog.Int("channelLen", records.ChannelLen()),
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+
+					if time.Since(largeTxnLastLogged) > time.Minute {
+						userMsg := fmt.Sprintf(
+							"Waiting for a large transaction to commit before syncing can continue (%d records, %s buffered so far).",
+							totalRecords, utils.HumanReadableBytes(accumulatedBytes))
+						p.alerter.LogFlowInfo(ctx, p.flowJobName, userMsg)
+						largeTxnLastLogged = time.Now()
+					}
+
 					waitingForCommit = true
 				}
 			} else {

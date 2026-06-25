@@ -4,8 +4,8 @@ import "fmt"
 
 var units = []string{"B", "KB", "MB", "GB", "TB", "PB"}
 
-// FormatTableSize converts bytes to human-readable format
-func FormatTableSize(bytes int64) string {
+// HumanReadableBytes converts bytes to human-readable format
+func HumanReadableBytes(bytes int64) string {
 	if bytes == 0 {
 		return "0 B"
 	}
