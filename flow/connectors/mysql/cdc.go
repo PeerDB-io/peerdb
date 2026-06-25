@@ -535,7 +535,8 @@ func (c *MySqlConnector) PullRecords(
 			}
 			stmts, warns, err := parseSQL(mysqlParser, ev.Query)
 			if err != nil {
-				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				c.logger.Error("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				otelManager.Metrics.ParseSQLErrorsCounter.Add(ctx, 1)
 				break
 			}
 			if len(warns) > 0 {
