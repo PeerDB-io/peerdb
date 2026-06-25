@@ -882,7 +882,8 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						slog.String("column", col.Name.OrigColName()),
 						slog.String("from", oldType),
 						slog.String("to", string(qkind)))
-					c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(oldType), qkind)
+					c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(oldType), qkind,
+						otel_metrics.SourceEventTypeDDL)
 				}
 
 				if spec.Position != nil && spec.Position.Tp != ast.ColumnPositionNone {
@@ -969,11 +970,13 @@ func parseIncidentEvent(data []byte) (uint16, string) {
 
 func (c *MySqlConnector) recordColumnTypeChange(
 	ctx context.Context, otelManager *otel_metrics.OtelManager, from types.QValueKind, to types.QValueKind,
+	eventType string,
 ) {
 	otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(otel_metrics.TypeChangeSourceKey, "mysql"),
+		attribute.String(otel_metrics.SourcePeerType, "mysql"),
 		attribute.String(otel_metrics.TypeChangeFromKey, string(from)),
 		attribute.String(otel_metrics.TypeChangeToKey, string(to)),
+		attribute.String(otel_metrics.SourceEventTypeKey, eventType),
 	)))
 }
 
@@ -1027,7 +1030,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 					slog.String("column", colName),
 					slog.String("from", fd.Type),
 					slog.String("to", string(qkind)))
-				c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(fd.Type), qkind)
+				c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(fd.Type), qkind, otel_metrics.SourceEventTypeEventMetadata)
 			}
 		} else {
 			// New column detected - get type from TABLE_MAP_EVENT

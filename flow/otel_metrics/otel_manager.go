@@ -586,8 +586,8 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if om.Metrics.ColumnTypeChangesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ColumnTypeChangesName),
 		metric.WithDescription(
-			"Counter of column type changes detected on the CDC path, with `source` label holding the source peer type "+
-				"and `from`/`to` labels holding the source/target type"),
+			"Counter of column type changes detected on the CDC path, with `source` label holding the source peer type, "+
+				"`from`/`to` labels holding the source/target type and `sourceEventType` holding the source of event(ddl, eventMetadata)"),
 	); err != nil {
 		return err
 	}
