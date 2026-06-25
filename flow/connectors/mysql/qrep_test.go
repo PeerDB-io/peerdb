@@ -128,6 +128,17 @@ func TestGetDefaultPartitionKeyForTables(t *testing.T) {
 			expected: map[string]string{"db.ts": "created_at"},
 		},
 		{
+			name:          "string primary key is supported",
+			tableMappings: []*protos.TableMapping{tableMapping("db.uuidpk")},
+			schemas: map[string]*protos.TableSchema{
+				"db.uuidpk": {
+					PrimaryKeyColumns: []string{"id"},
+					Columns:           []*protos.FieldDescription{fieldDesc("id", types.QValueKindString)},
+				},
+			},
+			expected: map[string]string{"db.uuidpk": "id"},
+		},
+		{
 			name:          "composite primary key with valid first column",
 			tableMappings: []*protos.TableMapping{tableMapping("db.composite")},
 			schemas: map[string]*protos.TableSchema{
@@ -146,9 +157,9 @@ func TestGetDefaultPartitionKeyForTables(t *testing.T) {
 			tableMappings: []*protos.TableMapping{tableMapping("db.composite2")},
 			schemas: map[string]*protos.TableSchema{
 				"db.composite2": {
-					PrimaryKeyColumns: []string{"name", "id"},
+					PrimaryKeyColumns: []string{"data", "id"},
 					Columns: []*protos.FieldDescription{
-						fieldDesc("name", types.QValueKindString),
+						fieldDesc("data", types.QValueKindBytes),
 						fieldDesc("id", types.QValueKindInt32),
 					},
 				},
@@ -172,6 +183,7 @@ func TestGetDefaultPartitionKeyForTables(t *testing.T) {
 				tableMapping("db.a"),
 				tableMapping("db.b"),
 				tableMapping("db.c"),
+				tableMapping("db.d"),
 			},
 			schemas: map[string]*protos.TableSchema{
 				"db.a": {
@@ -188,8 +200,14 @@ func TestGetDefaultPartitionKeyForTables(t *testing.T) {
 					PrimaryKeyColumns: []string{"date"},
 					Columns:           []*protos.FieldDescription{fieldDesc("date", types.QValueKindDate)},
 				},
+				"db.d": {
+					PrimaryKeyColumns: []string{"float"},
+					Columns: []*protos.FieldDescription{
+						fieldDesc("bad", types.QValueKindArrayFloat32),
+					},
+				},
 			},
-			expected: map[string]string{"db.a": "id", "db.c": "date"},
+			expected: map[string]string{"db.a": "id", "db.b": "uuid", "db.c": "date"},
 		},
 	}
 

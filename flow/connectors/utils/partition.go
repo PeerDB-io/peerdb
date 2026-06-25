@@ -17,6 +17,14 @@ import (
 
 const FullTablePartitionID = "full-table-partition-id"
 
+func FullTablePartition() []*protos.QRepPartition {
+	return []*protos.QRepPartition{{
+		PartitionId:        FullTablePartitionID,
+		Range:              nil,
+		FullTablePartition: true,
+	}}
+}
+
 type PartitionRangeType string
 
 const (
@@ -392,6 +400,10 @@ func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition)
 	}
 
 	return nil
+}
+
+func (p *PartitionHelper) AddPartitions(partitions []*protos.QRepPartition) {
+	p.partitions = append(p.partitions, partitions...)
 }
 
 func (p *PartitionHelper) GetPartitions() []*protos.QRepPartition {
