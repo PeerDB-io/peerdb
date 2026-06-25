@@ -46,6 +46,9 @@ const (
 	EndBatchIDKey              = "endBatchID"
 	ResumeTokenKey             = "resumeToken"
 	GtidKey                    = "gtid"
+	TypeChangeFromKey          = "from"
+	TypeChangeToKey            = "to"
+	SourceEventTypeKey         = "sourceEventType"
 )
 
 const (
@@ -62,4 +65,9 @@ const (
 	InstanceStatusMaintenance = "maintenance"
 	InstanceStatusUnknown     = "unknown"
 	InstanceStatusReady       = "ready"
+)
+
+const (
+	SourceEventTypeDDL           = "ddl"
+	SourceEventTypeEventMetadata = "eventMetadata"
 )
