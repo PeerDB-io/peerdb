@@ -299,7 +299,7 @@ func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 	}
 	require.NoError(s.t, s.source.Exec(s.t.Context(), insert.String()))
 
-	findPayloadEndPos := func(ctx context.Context, from mysql.Position) (found bool, endLogPos uint32, err error) {
+	findPayloadEndPos := func(ctx context.Context, from mysql.Position) (bool, uint32, error) {
 		rs, err := mySource.Execute(ctx, fmt.Sprintf("SHOW BINLOG EVENTS IN '%s' FROM %d", from.Name, from.Pos))
 		if err != nil {
 			return false, 0, err
