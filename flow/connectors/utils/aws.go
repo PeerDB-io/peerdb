@@ -239,7 +239,7 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) *StaticAWSCredentialsP
 		AWS: aws.Credentials{
 			AccessKeyID:     accessKeyId,
 			SecretAccessKey: secretAccessKey,
-			SessionToken: sessionToken,
+			SessionToken:    sessionToken,
 		},
 		EndpointUrl: endpointUrlPtr,
 	}, region, rootCAs, tlsHost)
