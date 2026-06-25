@@ -338,6 +338,10 @@ e2e_test('mariadb', 'TestGenericCH_MySQL', ['provision-mariadb'], vars_overrides
 # MongoDB to ClickHouse test suite
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
 
+# GTID roundtrip tests
+e2e_test('mysql-gtid-roundtrip', 'TestMySQLGetMasterGTIDSet', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('maria-gtid-roundtrip', 'TestMySQLGetMasterGTIDSet', ['provision-mariadb'], vars_overrides=mariadb_vars)
+
 # Switchboard tests
 
 e2e_test('switchboard-postgres', 'TestSwitchboardPostgres', ['provision-postgres'])
