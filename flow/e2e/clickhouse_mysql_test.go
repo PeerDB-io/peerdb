@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -686,16 +687,101 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_Charset_Consistency() {
+	if mySource, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	} else {
+		// Transcoding relies on collation metadata in TABLE_MAP, only present with binlog_row_metadata.
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("only applies to mysql versions with binlog_row_metadata")
+		}
+	}
+
+	srcTableName := "test_my_charset"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_my_charset_dst"
+
+	// latin1 (Windows-1252) and gbk columns: their stored bytes are NOT UTF-8.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			latin1_col VARCHAR(50) CHARACTER SET latin1 NOT NULL,
+			gbk_col VARCHAR(50) CHARACTER SET gbk NOT NULL
+		)
+	`, quotedSrcFullName)))
+
+	// Insert before snapshot. The source connection runs SET NAMES utf8mb4, so the server
+	// transcodes these UTF-8 literals down into the columns' latin1/gbk storage encodings.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (latin1_col, gbk_col) VALUES ('café', '你好')`, quotedSrcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,latin1_col,gbk_col", 1)
+
+	// Same values via CDC (binlog path).
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (latin1_col, gbk_col) VALUES ('café', '你好')`, quotedSrcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,latin1_col,gbk_col", 2)
+
+	rows, err := s.GetRows(dstTableName, "id,latin1_col,gbk_col")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+
+	// Snapshot (row 0) and CDC (row 1) must be byte-identical and correctly decoded.
+	require.Equal(s.t, rows.Records[0][1].Value(), rows.Records[1][1].Value(),
+		"snapshot and CDC latin1 values should be consistent")
+	require.Equal(s.t, rows.Records[0][2].Value(), rows.Records[1][2].Value(),
+		"snapshot and CDC gbk values should be consistent")
+	require.Equal(s.t, "café", rows.Records[1][1].Value())
+	require.Equal(s.t, "你好", rows.Records[1][2].Value())
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Vector() {
 	mysource, ok := s.source.(*MySqlSource)
-	if !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
-	if cmp, err := mysource.CompareServerVersion(s.t.Context(), "9.0.0"); err != nil {
-		s.t.Fatal(err)
-	} else if cmp < 0 {
-		s.t.Skip("VECTOR type is only supported in MySQL 9.0+")
+	var createTableSQL, initialInsertSQL, cdcInsertSQL string
+	switch mysource.Config.Flavor {
+	case protos.MySqlFlavor_MYSQL_MYSQL:
+		cmp, err := mysource.CompareServerVersion(s.t.Context(), "9.0.0")
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("VECTOR type is only supported in MySQL 9.0+")
+		}
+		createTableSQL = `CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, val VECTOR)`
+		initialInsertSQL = `INSERT INTO %s (val) VALUES (to_vector('[1.1,1.0]'))`
+		cdcInsertSQL = `INSERT INTO %s (val) VALUES (to_vector('[2.718, 1.414]'))`
+	case protos.MySqlFlavor_MYSQL_MARIA:
+		cmp, err := mysource.CompareServerVersion(s.t.Context(), "11.7.0")
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("VECTOR type is only supported in MariaDB 11.7+")
+		}
+		createTableSQL = `CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, val VECTOR(2))`
+		initialInsertSQL = `INSERT INTO %s (val) VALUES (Vec_FromText('[1.1,1.0]'))`
+		cdcInsertSQL = `INSERT INTO %s (val) VALUES (Vec_FromText('[2.718, 1.414]'))`
+	default:
+		require.FailNow(s.t, fmt.Sprintf("unsupported MySQL flavor: %s", mysource.Config.Flavor))
 	}
 
 	srcTableName := "test_vector"
@@ -703,12 +789,9 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
 	dstTableName := "test_vector_dst"
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, val VECTOR)
-	`, quotedSrcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(createTableSQL, quotedSrcFullName)))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s (val) VALUES (to_vector('[1.1,1.0]'))`, quotedSrcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(initialInsertSQL, quotedSrcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -724,8 +807,7 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,val")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s (val) VALUES (to_vector('[2.718, 1.414]'))`, quotedSrcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(cdcInsertSQL, quotedSrcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,val")
 
@@ -1157,6 +1239,10 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
 	}
 
+	fixedBinaryInsertHex := "FF000102030405060708090A0B0C"
+	fixedBinaryWantHex := fixedBinaryInsertHex + "0000"
+	varBinaryWantHex := "FE000102030405060708090A0B0C0D00"
+
 	srcTable := "test_mysql_ghost_schema"
 	dstTable := "test_mysql_ghost_schema_dst"
 	srcTableName := AttachSchema(s, srcTable)
@@ -1231,6 +1317,8 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	// - c6: DECIMAL (no precision/scale -> typmod -1)
 	// - c7: DECIMAL(10,2) (tests precision/scale extraction)
 	// - c8: DECIMAL(18,6) (tests different precision/scale)
+	// - c9: BINARY(16) (tests binary charset on STRING metadata type)
+	// - c10: VARBINARY(16) (tests binary charset on VAR_STRING metadata type)
 	// ============================================
 
 	// 1. gh-ost creates ghost table with new schema (original + new columns)
@@ -1244,20 +1332,23 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 			c5 TEXT,
 			c6 DECIMAL,
 			c7 DECIMAL(10,2),
-			c8 DECIMAL(18,6)
+			c8 DECIMAL(18,6),
+			c9 BINARY(16),
+			c10 VARBINARY(16)
 		)
 	`, ghostTableName)))
 
 	// 2. gh-ost copies existing data to ghost table (we simulate this)
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %s (id, c1, c2, c3, c4, c5, c6, c7, c8) SELECT id, c1, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM %s
+		INSERT INTO %s (id, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
+		SELECT id, c1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM %s
 	`, ghostTableName, srcTableName)))
 
 	// 3. Insert another row into original table (gh-ost would capture this via binlog and apply to ghost)
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(2)`, srcTableName)))
 	// Simulate gh-ost applying it to ghost table
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
+		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10) VALUES(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
 		ghostTableName)))
 	EnvWaitForEqualTablesWithNames(env, s, "pre-cutover row", srcTable, dstTable, "id,c1")
 
@@ -1268,8 +1359,9 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 
 	// 5. Insert a row with the new columns populated (this goes to the new table, formerly ghost)
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8) VALUES(3, 300, 400, x'deadbeef', 'hello text', 123.45, 12345.67, 123456.789012)`,
-		srcTableName)))
+		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
+		VALUES(3, 300, 400, x'deadbeef', 'hello text', 123.45, 12345.67, 123456.789012, UNHEX('%s'), UNHEX('%s'))`,
+		srcTableName, fixedBinaryInsertHex, varBinaryWantHex)))
 	EnvWaitForEqualTablesWithNames(env, s, "post-cutover row", srcTable, dstTable,
 		"id,c1,coalesce(c2,0) c2,coalesce(c4,'') c4,coalesce(c5,'') c5,coalesce(c6,0) c6,coalesce(c7,0) c7,coalesce(c8,0) c8")
 
@@ -1278,6 +1370,29 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	require.NoError(t, err)
 	require.Len(t, dstRows.Records, 3)
 	require.Equal(t, uint32(400), dstRows.Records[2][1].Value())
+
+	dstRows, err = s.GetRows(dstTable, "id,c9,c10")
+	require.NoError(t, err)
+	require.Len(t, dstRows.Records, 3)
+
+	qvalueBytes := func(qv types.QValue) []byte {
+		switch v := qv.Value().(type) {
+		case string:
+			return []byte(v)
+		case []byte:
+			return v
+		default:
+			require.Failf(t, "unexpected binary column type", "type=%T value=%v", qv.Value(), qv.Value())
+			return nil
+		}
+	}
+
+	fixedBinaryWant, err := hex.DecodeString(fixedBinaryWantHex)
+	require.NoError(t, err)
+	varBinaryWant, err := hex.DecodeString(varBinaryWantHex)
+	require.NoError(t, err)
+	require.Equal(t, fixedBinaryWant, qvalueBytes(dstRows.Records[2][1]))
+	require.Equal(t, varBinaryWant, qvalueBytes(dstRows.Records[2][2]))
 
 	// Verify schema was updated to include new columns with correct types and typmods
 	expectedTableSchema = &protos.TableSchema{
@@ -1332,6 +1447,16 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 				Name:         ExpectedDestinationIdentifier(s, "c8"),
 				Type:         string(types.QValueKindNumeric), // DECIMAL(18,6)
 				TypeModifier: datatypes.MakeNumericTypmod(18, 6),
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c9"),
+				Type:         string(types.QValueKindBytes), // BINARY(16)
+				TypeModifier: -1,
+			},
+			{
+				Name:         ExpectedDestinationIdentifier(s, "c10"),
+				Type:         string(types.QValueKindBytes), // VARBINARY(16)
+				TypeModifier: -1,
 			},
 		},
 	}
@@ -1736,6 +1861,140 @@ func (s ClickHouseSuite) Test_MySQL_Default_Partition_Key_Parallel_Snapshot() {
 	}
 	require.NoError(s.t, partitionRows.Err())
 	require.EqualValues(s.t, numPartitions, partitionCount)
+	require.EqualValues(s.t, numRows, totalRows)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_UUID_Parallel_Snapshot() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTable := "test_string_pk_uuid"
+	srcFullName := s.attachSchemaSuffix(srcTable)
+	dstTable := "test_string_pk_uuid_dst"
+
+	const numRows = 100
+	const numPartitions = 8
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s (id CHAR(36) PRIMARY KEY, val INT NOT NULL)", srcFullName)))
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s (id, val) VALUES ('%s', %d)", srcFullName, uuid.NewString(), i)))
+	}
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+	// a String column can't be used directly as a Distributed sharding key (ClickHouse
+	// requires an integer-typed sharding expression), so hash it for the cluster suite
+	for _, tm := range tableMappings {
+		tm.ShardingKey = "cityHash64(id)"
+	}
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("string_pk_uuid"),
+		// PartitionKey is not specified to test default partition key detection
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumPartitionsOverride = numPartitions
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
+
+	partitionRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
+		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer partitionRows.Close()
+
+	var partitionCount int32
+	var totalRows int64
+	for partitionRows.Next() {
+		var partitionStart, partitionEnd *string
+		var rowsInPartition int64
+		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
+		require.NotNil(s.t, partitionStart)
+		require.NotNil(s.t, partitionEnd)
+		totalRows += rowsInPartition
+		partitionCount++
+	}
+	require.NoError(s.t, partitionRows.Err())
+	require.EqualValues(s.t, numPartitions, partitionCount)
+	require.EqualValues(s.t, numRows, totalRows)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTable := "test_string_pk_non_uuid"
+	srcFullName := s.attachSchemaSuffix(srcTable)
+	dstTable := "test_string_pk_non_uuid_dst"
+
+	const numRows = 100
+	const numPartitions = 8
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s (id VARCHAR(50) PRIMARY KEY, val INT NOT NULL)", srcFullName)))
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s (id, val) VALUES ('key_%04d', %d)", srcFullName, i, i)))
+	}
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+	// a String column can't be used directly as a Distributed sharding key (ClickHouse
+	// requires an integer-typed sharding expression), so hash it for the cluster suite
+	for _, tm := range tableMappings {
+		tm.ShardingKey = "cityHash64(id)"
+	}
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("string_pk_non_uuid"),
+		// PartitionKey is not specified to test default partition key detection
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumPartitionsOverride = numPartitions
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
+
+	partitionRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
+		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer partitionRows.Close()
+
+	var partitionCount int32
+	var totalRows int64
+	for partitionRows.Next() {
+		var partitionStart, partitionEnd *string
+		var rowsInPartition int64
+		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
+		require.Nil(s.t, partitionStart)
+		require.Nil(s.t, partitionEnd)
+		totalRows += rowsInPartition
+		partitionCount++
+	}
+	require.NoError(s.t, partitionRows.Err())
+	require.EqualValues(s.t, 1, partitionCount)
 	require.EqualValues(s.t, numRows, totalRows)
 
 	env.Cancel(s.t.Context())

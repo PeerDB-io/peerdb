@@ -331,6 +331,18 @@ func (c *ClickHouseConnector) RenameTables(
 		}
 
 		if originalTableExists {
+			// Before swapping, resolve the shard table that the original Distributed table currently points to.
+			// After the EXCHANGE the Distributed table is dropped, leaving that shard orphaned unless we drop it explicitly.
+			var originalShardTable string
+			if c.Config.Cluster != "" {
+				originalShardTable, err = c.getDistributedShardTable(ctx, renameRequest.NewName)
+				if err != nil {
+					c.logger.Warn("could not resolve shard table for original distributed table, old shard may be left behind",
+						slog.String("table", renameRequest.NewName), slog.Any("error", err))
+					originalShardTable = ""
+				}
+			}
+
 			// target table exists, so we can attempt to swap. In most cases, we will have Atomic engine,
 			// which supports a special query to exchange two tables, allowing dependent (materialized) views and dictionaries on these tables
 			c.logger.Info("attempting atomic exchange",
@@ -343,6 +355,15 @@ func (c *ClickHouseConnector) RenameTables(
 					fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
 				); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
+				}
+				// Drop the original shard table that is now orphaned after the Distributed table was exchanged and dropped.
+				if originalShardTable != "" {
+					if err := c.execWithLogging(ctx,
+						fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(originalShardTable), onCluster),
+					); err != nil {
+						return nil, fmt.Errorf("unable to drop orphaned shard table %s: %w", originalShardTable, err)
+					}
+					c.logger.Info("dropped orphaned shard table after resync exchange", slog.String("shardTable", originalShardTable))
 				}
 			} else if ex, ok := err.(*clickhouse.Exception); !ok || chproto.Error(ex.Code) != chproto.ErrNotImplemented {
 				// move on to the fallback code if unimplemented, in all other error codes / types return,

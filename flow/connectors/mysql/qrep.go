@@ -38,13 +38,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkColumn == "" || config.NumPartitionsOverride == 1 {
 		// if no watermark column is specified, return a single partition
-		return []*protos.QRepPartition{
-			{
-				PartitionId:        utils.FullTablePartitionID,
-				Range:              nil,
-				FullTablePartition: true,
-			},
-		}, nil
+		return utils.FullTablePartition(), nil
 	}
 
 	if config.NumPartitionsOverride == 0 && config.NumRowsPerPartition == 0 {
@@ -101,6 +95,10 @@ func (c *MySqlConnector) GetQRepPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			time := lastRange.TimestampRange.End.AsTime()
 			minVal = "'" + time.Format("2006-01-02 15:04:05.999999") + "'"
+		case *protos.PartitionRange_StringRange:
+			// resuming from last partition range is only possible for standalone QRepFlowWorkflow;
+			// this is a legacy feature and string partitioning is not supported
+			return nil, errors.New("resuming QRep by a string partition range is not supported")
 		case *protos.PartitionRange_NullRange:
 			// this case should never happen because we only add null partition for InitialCopyOnly replication
 			// (so there shouldn't be a resume scenario with null range)
@@ -155,7 +153,21 @@ func (c *MySqlConnector) GetQRepPartitions(
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert partition maximum to qvalue: %w", err)
 	}
-	if err := partitionHelper.AddPartitionsWithRange(val1.Value(), val2.Value(), numPartitions); err != nil {
+
+	start, startIsString := val1.Value().(string)
+	end, endIsString := val2.Value().(string)
+	if startIsString && endIsString {
+		if isUUID, casing := detectUuidWithHexCasing(start, end); isUUID {
+			uuidPartitions, err := buildUuidStringPartitions(start, end, casing, numPartitions)
+			if err != nil {
+				return nil, fmt.Errorf("failed to add uuid string partitions: %w", err)
+			}
+			partitionHelper.AddPartitions(uuidPartitions)
+		} else {
+			c.logger.Info("string watermark column is not uuid, falling back to full table partition")
+			return utils.FullTablePartition(), nil
+		}
+	} else if err := partitionHelper.AddPartitionsWithRange(val1.Value(), val2.Value(), numPartitions); err != nil {
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
 	}
 
@@ -176,6 +188,9 @@ func supportsRangePartition(qkind types.QValueKind) bool {
 		return true
 	// temporal types
 	case types.QValueKindDate, types.QValueKindTimestamp:
+		return true
+	// string types
+	case types.QValueKindString:
 		return true
 	default:
 		return false
@@ -354,6 +369,19 @@ func (c *MySqlConnector) PullQRepRecords(
 		case *protos.PartitionRange_TimestampRange:
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
+		case *protos.PartitionRange_StringRange:
+			rangeStart = "'" + mysql.Escape(x.StringRange.Start) + "'"
+			rangeEnd = "'" + mysql.Escape(x.StringRange.End) + "'"
+			if config.Query != "" {
+				// custom query is only possible for standalone QRepFlowWorkflow;
+				// this is a legacy feature and string partitioning is not supported
+				return 0, 0, errors.New("can't construct a string range partition for custom queries")
+			}
+			if !x.StringRange.EndInclusive {
+				queryTemplate = fmt.Sprintf(
+					"SELECT %[1]s FROM %[2]s WHERE %[3]s >= {{.start}} AND %[3]s < {{.end}}",
+					selectedColumns, parsedSrcTable.MySQL(), common.QuoteMySQLIdentifier(config.WatermarkColumn))
+			}
 		case *protos.PartitionRange_NullRange:
 			if config.Query != "" {
 				return 0, 0, errors.New("can't construct a null range partition for custom queries")

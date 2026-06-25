@@ -58,7 +58,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:18-alpine@sha256:96d56f7f57c6aacd1fcb908bc83b345ec5f83231ee486dd66a1baadce274db88
+    image: postgres:18-alpine@sha256:1b1689b20d16a014a3d195653381cf2caa75a41a92d93b255a9d6ea29fd353aa
     command: -c config_file=/etc/postgresql.conf
     ports:
       - *peerdb-catalog-port
