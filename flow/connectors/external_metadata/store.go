@@ -9,11 +9,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
@@ -24,8 +26,9 @@ import (
 )
 
 const (
-	lastSyncStateTableName = "metadata_last_sync_state"
-	qrepTableName          = "metadata_qrep_partitions"
+	lastSyncStateTableName       = "metadata_last_sync_state"
+	qrepTableName                = "metadata_qrep_partitions"
+	qrepPartitionRangesTableName = "metadata_qrep_partition_ranges"
 )
 
 type PostgresMetadata struct {
@@ -286,6 +289,162 @@ func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *proto
 	return exists, nil
 }
 
+// OffloadSensitivePartitionRanges encrypts and persists sensitive partition ranges
+// into metadata_qrep_partition_ranges and then strip the existing ranges and
+// replacing them with an empty range so the value never crosses a Temporal boundary.
+// RestoreSensitivePartitionRanges refills them from the catalog before replicating.
+func OffloadSensitivePartitionRanges(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	flowName string,
+	runUUID string,
+	partitions []*protos.QRepPartition,
+) error {
+	if !partitionsContainSensitiveRanges(partitions) {
+		return nil
+	}
+
+	key, err := internal.PeerDBCurrentEncKey(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load current encryption key: %w", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer shared.RollbackTx(tx, internal.LoggerFromCtx(ctx))
+
+	// delete any orphaned rows from a previously failed attempt
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM `+qrepPartitionRangesTableName+` WHERE run_uuid=$1`, runUUID,
+	); err != nil {
+		return fmt.Errorf("failed to clear existing partition ranges: %w", err)
+	}
+
+	for _, partition := range partitions {
+		payload, err := proto.Marshal(partition.Range)
+		if err != nil {
+			return fmt.Errorf("failed to marshal partition range: %w", err)
+		}
+		ciphertext, err := key.Encrypt(payload)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt partition range: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO `+qrepPartitionRangesTableName+
+				`(flow_name,run_uuid,partition_uuid,enc_key_id,range_payload) VALUES($1,$2,$3,$4,$5)`,
+			flowName, runUUID, partition.PartitionId, key.ID, ciphertext,
+		); err != nil {
+			return fmt.Errorf("failed to persist encrypted partition range: %w", err)
+		}
+
+		// strip the plaintext range, leaving an empty marker of the same type
+		partition.Range = &protos.PartitionRange{
+			Range: &protos.PartitionRange_StringRange{StringRange: &protos.StringPartitionRange{}},
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit partition ranges: %w", err)
+	}
+	return nil
+}
+
+// RestoreSensitivePartitionRanges hydrates sensitive partitions in-place with the decrypted
+// values fetched from the catalog. Used in conjunction with OffloadSensitivePartitionRanges
+func RestoreSensitivePartitionRanges(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	runUUID string,
+	partitions []*protos.QRepPartition,
+) error {
+	if !partitionsContainSensitiveRanges(partitions) {
+		return nil
+	}
+
+	byID := make(map[string]*protos.QRepPartition, len(partitions))
+	partitionIDs := make([]string, 0, len(partitions))
+	for _, partition := range partitions {
+		byID[partition.PartitionId] = partition
+		partitionIDs = append(partitionIDs, partition.PartitionId)
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT partition_uuid,enc_key_id,range_payload FROM `+qrepPartitionRangesTableName+` `+
+			`WHERE run_uuid=$1 AND partition_uuid=ANY($2)`,
+		runUUID, partitionIDs,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to read encrypted partition ranges: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var partitionID, encKeyID string
+		var ciphertext []byte
+		if err := rows.Scan(&partitionID, &encKeyID, &ciphertext); err != nil {
+			return fmt.Errorf("failed to scan encrypted partition range: %w", err)
+		}
+
+		partition, ok := byID[partitionID]
+		if !ok {
+			continue
+		}
+
+		payload, err := internal.Decrypt(ctx, encKeyID, ciphertext)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt partition range for %s: %w", partitionID, err)
+		}
+
+		var partitionRange protos.PartitionRange
+		if err := proto.Unmarshal(payload, &partitionRange); err != nil {
+			return fmt.Errorf("failed to unmarshal partition range for %s: %w", partitionID, err)
+		}
+		partition.Range = &partitionRange
+		delete(byID, partitionID)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read encrypted partition ranges: %w", err)
+	}
+
+	if len(byID) > 0 {
+		missing := make([]string, 0, len(byID))
+		for id := range byID {
+			missing = append(missing, id)
+		}
+		return fmt.Errorf("missing encrypted partition ranges for partitions: %v", missing)
+	}
+
+	return nil
+}
+
+func partitionsContainSensitiveRanges(partitions []*protos.QRepPartition) bool {
+	for _, partition := range partitions {
+		if containsSensitivePartitionRange(partition) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsSensitivePartitionRange reports whether the partition's range holds
+// data that must not cross a Temporal boundary in plaintext. String ranges
+// can be sensitive when their bounds are not UUIDs, so a string range whose start
+// and end both parse as UUIDs is treated as non-sensitive.
+func containsSensitivePartitionRange(partition *protos.QRepPartition) bool {
+	if partition == nil || partition.Range == nil {
+		return false
+	}
+	stringRange, ok := partition.Range.Range.(*protos.PartitionRange_StringRange)
+	if !ok {
+		return false
+	}
+	r := stringRange.StringRange
+	return uuid.Validate(r.GetStart()) != nil || uuid.Validate(r.GetEnd()) != nil
+}
+
 func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -310,6 +469,10 @@ func SyncFlowCleanupInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
 	}
 
 	if _, err := tx.Exec(ctx, `DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM `+qrepPartitionRangesTableName+` WHERE flow_name = $1`, jobName); err != nil {
 		return err
 	}
 

@@ -596,6 +596,10 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to get partitions from source", err))
 	}
 	if len(partitions) > 0 {
+		// run before monitoring.InitializeQRepRun to avoid logging sensitive fields to peerdb_stats.qrep_partitions as well
+		if err := connmetadata.OffloadSensitivePartitionRanges(ctx, a.CatalogPool, config.FlowJobName, runUUID, partitions); err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to offload partition ranges", err))
+		}
 		if err := monitoring.InitializeQRepRun(
 			ctx,
 			logger,
@@ -661,6 +665,10 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	if err != nil {
 		logger.Error("failed to initialize replication method", slog.Any("error", err))
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+
+	if err := connmetadata.RestoreSensitivePartitionRanges(ctx, a.CatalogPool, runUUID, partitions.Partitions); err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to rehydrate partition ranges: %w", err))
 	}
 
 	for i, partition := range partitions.Partitions {
@@ -1619,6 +1627,10 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
 			return true, nil
 		}
+	case *protos.PartitionRange_StringRange:
+		// checking for new rows is only possible for standalone QRepFlowWorkflow;
+		// this is a legacy feature and string partitioning is not supported
+		return false, errors.New("checking for new rows by a string partition range is not supported")
 	default:
 		return false, fmt.Errorf("unknown range type: %v", x)
 	}
