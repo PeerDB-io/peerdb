@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -230,6 +231,117 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 		'tinytext','mediumtext','longtext','char','varchar','{"a":2}')`, quotedSrcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,k,tb,mb,lb,bi,vb,tt,mt,lt,ch,vc,js")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("binlog_transaction_compression is not supported by MariaDB")
+	}
+	cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogTransactionCompression)
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("only applies to mysql versions with binlog_transaction_compression")
+	}
+
+	srcTableName := "test_txn_payload"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_txn_payload_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY,
+			val TEXT NOT NULL
+		)
+	`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Compress this session's transactions so the upcoming DML lands in the binlog as a single
+	// TRANSACTION_PAYLOAD_EVENT, exercising the compressed-payload decode path in CDC.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "SET SESSION binlog_transaction_compression = ON"))
+
+	// Capture the binlog position, then write a large, highly compressible transaction as a single
+	// multi-row INSERT so MySQL compresses it (compressed < uncompressed) into one payload event.
+	posBefore, err := mySource.GetMasterPos(s.t.Context())
+	require.NoError(s.t, err)
+
+	const rowCount = 200
+	rowVal := strings.Repeat("peerdb-compressible-", 100) // ~2KB highly repetitive per row
+	var insert strings.Builder
+	fmt.Fprintf(&insert, "INSERT INTO %s (id, val) VALUES ", srcFullName)
+	for i := 1; i <= rowCount; i++ {
+		if i > 1 {
+			insert.WriteByte(',')
+		}
+		fmt.Fprintf(&insert, "(%d, '%s')", i, rowVal)
+	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(), insert.String()))
+
+	findPayloadEndPos := func(ctx context.Context, from mysql.Position) (bool, uint32, error) {
+		rs, err := mySource.Execute(ctx, fmt.Sprintf("SHOW BINLOG EVENTS IN '%s' FROM %d", from.Name, from.Pos))
+		if err != nil {
+			return false, 0, err
+		}
+		for i := range rs.Values {
+			// SHOW BINLOG EVENTS columns: Log_name, Pos, Event_type, Server_id, End_log_pos, Info
+			eventType, _ := rs.GetString(i, 2)
+			if strings.Contains(strings.ToLower(eventType), "payload") {
+				pos, _ := rs.GetInt(i, 4)
+				return true, uint32(pos), nil
+			}
+		}
+		return false, 0, nil
+	}
+	hasPayload, payloadEndPos, err := findPayloadEndPos(s.t.Context(), posBefore)
+	require.NoError(s.t, err)
+	require.True(s.t, hasPayload, "expected a TRANSACTION_PAYLOAD_EVENT in the binlog")
+
+	// for GTID "SHOW BINLOG EVENTS" returns really complex format and it's different
+	// across versions/flavors.
+	// Therefore, we just get the latest GTID from a server instead of reading it from a binglog.
+	gtidAfter, err := mySource.GetMasterGTIDSet(s.t.Context())
+	require.NoError(s.t, err)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,val")
+
+	// Assert the payload transaction was checkpointed
+	pool, err := catalogTestAccessPool()
+	require.NoError(s.t, err)
+	var lastText string
+	require.NoError(s.t, pool.QueryRow(s.t.Context(),
+		"SELECT last_text FROM metadata_last_sync_state WHERE job_name = $1",
+		flowConnConfig.FlowJobName,
+	).Scan(&lastText))
+
+	if rest, isFilePos := strings.CutPrefix(lastText, "!f:"); isFilePos {
+		comma := strings.LastIndexByte(rest, ',')
+		require.NotEqual(s.t, -1, comma, "malformed file/pos offset %q", lastText)
+		storedPos, parseErr := strconv.ParseUint(rest[comma+1:], 16, 32)
+		require.NoError(s.t, parseErr)
+		require.GreaterOrEqual(s.t, uint32(storedPos), payloadEndPos,
+			"checkpoint did not advance past the TRANSACTION_PAYLOAD_EVENT")
+	} else {
+		storedSet, parseErr := mysql.ParseGTIDSet(mySource.Flavor(), lastText)
+		require.NoError(s.t, parseErr)
+		require.True(s.t, storedSet.Contain(gtidAfter),
+			"checkpoint GTID set %s does not cover the committed payload transaction %s", storedSet, gtidAfter)
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
