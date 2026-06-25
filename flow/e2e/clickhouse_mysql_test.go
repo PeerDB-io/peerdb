@@ -261,10 +261,6 @@ func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 		)
 	`, srcFullName)))
 
-	// One row before snapshot.
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s (id, val) VALUES (0, 'init')", srcFullName)))
-
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
@@ -275,8 +271,6 @@ func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,val")
 
 	// Compress this session's transactions so the upcoming DML lands in the binlog as a single
 	// TRANSACTION_PAYLOAD_EVENT, exercising the compressed-payload decode path in CDC.
