@@ -72,7 +72,7 @@ func (a *SnapshotActivity) SetupReplication(
 	}
 
 	logger.Info("waiting for slot to be created...")
-	slotInfo, err := conn.SetupReplication(ctx, config)
+	slotInfo, err := conn.SetupReplication(ctx, a.CatalogPool, config)
 
 	if err != nil {
 		connClose(ctx)

@@ -112,7 +112,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 		if canceled {
 			if input.Resync {
 				if err := errors.Join(ctx.Err(), sourceError, destinationError); err != nil {
-					logger.Warn("resync failed drop, proceeding with cdc flow", slog.Any("error", err))
+					logger.Warn("resync failed drop, proceeding with cleanup", slog.Any("error", err))
 				}
 				break
 			}
@@ -124,25 +124,64 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 }
 
 func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
+	activeSignal := model.NoopSignal
+	if input.Resync {
+		activeSignal = model.ResyncSignal
+	} else {
+		activeSignal = model.TerminateSignal
+	}
+
 	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (cdc_state.CDCFlowWorkflowState, error) {
 		state := cdc_state.CDCFlowWorkflowState{DropFlowInput: input}
 		if input.Resync {
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_RESYNC
-			state.ActiveSignal = model.ResyncSignal
+			state.ActiveSignal = activeSignal
 		} else {
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATING
-			state.ActiveSignal = model.TerminateSignal
+			state.ActiveSignal = activeSignal
 		}
 		return state, nil
 	}); err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
 
+	logger := workflow.GetLogger(ctx)
+
+	finalDrop := false
+	if input.Resync {
+		flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
+		flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
+		workflow.Go(ctx, func(gCtx workflow.Context) {
+			sigSelector := workflow.NewNamedSelector(gCtx, input.FlowJobName+"-drop-signals")
+			sigSelector.AddReceive(gCtx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+
+			flowSignalChan.AddToSelector(sigSelector, func(val model.CDCFlowSignal, _ bool) {
+				prev := activeSignal
+				activeSignal = model.FlowSignalHandler(activeSignal, val, logger)
+				if prev != model.TerminateSignal && activeSignal == model.TerminateSignal {
+					finalDrop = true
+				}
+			})
+
+			flowSignalStateChangeChan.AddToSelector(sigSelector, func(req *protos.FlowStateChangeRequest, _ bool) {
+				if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
+					activeSignal = model.TerminateSignal
+					input.DropFlowStats = req.DropMirrorStats
+					input.SkipDestinationDrop = req.SkipDestinationDrop
+					finalDrop = true
+				}
+			})
+
+			for gCtx.Err() == nil {
+				sigSelector.Select(gCtx)
+			}
+		})
+	}
+
 	status := protos.FlowStatus_STATUS_TERMINATING
 	if input.Resync {
 		status = protos.FlowStatus_STATUS_RESYNC
 	}
-	logger := workflow.GetLogger(ctx)
 	cdc_state.SyncStatusToCatalogWithFlowName(ctx, logger, status, input.FlowJobName)
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
@@ -205,7 +244,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 
 	req := model.RemoveFlowDetailsFromCatalogRequest{
 		FlowName: input.FlowJobName,
-		Resync:   input.Resync,
+		Resync:   input.Resync && activeSignal != model.TerminateSignal,
 	}
 	if err := workflow.ExecuteActivity(
 		removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, &req,
@@ -214,7 +253,22 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		return err
 	}
 
-	if input.Resync {
+	// If a terminate signal arrived during RemoveFlowDetailsFromCatalog while it ran
+	// in resync mode, the catalog row was left as RESYNC — do a final cleanup now.
+	if finalDrop && req.Resync {
+		finalReq := model.RemoveFlowDetailsFromCatalogRequest{
+			FlowName: input.FlowJobName,
+			Resync:   false,
+		}
+		if err := workflow.ExecuteActivity(
+			removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, &finalReq,
+		).Get(ctx, nil); err != nil {
+			workflow.GetLogger(ctx).Error("failed to remove flow details from catalog (final drop)", slog.Any("error", err))
+			return err
+		}
+	}
+
+	if input.Resync && activeSignal != model.TerminateSignal {
 		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, input.FlowConnectionConfigs, nil)
 	}
 
