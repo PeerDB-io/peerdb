@@ -216,6 +216,7 @@ func getPeerDBAWSEnv(connectorName string, awsKey string) string {
 func LoadPeerDBAWSEnvConfigProvider(connectorName string) *StaticAWSCredentialsProvider {
 	accessKeyId := getPeerDBAWSEnv(connectorName, "AWS_ACCESS_KEY_ID")
 	secretAccessKey := getPeerDBAWSEnv(connectorName, "AWS_SECRET_ACCESS_KEY")
+	sessionToken := getPeerDBAWSEnv(connectorName, "AWS_SESSION_TOKEN")
 	region := getPeerDBAWSEnv(connectorName, "AWS_REGION")
 	endpointUrl := getPeerDBAWSEnv(connectorName, "AWS_ENDPOINT_URL_S3")
 	rootCa := getPeerDBAWSEnv(connectorName, "ROOT_CA")
@@ -238,6 +239,7 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) *StaticAWSCredentialsP
 		AWS: aws.Credentials{
 			AccessKeyID:     accessKeyId,
 			SecretAccessKey: secretAccessKey,
+			SessionToken: sessionToken,
 		},
 		EndpointUrl: endpointUrlPtr,
 	}, region, rootCAs, tlsHost)
