@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -269,7 +270,6 @@ func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.DoInitialSnapshot = true
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -298,9 +298,23 @@ func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 	}
 	require.NoError(s.t, s.source.Exec(s.t.Context(), insert.String()))
 
+	hasTransactionPayloadEvent := func(ctx context.Context, from mysql.Position) (bool, error) {
+		rs, err := mySource.Execute(ctx, fmt.Sprintf("SHOW BINLOG EVENTS IN '%s' FROM %d", from.Name, from.Pos))
+		if err != nil {
+			return false, err
+		}
+		for i := range rs.Values {
+			// SHOW BINLOG EVENTS columns: Log_name, Pos, Event_type, Server_id, End_log_pos, Info
+			eventType, _ := rs.GetString(i, 2)
+			if strings.Contains(strings.ToLower(eventType), "payload") {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 	// Confirm compression actually produced a payload event, otherwise the test would silently
 	// pass via the uncompressed path and not exercise the new code.
-	hasPayload, err := mySource.HasTransactionPayloadEvent(s.t.Context(), posBefore)
+	hasPayload, err := hasTransactionPayloadEvent(s.t.Context(), posBefore)
 	require.NoError(s.t, err)
 	require.True(s.t, hasPayload, "expected a TRANSACTION_PAYLOAD_EVENT in the binlog")
 

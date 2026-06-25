@@ -784,14 +784,6 @@ func (c *MySqlConnector) PullRecords(
 					return err
 				}
 			}
-			// Inner events carry end_log_pos=0, so in file/pos mode advance the offset from
-			// the outer payload event's header (the end position after the whole transaction).
-			// GTID mode already checkpointed via the outer GTIDEvent + inner XID above.
-			if gset == nil && event.Header.LogPos > pos.Pos {
-				pos.Pos = event.Header.LogPos
-				updatedOffset = posToOffsetText(pos)
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			}
 		default:
 			err = processEvent(event)
 			if err != nil {
