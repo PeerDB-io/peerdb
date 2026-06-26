@@ -50,6 +50,12 @@ const (
 	queryStatusVarSQLMode = 1
 )
 
+const (
+	OnlineSchemaMigrationToolGhOst = "gh-ost"
+	OnlineSchemaMigrationToolPtOsc = "pt-online-schema-change"
+	OnlineSchemaMigrationToolOther = "other"
+)
+
 // sqlModeFromStatusVars extracts the sql_mode bitmask from a QueryEvent's status vars.
 // Both MySQL and MariaDB guarantee status vars are written in increasing order,
 // so we only need to parse 0 and 1 to get to 1
@@ -586,12 +592,15 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
 			}
 			for _, stmt := range stmts {
-				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
+				switch s := stmt.(type) {
+				case *ast.AlterTableStmt:
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, otelManager, req, alterTableStmt,
+						ctx, catalogPool, otelManager, req, s,
 						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
+				case *ast.RenameTableStmt:
+					c.processRenameTableQuery(ctx, otelManager, req, s, string(ev.Schema))
 				}
 			}
 		case *replication.RowsEvent:
@@ -1023,6 +1032,72 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
 	}
 	return nil
+}
+
+// processRenameTableQuery detects online schema-migration tools (gh-ost,
+// pt-online-schema-change, ...). These never issue an ALTER on the tracked
+// table; instead they build a shadow/ghost copy with the new schema and
+// atomically rename it into place, e.g.:
+//
+//	RENAME TABLE users TO _users_del, _users_gho TO users
+//
+// The resulting schema change surfaces to us only later, as row-event metadata
+// (see processTableMapEventSchema). Here we just meter how often a tracked table
+// is renamed-into, so we can gauge how prevalent these tools are
+func (c *MySqlConnector) processRenameTableQuery(
+	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
+	req *model.PullRecordsRequest[model.RecordItems],
+	stmt *ast.RenameTableStmt,
+	stmtSchema string,
+) {
+	for _, t2t := range stmt.TableToTables {
+		if t2t.NewTable == nil || t2t.OldTable == nil {
+			continue
+		}
+
+		// if the rename target has no schema, fall back to the one on the event
+		newSchemaName := t2t.NewTable.Schema.String()
+		if newSchemaName == "" {
+			newSchemaName = stmtSchema
+		}
+		newTableName := newSchemaName + "." + t2t.NewTable.Name.String()
+
+		// only care about renames that land on a table we are replicating
+		if _, tracked := req.TableNameMapping[newTableName]; !tracked {
+			continue
+		}
+
+		oldTableName := t2t.OldTable.Name.String()
+		tool := classifyOnlineSchemaMigrationTool(oldTableName, t2t.NewTable.Name.String())
+
+		c.logger.Info("table atomically renamed into a tracked table, likely an online schema migration",
+			slog.String("table", newTableName),
+			slog.String("renamedFrom", oldTableName),
+			slog.String("tool", tool))
+
+		otelManager.Metrics.OnlineSchemaMigrationsCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.SourcePeerType, "mysql"),
+			attribute.String(otel_metrics.OnlineSchemaMigrationTool, tool),
+		)))
+	}
+}
+
+// classifyOnlineSchemaMigrationTool guesses which online schema-change tool
+// performed a rename, based on the shadow table's naming convention:
+//   - gh-ost ghost table:                _<table>_gho
+//   - pt-online-schema-change new table: _<table>_new
+//
+// Anything else that renames into a tracked table is bucketed as "other".
+func classifyOnlineSchemaMigrationTool(oldTable, newTable string) string {
+	switch oldTable {
+	case "_" + newTable + "_gho":
+		return OnlineSchemaMigrationToolGhOst
+	case "_" + newTable + "_new":
+		return OnlineSchemaMigrationToolPtOsc
+	default:
+		return OnlineSchemaMigrationToolOther
+	}
 }
 
 func posToOffsetText(pos mysql.Position) string {

@@ -49,6 +49,7 @@ const (
 	TypeChangeFromKey          = "from"
 	TypeChangeToKey            = "to"
 	SourceEventTypeKey         = "sourceEventType"
+	OnlineSchemaMigrationTool  = "tool"
 )
 
 const (
