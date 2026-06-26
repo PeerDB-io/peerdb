@@ -297,22 +297,16 @@ func TestParseSQLAlterTableAddColumnEnumWithoutRowMetadata(t *testing.T) {
 	require.Equal(t, types.QValueKindUint16Enum, qkind)
 }
 
-func TestParseSQLAlterTableAddColumnSpatialTypesUnsupported(t *testing.T) {
+// TestParseSQLAlterTableAddColumnUnsupportedTypes covers types the TiDB parser rejects
+// in ADD COLUMN: spatial types, and MariaDB's network/UUID types.
+func TestParseSQLAlterTableAddColumnUnsupportedTypes(t *testing.T) {
 	for _, colType := range []string{
+		// spatial types
 		"GEOMETRY", "POINT", "POLYGON", "LINESTRING", "MULTIPOINT",
 		"MULTILINESTRING", "MULTIPOLYGON", "GEOMETRYCOLLECTION", "GEOMCOLLECTION",
+		// MariaDB-only network/UUID types
+		"INET4", "INET6", "UUID",
 	} {
-		t.Run(colType, func(t *testing.T) {
-			_, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colType))
-			require.Error(t, err)
-		})
-	}
-}
-
-// TestParseSQLAlterTableAddColumnMariaDBOnlyTypesNotParseable documents that MariaDB's
-// network/UUID types cannot be parsed in ADD COLUMN: the TiDB parser rejects them.
-func TestParseSQLAlterTableAddColumnMariaDBOnlyTypesNotParseable(t *testing.T) {
-	for _, colType := range []string{"INET4", "INET6", "UUID"} {
 		t.Run(colType, func(t *testing.T) {
 			_, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colType))
 			require.Error(t, err)
