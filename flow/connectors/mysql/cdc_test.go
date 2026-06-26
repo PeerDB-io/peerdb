@@ -3,6 +3,7 @@ package connmysql
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -14,9 +15,15 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -310,6 +317,145 @@ func TestParseSQLAlterTableAddColumnUnsupportedTypes(t *testing.T) {
 		t.Run(colType, func(t *testing.T) {
 			_, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colType))
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestClassifyOnlineSchemaMigrationTool(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		oldTable string
+		newTable string
+		want     string
+	}{
+		{"gh-ost", "_users_gho", "users", OnlineSchemaMigrationToolGhOst},
+		{"pt-osc", "_users_new", "users", OnlineSchemaMigrationToolPtOsc},
+		{"plain rename", "users_backup", "users", OnlineSchemaMigrationToolOther},
+		{"gh-ost del table is not the target", "_users_del", "users", OnlineSchemaMigrationToolOther},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, classifyOnlineSchemaMigrationTool(tc.oldTable, tc.newTable))
+		})
+	}
+}
+
+func TestParseSQLParsesGhOstRename(t *testing.T) {
+	mysqlParser := parser.New()
+	// the atomic swap gh-ost issues at the end of a migration
+	query := []byte("RENAME TABLE `mydb`.`users` TO `mydb`.`_users_del`, `mydb`.`_users_gho` TO `mydb`.`users`")
+	stmts, warns, err := parseSQL(mysqlParser, query)
+	require.NoError(t, err)
+	require.Empty(t, warns)
+	require.Len(t, stmts, 1)
+
+	rename, ok := stmts[0].(*ast.RenameTableStmt)
+	require.True(t, ok)
+	require.Len(t, rename.TableToTables, 2)
+
+	// the rename that lands on the tracked table is the ghost table swap
+	swap := rename.TableToTables[1]
+	require.Equal(t, "users", swap.NewTable.Name.String())
+	require.Equal(t, "_users_gho", swap.OldTable.Name.String())
+	require.Equal(t, OnlineSchemaMigrationToolGhOst,
+		classifyOnlineSchemaMigrationTool(swap.OldTable.Name.String(), swap.NewTable.Name.String()))
+}
+
+// newMetricsTestOtelManager builds an OtelManager backed by a ManualReader so tests
+// can collect and assert recorded metric values without a real exporter.
+func newMetricsTestOtelManager(t *testing.T) (*otel_metrics.OtelManager, *sdkmetric.ManualReader) {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	om := &otel_metrics.OtelManager{
+		MetricsProvider:    provider,
+		Meter:              provider.Meter("test"),
+		Int64CountersCache: make(map[string]metric.Int64Counter),
+	}
+	counter, err := om.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.OnlineSchemaMigrationsName))
+	require.NoError(t, err)
+	om.Metrics.OnlineSchemaMigrationsCounter = counter
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	return om, reader
+}
+
+// collectOnlineSchemaMigrationCounts collects the online_schema_migrations counter and
+// returns its value bucketed by the `tool` attribute.
+func collectOnlineSchemaMigrationCounts(t *testing.T, ctx context.Context, reader *sdkmetric.ManualReader) map[string]int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(ctx, &rm))
+
+	wantName := otel_metrics.BuildMetricName(otel_metrics.OnlineSchemaMigrationsName)
+	counts := make(map[string]int64)
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != wantName {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			require.True(t, ok, "expected Int64 sum for %s", wantName)
+			for _, dp := range sum.DataPoints {
+				tool, _ := dp.Attributes.Value(otel_metrics.OnlineSchemaMigrationTool)
+				source, _ := dp.Attributes.Value(otel_metrics.SourcePeerType)
+				require.Equal(t, "mysql", source.AsString())
+				counts[tool.AsString()] += dp.Value
+			}
+		}
+	}
+	return counts
+}
+
+func TestProcessRenameTableQueryMetric(t *testing.T) {
+	ctx := t.Context()
+	c := &MySqlConnector{logger: log.NewStructuredLogger(slog.Default())}
+
+	parseRename := func(query string) *ast.RenameTableStmt {
+		t.Helper()
+		stmts, _, err := parseSQL(parser.New(), []byte(query))
+		require.NoError(t, err)
+		require.Len(t, stmts, 1)
+		rename, ok := stmts[0].(*ast.RenameTableStmt)
+		require.True(t, ok)
+		return rename
+	}
+
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  map[string]int64
+	}{
+		{
+			name: "gh-ost cutover on tracked table increments once",
+			// full gh-ost atomic swap: only the `_users_gho -> users` pair lands on a tracked table
+			query: "RENAME TABLE `mydb`.`users` TO `mydb`.`_users_del`, `mydb`.`_users_gho` TO `mydb`.`users`",
+			want:  map[string]int64{OnlineSchemaMigrationToolGhOst: 1},
+		},
+		{
+			name:  "pt-online-schema-change cutover",
+			query: "RENAME TABLE `mydb`.`users` TO `mydb`.`_users_old`, `mydb`.`_users_new` TO `mydb`.`users`",
+			want:  map[string]int64{OnlineSchemaMigrationToolPtOsc: 1},
+		},
+		{
+			name: "schema falls back to event schema",
+			// no schema qualifier on the statement; resolved from the event's schema
+			query: "RENAME TABLE `users` TO `_users_del`, `_users_gho` TO `users`",
+			want:  map[string]int64{OnlineSchemaMigrationToolGhOst: 1},
+		},
+		{
+			name: "rename into untracked table is ignored",
+			// neither target is a table we replicate
+			query: "RENAME TABLE `mydb`.`orders` TO `mydb`.`orders_archive`",
+			want:  map[string]int64{},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			om, reader := newMetricsTestOtelManager(t)
+			req := &model.PullRecordsRequest[model.RecordItems]{
+				TableNameMapping: map[string]model.NameAndExclude{"mydb.users": {Name: "users_dst"}},
+			}
+			c.processRenameTableQuery(ctx, om, req, parseRename(tc.query), "mydb")
+
+			require.Equal(t, tc.want, collectOnlineSchemaMigrationCounts(t, ctx, reader))
 		})
 	}
 }
