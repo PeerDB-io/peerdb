@@ -432,6 +432,11 @@ func (c *MySqlConnector) PullRecords(
 ) error {
 	defer req.RecordStream.Close()
 
+	mysqlMetrics, err := newMetrics(otelManager)
+	if err != nil {
+		return err
+	}
+
 	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
 	if err != nil {
 		return err
@@ -634,7 +639,7 @@ func (c *MySqlConnector) PullRecords(
 					if colIdx < 0 || colIdx >= len(ev.Table.ColumnType) {
 						continue
 					}
-					enc, err := c.collationEncoding(ctx, collationID, otelManager)
+					enc, err := c.collationEncoding(ctx, collationID, mysqlMetrics)
 					if err != nil {
 						return err
 					}
@@ -644,7 +649,7 @@ func (c *MySqlConnector) PullRecords(
 					setColEncoding(colIdx, enc)
 				}
 				for colIdx, collationID := range ev.Table.EnumSetCollationMap() {
-					enc, err := c.collationEncoding(ctx, collationID, otelManager)
+					enc, err := c.collationEncoding(ctx, collationID, mysqlMetrics)
 					if err != nil {
 						return err
 					}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
@@ -80,7 +81,6 @@ const (
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 	CodeNotificationCounterName          = "code_notification"
 	ServerWalEndLagGaugeName             = "wal_end_lag"
-	UsedMySQLCharsetsName                = "used_mysql_charsets"
 	ColumnTypeChangesName                = "column_type_changes"
 )
 
@@ -136,7 +136,6 @@ type Metrics struct {
 	LogRetentionGauge                metric.Float64Gauge
 	UnchangedToastValuesCounter      metric.Int64Counter
 	ServerWalEndLagGauge             metric.Int64Gauge
-	UsedMySQLCharsetsCounter         metric.Int64Counter
 	ColumnTypeChangesCounter         metric.Int64Counter
 }
 
@@ -177,6 +176,7 @@ type OtelManager struct {
 	Float64GaugesCache map[string]metric.Float64Gauge
 	Int64GaugesCache   map[string]metric.Int64Gauge
 	Int64CountersCache map[string]metric.Int64Counter
+	cacheMu            sync.Mutex
 	Enabled            bool
 }
 
@@ -211,10 +211,13 @@ func (om *OtelManager) Close(ctx context.Context) error {
 func getOrInitMetric[M any, O any](
 	cons func(metric.Meter, string, ...O) (M, error),
 	meter metric.Meter,
+	mu *sync.Mutex,
 	cache map[string]M,
 	name string,
 	opts ...O,
 ) (M, error) {
+	mu.Lock()
+	defer mu.Unlock()
 	gauge, ok := cache[name]
 	if !ok {
 		var err error
@@ -230,16 +233,16 @@ func getOrInitMetric[M any, O any](
 
 func (om *OtelManager) GetOrInitInt64Gauge(name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
 	// Once fixed, replace first argument below with metric.Meter.Int64Gauge
-	return getOrInitMetric(ContextAwareInt64Gauge, om.Meter, om.Int64GaugesCache, name, opts...)
+	return getOrInitMetric(ContextAwareInt64Gauge, om.Meter, &om.cacheMu, om.Int64GaugesCache, name, opts...)
 }
 
 func (om *OtelManager) GetOrInitFloat64Gauge(name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
 	// Once fixed, replace first argument below with metric.Meter.Float64Gauge
-	return getOrInitMetric(ContextAwareFloat64Gauge, om.Meter, om.Float64GaugesCache, name, opts...)
+	return getOrInitMetric(ContextAwareFloat64Gauge, om.Meter, &om.cacheMu, om.Float64GaugesCache, name, opts...)
 }
 
 func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
-	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
+	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, &om.cacheMu, om.Int64CountersCache, name, opts...)
 }
 
 // CodeNotificationCounter is a global counter for emitting notifications for one-off things we want to know about with the least effort.
@@ -573,13 +576,6 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
 		metric.WithDescription(
 			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
-	); err != nil {
-		return err
-	}
-
-	if om.Metrics.UsedMySQLCharsetsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UsedMySQLCharsetsName),
-		metric.WithDescription(
-			"Counter of used MySQL charsets, with `charset` label and `status` label indicating unsupported/transcoded/not_transcoded"),
 	); err != nil {
 		return err
 	}
