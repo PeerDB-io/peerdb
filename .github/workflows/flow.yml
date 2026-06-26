@@ -323,6 +323,7 @@ jobs:
           openssl x509 -req -days 3650 -in ch-certs/client.csr -CA ch-certs/ca.crt -CAkey ch-certs/ca.key -CAcreateserial -out ch-certs/tls.crt
 
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
+        # Also enables certificate-based client authentication (mTLS) on the catalog postgres instance.
         run: >
           docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
           docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
@@ -333,6 +334,9 @@ jobs:
           -c "ALTER SYSTEM SET max_wal_senders=256;"
           -c "ALTER SYSTEM SET max_connections=2048;" &&
           (cat ./nexus/catalog/migrations/V{?,??}__* | docker exec -i "${{ job.services.catalog.id }}" psql -U postgres) &&
+          docker cp volumes/pg-tls "${{ job.services.catalog.id }}:/tmp/pg-tls" &&
+          docker exec "${{ job.services.catalog.id }}" sh -c 'install -d -o postgres -g postgres /var/lib/postgresql/tls && install -m 644 -o postgres -g postgres /tmp/pg-tls/server.crt /var/lib/postgresql/tls/server.crt && install -m 600 -o postgres -g postgres /tmp/pg-tls/server.key /var/lib/postgresql/tls/server.key && install -m 644 -o postgres -g postgres /tmp/pg-tls/client.crt /var/lib/postgresql/tls/ca.crt' &&
+          docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "ALTER SYSTEM SET ssl=on;" -c "ALTER SYSTEM SET ssl_cert_file='/var/lib/postgresql/tls/server.crt';" -c "ALTER SYSTEM SET ssl_key_file='/var/lib/postgresql/tls/server.key';" -c "ALTER SYSTEM SET ssl_ca_file='/var/lib/postgresql/tls/ca.crt';" &&
           docker restart "${{ job.services.catalog.id }}"
         env:
           PGPASSWORD: postgres
@@ -639,6 +643,10 @@ jobs:
           PG2_USER: postgres
           PG2_PASSWORD: postgres
           PG2_DATABASE: postgres
+          # Mutual-TLS client-certificate auth test (catalog has TLS enabled above)
+          PG_MTLS_ROOT_CA_PATH: ${{ github.workspace }}/volumes/pg-tls/server.crt
+          PG_MTLS_CLIENT_CERT_PATH: ${{ github.workspace }}/volumes/pg-tls/client.crt
+          PG_MTLS_CLIENT_KEY_PATH: ${{ github.workspace }}/volumes/pg-tls/client.key
           PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
