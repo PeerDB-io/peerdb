@@ -14,9 +14,10 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 	}{
 		// --- benign: MariaDB/RDS "SET STATEMENT ... FOR ..." (the dominant prod noise) ---
 		{
-			name:  "set statement for rds_heartbeat insert",
-			query: "SET STATEMENT max_statement_time=60 FOR INSERT INTO mysql.rds_heartbeat2(id, value) values (1,1782476058116) ON DUPLICATE KEY UPDATE value = 1782476058116",
-			want:  true,
+			name: "set statement for rds_heartbeat insert",
+			query: "SET STATEMENT max_statement_time=60 FOR INSERT INTO mysql.rds_heartbeat2(id, value) " +
+				"values (1,1782476058116) ON DUPLICATE KEY UPDATE value = 1782476058116",
+			want: true,
 		},
 		{
 			name:  "set statement for rds_sysinfo delete",
@@ -35,9 +36,10 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		{name: "xa commit", query: `XA COMMIT X'30623263663564642d616630322d34'`, want: true},
 		// --- benign: stored routines / triggers / events / views ---
 		{
-			name:  "create definer procedure",
-			query: "CREATE DEFINER=`admin`@`%` PROCEDURE `check_daily_stats_date_continuity`()\nBEGIN\n  DECLARE done INT;\n  CREATE TABLE tmp(x INT);\nEND",
-			want:  true,
+			name: "create definer procedure",
+			query: "CREATE DEFINER=`admin`@`%` PROCEDURE `check_daily_stats_date_continuity`()\n" +
+				"BEGIN\n  DECLARE done INT;\n  CREATE TABLE tmp(x INT);\nEND",
+			want: true,
 		},
 		{name: "create procedure no definer", query: "CREATE PROCEDURE sp_x() BEGIN END", want: true},
 		{name: "drop procedure", query: "DROP PROCEDURE IF EXISTS sp_x", want: true},
@@ -85,7 +87,11 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		// --- edge cases: nothing actionable recognized => benign ---
 		{name: "empty", query: "", want: true},
 		{name: "only comment", query: "/* nothing here */", want: true},
-		{name: "procedure body mentioning table before object keyword cannot fool it", query: "CREATE PROCEDURE p() BEGIN CREATE TABLE z(x INT); END", want: true},
+		{
+			name:  "procedure body mentioning table before object keyword cannot fool it",
+			query: "CREATE PROCEDURE p() BEGIN CREATE TABLE z(x INT); END",
+			want:  true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, isBenignUnparsedStatement(tc.query))
