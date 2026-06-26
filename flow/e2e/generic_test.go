@@ -531,43 +531,33 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	EnvWaitForEqualTablesWithNames(env, s, "table2 not added column", srcTable2, dstTable2, "id,c1")
 
 	// MySQL auto-increment ids surface as unsigned bigints, Postgres SERIAL ids as int32.
+	_, isMySQL := s.Source().(*MySqlSource)
 	idKind := types.QValueKindInt32
-	if _, isMySQL := s.Source().(*MySqlSource); isMySQL {
+	if isMySQL {
 		idKind = types.QValueKindUInt64
 	}
 
-	// table1 received a DML referencing c2, so c2 reached the destination. table2's c2 was added on the
-	// source but not yet referenced by any DML, so the new column should not have propagated yet.
+	// table1 received a DML referencing c2, so c2 reached the destination.
 	expectedTableSchema1 := ExpectedDestinationSchema(s, dstTable1, []*protos.FieldDescription{
 		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
 	})
-	expectedTableSchema2 := ExpectedDestinationSchema(s, dstTable2, []*protos.FieldDescription{
+	// table2's c2 was added on the source but not yet referenced by its own DML. MySQL applies the ALTER
+	// eagerly from the binlog, so c2 has already reached table2's destination; Postgres defers it until
+	// table2's next DML (pgoutput emits the relation message lazily). See docs/cutoff-schema-delta-leak.md.
+	table2Columns := []*protos.FieldDescription{
 		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
-	})
+	}
+	if isMySQL {
+		table2Columns = append(table2Columns,
+			&protos.FieldDescription{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1})
+	}
+	expectedTableSchema2 := ExpectedDestinationSchema(s, dstTable2, table2Columns)
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	EnvNoError(t, env, err)
-
-	// === TEMP EVIDENCE (cutoff-schema-delta-leak investigation) ===
-	// Capture, per source, whether t2's new column reached the PeerDB catalog and/or the destination
-	// at the cutoff point (t2 altered on source but not yet referenced by its own DML). Force a failure
-	// so every source/destination variant records this in CI regardless of the strict assertion outcome.
-	evidenceCatalogPool, evidenceErr := internal.GetCatalogConnectionPoolFromEnv(t.Context())
-	EnvNoError(t, env, evidenceErr)
-	evidenceCatalog, evidenceErr := internal.LoadTableSchemasFromCatalog(t.Context(), evidenceCatalogPool,
-		connectionGen.FlowJobName, []string{dstTableName1, dstTableName2})
-	EnvNoError(t, env, evidenceErr)
-	t.Logf("SCHEMADBG-EVIDENCE phase=1 source=%T", s.Source())
-	t.Logf("SCHEMADBG-EVIDENCE phase=1 table1 catalog={%s}", formatTableSchema(evidenceCatalog[dstTableName1]))
-	t.Logf("SCHEMADBG-EVIDENCE phase=1 table1 dest={%s}", formatTableSchema(output[dstTableName1]))
-	t.Logf("SCHEMADBG-EVIDENCE phase=1 table2 catalog={%s}", formatTableSchema(evidenceCatalog[dstTableName2]))
-	t.Logf("SCHEMADBG-EVIDENCE phase=1 table2 dest={%s}", formatTableSchema(output[dstTableName2]))
-	EnvTrue(t, env, false)
-	// === END TEMP EVIDENCE ===
-
 	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema1, output[dstTableName1]))
 	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema2, output[dstTableName2]))
 
