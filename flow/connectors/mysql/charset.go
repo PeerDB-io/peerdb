@@ -133,25 +133,26 @@ func (c *MySqlConnector) tableMapColumnEncodings(
 	setMap map[int][]string,
 	otelManager *otel_metrics.OtelManager,
 ) ([]encoding.Encoding, error) {
-	var colEncodings []encoding.Encoding
-	if err := c.addTableMapColumnEncodings(
+	colEncodings, err := c.appendTableMapColumnEncodings(
 		ctx, otelManager,
 		tableMap, tableMapCharacterCollation, tableMap.DefaultCharset, tableMap.ColumnCharset,
-		nil, nil, &colEncodings,
-	); err != nil {
+		nil, nil, nil,
+	)
+	if err != nil {
 		return nil, err
 	}
-	if err := c.addTableMapColumnEncodings(
+	colEncodings, err = c.appendTableMapColumnEncodings(
 		ctx, otelManager,
 		tableMap, tableMapEnumSetCollation, tableMap.EnumSetDefaultCharset, tableMap.EnumSetColumnCharset,
-		enumMap, setMap, &colEncodings,
-	); err != nil {
+		enumMap, setMap, colEncodings,
+	)
+	if err != nil {
 		return nil, err
 	}
 	return colEncodings, nil
 }
 
-func (c *MySqlConnector) addTableMapColumnEncodings(
+func (c *MySqlConnector) appendTableMapColumnEncodings(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,
 	tableMap *replication.TableMapEvent,
@@ -160,11 +161,11 @@ func (c *MySqlConnector) addTableMapColumnEncodings(
 	columnCharset []uint64,
 	enumMap map[int][]string,
 	setMap map[int][]string,
-	colEncodings *[]encoding.Encoding,
-) error {
+	colEncodings []encoding.Encoding,
+) ([]encoding.Encoding, error) {
 	if len(defaultCharset) != 0 {
 		if len(defaultCharset)%2 == 0 {
-			return fmt.Errorf("malformed TABLE_MAP default charset metadata: expected odd item count, got %d", len(defaultCharset))
+			return nil, fmt.Errorf("malformed TABLE_MAP default charset metadata: expected odd item count, got %d", len(defaultCharset))
 		}
 
 		defaultCollation := defaultCharset[0]
@@ -175,14 +176,16 @@ func (c *MySqlConnector) addTableMapColumnEncodings(
 			}
 
 			collationID := tableMapDefaultCollation(defaultCharset, collationPos, defaultCollation)
-			if err := c.addTableMapColumnEncoding(
+			var err error
+			colEncodings, err = c.appendTableMapColumnEncoding(
 				ctx, otelManager, tableMap, collationType, colIdx, collationID, enumMap, setMap, colEncodings,
-			); err != nil {
-				return err
+			)
+			if err != nil {
+				return nil, err
 			}
 			collationPos++
 		}
-		return nil
+		return colEncodings, nil
 	}
 
 	if len(columnCharset) != 0 {
@@ -192,22 +195,24 @@ func (c *MySqlConnector) addTableMapColumnEncodings(
 				continue
 			}
 			if collationPos >= len(columnCharset) {
-				return fmt.Errorf(
+				return nil, fmt.Errorf(
 					"malformed TABLE_MAP column charset metadata: got %d collations, missing collation for column %d",
 					len(columnCharset), colIdx,
 				)
 			}
 
-			if err := c.addTableMapColumnEncoding(
+			var err error
+			colEncodings, err = c.appendTableMapColumnEncoding(
 				ctx, otelManager, tableMap, collationType, colIdx, columnCharset[collationPos],
 				enumMap, setMap, colEncodings,
-			); err != nil {
-				return err
+			)
+			if err != nil {
+				return nil, err
 			}
 			collationPos++
 		}
 	}
-	return nil
+	return colEncodings, nil
 }
 
 func tableMapDefaultCollation(defaultCharset []uint64, collationPos int, defaultCollation uint64) uint64 {
@@ -234,7 +239,7 @@ func tableMapIncludesCollation(
 	}
 }
 
-func (c *MySqlConnector) addTableMapColumnEncoding(
+func (c *MySqlConnector) appendTableMapColumnEncoding(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,
 	tableMap *replication.TableMapEvent,
@@ -243,30 +248,30 @@ func (c *MySqlConnector) addTableMapColumnEncoding(
 	collationID uint64,
 	enumMap map[int][]string,
 	setMap map[int][]string,
-	colEncodings *[]encoding.Encoding,
-) error {
+	colEncodings []encoding.Encoding,
+) ([]encoding.Encoding, error) {
 	enc, err := c.collationEncoding(ctx, collationID, otelManager)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if enc == nil {
-		return nil
+		return colEncodings, nil
 	}
 
-	if *colEncodings == nil {
-		*colEncodings = make([]encoding.Encoding, len(tableMap.ColumnType))
+	if colEncodings == nil {
+		colEncodings = make([]encoding.Encoding, len(tableMap.ColumnType))
 	}
-	(*colEncodings)[colIdx] = enc
+	colEncodings[colIdx] = enc
 
 	if collationType == tableMapEnumSetCollation {
 		if err := decodeMySQLStrings(enc, enumMap[colIdx]); err != nil {
-			return err
+			return nil, err
 		}
 		if err := decodeMySQLStrings(enc, setMap[colIdx]); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return colEncodings, nil
 }
 
 func (c *MySqlConnector) charsetForCollation(ctx context.Context, collationID uint64) (string, error) {
