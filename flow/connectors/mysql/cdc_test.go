@@ -169,10 +169,10 @@ func TestClassifyOnlineSchemaMigrationTool(t *testing.T) {
 		newTable string
 		want     string
 	}{
-		{"gh-ost", "_users_gho", "users", otel_metrics.OnlineSchemaMigrationToolGhOst},
-		{"pt-osc", "_users_new", "users", otel_metrics.OnlineSchemaMigrationToolPtOsc},
-		{"plain rename", "users_backup", "users", otel_metrics.OnlineSchemaMigrationToolOther},
-		{"gh-ost del table is not the target", "_users_del", "users", otel_metrics.OnlineSchemaMigrationToolOther},
+		{"gh-ost", "_users_gho", "users", OnlineSchemaMigrationToolGhOst},
+		{"pt-osc", "_users_new", "users", OnlineSchemaMigrationToolPtOsc},
+		{"plain rename", "users_backup", "users", OnlineSchemaMigrationToolOther},
+		{"gh-ost del table is not the target", "_users_del", "users", OnlineSchemaMigrationToolOther},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, classifyOnlineSchemaMigrationTool(tc.oldTable, tc.newTable))
@@ -197,7 +197,7 @@ func TestParseSQLParsesGhOstRename(t *testing.T) {
 	swap := rename.TableToTables[1]
 	require.Equal(t, "users", swap.NewTable.Name.String())
 	require.Equal(t, "_users_gho", swap.OldTable.Name.String())
-	require.Equal(t, otel_metrics.OnlineSchemaMigrationToolGhOst,
+	require.Equal(t, OnlineSchemaMigrationToolGhOst,
 		classifyOnlineSchemaMigrationTool(swap.OldTable.Name.String(), swap.NewTable.Name.String()))
 }
 
@@ -260,55 +260,45 @@ func TestProcessRenameTableQueryMetric(t *testing.T) {
 		return rename
 	}
 
-	t.Run("gh-ost cutover on tracked table increments once", func(t *testing.T) {
-		om, reader := newMetricsTestOtelManager(t)
-		req := &model.PullRecordsRequest[model.RecordItems]{
-			TableNameMapping: map[string]model.NameAndExclude{"mydb.users": {Name: "users_dst"}},
-		}
-		// full gh-ost atomic swap: only the `_users_gho -> users` pair lands on a tracked table
-		rename := parseRename("RENAME TABLE `mydb`.`users` TO `mydb`.`_users_del`, `mydb`.`_users_gho` TO `mydb`.`users`")
-		c.processRenameTableQuery(ctx, om, req, rename, "mydb")
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  map[string]int64
+	}{
+		{
+			name: "gh-ost cutover on tracked table increments once",
+			// full gh-ost atomic swap: only the `_users_gho -> users` pair lands on a tracked table
+			query: "RENAME TABLE `mydb`.`users` TO `mydb`.`_users_del`, `mydb`.`_users_gho` TO `mydb`.`users`",
+			want:  map[string]int64{OnlineSchemaMigrationToolGhOst: 1},
+		},
+		{
+			name:  "pt-online-schema-change cutover",
+			query: "RENAME TABLE `mydb`.`users` TO `mydb`.`_users_old`, `mydb`.`_users_new` TO `mydb`.`users`",
+			want:  map[string]int64{OnlineSchemaMigrationToolPtOsc: 1},
+		},
+		{
+			name: "schema falls back to event schema",
+			// no schema qualifier on the statement; resolved from the event's schema
+			query: "RENAME TABLE `users` TO `_users_del`, `_users_gho` TO `users`",
+			want:  map[string]int64{OnlineSchemaMigrationToolGhOst: 1},
+		},
+		{
+			name: "rename into untracked table is ignored",
+			// neither target is a table we replicate
+			query: "RENAME TABLE `mydb`.`orders` TO `mydb`.`orders_archive`",
+			want:  map[string]int64{},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			om, reader := newMetricsTestOtelManager(t)
+			req := &model.PullRecordsRequest[model.RecordItems]{
+				TableNameMapping: map[string]model.NameAndExclude{"mydb.users": {Name: "users_dst"}},
+			}
+			c.processRenameTableQuery(ctx, om, req, parseRename(tc.query), "mydb")
 
-		require.Equal(t, map[string]int64{otel_metrics.OnlineSchemaMigrationToolGhOst: 1},
-			collectOnlineSchemaMigrationCounts(t, ctx, reader))
-	})
-
-	t.Run("pt-online-schema-change cutover", func(t *testing.T) {
-		om, reader := newMetricsTestOtelManager(t)
-		req := &model.PullRecordsRequest[model.RecordItems]{
-			TableNameMapping: map[string]model.NameAndExclude{"mydb.users": {Name: "users_dst"}},
-		}
-		rename := parseRename("RENAME TABLE `mydb`.`users` TO `mydb`.`_users_old`, `mydb`.`_users_new` TO `mydb`.`users`")
-		c.processRenameTableQuery(ctx, om, req, rename, "mydb")
-
-		require.Equal(t, map[string]int64{otel_metrics.OnlineSchemaMigrationToolPtOsc: 1},
-			collectOnlineSchemaMigrationCounts(t, ctx, reader))
-	})
-
-	t.Run("schema falls back to event schema", func(t *testing.T) {
-		om, reader := newMetricsTestOtelManager(t)
-		req := &model.PullRecordsRequest[model.RecordItems]{
-			TableNameMapping: map[string]model.NameAndExclude{"mydb.users": {Name: "users_dst"}},
-		}
-		// no schema qualifier on the statement; resolved from the event's schema
-		rename := parseRename("RENAME TABLE `users` TO `_users_del`, `_users_gho` TO `users`")
-		c.processRenameTableQuery(ctx, om, req, rename, "mydb")
-
-		require.Equal(t, map[string]int64{otel_metrics.OnlineSchemaMigrationToolGhOst: 1},
-			collectOnlineSchemaMigrationCounts(t, ctx, reader))
-	})
-
-	t.Run("rename into untracked table is ignored", func(t *testing.T) {
-		om, reader := newMetricsTestOtelManager(t)
-		req := &model.PullRecordsRequest[model.RecordItems]{
-			TableNameMapping: map[string]model.NameAndExclude{"mydb.users": {Name: "users_dst"}},
-		}
-		// neither target is a table we replicate
-		rename := parseRename("RENAME TABLE `mydb`.`orders` TO `mydb`.`orders_archive`")
-		c.processRenameTableQuery(ctx, om, req, rename, "mydb")
-
-		require.Empty(t, collectOnlineSchemaMigrationCounts(t, ctx, reader))
-	})
+			require.Equal(t, tc.want, collectOnlineSchemaMigrationCounts(t, ctx, reader))
+		})
+	}
 }
 
 func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {

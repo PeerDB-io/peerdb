@@ -50,6 +50,12 @@ const (
 	queryStatusVarSQLMode = 1
 )
 
+const (
+	OnlineSchemaMigrationToolGhOst = "gh-ost"
+	OnlineSchemaMigrationToolPtOsc = "pt-online-schema-change"
+	OnlineSchemaMigrationToolOther = "other"
+)
+
 // sqlModeFromStatusVars extracts the sql_mode bitmask from a QueryEvent's status vars.
 // Both MySQL and MariaDB guarantee status vars are written in increasing order,
 // so we only need to parse 0 and 1 to get to 1
@@ -1086,11 +1092,11 @@ func (c *MySqlConnector) processRenameTableQuery(
 func classifyOnlineSchemaMigrationTool(oldTable, newTable string) string {
 	switch oldTable {
 	case "_" + newTable + "_gho":
-		return otel_metrics.OnlineSchemaMigrationToolGhOst
+		return OnlineSchemaMigrationToolGhOst
 	case "_" + newTable + "_new":
-		return otel_metrics.OnlineSchemaMigrationToolPtOsc
+		return OnlineSchemaMigrationToolPtOsc
 	default:
-		return otel_metrics.OnlineSchemaMigrationToolOther
+		return OnlineSchemaMigrationToolOther
 	}
 }
 

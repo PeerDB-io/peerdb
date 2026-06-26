@@ -72,9 +72,3 @@ const (
 	SourceEventTypeDDL           = "ddl"
 	SourceEventTypeEventMetadata = "eventMetadata"
 )
-
-const (
-	OnlineSchemaMigrationToolGhOst = "gh-ost"
-	OnlineSchemaMigrationToolPtOsc = "pt-online-schema-change"
-	OnlineSchemaMigrationToolOther = "other"
-)
