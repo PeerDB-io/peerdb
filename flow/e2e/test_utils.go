@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
@@ -775,7 +776,8 @@ func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual
 		diffs = append(diffs, fmt.Sprintf("table identifier: expected %s, got %s", expected.TableIdentifier, actual.TableIdentifier))
 	}
 	if expected.IsReplicaIdentityFull != actual.IsReplicaIdentityFull {
-		diffs = append(diffs, fmt.Sprintf("replica identity full: expected %t, got %t", expected.IsReplicaIdentityFull, actual.IsReplicaIdentityFull))
+		diffs = append(diffs, fmt.Sprintf("replica identity full: expected %t, got %t",
+			expected.IsReplicaIdentityFull, actual.IsReplicaIdentityFull))
 	}
 	if expected.NullableEnabled != actual.NullableEnabled {
 		diffs = append(diffs, fmt.Sprintf("nullable enabled: expected %t, got %t", expected.NullableEnabled, actual.NullableEnabled))
@@ -845,6 +847,41 @@ func formatTableSchema(s *protos.TableSchema) string {
 	return fmt.Sprintf("identifier=%s system=%s pk=%v replicaIdentityFull=%t nullableEnabled=%t columns=[%s]",
 		s.TableIdentifier, s.System, s.PrimaryKeyColumns, s.IsReplicaIdentityFull, s.NullableEnabled,
 		strings.Join(colStrs, " "))
+}
+
+// ExpectedDestinationSchema builds the TableSchema that GetTableSchema is expected to return for the
+// destination of suite s, given the user-defined columns. The engine-managed metadata columns,
+// primary keys, nullability and synced-at column naming differ between destinations, so they are
+// filled in here rather than spelled out at every call site. The id column is treated as the primary key.
+func ExpectedDestinationSchema(s GenericSuite, dstTable string, userColumns []*protos.FieldDescription) *protos.TableSchema {
+	idCol := ExpectedDestinationIdentifier(s, "id")
+	schema := &protos.TableSchema{
+		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
+	}
+
+	switch s.DestinationConnector().(type) {
+	case *connclickhouse.ClickHouseConnector:
+		for _, col := range userColumns {
+			col.Nullable = false
+			schema.Columns = append(schema.Columns, col)
+		}
+		schema.Columns = append(schema.Columns,
+			&protos.FieldDescription{Name: "_peerdb_is_deleted", Type: string(types.QValueKindUInt8), TypeModifier: -1},
+			&protos.FieldDescription{Name: "_peerdb_synced_at", Type: string(types.QValueKindTimestamp), TypeModifier: -1},
+			&protos.FieldDescription{Name: "_peerdb_version", Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		)
+	default: // Postgres destination
+		schema.PrimaryKeyColumns = []string{idCol}
+		for _, col := range userColumns {
+			col.Nullable = col.Name != idCol
+			schema.Columns = append(schema.Columns, col)
+		}
+		schema.Columns = append(schema.Columns,
+			&protos.FieldDescription{Name: "_PEERDB_SYNCED_AT", Type: string(types.QValueKindTimestamp), TypeModifier: -1, Nullable: true},
+		)
+	}
+	return schema
 }
 
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {
