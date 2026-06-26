@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func startBinlogStream(t *testing.T, ctx context.Context, c *MySqlConnector) *replication.BinlogStreamer {
@@ -151,6 +152,195 @@ func TestParseSQLParsesTrailingNull(t *testing.T) {
 			require.Empty(t, warns)
 			require.Len(t, stmts, 1)
 			tc.assert(t, stmts[0])
+		})
+	}
+}
+
+func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
+	// addColumnType parses `ALTER TABLE t ADD COLUMN c <colDef>` and returns the
+	// column's InfoSchemaStr, the same value processAlterTableQuery feeds to
+	// QkindFromMysqlColumnType.
+	addColumnType := func(t *testing.T, colDef string) string {
+		t.Helper()
+		stmts, warns, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colDef))
+		require.NoError(t, err)
+		require.Empty(t, warns)
+		require.Len(t, stmts, 1)
+		alter, ok := stmts[0].(*ast.AlterTableStmt)
+		require.True(t, ok)
+		require.Len(t, alter.Specs, 1)
+		require.Len(t, alter.Specs[0].NewColumns, 1)
+		col := alter.Specs[0].NewColumns[0]
+		require.NotNil(t, col.Tp)
+		return col.Tp.InfoSchemaStr()
+	}
+
+	for _, tc := range []struct {
+		name   string
+		colDef string
+		want   types.QValueKind
+	}{
+		// integers
+		{"tinyint(1) is boolean", "TINYINT(1)", types.QValueKindBoolean},
+		{"tinyint", "TINYINT", types.QValueKindInt8},
+		{"tinyint unsigned", "TINYINT UNSIGNED", types.QValueKindUInt8},
+		{"smallint", "SMALLINT", types.QValueKindInt16},
+		{"smallint unsigned", "SMALLINT UNSIGNED", types.QValueKindUInt16},
+		{"year", "YEAR", types.QValueKindInt16},
+		{"mediumint", "MEDIUMINT", types.QValueKindInt32},
+		{"mediumint unsigned", "MEDIUMINT UNSIGNED", types.QValueKindUInt32},
+		{"int", "INT", types.QValueKindInt32},
+		{"int unsigned", "INT UNSIGNED", types.QValueKindUInt32},
+		{"bigint", "BIGINT", types.QValueKindInt64},
+		{"bigint unsigned", "BIGINT UNSIGNED", types.QValueKindUInt64},
+		{"bit", "BIT(8)", types.QValueKindUInt64},
+
+		// floating point and exact numeric
+		{"float", "FLOAT", types.QValueKindFloat32},
+		{"double", "DOUBLE", types.QValueKindFloat64},
+		{"decimal", "DECIMAL(10,2)", types.QValueKindNumeric},
+		{"numeric", "NUMERIC(10,2)", types.QValueKindNumeric},
+
+		// strings
+		{"char", "CHAR(10)", types.QValueKindString},
+		{"varchar", "VARCHAR(255)", types.QValueKindString},
+		{"tinytext", "TINYTEXT", types.QValueKindString},
+		{"text", "TEXT", types.QValueKindString},
+		{"mediumtext", "MEDIUMTEXT", types.QValueKindString},
+		{"longtext", "LONGTEXT", types.QValueKindString},
+		{"set", "SET('a','b','c')", types.QValueKindString},
+
+		// binary
+		{"binary", "BINARY(16)", types.QValueKindBytes},
+		{"varbinary", "VARBINARY(255)", types.QValueKindBytes},
+		{"tinyblob", "TINYBLOB", types.QValueKindBytes},
+		{"blob", "BLOB", types.QValueKindBytes},
+		{"mediumblob", "MEDIUMBLOB", types.QValueKindBytes},
+		{"longblob", "LONGBLOB", types.QValueKindBytes},
+
+		// date and time
+		{"date", "DATE", types.QValueKindDate},
+		{"datetime", "DATETIME", types.QValueKindTimestamp},
+		{"timestamp", "TIMESTAMP", types.QValueKindTimestamp},
+		{"time", "TIME", types.QValueKindTime},
+
+		// json
+		{"json", "JSON", types.QValueKindJSON},
+
+		// enum (binlog row metadata available -> Enum, not the Uint16 fallback)
+		{"enum", "ENUM('a','b','c')", types.QValueKindEnum},
+
+		// vector
+		{"vector", "VECTOR(3)", types.QValueKindArrayFloat32},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			qkind, err := QkindFromMysqlColumnType(addColumnType(t, tc.colDef), true, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, qkind)
+		})
+	}
+}
+
+// TestParseSQLAlterTableAddColumnTypeSynonyms covers the type spellings MySQL and
+// MariaDB accept as aliases. QkindFromMysqlColumnType has no case for any of these
+// names — it works because the TiDB parser normalizes each to its canonical
+// InfoSchemaStr (BOOLEAN->tinyint(1), INTEGER->int, REAL->double, SERIAL->bigint
+// unsigned, NVARCHAR->varchar, MariaDB INT1..INT8->the sized int, ...). This test
+// guards that normalization, so adding a column with any of these spellings still
+// resolves to the right QValueKind.
+func TestParseSQLAlterTableAddColumnTypeSynonyms(t *testing.T) {
+	addColumnType := func(t *testing.T, colDef string) string {
+		t.Helper()
+		stmts, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colDef))
+		require.NoError(t, err)
+		require.Len(t, stmts, 1)
+		col := stmts[0].(*ast.AlterTableStmt).Specs[0].NewColumns[0]
+		require.NotNil(t, col.Tp)
+		return col.Tp.InfoSchemaStr()
+	}
+
+	for _, tc := range []struct {
+		name   string
+		colDef string
+		want   types.QValueKind
+	}{
+		// boolean spellings normalize to tinyint(1)
+		{"bool", "BOOL", types.QValueKindBoolean},
+		{"boolean", "BOOLEAN", types.QValueKindBoolean},
+
+		// integer spellings
+		{"integer", "INTEGER", types.QValueKindInt32},
+		{"integer unsigned", "INTEGER UNSIGNED", types.QValueKindUInt32},
+		// MariaDB int synonyms INT1..INT8 / MIDDLEINT map to the sized integer
+		{"int1 -> tinyint", "INT1", types.QValueKindInt8},
+		{"int2 -> smallint", "INT2", types.QValueKindInt16},
+		{"int3 -> mediumint", "INT3", types.QValueKindInt32},
+		{"int4 -> int", "INT4", types.QValueKindInt32},
+		{"int8 -> bigint", "INT8", types.QValueKindInt64},
+		{"middleint -> mediumint", "MIDDLEINT", types.QValueKindInt32},
+		// SERIAL is BIGINT UNSIGNED ... AUTO_INCREMENT UNIQUE
+		{"serial -> bigint unsigned", "SERIAL", types.QValueKindUInt64},
+
+		// exact numeric spellings normalize to decimal
+		{"dec", "DEC(10,2)", types.QValueKindNumeric},
+		{"fixed", "FIXED(10,2)", types.QValueKindNumeric},
+
+		// approximate numeric spellings normalize to double
+		{"double precision", "DOUBLE PRECISION", types.QValueKindFloat64},
+		{"real", "REAL", types.QValueKindFloat64},
+
+		// char spellings normalize to char
+		{"character", "CHARACTER(10)", types.QValueKindString},
+		{"nchar", "NCHAR(10)", types.QValueKindString},
+		{"national char", "NATIONAL CHAR(10)", types.QValueKindString},
+
+		// varchar spellings normalize to varchar
+		{"character varying", "CHARACTER VARYING(255)", types.QValueKindString},
+		{"nvarchar", "NVARCHAR(255)", types.QValueKindString},
+		{"national varchar", "NATIONAL VARCHAR(255)", types.QValueKindString},
+
+		// MariaDB LONG / LONG VARCHAR normalize to mediumtext
+		{"long", "LONG", types.QValueKindString},
+		{"long varchar", "LONG VARCHAR", types.QValueKindString},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			qkind, err := QkindFromMysqlColumnType(addColumnType(t, tc.colDef), true, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, qkind)
+		})
+	}
+}
+
+func TestParseSQLAlterTableAddColumnEnumWithoutRowMetadata(t *testing.T) {
+	stmts, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c ENUM('a','b','c')"))
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	col := stmts[0].(*ast.AlterTableStmt).Specs[0].NewColumns[0]
+
+	qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), false, shared.InternalVersion_MySQL5ConvertEnumsToInts)
+	require.NoError(t, err)
+	require.Equal(t, types.QValueKindUint16Enum, qkind)
+}
+
+func TestParseSQLAlterTableAddColumnSpatialTypesUnsupported(t *testing.T) {
+	for _, colType := range []string{
+		"GEOMETRY", "POINT", "POLYGON", "LINESTRING", "MULTIPOINT",
+		"MULTILINESTRING", "MULTIPOLYGON", "GEOMETRYCOLLECTION", "GEOMCOLLECTION",
+	} {
+		t.Run(colType, func(t *testing.T) {
+			_, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colType))
+			require.Error(t, err)
+		})
+	}
+}
+
+// TestParseSQLAlterTableAddColumnMariaDBOnlyTypesNotParseable documents that MariaDB's
+// network/UUID types cannot be parsed in ADD COLUMN: the TiDB parser rejects them.
+func TestParseSQLAlterTableAddColumnMariaDBOnlyTypesNotParseable(t *testing.T) {
+	for _, colType := range []string{"INET4", "INET6", "UUID"} {
+		t.Run(colType, func(t *testing.T) {
+			_, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colType))
+			require.Error(t, err)
 		})
 	}
 }

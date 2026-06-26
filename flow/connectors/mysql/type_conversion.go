@@ -68,9 +68,29 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 		}
 	case "vector":
 		return types.QValueKindArrayFloat32, nil
+	case "uuid": // MariaDB 10.7+
+		return types.QValueKindUUID, nil
+	case "inet4", "inet6": // MariaDB 10.10+ / 10.5+; both rendered as text
+		return types.QValueKindINET, nil
 	case "geometry", "point", "polygon", "linestring", "multipoint", "multilinestring", "multipolygon", "geomcollection", "geometrycollection":
 		return types.QValueKindGeometry, nil
 	default:
 		return types.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
+	}
+}
+
+// isBinlogStringBackedType reports whether a QValueKind comes from a MariaDB type that
+// is transmitted in the binlog as MYSQL_TYPE_STRING with the binary charset even though
+// its information_schema data type is something more specific. Verified against MariaDB
+// 11.8: uuid/inet4/inet6 all arrive with ColumnType 0xFE (MYSQL_TYPE_STRING) and binary
+// charset — byte-for-byte indistinguishable from BINARY(N) — so qkindFromMysqlType maps
+// them to bytes. That wire-derived qkind legitimately differs from the schema's qkind
+// (inet/uuid), so the mismatch must not be reported as a column type change.
+func isBinlogStringBackedType(kind types.QValueKind) bool {
+	switch kind {
+	case types.QValueKindUUID, types.QValueKindINET:
+		return true
+	default:
+		return false
 	}
 }

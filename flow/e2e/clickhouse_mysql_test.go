@@ -837,6 +837,76 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_MariaDB_UUID_INET() {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("UUID/INET4/INET6 are MariaDB-only types")
+	}
+	// INET4 is the newest of the three (MariaDB 10.10); gating on it guarantees all exist.
+	cmp, err := mysource.CompareServerVersion(s.t.Context(), "10.10.0")
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("UUID/INET4/INET6 require MariaDB 10.10+")
+	}
+
+	srcTableName := "test_uuid_inet"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_uuid_inet_dst"
+
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s(
+			id serial PRIMARY KEY,
+			u uuid,
+			ip4 inet4,
+			ip6 inet6
+		)`, srcFullName)))
+
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (u, ip4, ip6) VALUES ('6ccd780c-baba-1026-9564-5b8c656024db', '192.168.0.1', '2001:db8::1')`,
+		srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting for initial snapshot", dstTableName, "id", 1)
+
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (u, ip4, ip6) VALUES ('00112233-4455-6677-8899-aabbccddeeff', '10.0.0.255', '::1')`,
+		srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting for cdc", dstTableName, "id", 2)
+
+	rows, err := s.GetRows(dstTableName, "id, u, ip4, ip6")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+
+	expected := [][]string{
+		{"6ccd780c-baba-1026-9564-5b8c656024db", "192.168.0.1", "2001:db8::1"},
+		{"00112233-4455-6677-8899-aabbccddeeff", "10.0.0.255", "::1"},
+	}
+	for i, row := range rows.Records {
+		require.Len(s.t, row, 4)
+		require.Equal(s.t, expected[i][0], fmt.Sprint(row[1].Value()), "uuid mismatch at row %d", i+1)
+		require.Equal(s.t, expected[i][1], fmt.Sprint(row[2].Value()), "inet4 mismatch at row %d", i+1)
+		require.Equal(s.t, expected[i][2], fmt.Sprint(row[3].Value()), "inet6 mismatch at row %d", i+1)
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Numbers() {
 	if mysource, ok := s.source.(*MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 		s.t.Skip("only applies to mysql")
