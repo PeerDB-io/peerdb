@@ -162,10 +162,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
 	}
 
-	numPartitionsOverride := uint32(0)
-	if s.config.SnapshotNumPartitionsOverride > 0 {
-		numPartitionsOverride = s.config.SnapshotNumPartitionsOverride
-	}
+	numPartitionsOverride := uint32(1000)
 
 	snapshotWriteMode := &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
