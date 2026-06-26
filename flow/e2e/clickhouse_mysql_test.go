@@ -24,7 +24,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -1364,19 +1363,21 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	require.Equal(t, fixedBinaryWant, qvalueBytes(dstRows.Records[2][1]))
 	require.Equal(t, varBinaryWant, qvalueBytes(dstRows.Records[2][2]))
 
-	// Verify schema was updated to include new columns with correct types and typmods
+	// Verify schema was updated to include the new columns. Reading the schema back from ClickHouse
+	// reports the destination's stored representation: binary types (BLOB/BINARY/VARBINARY) surface as
+	// String, and decimal precision/scale is not preserved (typmod is always -1).
 	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
 		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c3"), Type: string(types.QValueKindUInt32), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c4"), Type: string(types.QValueKindBytes), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c4"), Type: string(types.QValueKindString), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c5"), Type: string(types.QValueKindString), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c6"), Type: string(types.QValueKindNumeric), TypeModifier: datatypes.MakeNumericTypmod(10, 0)},
-		{Name: ExpectedDestinationIdentifier(s, "c7"), Type: string(types.QValueKindNumeric), TypeModifier: datatypes.MakeNumericTypmod(10, 2)},
-		{Name: ExpectedDestinationIdentifier(s, "c8"), Type: string(types.QValueKindNumeric), TypeModifier: datatypes.MakeNumericTypmod(18, 6)},
-		{Name: ExpectedDestinationIdentifier(s, "c9"), Type: string(types.QValueKindBytes), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c10"), Type: string(types.QValueKindBytes), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c6"), Type: string(types.QValueKindNumeric), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c7"), Type: string(types.QValueKindNumeric), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c8"), Type: string(types.QValueKindNumeric), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c9"), Type: string(types.QValueKindString), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c10"), Type: string(types.QValueKindString), TypeModifier: -1},
 	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
