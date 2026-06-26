@@ -586,9 +586,6 @@ func (c *MySqlConnector) PullRecords(
 			stmts, warns, err := parseSQL(mysqlParser, ev.Query)
 			if err != nil {
 				if isBenignUnparsedStatement(string(ev.Query)) {
-					// never act on (MariaDB SET STATEMENT, XA, stored
-					// routines/triggers/events/views, user/grant DDL) routinely fail the TiDB
-					// parser; they can't cause schema divergence, so don't report them.
 					c.logger.Warn("skipping parse failure for non-replicated statement",
 						slog.String("query", string(ev.Query)), slog.Any("error", err))
 					break
