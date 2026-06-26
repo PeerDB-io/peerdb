@@ -1050,7 +1050,6 @@ func (c *MySqlConnector) recordColumnTypeChange(
 	eventType string,
 ) {
 	otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(otel_metrics.SourcePeerType, "mysql"),
 		attribute.String(otel_metrics.TypeChangeFromKey, string(from)),
 		attribute.String(otel_metrics.TypeChangeToKey, string(to)),
 		attribute.String(otel_metrics.SourceEventTypeKey, eventType),
