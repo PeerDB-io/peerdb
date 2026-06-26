@@ -583,7 +583,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 			if bytes > 100<<30 { // 100 GiB
 				msg := fmt.Sprintf("large table detected: %s (%s). Counting/partitioning queries for parallel "+
 					"snapshotting may take minutes to hours to execute. This is normal for tables over 100 GiB.",
-					config.WatermarkTable, utils.FormatTableSize(bytes))
+					config.WatermarkTable, utils.HumanReadableBytes(bytes))
 				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, msg)
 			}
 		} else {
