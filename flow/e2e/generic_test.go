@@ -241,6 +241,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -267,7 +268,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	// alter source table, add column c2 and insert another row.
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName)))
@@ -277,6 +278,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
 	expectedTableSchema = &protos.TableSchema{
 		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -303,7 +305,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
 
 	// alter source table, add column c3, drop column c2 and insert another row.
@@ -314,6 +316,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c2 column", srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
 	expectedTableSchema = &protos.TableSchema{
 		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -345,7 +348,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
 
 	// alter source table, drop column c3 and insert another row.
@@ -356,6 +359,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c3 column", srcTable, dstTable, "id,c1")
 	expectedTableSchema = &protos.TableSchema{
 		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -387,7 +391,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")
 
 	env.Cancel(t.Context())
@@ -615,6 +619,7 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 
 	expectedTableSchema1 := &protos.TableSchema{
 		TableIdentifier: ExpectedDestinationTableName(s, dstTable1),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -644,7 +649,8 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 		},
 	}
 	expectedTableSchema2 := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable1),
+		TableIdentifier: ExpectedDestinationTableName(s, dstTable2),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -671,8 +677,8 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema2, output[dstTableName2]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema1, output[dstTableName1]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema2, output[dstTableName2]))
 
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES (3, 3)`, srcTableName1)))
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES (2, 2)`, srcTableName2)))
@@ -683,8 +689,11 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName2]))
+	// After table2's DML arrives, it should have the same columns as table1
+	// while keeping its own table identifier.
+	expectedTableSchema2.Columns = expectedTableSchema1.Columns
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema1, output[dstTableName1]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema2, output[dstTableName2]))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)

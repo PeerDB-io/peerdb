@@ -1187,6 +1187,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -1213,7 +1214,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	// alter source table, add column addedColumn and insert another row.
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN `addedColumn` BIGINT", srcTableName)))
@@ -1222,6 +1223,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
 	expectedTableSchema = &protos.TableSchema{
 		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -1248,7 +1250,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
@@ -1312,6 +1314,7 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	// Verify initial schema
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -1338,7 +1341,7 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	// ============================================
 	// Simulate gh-ost migration: add columns to test type detection
@@ -1429,6 +1432,7 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	// Verify schema was updated to include new columns with correct types and typmods
 	expectedTableSchema = &protos.TableSchema{
 		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         ExpectedDestinationIdentifier(s, "id"),
@@ -1495,7 +1499,7 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
