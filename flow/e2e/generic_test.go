@@ -550,6 +550,24 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	EnvNoError(t, env, err)
+
+	// === TEMP EVIDENCE (cutoff-schema-delta-leak investigation) ===
+	// Capture, per source, whether t2's new column reached the PeerDB catalog and/or the destination
+	// at the cutoff point (t2 altered on source but not yet referenced by its own DML). Force a failure
+	// so every source/destination variant records this in CI regardless of the strict assertion outcome.
+	evidenceCatalogPool, evidenceErr := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	EnvNoError(t, env, evidenceErr)
+	evidenceCatalog, evidenceErr := internal.LoadTableSchemasFromCatalog(t.Context(), evidenceCatalogPool,
+		connectionGen.FlowJobName, []string{dstTableName1, dstTableName2})
+	EnvNoError(t, env, evidenceErr)
+	t.Logf("SCHEMADBG-EVIDENCE phase=1 source=%T", s.Source())
+	t.Logf("SCHEMADBG-EVIDENCE phase=1 table1 catalog={%s}", formatTableSchema(evidenceCatalog[dstTableName1]))
+	t.Logf("SCHEMADBG-EVIDENCE phase=1 table1 dest={%s}", formatTableSchema(output[dstTableName1]))
+	t.Logf("SCHEMADBG-EVIDENCE phase=1 table2 catalog={%s}", formatTableSchema(evidenceCatalog[dstTableName2]))
+	t.Logf("SCHEMADBG-EVIDENCE phase=1 table2 dest={%s}", formatTableSchema(output[dstTableName2]))
+	EnvTrue(t, env, false)
+	// === END TEMP EVIDENCE ===
+
 	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema1, output[dstTableName1]))
 	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema2, output[dstTableName2]))
 

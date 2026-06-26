@@ -236,6 +236,18 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		return nil
 	}
 
+	for _, sd := range schemaDeltas {
+		if sd != nil && len(sd.AddedColumns) > 0 {
+			cols := make([]string, 0, len(sd.AddedColumns))
+			for _, ac := range sd.AddedColumns {
+				cols = append(cols, ac.Name)
+			}
+			c.logger.Info("SCHEMADBG-REPLAY-CH applying schema delta in batch",
+				slog.String("flowJobName", flowJobName),
+				slog.String("src", sd.SrcTableName), slog.String("dst", sd.DstTableName), slog.Any("added", cols))
+		}
+	}
+
 	onCluster := c.onCluster()
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
