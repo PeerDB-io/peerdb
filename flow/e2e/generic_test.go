@@ -536,15 +536,17 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 		idKind = types.QValueKindUInt64
 	}
 
-	// Both destination tables carry c2 once table1's batch applies the schema delta, even though
-	// table2 has not yet received its own DML for the new column.
-	cutoffColumns := []*protos.FieldDescription{
+	// table1 received a DML referencing c2, so c2 reached the destination. table2's c2 was added on the
+	// source but not yet referenced by any DML, so the new column should not have propagated yet.
+	expectedTableSchema1 := ExpectedDestinationSchema(s, dstTable1, []*protos.FieldDescription{
 		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
-	}
-	expectedTableSchema1 := ExpectedDestinationSchema(s, dstTable1, cutoffColumns)
-	expectedTableSchema2 := ExpectedDestinationSchema(s, dstTable2, cutoffColumns)
+	})
+	expectedTableSchema2 := ExpectedDestinationSchema(s, dstTable2, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	EnvNoError(t, env, err)
