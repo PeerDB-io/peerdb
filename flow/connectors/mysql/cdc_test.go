@@ -118,6 +118,43 @@ func TestANSIQuotesDDLParsedFromBinlog(t *testing.T) {
 	require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars with extra status vars present")
 }
 
+func TestParseSQLParsesTrailingNull(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		query  []byte
+		assert func(*testing.T, ast.StmtNode)
+	}{
+		{
+			name:  "alter table",
+			query: []byte("ALTER TABLE t ADD COLUMN c INT\x00"),
+			assert: func(t *testing.T, stmt ast.StmtNode) {
+				t.Helper()
+				require.IsType(t, &ast.AlterTableStmt{}, stmt)
+			},
+		},
+		{
+			name:  "commit",
+			query: []byte("COMMIT\x00"),
+			assert: func(t *testing.T, stmt ast.StmtNode) {
+				t.Helper()
+				require.IsType(t, &ast.CommitStmt{}, stmt)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mysqlParser := parser.New()
+			_, _, err := mysqlParser.ParseSQL(string(tc.query))
+			require.Error(t, err)
+
+			stmts, warns, err := parseSQL(mysqlParser, tc.query)
+			require.NoError(t, err)
+			require.Empty(t, warns)
+			require.Len(t, stmts, 1)
+			tc.assert(t, stmts[0])
+		})
+	}
+}
+
 func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

@@ -1,6 +1,7 @@
 package connmysql
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/tls"
@@ -21,6 +22,7 @@ import (
 	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/text/encoding"
 	"google.golang.org/protobuf/proto"
@@ -87,6 +89,12 @@ func setParserSQLModeFromStatusVars(mysqlParser *parser.Parser, statusVars []byt
 
 func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
 	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
+}
+
+func parseSQL(parser *parser.Parser, query []byte) ([]ast.StmtNode, []error, error) {
+	// TIDB parser errors on null-terminated strings
+	trimmedQuery := shared.UnsafeFastReadOnlyBytesToString(bytes.TrimRight(query, "\x00"))
+	return parser.ParseSQL(trimmedQuery)
 }
 
 func (c *MySqlConnector) GetTableSchema(
@@ -241,6 +249,7 @@ func (c *MySqlConnector) FinishExport(any) error {
 
 func (c *MySqlConnector) SetupReplication(
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
 	var gtidModeOn bool
@@ -516,72 +525,25 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	recordCommitLagMetric := func(ctx context.Context, commitTs uint64) {
+		if commitTs > 0 {
+			otelManager.Metrics.CommitLagGauge.Record(ctx,
+				time.Now().UTC().Sub(time.UnixMicro(int64(commitTs))).Microseconds())
+		}
+	}
+
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
-	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
-		var event *replication.BinlogEvent
-		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
-		err := timeoutCtx.Err()
-		if err == nil {
-			event, err = mystream.GetEvent(timeoutCtx)
-		}
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
-				return ctxErr
-			}
-
-			if errors.Is(err, context.DeadlineExceeded) {
-				if recordCount == 0 || inTx {
-					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
-						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
-					}
-
-					if recordCount == 0 {
-						// progress offset while no records read to avoid falling behind when all tables inactive
-						if updatedOffset != "" {
-							c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
-							if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
-								c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
-							} else {
-								updatedOffset = ""
-							}
-						}
-						resetTimeout(c.binlogStalenessThreshold())
-					} else {
-						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
-							slog.Uint64("records", uint64(recordCount)),
-							slog.Int64("bytes", totalFetchedBytes.Load()),
-							slog.Int("channelLen", req.RecordStream.ChannelLen()),
-							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
-						resetTimeout(time.Minute)
-						overtime = true
-					}
-
-					continue
-				}
-
-				return nil
-			}
-
-			c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
-			return exceptions.NewMySQLExecuteError(err)
-		}
-
-		lastEventAt = time.Now()
-
-		allFetchedBytes.Add(int64(len(event.RawData)))
-
+	processEvent := func(event *replication.BinlogEvent) error {
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
-			if ev.ImmediateCommitTimestamp > 0 {
-				otelManager.Metrics.CommitLagGauge.Record(ctx,
-					time.Now().UTC().Sub(time.UnixMicro(int64(ev.ImmediateCommitTimestamp))).Microseconds())
-			}
+			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
+		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
+			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
 		case *replication.XIDEvent:
 			if gset != nil {
 				gset = ev.GSet
-				updatedOffset = gset.String()
+				updatedOffset = gset.String() // accumulated from GTID events above
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			} else if event.Header.LogPos > pos.Pos {
 				pos.Pos = event.Header.LogPos
@@ -615,7 +577,7 @@ func (c *MySqlConnector) PullRecords(
 				mysqlParser = parser.New()
 			}
 			setParserSQLModeFromStatusVars(mysqlParser, ev.StatusVars)
-			stmts, warns, err := mysqlParser.ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
+			stmts, warns, err := parseSQL(mysqlParser, ev.Query)
 			if err != nil {
 				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
 				break
@@ -626,7 +588,8 @@ func (c *MySqlConnector) PullRecords(
 			for _, stmt := range stmts {
 				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, req, alterTableStmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
+						ctx, catalogPool, otelManager, req, alterTableStmt,
+						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
 				}
@@ -705,7 +668,7 @@ func (c *MySqlConnector) PullRecords(
 				if ev.Table.ColumnName != nil {
 					var err error
 					fields, err = c.processTableMapEventSchema(
-						ctx, catalogPool, req, ev.Table,
+						ctx, catalogPool, otelManager, req, ev.Table,
 						sourceTableName, destinationTableName, schema, exclusion,
 					)
 					if err != nil {
@@ -859,11 +822,84 @@ func (c *MySqlConnector) PullRecords(
 				)
 			}
 		}
+
+		return nil
+	}
+
+	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
+		var event *replication.BinlogEvent
+		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
+		err := timeoutCtx.Err()
+		if err == nil {
+			event, err = mystream.GetEvent(timeoutCtx)
+		}
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
+				return ctxErr
+			}
+
+			if errors.Is(err, context.DeadlineExceeded) {
+				if recordCount == 0 || inTx {
+					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
+						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
+					}
+
+					if recordCount == 0 {
+						// progress offset while no records read to avoid falling behind when all tables inactive
+						if updatedOffset != "" {
+							c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
+							if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
+								c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
+							} else {
+								updatedOffset = ""
+							}
+						}
+						resetTimeout(c.binlogStalenessThreshold())
+					} else {
+						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
+							slog.Uint64("records", uint64(recordCount)),
+							slog.Int64("bytes", totalFetchedBytes.Load()),
+							slog.Int("channelLen", req.RecordStream.ChannelLen()),
+							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+						resetTimeout(time.Minute)
+						overtime = true
+					}
+
+					continue
+				}
+
+				return nil
+			}
+
+			c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
+			return exceptions.NewMySQLExecuteError(err)
+		}
+
+		lastEventAt = time.Now()
+
+		allFetchedBytes.Add(int64(len(event.RawData)))
+
+		switch ev := event.Event.(type) {
+		case *replication.TransactionPayloadEvent:
+			for _, inner := range ev.Events {
+				err = processEvent(inner)
+				if err != nil {
+					return err
+				}
+			}
+		default:
+			err = processEvent(event)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
 	binlogRowMetadataSupported bool, mirrorVersion uint32,
 ) error {
@@ -891,6 +927,13 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		NullableEnabled: currentSchema != nil && currentSchema.NullableEnabled,
 	}
 
+	existingColTypes := make(map[string]string)
+	if currentSchema != nil {
+		for _, col := range currentSchema.Columns {
+			existingColTypes[col.Name] = col.Type
+		}
+	}
+
 	hasPositionShiftingDdlChanges := false
 
 	for _, spec := range stmt.Specs {
@@ -905,16 +948,26 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					continue
 				}
 
+				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
+				if err != nil {
+					return err
+				}
+
+				if oldType, exists := existingColTypes[col.Name.OrigColName()]; exists && oldType != string(qkind) {
+					c.logger.Warn("column type change detected via ALTER TABLE, not propagating",
+						slog.String("table", sourceTableName),
+						slog.String("column", col.Name.OrigColName()),
+						slog.String("from", oldType),
+						slog.String("to", string(qkind)))
+					c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(oldType), qkind,
+						otel_metrics.SourceEventTypeDDL)
+				}
+
 				if spec.Position != nil && spec.Position.Tp != ast.ColumnPositionNone {
 					hasPositionShiftingDdlChanges = true
 					c.logger.Warn("column added with position specifier (FIRST/AFTER)",
 						slog.String("columnName", col.Name.String()),
 						slog.String("tableName", sourceTableName))
-				}
-
-				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
-				if err != nil {
-					return err
 				}
 
 				nullable := true
@@ -992,12 +1045,25 @@ func parseIncidentEvent(data []byte) (uint16, string) {
 	return incident, string(data[3:end])
 }
 
+func (c *MySqlConnector) recordColumnTypeChange(
+	ctx context.Context, otelManager *otel_metrics.OtelManager, from types.QValueKind, to types.QValueKind,
+	eventType string,
+) {
+	otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.SourcePeerType, "mysql"),
+		attribute.String(otel_metrics.TypeChangeFromKey, string(from)),
+		attribute.String(otel_metrics.TypeChangeToKey, string(to)),
+		attribute.String(otel_metrics.SourceEventTypeKey, eventType),
+	)))
+}
+
 // processTableMapEventSchema compares the TABLE_MAP_EVENT schema against the cached schema
 // and returns a TableSchemaDelta if new columns are detected (e.g., after gh-ost migration).
 // It also returns a slice mapping binlog column index to FieldDescription for efficient row processing.
 func (c *MySqlConnector) processTableMapEventSchema(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
 	tableMap *replication.TableMapEvent,
 	sourceTableName string,
@@ -1025,14 +1091,26 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			continue
 		}
 
+		var charset uint16
+		if collation, ok := collationMap[idx]; ok {
+			charset = uint16(collation)
+		}
+
 		if fd, exists := existingCols[colName]; exists {
 			newFds[idx] = fd
+
+			if qkind, err := qkindFromMysqlType(
+				tableMap.ColumnType[idx], unsignedMap[idx], charset, req.InternalVersion,
+			); err == nil && qkind != types.QValueKind(fd.Type) {
+				c.logger.Warn("column type change detected from TABLE_MAP_EVENT, not propagating",
+					slog.String("table", sourceTableName),
+					slog.String("column", colName),
+					slog.String("from", fd.Type),
+					slog.String("to", string(qkind)))
+				c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(fd.Type), qkind, otel_metrics.SourceEventTypeEventMetadata)
+			}
 		} else {
 			// New column detected - get type from TABLE_MAP_EVENT
-			var charset uint16
-			if collation, ok := collationMap[idx]; ok {
-				charset = uint16(collation)
-			}
 			mytype := tableMap.ColumnType[idx]
 			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset, req.InternalVersion)
 			if err != nil {

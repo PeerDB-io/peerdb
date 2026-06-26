@@ -54,7 +54,6 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 		s.connectorClose(ctx)
 		delete(a.SlotSnapshotStates, flowJobName)
 	}
-	a.Alerter.EmitFlowInfoTelemetryEvent(ctx, flowJobName, "Ended Snapshot Flow Job")
 
 	return nil
 }
@@ -66,7 +65,6 @@ func (a *SnapshotActivity) SetupReplication(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Setting up replication slot and publication")
-	a.Alerter.EmitFlowInfoTelemetryEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
 	conn, connClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
@@ -74,7 +72,7 @@ func (a *SnapshotActivity) SetupReplication(
 	}
 
 	logger.Info("waiting for slot to be created...")
-	slotInfo, err := conn.SetupReplication(ctx, config)
+	slotInfo, err := conn.SetupReplication(ctx, a.CatalogPool, config)
 
 	if err != nil {
 		connClose(ctx)

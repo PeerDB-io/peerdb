@@ -1305,6 +1305,12 @@ func processRelationMessage[Items model.Items](
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
 			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
 				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
+			p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.SourcePeerType, "postgres"),
+				attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
+				attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
+				attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
+			)))
 		}
 	}
 	for _, column := range prevSchema.Columns {

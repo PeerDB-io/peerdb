@@ -15,7 +15,6 @@ ignore:
   - "flow/e2e/eventhub"
   - "flow/middleware"
   - "flow/shared/aws_common"
-  - "flow/shared/telemetry/sns_message_sender.go"
 
 component_management:
   individual_components:

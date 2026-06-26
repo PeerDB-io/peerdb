@@ -86,6 +86,9 @@ func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16, version uint
 			return types.QValueKindString, nil
 		}
 	case mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING, mysql.MYSQL_TYPE_VARCHAR:
+		if charset == 0x3f {
+			return types.QValueKindBytes, nil
+		}
 		return types.QValueKindString, nil
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		return types.QValueKindGeometry, nil
@@ -211,6 +214,14 @@ func processTime(str string) (time.Duration, error) {
 	return val, nil
 }
 
+func processVector(data []byte) []float32 {
+	floats := make([]float32, 0, len(data)/4)
+	for i := 0; i < len(data); i += 4 {
+		floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(data[i:i+4])))
+	}
+	return floats
+}
+
 func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.FieldValue) (types.QValue, error) {
 	switch fv.Type {
 	case mysql.FieldValueTypeNull:
@@ -326,10 +337,7 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 			}
 			return types.QValueDate{Val: val}, nil
 		case types.QValueKindArrayFloat32:
-			floats := make([]float32, 0, len(v)/4)
-			for i := 0; i < len(v); i += 4 {
-				floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(v[i:])))
-			}
+			floats := processVector(v)
 			return types.QValueArrayFloat32{Val: floats}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert bytes %v to %s", v, qkind)
@@ -526,10 +534,7 @@ func QValueFromMysqlRowEvent(
 			// Handle geometry data as binary (WKB format)
 			return processGeometryData(val)
 		case types.QValueKindArrayFloat32:
-			floats := make([]float32, 0, len(val)/4)
-			for i := 0; i < len(val); i += 4 {
-				floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(val[i:])))
-			}
+			floats := processVector(val)
 			return types.QValueArrayFloat32{Val: floats}, nil
 		}
 	case string:
@@ -556,6 +561,10 @@ func QValueFromMysqlRowEvent(
 			return types.QValueEnum{Val: s}, nil
 		case types.QValueKindJSON:
 			return types.QValueJSON{Val: val}, nil
+		case types.QValueKindArrayFloat32:
+			b := shared.UnsafeFastStringToReadOnlyBytes(val)
+			floats := processVector(b)
+			return types.QValueArrayFloat32{Val: floats}, nil
 		case types.QValueKindTime:
 			tm, err := processTime(val)
 			if err != nil {
