@@ -26,17 +26,9 @@ func (c *MongoConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	fullTablePartition := []*protos.QRepPartition{
-		{
-			PartitionId:        utils.FullTablePartitionID,
-			Range:              nil,
-			FullTablePartition: true,
-		},
-	}
-
 	if config.WatermarkColumn != DefaultDocumentKeyColumnName {
 		c.logger.Warn("unexpected watermark column, falling back to full table partition")
-		return fullTablePartition, nil
+		return utils.FullTablePartition(), nil
 	}
 
 	if config.NumRowsPerPartition <= 0 {
@@ -70,7 +62,7 @@ func (c *MongoConnector) GetQRepPartitions(
 
 	if adjustedPartitions.AdjustedNumPartitions <= 1 {
 		c.logger.Info("[mongo] insufficient partitions for parallel snapshot, falling back to full table partition")
-		return fullTablePartition, nil
+		return utils.FullTablePartition(), nil
 	}
 
 	return c.buildPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions)

@@ -17,6 +17,14 @@ import (
 
 const FullTablePartitionID = "full-table-partition-id"
 
+func FullTablePartition() []*protos.QRepPartition {
+	return []*protos.QRepPartition{{
+		PartitionId:        FullTablePartitionID,
+		Range:              nil,
+		FullTablePartition: true,
+	}}
+}
+
 type PartitionRangeType string
 
 const (

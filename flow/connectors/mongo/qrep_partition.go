@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
-	"slices"
-
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -24,17 +22,6 @@ const (
 	// stringSampleMaxSize caps sampling cost on very large collections.
 	stringSampleMaxSize = 100000
 )
-
-// fullTablePartitions returns the single-partition full-table fallback used when a
-// collection cannot be partitioned (unsupported/mixed _id type, empty collection,
-// or degenerate min/max range).
-func fullTablePartitions() []*protos.QRepPartition {
-	return []*protos.QRepPartition{{
-		PartitionId:        utils.FullTablePartitionID,
-		Range:              nil,
-		FullTablePartition: true,
-	}}
-}
 
 // buildPartitions reads the collection's min and max _id (cheap, leverages the
 // default _id index) and dispatches to a type-specific partitioner:
@@ -56,7 +43,7 @@ func (c *MongoConnector) buildPartitions(
 	}
 	if minRaw.IsZero() {
 		c.logger.Info("[mongo] no documents found, falling back to full table partition")
-		return fullTablePartitions(), nil
+		return utils.FullTablePartition(), nil
 	}
 	maxRaw, err := findBoundaryID(ctx, collection, Upper, c.config.ReadPreference)
 	if err != nil {
@@ -64,7 +51,7 @@ func (c *MongoConnector) buildPartitions(
 	}
 	if maxRaw.IsZero() {
 		c.logger.Info("[mongo] no documents found, falling back to full table partition")
-		return fullTablePartitions(), nil
+		return utils.FullTablePartition(), nil
 	}
 
 	switch {
@@ -80,7 +67,7 @@ func (c *MongoConnector) buildPartitions(
 		c.logger.Info("[mongo] _id type not supported for partitioning (or mixed types), falling back to full table partition",
 			slog.String("minType", minRaw.Type.String()),
 			slog.String("maxType", maxRaw.Type.String()))
-		return fullTablePartitions(), nil
+		return utils.FullTablePartition(), nil
 	}
 }
 
@@ -97,7 +84,7 @@ func (c *MongoConnector) objectIDPartitions(
 	intRange := new(big.Int).Sub(maxInt, minInt)
 	if intRange.Sign() <= 0 {
 		c.logger.Info("[mongo] min/max ObjectID range is non-positive, falling back to full table partition")
-		return fullTablePartitions(), nil
+		return utils.FullTablePartition(), nil
 	}
 
 	c.logger.Info("[mongo] using min/max ObjectID partitioning",
@@ -155,7 +142,7 @@ func (c *MongoConnector) numericPartitions(
 ) ([]*protos.QRepPartition, error) {
 	if maxVal <= minVal {
 		c.logger.Info("[mongo] numeric min/max range is non-positive, falling back to full table partition")
-		return fullTablePartitions(), nil
+		return utils.FullTablePartition(), nil
 	}
 
 	c.logger.Info("[mongo] using numeric _id partitioning",
@@ -183,7 +170,7 @@ func (c *MongoConnector) stringPartitions(
 ) ([]*protos.QRepPartition, error) {
 	if minVal >= maxVal {
 		c.logger.Info("[mongo] string min/max range is non-positive, falling back to full table partition")
-		return fullTablePartitions(), nil
+		return utils.FullTablePartition(), nil
 	}
 
 	samples, err := c.sampleStringIDs(ctx, collection, numPartitions)
@@ -195,7 +182,7 @@ func (c *MongoConnector) stringPartitions(
 	if len(ranges) < 2 {
 		c.logger.Info("[mongo] insufficient string boundaries from sampling, falling back to full table partition",
 			slog.Int("sampleCount", len(samples)))
-		return fullTablePartitions(), nil
+		return utils.FullTablePartition(), nil
 	}
 
 	c.logger.Info("[mongo] using sampled string _id partitioning",
@@ -310,7 +297,6 @@ func computeStringBoundaries(minVal string, maxVal string, samples []string, num
 			}
 			picked = append(picked, interior[idx])
 		}
-		picked = slices.Compact(picked) // drop consecutive duplicate quantiles
 	}
 
 	// Build ranges: [min, p0), [p0, p1), ..., [pLast-1, pLast), [pLast, max].
