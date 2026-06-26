@@ -32,6 +32,9 @@ jobs:
         with:
           allowed_bots: 'renovate'
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Fork PRs get an environment-scoped OIDC token that the Claude App token exchange rejects (401),
+          # so pass github_token only there; internal PRs keep the App token flow.
+          github_token: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) && github.token || '' }}
           claude_args: |
             --model claude-opus-4-6
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
