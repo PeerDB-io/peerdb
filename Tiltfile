@@ -295,10 +295,10 @@ def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
         allow_parallel=True,
     )
 
-def connector_test(connector, extra_deps=[], vars_overrides={}):
+def connector_test(connector, extra_deps=[], vars_overrides={}, name=''):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     local_resource(
-        'connector_' + connector,
+        'connector_' + (name or connector),
         cmd='cd flow && %s go test -count=1 -v ./connectors/%s/...' % (overrides_str, connector),
         labels=['Test'],
         auto_init=False,
@@ -369,6 +369,11 @@ e2e_test('api-mongodb', 'TestApiMongo', ['provision-mongodb'])
 # Connectors tests
 
 connector_test('postgres', ['provision-postgres'])
+
+connector_test('mysql', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars, name='mysql-gtid')
+connector_test('mysql', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars, name='mysql-pos')
+connector_test('mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name='mariadb')
+
 connector_test('mongo', ['provision-mongodb'])
-connector_test('mysql', ['provision-mysql-gtid'])
+
 connector_test('clickhouse', ['provision-clickhouse'])

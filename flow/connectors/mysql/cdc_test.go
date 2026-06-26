@@ -17,53 +17,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
-
-// testDBName namespaces a database per test with a random suffix, mirroring the
-// e2e suite convention, so parallel tests and reruns don't collide.
-func testDBName(prefix string) string {
-	return prefix + "_" + strings.ToLower(common.RandomString(8))
-}
-
-func newTestConnector(t *testing.T, ctx context.Context) *MySqlConnector {
-	t.Helper()
-	flavor := protos.MySqlFlavor_MYSQL_MYSQL
-	if internal.MySQLTestVersionIsMaria() {
-		flavor = protos.MySqlFlavor_MYSQL_MARIA
-	}
-	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
-		Host:       internal.MySQLTestHost(),
-		Port:       internal.MySQLTestPort(),
-		User:       "root",
-		Password:   internal.MySQLTestRootPasswordWithFallback("cipass"),
-		Database:   "mysql",
-		DisableTls: true,
-		Flavor:     flavor,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		if err := connector.Close(); err != nil {
-			t.Logf("connector close failed: %v", err)
-		}
-	})
-	return connector
-}
-
-func createTestDB(t *testing.T, ctx context.Context, c *MySqlConnector, dbName string) {
-	t.Helper()
-	quoted := "`" + dbName + "`"
-	_, err := c.Execute(ctx, "DROP DATABASE IF EXISTS "+quoted)
-	require.NoError(t, err)
-	_, err = c.Execute(ctx, "CREATE DATABASE "+quoted)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		if _, err := c.Execute(context.Background(), "DROP DATABASE IF EXISTS "+quoted); err != nil {
-			t.Logf("drop test db %s failed: %v", dbName, err)
-		}
-	})
-}
 
 func startBinlogStream(t *testing.T, ctx context.Context, c *MySqlConnector) *replication.BinlogStreamer {
 	t.Helper()

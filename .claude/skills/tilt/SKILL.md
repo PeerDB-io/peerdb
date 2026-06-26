@@ -86,7 +86,9 @@ All e2e tests also depend on core PeerDB services: `flow-api`, `flow-worker`, `c
 |----------|---------|----------------------|
 | `connector_postgres` | `connectors/postgres` | postgres |
 | `connector_mongo` | `connectors/mongo` | mongodb |
-| `connector_mysql` | `connectors/mysql` | mysql-gtid |
+| `connector_mysql-gtid` | `connectors/mysql` | mysql-gtid |
+| `connector_mysql-pos` | `connectors/mysql` | mysql-pos |
+| `connector_mariadb` | `connectors/mysql` | mariadb |
 | `connector_clickhouse` | `connectors/clickhouse` | clickhouse |
 
 Connector tests only depend on `catalog` + their specific DB.
