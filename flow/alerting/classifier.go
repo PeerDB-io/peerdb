@@ -1058,6 +1058,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Code:                 chErrorInfo.Code,
 				AdditionalAttributes: additionalAttributes,
 			}
+		case chproto.ErrUnknownUser:
+			return ErrorNotifyClickHouseError, chErrorInfo
 		}
 		// a catch-all for MV or view errors
 		if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
