@@ -691,10 +691,13 @@ func PullCdcRecords[Items model.Items](
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 
 					if time.Since(largeTxnLastLogged) > time.Minute {
-						userMsg := fmt.Sprintf(
-							"Waiting for a large transaction to commit before syncing can continue (%d records, %s buffered so far).",
-							totalRecords, utils.HumanReadableBytes(accumulatedBytes))
-						p.alerter.LogFlowInfo(ctx, p.flowJobName, userMsg)
+						if !largeTxnLastLogged.IsZero() {
+							userMsg := fmt.Sprintf(
+								"Reading a large already-committed transaction off the replication slot; "+
+									"sync will continue once it's fully received (%d records, %s buffered so far).",
+								totalRecords, utils.HumanReadableBytes(accumulatedBytes))
+							p.alerter.LogFlowInfo(ctx, p.flowJobName, userMsg)
+						}
 						largeTxnLastLogged = time.Now()
 					}
 
