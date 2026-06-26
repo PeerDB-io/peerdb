@@ -19,6 +19,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
+	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -43,6 +44,48 @@ const (
 	defaultBinlogHeartbeatPeriod = time.Minute
 	binlogStalenessMultiplier    = 3
 )
+
+const (
+	queryStatusVarFlags2  = 0
+	queryStatusVarSQLMode = 1
+)
+
+// sqlModeFromStatusVars extracts the sql_mode bitmask from a QueryEvent's status vars.
+// Both MySQL and MariaDB guarantee status vars are written in increasing order,
+// so we only need to parse 0 and 1 to get to 1
+// https://dev.mysql.com/doc/dev/mysql-server/latest/classmysql_1_1binlog_1_1event_1_1Query__event.html#Query_event_binary_format
+// https://github.com/MariaDB/server/blob/c3ec2dc368a8c7165cdbea58208eb828e76ebc57/sql/log_event_server.cc#L1083-L1087
+func sqlModeFromStatusVars(statusVars []byte) (uint64, bool) {
+	for pos := 0; pos < len(statusVars); {
+		code := statusVars[pos]
+		pos++
+
+		switch code {
+		case queryStatusVarFlags2:
+			pos += 4
+		case queryStatusVarSQLMode:
+			if pos+8 > len(statusVars) {
+				return 0, false
+			}
+			return binary.LittleEndian.Uint64(statusVars[pos : pos+8]), true
+		default:
+			return 0, false
+		}
+
+		if pos > len(statusVars) {
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+func setParserSQLModeFromStatusVars(mysqlParser *parser.Parser, statusVars []byte) {
+	var sqlMode tidbmysql.SQLMode
+	if mode, ok := sqlModeFromStatusVars(statusVars); ok && mode&uint64(tidbmysql.ModeANSIQuotes) != 0 {
+		sqlMode = tidbmysql.ModeANSIQuotes
+	}
+	mysqlParser.SetSQLMode(sqlMode)
+}
 
 func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
 	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
@@ -533,6 +576,7 @@ func (c *MySqlConnector) PullRecords(
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
 			}
+			setParserSQLModeFromStatusVars(mysqlParser, ev.StatusVars)
 			stmts, warns, err := parseSQL(mysqlParser, ev.Query)
 			if err != nil {
 				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
