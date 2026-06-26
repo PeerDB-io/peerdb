@@ -232,38 +232,13 @@ func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
 
 		// vector
 		{"vector", "VECTOR(3)", types.QValueKindArrayFloat32},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			qkind, err := QkindFromMysqlColumnType(addColumnType(t, tc.colDef), true, shared.InternalVersion_Latest)
-			require.NoError(t, err)
-			require.Equal(t, tc.want, qkind)
-		})
-	}
-}
 
-// TestParseSQLAlterTableAddColumnTypeSynonyms covers the type spellings MySQL and
-// MariaDB accept as aliases. QkindFromMysqlColumnType has no case for any of these
-// names — it works because the TiDB parser normalizes each to its canonical
-// InfoSchemaStr (BOOLEAN->tinyint(1), INTEGER->int, REAL->double, SERIAL->bigint
-// unsigned, NVARCHAR->varchar, MariaDB INT1..INT8->the sized int, ...). This test
-// guards that normalization, so adding a column with any of these spellings still
-// resolves to the right QValueKind.
-func TestParseSQLAlterTableAddColumnTypeSynonyms(t *testing.T) {
-	addColumnType := func(t *testing.T, colDef string) string {
-		t.Helper()
-		stmts, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colDef))
-		require.NoError(t, err)
-		require.Len(t, stmts, 1)
-		col := stmts[0].(*ast.AlterTableStmt).Specs[0].NewColumns[0]
-		require.NotNil(t, col.Tp)
-		return col.Tp.InfoSchemaStr()
-	}
+		// Type synonyms: spellings MySQL and MariaDB accept as aliases.
+		// QkindFromMysqlColumnType has no case for any of these names — it works because
+		// the TiDB parser normalizes each to its canonical InfoSchemaStr
+		// (BOOLEAN->tinyint(1), INTEGER->int, REAL->double, SERIAL->bigint unsigned,
+		// NVARCHAR->varchar, MariaDB INT1..INT8->the sized int, ...).
 
-	for _, tc := range []struct {
-		name   string
-		colDef string
-		want   types.QValueKind
-	}{
 		// boolean spellings normalize to tinyint(1)
 		{"bool", "BOOL", types.QValueKindBoolean},
 		{"boolean", "BOOLEAN", types.QValueKindBoolean},
