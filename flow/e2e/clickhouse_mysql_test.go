@@ -731,14 +731,17 @@ func (s ClickHouseSuite) Test_MySQL_Charset_Consistency() {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			latin1_col VARCHAR(50) CHARACTER SET latin1 NOT NULL,
-			gbk_col VARCHAR(50) CHARACTER SET gbk NOT NULL
+			gbk_col VARCHAR(50) CHARACTER SET gbk NOT NULL,
+			latin1_enum ENUM('café', 'plain') CHARACTER SET latin1 NOT NULL,
+			gbk_set SET('你好', '再见') CHARACTER SET gbk NOT NULL
 		)
 	`, quotedSrcFullName)))
 
 	// Insert before snapshot. The source connection runs SET NAMES utf8mb4, so the server
 	// transcodes these UTF-8 literals down into the columns' latin1/gbk storage encodings.
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (latin1_col, gbk_col) VALUES ('café', '你好')`, quotedSrcFullName)))
+		`INSERT INTO %s (latin1_col, gbk_col, latin1_enum, gbk_set) VALUES ('café', '你好', 'café', '你好,再见')`,
+		quotedSrcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -752,15 +755,16 @@ func (s ClickHouseSuite) Test_MySQL_Charset_Consistency() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,latin1_col,gbk_col", 1)
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,latin1_col,gbk_col,latin1_enum,gbk_set", 1)
 
 	// Same values via CDC (binlog path).
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (latin1_col, gbk_col) VALUES ('café', '你好')`, quotedSrcFullName)))
+		`INSERT INTO %s (latin1_col, gbk_col, latin1_enum, gbk_set) VALUES ('café', '你好', 'café', '你好,再见')`,
+		quotedSrcFullName)))
 
-	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,latin1_col,gbk_col", 2)
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,latin1_col,gbk_col,latin1_enum,gbk_set", 2)
 
-	rows, err := s.GetRows(dstTableName, "id,latin1_col,gbk_col")
+	rows, err := s.GetRows(dstTableName, "id,latin1_col,gbk_col,latin1_enum,gbk_set")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2)
 
@@ -769,8 +773,14 @@ func (s ClickHouseSuite) Test_MySQL_Charset_Consistency() {
 		"snapshot and CDC latin1 values should be consistent")
 	require.Equal(s.t, rows.Records[0][2].Value(), rows.Records[1][2].Value(),
 		"snapshot and CDC gbk values should be consistent")
+	require.Equal(s.t, rows.Records[0][3].Value(), rows.Records[1][3].Value(),
+		"snapshot and CDC latin1 enum values should be consistent")
+	require.Equal(s.t, rows.Records[0][4].Value(), rows.Records[1][4].Value(),
+		"snapshot and CDC gbk set values should be consistent")
 	require.Equal(s.t, "café", rows.Records[1][1].Value())
 	require.Equal(s.t, "你好", rows.Records[1][2].Value())
+	require.Equal(s.t, "café", rows.Records[1][3].Value())
+	require.Equal(s.t, "你好,再见", rows.Records[1][4].Value())
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
