@@ -770,25 +770,21 @@ func SignalWorkflow[T any](ctx context.Context, env WorkflowRun, signal model.Ty
 func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual *protos.TableSchema) bool {
 	t.Helper()
 
+	var diffs []string
 	if expected.TableIdentifier != actual.TableIdentifier {
-		t.Logf("expected table identifier %s, got %s", expected.TableIdentifier, actual.TableIdentifier)
-		return false
+		diffs = append(diffs, fmt.Sprintf("table identifier: expected %s, got %s", expected.TableIdentifier, actual.TableIdentifier))
 	}
 	if expected.IsReplicaIdentityFull != actual.IsReplicaIdentityFull {
-		t.Logf("expected replica identity full to be %t, got %t", expected.IsReplicaIdentityFull, actual.IsReplicaIdentityFull)
-		return false
+		diffs = append(diffs, fmt.Sprintf("replica identity full: expected %t, got %t", expected.IsReplicaIdentityFull, actual.IsReplicaIdentityFull))
 	}
 	if expected.NullableEnabled != actual.NullableEnabled {
-		t.Logf("expected nullable enabled to be %t, got %t", expected.NullableEnabled, actual.NullableEnabled)
-		return false
+		diffs = append(diffs, fmt.Sprintf("nullable enabled: expected %t, got %t", expected.NullableEnabled, actual.NullableEnabled))
 	}
 	if expected.System != actual.System {
-		t.Logf("expected system to be %s, got %s", expected.System, actual.System)
-		return false
+		diffs = append(diffs, fmt.Sprintf("system: expected %s, got %s", expected.System, actual.System))
 	}
 	if slices.Compare(expected.PrimaryKeyColumns, actual.PrimaryKeyColumns) != 0 {
-		t.Logf("expected primary keys columns %v, got %v", expected.PrimaryKeyColumns, actual.PrimaryKeyColumns)
-		return false
+		diffs = append(diffs, fmt.Sprintf("primary key columns: expected %v, got %v", expected.PrimaryKeyColumns, actual.PrimaryKeyColumns))
 	}
 
 	sortAndExtractColumns := func(cols []*protos.FieldDescription) ([]string, []string, []int32, []bool) {
@@ -815,23 +811,40 @@ func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual
 	actualColNames, actualColTypes, actualTypmods, actualNullables := sortAndExtractColumns(actual.Columns)
 
 	if !slices.Equal(expectedColNames, actualColNames) {
-		t.Logf("expected columns names %v, got %v", expectedColNames, actualColNames)
-		return false
+		diffs = append(diffs, fmt.Sprintf("column names: expected %v, got %v", expectedColNames, actualColNames))
 	}
 	if !slices.Equal(expectedColTypes, actualColTypes) {
-		t.Logf("expected column types %v, got %v", expectedColTypes, actualColTypes)
-		return false
+		diffs = append(diffs, fmt.Sprintf("column types: expected %v, got %v", expectedColTypes, actualColTypes))
 	}
 	if !slices.Equal(expectedTypmods, actualTypmods) {
-		t.Logf("expected column typmods %v, got %v", expectedTypmods, actualTypmods)
-		return false
+		diffs = append(diffs, fmt.Sprintf("column typmods: expected %v, got %v", expectedTypmods, actualTypmods))
 	}
 	if !slices.Equal(expectedNullables, actualNullables) {
-		t.Logf("expected nullables %v, got %v", expectedNullables, actualNullables)
+		diffs = append(diffs, fmt.Sprintf("column nullables: expected %v, got %v", expectedNullables, actualNullables))
+	}
+
+	if len(diffs) > 0 {
+		t.Logf("table schema mismatch:\n  %s\n  full actual schema: %s",
+			strings.Join(diffs, "\n  "), formatTableSchema(actual))
 		return false
 	}
 
 	return true
+}
+
+func formatTableSchema(s *protos.TableSchema) string {
+	cols := slices.Clone(s.Columns)
+	slices.SortFunc(cols, func(a, b *protos.FieldDescription) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	colStrs := make([]string, 0, len(cols))
+	for _, col := range cols {
+		colStrs = append(colStrs, fmt.Sprintf("{name:%s type:%s typmod:%d nullable:%t}",
+			col.Name, col.Type, col.TypeModifier, col.Nullable))
+	}
+	return fmt.Sprintf("identifier=%s system=%s pk=%v replicaIdentityFull=%t nullableEnabled=%t columns=[%s]",
+		s.TableIdentifier, s.System, s.PrimaryKeyColumns, s.IsReplicaIdentityFull, s.NullableEnabled,
+		strings.Join(colStrs, " "))
 }
 
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {
