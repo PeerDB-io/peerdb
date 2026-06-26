@@ -1760,7 +1760,7 @@ func (s ClickHouseSuite) Test_MySQL_Default_Partition_Key_Parallel_Snapshot() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,created_at")
 
 	partitionRows, err := s.catalog.Query(s.t.Context(),
-		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
+		`SELECT partition_start, partition_end, rows_in_partition
 		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
@@ -1827,8 +1827,7 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_UUID_Parallel_Snapshot(
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
 
 	partitionRows, err := s.catalog.Query(s.t.Context(),
-		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
-		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	defer partitionRows.Close()
@@ -1836,11 +1835,8 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_UUID_Parallel_Snapshot(
 	var partitionCount int32
 	var totalRows int64
 	for partitionRows.Next() {
-		var partitionStart, partitionEnd *string
 		var rowsInPartition int64
-		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
-		require.NotNil(s.t, partitionStart)
-		require.NotNil(s.t, partitionEnd)
+		require.NoError(s.t, partitionRows.Scan(&rowsInPartition))
 		totalRows += rowsInPartition
 		partitionCount++
 	}
@@ -1894,7 +1890,7 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
 
 	partitionRows, err := s.catalog.Query(s.t.Context(),
-		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
+		`SELECT partition_start, partition_end, rows_in_partition
 		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
@@ -1917,4 +1913,95 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Sensitive_Range_Handling() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTable := "test_string_pk_sensitive"
+	srcFullName := s.attachSchemaSuffix(srcTable)
+	dstTable := "test_string_pk_sensitive_dst"
+
+	const numRows = 8
+	const numPartitions = 4
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s (id CHAR(36) PRIMARY KEY, val INT NOT NULL)", srcFullName)))
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s (id, val) VALUES ('%s', %d)", srcFullName, uuid.NewString(), i)))
+	}
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+	// a String column can't be used directly as a Distributed sharding key (ClickHouse
+	// requires an integer-typed sharding expression), so hash it for the cluster suite
+	for _, tm := range tableMappings {
+		tm.ShardingKey = "cityHash64(id)"
+	}
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   s.attachSuffix("string_pk_sensitive"),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumPartitionsOverride = numPartitions
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
+
+	// verify partition start/end are stored in metadata_qrep_partition_ranges
+	rangeRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT enc_key_id, range_payload FROM metadata_qrep_partition_ranges WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer rangeRows.Close()
+	var offloadedCount int32
+	for rangeRows.Next() {
+		var encKeyID string
+		var rangePayload []byte
+		require.NoError(s.t, rangeRows.Scan(&encKeyID, &rangePayload))
+		// no encryption key is configured for CI so enc_key_id is empty
+		require.Empty(s.t, encKeyID)
+		require.NotEmpty(s.t, rangePayload)
+		offloadedCount++
+	}
+	require.NoError(s.t, rangeRows.Err())
+	require.EqualValues(s.t, numPartitions, offloadedCount)
+
+	// verify partition start/end are stripped from peerdb_stats.qrep_partitions
+	partitionRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer partitionRows.Close()
+
+	var partitionCount int32
+	for partitionRows.Next() {
+		var partitionStart, partitionEnd *string
+		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd))
+		require.Empty(s.t, partitionStart)
+		require.Empty(s.t, partitionEnd)
+		partitionCount++
+	}
+	require.NoError(s.t, partitionRows.Err())
+	require.EqualValues(s.t, numPartitions, partitionCount)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+
+	// dropping the mirror should delete metadata_qrep_partition_ranges entries from the catalog for this mirror.
+	dropEnv := ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	EnvWaitForFinished(s.t, dropEnv, 3*time.Minute)
+
+	var remainingRanges int64
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		`SELECT COUNT(*) FROM metadata_qrep_partition_ranges WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&remainingRanges))
+	require.Zero(s.t, remainingRanges)
 }
