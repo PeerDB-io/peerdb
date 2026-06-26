@@ -102,6 +102,40 @@ func MySQLTestVersionIsMySQLPos() bool {
 	return MySQLTestVersion() == "mysql-pos"
 }
 
+// MySQLTestFlavorAndMechanism resolves CI_MYSQL_VERSION into the server flavor and
+// replication mechanism the test database is configured for.
+func MySQLTestFlavorAndMechanism(t *testing.T) (protos.MySqlFlavor, protos.MySqlReplicationMechanism) {
+	t.Helper()
+	switch version := MySQLTestVersion(); version {
+	case "mysql-gtid":
+		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_GTID
+	case "mysql-pos":
+		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	case "maria-pos":
+		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	case "maria-gtid":
+		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_GTID
+	default:
+		require.Failf(t, "unexpected CI_MYSQL_VERSION", "got %q", version)
+		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	}
+}
+
+// GetMySQLConfigFromEnv builds a MySqlConfig for a direct connection to the CI
+// MySQL/MariaDB test server, with the given flavor and replication mechanism.
+func GetMySQLConfigFromEnv(flavor protos.MySqlFlavor, mechanism protos.MySqlReplicationMechanism) *protos.MySqlConfig {
+	return &protos.MySqlConfig{
+		Host:                 MySQLTestHost(),
+		Port:                 MySQLTestPort(),
+		User:                 "root",
+		Password:             MySQLTestRootPasswordWithFallback("cipass"),
+		Database:             "",
+		DisableTls:           true,
+		Flavor:               flavor,
+		ReplicationMechanism: mechanism,
+	}
+}
+
 // setupAWSCredsFromEnv copies the three AWS_* credential env vars from sources
 // named "<sourcePrefix>AWS_ACCESS_KEY_ID" etc. into the unprefixed AWS_* names
 // for the duration of the test. Each source must be non-empty.
@@ -118,6 +152,15 @@ func setupAWSCredsFromEnv(t *testing.T, sourcePrefix string) {
 func SetupFlowAWSCredentialsFromEnv(t *testing.T) {
 	t.Helper()
 	setupAWSCredsFromEnv(t, "FLOW_TESTS_")
+}
+
+// SkipRDSIAMAuthIfRequested skips the test when FLOW_TESTS_RDS_IAM_AUTH_SKIP is set (in local),
+// doesn't skip if not explicitly set (CI)
+func SkipRDSIAMAuthIfRequested(t *testing.T) {
+	t.Helper()
+	if GetEnvBool("FLOW_TESTS_RDS_IAM_AUTH_SKIP", false) {
+		t.Skip("FLOW_TESTS_RDS_IAM_AUTH_SKIP is set")
+	}
 }
 
 func SetupRDSIAMAuthAWSCredentials(t *testing.T) {

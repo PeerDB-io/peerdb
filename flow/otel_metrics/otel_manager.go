@@ -83,6 +83,7 @@ const (
 	UsedMySQLCharsetsName                = "used_mysql_charsets"
 	ColumnTypeChangesName                = "column_type_changes"
 	ParseSQLErrorsCounterName            = "parse_sql_errors"
+	OnlineSchemaMigrationsName           = "online_schema_migrations"
 )
 
 type Metrics struct {
@@ -140,6 +141,7 @@ type Metrics struct {
 	UsedMySQLCharsetsCounter         metric.Int64Counter
 	ColumnTypeChangesCounter         metric.Int64Counter
 	ParseSQLErrorsCounter            metric.Int64Counter
+	OnlineSchemaMigrationsCounter    metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -595,7 +597,15 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	}
 
 	if om.Metrics.ParseSQLErrorsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ParseSQLErrorsCounterName),
-		metric.WithDescription("Counter of errors encountered while parsing MySQL QueryEvent SQL on the CDC path"),
+		metric.WithDescription("Counter of errors encountered while parsing MySQL QueryEvent SQL on the CDC path")); err != nil {
+		return err
+	}
+
+	if om.Metrics.OnlineSchemaMigrationsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(OnlineSchemaMigrationsName),
+		metric.WithDescription(
+			"Counter of online schema migrations detected on the CDC path, i.e. a tracked table being atomically "+
+				"renamed into by a shadow/ghost table, with `source` label holding the source peer type and `tool` "+
+				"label holding the detected migration tool (gh-ost, pt-online-schema-change, other)"),
 	); err != nil {
 		return err
 	}
