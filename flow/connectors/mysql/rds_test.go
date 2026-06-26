@@ -10,6 +10,7 @@ import (
 )
 
 func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
+	internal.SkipRDSIAMAuthIfRequested(t)
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthMySQLTestConnectionInfo(t)
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
@@ -27,6 +28,7 @@ func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 }
 
 func TestAwsRDSIAMAuthConnectForMYSQLViaProxy(t *testing.T) {
+	internal.SkipRDSIAMAuthIfRequested(t)
 	internal.SetupRDSIAMAuthAWSCredentials(t)
 	conn := internal.RDSIAMAuthMySQLTestConnectionInfo(t)
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
