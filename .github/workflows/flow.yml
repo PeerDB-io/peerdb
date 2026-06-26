@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   flow_test:
-    name: flow_test (${{ matrix.runner }}, ${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mongo }}, ${{ matrix.db-version.ch }})
+    name: flow_test (${{ matrix.runner }}, ${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql-flavor }}, ${{ matrix.db-version.mongo }}, ${{ matrix.db-version.ch }}${{ matrix.db-version.mysql-tag && format(', {0}', matrix.db-version.mysql-tag) || '' }})
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) ||
@@ -33,32 +33,46 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
+        # Each db-version row picks a MySQL/MariaDB family via mysql-flavor, which keys into
+        # version-configs.mysql (below) for the base img and its default tag. Rows WITHOUT a
+        # mysql-tag use that flavor's default tag. Rows WITH a mysql-tag override only the tag,
+        # which the "MySQL" step combines with the flavor's img (e.g. img 'mariadb' + mysql-tag
+        # '12-ubi' -> 'mariadb:12-ubi'). The mysql-tag value also disambiguates the job name,
+        # artifact name and combination-id across those variants, so it must be filesystem-safe
+        # (no ':' or '/') — which is why the lts row uses the plain 'lts-ubi9' tag, not a digest.
         db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
-          {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql: 'maria-pos', mongo: '8.0', ch: 'latest'},
-          {pg: 18, mysql: 'maria-gtid', mongo: '8.0', ch: 'stable'},
+          {pg: 16, mysql-flavor: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
+          {pg: 17, mysql-flavor: 'mysql-pos', mongo: '7.0', ch: 'stable'},
+          {pg: 18, mysql-flavor: 'maria-pos', mongo: '8.0', ch: 'latest'},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: 'lts-ubi9', mongo: '8.0', ch: 'stable'},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '12-ubi', mongo: '8.0', ch: 'stable'},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '13-ubi', mongo: '8.0', ch: 'stable'},
         ]
         # Per-version container settings consumed by the "MySQL" step, keyed by the matrix
-        # db-version.mysql value. Grouped under "mysql" since these are MySQL/MariaDB families;
+        # db-version.mysql-flavor value. Grouped under "mysql" since these are MySQL/MariaDB families;
         # only the databases handled by the MySQL step are listed here. Wrapped in a single-item
         # list because matrix values must be arrays; it stays a single shared value (no extra jobs).
         version-configs:
           - mysql:
               mysql-gtid:
-                img: 'mysql:9.5'
+                img: 'mysql'
+                tag: '9.5'
                 env: ['MYSQL_ROOT_PASSWORD=cipass']
                 parameters: []
               mysql-pos:
-                img: 'mysql:5.7'
+                img: 'mysql'
+                tag: '5.7'
                 env: ['MYSQL_ROOT_PASSWORD=cipass']
                 parameters: ['--log_bin=mysql-bin', '--server-id=1', '--bind-address=::']
               maria-pos:
-                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+                img: 'mariadb'
+                tag: 'lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
                 env: ['MARIADB_ROOT_PASSWORD=cipass']
                 parameters: ['--log-bin=maria']
+              # tag omitted: maria-gtid runs across several MariaDB tags, so each db-version row
+              # supplies its own mysql-tag, which the "MySQL" step combines with this img.
               maria-gtid:
-                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+                img: 'mariadb'
                 env: ['MARIADB_ROOT_PASSWORD=cipass']
                 parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
     runs-on: ${{ matrix.runner }}
@@ -215,9 +229,11 @@ jobs:
 
       - name: MySQL
         env:
-          DB_IMG: ${{ matrix.version-configs.mysql[matrix.db-version.mysql].img }}
-          DB_ENV: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].env, ' -e ') }}
-          DB_PARAMS: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].parameters, ' ') }}
+          # Image is always <img>:<tag>. img comes from version-configs; the tag is the
+          # db-version row's mysql-tag when set, otherwise the flavor's default tag.
+          DB_IMG: ${{ format('{0}:{1}', matrix.version-configs.mysql[matrix.db-version.mysql-flavor].img, matrix.db-version.mysql-tag || matrix.version-configs.mysql[matrix.db-version.mysql-flavor].tag) }}
+          DB_ENV: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql-flavor].env, ' -e ') }}
+          DB_PARAMS: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql-flavor].parameters, ' ') }}
         run: |
           docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 \
             -e $DB_ENV $DB_IMG $DB_PARAMS
@@ -631,7 +647,7 @@ jobs:
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
-          CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          CI_MYSQL_VERSION: ${{ matrix.db-version.mysql-flavor }}
           CI_MONGO_ADMIN_URI: mongodb://localhost:27017
           CI_MONGO_ADMIN_USERNAME: "admin"
           CI_MONGO_ADMIN_PASSWORD: "admin"
@@ -639,7 +655,7 @@ jobs:
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
           SSH_POSTGRES_HOST: catalog
-          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
+          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql-flavor == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
           PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
@@ -670,7 +686,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
+          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql-flavor }}-mo${{ matrix.db-version.mongo }}${{ matrix.db-version.mysql-tag && format('-{0}', matrix.db-version.mysql-tag) || '' }}
           path: logs/
           retention-days: 30
 
@@ -689,7 +705,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/ingest-test-results
         with:
-          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
+          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql-flavor }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}${{ matrix.db-version.mysql-tag && format('-{0}', matrix.db-version.mysql-tag) || '' }}"
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
