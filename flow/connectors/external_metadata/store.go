@@ -320,6 +320,7 @@ func OffloadSensitivePartitionRanges(
 		return fmt.Errorf("failed to clear existing partition ranges: %w", err)
 	}
 
+	insertRows := make([][]any, 0, len(partitions))
 	for _, partition := range partitions {
 		payload, err := proto.Marshal(partition.Range)
 		if err != nil {
@@ -329,18 +330,19 @@ func OffloadSensitivePartitionRanges(
 		if err != nil {
 			return fmt.Errorf("failed to encrypt partition range: %w", err)
 		}
-
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO `+qrepPartitionRangesTableName+
-				`(parent_mirror_name,run_uuid,partition_uuid,enc_key_id,range_payload) VALUES($1,$2,$3,$4,$5)`,
-			parentMirrorName, runUUID, partition.PartitionId, key.ID, encrypted,
-		); err != nil {
-			return fmt.Errorf("failed to persist encrypted partition range: %w", err)
-		}
+		insertRows = append(insertRows, []any{parentMirrorName, runUUID, partition.PartitionId, key.ID, encrypted})
 
 		partition.Range = &protos.PartitionRange{
 			Range: &protos.PartitionRange_StringRange{StringRange: &protos.StringPartitionRange{}},
 		}
+	}
+
+	if _, err := tx.CopyFrom(ctx,
+		pgx.Identifier{qrepPartitionRangesTableName},
+		[]string{"parent_mirror_name", "run_uuid", "partition_uuid", "enc_key_id", "range_payload"},
+		pgx.CopyFromRows(insertRows),
+	); err != nil {
+		return fmt.Errorf("failed to persist encrypted partition ranges: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -418,7 +420,7 @@ func RestoreSensitivePartitionRanges(
 func partitionsContainSensitiveRanges(partitions []*protos.QRepPartition) bool {
 	for _, partition := range partitions {
 		if partition == nil || partition.Range == nil {
-			return false
+			continue
 		}
 		// String ranges may contain PII data like email, so deem it as sensitive.
 		if _, ok := partition.Range.Range.(*protos.PartitionRange_StringRange); ok {
