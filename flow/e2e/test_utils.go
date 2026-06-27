@@ -833,10 +833,6 @@ func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual
 	return true
 }
 
-// ExpectedDestinationSchema builds the TableSchema that GetTableSchema is expected to return for the
-// destination of suite s, given the user-defined columns. The engine-managed metadata columns,
-// primary keys, nullability and synced-at column naming differ between destinations, so they are
-// filled in here rather than spelled out at every call site. The id column is treated as the primary key.
 func ExpectedDestinationSchema(s GenericSuite, dstTable string, userColumns []*protos.FieldDescription) *protos.TableSchema {
 	idCol := ExpectedDestinationIdentifier(s, "id")
 	schema := &protos.TableSchema{
