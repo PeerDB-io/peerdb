@@ -1369,15 +1369,15 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
 		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c3"), Type: string(types.QValueKindUInt32), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c4"), Type: string(types.QValueKindString), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c5"), Type: string(types.QValueKindString), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c6"), Type: string(types.QValueKindNumeric), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c7"), Type: string(types.QValueKindNumeric), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c8"), Type: string(types.QValueKindNumeric), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c9"), Type: string(types.QValueKindString), TypeModifier: -1},
-		{Name: ExpectedDestinationIdentifier(s, "c10"), Type: string(types.QValueKindString), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},   // BIGINT
+		{Name: ExpectedDestinationIdentifier(s, "c3"), Type: string(types.QValueKindUInt32), TypeModifier: -1},  // INT UNSIGNED
+		{Name: ExpectedDestinationIdentifier(s, "c4"), Type: string(types.QValueKindString), TypeModifier: -1},  // BLOB (binary charset)
+		{Name: ExpectedDestinationIdentifier(s, "c5"), Type: string(types.QValueKindString), TypeModifier: -1},  // TEXT (non-binary charset)
+		{Name: ExpectedDestinationIdentifier(s, "c6"), Type: string(types.QValueKindNumeric), TypeModifier: -1}, // DECIMAL (default 10,0)
+		{Name: ExpectedDestinationIdentifier(s, "c7"), Type: string(types.QValueKindNumeric), TypeModifier: -1}, // DECIMAL(10,2)
+		{Name: ExpectedDestinationIdentifier(s, "c8"), Type: string(types.QValueKindNumeric), TypeModifier: -1}, // DECIMAL(18,6)
+		{Name: ExpectedDestinationIdentifier(s, "c9"), Type: string(types.QValueKindString), TypeModifier: -1},  // BINARY(16)
+		{Name: ExpectedDestinationIdentifier(s, "c10"), Type: string(types.QValueKindString), TypeModifier: -1}, // VARBINARY(16)
 	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
