@@ -1363,9 +1363,9 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	require.Equal(t, fixedBinaryWant, qvalueBytes(dstRows.Records[2][1]))
 	require.Equal(t, varBinaryWant, qvalueBytes(dstRows.Records[2][2]))
 
-	// Verify schema was updated to include the new columns. Reading the schema back from ClickHouse
-	// reports the destination's stored representation: binary types (BLOB/BINARY/VARBINARY) surface as
-	// String, and decimal precision/scale is not preserved (typmod is always -1).
+	// Verify schema was updated to include the new columns.
+	// BLOB/BINARY/VARBINARY are stored in ClickHouse as String,
+	// our CH GetTableSchemaForTable always returns TypeModifier -1 for decimals
 	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
 		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},

@@ -826,27 +826,11 @@ func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual
 	}
 
 	if len(diffs) > 0 {
-		t.Logf("table schema mismatch:\n  %s\n  full actual schema: %s",
-			strings.Join(diffs, "\n  "), formatTableSchema(actual))
+		t.Logf("table schema mismatch:\n  %s", strings.Join(diffs, "\n  "))
 		return false
 	}
 
 	return true
-}
-
-func formatTableSchema(s *protos.TableSchema) string {
-	cols := slices.Clone(s.Columns)
-	slices.SortFunc(cols, func(a, b *protos.FieldDescription) int {
-		return strings.Compare(a.Name, b.Name)
-	})
-	colStrs := make([]string, 0, len(cols))
-	for _, col := range cols {
-		colStrs = append(colStrs, fmt.Sprintf("{name:%s type:%s typmod:%d nullable:%t}",
-			col.Name, col.Type, col.TypeModifier, col.Nullable))
-	}
-	return fmt.Sprintf("identifier=%s system=%s pk=%v replicaIdentityFull=%t nullableEnabled=%t columns=[%s]",
-		s.TableIdentifier, s.System, s.PrimaryKeyColumns, s.IsReplicaIdentityFull, s.NullableEnabled,
-		strings.Join(colStrs, " "))
 }
 
 // ExpectedDestinationSchema builds the TableSchema that GetTableSchema is expected to return for the
@@ -871,7 +855,7 @@ func ExpectedDestinationSchema(s GenericSuite, dstTable string, userColumns []*p
 			&protos.FieldDescription{Name: "_peerdb_synced_at", Type: string(types.QValueKindTimestamp), TypeModifier: -1},
 			&protos.FieldDescription{Name: "_peerdb_version", Type: string(types.QValueKindUInt64), TypeModifier: -1},
 		)
-	default: // Postgres destination
+	case *connpostgres.PostgresConnector:
 		schema.PrimaryKeyColumns = []string{idCol}
 		for _, col := range userColumns {
 			col.Nullable = col.Name != idCol
@@ -880,6 +864,8 @@ func ExpectedDestinationSchema(s GenericSuite, dstTable string, userColumns []*p
 		schema.Columns = append(schema.Columns,
 			&protos.FieldDescription{Name: "_PEERDB_SYNCED_AT", Type: string(types.QValueKindTimestamp), TypeModifier: -1, Nullable: true},
 		)
+	default:
+		panic(fmt.Sprintf("ExpectedDestinationSchema: unsupported destination connector %T", s.DestinationConnector()))
 	}
 	return schema
 }

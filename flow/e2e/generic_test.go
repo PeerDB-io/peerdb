@@ -545,7 +545,7 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	})
 	// table2's c2 was added on the source but not yet referenced by its own DML. MySQL applies the ALTER
 	// eagerly from the binlog, so c2 has already reached table2's destination; Postgres defers it until
-	// table2's next DML (pgoutput emits the relation message lazily). See docs/cutoff-schema-delta-leak.md.
+	// table2's next DML (pgoutput emits the relation message lazily).
 	table2Columns := []*protos.FieldDescription{
 		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
 		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
