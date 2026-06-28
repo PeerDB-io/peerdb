@@ -45,7 +45,7 @@ jobs:
           {pg: 17, mysql-flavor: 'mysql-pos', mongo: '7.0', ch: 'stable'},
           {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: 'lts-ubi9', mongo: '8.0', ch: 'latest'},
           {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '12-ubi', mongo: '8.0', ch: 'latest'},
-          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '13-ubi', mongo: '8.0', ch: 'latest'},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '13.0-ubi-rc', mongo: '8.0', ch: 'latest'},
         ]
         # Per-version container settings consumed by the "MySQL" step, keyed by the matrix
         # db-version.mysql-flavor value. Grouped under "mysql" since these are MySQL/MariaDB families;
