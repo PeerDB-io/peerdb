@@ -130,7 +130,7 @@ func (c *BigQueryConnector) GetTablesInSchema(ctx context.Context, schema string
 				slog.Any("error", err))
 			tableSize = "Unknown"
 		} else {
-			tableSize = utils.FormatTableSize(metadata.NumBytes)
+			tableSize = utils.HumanReadableBytes(metadata.NumBytes)
 		}
 
 		tableResponse := &protos.TableResponse{
