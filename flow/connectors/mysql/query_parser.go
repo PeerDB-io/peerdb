@@ -94,6 +94,27 @@ var objectKeywords = map[string]struct{}{
 	"TABLESPACE": {}, "SEQUENCE": {}, "SERVER": {}, "ROLE": {}, "LOGFILE": {},
 }
 
+// stripSetStatementPrefix removes a leading MariaDB/RDS "SET STATEMENT var=value[, ...]
+// FOR" wrapper, returning the keywords of the statement it wraps. The TiDB parser
+// rejects the whole "SET STATEMENT ... FOR <statement>" form, so without unwrapping it
+// the inner statement is never classified and a real ALTER/RENAME TABLE hidden behind
+// it (e.g. "SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD COLUMN c INT")
+// would go unreported.
+//
+// A plain "SET ..." (without STATEMENT) wraps no statement and is left untouched. If no
+// FOR is found the input is returned as-is, so it falls through to ddlKindIgnored.
+func stripSetStatementPrefix(kw []string) []string {
+	if len(kw) < 2 || kw[0] != "SET" || kw[1] != "STATEMENT" {
+		return kw
+	}
+	for i := 2; i < len(kw); i++ {
+		if kw[i] == "FOR" {
+			return kw[i+1:]
+		}
+	}
+	return kw
+}
+
 func firstObjectKeyword(kw []string) string {
 	for _, w := range kw {
 		if _, ok := objectKeywords[w]; ok {
@@ -204,7 +225,7 @@ func classifyParsedStatement(stmt ast.StmtNode) (ddlKind, *ast.AlterTableStmt, *
 // SET STATEMENT ... FOR ... heartbeats, stored-routine bodies, MariaDB-only DDL),
 // which are the bulk of the noise this drops.
 func classifyUnparsedStatement(query string, isMariaDb bool) ddlKind {
-	kw := leadingKeywords(query, 20, isMariaDb)
+	kw := stripSetStatementPrefix(leadingKeywords(query, 24, isMariaDb))
 	if len(kw) == 0 {
 		return ddlKindIgnored
 	}

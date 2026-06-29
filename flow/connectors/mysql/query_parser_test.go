@@ -31,6 +31,23 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 			want:  true,
 		},
 		{name: "plain set", query: "SET autocommit=1", want: true},
+		{name: "set statement for index-only alter table", query: "SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD INDEX idx (a)", want: true},
+		// --- NOT benign: a real ALTER/RENAME TABLE wrapped in SET STATEMENT must still be reported ---
+		{
+			name:  "set statement for alter table column op is reported",
+			query: "SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD COLUMN c INT",
+			want:  false,
+		},
+		{
+			name:  "set statement multiple vars for alter table modify is reported",
+			query: "SET STATEMENT max_statement_time=60, sort_buffer_size=1000000 FOR ALTER TABLE t MODIFY c INT",
+			want:  false,
+		},
+		{
+			name:  "set statement for rename table is reported",
+			query: "SET STATEMENT max_statement_time=60 FOR RENAME TABLE a TO b",
+			want:  false,
+		},
 		// --- benign: XA distributed transaction control ---
 		{name: "xa start", query: `XA START X'30623263663564642d616630322d34'`, want: true},
 		{name: "xa end", query: `XA END X'30623263663564642d616630322d34'`, want: true},
