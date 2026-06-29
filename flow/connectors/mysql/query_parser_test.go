@@ -8,9 +8,10 @@ import (
 
 func TestIsBenignUnparsedStatement(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		query string
-		want  bool
+		name      string
+		query     string
+		isMariaDb bool
+		want      bool
 	}{
 		// --- benign: MariaDB/RDS "SET STATEMENT ... FOR ..." (the dominant prod noise) ---
 		{
@@ -64,6 +65,29 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		{name: "create index not handled", query: "CREATE INDEX idx ON t (a)", want: true},
 		{name: "drop index not handled", query: "DROP INDEX idx ON t", want: true},
 		{name: "alter tablespace not handled", query: "ALTER TABLESPACE ts ADD DATAFILE 'f'", want: true},
+		// --- benign: index/key/constraint-only ALTER TABLE (handler ignores these) ---
+		{name: "alter table add unique index", query: "ALTER TABLE `t` ADD UNIQUE INDEX `idx` (`a`, `b`)", want: true},
+		{name: "alter table add index", query: "ALTER TABLE t ADD INDEX idx (a)", want: true},
+		{name: "alter table add fulltext key", query: "ALTER TABLE t ADD FULLTEXT KEY ft (body)", want: true},
+		{name: "alter table add primary key", query: "ALTER TABLE t ADD PRIMARY KEY (id)", want: true},
+		{name: "alter table drop index", query: "ALTER TABLE t DROP INDEX idx", want: true},
+		{name: "alter table drop primary key", query: "ALTER TABLE t DROP PRIMARY KEY", want: true},
+		{name: "alter table add constraint foreign key", query: "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES x (id)", want: true},
+		{name: "alter table add foreign key", query: "ALTER TABLE t ADD FOREIGN KEY (a) REFERENCES x (id)", want: true},
+		{name: "alter table drop and add index", query: "ALTER TABLE t DROP INDEX i, ADD UNIQUE INDEX j (c)", want: true},
+		{name: "alter ignore table add index", query: "ALTER IGNORE TABLE t ADD UNIQUE INDEX idx (a)", want: true},
+		{name: "alter table add index with algorithm", query: "ALTER TABLE t ADD INDEX idx (a), ALGORITHM=INPLACE, LOCK=NONE", want: true},
+		{name: "alter table rename index", query: "ALTER TABLE t RENAME INDEX old TO new", want: true},
+		{name: "alter table rename key", query: "ALTER TABLE t RENAME KEY old TO new", want: true},
+		{name: "alter table alter index invisible", query: "ALTER TABLE t ALTER INDEX idx INVISIBLE", want: true},
+		{name: "alter table disable keys", query: "ALTER TABLE t DISABLE KEYS", want: true},
+		{name: "alter table enable keys", query: "ALTER TABLE t ENABLE KEYS", want: true},
+		// --- NOT benign: mixing an index op with a column op must still be reported ---
+		{name: "alter table add column and index is reported", query: "ALTER TABLE t ADD c INT, ADD INDEX i (c)", want: false},
+		{name: "alter table drop column and add index is reported", query: "ALTER TABLE t DROP COLUMN a, ADD INDEX i (b)", want: false},
+		{name: "alter table rename index and modify column is reported", query: "ALTER TABLE t RENAME INDEX old TO new, MODIFY c INT", want: false},
+		{name: "alter table rename column is reported", query: "ALTER TABLE t RENAME COLUMN a TO b", want: false},
+		{name: "alter table rename to table is reported", query: "ALTER TABLE t RENAME TO t2", want: false},
 		// --- NOT benign: the only statements the handler acts on must still be reported ---
 		{
 			name:  "alter table modify is reported",
@@ -79,6 +103,8 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		{name: "alter online table is reported", query: "ALTER ONLINE TABLE t ADD COLUMN c INT", want: false},
 		{name: "rename table is reported", query: "RENAME TABLE `a` TO `b`", want: false},
 		{name: "rename table multi is reported", query: "RENAME TABLE `users` TO `_users_del`, `_users_gho` TO `users`", want: false},
+		{name: "rename tables mariadb is reported on maria", query: "RENAME TABLES `a` TO `b`, `c` TO `d`", want: false, isMariaDb: true},
+		{name: "rename tables mariadb is not reported on mysql", query: "RENAME TABLES `a` TO `b`, `c` TO `d`", want: true, isMariaDb: false},
 		// --- comments / whitespace must not hide a real ALTER TABLE ---
 		{name: "alter table behind block comment", query: "/* abc-123 */ ALTER TABLE `db`.`t` ADD COLUMN c INT", want: false},
 		{name: "alter table behind line comment", query: "-- migration\nALTER TABLE t ADD COLUMN c INT", want: false},
@@ -94,7 +120,8 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, isBenignUnparsedStatement(tc.query))
+			// want == true means the statement is benign noise, i.e. classified as ddlKindIgnored.
+			require.Equal(t, tc.want, classifyUnparsedStatement(tc.query, tc.isMariaDb) == ddlKindIgnored)
 		})
 	}
 }
