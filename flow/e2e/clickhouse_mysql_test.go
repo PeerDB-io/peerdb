@@ -927,6 +927,115 @@ func (s ClickHouseSuite) Test_MySQL_MariaDB_UUID_INET() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_MySQL_AlterTableAddColumnTypes exercises the binlog ALTER TABLE ADD COLUMN path
+// (processAlterTableQuery -> QkindFromMysqlColumnType) together with the row-metadata decode
+// path for a broad spectrum of MySQL/MariaDB column types. Every type is added in a single
+// multi-column ALTER while the mirror is running, then one row carries every value end-to-end
+// into ClickHouse. Integer cases use the signed minimum and unsigned maximum to pin the
+// width/signedness mapping, which no other MySQL e2e test covers.
+//
+// The type list mirrors the spellings the parser-level TestParseSQLAlterTableAddColumnTypes
+// checks, so the unit test (parse -> qkind) and this test (qkind -> value over the wire) stay
+// aligned. Types the TiDB parser rejects in ADD COLUMN (spatial types and MariaDB's native
+// UUID/INET4/INET6) cannot travel this path and are covered separately by snapshot-based tests
+// (Test_MySQL_Geometric_Types, Test_MySQL_MariaDB_UUID_INET).
+func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnTypes() {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	// ENUM/SET columns added during CDC need binlog row metadata to resolve their member names.
+	cmp, err := mysource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("ALTER ADD COLUMN enum/set decoding requires binlog row metadata")
+	}
+
+	srcTableName := "test_add_col_types"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_add_col_types_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	cols := []struct{ name, def, val string }{
+		// Integer widths: the signed minimum and unsigned maximum pin width + signedness.
+		{"c_tinyint", "TINYINT", "-128"},
+		{"c_tinyint_u", "TINYINT UNSIGNED", "255"},
+		{"c_bool", "TINYINT(1)", "1"},
+		{"c_smallint", "SMALLINT", "-32768"},
+		{"c_smallint_u", "SMALLINT UNSIGNED", "65535"},
+		{"c_mediumint", "MEDIUMINT", "-8388608"},
+		{"c_mediumint_u", "MEDIUMINT UNSIGNED", "16777215"},
+		{"c_int", "INT", "-2147483648"},
+		{"c_int_u", "INT UNSIGNED", "4294967295"},
+		{"c_bigint", "BIGINT", "-9223372036854775808"},
+		{"c_bigint_u", "BIGINT UNSIGNED", "18446744073709551615"},
+		{"c_integer", "INTEGER", "7"}, // synonym; normalizes to int through the parser
+		// Approximate + exact numeric.
+		{"c_float", "FLOAT", "1.5"},
+		{"c_double", "DOUBLE PRECISION", "2.5"}, // synonym; normalizes to double
+		{"c_decimal", "DECIMAL(10,2)", "123.45"},
+		{"c_decimal_big", "DECIMAL(60,3)", "780780780.780"},
+		// Bit.
+		{"c_bit", "BIT(20)", "b'11100011100011100011'"},
+		// Date and time.
+		{"c_date", "DATE", "'2020-01-02'"},
+		{"c_datetime", "DATETIME(3)", "'2020-01-02 03:04:05.678'"},
+		{"c_timestamp", "TIMESTAMP(6)", "'2020-01-02 03:04:05.678901'"},
+		{"c_time", "TIME", "'13:14:15'"},
+		{"c_year", "YEAR", "2021"},
+		// Strings.
+		{"c_char", "CHAR(10)", "'abc'"},
+		{"c_varchar", "VARCHAR(20)", "'hello world'"},
+		{"c_text", "TEXT", "'some text'"},
+		{"c_enum", "ENUM('a','b','c')", "'b'"},
+		{"c_set", "SET('x','y','z')", "'x,z'"},
+		// Binary. BINARY(4) holds exactly 4 bytes, so there is no trailing-zero padding to
+		// reconcile (that case has its own test, Test_MySQL_Binary_Trailing_Zeros).
+		{"c_binary", "BINARY(4)", "'abcd'"},
+		{"c_varbinary", "VARBINARY(10)", "'binblob'"},
+		{"c_blob", "BLOB", "'someblob'"},
+		// JSON.
+		{"c_json", "JSON", `'{"a":2}'`},
+	}
+
+	adds := make([]string, len(cols))
+	names := make([]string, 0, len(cols)+1)
+	vals := make([]string, len(cols))
+	names = append(names, "id")
+	for i, c := range cols {
+		adds[i] = "ADD COLUMN " + c.name + " " + c.def
+		names = append(names, c.name)
+		vals[i] = c.val
+	}
+
+	// Single multi-column ALTER: processAlterTableQuery iterates every ADD COLUMN spec, so this
+	// exercises the DDL parse for all types at once.
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("ALTER TABLE %s %s", srcFullName, strings.Join(adds, ", "))))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (%s) VALUES (1, %s)", srcFullName, strings.Join(names, ", "), strings.Join(vals, ", "))))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc add column", srcTableName, dstTableName, strings.Join(names, ","))
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Numbers() {
 	if mysource, ok := s.source.(*MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 		s.t.Skip("only applies to mysql")
