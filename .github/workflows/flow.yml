@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   flow_test:
-    name: flow_test (${{ matrix.runner }}, ${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mongo }}, ${{ matrix.db-version.ch }})
+    name: flow_test (${{ matrix.runner }}, ${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql-flavor }}, ${{ matrix.db-version.mongo }}, ${{ matrix.db-version.ch }}${{ matrix.db-version.mysql-tag && format(', {0}', matrix.db-version.mysql-tag) || '' }})
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) ||
@@ -33,31 +33,64 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
+        # Each db-version row exercises ONE source (Postgres, MySQL/MariaDB, or Mongo) against a
+        # ClickHouse destination (ch), EXCEPT the final catch-all row which enables all sources.
+        # pg is present on EVERY row because it backs the always-on catalog (the catalog/catalog2
+        # services); on rows whose source IS Postgres it doubles as the source under test.
+        # mysql-flavor / mongo appear only on rows testing those sources, and the MySQL/Mongo steps
+        # are gated (if:) on their presence.
+        #
+        # mysql-flavor keys into version-configs.mysql (below) for the base img and its default
+        # tag. A row WITH a mysql-tag overrides only the tag, which the "MySQL" step combines with
+        # the flavor's img (e.g. img 'mariadb' + mysql-tag '12-ubi' -> 'mariadb:12-ubi'). mysql-tag
+        # also disambiguates the job name, artifact name and combination-id across those variants,
+        # so it must be filesystem-safe (no ':' or '/') — which is why the lts row uses the plain
+        # 'lts-ubi9' tag, not a digest.
         db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
-          {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql: 'maria-gtid', mongo: '8.0', ch: 'latest'},
+          # Postgres sources (pg is both the catalog and the source under test here)
+          {pg: 16, ch: 'lts',    test-matcher: &pg_match '^(TestApiPg|TestPeerFlowE2ETestSuiteBQ|TestPeerFlowE2ETestSuitePG_CH|TestPeerFlowE2ETestSuitePG_CH_Cluster|Test_Elasticsearch|Test_Eventhubs|TestGenericPG|TestGenericSF|TestGenericBQ|TestGenericCH_PG|TestGenericChCluster_PG|Test_Kafka|TestPeerFlowE2ETestSuitePG|Test_PubSub|TestPeerFlowE2ETestSuiteS3|TestPeerFlowE2ETestSuiteGCS|TestPeerFlowE2ETestSuiteMinIO|TestPeerFlowE2ETestSuiteSF|TestSwitchboardPostgres|TestRemoveTablesFromPublication|TestExecuteAndProcessQuery|TestSupportedDataTypes|TestStringDataTypes|TestPostgresSSHReceiveMessageDeadlineRespectsContextDeadline|TestPostgresSSHKeepaliveWithToxiproxy|TestPostgresSSHKeepaliveLatency|TestPostgresSSHResetPeer|TestNewPostgresConnectorAuthError|TestPostgresSchemaDeltaTestSuite|TestAwsRDSIAMAuthConnectForPostgres|TestAwsRDSIAMAuthConnectForPostgresViaProxy|TestGetQRepPartitions|TestGetQRepPartitionsWithNulls|TestCTIDPartitioningOnPartitionedTable|TestCTIDPartitioningOnMultiLevelPartitionedTable|TestCTIDPartitioningOnEmptyPartitionedTable|TestCTIDPartitioningGroupingWhenChildrenExceedBudget|TestCTIDPartitioningOnInheritedTable|TestCTIDPartitioningOnMultiLevelInheritedTable|TestCTIDPartitioningOnEmptyInheritedTable)$'},
+          {pg: 17, ch: 'stable', test-matcher: *pg_match},
+          {pg: 18, ch: 'latest', test-matcher: *pg_match},
+          # MySQL/MariaDB sources (pg present only to back the catalog)
+          {pg: 16, mysql-flavor: 'mysql-gtid', ch: 'lts',    test-matcher: &mysql_match '^(TestApiMy|TestPeerFlowE2ETestSuiteMySQL_CH|TestPeerFlowE2ETestSuiteMySQL_CH_Cluster|TestGenericCH_MySQL|TestGenericChCluster_MySQL|TestMySQLRDSBinlog|TestSwitchboardMySQL|TestMySQLSyncerClose|TestANSIQuotesDDLParsedFromBinlog|TestGetTableSchemaCaseSensitiveIdentifiers|TestGetTableSchemaPrimaryKeyVariants|TestMySQLGetMasterGTIDSet|TestAwsRDSIAMAuthConnectForMYSQL|TestAwsRDSIAMAuthConnectForMYSQLViaProxy|TestMySQLSSHKeepaliveTunnelDown|TestMySQLSSHKeepaliveLatency|TestMySQLSSHResetPeer|TestMySQLSSHKeepaliveCDCHang|TestMySQLSSHKeepaliveCDCCloseHang|TestMySQLCloseSyncerWithTimeout|TestMySQLBinlogStalenessThreshold)$'},
+          {pg: 17, mysql-flavor: 'mysql-pos',  ch: 'stable', test-matcher: *mysql_match},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: 'lts-ubi9',    ch: 'latest', test-matcher: *mysql_match},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '12-ubi',      ch: 'latest', test-matcher: *mysql_match},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '13.0-ubi-rc', ch: 'latest', test-matcher: *mysql_match},
+          # Mongo sources (pg present only to back the catalog)
+          {pg: 16, mongo: '6.0', ch: 'lts',    test-matcher: &mongo_match '^(TestApiMongo|TestMongoClickhouseSuite|TestSwitchboardMongo)$'},
+          {pg: 17, mongo: '7.0', ch: 'stable', test-matcher: *mongo_match},
+          {pg: 18, mongo: '8.0', ch: 'latest', test-matcher: *mongo_match},
+          # Catch-all: ALL sources enabled and NO test-matcher, so the full suite runs with no -run
+          # filter — guarantees sourceless / multi-source / unclassified tests run at least once.
+          # TODO: We should differentiate UTs from catch-all and run them in a sepaparate job without db resources
+          {pg: 18, mysql-flavor: 'mysql-gtid', mongo: '8.0', ch: 'latest'},
         ]
         # Per-version container settings consumed by the "MySQL" step, keyed by the matrix
-        # db-version.mysql value. Grouped under "mysql" since these are MySQL/MariaDB families;
-        # only the databases handled by the MySQL step are listed here. Wrapped in a single-item
-        # list because matrix values must be arrays; it stays a single shared value (no extra jobs).
+        # db-version.mysql-flavor value. Grouped under "mysql" since these are MySQL/MariaDB
+        # families. Wrapped in a single-item list because matrix values must be arrays; it stays a
+        # single shared value (no extra jobs). Per-source test selection lives in db-version.test-tag.
         version-configs:
           - mysql:
               mysql-gtid:
-                img: 'mysql:9.5'
+                img: 'mysql'
+                tag: '9.5'
                 env: ['MYSQL_ROOT_PASSWORD=cipass']
                 parameters: []
               mysql-pos:
-                img: 'mysql:5.7'
+                img: 'mysql'
+                tag: '5.7'
                 env: ['MYSQL_ROOT_PASSWORD=cipass']
                 parameters: ['--log_bin=mysql-bin', '--server-id=1', '--bind-address=::']
               maria-pos:
-                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+                img: 'mariadb'
+                tag: 'lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
                 env: ['MARIADB_ROOT_PASSWORD=cipass']
                 parameters: ['--log-bin=maria']
+              # tag omitted: maria-gtid runs across several MariaDB tags, so each db-version row
+              # supplies its own mysql-tag, which the "MySQL" step combines with this img.
               maria-gtid:
-                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+                img: 'mariadb'
                 env: ['MARIADB_ROOT_PASSWORD=cipass']
                 parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
     runs-on: ${{ matrix.runner }}
@@ -213,15 +246,21 @@ jobs:
           output-credentials: true
 
       - name: MySQL
+        # Skip MySQL/MariaDB set-up if not required by the test row
+        if: matrix.db-version.mysql-flavor
         env:
-          DB_IMG: ${{ matrix.version-configs.mysql[matrix.db-version.mysql].img }}
-          DB_ENV: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].env, ' -e ') }}
-          DB_PARAMS: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].parameters, ' ') }}
+          # Image is always <img>:<tag>. img comes from version-configs; the tag is the
+          # db-version row's mysql-tag when set, otherwise the flavor's default tag.
+          DB_IMG: ${{ format('{0}:{1}', matrix.version-configs.mysql[matrix.db-version.mysql-flavor].img, matrix.db-version.mysql-tag || matrix.version-configs.mysql[matrix.db-version.mysql-flavor].tag) }}
+          DB_ENV: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql-flavor].env, ' -e ') }}
+          DB_PARAMS: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql-flavor].parameters, ' ') }}
         run: |
           docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 \
             -e $DB_ENV $DB_IMG $DB_PARAMS
 
       - name: Mongo
+        # Skip MongoDB set-up if not required by the test row
+        if: matrix.db-version.mongo
         run: |
           echo "starting mongoDB..."
           docker run -d --rm --name mongo -p 27017:27017 mongo:${{ matrix.db-version.mongo }} \
@@ -580,13 +619,20 @@ jobs:
           ./peer-flow worker > ../logs/peer-flow-worker.log 2>&1 &
           ./peer-flow snapshot-worker > ../logs/peer-flow-snapshot-worker.log 2>&1 &
           ./peer-flow api --port 8112 --gateway-port 8113 > ../logs/peer-flow-api.log 2>&1 &
-          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 1200s -args -test.gocoverdir="$PWD/coverage"
+          # Filter tests to this row's source via -run. An empty matcher (the all-sources catch-all
+          # row, or any row without test-matcher) omits -run and runs the full suite.
+          run_args=()
+          if [ -n "$TEST_MATCHER" ]; then run_args=(-run "$TEST_MATCHER"); fi
+          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 "${run_args[@]}" ./... -timeout 1200s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
         working-directory: ./flow
         env:
           GOCOVERDIR: coverage
+          # Per-source `go test -run` matcher selecting which tests run, taken from the db-version
+          # row. When empty (e.g. the all-sources catch-all row) the run step omits -run (no filter).
+          TEST_MATCHER: ${{ matrix.db-version.test-matcher }}
           AWS_ENDPOINT_URL_S3: http://localhost:9999
           AWS_ACCESS_KEY_ID: minio
           AWS_SECRET_ACCESS_KEY: miniosecret
@@ -630,7 +676,7 @@ jobs:
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
-          CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          CI_MYSQL_VERSION: ${{ matrix.db-version.mysql-flavor }}
           CI_MONGO_ADMIN_URI: mongodb://localhost:27017
           CI_MONGO_ADMIN_USERNAME: "admin"
           CI_MONGO_ADMIN_PASSWORD: "admin"
@@ -638,7 +684,7 @@ jobs:
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
           SSH_POSTGRES_HOST: catalog
-          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
+          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql-flavor == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
           PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
@@ -669,7 +715,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
+          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql-flavor }}-mo${{ matrix.db-version.mongo }}${{ matrix.db-version.mysql-tag && format('-{0}', matrix.db-version.mysql-tag) || '' }}
           path: logs/
           retention-days: 30
 
@@ -688,7 +734,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/ingest-test-results
         with:
-          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
+          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql-flavor }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}${{ matrix.db-version.mysql-tag && format('-{0}', matrix.db-version.mysql-tag) || '' }}"
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
