@@ -74,7 +74,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED",
 		Description:      "Override PEERDB_CDC_STORE_ENABLED when destination is ClickHouse",
-		DefaultValue:     "true",
+		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
