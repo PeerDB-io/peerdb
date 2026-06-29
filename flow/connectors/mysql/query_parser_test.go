@@ -72,7 +72,11 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		{name: "alter table add primary key", query: "ALTER TABLE t ADD PRIMARY KEY (id)", want: true},
 		{name: "alter table drop index", query: "ALTER TABLE t DROP INDEX idx", want: true},
 		{name: "alter table drop primary key", query: "ALTER TABLE t DROP PRIMARY KEY", want: true},
-		{name: "alter table add constraint foreign key", query: "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES x (id)", want: true},
+		{
+			name:  "alter table add constraint foreign key",
+			query: "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES x (id)",
+			want:  true,
+		},
 		{name: "alter table add foreign key", query: "ALTER TABLE t ADD FOREIGN KEY (a) REFERENCES x (id)", want: true},
 		{name: "alter table drop and add index", query: "ALTER TABLE t DROP INDEX i, ADD UNIQUE INDEX j (c)", want: true},
 		{name: "alter ignore table add index", query: "ALTER IGNORE TABLE t ADD UNIQUE INDEX idx (a)", want: true},
@@ -85,7 +89,11 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		// --- NOT benign: mixing an index op with a column op must still be reported ---
 		{name: "alter table add column and index is reported", query: "ALTER TABLE t ADD c INT, ADD INDEX i (c)", want: false},
 		{name: "alter table drop column and add index is reported", query: "ALTER TABLE t DROP COLUMN a, ADD INDEX i (b)", want: false},
-		{name: "alter table rename index and modify column is reported", query: "ALTER TABLE t RENAME INDEX old TO new, MODIFY c INT", want: false},
+		{
+			name:  "alter table rename index and modify column is reported",
+			query: "ALTER TABLE t RENAME INDEX old TO new, MODIFY c INT",
+			want:  false,
+		},
 		{name: "alter table rename column is reported", query: "ALTER TABLE t RENAME COLUMN a TO b", want: false},
 		{name: "alter table rename to table is reported", query: "ALTER TABLE t RENAME TO t2", want: false},
 		// --- NOT benign: the only statements the handler acts on must still be reported ---
@@ -105,6 +113,30 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		{name: "rename table multi is reported", query: "RENAME TABLE `users` TO `_users_del`, `_users_gho` TO `users`", want: false},
 		{name: "rename tables mariadb is reported on maria", query: "RENAME TABLES `a` TO `b`, `c` TO `d`", want: false, isMariaDb: true},
 		{name: "rename tables mariadb is not reported on mysql", query: "RENAME TABLES `a` TO `b`, `c` TO `d`", want: true, isMariaDb: false},
+		// --- executable comments (/*! */, /*M! */) are lexed as code, not skipped ---
+		{
+			name:  "alter table with executable comment column op is reported",
+			query: "ALTER TABLE db.t\n  /*! ADD COLUMN mysql_only INT, */\n  DROP COLUMN old_col",
+			want:  false,
+		},
+		{
+			name:  "executable comment hiding alter table keyword is reported",
+			query: "ALTER /*! TABLE db.t MODIFY c INT */",
+			want:  false,
+		},
+		{
+			name:  "versioned executable comment column op is reported",
+			query: "ALTER TABLE t /*!80000 ADD COLUMN c INT */",
+			want:  false,
+		},
+		{
+			name: "mariadb executable comment lexed on maria",
+			query: "ALTER TABLE t /*M! MODIFY c INT */", want: false, isMariaDb: true,
+		},
+		{
+			name: "mariadb executable comment is a plain comment on mysql",
+			query: "ALTER TABLE t /*M! MODIFY c INT */ ADD INDEX idx (a)", want: true, isMariaDb: false,
+		},
 		// --- comments / whitespace must not hide a real ALTER TABLE ---
 		{name: "alter table behind block comment", query: "/* abc-123 */ ALTER TABLE `db`.`t` ADD COLUMN c INT", want: false},
 		{name: "alter table behind line comment", query: "-- migration\nALTER TABLE t ADD COLUMN c INT", want: false},

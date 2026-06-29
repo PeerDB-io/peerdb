@@ -15,13 +15,27 @@ func isStatementKeywordByte(c byte) bool {
 // It only has to look at the head of the statement, so it never scans a whole
 // procedure body. Used to classify statements that failed to parse, where the AST
 // is unavailable and only the raw query text remains.
-func leadingKeywords(query string, limit int) []string {
+//
+// Executable comments are not comments: the server runs their contents, so they are
+// lexed as code rather than skipped. /*! ... */ executes on both MySQL and MariaDB;
+// /*M! ... */ executes only on MariaDB (it is a plain comment on MySQL), so it is
+// lexed only when isMariaDb. The optional version digits (e.g. /*!80000) are not
+// compared against a server version — the body is always lexed when the marker
+// matches, which at worst surfaces a benign statement as reportable rather than
+// hiding a real one.
+func leadingKeywords(query string, limit int, isMariaDb bool) []string {
 	out := make([]string, 0, limit)
 	for i, n := 0, len(query); i < n && len(out) < limit; {
 		switch c := query[i]; {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v':
 			i++
 		case c == '/' && i+1 < n && query[i+1] == '*':
+			if m := executableCommentBody(query, i, isMariaDb); m > 0 {
+				// Skip only the opening marker (and version digits); lex the body as
+				// code. The closing */ is consumed later as punctuation by default.
+				i = m
+				continue
+			}
 			end := strings.Index(query[i+2:], "*/")
 			if end < 0 {
 				return out
@@ -46,6 +60,27 @@ func leadingKeywords(query string, limit int) []string {
 		}
 	}
 	return out
+}
+
+// executableCommentBody reports the index at which an executable comment's body
+// begins when query[i:] opens one (i points at the leading '/'), or 0 otherwise.
+// /*! ... */ is executable everywhere; /*M! ... */ is executable only on MariaDB.
+// Any version digits following the marker (e.g. /*!80000) are skipped, not compared.
+func executableCommentBody(query string, i int, isMariaDb bool) int {
+	n := len(query)
+	body := 0
+	switch {
+	case i+2 < n && query[i+2] == '!':
+		body = i + 3
+	case isMariaDb && i+3 < n && query[i+2] == 'M' && query[i+3] == '!':
+		body = i + 4
+	default:
+		return 0
+	}
+	for body < n && query[body] >= '0' && query[body] <= '9' {
+		body++
+	}
+	return body
 }
 
 // objectKeywords are the keywords naming what a CREATE/ALTER/DROP/RENAME statement
@@ -168,7 +203,7 @@ func classifyParsedStatement(stmt ast.StmtNode) (ddlKind, *ast.AlterTableStmt, *
 // SET STATEMENT ... FOR ... heartbeats, stored-routine bodies, MariaDB-only DDL),
 // which are the bulk of the noise this drops.
 func classifyUnparsedStatement(query string, isMariaDb bool) ddlKind {
-	kw := leadingKeywords(query, 20)
+	kw := leadingKeywords(query, 20, isMariaDb)
 	if len(kw) == 0 {
 		return ddlKindIgnored
 	}
