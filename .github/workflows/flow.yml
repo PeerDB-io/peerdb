@@ -33,24 +33,40 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
-        # Each db-version row picks a MySQL/MariaDB family via mysql-flavor, which keys into
-        # version-configs.mysql (below) for the base img and its default tag. Rows WITHOUT a
-        # mysql-tag use that flavor's default tag. Rows WITH a mysql-tag override only the tag,
-        # which the "MySQL" step combines with the flavor's img (e.g. img 'mariadb' + mysql-tag
-        # '12-ubi' -> 'mariadb:12-ubi'). The mysql-tag value also disambiguates the job name,
-        # artifact name and combination-id across those variants, so it must be filesystem-safe
-        # (no ':' or '/') — which is why the lts row uses the plain 'lts-ubi9' tag, not a digest.
+        # Each db-version row exercises ONE source (Postgres, MySQL/MariaDB, or Mongo) against a
+        # ClickHouse destination (ch). pg is present on EVERY row because it backs the always-on
+        # catalog (the catalog/catalog2 services); on rows whose source IS Postgres it doubles as
+        # the source under test. mysql-flavor / mongo appear only on rows testing those sources,
+        # and the MySQL/Mongo steps are gated (if:) on their presence. test-tag is the Go build
+        # tag the "run tests" step passes to `go test -tags`, so each row runs only its source's
+        # tests (the tags are applied to the tests themselves separately).
+        #
+        # mysql-flavor keys into version-configs.mysql (below) for the base img and its default
+        # tag. A row WITH a mysql-tag overrides only the tag, which the "MySQL" step combines with
+        # the flavor's img (e.g. img 'mariadb' + mysql-tag '12-ubi' -> 'mariadb:12-ubi'). mysql-tag
+        # also disambiguates the job name, artifact name and combination-id across those variants,
+        # so it must be filesystem-safe (no ':' or '/') — which is why the lts row uses the plain
+        # 'lts-ubi9' tag, not a digest.
         db-version: [
-          {pg: 16, mysql-flavor: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
-          {pg: 17, mysql-flavor: 'mysql-pos', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: 'lts-ubi9', mongo: '8.0', ch: 'latest'},
-          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '12-ubi', mongo: '8.0', ch: 'latest'},
-          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '13.0-ubi-rc', mongo: '8.0', ch: 'latest'},
+          # Postgres sources (pg is both the catalog and the source under test here)
+          {pg: 16, ch: 'lts',    test-tag: 'source_postgres'},
+          {pg: 17, ch: 'stable', test-tag: 'source_postgres'},
+          {pg: 18, ch: 'latest', test-tag: 'source_postgres'},
+          # MySQL/MariaDB sources (pg present only to back the catalog)
+          {pg: 16, mysql-flavor: 'mysql-gtid', ch: 'lts',    test-tag: 'source_mysql'},
+          {pg: 17, mysql-flavor: 'mysql-pos',  ch: 'stable', test-tag: 'source_mysql'},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: 'lts-ubi9',    ch: 'latest', test-tag: 'source_mysql'},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '12-ubi',      ch: 'latest', test-tag: 'source_mysql'},
+          {pg: 18, mysql-flavor: 'maria-gtid', mysql-tag: '13.0-ubi-rc', ch: 'latest', test-tag: 'source_mysql'},
+          # Mongo sources (pg present only to back the catalog)
+          {pg: 16, mongo: '6.0', ch: 'lts',    test-tag: 'source_mongo'},
+          {pg: 17, mongo: '7.0', ch: 'stable', test-tag: 'source_mongo'},
+          {pg: 18, mongo: '8.0', ch: 'latest', test-tag: 'source_mongo'},
         ]
         # Per-version container settings consumed by the "MySQL" step, keyed by the matrix
-        # db-version.mysql-flavor value. Grouped under "mysql" since these are MySQL/MariaDB families;
-        # only the databases handled by the MySQL step are listed here. Wrapped in a single-item
-        # list because matrix values must be arrays; it stays a single shared value (no extra jobs).
+        # db-version.mysql-flavor value. Grouped under "mysql" since these are MySQL/MariaDB
+        # families. Wrapped in a single-item list because matrix values must be arrays; it stays a
+        # single shared value (no extra jobs). Per-source test selection lives in db-version.test-tag.
         version-configs:
           - mysql:
               mysql-gtid:
@@ -227,6 +243,7 @@ jobs:
           output-credentials: true
 
       - name: MySQL
+        if: matrix.db-version.mysql-flavor
         env:
           # Image is always <img>:<tag>. img comes from version-configs; the tag is the
           # db-version row's mysql-tag when set, otherwise the flavor's default tag.
@@ -238,6 +255,7 @@ jobs:
             -e $DB_ENV $DB_IMG $DB_PARAMS
 
       - name: Mongo
+        if: matrix.db-version.mongo
         run: |
           echo "starting mongoDB..."
           docker run -d --rm --name mongo -p 27017:27017 mongo:${{ matrix.db-version.mongo }} \
@@ -596,13 +614,16 @@ jobs:
           ./peer-flow worker > ../logs/peer-flow-worker.log 2>&1 &
           ./peer-flow snapshot-worker > ../logs/peer-flow-snapshot-worker.log 2>&1 &
           ./peer-flow api --port 8112 --gateway-port 8113 > ../logs/peer-flow-api.log 2>&1 &
-          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 1200s -args -test.gocoverdir="$PWD/coverage"
+          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ${TEST_TAGS:+-tags=$TEST_TAGS} ./... -timeout 1200s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
         working-directory: ./flow
         env:
           GOCOVERDIR: coverage
+          # Per-source Go build tag selecting which tests run, taken from the db-version row.
+          # When empty the run step omits -tags (no filtering).
+          TEST_TAGS: ${{ matrix.db-version.test-tag }}
           AWS_ENDPOINT_URL_S3: http://localhost:9999
           AWS_ACCESS_KEY_ID: minio
           AWS_SECRET_ACCESS_KEY: miniosecret
