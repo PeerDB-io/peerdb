@@ -92,12 +92,12 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:394cee6e2076a23f9b7b01f5d68228d52429fe683fd087de11c8a68ff5287037
+        image: redpandadata/redpanda@sha256:3e72ea35731a893bdd3b6d283eb554416377e23766434fc85dd7941540673639
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.4.2@sha256:715c5d552328d83dcee6082bd5125327332a649f8e0aedb5fe0553d7be75bf21
+        image: elasticsearch:9.4.2@sha256:e182d810a437e30ad7d0221fc153910a06d9be5b05e57e59e7983467b89e41e2
         ports:
           - 9200:9200
         env:
@@ -125,7 +125,7 @@ jobs:
           - 14002:14002
           - 14003:14003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:835c1f321ff16b10e1e3d82ec3808a5253f02f73a98d7dca5b0786184f44e69a
+        image: linuxserver/openssh-server:latest@sha256:67d4c3a1402179a6579aa217a38b52ced557eb8a0c17a8e32fe986a4549fdee4
         ports:
           - 2222:2222
         env:
@@ -144,7 +144,7 @@ jobs:
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26.4'
           cache-dependency-path: flow/go.sum
@@ -203,7 +203,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
@@ -256,7 +256,7 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         id: cache-minio
         with:
           path: ./minio
@@ -267,7 +267,7 @@ jobs:
         run: |
           curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         id: cache-minio-client
         with:
           path: ./mc
@@ -348,7 +348,7 @@ jobs:
             echo "ch_version=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)" >> $GITHUB_OUTPUT
           fi
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         id: cache-clickhouse
         with:
           path: ./clickhouse
