@@ -130,18 +130,19 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 			want:  false,
 		},
 		{
-			name: "mariadb executable comment lexed on maria",
+			name:  "mariadb executable comment lexed on maria",
 			query: "ALTER TABLE t /*M! MODIFY c INT */", want: false, isMariaDb: true,
 		},
 		{
-			name: "mariadb executable comment is a plain comment on mysql",
+			name:  "mariadb executable comment is a plain comment on mysql",
 			query: "ALTER TABLE t /*M! MODIFY c INT */ ADD INDEX idx (a)", want: true, isMariaDb: false,
 		},
 		// --- comments / whitespace must not hide a real ALTER TABLE ---
 		{name: "alter table behind block comment", query: "/* abc-123 */ ALTER TABLE `db`.`t` ADD COLUMN c INT", want: false},
 		{name: "alter table behind line comment", query: "-- migration\nALTER TABLE t ADD COLUMN c INT", want: false},
 		{name: "alter table behind hash comment", query: "# note\nALTER TABLE t ADD COLUMN c INT", want: false},
-		{name: "alter table with leading whitespace", query: "\n\t  ALTER TABLE t ADD COLUMN c INT", want: false},
+		{name: "alter table behind cr terminated line comment", query: "-- migration\rALTER TABLE t ADD COLUMN c INT", want: false},
+		{name: "alter table with leading whitespace", query: "\n\t\f\v  ALTER TABLE t ADD COLUMN c INT", want: false},
 		// --- edge cases: nothing actionable recognized => benign ---
 		{name: "empty", query: "", want: true},
 		{name: "only comment", query: "/* nothing here */", want: true},

@@ -42,7 +42,8 @@ func leadingKeywords(query string, limit int, isMariaDb bool) []string {
 			}
 			i += 2 + end + 2
 		case (c == '-' && i+1 < n && query[i+1] == '-') || c == '#':
-			nl := strings.IndexByte(query[i:], '\n')
+			// a line comment runs to the next line break, either \n or a bare \r
+			nl := strings.IndexAny(query[i:], "\r\n")
 			if nl < 0 {
 				return out
 			}
@@ -68,7 +69,7 @@ func leadingKeywords(query string, limit int, isMariaDb bool) []string {
 // Any version digits following the marker (e.g. /*!80000) are skipped, not compared.
 func executableCommentBody(query string, i int, isMariaDb bool) int {
 	n := len(query)
-	body := 0
+	var body int
 	switch {
 	case i+2 < n && query[i+2] == '!':
 		body = i + 3
