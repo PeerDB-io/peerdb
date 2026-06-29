@@ -1068,6 +1068,7 @@ type metricsFlowMetadata struct {
 	config                *protos.FlowConnectionConfigsCore
 	sourcePeerConfig      *protos.Peer
 	destinationPeerConfig *protos.Peer
+	tags                  map[string]string
 	name                  string
 	workflowID            string
 	sourcePeerName        string
@@ -1091,6 +1092,7 @@ func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadat
 		},
 		FlowName: m.config.FlowJobName,
 		Status:   m.status,
+		Tags:     m.tags,
 	}
 }
 
@@ -1270,6 +1272,7 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 				f.config_proto AS config_proto,
 				f.workflow_id AS workflow_id,
 				f.updated_at AS updated_at,
+				f.tags AS tags,
 				COALESCE(sp.name, '') AS source_peer_name,
 				COALESCE(sp.type, 0) AS source_peer_type,
 				COALESCE(dp.name, '') AS destination_peer_name,
@@ -1303,6 +1306,7 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 			&configProto,
 			&f.workflowID,
 			&f.updatedAt,
+			&f.tags,
 			&f.sourcePeerName,
 			&f.sourcePeerType,
 			&f.destinationPeerName,
