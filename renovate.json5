@@ -37,6 +37,16 @@
       "matchFileNames": ["docker-compose.yml"],
       "enabled": false
     },
+    // The mysql-debug image is a one-off DBUG test fixture, not MySQL compatibility coverage.
+    // Keep it on the 8.0 series unless a dedicated migration updates the bake default,
+    // image build action default, test image tag, and matching yum repo path together.
+    {
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["mysql"],
+      "matchFileNames": ["flow/e2e/test_data/mysql-debug/Dockerfile"],
+      "allowedVersions": "/^8\\.0\\./",
+      "automerge": false
+    },
     // Disable updates on generated and dependencies without explicit versions in their life cycles.
     // Disabled updates means that Renovate will not proactively propose changes for these dependencies
     // but its reliance on go MVS might generate update PRs with updates on these if transitively required.
