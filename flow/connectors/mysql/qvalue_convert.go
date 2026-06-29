@@ -216,6 +216,23 @@ func processTime(str string) (time.Duration, error) {
 	return val, nil
 }
 
+// padTrimmedMariaDBBinary restores a fixed-width binary value that MariaDB
+// trimmed when binlog-packing it. MariaDB stores BINARY(N) and the native
+// uuid/inet4/inet6 types (all arriving as MYSQL_TYPE_STRING) with trailing
+// 0x00 bytes stripped, so a value such as uuid 123e…4000 loses its final byte
+// and an all-zero value (uuid 0000…0000, inet 0.0.0.0, inet6 ::) arrives with
+// zero length. Right-padding with zeros to the column's declared width
+// reconstructs the original value. width comes from binaryColumnLength, which
+// also distinguishes inet4 (4) from inet6 (16) when the bytes alone cannot.
+func padTrimmedMariaDBBinary(data []byte, width int) []byte {
+	if width <= len(data) {
+		return data
+	}
+	padded := make([]byte, width)
+	copy(padded, data)
+	return padded
+}
+
 func formatMariaDBInet(data []byte) (string, error) {
 	switch len(data) {
 	case 4, 16:
@@ -564,20 +581,6 @@ func QValueFromMysqlRowEvent(
 		case types.QValueKindArrayFloat32:
 			floats := processVector(val)
 			return types.QValueArrayFloat32{Val: floats}, nil
-		case types.QValueKindUUID:
-			// MariaDB uuid/inet may surface as []byte or string from the binlog depending on
-			// server version.
-			u, err := decodeMariaDBUUID(val)
-			if err != nil {
-				return nil, err
-			}
-			return types.QValueUUID{Val: u}, nil
-		case types.QValueKindINET:
-			s, err := formatMariaDBInet(val)
-			if err != nil {
-				return nil, err
-			}
-			return types.QValueINET{Val: s}, nil
 		}
 	case string:
 		switch qkind {
@@ -608,13 +611,15 @@ func QValueFromMysqlRowEvent(
 			floats := processVector(b)
 			return types.QValueArrayFloat32{Val: floats}, nil
 		case types.QValueKindUUID:
-			u, err := decodeMariaDBUUID(shared.UnsafeFastStringToReadOnlyBytes(val))
+			b := padTrimmedMariaDBBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
+			u, err := decodeMariaDBUUID(b)
 			if err != nil {
 				return nil, err
 			}
 			return types.QValueUUID{Val: u}, nil
 		case types.QValueKindINET:
-			s, err := formatMariaDBInet(shared.UnsafeFastStringToReadOnlyBytes(val))
+			b := padTrimmedMariaDBBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
+			s, err := formatMariaDBInet(b)
 			if err != nil {
 				return nil, err
 			}
