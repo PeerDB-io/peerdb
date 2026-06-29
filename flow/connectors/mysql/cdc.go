@@ -1140,7 +1140,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 
 			if qkind, err := qkindFromMysqlType(
 				tableMap.ColumnType[idx], unsignedMap[idx], charset, req.InternalVersion,
-			); err == nil && qkind != types.QValueKind(fd.Type) && !isBinlogStringBackedType(types.QValueKind(fd.Type)) {
+			); err == nil && shouldReportColumnTypeChange(types.QValueKind(fd.Type), qkind, c.config.Flavor) {
 				c.logger.Warn("column type change detected from TABLE_MAP_EVENT, not propagating",
 					slog.String("table", sourceTableName),
 					slog.String("column", colName),

@@ -874,9 +874,22 @@ func (s ClickHouseSuite) Test_MySQL_MariaDB_UUID_INET() {
 			ip6 inet6
 		)`, srcFullName)))
 
-	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (u, ip4, ip6) VALUES ('6ccd780c-baba-1026-9564-5b8c656024db', '192.168.0.1', '2001:db8::1')`,
-		srcFullName)))
+	variants := []struct{ u, ip4, ip6 string }{
+		{"6ccd780c-baba-1026-9564-5b8c656024db", "192.168.0.1", "2001:db8::1"},
+		{"00112233-4455-6677-8899-aabbccddeeff", "10.0.0.255", "::1"},
+		{"00000000-0000-0000-0000-000000000000", "0.0.0.0", "::"},
+		{"ffffffff-ffff-ffff-ffff-ffffffffffff", "255.255.255.255", "2001:db8:85a3::8a2e:370:7334"},
+		{"123e4567-e89b-12d3-a456-426614174000", "127.0.0.1", "fe80::1"},
+	}
+
+	insertVariants := func() {
+		for _, v := range variants {
+			require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (u, ip4, ip6) VALUES ('%s', '%s', '%s')`, srcFullName, v.u, v.ip4, v.ip6)))
+		}
+	}
+
+	insertVariants()
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -890,27 +903,24 @@ func (s ClickHouseSuite) Test_MySQL_MariaDB_UUID_INET() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	EnvWaitForCount(env, s, "waiting for initial snapshot", dstTableName, "id", 1)
+	EnvWaitForCount(env, s, "waiting for initial snapshot", dstTableName, "id", len(variants))
 
-	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (u, ip4, ip6) VALUES ('00112233-4455-6677-8899-aabbccddeeff', '10.0.0.255', '::1')`,
-		srcFullName)))
+	insertVariants()
 
-	EnvWaitForCount(env, s, "waiting for cdc", dstTableName, "id", 2)
+	EnvWaitForCount(env, s, "waiting for cdc", dstTableName, "id", 2*len(variants))
 
+	// GetRows orders by id, so snapshot rows (ids 1..N) come first, then CDC rows (N+1..2N);
+	// both batches hold the same values in the same order.
 	rows, err := s.GetRows(dstTableName, "id, u, ip4, ip6")
 	require.NoError(s.t, err)
-	require.Len(s.t, rows.Records, 2)
+	require.Len(s.t, rows.Records, 2*len(variants))
 
-	expected := [][]string{
-		{"6ccd780c-baba-1026-9564-5b8c656024db", "192.168.0.1", "2001:db8::1"},
-		{"00112233-4455-6677-8899-aabbccddeeff", "10.0.0.255", "::1"},
-	}
 	for i, row := range rows.Records {
+		want := variants[i%len(variants)]
 		require.Len(s.t, row, 4)
-		require.Equal(s.t, expected[i][0], fmt.Sprint(row[1].Value()), "uuid mismatch at row %d", i+1)
-		require.Equal(s.t, expected[i][1], fmt.Sprint(row[2].Value()), "inet4 mismatch at row %d", i+1)
-		require.Equal(s.t, expected[i][2], fmt.Sprint(row[3].Value()), "inet6 mismatch at row %d", i+1)
+		require.Equal(s.t, want.u, fmt.Sprint(row[1].Value()), "uuid mismatch at row %d", i+1)
+		require.Equal(s.t, want.ip4, fmt.Sprint(row[2].Value()), "inet4 mismatch at row %d", i+1)
+		require.Equal(s.t, want.ip6, fmt.Sprint(row[3].Value()), "inet6 mismatch at row %d", i+1)
 	}
 
 	env.Cancel(s.t.Context())

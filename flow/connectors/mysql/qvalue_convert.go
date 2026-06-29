@@ -564,18 +564,6 @@ func QValueFromMysqlRowEvent(
 		case types.QValueKindArrayFloat32:
 			floats := processVector(val)
 			return types.QValueArrayFloat32{Val: floats}, nil
-		case types.QValueKindUUID:
-			u, err := decodeMariaDBUUID(val)
-			if err != nil {
-				return nil, err
-			}
-			return types.QValueUUID{Val: u}, nil
-		case types.QValueKindINET:
-			s, err := formatMariaDBInet(val)
-			if err != nil {
-				return nil, err
-			}
-			return types.QValueINET{Val: s}, nil
 		}
 	case string:
 		switch qkind {

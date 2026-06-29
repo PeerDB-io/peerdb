@@ -284,6 +284,47 @@ func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
 		// MariaDB LONG / LONG VARCHAR normalize to mediumtext
 		{"long", "LONG", types.QValueKindString},
 		{"long varchar", "LONG VARCHAR", types.QValueKindString},
+
+		// Display widths: the (M) on integers is parsed away (we cut at "(").
+		{"tinyint width", "TINYINT(4)", types.QValueKindInt8},
+		{"smallint width", "SMALLINT(5)", types.QValueKindInt16},
+		{"mediumint width", "MEDIUMINT(8)", types.QValueKindInt32},
+		{"int width", "INT(11)", types.QValueKindInt32},
+		{"integer width", "INTEGER(11)", types.QValueKindInt32},
+		{"bigint width", "BIGINT(20)", types.QValueKindInt64},
+
+		// ZEROFILL implies UNSIGNED; QkindFromMysqlColumnType strips both suffixes.
+		{"int zerofill", "INT ZEROFILL", types.QValueKindUInt32},
+		{"int width zerofill", "INT(11) ZEROFILL", types.QValueKindUInt32},
+		{"bigint zerofill", "BIGINT ZEROFILL", types.QValueKindUInt64},
+
+		// YEAR width.
+		{"year(4)", "YEAR(4)", types.QValueKindInt16},
+
+		// Floating point with precision/scale and unsigned modifiers.
+		{"float(m,d)", "FLOAT(10,2)", types.QValueKindFloat32},
+		{"float unsigned", "FLOAT UNSIGNED", types.QValueKindFloat32},
+		{"double(m,d)", "DOUBLE(10,2)", types.QValueKindFloat64},
+		{"double unsigned", "DOUBLE UNSIGNED", types.QValueKindFloat64},
+		{"double precision(m,d)", "DOUBLE PRECISION(10,2)", types.QValueKindFloat64},
+
+		// Character types without an explicit length normalize to length 1.
+		{"char without length", "CHAR", types.QValueKindString},
+		{"nchar without length", "NCHAR", types.QValueKindString},
+		{"national char without length", "NATIONAL CHAR", types.QValueKindString},
+
+		// Binary without length normalizes to binary(1); blob with length stays bytes.
+		{"binary without length", "BINARY", types.QValueKindBytes},
+		{"blob(M)", "BLOB(100)", types.QValueKindBytes},
+
+		// charset / collate / (deprecated) binary modifiers on string-ish types don't
+		// change the qkind — they only affect collation, which we don't key off here.
+		{"varchar charset", "VARCHAR(10) CHARACTER SET utf8mb4", types.QValueKindString},
+		{"varchar collate", "VARCHAR(10) COLLATE utf8mb4_bin", types.QValueKindString},
+		{"varchar charset collate", "VARCHAR(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", types.QValueKindString},
+		{"text charset", "TEXT CHARACTER SET latin1", types.QValueKindString},
+		{"enum charset", "ENUM('a','b') CHARACTER SET utf8mb4", types.QValueKindEnum},
+		{"set collate", "SET('a','b') COLLATE utf8mb4_bin", types.QValueKindString},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			qkind, err := QkindFromMysqlColumnType(addColumnType(t, tc.colDef), true, shared.InternalVersion_Latest)
@@ -317,6 +358,35 @@ func TestParseSQLAlterTableAddColumnUnsupportedTypes(t *testing.T) {
 		t.Run(colType, func(t *testing.T) {
 			_, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colType))
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestShouldReportColumnTypeChange(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		schemaKind types.QValueKind
+		wireKind   types.QValueKind
+		flavor     protos.MySqlFlavor
+		want       bool
+	}{
+		// Same kind is never a change, regardless of flavor.
+		{"same kind", types.QValueKindInt32, types.QValueKindInt32, protos.MySqlFlavor_MYSQL_MARIA, false},
+		// MariaDB uuid/inet arrive as bytes on the wire: benign, suppressed.
+		{"maria uuid as bytes", types.QValueKindUUID, types.QValueKindBytes, protos.MySqlFlavor_MYSQL_MARIA, false},
+		{"maria inet as bytes", types.QValueKindINET, types.QValueKindBytes, protos.MySqlFlavor_MYSQL_MARIA, false},
+		// Same shape but on MySQL: not the known MariaDB behavior, so report it.
+		{"mysql uuid as bytes", types.QValueKindUUID, types.QValueKindBytes, protos.MySqlFlavor_MYSQL_MYSQL, true},
+		// A genuine change to/from uuid/inet must still be reported even on MariaDB.
+		{"maria uuid to integer", types.QValueKindUUID, types.QValueKindInt32, protos.MySqlFlavor_MYSQL_MARIA, true},
+		{"maria inet to string", types.QValueKindINET, types.QValueKindString, protos.MySqlFlavor_MYSQL_MARIA, true},
+		// Bytes on the wire for a non-uuid/inet schema kind is a real change.
+		{"maria string to bytes", types.QValueKindString, types.QValueKindBytes, protos.MySqlFlavor_MYSQL_MARIA, true},
+		// Ordinary type change.
+		{"int to bigint", types.QValueKindInt32, types.QValueKindInt64, protos.MySqlFlavor_MYSQL_MYSQL, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, shouldReportColumnTypeChange(tc.schemaKind, tc.wireKind, tc.flavor))
 		})
 	}
 }

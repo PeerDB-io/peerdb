@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -79,18 +80,24 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 	}
 }
 
-// isBinlogStringBackedType reports whether a QValueKind comes from a MariaDB type that
-// is transmitted in the binlog as MYSQL_TYPE_STRING with the binary charset even though
-// its information_schema data type is something more specific. Verified against MariaDB
-// 11.8: uuid/inet4/inet6 all arrive with ColumnType 0xFE (MYSQL_TYPE_STRING) and binary
-// charset — byte-for-byte indistinguishable from BINARY(N) — so qkindFromMysqlType maps
-// them to bytes. That wire-derived qkind legitimately differs from the schema's qkind
-// (inet/uuid), so the mismatch must not be reported as a column type change.
-func isBinlogStringBackedType(kind types.QValueKind) bool {
-	switch kind {
-	case types.QValueKindUUID, types.QValueKindINET:
-		return true
-	default:
+// shouldReportColumnTypeChange decides whether a difference between the schema's qkind and
+// the qkind derived from the TABLE_MAP_EVENT wire type is a genuine column type change worth
+// reporting, given the server flavor.
+//
+// The one expected, benign difference is MariaDB's uuid/inet4/inet6 types: verified against
+// MariaDB 11.8, they all arrive with ColumnType 0xFE (MYSQL_TYPE_STRING) and binary charset —
+// byte-for-byte indistinguishable from BINARY(N) — so qkindFromMysqlType maps them to bytes.
+// That bytes-from-the-wire kind legitimately differs from the schema's uuid/inet kind, so the
+// pairing is suppressed. The suppression is scoped narrowly: only MariaDB, only when the wire
+// kind is exactly bytes, and only when the schema kind is uuid/inet — so a real change such as
+// schema uuid -> wire integer is still reported.
+func shouldReportColumnTypeChange(schemaKind, wireKind types.QValueKind, flavor protos.MySqlFlavor) bool {
+	if schemaKind == wireKind {
 		return false
 	}
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA && wireKind == types.QValueKindBytes &&
+		(schemaKind == types.QValueKindUUID || schemaKind == types.QValueKindINET) {
+		return false
+	}
+	return true
 }

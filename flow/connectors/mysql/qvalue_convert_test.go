@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -30,50 +29,6 @@ func TestQkindFromMysqlColumnTypeMariaDB(t *testing.T) {
 			require.Equal(t, tc.want, qkind)
 		})
 	}
-}
-
-// TestDecodeMariaDBUUID verifies the binlog bytes are read in plain network byte order
-// (no group reordering), matching MariaDB's wire format as confirmed by
-// Test_MySQL_MariaDB_UUID_INET against a real server.
-func TestDecodeMariaDBUUID(t *testing.T) {
-	// canonical bytes, same order as the textual representation
-	stored := []byte{
-		0x6c, 0xcd, 0x78, 0x0c, 0xba, 0xba, 0x10, 0x26,
-		0x95, 0x64, 0x5b, 0x8c, 0x65, 0x60, 0x24, 0xdb,
-	}
-	got, err := decodeMariaDBUUID(stored)
-	require.NoError(t, err)
-	require.Equal(t, "6ccd780c-baba-1026-9564-5b8c656024db", got.String())
-	require.Equal(t, uuid.MustParse("6ccd780c-baba-1026-9564-5b8c656024db"), got)
-
-	_, err = decodeMariaDBUUID([]byte{0x00, 0x01})
-	require.Error(t, err)
-}
-
-func TestFormatMariaDBInet(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		data []byte
-		want string
-	}{
-		{"ipv4", []byte{192, 168, 0, 1}, "192.168.0.1"},
-		{"ipv4 zero", []byte{0, 0, 0, 0}, "0.0.0.0"},
-		{"ipv6 loopback", []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, "::1"},
-		{
-			"ipv6 full",
-			[]byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01},
-			"2001:db8::1",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := formatMariaDBInet(tc.data)
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-		})
-	}
-
-	_, err := formatMariaDBInet([]byte{1, 2, 3})
-	require.Error(t, err)
 }
 
 func TestQkindFromMysqlType_Bit(t *testing.T) {
