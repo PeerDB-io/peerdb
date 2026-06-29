@@ -6,7 +6,7 @@
 # plus mysqld-debug, then route only the final foreground server to mysqld-debug. The stock
 # entrypoint's config checks, datadir initialization, and temporary init server keep using the
 # release binary because the debug binary can trip InnoDB assertions on that path.
-ARG MYSQL_VERSION=8.0.46
+ARG MYSQL_VERSION=8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
 FROM mysql:${MYSQL_VERSION}
 ARG MYSQL_VERSION
 
