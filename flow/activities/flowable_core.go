@@ -744,6 +744,38 @@ func (a *FlowableActivity) startNormalize(
 			}
 		}
 
+		// If any destination columns were auto-removed during normalize (user dropped them), persist
+		// the updated schemas to the catalog and warn the user.
+		if len(res.UpdatedSchemaMapping) > 0 {
+			tableNames := make([]string, 0, len(res.UpdatedSchemaMapping))
+			for name := range res.UpdatedSchemaMapping {
+				tableNames = append(tableNames, name)
+			}
+			if updateErr := internal.ReadModifyWriteTableSchemasToCatalog(
+				ctx, a.CatalogPool, logger, config.FlowJobName, tableNames,
+				func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
+					result := make(map[string]*protos.TableSchema, len(schemas))
+					for name, schema := range schemas {
+						if updated, ok := res.UpdatedSchemaMapping[name]; ok {
+							result[name] = updated
+						} else {
+							result[name] = schema
+						}
+					}
+					return result, nil
+				},
+			); updateErr != nil {
+				logger.Error("failed to persist auto-refreshed table schemas to catalog",
+					slog.Any("error", updateErr))
+			}
+			for name, schema := range res.UpdatedSchemaMapping {
+				tableNameSchemaMapping[name] = schema
+				a.Alerter.LogFlowWarning(ctx, config.FlowJobName,
+					fmt.Errorf("destination column(s) were dropped from table %s and automatically removed "+
+						"from the mirror schema; future syncs will omit those columns", name))
+			}
+		}
+
 		logger.Info("normalized batches",
 			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
 		normalizeResponses.Update(res.EndBatchID)

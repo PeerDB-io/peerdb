@@ -188,6 +188,9 @@ type SyncResponse struct {
 type NormalizeResponse struct {
 	StartBatchID int64
 	EndBatchID   int64
+	// Non-nil when columns that were dropped from the destination were auto-removed from the in-memory schema.
+	// The caller should persist these updated schemas to the catalog.
+	UpdatedSchemaMapping map[string]*protos.TableSchema
 }
 
 type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage
