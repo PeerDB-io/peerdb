@@ -31,7 +31,11 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 			want:  true,
 		},
 		{name: "plain set", query: "SET autocommit=1", want: true},
-		{name: "set statement for index-only alter table", query: "SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD INDEX idx (a)", want: true},
+		{
+			name:  "set statement for index-only alter table",
+			query: "SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD INDEX idx (a)",
+			want:  true,
+		},
 		// --- NOT benign: a real ALTER/RENAME TABLE wrapped in SET STATEMENT must still be reported ---
 		{
 			name:  "set statement for alter table column op is reported",
