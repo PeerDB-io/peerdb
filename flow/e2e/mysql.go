@@ -31,7 +31,7 @@ func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
 	flavor, replication := internal.MariaDBTestFlavorAndMechanism(t)
-	return setupMyConnector(t, suffix, internal.GetMariaDBConfigFromEnv(flavor, replication), "")
+	return setupMyConnector(t, suffix, internal.GetMariaDBConfigFromEnv(flavor, replication), "mariadb")
 }
 
 func setupMyConnector(t *testing.T, suffix string, config *protos.MySqlConfig, peerName string) (*MySqlSource, error) {
