@@ -18,14 +18,17 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 	switch strings.ToLower(ct) {
 	case "json":
 		return types.QValueKindJSON, nil
-	case "char", "varchar", "text", "set", "tinytext", "mediumtext", "longtext":
+	case "char", "varchar", "text", "set", "tinytext", "mediumtext", "longtext",
+		"clob", "varchar2", // maria
+		"xmltype": // maria
 		return types.QValueKindString, nil
 	case "enum":
 		if !binlogRowMetadataSupported && version >= shared.InternalVersion_MySQL5ConvertEnumsToInts {
 			return types.QValueKindUint16Enum, nil
 		}
 		return types.QValueKindEnum, nil
-	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob":
+	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob",
+		"char byte", "raw": // maria
 		return types.QValueKindBytes, nil
 	case "date":
 		return types.QValueKindDate, nil
@@ -69,9 +72,9 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 		}
 	case "vector":
 		return types.QValueKindArrayFloat32, nil
-	case "uuid": // MariaDB 10.7+
+	case "uuid": // maria
 		return types.QValueKindUUID, nil
-	case "inet4", "inet6": // MariaDB 10.10+ / 10.5+; both rendered as text
+	case "inet": // maria
 		return types.QValueKindINET, nil
 	case "geometry", "point", "polygon", "linestring", "multipoint", "multilinestring", "multipolygon", "geomcollection", "geometrycollection":
 		return types.QValueKindGeometry, nil

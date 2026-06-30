@@ -163,7 +163,7 @@ func TestParseSQLParsesTrailingNull(t *testing.T) {
 	}
 }
 
-func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
+func TestAlterTableTypes(t *testing.T) {
 	// addColumnType parses `ALTER TABLE t ADD COLUMN c <colDef>` and returns the
 	// column's InfoSchemaStr, the same value processAlterTableQuery feeds to
 	// QkindFromMysqlColumnType.
@@ -201,6 +201,7 @@ func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
 		{"bigint", "BIGINT", types.QValueKindInt64},
 		{"bigint unsigned", "BIGINT UNSIGNED", types.QValueKindUInt64},
 		{"bit", "BIT(8)", types.QValueKindUInt64},
+		{"bit no args", "BIT", types.QValueKindUInt64},
 
 		// floating point and exact numeric
 		{"float", "FLOAT", types.QValueKindFloat32},
@@ -209,7 +210,10 @@ func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
 		{"numeric", "NUMERIC(10,2)", types.QValueKindNumeric},
 
 		// strings
-		{"char", "CHAR(10)", types.QValueKindString},
+		{"char(10)", "CHAR(10)", types.QValueKindString},
+		{"char", "CHAR", types.QValueKindString},
+		{"character", "CHARACTER", types.QValueKindString},
+		{"character(10)", "CHARACTER(10)", types.QValueKindString},
 		{"varchar", "VARCHAR(255)", types.QValueKindString},
 		{"tinytext", "TINYTEXT", types.QValueKindString},
 		{"text", "TEXT", types.QValueKindString},
@@ -266,13 +270,19 @@ func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
 		// exact numeric spellings normalize to decimal
 		{"dec", "DEC(10,2)", types.QValueKindNumeric},
 		{"fixed", "FIXED(10,2)", types.QValueKindNumeric},
+		// Bracketless decimal family defaults to decimal(10,0) (the (M,D) is cut away anyway).
+		{"decimal no args", "DECIMAL", types.QValueKindNumeric},
+		{"numeric no args", "NUMERIC", types.QValueKindNumeric},
+		{"dec no args", "DEC", types.QValueKindNumeric},
+		{"fixed no args", "FIXED", types.QValueKindNumeric},
 
 		// approximate numeric spellings normalize to double
 		{"double precision", "DOUBLE PRECISION", types.QValueKindFloat64},
 		{"real", "REAL", types.QValueKindFloat64},
 
 		// char spellings normalize to char
-		{"character", "CHARACTER(10)", types.QValueKindString},
+		{"character(10)", "CHARACTER(10)", types.QValueKindString},
+		{"character", "CHARACTER", types.QValueKindString},
 		{"nchar", "NCHAR(10)", types.QValueKindString},
 		{"national char", "NATIONAL CHAR(10)", types.QValueKindString},
 
@@ -280,10 +290,27 @@ func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
 		{"character varying", "CHARACTER VARYING(255)", types.QValueKindString},
 		{"nvarchar", "NVARCHAR(255)", types.QValueKindString},
 		{"national varchar", "NATIONAL VARCHAR(255)", types.QValueKindString},
+		// more MariaDB varchar spellings (all normalize to varchar)
+		{"char varying", "CHAR VARYING(255)", types.QValueKindString},
+		{"varcharacter", "VARCHARACTER(255)", types.QValueKindString},
+		{"national char varying", "NATIONAL CHAR VARYING(255)", types.QValueKindString},
+		{"national character varying", "NATIONAL CHARACTER VARYING(255)", types.QValueKindString},
+		{"national varcharacter", "NATIONAL VARCHARACTER(255)", types.QValueKindString},
+		{"nchar varchar", "NCHAR VARCHAR(255)", types.QValueKindString},
+		{"nchar varying", "NCHAR VARYING(255)", types.QValueKindString},
+		{"nchar varcharacter", "NCHAR VARCHARACTER(255)", types.QValueKindString},
 
-		// MariaDB LONG / LONG VARCHAR normalize to mediumtext
+		// MariaDB NATIONAL CHARACTER normalizes to char
+		{"national character", "NATIONAL CHARACTER(10)", types.QValueKindString},
+
+		// MariaDB LONG / LONG VARCHAR and friends normalize to mediumtext
 		{"long", "LONG", types.QValueKindString},
 		{"long varchar", "LONG VARCHAR", types.QValueKindString},
+		{"long char varying", "LONG CHAR VARYING", types.QValueKindString},
+		{"long character varying", "LONG CHARACTER VARYING", types.QValueKindString},
+		{"long varcharacter", "LONG VARCHARACTER", types.QValueKindString},
+		// LONG VARBINARY normalizes to mediumblob
+		{"long varbinary", "LONG VARBINARY", types.QValueKindBytes},
 
 		// Display widths: the (M) on integers is parsed away (we cut at "(").
 		{"tinyint width", "TINYINT(4)", types.QValueKindInt8},
@@ -308,8 +335,12 @@ func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
 		{"double unsigned", "DOUBLE UNSIGNED", types.QValueKindFloat64},
 		{"double precision(m,d)", "DOUBLE PRECISION(10,2)", types.QValueKindFloat64},
 
+		// FLOAT(p) single-precision form: p<=24 stays float, p>=25 normalizes to double.
+		{"float(p) p<=24 is float", "FLOAT(24)", types.QValueKindFloat32},
+		{"float(p) p>=25 is double", "FLOAT(25)", types.QValueKindFloat64},
+
 		// Character types without an explicit length normalize to length 1.
-		{"char without length", "CHAR", types.QValueKindString},
+		{"char without length", "CHAR CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", types.QValueKindString},
 		{"nchar without length", "NCHAR", types.QValueKindString},
 		{"national char without length", "NATIONAL CHAR", types.QValueKindString},
 
@@ -323,8 +354,14 @@ func TestParseSQLAlterTableAddColumnTypes(t *testing.T) {
 		{"varchar collate", "VARCHAR(10) COLLATE utf8mb4_bin", types.QValueKindString},
 		{"varchar charset collate", "VARCHAR(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", types.QValueKindString},
 		{"text charset", "TEXT CHARACTER SET latin1", types.QValueKindString},
-		{"enum charset", "ENUM('a','b') CHARACTER SET utf8mb4", types.QValueKindEnum},
+		{"enum charset", "ENUM('a','b') CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", types.QValueKindEnum},
 		{"set collate", "SET('a','b') COLLATE utf8mb4_bin", types.QValueKindString},
+		// The deprecated BINARY modifier only forces binary collation; the parser strips it,
+		// so the qkind is unaffected (it is NOT the BINARY column type).
+		{"varchar binary modifier", "VARCHAR(10) BINARY", types.QValueKindString},
+		{"text binary modifier", "TEXT BINARY", types.QValueKindString},
+		{"enum binary modifier", "ENUM('a','b') BINARY", types.QValueKindEnum},
+		{"set binary modifier", "SET('a','b') BINARY", types.QValueKindString},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			qkind, err := QkindFromMysqlColumnType(addColumnType(t, tc.colDef), true, shared.InternalVersion_Latest)
@@ -345,19 +382,43 @@ func TestParseSQLAlterTableAddColumnEnumWithoutRowMetadata(t *testing.T) {
 	require.Equal(t, types.QValueKindUint16Enum, qkind)
 }
 
-// TestParseSQLAlterTableAddColumnUnsupportedTypes covers types the TiDB parser rejects
-// in ADD COLUMN: spatial types, and MariaDB's network/UUID types.
-func TestParseSQLAlterTableAddColumnUnsupportedTypes(t *testing.T) {
+func TestUnsupportedDDLTypes(t *testing.T) {
 	for _, colType := range []string{
 		// spatial types
 		"GEOMETRY", "POINT", "POLYGON", "LINESTRING", "MULTIPOINT",
 		"MULTILINESTRING", "MULTIPOLYGON", "GEOMETRYCOLLECTION", "GEOMCOLLECTION",
 		// MariaDB-only network/UUID types
 		"INET4", "INET6", "UUID",
+		// MariaDB/Oracle-mode aliases the TiDB parser doesn't accept. The ones with a scalar
+		// mapping (CHAR BYTE/RAW->bytes, CLOB->text, VARCHAR2->varchar, XMLTYPE->text) are still
+		// handled directly by QkindFromMysqlColumnType, see TestQkindParserRejectedAliases.
+		"CHAR BYTE", "RAW", "CLOB", "VARCHAR2", "XMLTYPE",
 	} {
 		t.Run(colType, func(t *testing.T) {
 			_, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colType))
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestQkindFromMysSQLTypeForUnsupportedDDLTypes(t *testing.T) {
+	for _, tc := range []struct {
+		ct   string
+		want types.QValueKind
+	}{
+		{"char byte", types.QValueKindBytes}, // BINARY
+		{"raw", types.QValueKindBytes},       // VARBINARY (Oracle mode)
+		{"clob", types.QValueKindString},     // LONGTEXT (Oracle mode)
+		{"varchar2", types.QValueKindString}, // VARCHAR (Oracle mode)
+		{"xmltype", types.QValueKindString},  // XML stored as text (MariaDB 12.3+)
+		{"inet(4)", types.QValueKindINET},
+		{"inet(6)", types.QValueKindINET},
+		{"uuid", types.QValueKindUUID},
+	} {
+		t.Run(tc.ct, func(t *testing.T) {
+			qkind, err := QkindFromMysqlColumnType(tc.ct, true, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, qkind)
 		})
 	}
 }
