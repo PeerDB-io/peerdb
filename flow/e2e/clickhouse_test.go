@@ -54,6 +54,15 @@ func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 	}))
 }
 
+func TestPeerFlowE2ETestSuiteMariaDB_CH(t *testing.T) {
+	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mach_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
+		return source, suffix, err
+	}))
+}
+
 func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
@@ -68,6 +77,15 @@ func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
 		t.Helper()
 		suffix := "mychcl_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuiteMariaDB_CH_Cluster(t *testing.T) {
+	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "machcl_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	}))
 }

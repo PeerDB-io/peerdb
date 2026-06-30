@@ -34,14 +34,13 @@ jobs:
       matrix:
         runner: [ubuntu-latest-16-cores]
         db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
-          {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql: 'maria-gtid', mongo: '8.0', ch: 'latest'},
+          {pg: 16, mysql: 'mysql-gtid', mariadb: 'maria-11', mongo: '6.0', ch: 'lts'},
+          {pg: 17, mysql: 'mysql-pos', mariadb: 'maria-12', mongo: '7.0', ch: 'stable'},
+          {pg: 18, mysql: 'mysql-gtid', mariadb: 'maria-13', mongo: '8.0', ch: 'latest'},
         ]
-        # Per-version container settings consumed by the "MySQL" step, keyed by the matrix
-        # db-version.mysql value. Grouped under "mysql" since these are MySQL/MariaDB families;
-        # only the databases handled by the MySQL step are listed here. Wrapped in a single-item
-        # list because matrix values must be arrays; it stays a single shared value (no extra jobs).
+        # Per-version container settings consumed by the MySQL and MariaDB steps.
+        # Wrapped in a single-item list because matrix values must be arrays; it stays
+        # a single shared value (no extra jobs).
         version-configs:
           - mysql:
               mysql-gtid:
@@ -52,12 +51,17 @@ jobs:
                 img: 'mysql:5.7'
                 env: ['MYSQL_ROOT_PASSWORD=cipass']
                 parameters: ['--log_bin=mysql-bin', '--server-id=1', '--bind-address=::']
-              maria-pos:
-                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+            mariadb:
+              maria-11:
+                img: 'mariadb:lts-ubi9'
                 env: ['MARIADB_ROOT_PASSWORD=cipass']
-                parameters: ['--log-bin=maria']
-              maria-gtid:
-                img: 'mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e'
+                parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
+              maria-12:
+                img: 'mariadb:12-ubi'
+                env: ['MARIADB_ROOT_PASSWORD=cipass']
+                parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
+              maria-13:
+                img: 'mariadb:13.0-ubi-rc'
                 env: ['MARIADB_ROOT_PASSWORD=cipass']
                 parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
     runs-on: ${{ matrix.runner }}
@@ -219,6 +223,15 @@ jobs:
           DB_PARAMS: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].parameters, ' ') }}
         run: |
           docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 \
+            -e $DB_ENV $DB_IMG $DB_PARAMS
+
+      - name: MariaDB
+        env:
+          DB_IMG: ${{ matrix.version-configs.mariadb[matrix.db-version.mariadb].img }}
+          DB_ENV: ${{ join(matrix.version-configs.mariadb[matrix.db-version.mariadb].env, ' -e ') }}
+          DB_PARAMS: ${{ join(matrix.version-configs.mariadb[matrix.db-version.mariadb].parameters, ' ') }}
+        run: |
+          docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3316:3306 \
             -e $DB_ENV $DB_IMG $DB_PARAMS
 
       - name: Mongo
@@ -630,7 +643,15 @@ jobs:
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
+          CI_MYSQL_HOST: localhost
+          CI_MYSQL_PORT: 3306
+          CI_MYSQL_ROOT_PASSWORD: cipass
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          CI_SSH_MYSQL_HOST: mysql
+          CI_MARIADB_HOST: localhost
+          CI_MARIADB_PORT: 3316
+          CI_MARIADB_ROOT_PASSWORD: cipass
+          CI_MARIADB_VERSION: ${{ matrix.db-version.mariadb }}
           CI_MONGO_ADMIN_URI: mongodb://localhost:27017
           CI_MONGO_ADMIN_USERNAME: "admin"
           CI_MONGO_ADMIN_PASSWORD: "admin"
@@ -669,7 +690,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
+          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}
           path: logs/
           retention-days: 30
 
@@ -688,7 +709,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/ingest-test-results
         with:
-          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
+          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
