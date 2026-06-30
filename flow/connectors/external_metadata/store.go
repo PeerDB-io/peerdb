@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strconv"
 	"time"
 
@@ -27,7 +29,7 @@ import (
 const (
 	lastSyncStateTableName       = "metadata_last_sync_state"
 	qrepTableName                = "metadata_qrep_partitions"
-	qrepPartitionRangesTableName = "metadata_qrep_partition_ranges"
+	qrepPartitionRangesTableName = "metadata_qrep_offloaded_partition_ranges"
 )
 
 type PostgresMetadata struct {
@@ -262,6 +264,15 @@ func (p *PostgresMetadata) FinishQRepPartition(
 	jobName string,
 	startTime time.Time,
 ) error {
+	if partition.RangeOffloaded {
+		// The range was offloaded but has since been rehydrated, so drop it before persisting
+		// to metadata_qrep_partitions.
+		// Clone rather than mutate in place because this partition is shared with the pull
+		// goroutine, cloning keeps us from relying on implicit ordering to avoid a write race.
+		// TODO: drop the sync_partition column entirely; nothing reads it back.
+		partition = proto.Clone(partition).(*protos.QRepPartition)
+		partition.Range = nil
+	}
 	pbytes, err := protojson.Marshal(partition)
 	if err != nil {
 		return fmt.Errorf("failed to marshal partition to json: %w", err)
@@ -288,20 +299,16 @@ func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *proto
 	return exists, nil
 }
 
-// OffloadSensitivePartitionRanges encrypts sensitive partition ranges, persists them to
-// the catalog, and replaces each partition's range in-place with an empty range.
-// Used in conjunction with RestoreSensitivePartitionRanges.
-func OffloadSensitivePartitionRanges(
+// OffloadPartitionRanges encrypts partition ranges and persists them to the catalog,
+// then clears each partition's range in-place and sets RangeOffloaded so the range can
+// be rehydrated later. Used in conjunction with RestoreOffloadedPartitionRanges.
+func OffloadPartitionRanges(
 	ctx context.Context,
 	pool shared.CatalogPool,
 	parentMirrorName string,
 	runUUID string,
 	partitions []*protos.QRepPartition,
 ) error {
-	if !partitionsContainSensitiveRanges(partitions) {
-		return nil
-	}
-
 	key, err := internal.PeerDBCurrentEncKey(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load current encryption key: %w", err)
@@ -322,6 +329,9 @@ func OffloadSensitivePartitionRanges(
 
 	insertRows := make([][]any, 0, len(partitions))
 	for _, partition := range partitions {
+		if partition.Range == nil {
+			continue
+		}
 		payload, err := proto.Marshal(partition.Range)
 		if err != nil {
 			return fmt.Errorf("failed to marshal partition range: %w", err)
@@ -332,9 +342,8 @@ func OffloadSensitivePartitionRanges(
 		}
 		insertRows = append(insertRows, []any{parentMirrorName, runUUID, partition.PartitionId, key.ID, encrypted})
 
-		partition.Range = &protos.PartitionRange{
-			Range: &protos.PartitionRange_StringRange{StringRange: &protos.StringPartitionRange{}},
-		}
+		partition.Range = nil
+		partition.RangeOffloaded = true
 	}
 
 	if _, err := tx.CopyFrom(ctx,
@@ -351,29 +360,29 @@ func OffloadSensitivePartitionRanges(
 	return nil
 }
 
-// RestoreSensitivePartitionRanges hydrates sensitive partitions in-place with the decrypted
-// values fetched from the catalog. Used in conjunction with OffloadSensitivePartitionRanges
-func RestoreSensitivePartitionRanges(
+// RestoreOffloadedPartitionRanges hydrates offloaded partition ranges in-place with the decrypted
+// values fetched from the catalog. Used in conjunction with OffloadPartitionRanges.
+func RestoreOffloadedPartitionRanges(
 	ctx context.Context,
 	pool shared.CatalogPool,
 	runUUID string,
 	partitions []*protos.QRepPartition,
 ) error {
-	if !partitionsContainSensitiveRanges(partitions) {
-		return nil
-	}
-
-	partitionIDs := make([]string, 0, len(partitions))
 	partitionByIDs := make(map[string]*protos.QRepPartition, len(partitions))
 	for _, partition := range partitions {
-		partitionIDs = append(partitionIDs, partition.PartitionId)
+		if !partition.RangeOffloaded {
+			continue
+		}
 		partitionByIDs[partition.PartitionId] = partition
+	}
+	if len(partitionByIDs) == 0 {
+		return nil
 	}
 
 	rows, err := pool.Query(ctx,
 		`SELECT partition_uuid,enc_key_id,range_payload FROM `+qrepPartitionRangesTableName+` `+
 			`WHERE run_uuid=$1 AND partition_uuid=ANY($2)`,
-		runUUID, partitionIDs,
+		runUUID, slices.Collect(maps.Keys(partitionByIDs)),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to query partition ranges: %w", err)
@@ -415,19 +424,6 @@ func RestoreSensitivePartitionRanges(
 	}
 
 	return nil
-}
-
-func partitionsContainSensitiveRanges(partitions []*protos.QRepPartition) bool {
-	for _, partition := range partitions {
-		if partition == nil || partition.Range == nil {
-			continue
-		}
-		// String ranges may contain PII data like email, so deem it as sensitive.
-		if _, ok := partition.Range.Range.(*protos.PartitionRange_StringRange); ok {
-			return true
-		}
-	}
-	return false
 }
 
 func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {

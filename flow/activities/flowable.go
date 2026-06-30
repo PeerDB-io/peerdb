@@ -596,11 +596,16 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to get partitions from source", err))
 	}
 	if len(partitions) > 0 {
-		// run before monitoring.InitializeQRepRun to avoid logging sensitive fields to peerdb_stats.qrep_partitions as well
-		if err := connmetadata.OffloadSensitivePartitionRanges(
-			ctx, a.CatalogPool, config.ParentMirrorName, runUUID, partitions,
-		); err != nil {
-			return nil, fmt.Errorf("failed to offload partition ranges: %w", err)
+		shouldOffload, err := internal.PeerDBOffloadPartitionRanges(ctx, config.Env)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read offload partition ranges setting: %w", err)
+		}
+		if shouldOffload && config.InitialCopyOnly {
+			if err := connmetadata.OffloadPartitionRanges(
+				ctx, a.CatalogPool, config.ParentMirrorName, runUUID, partitions,
+			); err != nil {
+				return nil, fmt.Errorf("failed to offload partition ranges: %w", err)
+			}
 		}
 		if err := monitoring.InitializeQRepRun(
 			ctx,
@@ -669,7 +674,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	if err := connmetadata.RestoreSensitivePartitionRanges(ctx, a.CatalogPool, runUUID, partitions.Partitions); err != nil {
+	if err := connmetadata.RestoreOffloadedPartitionRanges(ctx, a.CatalogPool, runUUID, partitions.Partitions); err != nil {
 		return fmt.Errorf("failed to rehydrate partition ranges: %w", err)
 	}
 
