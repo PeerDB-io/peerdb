@@ -62,6 +62,10 @@ func PostgresSSHUpstreamHostWithFallback(fallback string) string {
 	return GetEnvString("SSH_POSTGRES_HOST", fallback)
 }
 
+func MySQLSSHUpstreamHost() string {
+	return GetEnvString("CI_SSH_MYSQL_HOST", "")
+}
+
 func MySQLTestHostWithFallback(fallback string) string {
 	return GetEnvString("CI_MYSQL_HOST", fallback)
 }

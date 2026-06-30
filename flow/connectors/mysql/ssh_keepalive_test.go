@@ -32,7 +32,7 @@ const (
 
 func resolveMySQL(t *testing.T) (string, uint32, string) {
 	t.Helper()
-	return internal.MySQLTestHostWithFallback("mysql"),
+	return internal.MySQLSSHUpstreamHost(),
 		internal.MySQLTestPortWithFallback(3306),
 		internal.MySQLTestRootPasswordWithFallback("cipass")
 }

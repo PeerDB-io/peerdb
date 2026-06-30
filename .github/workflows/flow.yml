@@ -647,6 +647,7 @@ jobs:
           CI_MYSQL_PORT: 3306
           CI_MYSQL_ROOT_PASSWORD: cipass
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          CI_SSH_MYSQL_HOST: mysql
           CI_MARIADB_HOST: localhost
           CI_MARIADB_PORT: 3316
           CI_MARIADB_ROOT_PASSWORD: cipass

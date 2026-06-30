@@ -312,11 +312,13 @@ mysql_gtid_vars = {
     'CI_MYSQL_PORT': resolve_env('CI_MYSQL_GTID_PORT'),
     'CI_MYSQL_VERSION': resolve_env('CI_MYSQL_GTID_VERSION'),
     'CI_MYSQL_ROOT_PASSWORD': resolve_env('CI_MYSQL_ROOT_PASSWORD'),
+    'CI_SSH_MYSQL_HOST': resolve_env('CI_SSH_MYSQL_HOST'),
 }
 mysql_pos_vars = {
     'CI_MYSQL_PORT': resolve_env('CI_MYSQL_POS_PORT'),
     'CI_MYSQL_VERSION': resolve_env('CI_MYSQL_POS_VERSION'),
     'CI_MYSQL_ROOT_PASSWORD': resolve_env('CI_MYSQL_ROOT_PASSWORD'),
+    'CI_SSH_MYSQL_HOST': resolve_env('CI_SSH_MYSQL_HOST'),
 }
 mariadb_vars = {
     'CI_MARIADB_PORT': resolve_env('CI_MARIADB_PORT'),
