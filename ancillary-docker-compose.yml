@@ -111,11 +111,11 @@ services:
     ports:
       - "${CI_MARIADB_PORT}:3306"
     environment:
-      MARIADB_ROOT_PASSWORD: ${CI_MYSQL_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${CI_MARIADB_ROOT_PASSWORD}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-uroot", "-p${CI_MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-uroot", "-p${CI_MARIADB_ROOT_PASSWORD}"]
       interval: 2s
       timeout: 10s
       retries: 5

@@ -21,7 +21,6 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -32,7 +31,7 @@ func startBinlogStream(t *testing.T, ctx context.Context, c *MySqlConnector) *re
 
 	var syncer *replication.BinlogSyncer
 	var stream *replication.BinlogStreamer
-	if internal.MySQLTestVersionIsMySQLPos() {
+	if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
 		pos, err := c.GetMasterPos(ctx)
 		require.NoError(t, err)
 		syncer, stream, _, _, err = c.startCdcStreamingFilePos(ctx, pos, nil)
@@ -64,65 +63,74 @@ func waitForQueryEventContaining(
 	}
 }
 
-func TestANSIQuotesDDLParsedFromBinlog(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	connector := newTestConnector(t, ctx)
+func TestIntegrationANSIQuotesDDLParsedFromBinlog(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+	}{
+		{name: "mysql"},
+		{name: "mariadb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			connector := newTestConnector(t, ctx, tc.name)
 
-	dbName := testDBName("ansi_quotes_binlog")
-	createTestDB(t, ctx, connector, dbName)
-	_, err := connector.Execute(ctx, "CREATE TABLE `"+dbName+"`.`t` (id INT PRIMARY KEY)")
-	require.NoError(t, err)
+			dbName := testDBName("ansi_quotes_binlog")
+			createTestDB(t, ctx, connector, dbName)
+			_, err := connector.Execute(ctx, "CREATE TABLE `"+dbName+"`.`t` (id INT PRIMARY KEY)")
+			require.NoError(t, err)
 
-	stream := startBinlogStream(t, ctx, connector)
+			stream := startBinlogStream(t, ctx, connector)
 
-	// ANSI_QUOTES makes "..." an identifier quote, so the ALTER below only parses
-	// when the mode is passed to the parser as well
-	guid := uuid.NewString()
-	_, err = connector.Execute(ctx, `SET SESSION sql_mode='ANSI_QUOTES'`)
-	require.NoError(t, err)
+			// ANSI_QUOTES makes "..." an identifier quote, so the ALTER below only parses
+			// when the mode is passed to the parser as well
+			guid := uuid.NewString()
+			_, err = connector.Execute(ctx, `SET SESSION sql_mode='ANSI_QUOTES'`)
+			require.NoError(t, err)
 
-	ddl := fmt.Sprintf(`/* %s */ ALTER TABLE "%s"."t" ADD COLUMN "c1" INT`, guid, dbName)
-	_, err = connector.Execute(ctx, ddl)
-	require.NoError(t, err)
+			ddl := fmt.Sprintf(`/* %s */ ALTER TABLE "%s"."t" ADD COLUMN "c1" INT`, guid, dbName)
+			_, err = connector.Execute(ctx, ddl)
+			require.NoError(t, err)
 
-	statusVars, query := waitForQueryEventContaining(t, ctx, stream, guid)
+			statusVars, query := waitForQueryEventContaining(t, ctx, stream, guid)
 
-	// Validate extraction
-	mode, ok := sqlModeFromStatusVars(statusVars)
-	require.True(t, ok)
-	require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars")
+			// Validate extraction
+			mode, ok := sqlModeFromStatusVars(statusVars)
+			require.True(t, ok)
+			require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars")
 
-	// Validate parsing
-	mysqlParser := parser.New()
-	setParserSQLModeFromStatusVars(mysqlParser, statusVars)
-	stmts, _, err := mysqlParser.ParseSQL(query)
-	require.NoError(t, err)
-	require.Len(t, stmts, 1)
-	require.IsType(t, &ast.AlterTableStmt{}, stmts[0])
+			// Validate parsing
+			mysqlParser := parser.New()
+			setParserSQLModeFromStatusVars(mysqlParser, statusVars)
+			stmts, _, err := mysqlParser.ParseSQL(query)
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+			require.IsType(t, &ast.AlterTableStmt{}, stmts[0])
 
-	// Validate parsing fails without the mode
-	_, _, err = parser.New().ParseSQL(query)
-	require.Error(t, err)
+			// Validate parsing fails without the mode
+			_, _, err = parser.New().ParseSQL(query)
+			require.Error(t, err)
 
-	// Status vars with codes > 1 are written after sql_mode (code 1). Every
-	// QueryEvent already carries catalog (2) and charset (4); force a few more —
-	// auto_increment (3), time_zone (5), lc_time_names (7) — to confirm a fuller
-	// status-var block still doesn't interfere with extracting sql_mode.
-	_, err = connector.Execute(ctx,
-		`SET SESSION auto_increment_increment=7, auto_increment_offset=3, time_zone='+05:00', lc_time_names='fr_FR'`)
-	require.NoError(t, err)
+			// Status vars with codes > 1 are written after sql_mode (code 1). Every
+			// QueryEvent already carries catalog (2) and charset (4); force a few more -
+			// auto_increment (3), time_zone (5), lc_time_names (7) - to confirm a fuller
+			// status-var block still doesn't interfere with extracting sql_mode.
+			_, err = connector.Execute(ctx,
+				`SET SESSION auto_increment_increment=7, auto_increment_offset=3, time_zone='+05:00', lc_time_names='fr_FR'`)
+			require.NoError(t, err)
 
-	guid = uuid.NewString()
-	ddl = fmt.Sprintf(`/* %s */ ALTER TABLE "%s"."t" ADD COLUMN "c2" INT`, guid, dbName)
-	_, err = connector.Execute(ctx, ddl)
-	require.NoError(t, err)
+			guid = uuid.NewString()
+			ddl = fmt.Sprintf(`/* %s */ ALTER TABLE "%s"."t" ADD COLUMN "c2" INT`, guid, dbName)
+			_, err = connector.Execute(ctx, ddl)
+			require.NoError(t, err)
 
-	statusVars, _ = waitForQueryEventContaining(t, ctx, stream, guid)
+			statusVars, _ = waitForQueryEventContaining(t, ctx, stream, guid)
 
-	mode, ok = sqlModeFromStatusVars(statusVars)
-	require.True(t, ok)
-	require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars with extra status vars present")
+			mode, ok = sqlModeFromStatusVars(statusVars)
+			require.True(t, ok)
+			require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars with extra status vars present")
+		})
+	}
 }
 
 func TestParseSQLParsesTrailingNull(t *testing.T) {
@@ -301,111 +309,129 @@ func TestProcessRenameTableQueryMetric(t *testing.T) {
 	}
 }
 
-func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	connector := newTestConnector(t, ctx)
+func TestIntegrationGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+	}{
+		{name: "mysql"},
+		{name: "mariadb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			connector := newTestConnector(t, ctx, tc.name)
 
-	// make sure case-sensitive identifiers are supported server-side by the test db
-	rs, err := connector.Execute(ctx, "SELECT @@lower_case_table_names")
-	require.NoError(t, err)
-	lctn, err := rs.GetInt(0, 0)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), lctn)
+			// make sure case-sensitive identifiers are supported server-side by the test db
+			rs, err := connector.Execute(ctx, "SELECT @@lower_case_table_names")
+			require.NoError(t, err)
+			lctn, err := rs.GetInt(0, 0)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), lctn)
 
-	lowerDB := testDBName("cs")
-	upperDB := testDBName("CS_IDS_TEST")
-	createTestDB(t, ctx, connector, lowerDB)
-	createTestDB(t, ctx, connector, upperDB)
+			lowerDB := testDBName("cs")
+			upperDB := testDBName("CS_IDS_TEST")
+			createTestDB(t, ctx, connector, lowerDB)
+			createTestDB(t, ctx, connector, upperDB)
 
-	llTable := lowerDB + ".cs_t"
-	luTable := lowerDB + ".CS_T"
-	ulTable := upperDB + ".cs_t"
-	uuTable := upperDB + ".CS_T"
+			llTable := lowerDB + ".cs_t"
+			luTable := lowerDB + ".CS_T"
+			ulTable := upperDB + ".cs_t"
+			uuTable := upperDB + ".CS_T"
 
-	exec := func(sql string) {
-		t.Helper()
-		_, err := connector.Execute(ctx, sql)
-		require.NoError(t, err)
-	}
+			exec := func(sql string) {
+				t.Helper()
+				_, err := connector.Execute(ctx, sql)
+				require.NoError(t, err)
+			}
 
-	assertSchema := func(schema *protos.TableSchema, pk []string, cols ...string) {
-		t.Helper()
-		require.NotNil(t, schema)
-		require.Equal(t, pk, schema.PrimaryKeyColumns)
-		require.Len(t, schema.Columns, len(cols))
-		for i, name := range cols {
-			require.Equal(t, name, schema.Columns[i].Name)
-		}
-	}
+			assertSchema := func(schema *protos.TableSchema, pk []string, cols ...string) {
+				t.Helper()
+				require.NotNil(t, schema)
+				require.Equal(t, pk, schema.PrimaryKeyColumns)
+				require.Len(t, schema.Columns, len(cols))
+				for i, name := range cols {
+					require.Equal(t, name, schema.Columns[i].Name)
+				}
+			}
 
-	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ll TEXT)", llTable))
-	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, lu TEXT)", luTable))
-	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ul TEXT)", ulTable))
-	exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, uu TEXT)", uuTable))
+			exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ll TEXT)", llTable))
+			exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, lu TEXT)", luTable))
+			exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, ul TEXT)", ulTable))
+			exec(fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, uu TEXT)", uuTable))
 
-	schemas, err := connector.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{
-			{SourceTableIdentifier: llTable},
-			{SourceTableIdentifier: luTable},
-			{SourceTableIdentifier: ulTable},
-			{SourceTableIdentifier: uuTable},
+			schemas, err := connector.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+				[]*protos.TableMapping{
+					{SourceTableIdentifier: llTable},
+					{SourceTableIdentifier: luTable},
+					{SourceTableIdentifier: ulTable},
+					{SourceTableIdentifier: uuTable},
+				})
+			require.NoError(t, err)
+			assertSchema(schemas[llTable], []string{"id"}, "id", "ll")
+			assertSchema(schemas[luTable], []string{"id"}, "id", "lu")
+			assertSchema(schemas[ulTable], []string{"id"}, "id", "ul")
+			assertSchema(schemas[uuTable], []string{"id"}, "id", "uu")
 		})
-	require.NoError(t, err)
-	assertSchema(schemas[llTable], []string{"id"}, "id", "ll")
-	assertSchema(schemas[luTable], []string{"id"}, "id", "lu")
-	assertSchema(schemas[ulTable], []string{"id"}, "id", "ul")
-	assertSchema(schemas[uuTable], []string{"id"}, "id", "uu")
+	}
 }
 
-func TestGetTableSchemaPrimaryKeyVariants(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	connector := newTestConnector(t, ctx)
+func TestIntegrationGetTableSchemaPrimaryKeyVariants(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+	}{
+		{name: "mysql"},
+		{name: "mariadb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			connector := newTestConnector(t, ctx, tc.name)
 
-	dbName := testDBName("pk_variants")
-	createTestDB(t, ctx, connector, dbName)
+			dbName := testDBName("pk_variants")
+			createTestDB(t, ctx, connector, dbName)
 
-	exec := func(sql string) {
-		t.Helper()
-		_, err := connector.Execute(ctx, sql)
-		require.NoError(t, err)
-	}
+			exec := func(sql string) {
+				t.Helper()
+				_, err := connector.Execute(ctx, sql)
+				require.NoError(t, err)
+			}
 
-	assertSchema := func(schema *protos.TableSchema, pk []string, cols ...string) {
-		t.Helper()
-		require.NotNil(t, schema)
-		if len(pk) == 0 {
-			require.Empty(t, schema.PrimaryKeyColumns)
-		} else {
-			require.Equal(t, pk, schema.PrimaryKeyColumns)
-		}
-		require.Len(t, schema.Columns, len(cols))
-		for i, name := range cols {
-			require.Equal(t, name, schema.Columns[i].Name)
-		}
-	}
+			assertSchema := func(schema *protos.TableSchema, pk []string, cols ...string) {
+				t.Helper()
+				require.NotNil(t, schema)
+				if len(pk) == 0 {
+					require.Empty(t, schema.PrimaryKeyColumns)
+				} else {
+					require.Equal(t, pk, schema.PrimaryKeyColumns)
+				}
+				require.Len(t, schema.Columns, len(cols))
+				for i, name := range cols {
+					require.Equal(t, name, schema.Columns[i].Name)
+				}
+			}
 
-	compositeTable := dbName + ".composite_pk"
-	noPKTable := dbName + ".no_pk"
-	mixedCaseTable := dbName + ".mixed_case_pk"
+			compositeTable := dbName + ".composite_pk"
+			noPKTable := dbName + ".no_pk"
+			mixedCaseTable := dbName + ".mixed_case_pk"
 
-	// Composite PK whose key order (b, a) differs from column definition order (a, b, c),
-	// exercising the seq_in_index sort.
-	exec(fmt.Sprintf("CREATE TABLE %s (a INT, b INT, c INT, PRIMARY KEY (b, a))", compositeTable))
-	// Table without a primary key, exercising the LEFT JOIN's NULL seq_in_index path.
-	exec(fmt.Sprintf("CREATE TABLE %s (a INT, b TEXT)", noPKTable))
-	// PK on a mixed-case column name, exercising the case-preserving column_name join.
-	exec(fmt.Sprintf("CREATE TABLE %s (`MyId` INT PRIMARY KEY, val TEXT)", mixedCaseTable))
+			// Composite PK whose key order (b, a) differs from column definition order (a, b, c),
+			// exercising the seq_in_index sort.
+			exec(fmt.Sprintf("CREATE TABLE %s (a INT, b INT, c INT, PRIMARY KEY (b, a))", compositeTable))
+			// Table without a primary key, exercising the LEFT JOIN's NULL seq_in_index path.
+			exec(fmt.Sprintf("CREATE TABLE %s (a INT, b TEXT)", noPKTable))
+			// PK on a mixed-case column name, exercising the case-preserving column_name join.
+			exec(fmt.Sprintf("CREATE TABLE %s (`MyId` INT PRIMARY KEY, val TEXT)", mixedCaseTable))
 
-	schemas, err := connector.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{
-			{SourceTableIdentifier: compositeTable},
-			{SourceTableIdentifier: noPKTable},
-			{SourceTableIdentifier: mixedCaseTable},
+			schemas, err := connector.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+				[]*protos.TableMapping{
+					{SourceTableIdentifier: compositeTable},
+					{SourceTableIdentifier: noPKTable},
+					{SourceTableIdentifier: mixedCaseTable},
+				})
+			require.NoError(t, err)
+			assertSchema(schemas[compositeTable], []string{"b", "a"}, "a", "b", "c")
+			assertSchema(schemas[noPKTable], nil, "a", "b")
+			assertSchema(schemas[mixedCaseTable], []string{"MyId"}, "MyId", "val")
 		})
-	require.NoError(t, err)
-	assertSchema(schemas[compositeTable], []string{"b", "a"}, "a", "b", "c")
-	assertSchema(schemas[noPKTable], nil, "a", "b")
-	assertSchema(schemas[mixedCaseTable], []string{"MyId"}, "MyId", "val")
+	}
 }

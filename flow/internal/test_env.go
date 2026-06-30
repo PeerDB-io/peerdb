@@ -71,13 +71,17 @@ func MySQLTestHost() string {
 }
 
 func MySQLTestPortWithFallback(fallback uint32) uint32 {
-	envPortStr, ok := os.LookupEnv("CI_MYSQL_PORT")
+	return mysqlTestPortWithEnvFallback("CI_MYSQL_PORT", fallback)
+}
+
+func mysqlTestPortWithEnvFallback(envName string, fallback uint32) uint32 {
+	envPortStr, ok := os.LookupEnv(envName)
 	if !ok {
 		return fallback
 	}
 	envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to parse CI_MYSQL_PORT: %v", err))
+		panic(fmt.Sprintf("Failed to parse %s: %v", envName, err))
 	}
 	return uint32(envPort)
 }
@@ -90,45 +94,61 @@ func MySQLTestRootPasswordWithFallback(fallback string) string {
 	return GetEnvString("CI_MYSQL_ROOT_PASSWORD", fallback)
 }
 
-func MySQLTestVersion() string {
-	return os.Getenv("CI_MYSQL_VERSION")
+func MariaDBTestHost() string {
+	return GetEnvString("CI_MARIADB_HOST", "localhost")
 }
 
-func MySQLTestVersionIsMaria() bool {
-	return strings.HasPrefix(MySQLTestVersion(), "maria")
+func MariaDBTestPort() uint32 {
+	return mysqlTestPortWithEnvFallback("CI_MARIADB_PORT", 3308)
 }
 
-func MySQLTestVersionIsMySQLPos() bool {
-	return MySQLTestVersion() == "mysql-pos"
+func MariaDBTestRootPasswordWithFallback(fallback string) string {
+	return GetEnvString("CI_MARIADB_ROOT_PASSWORD", fallback)
 }
 
-// MySQLTestFlavorAndMechanism resolves CI_MYSQL_VERSION into the server flavor and
-// replication mechanism the test database is configured for.
 func MySQLTestFlavorAndMechanism(t *testing.T) (protos.MySqlFlavor, protos.MySqlReplicationMechanism) {
 	t.Helper()
-	switch version := MySQLTestVersion(); version {
+	switch version := os.Getenv("CI_MYSQL_VERSION"); version {
 	case "mysql-gtid":
 		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_GTID
 	case "mysql-pos":
 		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
-	case "maria-pos":
-		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
-	case "maria-gtid":
-		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_GTID
 	default:
-		require.Failf(t, "unexpected CI_MYSQL_VERSION", "got %q", version)
+		require.Failf(t, "unexpected MySQL test version", "got %q", version)
 		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
 	}
 }
 
-// GetMySQLConfigFromEnv builds a MySqlConfig for a direct connection to the CI
-// MySQL/MariaDB test server, with the given flavor and replication mechanism.
+func MariaDBTestFlavorAndMechanism(t *testing.T) (protos.MySqlFlavor, protos.MySqlReplicationMechanism) {
+	t.Helper()
+	switch version := os.Getenv("CI_MARIADB_VERSION"); version {
+	case "maria-11", "maria-12", "maria-13":
+		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_GTID
+	default:
+		require.Failf(t, "unexpected MariaDB test version", "got %q", version)
+		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_GTID
+	}
+}
+
 func GetMySQLConfigFromEnv(flavor protos.MySqlFlavor, mechanism protos.MySqlReplicationMechanism) *protos.MySqlConfig {
 	return &protos.MySqlConfig{
 		Host:                 MySQLTestHost(),
 		Port:                 MySQLTestPort(),
 		User:                 "root",
 		Password:             MySQLTestRootPasswordWithFallback("cipass"),
+		Database:             "",
+		DisableTls:           true,
+		Flavor:               flavor,
+		ReplicationMechanism: mechanism,
+	}
+}
+
+func GetMariaDBConfigFromEnv(flavor protos.MySqlFlavor, mechanism protos.MySqlReplicationMechanism) *protos.MySqlConfig {
+	return &protos.MySqlConfig{
+		Host:                 MariaDBTestHost(),
+		Port:                 MariaDBTestPort(),
+		User:                 "root",
+		Password:             MariaDBTestRootPasswordWithFallback("cipass"),
 		Database:             "",
 		DisableTls:           true,
 		Flavor:               flavor,

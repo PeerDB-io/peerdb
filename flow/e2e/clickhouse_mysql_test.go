@@ -28,8 +28,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func mysqlEnumUsesOrdinals() bool {
-	return internal.MySQLTestVersionIsMySQLPos()
+func mysqlEnumUsesOrdinals(source *MySqlSource) bool {
+	return source.Config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL &&
+		source.Config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS
 }
 
 func (s ClickHouseSuite) Test_UnsignedMySQL() {
@@ -596,7 +597,8 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
-	if _, ok := s.source.(*MySqlSource); !ok {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -643,7 +645,7 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
 	require.Len(s.t, rows.Records, 2)
 	require.Equal(s.t, rows.Records[0][1].Value(), rows.Records[1][1].Value(),
 		"snapshot and CDC enum values should be consistent")
-	if mysqlEnumUsesOrdinals() {
+	if mysqlEnumUsesOrdinals(mySource) {
 		require.EqualValues(s.t, 1, rows.Records[0][1].Value())
 	} else {
 		require.Equal(s.t, "active", rows.Records[0][1].Value())
@@ -654,7 +656,8 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
-	if _, ok := s.source.(*MySqlSource); !ok {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -699,7 +702,7 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 	require.EqualValues(s.t, 1, rows.Records[0][0].Value())
 	require.EqualValues(s.t, 2, rows.Records[1][0].Value())
 	require.Equal(s.t, "active", rows.Records[0][1].Value())
-	if mysqlEnumUsesOrdinals() {
+	if mysqlEnumUsesOrdinals(mySource) {
 		require.Equal(s.t, "1", rows.Records[1][1].Value())
 	} else {
 		require.Equal(s.t, "active", rows.Records[1][1].Value())
@@ -1727,10 +1730,11 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	if s.cluster {
 		s.t.Skip("source-side incident coverage does not need to run against ClickHouse cluster")
 	}
-	if _, ok := s.source.(*MySqlSource); !ok {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
-	if internal.MySQLTestVersionIsMaria() {
+	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("binlog incident injection requires a MySQL debug build; not available for MariaDB")
 	}
 
@@ -1770,11 +1774,6 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	port, err := strconv.Atoi(mapped.Port())
 	require.NoError(s.t, err)
 
-	replication := protos.MySqlReplicationMechanism_MYSQL_GTID
-	if internal.MySQLTestVersionIsMySQLPos() {
-		replication = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
-	}
-
 	suffix := "mydbginc_" + strings.ToLower(common.RandomString(8))
 	config := &protos.MySqlConfig{
 		// host.docker.internal resolves both from the test process (to the published port) and
@@ -1785,7 +1784,7 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 		Password:             internal.MySQLTestRootPasswordWithFallback("cipass"),
 		DisableTls:           true,
 		Flavor:               protos.MySqlFlavor_MYSQL_MYSQL,
-		ReplicationMechanism: replication,
+		ReplicationMechanism: mySource.Config.ReplicationMechanism,
 	}
 	src, err := setupMyConnector(s.t, suffix, config, "mysql_debug_"+suffix)
 	require.NoError(s.t, err)

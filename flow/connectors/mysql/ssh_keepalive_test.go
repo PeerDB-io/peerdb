@@ -124,31 +124,22 @@ func setupMySQLSSHKeepaliveHarness(ctx context.Context, t *testing.T, proxyName 
 	}
 }
 
-func TestMySQLSSHKeepaliveTunnelDown(t *testing.T) {
+func TestMySQLOnlyIntegrationSSHKeepaliveTunnelDown(t *testing.T) {
 	t.Parallel()
-	if internal.MySQLTestVersionIsMaria() {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-keepalive-test", toxiproxyDownProxyPort)
 	defer connector.Close()
 	utils.RunSSHKeepaliveDownTest(t, cfg)
 }
 
-func TestMySQLSSHKeepaliveLatency(t *testing.T) {
+func TestMySQLOnlyIntegrationSSHKeepaliveLatency(t *testing.T) {
 	t.Parallel()
-	if internal.MySQLTestVersionIsMaria() {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-latency-test", toxiproxyLatencyProxyPort)
 	defer connector.Close()
 	utils.RunSSHKeepaliveLatencyTest(t, cfg)
 }
 
-func TestMySQLSSHResetPeer(t *testing.T) {
+func TestMySQLOnlyIntegrationSSHResetPeer(t *testing.T) {
 	t.Parallel()
-	if internal.MySQLTestVersionIsMaria() {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-reset-peer-test", toxiproxyResetProxyPort)
 	defer connector.Close()
 	utils.RunSSHResetPeerTest(t, cfg)
@@ -190,11 +181,8 @@ func setupCDCPullRecords(
 	return req, otelManager
 }
 
-func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
+func TestMySQLOnlyIntegrationSSHKeepaliveCDCHang(t *testing.T) {
 	t.Parallel()
-	if internal.MySQLTestVersionIsMaria() {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
 	ctx := t.Context()
 
 	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-down-test", toxiproxyCDCHangProxyPort)
@@ -243,12 +231,8 @@ func TestMySQLSSHKeepaliveCDCHang(t *testing.T) {
 	}
 }
 
-func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
+func TestMySQLOnlyIntegrationSSHKeepaliveCDCCloseHang(t *testing.T) {
 	t.Parallel()
-	if internal.MySQLTestVersionIsMaria() {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
-
 	ctx := t.Context()
 
 	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-latency-test", toxiproxyCDCCloseHangProxyPort)
@@ -303,12 +287,8 @@ func TestMySQLSSHKeepaliveCDCCloseHang(t *testing.T) {
 	}
 }
 
-func TestMySQLCloseSyncerWithTimeout(t *testing.T) {
+func TestMySQLOnlyIntegrationCloseSyncerWithTimeout(t *testing.T) {
 	t.Parallel()
-	if internal.MySQLTestVersionIsMaria() {
-		t.Skip("Skipping for MariaDB")
-	}
-
 	ctx := t.Context()
 	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(
 		ctx, t, "my-close-syncer-timeout-test", toxiproxyCloseSyncerWithTimeoutPort)
@@ -346,14 +326,10 @@ func TestMySQLCloseSyncerWithTimeout(t *testing.T) {
 	}
 }
 
-// TestMySQLBinlogStalenessThreshold verifies that when bytes stop flowing from MySQL, PullRecords
-// returns MySQLStaleConnectionError once time.Since(lastEventAt) exceeds the staleness threshold.
-func TestMySQLBinlogStalenessThreshold(t *testing.T) {
+// TestMySQLOnlyIntegrationBinlogStalenessThreshold verifies that when bytes stop flowing from MySQL,
+// PullRecords returns MySQLStaleConnectionError once time.Since(lastEventAt) exceeds the staleness threshold.
+func TestMySQLOnlyIntegrationBinlogStalenessThreshold(t *testing.T) {
 	t.Parallel()
-	if internal.MySQLTestVersionIsMaria() {
-		t.Skip("Skipping for MariaDB")
-	}
-
 	ctx := t.Context()
 	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(ctx, t, "my-binlog-staleness-test", toxiproxyBinlogStalenessPort)
 	defer connector.Close()
