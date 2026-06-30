@@ -74,7 +74,7 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 		return types.QValueKindArrayFloat32, nil
 	case "uuid": // maria
 		return types.QValueKindUUID, nil
-	case "inet": // maria
+	case "inet4", "inet6": // maria
 		return types.QValueKindINET, nil
 	case "geometry", "point", "polygon", "linestring", "multipoint", "multilinestring", "multipolygon", "geomcollection", "geometrycollection":
 		return types.QValueKindGeometry, nil

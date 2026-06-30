@@ -411,8 +411,8 @@ func TestQkindFromMysSQLTypeForUnsupportedDDLTypes(t *testing.T) {
 		{"clob", types.QValueKindString},     // LONGTEXT (Oracle mode)
 		{"varchar2", types.QValueKindString}, // VARCHAR (Oracle mode)
 		{"xmltype", types.QValueKindString},  // XML stored as text (MariaDB 12.3+)
-		{"inet(4)", types.QValueKindINET},
-		{"inet(6)", types.QValueKindINET},
+		{"inet4", types.QValueKindINET},
+		{"inet6", types.QValueKindINET},
 		{"uuid", types.QValueKindUUID},
 	} {
 		t.Run(tc.ct, func(t *testing.T) {
