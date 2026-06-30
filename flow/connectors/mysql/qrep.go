@@ -164,8 +164,14 @@ func (c *MySqlConnector) GetQRepPartitions(
 			}
 			partitionHelper.AddPartitions(uuidPartitions)
 		} else {
-			c.logger.Info("string watermark column is not uuid, falling back to full table partition")
-			return utils.FullTablePartition(), nil
+			stringPartitions, err := buildAdaptiveStringPartitions(
+				ctx, c, c.logger, parsedWatermarkTable, config.WatermarkColumn, start, end, numPartitions)
+			if err != nil {
+				c.logger.Warn("failed to build adaptive string partitions, falling back to full table partition",
+					slog.Any("error", err))
+				return utils.FullTablePartition(), nil
+			}
+			partitionHelper.AddPartitions(stringPartitions)
 		}
 	} else if err := partitionHelper.AddPartitionsWithRange(val1.Value(), val2.Value(), numPartitions); err != nil {
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
