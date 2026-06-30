@@ -30,6 +30,7 @@ import (
 	"testing"
 )
 
+//nolint:lll
 const (
 	missingSourceSubtestsMessage   = "TestIntegration tests must declare inline mysql and mariadb source subtests"
 	misnamedIntegrationTestMessage = "MySQL integration test must be named TestIntegration.../{mysql,mariadb}, TestMySQLOnlyIntegration..., or TestMariaOnlyIntegration..."
