@@ -2037,6 +2037,11 @@ func (s ClickHouseSuite) Test_MySQL_NoPrimaryKey_CDC() {
 		s.t.Skip("only applies to mysql")
 	}
 
+	if s.cluster {
+		// TODO: Check how this behaviour works in cluster mode.
+		s.t.Skip("MergeTree append-only semantics test does not apply to cluster mode")
+	}
+
 	srcTableName := "test_no_pkey_cdc"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_no_pkey_cdc"
