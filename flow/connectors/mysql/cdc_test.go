@@ -128,7 +128,10 @@ func TestIntegrationANSIQuotesDDLParsedFromBinlog(t *testing.T) {
 
 			mode, ok = sqlModeFromStatusVars(statusVars)
 			require.True(t, ok)
-			require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars with extra status vars present")
+			require.NotZero(t,
+				mode&uint64(tidbmysql.ModeANSIQuotes),
+				"ANSI_QUOTES missing from binlog status vars with extra status vars present",
+			)
 		})
 	}
 }

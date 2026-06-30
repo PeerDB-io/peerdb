@@ -46,20 +46,19 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 }
 
 func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
-	runPeerFlowE2ETestSuiteMySQLFamilyCH(t, "mych", SetupMySQL)
+	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mych_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	}))
 }
 
 func TestPeerFlowE2ETestSuiteMariaDB_CH(t *testing.T) {
-	runPeerFlowE2ETestSuiteMySQLFamilyCH(t, "mach", SetupMariaDB)
-}
-
-func runPeerFlowE2ETestSuiteMySQLFamilyCH(
-	t *testing.T, suffixPrefix string, setup func(t *testing.T, suffix string) (*MySqlSource, error),
-) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := suffixPrefix + "_" + strings.ToLower(common.RandomString(8))
-		source, err := setup(t, suffix)
+		suffix := "mach_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	}))
 }
@@ -74,20 +73,19 @@ func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 }
 
 func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
-	runPeerFlowE2ETestSuiteMySQLFamilyCHCluster(t, "mychcl", SetupMySQL)
+	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mychcl_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	}))
 }
 
 func TestPeerFlowE2ETestSuiteMariaDB_CH_Cluster(t *testing.T) {
-	runPeerFlowE2ETestSuiteMySQLFamilyCHCluster(t, "machcl", SetupMariaDB)
-}
-
-func runPeerFlowE2ETestSuiteMySQLFamilyCHCluster(
-	t *testing.T, suffixPrefix string, setup func(t *testing.T, suffix string) (*MySqlSource, error),
-) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := suffixPrefix + "_" + strings.ToLower(common.RandomString(8))
-		source, err := setup(t, suffix)
+		suffix := "machcl_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	}))
 }

@@ -33,14 +33,16 @@ func (s SwitchboardMySQLSuite) Teardown(ctx context.Context) {
 }
 
 func SetupSwitchboardMySQLSuite(t *testing.T) SwitchboardMySQLSuite {
-	return SetupSwitchboardMySQLFamilySuite(t, "mysql", SetupMySQL)
+	t.Helper()
+	return setupSwitchboardMySQLFamilySuite(t, "mysql", SetupMySQL)
 }
 
 func SetupSwitchboardMariaDBSuite(t *testing.T) SwitchboardMySQLSuite {
-	return SetupSwitchboardMySQLFamilySuite(t, "mariadb", SetupMariaDB)
+	t.Helper()
+	return setupSwitchboardMySQLFamilySuite(t, "mariadb", SetupMariaDB)
 }
 
-func SetupSwitchboardMySQLFamilySuite(
+func setupSwitchboardMySQLFamilySuite(
 	t *testing.T, namePrefix string, setup func(t *testing.T, suffix string) (*MySqlSource, error),
 ) SwitchboardMySQLSuite {
 	t.Helper()

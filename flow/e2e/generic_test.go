@@ -43,20 +43,19 @@ func TestGenericCH_PG(t *testing.T) {
 }
 
 func TestGenericCH_MySQL(t *testing.T) {
-	runGenericCHMySQLFamily(t, "mychg", SetupMySQL)
+	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mychg_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	})))
 }
 
 func TestGenericCH_MariaDB(t *testing.T) {
-	runGenericCHMySQLFamily(t, "machg", SetupMariaDB)
-}
-
-func runGenericCHMySQLFamily(
-	t *testing.T, suffixPrefix string, setup func(t *testing.T, suffix string) (*MySqlSource, error),
-) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := suffixPrefix + "_" + strings.ToLower(common.RandomString(8))
-		source, err := setup(t, suffix)
+		suffix := "machg_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	})))
 }
@@ -71,20 +70,19 @@ func TestGenericChCluster_PG(t *testing.T) {
 }
 
 func TestGenericChCluster_MySQL(t *testing.T) {
-	runGenericChClusterMySQLFamily(t, "mychclg", SetupMySQL)
+	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mychclg_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	})))
 }
 
 func TestGenericChCluster_MariaDB(t *testing.T) {
-	runGenericChClusterMySQLFamily(t, "machclg", SetupMariaDB)
-}
-
-func runGenericChClusterMySQLFamily(
-	t *testing.T, suffixPrefix string, setup func(t *testing.T, suffix string) (*MySqlSource, error),
-) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := suffixPrefix + "_" + strings.ToLower(common.RandomString(8))
-		source, err := setup(t, suffix)
+		suffix := "machclg_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	})))
 }
