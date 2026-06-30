@@ -2031,3 +2031,76 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_MySQL_NoPrimaryKey_CDC() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_no_pkey_cdc"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_no_pkey_cdc"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT, val TEXT)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s VALUES (1, 'a'), (2, 'b')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("mysql_no_pkey_cdc"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// waitForNonDeletedCount polls CH without FINAL (MergeTree rejects FINAL).
+	waitForNonDeletedCount := func(expected int, reason string) {
+		s.t.Helper()
+		EnvWaitFor(s.t, env, 3*time.Minute, reason, func() bool {
+			s.t.Helper()
+			n, err := s.CountNonDeletedRows(dstTableName)
+			if err != nil {
+				s.t.Log(err)
+				return false
+			}
+			return n == expected
+		})
+	}
+
+	// Snapshot: 2 rows expected in CH.
+	waitForNonDeletedCount(2, "waiting on snapshot")
+
+	// CDC INSERT: 3 rows in CH.
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s VALUES (3, 'c')`, srcFullName)))
+	waitForNonDeletedCount(3, "waiting on cdc insert")
+
+	// CDC UPDATE: MergeTree appends the updated row without removing the original.
+	// Source has 3 rows; CH now has 4 non-deleted rows (row-1-original, row-1-updated, row-2, row-3).
+	// The count growing from 3→4 documents the append-only semantics: no dedup without an ordering key.
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`UPDATE %s SET val='updated' WHERE id=1`, srcFullName)))
+	waitForNonDeletedCount(4, "waiting on cdc update")
+
+	// CDC DELETE + subsequent INSERT: the DELETE must not crash the pipeline. A delete-marker row
+	// (is_deleted=1) is appended to CH but the original row-2 (is_deleted=0) stays visible.
+	// The following INSERT (id=4) arriving at count=5 confirms the pipeline survived the DELETE.
+	// count=5: row1_orig, row1_updated, row2_orig (is_deleted=0 retained), row3, row4
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`DELETE FROM %s WHERE id=2`, srcFullName)))
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s VALUES (4, 'd')`, srcFullName)))
+	waitForNonDeletedCount(5, "waiting on cdc after delete")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
