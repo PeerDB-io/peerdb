@@ -51,7 +51,7 @@ jobs:
                 img: 'mysql:5.7'
                 env: ['MYSQL_ROOT_PASSWORD=cipass']
                 parameters: ['--log_bin=mysql-bin', '--server-id=1', '--bind-address=::']
-          - mariadb:
+            mariadb:
               maria-11:
                 img: 'mariadb:lts-ubi9'
                 env: ['MARIADB_ROOT_PASSWORD=cipass']
