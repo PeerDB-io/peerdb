@@ -36,7 +36,8 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 		return types.QValueKindTimestamp, nil
 	case "time":
 		return types.QValueKindTime, nil
-	case "decimal", "numeric":
+	case "decimal", "numeric",
+		"number": // maria (Oracle-mode synonym for decimal; TiDB parser rejects the spelling)
 		return types.QValueKindNumeric, nil
 	case "float":
 		return types.QValueKindFloat32, nil

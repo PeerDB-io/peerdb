@@ -279,6 +279,9 @@ func TestAlterTableTypes(t *testing.T) {
 		// approximate numeric spellings normalize to double
 		{"double precision", "DOUBLE PRECISION", types.QValueKindFloat64},
 		{"real", "REAL", types.QValueKindFloat64},
+		// MariaDB FLOAT4/FLOAT8 synonyms normalize to float/double.
+		{"float4 -> float", "FLOAT4", types.QValueKindFloat32},
+		{"float8 -> double", "FLOAT8", types.QValueKindFloat64},
 
 		// char spellings normalize to char
 		{"character(10)", "CHARACTER(10)", types.QValueKindString},
@@ -390,9 +393,10 @@ func TestUnsupportedDDLTypes(t *testing.T) {
 		// MariaDB-only network/UUID types
 		"INET4", "INET6", "UUID",
 		// MariaDB/Oracle-mode aliases the TiDB parser doesn't accept. The ones with a scalar
-		// mapping (CHAR BYTE/RAW->bytes, CLOB->text, VARCHAR2->varchar, XMLTYPE->text) are still
-		// handled directly by QkindFromMysqlColumnType, see TestQkindParserRejectedAliases.
-		"CHAR BYTE", "RAW", "CLOB", "VARCHAR2", "XMLTYPE",
+		// mapping (CHAR BYTE/RAW->bytes, CLOB->text, VARCHAR2->varchar, XMLTYPE->text,
+		// NUMBER->numeric) are still handled directly by QkindFromMysqlColumnType, see
+		// TestQkindFromMysSQLTypeForUnsupportedDDLTypes.
+		"CHAR BYTE", "RAW", "CLOB", "VARCHAR2", "XMLTYPE", "NUMBER",
 	} {
 		t.Run(colType, func(t *testing.T) {
 			_, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colType))
@@ -411,6 +415,8 @@ func TestQkindFromMysSQLTypeForUnsupportedDDLTypes(t *testing.T) {
 		{"clob", types.QValueKindString},     // LONGTEXT (Oracle mode)
 		{"varchar2", types.QValueKindString}, // VARCHAR (Oracle mode)
 		{"xmltype", types.QValueKindString},  // XML stored as text (MariaDB 12.3+)
+		{"number", types.QValueKindNumeric},  // DECIMAL (Oracle mode)
+		{"number(10,2)", types.QValueKindNumeric},
 		{"inet4", types.QValueKindINET},
 		{"inet6", types.QValueKindINET},
 		{"uuid", types.QValueKindUUID},
