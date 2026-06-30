@@ -927,18 +927,9 @@ func (s ClickHouseSuite) Test_MySQL_MariaDB_UUID_INET() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Test_MySQL_AlterTableAddColumnTypes exercises the binlog ALTER TABLE ADD COLUMN path
+// Test_MySQL_MariaTypes exercises the binlog ALTER TABLE ADD COLUMN path
 // (processAlterTableQuery -> QkindFromMysqlColumnType) together with the row-metadata decode
-// path for a broad spectrum of MySQL/MariaDB column types. Every type is added in a single
-// multi-column ALTER while the mirror is running, then one row carries every value end-to-end
-// into ClickHouse. Integer cases use the signed minimum and unsigned maximum to pin the
-// width/signedness mapping, which no other MySQL e2e test covers.
-//
-// The type list mirrors the spellings the parser-level TestParseSQLAlterTableAddColumnTypes
-// checks, so the unit test (parse -> qkind) and this test (qkind -> value over the wire) stay
-// aligned. Types the TiDB parser rejects in ADD COLUMN (spatial types and MariaDB's native
-// UUID/INET4/INET6) cannot travel this path and are covered separately by snapshot-based tests
-// (Test_MySQL_Geometric_Types, Test_MySQL_MariaDB_UUID_INET).
+// path for a broad spectrum of MySQL/MariaDB column types.
 func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnTypes() {
 	mysource, ok := s.source.(*MySqlSource)
 	if !ok {
@@ -1010,6 +1001,37 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnTypes() {
 		{"c_blob", "BLOB", "'someblob'"},
 		// JSON.
 		{"c_json", "JSON", `'{"a":2}'`},
+	}
+
+	// MariaDB-specific alias spellings the TiDB parser normalizes to a supported canonical type.
+	// These mirror the MariaDB synonyms in TestAlterTableTypes; they are valid DDL on MariaDB but
+	// not (all) on MySQL, so they only run on MariaDB flavor.
+	if mysource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		cols = append(cols, []struct{ name, def, val string }{
+			// Integer synonyms INT1..INT8 / MIDDLEINT map to the sized integer.
+			{"c_int1", "INT1", "100"},               // -> tinyint
+			{"c_int2", "INT2", "30000"},             // -> smallint
+			{"c_int3", "INT3", "8000000"},           // -> mediumint
+			{"c_int4", "INT4", "2000000000"},        // -> int
+			{"c_int8", "INT8", "9000000000000000"},  // -> bigint
+			{"c_middleint", "MIDDLEINT", "8000000"}, // -> mediumint
+			// Exact-numeric synonyms normalize to decimal.
+			{"c_dec", "DEC(10,2)", "123.45"},
+			{"c_fixed", "FIXED(10,2)", "678.90"},
+			// Approximate-numeric synonym normalizes to double.
+			{"c_real", "REAL", "3.14159"},
+			// Char synonyms normalize to char.
+			{"c_nchar", "NCHAR(10)", "'nchar'"},
+			{"c_national_char", "NATIONAL CHAR(10)", "'natchar'"},
+			// Varchar synonyms normalize to varchar.
+			{"c_nvarchar", "NVARCHAR(20)", "'nvarchar val'"},
+			{"c_char_varying", "CHAR VARYING(20)", "'char varying'"},
+			{"c_varcharacter", "VARCHARACTER(20)", "'varcharacter'"},
+			{"c_national_varchar", "NATIONAL VARCHAR(20)", "'nat varchar'"},
+			// LONG / LONG VARCHAR normalize to mediumtext.
+			{"c_long", "LONG", "'long text'"},
+			{"c_long_varchar", "LONG VARCHAR", "'long varchar text'"},
+		}...)
 	}
 
 	adds := make([]string, len(cols))
