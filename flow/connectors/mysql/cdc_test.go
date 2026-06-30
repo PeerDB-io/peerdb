@@ -351,8 +351,13 @@ func TestAlterTableTypes(t *testing.T) {
 		{"binary without length", "BINARY", types.QValueKindBytes},
 		{"blob(M)", "BLOB(100)", types.QValueKindBytes},
 
-		// charset / collate / (deprecated) binary modifiers on string-ish types don't
-		// change the qkind — they only affect collation, which we don't key off here.
+		// CHARACTER SET binary changes char/varchar/text into binary/blob types.
+		{"char charset binary", "CHAR(10) CHARACTER SET binary", types.QValueKindBytes},
+		{"varchar charset binary", "VARCHAR(10) CHARACTER SET binary", types.QValueKindBytes},
+		{"text charset binary", "TEXT CHARACTER SET binary", types.QValueKindBytes},
+
+		// Non-binary charset / collate / (deprecated) binary modifiers on string-ish types
+		// don't change the qkind — they only affect collation, which we don't key off here.
 		{"varchar charset", "VARCHAR(10) CHARACTER SET utf8mb4", types.QValueKindString},
 		{"varchar collate", "VARCHAR(10) COLLATE utf8mb4_bin", types.QValueKindString},
 		{"varchar charset collate", "VARCHAR(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", types.QValueKindString},
