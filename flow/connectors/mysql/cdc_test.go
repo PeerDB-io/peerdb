@@ -173,6 +173,49 @@ func TestParseSQLParsesTrailingNull(t *testing.T) {
 	}
 }
 
+func TestIsRDSHeartbeatQuery(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		schema []byte
+		query  []byte
+		want   bool
+	}{
+		{
+			name:  "rds heartbeat qualified in query",
+			query: []byte("SET STATEMENT max_statement_time=60 FOR INSERT INTO mysql.rds_heartbeat2(id, value) values (1,1782583487791) ON DUPLICATE KEY UPDATE value = 1782583487791"),
+			want:  true,
+		},
+		{
+			name:   "rds heartbeat with mysql event schema",
+			schema: []byte("mysql"),
+			query:  []byte("INSERT INTO rds_heartbeat2(id, value) VALUES (1, 1782583487791)"),
+			want:   true,
+		},
+		{
+			name:  "rds heartbeat with quoted qualifier",
+			query: []byte("INSERT INTO `mysql`.`rds_heartbeat2` (`id`, `value`) VALUES (1, 1782583487791)"),
+			want:  true,
+		},
+		{
+			name:  "non-heartbeat rds table is not ignored",
+			query: []byte("UPDATE mysql.rds_configuration SET value = 0 WHERE name = 'source delay'"),
+		},
+		{
+			name:   "user table with same suffix is not ignored",
+			schema: []byte("app"),
+			query:  []byte("INSERT INTO rds_heartbeat2(id, value) VALUES (1, 1782583487791)"),
+		},
+		{
+			name:  "ordinary query",
+			query: []byte("ALTER TABLE app.users ADD COLUMN nickname text"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, isRDSHeartbeatQuery(tc.schema, tc.query))
+		})
+	}
+}
+
 func TestClassifyOnlineSchemaMigrationTool(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

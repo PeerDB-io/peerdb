@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -101,6 +102,23 @@ func parseSQL(parser *parser.Parser, query []byte) ([]ast.StmtNode, []error, err
 	// TIDB parser errors on null-terminated strings
 	trimmedQuery := shared.UnsafeFastReadOnlyBytesToString(bytes.TrimRight(query, "\x00"))
 	return parser.ParseSQL(trimmedQuery)
+}
+
+func isRDSHeartbeatQuery(schema []byte, query []byte) bool {
+	queryText := strings.ToLower(shared.UnsafeFastReadOnlyBytesToString(query))
+	if !strings.Contains(queryText, "rds_heartbeat") {
+		return false
+	}
+
+	schemaText := strings.ToLower(shared.UnsafeFastReadOnlyBytesToString(schema))
+	if schemaText == "mysql" {
+		return true
+	}
+
+	return strings.Contains(queryText, "mysql.rds_heartbeat") ||
+		strings.Contains(queryText, "`mysql`.`rds_heartbeat") ||
+		strings.Contains(queryText, "`mysql`.rds_heartbeat") ||
+		strings.Contains(queryText, "mysql.`rds_heartbeat")
 }
 
 func (c *MySqlConnector) GetTableSchema(
@@ -460,6 +478,8 @@ func (c *MySqlConnector) PullRecords(
 	var coercionReported bool
 	var updatedOffset string
 	var inTx bool
+	var txOnlyRDSHeartbeat bool
+	var txHasNonRDSHeartbeatEvent bool
 	var recordCount uint32
 
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
@@ -544,18 +564,30 @@ func (c *MySqlConnector) PullRecords(
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
 			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
+			txOnlyRDSHeartbeat = false
+			txHasNonRDSHeartbeatEvent = false
 		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
 			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
+			txOnlyRDSHeartbeat = false
+			txHasNonRDSHeartbeatEvent = false
 		case *replication.XIDEvent:
 			if gset != nil {
 				gset = ev.GSet
-				updatedOffset = gset.String() // accumulated from GTID events above
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+				if txOnlyRDSHeartbeat && !txHasNonRDSHeartbeatEvent {
+					// RDS blue/green switchovers can expose heartbeat GTIDs that are not readable on green.
+					c.logger.Debug("[mysql] skipping GTID checkpoint update for RDS heartbeat transaction",
+						slog.String("offset", gset.String()))
+				} else {
+					updatedOffset = gset.String() // accumulated from GTID events above
+					req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+				}
 			} else if event.Header.LogPos > pos.Pos {
 				pos.Pos = event.Header.LogPos
 				updatedOffset = posToOffsetText(pos)
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
+			txOnlyRDSHeartbeat = false
+			txHasNonRDSHeartbeatEvent = false
 			inTx = false
 		case *replication.RotateEvent:
 			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
@@ -579,6 +611,13 @@ func (c *MySqlConnector) PullRecords(
 				updatedOffset = posToOffsetText(pos)
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
+			if isRDSHeartbeatQuery(ev.Schema, ev.Query) {
+				txOnlyRDSHeartbeat = !txHasNonRDSHeartbeatEvent
+				break
+			}
+			txHasNonRDSHeartbeatEvent = true
+			txOnlyRDSHeartbeat = false
+
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
 			}
@@ -604,6 +643,9 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.RowsEvent:
+			txHasNonRDSHeartbeatEvent = true
+			txOnlyRDSHeartbeat = false
+
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
