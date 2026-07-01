@@ -109,6 +109,13 @@ local_resource(
 )
 
 local_resource(
+    'provision-clickhouse-cluster',
+    cmd='./local_provision_scripts/clickhouse-cluster.sh',
+    labels=['Ancillary-DB-Provisioning'],
+    resource_deps=['provision-clickhouse', 'clickhouse-02'],
+)
+
+local_resource(
     'provision-mysql-gtid',
     cmd='./local_provision_scripts/mysql.sh peerdb-mysql-gtid',
     labels=['Ancillary-DB-Provisioning'],
@@ -165,6 +172,13 @@ local_resource(
 )
 
 local_resource(
+    'setup-clickhouse-cluster-peer',
+    cmd='./local_provision_scripts/setup-clickhouse-cluster-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-clickhouse-cluster'],
+)
+
+local_resource(
     'setup-mongodb-peer',
     cmd='./local_provision_scripts/setup-mongodb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
@@ -207,6 +221,13 @@ docker_compose('./ancillary-docker-compose.yml', env_file=tiltfile_dir + '/ancil
 dc_resource('clickhouse', labels=['Ancillary-DB'], links=[
     link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_HTTP_PORT', '8123'), 'ClickHouse HTTP'),
     link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_NATIVE_PORT', '9000'), 'ClickHouse TCP'),
+], auto_init=False)
+
+dc_resource('clickhouse-keeper', labels=['Ancillary-DB'], auto_init=False)
+
+dc_resource('clickhouse-02', labels=['Ancillary-DB'], links=[
+    link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_HTTP_PORT_02', '13123'), 'CH Node 2 HTTP'),
+    link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_NATIVE_PORT_02', '13000'), 'CH Node 2 TCP'),
 ], auto_init=False)
 
 dc_resource('mongodb', labels=['Ancillary-DB'], links=[
