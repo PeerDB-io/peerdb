@@ -467,16 +467,6 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 	var query string
 	switch c.Flavor() {
 	case mysql.MariaDBFlavor:
-		// Use gtid_binlog_pos rather than gtid_current_pos. PeerDB acts as a replica that
-		// reads this server's binary log via COM_BINLOG_DUMP, so the start position must be a
-		// GTID that actually exists in that binlog. gtid_current_pos merges gtid_binlog_pos with
-		// gtid_slave_pos, and for a domain last updated by replica threads it returns the
-		// gtid_slave_pos entry, which carries the upstream server's server_id and may not be
-		// present in this server's binlog. Requesting such a GTID makes MariaDB reject the
-		// connection with "requested to start from GTID ..., which is not in the master's binlog
-		// ... slave has diverged". gtid_binlog_pos is by definition the head of the binlog we
-		// stream, so it is always a reachable start point. MariaDB itself recommends against
-		// current_pos for connecting replicas for the same reason. See https://mariadb.com/kb/en/gtid/
 		query = "select @@gtid_binlog_pos"
 	default:
 		query = "select @@GLOBAL.gtid_executed"
