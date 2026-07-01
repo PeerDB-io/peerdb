@@ -173,7 +173,7 @@ func TestParseSQLParsesTrailingNull(t *testing.T) {
 	}
 }
 
-func TestIsRDSHeartbeatQuery(t *testing.T) {
+func TestShouldSkipGTIDAdvancementForQuery(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		schema []byte
@@ -211,7 +211,7 @@ func TestIsRDSHeartbeatQuery(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, isRDSHeartbeatQuery(tc.schema, tc.query))
+			require.Equal(t, tc.want, shouldSkipGTIDAdvancementForQuery(tc.schema, tc.query))
 		})
 	}
 }

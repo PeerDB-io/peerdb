@@ -110,15 +110,15 @@ func isRDSHeartbeatQuery(schema []byte, query []byte) bool {
 		return false
 	}
 
-	schemaText := strings.ToLower(shared.UnsafeFastReadOnlyBytesToString(schema))
-	if schemaText == "mysql" {
+	if strings.EqualFold(shared.UnsafeFastReadOnlyBytesToString(schema), "mysql") {
 		return true
 	}
 
-	return strings.Contains(queryText, "mysql.rds_heartbeat") ||
-		strings.Contains(queryText, "`mysql`.`rds_heartbeat") ||
-		strings.Contains(queryText, "`mysql`.rds_heartbeat") ||
-		strings.Contains(queryText, "mysql.`rds_heartbeat")
+	return strings.Contains(strings.ReplaceAll(queryText, "`", ""), "mysql.rds_heartbeat")
+}
+
+func shouldSkipGTIDAdvancementForQuery(schema []byte, query []byte) bool {
+	return isRDSHeartbeatQuery(schema, query)
 }
 
 func (c *MySqlConnector) GetTableSchema(
@@ -478,8 +478,8 @@ func (c *MySqlConnector) PullRecords(
 	var coercionReported bool
 	var updatedOffset string
 	var inTx bool
-	var txOnlyRDSHeartbeat bool
-	var txHasNonRDSHeartbeatEvent bool
+	var txOnlySkippableGTIDAdvancementEvents bool
+	var txHasNonSkippableGTIDAdvancementEvent bool
 	var recordCount uint32
 
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
@@ -564,18 +564,18 @@ func (c *MySqlConnector) PullRecords(
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
 			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
-			txOnlyRDSHeartbeat = false
-			txHasNonRDSHeartbeatEvent = false
+			txOnlySkippableGTIDAdvancementEvents = false
+			txHasNonSkippableGTIDAdvancementEvent = false
 		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
 			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
-			txOnlyRDSHeartbeat = false
-			txHasNonRDSHeartbeatEvent = false
+			txOnlySkippableGTIDAdvancementEvents = false
+			txHasNonSkippableGTIDAdvancementEvent = false
 		case *replication.XIDEvent:
 			if gset != nil {
 				gset = ev.GSet
-				if txOnlyRDSHeartbeat && !txHasNonRDSHeartbeatEvent {
+				if txOnlySkippableGTIDAdvancementEvents && !txHasNonSkippableGTIDAdvancementEvent {
 					// RDS blue/green switchovers can expose heartbeat GTIDs that are not readable on green.
-					c.logger.Debug("[mysql] skipping GTID checkpoint update for RDS heartbeat transaction",
+					c.logger.Debug("[mysql] skipping GTID advancement for skippable transaction",
 						slog.String("offset", gset.String()))
 				} else {
 					updatedOffset = gset.String() // accumulated from GTID events above
@@ -586,8 +586,8 @@ func (c *MySqlConnector) PullRecords(
 				updatedOffset = posToOffsetText(pos)
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
-			txOnlyRDSHeartbeat = false
-			txHasNonRDSHeartbeatEvent = false
+			txOnlySkippableGTIDAdvancementEvents = false
+			txHasNonSkippableGTIDAdvancementEvent = false
 			inTx = false
 		case *replication.RotateEvent:
 			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
@@ -611,12 +611,12 @@ func (c *MySqlConnector) PullRecords(
 				updatedOffset = posToOffsetText(pos)
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
-			if isRDSHeartbeatQuery(ev.Schema, ev.Query) {
-				txOnlyRDSHeartbeat = !txHasNonRDSHeartbeatEvent
+			if shouldSkipGTIDAdvancementForQuery(ev.Schema, ev.Query) {
+				txOnlySkippableGTIDAdvancementEvents = !txHasNonSkippableGTIDAdvancementEvent
 				break
 			}
-			txHasNonRDSHeartbeatEvent = true
-			txOnlyRDSHeartbeat = false
+			txHasNonSkippableGTIDAdvancementEvent = true
+			txOnlySkippableGTIDAdvancementEvents = false
 
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
@@ -643,8 +643,8 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.RowsEvent:
-			txHasNonRDSHeartbeatEvent = true
-			txOnlyRDSHeartbeat = false
+			txHasNonSkippableGTIDAdvancementEvent = true
+			txOnlySkippableGTIDAdvancementEvents = false
 
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
