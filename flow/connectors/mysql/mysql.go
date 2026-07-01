@@ -55,6 +55,16 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
 	logger := internal.LoggerFromCtx(ctx)
+	var rdsConnectionConfig utils.RDSConnectionConfig
+	host := config.Host
+	if config.TlsHost != "" {
+		host = config.TlsHost
+	}
+	rdsConnectionConfig = utils.RDSConnectionConfig{
+		Host: host,
+		Port: uint32(config.Port),
+		User: config.User,
+	}
 	var rdsAuth *utils.RDSAuth
 	if config.AuthType == protos.MySqlAuthType_MYSQL_IAM_AUTH {
 		rdsAuth = &utils.RDSAuth{
@@ -65,6 +75,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
+	rdsAuth.ConnectionConfig = rdsConnectionConfig
 	contexts := make(chan context.Context)
 	c := &MySqlConnector{
 		PostgresMetadata:      pgMetadata,
@@ -198,15 +209,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		config := c.config
 		if c.rdsAuth != nil {
 			c.logger.Info("Setting up IAM auth for MySQL")
-			host := c.config.Host
-			if c.config.TlsHost != "" {
-				host = c.config.TlsHost
-			}
-			token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-				Host: host,
-				Port: config.Port,
-				User: config.User,
-			}, c.rdsAuth, "MYSQL")
+			token, err := utils.GetRDSToken(ctx, c.rdsAuth, "MYSQL")
 			if err != nil {
 				return nil, err
 			}
