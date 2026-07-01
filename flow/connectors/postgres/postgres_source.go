@@ -122,7 +122,7 @@ func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]st
 		if c.Config.TlsHost != "" {
 			host = c.Config.TlsHost
 		}
-		if _, err := c.rdsAuth.ForceRefreshToken(ctx, utils.RDSConnectionConfig{
+		if _, err := c.rdsAuth.GetFreshRdsToken(ctx, utils.RDSConnectionConfig{
 			Host: host,
 			Port: c.Config.Port,
 			User: c.Config.User,

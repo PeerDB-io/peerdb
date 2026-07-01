@@ -86,28 +86,13 @@ func GetRDSToken(ctx context.Context, connConfig RDSConnectionConfig, rdsAuth *R
 		logger.Info("Using cached RDS token for connector", slog.String("connector", connectorName))
 		return rdsAuth.token, nil
 	}
-	return func() (string, error) {
-		logger.Info("Generating new RDS token for connector", slog.String("connector", connectorName))
-		rdsAuth.lock.Lock()
-		defer rdsAuth.lock.Unlock()
-		newUpdateTime := time.Now()
-		if rdsAuth.updateTime.Add(RDSAuthTokenTTL).After(now) && rdsAuth.token != "" {
-			return rdsAuth.token, nil
-		}
-		peerAWSCredentials := BuildPeerAWSCredentials(rdsAuth.AwsAuthConfig)
-		token, err := buildRdsToken(ctx, connConfig, peerAWSCredentials, connectorName)
-		if err != nil {
-			return "", err
-		}
-		rdsAuth.token = token
-		rdsAuth.updateTime = newUpdateTime
-		return token, nil
-	}()
+	logger.Info("Generating new RDS token for connector", slog.String("connector", connectorName))
+	return rdsAuth.GetFreshRdsToken(ctx, connConfig, connectorName)
 }
 
-// ForceRefreshToken bypasses the cache TTL and immediately fetches a new RDS IAM token.
+// GetFreshRdsToken bypasses the cache TTL and immediately fetches a new RDS IAM token.
 // Use this when a connection break requires a guaranteed-fresh token for reconnect.
-func (r *RDSAuth) ForceRefreshToken(
+func (r *RDSAuth) GetFreshRdsToken(
 	ctx context.Context,
 	connConfig RDSConnectionConfig,
 	connectorName string,
