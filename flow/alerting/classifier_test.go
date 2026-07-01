@@ -271,8 +271,7 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 
 func TestClickHouseAccessDeniedErrorShouldBeNotifyPermissions(t *testing.T) {
 	err := &clickhouse.Exception{
-		Code: int32(chproto.ErrAccessDenied),
-		//nolint:lll
+		Code:    int32(chproto.ErrAccessDenied),
 		Message: "user@example.com: Not enough privileges. To execute this query, it's necessary to have the grant READ ON S3",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
