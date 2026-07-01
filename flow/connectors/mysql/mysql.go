@@ -187,6 +187,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			if !c.config.DisableTls {
 				config, err := common.CreateTlsConfig(
 					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+					nil,
 				)
 				if err != nil {
 					return err
