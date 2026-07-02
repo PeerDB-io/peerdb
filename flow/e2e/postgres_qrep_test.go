@@ -154,7 +154,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 	}
 
 	s.t.Log("waiting for slot creation to complete: " + flowJobName)
-	slotInfo, err := s.conn.SetupReplication(s.t.Context(), setupReplicationInput)
+	slotInfo, err := s.conn.SetupReplication(s.t.Context(), shared.CatalogPool{}, setupReplicationInput)
 	require.NoError(s.t, err)
 
 	s.t.Logf("slot creation complete: %v", slotInfo)

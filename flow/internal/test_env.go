@@ -62,6 +62,10 @@ func PostgresSSHUpstreamHostWithFallback(fallback string) string {
 	return GetEnvString("SSH_POSTGRES_HOST", fallback)
 }
 
+func MySQLSSHUpstreamHost() string {
+	return GetEnvString("CI_SSH_MYSQL_HOST", "")
+}
+
 func MySQLTestHostWithFallback(fallback string) string {
 	return GetEnvString("CI_MYSQL_HOST", fallback)
 }
@@ -71,13 +75,17 @@ func MySQLTestHost() string {
 }
 
 func MySQLTestPortWithFallback(fallback uint32) uint32 {
-	envPortStr, ok := os.LookupEnv("CI_MYSQL_PORT")
+	return mysqlTestPortWithEnvFallback("CI_MYSQL_PORT", fallback)
+}
+
+func mysqlTestPortWithEnvFallback(envName string, fallback uint32) uint32 {
+	envPortStr, ok := os.LookupEnv(envName)
 	if !ok {
 		return fallback
 	}
 	envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to parse CI_MYSQL_PORT: %v", err))
+		panic(fmt.Sprintf("Failed to parse %s: %v", envName, err))
 	}
 	return uint32(envPort)
 }
@@ -90,16 +98,66 @@ func MySQLTestRootPasswordWithFallback(fallback string) string {
 	return GetEnvString("CI_MYSQL_ROOT_PASSWORD", fallback)
 }
 
-func MySQLTestVersion() string {
-	return os.Getenv("CI_MYSQL_VERSION")
+func MariaDBTestHost() string {
+	return GetEnvString("CI_MARIADB_HOST", "localhost")
 }
 
-func MySQLTestVersionIsMaria() bool {
-	return MySQLTestVersion() == "maria"
+func MariaDBTestPort() uint32 {
+	return mysqlTestPortWithEnvFallback("CI_MARIADB_PORT", 3308)
 }
 
-func MySQLTestVersionIsMySQLPos() bool {
-	return MySQLTestVersion() == "mysql-pos"
+func MariaDBTestRootPasswordWithFallback(fallback string) string {
+	return GetEnvString("CI_MARIADB_ROOT_PASSWORD", fallback)
+}
+
+func MySQLTestFlavorAndMechanism(t *testing.T) (protos.MySqlFlavor, protos.MySqlReplicationMechanism) {
+	t.Helper()
+	switch version := os.Getenv("CI_MYSQL_VERSION"); version {
+	case "mysql-gtid":
+		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_GTID
+	case "mysql-pos":
+		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	default:
+		require.Failf(t, "unexpected MySQL test version", "got %q", version)
+		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	}
+}
+
+func MariaDBTestFlavorAndMechanism(t *testing.T) (protos.MySqlFlavor, protos.MySqlReplicationMechanism) {
+	t.Helper()
+	switch version := os.Getenv("CI_MARIADB_VERSION"); version {
+	case "maria-11", "maria-12", "maria-13":
+		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_GTID
+	default:
+		require.Failf(t, "unexpected MariaDB test version", "got %q", version)
+		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_GTID
+	}
+}
+
+func GetMySQLConfigFromEnv(flavor protos.MySqlFlavor, mechanism protos.MySqlReplicationMechanism) *protos.MySqlConfig {
+	return &protos.MySqlConfig{
+		Host:                 MySQLTestHost(),
+		Port:                 MySQLTestPort(),
+		User:                 "root",
+		Password:             MySQLTestRootPasswordWithFallback("cipass"),
+		Database:             "",
+		DisableTls:           true,
+		Flavor:               flavor,
+		ReplicationMechanism: mechanism,
+	}
+}
+
+func GetMariaDBConfigFromEnv(flavor protos.MySqlFlavor, mechanism protos.MySqlReplicationMechanism) *protos.MySqlConfig {
+	return &protos.MySqlConfig{
+		Host:                 MariaDBTestHost(),
+		Port:                 MariaDBTestPort(),
+		User:                 "root",
+		Password:             MariaDBTestRootPasswordWithFallback("cipass"),
+		Database:             "",
+		DisableTls:           true,
+		Flavor:               flavor,
+		ReplicationMechanism: mechanism,
+	}
 }
 
 // setupAWSCredsFromEnv copies the three AWS_* credential env vars from sources
@@ -118,6 +176,15 @@ func setupAWSCredsFromEnv(t *testing.T, sourcePrefix string) {
 func SetupFlowAWSCredentialsFromEnv(t *testing.T) {
 	t.Helper()
 	setupAWSCredsFromEnv(t, "FLOW_TESTS_")
+}
+
+// SkipRDSIAMAuthIfRequested skips the test when FLOW_TESTS_RDS_IAM_AUTH_SKIP is set (in local),
+// doesn't skip if not explicitly set (CI)
+func SkipRDSIAMAuthIfRequested(t *testing.T) {
+	t.Helper()
+	if GetEnvBool("FLOW_TESTS_RDS_IAM_AUTH_SKIP", false) {
+		t.Skip("FLOW_TESTS_RDS_IAM_AUTH_SKIP is set")
+	}
 }
 
 func SetupRDSIAMAuthAWSCredentials(t *testing.T) {

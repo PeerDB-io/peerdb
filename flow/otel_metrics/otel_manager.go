@@ -80,6 +80,9 @@ const (
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 	CodeNotificationCounterName          = "code_notification"
 	ServerWalEndLagGaugeName             = "wal_end_lag"
+	UsedMySQLCharsetsName                = "used_mysql_charsets"
+	ColumnTypeChangesName                = "column_type_changes"
+	OnlineSchemaMigrationsName           = "online_schema_migrations"
 )
 
 type Metrics struct {
@@ -134,6 +137,9 @@ type Metrics struct {
 	LogRetentionGauge                metric.Float64Gauge
 	UnchangedToastValuesCounter      metric.Int64Counter
 	ServerWalEndLagGauge             metric.Int64Gauge
+	UsedMySQLCharsetsCounter         metric.Int64Counter
+	ColumnTypeChangesCounter         metric.Int64Counter
+	OnlineSchemaMigrationsCounter    metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -569,6 +575,30 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
 		metric.WithDescription(
 			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.UsedMySQLCharsetsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UsedMySQLCharsetsName),
+		metric.WithDescription(
+			"Counter of used MySQL charsets, with `charset` label and `status` label indicating unsupported/transcoded/not_transcoded"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ColumnTypeChangesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ColumnTypeChangesName),
+		metric.WithDescription(
+			"Counter of column type changes detected on the CDC path, with `source` label holding the source peer type, "+
+				"`from`/`to` labels holding the source/target type and `sourceEventType` holding the source of event(ddl, eventMetadata)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.OnlineSchemaMigrationsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(OnlineSchemaMigrationsName),
+		metric.WithDescription(
+			"Counter of online schema migrations detected on the CDC path, i.e. a tracked table being atomically "+
+				"renamed into by a shadow/ghost table, with `source` label holding the source peer type and `tool` "+
+				"label holding the detected migration tool (gh-ost, pt-online-schema-change, other)"),
 	); err != nil {
 		return err
 	}

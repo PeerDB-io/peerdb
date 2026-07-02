@@ -10,9 +10,9 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 payload=$(jq -n \
   --arg name "mariadb_peer" \
-  --arg host "$CI_MYSQL_HOST" \
+  --arg host "$CI_MARIADB_HOST" \
   --argjson port "$CI_MARIADB_PORT" \
-  --arg password "$CI_MYSQL_ROOT_PASSWORD" \
+  --arg password "$CI_MARIADB_ROOT_PASSWORD" \
   '{
     "peer": {
       "name": $name,

@@ -25,20 +25,6 @@ const (
 	ErrTypeEOF      ErrType = "err:EOF"
 )
 
-func SkipSendingToIncidentIo(errTags []string) bool {
-	skipTags := map[string]struct{}{
-		string(ErrTypeCanceled): {},
-		string(ErrTypeClosed):   {},
-		string(ErrTypeNet):      {},
-	}
-	for _, tag := range errTags {
-		if _, ok := skipTags[tag]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 type QRepWarnings []error
 
 func WrapError(s string, err error) error {

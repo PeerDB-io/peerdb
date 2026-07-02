@@ -31,7 +31,7 @@ func TestProcessMessageInvalidMessage(t *testing.T) {
 		WALData: []byte{'S', 0, 1, 0, 1 /*arbitrary bytes*/},
 	}
 
-	rec, err := processMessage(t.Context(), p, batch, xld, xld.WALStart, qProcessor{})
+	rec, err := processMessage(t.Context(), p, batch, xld, xld.WALStart, qProcessor{}, map[string]struct{}{})
 	require.Nil(t, rec)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "error parsing logical message (msgType=\"S\", walStart=0/1)")

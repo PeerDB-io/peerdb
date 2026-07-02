@@ -149,7 +149,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return nil, fmt.Errorf("connection to source down: %w", err)
+		return nil, a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
 	}
 
 	batchSize := options.BatchSize
@@ -201,18 +201,16 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	}
 
 	syncBatchID, err := func() (int64, error) {
-		// special case pg-pg replication, where batch ID is stored on destination instead of catalog
-		if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
-			dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
-			if err != nil {
-				if !errors.Is(err, errors.ErrUnsupported) {
-					return 0, fmt.Errorf("failed to get destination connector to get last sync batch ID: %w", err)
-				}
-				// else fallthrough to loading from catalog
-			} else {
-				defer dstPgClose(ctx)
-				return dstPgConn.GetLastSyncBatchID(ctx, flowName)
+		// when destination is PG, batch ID is stored on destination instead of catalog
+		dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
+		if err != nil {
+			if !errors.Is(err, errors.ErrUnsupported) {
+				return 0, fmt.Errorf("failed to get destination connector to get last sync batch ID: %w", err)
 			}
+			// else fallthrough to loading from catalog
+		} else {
+			defer dstPgClose(ctx)
+			return dstPgConn.GetLastSyncBatchID(ctx, flowName)
 		}
 		pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
 		return pgMetadata.GetLastSyncBatchID(ctx, flowName)

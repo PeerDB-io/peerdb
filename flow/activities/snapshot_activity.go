@@ -54,7 +54,6 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 		s.connectorClose(ctx)
 		delete(a.SlotSnapshotStates, flowJobName)
 	}
-	a.Alerter.EmitFlowInfoTelemetryEvent(ctx, flowJobName, "Ended Snapshot Flow Job")
 
 	return nil
 }
@@ -66,7 +65,6 @@ func (a *SnapshotActivity) SetupReplication(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Setting up replication slot and publication")
-	a.Alerter.EmitFlowInfoTelemetryEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
 	conn, connClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
@@ -74,7 +72,7 @@ func (a *SnapshotActivity) SetupReplication(
 	}
 
 	logger.Info("waiting for slot to be created...")
-	slotInfo, err := conn.SetupReplication(ctx, config)
+	slotInfo, err := conn.SetupReplication(ctx, a.CatalogPool, config)
 
 	if err != nil {
 		connClose(ctx)
@@ -194,8 +192,40 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	}
 	defer connClose(ctx)
 
+	srcType, err := connectors.LoadPeerType(ctx, a.CatalogPool, input.SourceName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to load source peer type: %w", err))
+	}
+
+	var tableSchemaMapping map[string]*protos.TableSchema
+	if srcType == protos.DBType_MYSQL {
+		mysqlDefaultPartitionKeyEnabled, err := internal.PeerDBMySQLDefaultPartitionKeyEnabled(ctx, input.Env)
+		if err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName,
+				fmt.Errorf("failed to check if mysql default partition key detection is enabled: %w", err))
+		}
+
+		if mysqlDefaultPartitionKeyEnabled {
+			dstTableNames := make([]string, 0, len(input.TableMappings))
+			for _, tm := range input.TableMappings {
+				dstTableNames = append(dstTableNames, tm.DestinationTableIdentifier)
+			}
+			schemasByDstTable, err := internal.LoadTableSchemasFromCatalog(ctx, a.CatalogPool.Pool, input.FlowJobName, dstTableNames)
+			if err != nil {
+				return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to load table schemas from catalog: %w", err))
+			}
+			tableSchemaMapping = make(map[string]*protos.TableSchema, len(input.TableMappings))
+			for _, tm := range input.TableMappings {
+				if schema, ok := schemasByDstTable[tm.DestinationTableIdentifier]; ok {
+					tableSchemaMapping[tm.SourceTableIdentifier] = schema
+				}
+			}
+		}
+	}
+
 	output, err := conn.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
-		TableMappings: input.TableMappings,
+		TableMappings:      input.TableMappings,
+		TableSchemaMapping: tableSchemaMapping,
 	})
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to check if tables can parallel load: %w", err))

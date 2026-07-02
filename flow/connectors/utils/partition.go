@@ -402,6 +402,10 @@ func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition)
 	return nil
 }
 
+func (p *PartitionHelper) AddPartitions(partitions []*protos.QRepPartition) {
+	p.partitions = append(p.partitions, partitions...)
+}
+
 func (p *PartitionHelper) GetPartitions() []*protos.QRepPartition {
 	return p.partitions
 }

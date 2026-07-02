@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
@@ -59,6 +60,7 @@ type PostgresCDCSource struct {
 
 	// for storing schema delta audit logs to catalog
 	catalogPool                              shared.CatalogPool
+	alerter                                  *alerting.Alerter
 	otelManager                              *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
@@ -130,6 +132,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		idToRelKindMap:                           idToRelKindMap,
 		publishViaPartitionRoot:                  publishViaPartitionRoot,
 		catalogPool:                              cdcConfig.CatalogPool,
+		alerter:                                  alerting.NewAlerter(ctx, cdcConfig.CatalogPool, cdcConfig.OtelManager),
 		otelManager:                              cdcConfig.OtelManager,
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
@@ -513,6 +516,7 @@ func PullCdcRecords[Items model.Items](
 	)
 
 	records := req.RecordStream
+	warnedReplIdentTables := make(map[string]struct{})
 	var totalRecords int64
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
@@ -583,6 +587,7 @@ func PullCdcRecords[Items model.Items](
 	defer shutdown()
 
 	var standByLastLogged time.Time
+	var largeTxnLastLogged time.Time
 	nextRecordDeadline := time.Now().Add(req.IdleTimeout)
 	pkmRequiresResponse := false
 
@@ -678,11 +683,24 @@ func PullCdcRecords[Items model.Items](
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					return nil
 				} else {
+					accumulatedBytes := totalFetchedBytes.Load()
 					logger.Info("commit lock, waiting for commit to return records",
 						slog.Int64("records", totalRecords),
-						slog.Int64("bytes", totalFetchedBytes.Load()),
+						slog.Int64("bytes", accumulatedBytes),
 						slog.Int("channelLen", records.ChannelLen()),
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+
+					if time.Since(largeTxnLastLogged) > time.Minute {
+						if !largeTxnLastLogged.IsZero() {
+							userMsg := fmt.Sprintf(
+								"Reading a large already-committed transaction off the replication slot; "+
+									"sync will continue once it's fully received (%d records, %s buffered so far).",
+								totalRecords, utils.HumanReadableBytes(accumulatedBytes))
+							p.alerter.LogFlowInfo(ctx, p.flowJobName, userMsg)
+						}
+						largeTxnLastLogged = time.Now()
+					}
+
 					waitingForCommit = true
 				}
 			} else {
@@ -764,7 +782,7 @@ func PullCdcRecords[Items model.Items](
 
 				logger.Debug("XLogData",
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
-				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
+				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor, warnedReplIdentTables)
 				if err != nil {
 					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
@@ -937,6 +955,7 @@ func processMessage[Items model.Items](
 	xld pglogrepl.XLogData,
 	currentClientXlogPos pglogrepl.LSN,
 	processor replProcessor[Items],
+	warnedReplIdentTables map[string]struct{},
 ) (model.Record[Items], error) {
 	logger := internal.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
@@ -959,7 +978,7 @@ func processMessage[Items model.Items](
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor, customTypeMapping)
 	case *pglogrepl.UpdateMessage:
-		return processUpdateMessage(p, xld.WALStart, msg, processor, customTypeMapping)
+		return processUpdateMessage(p, xld.WALStart, msg, processor, customTypeMapping, warnedReplIdentTables)
 	case *pglogrepl.DeleteMessage:
 		return processDeleteMessage(p, xld.WALStart, msg, processor, customTypeMapping)
 	case *pglogrepl.CommitMessage:
@@ -1071,6 +1090,7 @@ func processUpdateMessage[Items model.Items](
 	msg *pglogrepl.UpdateMessage,
 	processor replProcessor[Items],
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+	warnedReplIdentTables map[string]struct{},
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -1081,6 +1101,20 @@ func processUpdateMessage[Items model.Items](
 
 	// log lsn and relation id for debugging
 	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+
+	// By default, replica identity is the same as source PK/destination ordering key,
+	// so when it changes the destination can see duplicates or missed deletes.
+	// UpdateMessageTupleTypeKey fires when any replica identity column changes; if a replica identity is a superset
+	// of the dest ordering key (much rarer), the change to the extra columns is harmless and the warning doesn't apply.
+	// Replica identity full (OldTupleType=UpdateMessageTupleTypeOld) would require us to compare column values
+	// ourselves which we're avoiding for perf reasons, so absence of warning doesn't guarantee there wasn't a change.
+	if msg.OldTupleType == pglogrepl.UpdateMessageTupleTypeKey {
+		if _, warned := warnedReplIdentTables[tableName]; !warned {
+			warnedReplIdentTables[tableName] = struct{}{}
+			p.logger.Warn("UpdateMessage changed a replica identity column, destination may see duplicates/missed deletes",
+				slog.String("tableName", tableName))
+		}
+	}
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
@@ -1288,6 +1322,11 @@ func processRelationMessage[Items model.Items](
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
 			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
 				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
+			p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
+				attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
+				attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
+			)))
 		}
 	}
 	for _, column := range prevSchema.Columns {
