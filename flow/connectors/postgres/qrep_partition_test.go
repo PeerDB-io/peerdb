@@ -89,7 +89,7 @@ func setupTestSchema(t *testing.T) (string, *pgx.Conn, string) {
 	}
 	t.Cleanup(func() { tunnel.Close() })
 
-	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, tunnel)
+	conn, err := NewPostgresConnFromConfig(t.Context(), config, nil, tunnel)
 	if err != nil {
 		t.Fatalf("Failed to create connection: %v", err)
 	}

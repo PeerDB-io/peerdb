@@ -99,6 +99,17 @@ func newPostgresConnector(
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
 
+	var rdsConnectionConfig utils.RDSConnectionConfig
+	host := connConfig.Host
+	if pgConfig.TlsHost != "" {
+		host = pgConfig.TlsHost
+	}
+	rdsConnectionConfig = utils.RDSConnectionConfig{
+		Host: host,
+		Port: uint32(connConfig.Port),
+		User: connConfig.User,
+	}
+
 	var rdsAuth *utils.RDSAuth
 	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_IAM_AUTH {
 		rdsAuth = &utils.RDSAuth{
@@ -109,7 +120,8 @@ func newPostgresConnector(
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
-	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, tunnel)
+	rdsAuth.ConnectionConfig = rdsConnectionConfig
+	conn, err := NewPostgresConnFromConfig(ctx, connConfig, rdsAuth, tunnel)
 	if err != nil {
 		tunnel.Close()
 

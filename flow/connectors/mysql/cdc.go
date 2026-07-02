@@ -310,15 +310,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 	config := c.config
 	if c.rdsAuth != nil {
 		c.logger.Info("Setting up IAM auth for MySQL replication")
-		host := c.config.Host
-		if c.config.TlsHost != "" {
-			host = c.config.TlsHost
-		}
-		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-			Host: host,
-			Port: config.Port,
-			User: config.User,
-		}, c.rdsAuth, "MYSQL")
+		token, err := utils.GetRDSToken(ctx, c.rdsAuth, "MYSQL")
 		if err != nil {
 			return nil, err
 		}

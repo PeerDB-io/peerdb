@@ -105,7 +105,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 		c.logger.Info("not setting wal_sender_timeout")
 	}
 
-	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
+	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.rdsAuth, c.ssh)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, walSenderTimeout{}, fmt.Errorf("failed to create replication connection: %w", err)
@@ -114,6 +114,22 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 }
 
 func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]string) error {
+	// For IAM-authenticated connections, force a fresh token before connecting.
+	// This guarantees each activity retry uses a new token rather than a potentially
+	// stale cached one (cache TTL 10 min; token validity 15 min).
+	if c.rdsAuth != nil {
+		host := c.Config.Host
+		if c.Config.TlsHost != "" {
+			host = c.Config.TlsHost
+		}
+		if _, err := c.rdsAuth.GetFreshRdsToken(ctx, utils.RDSConnectionConfig{
+			Host: host,
+			Port: c.Config.Port,
+			User: c.Config.User,
+		}, "POSTGRES"); err != nil {
+			return fmt.Errorf("failed to refresh RDS IAM token before replication setup: %w", err)
+		}
+	}
 	conn, wst, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return err

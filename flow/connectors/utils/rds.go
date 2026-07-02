@@ -22,10 +22,11 @@ import (
 const RDSAuthTokenTTL = 10 * time.Minute
 
 type RDSAuth struct {
-	updateTime    time.Time
-	AwsAuthConfig *protos.AwsAuthenticationConfig
-	token         string
-	lock          sync.Mutex
+	updateTime       time.Time
+	AwsAuthConfig    *protos.AwsAuthenticationConfig
+	ConnectionConfig RDSConnectionConfig
+	token            string
+	lock             sync.Mutex
 }
 
 func (r *RDSAuth) VerifyAuthConfig() error {
@@ -79,30 +80,33 @@ func BuildPeerAWSCredentials(awsAuth *protos.AwsAuthenticationConfig) PeerAWSCre
 
 var regionRegex = regexp.MustCompile(`^.*?\..*?\.([a-z0-9-]+)\.rds\.amazonaws\.com$`)
 
-func GetRDSToken(ctx context.Context, connConfig RDSConnectionConfig, rdsAuth *RDSAuth, connectorName string) (string, error) {
+func GetRDSToken(ctx context.Context, rdsAuth *RDSAuth, connectorName string) (string, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	now := time.Now()
 	if rdsAuth.updateTime.Add(RDSAuthTokenTTL).After(now) && rdsAuth.token != "" {
 		logger.Info("Using cached RDS token for connector", slog.String("connector", connectorName))
 		return rdsAuth.token, nil
 	}
-	return func() (string, error) {
-		logger.Info("Generating new RDS token for connector", slog.String("connector", connectorName))
-		rdsAuth.lock.Lock()
-		defer rdsAuth.lock.Unlock()
-		newUpdateTime := time.Now()
-		if rdsAuth.updateTime.Add(RDSAuthTokenTTL).After(now) && rdsAuth.token != "" {
-			return rdsAuth.token, nil
-		}
-		peerAWSCredentials := BuildPeerAWSCredentials(rdsAuth.AwsAuthConfig)
-		token, err := buildRdsToken(ctx, connConfig, peerAWSCredentials, connectorName)
-		if err != nil {
-			return "", err
-		}
-		rdsAuth.token = token
-		rdsAuth.updateTime = newUpdateTime
-		return token, nil
-	}()
+	logger.Info("Generating new RDS token for connector", slog.String("connector", connectorName))
+	return rdsAuth.GetFreshRdsToken(ctx, rdsAuth.ConnectionConfig, connectorName)
+}
+
+// GetFreshRdsToken bypasses the cache TTL and immediately fetches a new RDS IAM token.
+// Use this when a connection break requires a guaranteed-fresh token for reconnect.
+func (r *RDSAuth) GetFreshRdsToken(
+	ctx context.Context,
+	connConfig RDSConnectionConfig,
+	connectorName string,
+) (string, error) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	token, err := buildRdsToken(ctx, connConfig, BuildPeerAWSCredentials(r.AwsAuthConfig), connectorName)
+	if err != nil {
+		return "", err
+	}
+	r.token = token
+	r.updateTime = time.Now()
+	return token, nil
 }
 
 func buildRdsToken(
