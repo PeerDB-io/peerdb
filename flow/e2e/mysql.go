@@ -43,12 +43,12 @@ func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
 
 // MySQLTestContainerConfig parameterizes a throwaway MySQL/MariaDB testcontainer source.
 type MySQLTestContainerConfig struct {
-	Image                string
-	Flavor               protos.MySqlFlavor
-	ReplicationMechanism protos.MySqlReplicationMechanism
+	Image string
 	// ExtraServerFlags are appended to a common small-footprint server flag base, e.g.
 	// "--binlog-row-event-fragment-threshold=1024" (MariaDB) or "--mysqlx=0" (MySQL).
-	ExtraServerFlags []string
+	ExtraServerFlags     []string
+	Flavor               protos.MySqlFlavor
+	ReplicationMechanism protos.MySqlReplicationMechanism
 }
 
 // SetupMySQLTestContainerSource starts a throwaway MySQL/MariaDB server in a testcontainer and
@@ -99,7 +99,7 @@ func SetupMySQLTestContainerSource(
 
 	mapped, err := ctr.MappedPort(t.Context(), "3306/tcp")
 	require.NoError(t, err)
-	port, err := strconv.Atoi(mapped.Port())
+	port, err := strconv.ParseUint(mapped.Port(), 10, 32)
 	require.NoError(t, err)
 
 	suffix := namePrefix + "_" + strings.ToLower(common.RandomString(8))
