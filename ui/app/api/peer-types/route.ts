@@ -2,28 +2,36 @@ import { GetPeerDBClickHouseMode } from '@/peerdb-env/allowed_targets';
 import { NextRequest } from 'next/server';
 export const dynamic = 'force-dynamic';
 
+type PeerTypeItem = {
+  label: string;
+  url?: string;
+  deprecated?: boolean;
+  // When deprecation only applies to the connector's use as a destination
+  // (e.g. BigQuery is still a supported source), the badge reflects that.
+  deprecatedRole?: 'destination';
+};
+type PeerTypeCategory = [string, ...Array<string | PeerTypeItem>];
+
 export async function GET(request: NextRequest) {
-  const allWarehouseTypes = [
+  const allWarehouseTypes: PeerTypeCategory = [
     'Warehouses',
-    'SNOWFLAKE',
-    'BIGQUERY',
-    'S3',
+    { label: 'SNOWFLAKE', deprecated: true },
+    // BigQuery remains a supported source; only its destination role is deprecated.
+    { label: 'BIGQUERY', deprecated: true, deprecatedRole: 'destination' },
+    { label: 'S3', deprecated: true },
     'CLICKHOUSE',
-    'ELASTICSEARCH',
+    { label: 'ELASTICSEARCH', deprecated: true },
   ];
-  const clickhouseWarehouseTypes = ['Targets', 'CLICKHOUSE'];
-  const queueTypes = [
+  const clickhouseWarehouseTypes: PeerTypeCategory = ['Targets', 'CLICKHOUSE'];
+  const queueTypes: PeerTypeCategory = [
     'Queues',
-    'REDPANDA',
-    'CONFLUENT',
-    'KAFKA',
-    'EVENTHUBS',
-    'PUBSUB',
+    { label: 'REDPANDA', deprecated: true },
+    { label: 'CONFLUENT', deprecated: true },
+    { label: 'KAFKA', deprecated: true },
+    { label: 'EVENTHUBS', deprecated: true },
+    { label: 'PUBSUB', deprecated: true },
   ];
-  const postgresTypes: [
-    string,
-    ...Array<string | { label: string; url: string }>,
-  ] = [
+  const postgresTypes: PeerTypeCategory = [
     'Sources',
     'MYSQL',
     'POSTGRESQL',
