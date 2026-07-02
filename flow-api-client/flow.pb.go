@@ -3606,8 +3606,10 @@ type QRepPartition struct {
 	// child table and block range to query instead of the parent watermark table.
 	// When populated, the top-level `range` field is unused.
 	ChildTableRanges []*ChildTableRange `protobuf:"bytes,5,rep,name=child_table_ranges,json=childTableRanges,proto3" json:"child_table_ranges,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// When true, PartitionRange get offloaded and encrypted to the catalog to avoid passing through Temporal
+	RangeOffloaded bool `protobuf:"varint,6,opt,name=range_offloaded,json=rangeOffloaded,proto3" json:"range_offloaded,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *QRepPartition) Reset() {
@@ -3666,6 +3668,13 @@ func (x *QRepPartition) GetChildTableRanges() []*ChildTableRange {
 		return x.ChildTableRanges
 	}
 	return nil
+}
+
+func (x *QRepPartition) GetRangeOffloaded() bool {
+	if x != nil {
+		return x.RangeOffloaded
+	}
+	return false
 }
 
 type QRepPartitionBatch struct {
@@ -5823,12 +5832,13 @@ const file_flow_proto_rawDesc = "" +
 	"\x0fChildTableRange\x12\x14\n" +
 	"\x05table\x18\x01 \x01(\tR\x05table\x12\x14\n" +
 	"\x05start\x18\x02 \x01(\rR\x05start\x12\x10\n" +
-	"\x03end\x18\x03 \x01(\rR\x03end\"\xe3\x01\n" +
+	"\x03end\x18\x03 \x01(\rR\x03end\"\x8c\x02\n" +
 	"\rQRepPartition\x12!\n" +
 	"\fpartition_id\x18\x02 \x01(\tR\vpartitionId\x121\n" +
 	"\x05range\x18\x03 \x01(\v2\x1b.peerdb_flow.PartitionRangeR\x05range\x120\n" +
 	"\x14full_table_partition\x18\x04 \x01(\bR\x12fullTablePartition\x12J\n" +
-	"\x12child_table_ranges\x18\x05 \x03(\v2\x1c.peerdb_flow.ChildTableRangeR\x10childTableRanges\"k\n" +
+	"\x12child_table_ranges\x18\x05 \x03(\v2\x1c.peerdb_flow.ChildTableRangeR\x10childTableRanges\x12'\n" +
+	"\x0frange_offloaded\x18\x06 \x01(\bR\x0erangeOffloaded\"k\n" +
 	"\x12QRepPartitionBatch\x12\x19\n" +
 	"\bbatch_id\x18\x01 \x01(\x05R\abatchId\x12:\n" +
 	"\n" +
