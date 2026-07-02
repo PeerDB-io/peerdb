@@ -955,6 +955,22 @@ func TestMySQLExecuteError(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMySQLUnknownColumnError(t *testing.T) {
+	myErr := &mysql.MyError{
+		Code:    1054,
+		State:   "42S22",
+		Message: "Unknown column '\u2060 id \u2060' in 'field list'",
+	}
+	err := fmt.Errorf("failed to get partitions from source: %w", exceptions.NewMySQLExecuteError(myErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifySourceColumnUnknown, errorClass)
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction())
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1054",
+	}, errInfo)
+}
+
 func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
 	err := &clickhouse.Exception{
 		Code: int32(chproto.ErrTooManyParts),

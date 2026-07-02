@@ -154,6 +154,9 @@ var (
 	ErrorNotifySourceTableMissing = ErrorClass{
 		Class: "NOTIFY_SOURCE_TABLE_MISSING", action: NotifyUser,
 	}
+	ErrorNotifySourceColumnUnknown = ErrorClass{
+		Class: "NOTIFY_SOURCE_COLUMN_UNKNOWN", action: NotifyUser,
+	}
 	ErrorNotifyBadSourceTableReplicaIdentity = ErrorClass{
 		Class: "NOTIFY_BAD_POSTGRES_TABLE_REPLICA_IDENTITY", action: NotifyUser,
 	}
@@ -779,6 +782,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, myErrorInfo
 		case 1146: // ER_NO_SUCH_TABLE
 			return ErrorNotifySourceTableMissing, myErrorInfo
+		case 1054: // ER_BAD_FIELD_ERROR
+			return ErrorNotifySourceColumnUnknown, myErrorInfo
 		case 1943: // ER_DUPLICATE_GTID_DOMAIN (MariaDB)
 			return ErrorNotifyBadGTIDSetup, myErrorInfo
 		case 5, // ERR_OUT_OF_MEMORY
