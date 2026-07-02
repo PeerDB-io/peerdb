@@ -45,6 +45,13 @@ const (
 	binlogStalenessMultiplier    = 3
 )
 
+// mariadbPartialRowDataEvent is MariaDB 12.3+ PARTIAL_ROW_DATA_EVENT (Log_event_type = 172).
+// It fragments an oversized rows event across several binlog events, which a consumer must buffer
+// and reassemble before decoding. go-mysql lib has no constant or parser for it, so it
+// surfaces as a GenericEvent; we don't reassemble fragments yet, so we fail loudly rather than
+// silently dropping the row change.
+const mariadbPartialRowDataEvent replication.EventType = 172
+
 const (
 	queryStatusVarFlags2  = 0
 	queryStatusVarSQLMode = 1
@@ -572,6 +579,11 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Error("[mysql] received binlog incident event, resync required",
 					slog.Uint64("incident", uint64(incident)), slog.String("message", message))
 				return exceptions.NewMySQLBinlogIncidentError(incident, message)
+			}
+			if event.Header.EventType == mariadbPartialRowDataEvent {
+				return fmt.Errorf(
+					"unsupported MariaDB PARTIAL_ROW_DATA_EVENT (type %d): fragmented oversized row events are not supported",
+					uint64(mariadbPartialRowDataEvent))
 			}
 		case *replication.QueryEvent:
 			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
