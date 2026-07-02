@@ -2037,9 +2037,9 @@ func (s ClickHouseSuite) Test_MySQL_NoPrimaryKey_CDC() {
 		s.t.Skip("only applies to mysql")
 	}
 
+	var shardingKey string
 	if s.cluster {
-		// TODO: Check how this behaviour works in cluster mode.
-		s.t.Skip("MergeTree append-only semantics test does not apply to cluster mode")
+		shardingKey = "rand()"
 	}
 
 	srcTableName := "test_no_pkey_cdc"
@@ -2059,7 +2059,7 @@ func (s ClickHouseSuite) Test_MySQL_NoPrimaryKey_CDC() {
 			Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
 			// rand() is required for cluster mode: Distributed tables with multiple shards
 			// need a sharding expression. No natural key exists on a PK-less table.
-			ShardingKey: "rand()",
+			ShardingKey: shardingKey,
 		}},
 		Destination: s.Peer().Name,
 	}
