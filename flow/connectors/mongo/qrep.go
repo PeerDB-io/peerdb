@@ -26,17 +26,9 @@ func (c *MongoConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	fullTablePartition := []*protos.QRepPartition{
-		{
-			PartitionId:        utils.FullTablePartitionID,
-			Range:              nil,
-			FullTablePartition: true,
-		},
-	}
-
 	if config.WatermarkColumn != DefaultDocumentKeyColumnName {
 		c.logger.Warn("unexpected watermark column, falling back to full table partition")
-		return fullTablePartition, nil
+		return utils.FullTablePartition(), nil
 	}
 
 	if config.NumRowsPerPartition <= 0 {
@@ -70,10 +62,10 @@ func (c *MongoConnector) GetQRepPartitions(
 
 	if adjustedPartitions.AdjustedNumPartitions <= 1 {
 		c.logger.Info("[mongo] insufficient partitions for parallel snapshot, falling back to full table partition")
-		return fullTablePartition, nil
+		return utils.FullTablePartition(), nil
 	}
 
-	return c.minMaxPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions)
+	return c.buildPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions)
 }
 
 func (c *MongoConnector) GetDefaultPartitionKeyForTables(
@@ -232,6 +224,29 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 			bson.E{Key: watermarkColumn, Value: bson.D{
 				bson.E{Key: "$gte", Value: startObjectID},
 				bson.E{Key: "$lte", Value: endObjectID},
+			}},
+		}, nil
+	case *protos.PartitionRange_IntRange:
+		// Numeric _id: inclusive range. PartitionHelper builds non-overlapping
+		// [start, end] integer ranges. Mongo compares int32/int64 numerically, so
+		// int64 bounds match int32-typed _ids.
+		return bson.D{
+			bson.E{Key: watermarkColumn, Value: bson.D{
+				bson.E{Key: "$gte", Value: r.IntRange.Start},
+				bson.E{Key: "$lte", Value: r.IntRange.End},
+			}},
+		}, nil
+	case *protos.PartitionRange_StringRange:
+		// String _id: half-open [start, end) for all but the last partition;
+		// the last partition is closed [start, end] (EndInclusive == true).
+		endOp := "$lt"
+		if r.StringRange.EndInclusive {
+			endOp = "$lte"
+		}
+		return bson.D{
+			bson.E{Key: watermarkColumn, Value: bson.D{
+				bson.E{Key: "$gte", Value: r.StringRange.Start},
+				bson.E{Key: endOp, Value: r.StringRange.End},
 			}},
 		}, nil
 	default:
