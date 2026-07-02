@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	rand "math/rand/v2"
 	"strconv"
 	"strings"
 	"testing"
@@ -1844,7 +1845,7 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_UUID_Parallel_Snapshot(
 	RequireEnvCanceled(s.t, env)
 }
 
-func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
+func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_Parallel_Snapshot() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
@@ -1853,14 +1854,23 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 	srcFullName := s.attachSchemaSuffix(srcTable)
 	dstTable := "test_string_pk_non_uuid_dst"
 
-	const numRows = 100
+	const numRows = 1000
 	const numPartitions = 8
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s (id VARCHAR(50) PRIMARY KEY, val INT NOT NULL)", srcFullName)))
-	for i := 1; i <= numRows; i++ {
+	seen := make(map[string]struct{}, numRows)
+	for len(seen) < numRows {
+		key := "key_" + strings.ToLower(common.RandomString(16))
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s (id, val) VALUES ('key_%04d', %d)", srcFullName, i, i)))
+			fmt.Sprintf("INSERT INTO %s (id, val) VALUES ('%s', %d)", srcFullName, key, rand.IntN(100)))) //nolint:gosec // test data
 	}
+
+	// to make stats more accurate on a freshly generated table
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("ANALYZE TABLE %s", srcFullName)))
 
 	tableMappings := TableMappings(s, srcTable, dstTable)
 	// a String column can't be used directly as a Distributed sharding key (ClickHouse
@@ -1900,7 +1910,7 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 		partitionCount++
 	}
 	require.NoError(s.t, partitionRows.Err())
-	require.EqualValues(s.t, 1, partitionCount)
+	require.EqualValues(s.t, numPartitions, partitionCount)
 	require.EqualValues(s.t, numRows, totalRows)
 
 	env.Cancel(s.t.Context())
