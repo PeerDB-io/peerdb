@@ -153,3 +153,17 @@ func (e *MySQLBinlogIncidentError) Error() string {
 	}
 	return fmt.Sprintf("MySQL binlog incident event received (incident=%d); a resync is required", e.Incident)
 }
+
+type MySQLUnsupportedPartialRowEventError struct {
+	EventType byte
+}
+
+func NewMySQLUnsupportedPartialRowEventError(eventType byte) *MySQLUnsupportedPartialRowEventError {
+	return &MySQLUnsupportedPartialRowEventError{EventType: eventType}
+}
+
+func (e *MySQLUnsupportedPartialRowEventError) Error() string {
+	return fmt.Sprintf(
+		"unsupported MariaDB PARTIAL_ROW_DATA_EVENT (type %d): fragmented oversized row events cannot be processed; a resync is required",
+		e.EventType)
+}

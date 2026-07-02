@@ -3,7 +3,14 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
@@ -32,6 +39,86 @@ func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
 	flavor, replication := internal.MariaDBTestFlavorAndMechanism(t)
 	return setupMyConnector(t, suffix, internal.GetMariaDBConfigFromEnv(flavor, replication), "mariadb")
+}
+
+// MySQLTestContainerConfig parameterizes a throwaway MySQL/MariaDB testcontainer source.
+type MySQLTestContainerConfig struct {
+	Image string
+	// ExtraServerFlags are appended to a common small-footprint server flag base, e.g.
+	// "--binlog-row-event-fragment-threshold=1024" (MariaDB) or "--mysqlx=0" (MySQL).
+	ExtraServerFlags     []string
+	Flavor               protos.MySqlFlavor
+	ReplicationMechanism protos.MySqlReplicationMechanism
+}
+
+// SetupMySQLTestContainerSource starts a throwaway MySQL/MariaDB server in a testcontainer and
+// returns a MySqlSource pointed at it, plus the generated suffix used for its e2e database. It
+// registers container and database cleanup on t. Use it to replace the shared CI source with an
+// isolated server a test can reconfigure (custom image, extra server flags) - typically by assigning
+// the returned source's peer to flowConnConfig.SourceName.
+func SetupMySQLTestContainerSource(
+	t *testing.T, namePrefix string, cfg MySQLTestContainerConfig,
+) (*MySqlSource, string) {
+	t.Helper()
+
+	rootPassword := internal.MySQLTestRootPasswordWithFallback("cipass")
+	env := map[string]string{}
+	if cfg.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		env["MARIADB_ROOT_PASSWORD"] = rootPassword
+		env["MARIADB_ROOT_HOST"] = "%"
+	} else {
+		env["MYSQL_ROOT_PASSWORD"] = rootPassword
+		env["MYSQL_ROOT_HOST"] = "%"
+	}
+
+	// Common small-footprint server flags valid on both MySQL 8 and MariaDB. Both official
+	// entrypoints prepend the server binary when the first arg starts with "-", so none is needed.
+	cmd := append([]string{
+		"--server-id=1",
+		"--log-bin=mysql-bin",
+		"--binlog-format=ROW",
+		"--innodb-buffer-pool-size=64M",
+		"--performance-schema=OFF",
+		"--max-connections=20",
+	}, cfg.ExtraServerFlags...)
+
+	req := testcontainers.ContainerRequest{
+		Image:        cfg.Image,
+		Env:          env,
+		Cmd:          cmd,
+		ExposedPorts: []string{"3306/tcp"},
+		WaitingFor:   wait.ForListeningPort("3306/tcp").WithStartupTimeout(3 * time.Minute),
+	}
+
+	ctr, err := testcontainers.GenericContainer(t.Context(), testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	testcontainers.CleanupContainer(t, ctr, testcontainers.StopTimeout(30*time.Second))
+	require.NoError(t, err)
+
+	mapped, err := ctr.MappedPort(t.Context(), "3306/tcp")
+	require.NoError(t, err)
+	port, err := strconv.ParseUint(mapped.Port(), 10, 32)
+	require.NoError(t, err)
+
+	suffix := namePrefix + "_" + strings.ToLower(common.RandomString(8))
+	config := &protos.MySqlConfig{
+		// host.docker.internal resolves both from the test process (to the published port) and from
+		// the flow worker container (via host-gateway), unlike the container's own hostname.
+		Host:                 internal.MySQLTestHost(),
+		Port:                 uint32(port),
+		User:                 "root",
+		Password:             rootPassword,
+		DisableTls:           true,
+		Flavor:               cfg.Flavor,
+		ReplicationMechanism: cfg.ReplicationMechanism,
+	}
+	src, err := setupMyConnector(t, suffix, config, suffix)
+	require.NoError(t, err)
+	t.Cleanup(func() { src.Teardown(t, context.Background(), suffix) })
+
+	return src, suffix
 }
 
 func setupMyConnector(t *testing.T, suffix string, config *protos.MySqlConfig, peerName string) (*MySqlSource, error) {

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -44,6 +45,13 @@ const (
 	defaultBinlogHeartbeatPeriod = time.Minute
 	binlogStalenessMultiplier    = 3
 )
+
+// mariadbPartialRowDataEvent is MariaDB 12.3+ PARTIAL_ROW_DATA_EVENT (Log_event_type = 172).
+// It fragments an oversized rows event across several binlog events, which a consumer must buffer
+// and reassemble before decoding. go-mysql lib has no constant or parser for it, so it
+// surfaces as a GenericEvent; we don't reassemble fragments yet, so we fail loudly rather than
+// silently dropping the row change.
+const mariadbPartialRowDataEvent replication.EventType = 172
 
 const (
 	queryStatusVarFlags2  = 0
@@ -566,12 +574,24 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.GenericEvent:
-			// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
-			if event.Header.EventType == replication.INCIDENT_EVENT {
+			switch event.Header.EventType {
+			case replication.INCIDENT_EVENT:
+				// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
 				incident, message := parseIncidentEvent(ev.Data)
 				c.logger.Error("[mysql] received binlog incident event, resync required",
 					slog.Uint64("incident", uint64(incident)), slog.String("message", message))
 				return exceptions.NewMySQLBinlogIncidentError(incident, message)
+			case mariadbPartialRowDataEvent:
+				// MariaDB 12.3+ fragments an oversized rows event across multiple events; we don't
+				// reassemble fragments yet, so the row change is unrecoverable and a resync is required.
+				c.logger.Error("[mysql] received MariaDB partial row data event, resync required",
+					slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)))
+				return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent))
+			default:
+				c.logger.Warn("unknown generic event", slog.Any("type", event.Header.EventType))
+				otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.BinlogEventTypeKey, strconv.Itoa(int(event.Header.EventType))),
+				)))
 			}
 		case *replication.QueryEvent:
 			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
