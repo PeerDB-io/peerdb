@@ -83,6 +83,7 @@ const (
 	UsedMySQLCharsetsName                = "used_mysql_charsets"
 	ColumnTypeChangesName                = "column_type_changes"
 	OnlineSchemaMigrationsName           = "online_schema_migrations"
+	UnsupportedBinlogEventName           = "unsupported_binlog_event"
 )
 
 type Metrics struct {
@@ -140,6 +141,7 @@ type Metrics struct {
 	UsedMySQLCharsetsCounter         metric.Int64Counter
 	ColumnTypeChangesCounter         metric.Int64Counter
 	OnlineSchemaMigrationsCounter    metric.Int64Counter
+	UnsupportedBinlogEventCounter    metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -599,6 +601,14 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 			"Counter of online schema migrations detected on the CDC path, i.e. a tracked table being atomically "+
 				"renamed into by a shadow/ghost table, with `source` label holding the source peer type and `tool` "+
 				"label holding the detected migration tool (gh-ost, pt-online-schema-change, other)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.UnsupportedBinlogEventCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnsupportedBinlogEventName),
+		metric.WithDescription(
+			"Counter of unsupported binlog generic events seen on the CDC path, with `eventType` label "+
+				"holding the numeric binlog event type"),
 	); err != nil {
 		return err
 	}

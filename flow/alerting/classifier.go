@@ -1154,6 +1154,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if _, ok := errors.AsType[*exceptions.MySQLUnsupportedPartialRowEventError](err); ok {
+		return ErrorNotifyBinlogInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_PARTIAL_ROW_EVENT",
+		}
+	}
+
 	if mysqlGeometryParseError, ok := errors.AsType[*exceptions.MySQLGeometryParseError](err); ok &&
 		strings.Contains(mysqlGeometryParseError.Error(), mysqlGeometryLinearRingNotClosedError) {
 		return ErrorUnsupportedDatatype, ErrorInfo{

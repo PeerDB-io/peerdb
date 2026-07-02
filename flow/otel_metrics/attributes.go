@@ -50,6 +50,7 @@ const (
 	TypeChangeToKey            = "to"
 	SourceEventTypeKey         = "sourceEventType"
 	OnlineSchemaMigrationTool  = "tool"
+	BinlogEventTypeKey         = "eventType"
 )
 
 const (

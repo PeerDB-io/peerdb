@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -573,17 +574,24 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.GenericEvent:
-			// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
-			if event.Header.EventType == replication.INCIDENT_EVENT {
+			switch event.Header.EventType {
+			case replication.INCIDENT_EVENT:
+				// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
 				incident, message := parseIncidentEvent(ev.Data)
 				c.logger.Error("[mysql] received binlog incident event, resync required",
 					slog.Uint64("incident", uint64(incident)), slog.String("message", message))
 				return exceptions.NewMySQLBinlogIncidentError(incident, message)
-			}
-			if event.Header.EventType == mariadbPartialRowDataEvent {
-				return fmt.Errorf(
-					"unsupported MariaDB PARTIAL_ROW_DATA_EVENT (type %d): fragmented oversized row events are not supported",
-					uint64(mariadbPartialRowDataEvent))
+			case mariadbPartialRowDataEvent:
+				// MariaDB 12.3+ fragments an oversized rows event across multiple events; we don't
+				// reassemble fragments yet, so the row change is unrecoverable and a resync is required.
+				c.logger.Error("[mysql] received MariaDB partial row data event, resync required",
+					slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)))
+				return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent))
+			default:
+				c.logger.Warn("unknown generic event", slog.Any("type", event.Header.EventType))
+				otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.BinlogEventTypeKey, strconv.Itoa(int(event.Header.EventType))),
+				)))
 			}
 		case *replication.QueryEvent:
 			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
