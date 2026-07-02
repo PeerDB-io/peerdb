@@ -43,12 +43,8 @@ func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
 
 // MySQLTestContainerConfig parameterizes a throwaway MySQL/MariaDB testcontainer source.
 type MySQLTestContainerConfig struct {
-	// Image is the container image, e.g. "mariadb:12.3" or "ghcr.io/peerdb-io/mysql-debug:8.0.46".
-	Image string
-	// Flavor selects MySQL vs MariaDB; it drives both the root-password env var names and the
-	// connector flavor.
-	Flavor protos.MySqlFlavor
-	// ReplicationMechanism is the CDC mechanism the mirror should use against this source.
+	Image                string
+	Flavor               protos.MySqlFlavor
 	ReplicationMechanism protos.MySqlReplicationMechanism
 	// ExtraServerFlags are appended to a common small-footprint server flag base, e.g.
 	// "--binlog-row-event-fragment-threshold=1024" (MariaDB) or "--mysqlx=0" (MySQL).
