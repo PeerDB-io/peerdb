@@ -1760,8 +1760,7 @@ func (s ClickHouseSuite) Test_MySQL_Default_Partition_Key_Parallel_Snapshot() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,created_at")
 
 	partitionRows, err := s.catalog.Query(s.t.Context(),
-		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
-		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	defer partitionRows.Close()
@@ -1769,11 +1768,8 @@ func (s ClickHouseSuite) Test_MySQL_Default_Partition_Key_Parallel_Snapshot() {
 	var partitionCount int32
 	var totalRows int64
 	for partitionRows.Next() {
-		var partitionStart, partitionEnd *string
 		var rowsInPartition int64
-		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
-		require.NotNil(s.t, partitionStart)
-		require.NotNil(s.t, partitionEnd)
+		require.NoError(s.t, partitionRows.Scan(&rowsInPartition))
 		totalRows += rowsInPartition
 		partitionCount++
 	}
@@ -1827,8 +1823,7 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_UUID_Parallel_Snapshot(
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
 
 	partitionRows, err := s.catalog.Query(s.t.Context(),
-		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
-		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	defer partitionRows.Close()
@@ -1836,11 +1831,8 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_UUID_Parallel_Snapshot(
 	var partitionCount int32
 	var totalRows int64
 	for partitionRows.Next() {
-		var partitionStart, partitionEnd *string
 		var rowsInPartition int64
-		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
-		require.NotNil(s.t, partitionStart)
-		require.NotNil(s.t, partitionEnd)
+		require.NoError(s.t, partitionRows.Scan(&rowsInPartition))
 		totalRows += rowsInPartition
 		partitionCount++
 	}
@@ -1894,8 +1886,7 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
 
 	partitionRows, err := s.catalog.Query(s.t.Context(),
-		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
-		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	defer partitionRows.Close()
@@ -1903,11 +1894,8 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 	var partitionCount int32
 	var totalRows int64
 	for partitionRows.Next() {
-		var partitionStart, partitionEnd *string
 		var rowsInPartition int64
-		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
-		require.Nil(s.t, partitionStart)
-		require.Nil(s.t, partitionEnd)
+		require.NoError(s.t, partitionRows.Scan(&rowsInPartition))
 		totalRows += rowsInPartition
 		partitionCount++
 	}
