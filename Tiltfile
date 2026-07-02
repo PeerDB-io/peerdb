@@ -112,7 +112,7 @@ local_resource(
     'provision-clickhouse-cluster',
     cmd='./local_provision_scripts/clickhouse-cluster.sh',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['provision-clickhouse', 'clickhouse-02'],
+    resource_deps=['provision-clickhouse', 'clickhouse-02', 'clickhouse-keeper'],
 )
 
 local_resource(

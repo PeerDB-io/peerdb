@@ -51,9 +51,6 @@ services:
       - ./clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
       - ./clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
       - ./clickhouse-cluster-config/node1/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
-    depends_on:
-      clickhouse-keeper:
-        condition: service_healthy
     ulimits:
       nofile:
         soft: 262144
