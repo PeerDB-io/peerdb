@@ -13,15 +13,12 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -1625,57 +1622,18 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 		s.t.Skip("binlog incident injection requires a MySQL debug build; not available for MariaDB")
 	}
 
-	req := testcontainers.ContainerRequest{
-		Image: "ghcr.io/peerdb-io/mysql-debug:8.0.46",
-		Env: map[string]string{
-			"MYSQL_ROOT_PASSWORD": internal.MySQLTestRootPasswordWithFallback("cipass"),
-			"MYSQL_ROOT_HOST":     "%",
-		},
-		// Keep the debug server small for the one-off testcontainers
-		Cmd: []string{
-			"mysqld",
-			"--server-id=1",
-			"--log-bin=mysql-bin",
-			"--binlog-format=ROW",
-			"--innodb-buffer-pool-size=64M",
-			"--performance-schema=OFF",
+	// mysql-debug is a MySQL image; disable mysqlx and trim caches to keep the one-off server small.
+	src, suffix := SetupMySQLTestContainerSource(s.t, "mydbginc", MySQLTestContainerConfig{
+		Image:                "ghcr.io/peerdb-io/mysql-debug:8.0.46",
+		Flavor:               protos.MySqlFlavor_MYSQL_MYSQL,
+		ReplicationMechanism: mySource.Config.ReplicationMechanism,
+		ExtraServerFlags: []string{
 			"--mysqlx=0",
-			"--max-connections=20",
 			"--table-open-cache=64",
 			"--table-definition-cache=128",
 			"--innodb-log-buffer-size=8M",
 		},
-		ExposedPorts: []string{"3306/tcp"},
-		WaitingFor:   wait.ForListeningPort("3306/tcp").WithStartupTimeout(3 * time.Minute),
-	}
-
-	ctr, err := testcontainers.GenericContainer(s.t.Context(), testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
 	})
-	testcontainers.CleanupContainer(s.t, ctr, testcontainers.StopTimeout(30*time.Second))
-	require.NoError(s.t, err)
-
-	mapped, err := ctr.MappedPort(s.t.Context(), "3306/tcp")
-	require.NoError(s.t, err)
-	port, err := strconv.Atoi(mapped.Port())
-	require.NoError(s.t, err)
-
-	suffix := "mydbginc_" + strings.ToLower(common.RandomString(8))
-	config := &protos.MySqlConfig{
-		// host.docker.internal resolves both from the test process (to the published port) and
-		// from the flow worker container (via host-gateway), unlike the container's own host.
-		Host:                 internal.MySQLTestHost(),
-		Port:                 uint32(port),
-		User:                 "root",
-		Password:             internal.MySQLTestRootPasswordWithFallback("cipass"),
-		DisableTls:           true,
-		Flavor:               protos.MySqlFlavor_MYSQL_MYSQL,
-		ReplicationMechanism: mySource.Config.ReplicationMechanism,
-	}
-	src, err := setupMyConnector(s.t, suffix, config, "mysql_debug_"+suffix)
-	require.NoError(s.t, err)
-	s.t.Cleanup(func() { src.Teardown(s.t, context.Background(), suffix) })
 
 	srcTableName := "incident"
 	srcFullName := fmt.Sprintf("e2e_test_%s.%s", suffix, srcTableName)
@@ -1713,6 +1671,81 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for binlog incident error", func() bool {
 		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "binlog incident event received")
+		if err != nil {
+			s.t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_MariaDB_PartialRowEvent verifies that a MariaDB PARTIAL_ROW_DATA_EVENT (MariaDB 12.3+) - an
+// oversized rows event fragmented across multiple binlog events - surfaces as a resync-required
+// error on the mirror. It runs its own throwaway MariaDB because it must lower
+// binlog_row_event_fragment_threshold to its minimum to force fragmentation, and the event type
+// only exists on MariaDB 12.3+.
+func (s ClickHouseSuite) Test_MariaDB_PartialRowEvent() {
+	if s.cluster {
+		s.t.Skip("source-side partial row event coverage does not need to run against ClickHouse cluster")
+	}
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	// We spin up our own MariaDB 12.3 below regardless of the suite source, so only run this once -
+	// under the MySQL suite variant - to avoid launching a second throwaway container needlessly.
+	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("partial row event test spins up its own MariaDB; skip duplicate run under MariaDB suite")
+	}
+
+	// binlog_row_event_fragment_threshold is pinned to its 1024-byte minimum so a modest row
+	// overflows a single rows event and MariaDB splits it into PARTIAL_ROW_DATA_EVENT fragments.
+	src, suffix := SetupMySQLTestContainerSource(s.t, "mdbpart", MySQLTestContainerConfig{
+		Image:                "mariadb:12.3",
+		Flavor:               protos.MySqlFlavor_MYSQL_MARIA,
+		ReplicationMechanism: protos.MySqlReplicationMechanism_MYSQL_GTID,
+		ExtraServerFlags: []string{
+			"--binlog-row-metadata=FULL",
+			"--binlog-row-event-fragment-threshold=1024",
+		},
+	})
+
+	srcTableName := "partial_rows"
+	srcFullName := fmt.Sprintf("e2e_test_%s.%s", suffix, srcTableName)
+	dstTableName := "partial_rows_dst"
+
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, payload LONGTEXT)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "test_mariadb_partial_row_" + suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	// The suite source is the shared CI MySQL; point the mirror at our MariaDB source instead.
+	flowConnConfig.SourceName = src.GeneratePeer(s.t).Name
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Insert a row larger than the 1024-byte fragment threshold so the CDC rows event is fragmented
+	// into PARTIAL_ROW_DATA_EVENT, which we don't reassemble and must fail loudly on.
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, payload) VALUES (1, REPEAT('x', 8192))`, srcFullName)))
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for partial row event error", func() bool {
+		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "fragmented oversized row events")
 		if err != nil {
 			s.t.Log("Error querying flow_errors:", err)
 			return false
