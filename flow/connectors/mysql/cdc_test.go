@@ -392,17 +392,19 @@ func TestAlterTableTypes(t *testing.T) {
 				typeModifier = tc.typeModifier
 			}
 
-			want := &protos.FieldDescription{
-				Name:         "c",
-				Type:         string(tc.want),
-				TypeModifier: typeModifier,
-				Nullable:     !tc.notNull,
+			wantFieldDescription := func(nullable bool) *protos.FieldDescription {
+				return &protos.FieldDescription{
+					Name:         "c",
+					Type:         string(tc.want),
+					TypeModifier: typeModifier,
+					Nullable:     nullable,
+				}
 			}
+
+			want := wantFieldDescription(!tc.notNull)
 			require.Equal(t, want, addColumnFieldDescription(t, tc.colDef))
 
-			wantNotNull := *want
-			wantNotNull.Nullable = false
-			require.Equal(t, &wantNotNull, addColumnFieldDescription(t, tc.colDef+" NOT NULL"))
+			require.Equal(t, wantFieldDescription(false), addColumnFieldDescription(t, tc.colDef+" NOT NULL"))
 		})
 	}
 }
