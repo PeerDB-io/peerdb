@@ -741,6 +741,9 @@ func setupMetricsAndProvider(
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithResource(otelResource),
 		sdkmetric.WithView(views...),
+		// otel v1.44.0 introduced a default cardinality limit of 2000 per instrument;
+		// 0 disables it, preserving the previous unlimited behavior
+		sdkmetric.WithCardinalityLimit(0),
 	)
 	return meterProvider, nil
 }
