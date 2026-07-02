@@ -119,6 +119,8 @@ func newPostgresConnector(
 			logger.Error("failed to verify auth config", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
+	} else {
+		rdsAuth = &utils.RDSAuth{}
 	}
 	rdsAuth.ConnectionConfig = rdsConnectionConfig
 	conn, err := NewPostgresConnFromConfig(ctx, connConfig, rdsAuth, tunnel)
