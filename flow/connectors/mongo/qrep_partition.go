@@ -27,12 +27,10 @@ const (
 // buildPartitions reads the collection's min and max _id (cheap, leverages the
 // default _id index) and dispatches to a type-specific partitioner:
 //   - ObjectID  -> uniform division of the 12-byte ObjectID keyspace
-//   - Int32/64  -> uniform division of the numeric range (reuses PartitionHelper)
+//   - Int32/64  -> uniform division of the numeric range
 //   - String    -> sampling-based quantile boundaries
 //
-// Mixed-type _id (min and max differ in type), Double, or any other type fall back
-// to a full-table partition. The change stream resume token is captured before this
-// runs, so any writes during partitioning are replayed by CDC.
+// Mixed-type _id, Double, or any other type fall back to a full-table partition.
 func (c *MongoConnector) buildPartitions(
 	ctx context.Context,
 	collection *mongo.Collection,
@@ -127,15 +125,10 @@ func (c *MongoConnector) objectIDPartitions(
 	return partitions, nil
 }
 
-// numericPartitions divides a numeric (int32/int64) _id range uniformly, reusing
-// the shared PartitionHelper which builds non-overlapping IntPartitionRange
-// partitions with tested +1 boundary semantics covering [min, max] inclusive.
-//
-// Limitation: IntPartitionRange uses inclusive-inclusive [start, end] boundaries,
-// so documents with double _id values that fall between two adjacent integer
-// boundaries (e.g. _id=2.5 between [1,2] and [3,4]) would be missed. This is an
-// edge case for collections with mixed int/double _ids; a follow-up will introduce
-// a NumericPartitionRange with half-open [start, end) semantics to address it.
+// numericPartitions divides a numeric (int32/int64) _id range uniformly. MongoDB
+// sorts all numeric types by value, so integer min/max _ids cannot rule out
+// fractional (double/decimal) _ids in-between. Therefre we use [start, end) to
+// ensure contiguous boundaries.
 func (c *MongoConnector) numericPartitions(
 	minVal int64,
 	maxVal int64,
@@ -146,16 +139,34 @@ func (c *MongoConnector) numericPartitions(
 		return utils.FullTablePartition(), nil
 	}
 
-	c.logger.Info("[mongo] using numeric _id partitioning",
-		slog.Int64("minID", minVal),
-		slog.Int64("maxID", maxVal),
-		slog.Int64("numPartitions", numPartitions))
-
-	helper := utils.NewPartitionHelper(c.logger)
-	if err := helper.AddPartitionsWithRange(minVal, maxVal, numPartitions); err != nil {
-		return nil, fmt.Errorf("failed to build numeric partitions: %w", err)
+	ranges := computeNumericRanges(minVal, maxVal, numPartitions)
+	c.logger.Info("[mongo] using numeric _id partitioning", slog.Int("numPartitions", len(ranges)))
+	partitions := make([]*protos.QRepPartition, 0, len(ranges))
+	for i, rng := range ranges {
+		partitions = append(partitions, utils.CreateNumericPartition(rng[0], rng[1], i == len(ranges)-1))
 	}
-	return helper.GetPartitions(), nil
+	return partitions, nil
+}
+
+func computeNumericRanges(minVal int64, maxVal int64, numPartitions int64) [][2]int64 {
+	// span arithmetic is done in uint64 to avoid overflow
+	span := uint64(maxVal) - uint64(minVal)
+	step := span / uint64(numPartitions)
+	if span%uint64(numPartitions) != 0 {
+		step++
+	}
+
+	ranges := make([][2]int64, 0, numPartitions)
+	start := minVal
+	for {
+		if remaining := uint64(maxVal) - uint64(start); remaining <= step {
+			ranges = append(ranges, [2]int64{start, maxVal})
+			return ranges
+		}
+		end := int64(uint64(start) + step)
+		ranges = append(ranges, [2]int64{start, end})
+		start = end
+	}
 }
 
 // stringPartitions builds partitions for a string _id collection. Because string
@@ -187,26 +198,12 @@ func (c *MongoConnector) stringPartitions(
 	}
 
 	c.logger.Info("[mongo] using sampled string _id partitioning",
-		slog.String("minID", minVal),
-		slog.String("maxID", maxVal),
 		slog.Int("numPartitions", len(ranges)),
 		slog.Int("sampleCount", len(samples)))
 
 	partitions := make([]*protos.QRepPartition, 0, len(ranges))
 	for i, rng := range ranges {
-		partitions = append(partitions, &protos.QRepPartition{
-			PartitionId: uuid.NewString(),
-			Range: &protos.PartitionRange{
-				Range: &protos.PartitionRange_StringRange{
-					StringRange: &protos.StringPartitionRange{
-						Start:        rng[0],
-						End:          rng[1],
-						EndInclusive: i == len(ranges)-1,
-					},
-				},
-			},
-			FullTablePartition: false,
-		})
+		partitions = append(partitions, utils.CreateStringPartition(rng[0], rng[1], i == len(ranges)-1))
 	}
 	return partitions, nil
 }
@@ -229,8 +226,8 @@ func (c *MongoConnector) sampleStringIDs(
 		{Key: "aggregate", Value: collection.Name()},
 		{Key: "pipeline", Value: bson.A{
 			bson.D{{Key: "$sample", Value: bson.D{{Key: "size", Value: int32(sampleSize)}}}},
-			bson.D{{Key: "$sort", Value: bson.D{{Key: DefaultDocumentKeyColumnName, Value: 1}}}},
 			bson.D{{Key: "$project", Value: bson.D{{Key: DefaultDocumentKeyColumnName, Value: 1}}}},
+			bson.D{{Key: "$sort", Value: bson.D{{Key: DefaultDocumentKeyColumnName, Value: 1}}}},
 		}},
 		{Key: "cursor", Value: bson.D{}},
 	}

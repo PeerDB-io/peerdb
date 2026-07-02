@@ -409,3 +409,33 @@ func (p *PartitionHelper) AddPartitions(partitions []*protos.QRepPartition) {
 func (p *PartitionHelper) GetPartitions() []*protos.QRepPartition {
 	return p.partitions
 }
+
+func CreateStringPartition(start string, end string, endInclusive bool) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_StringRange{
+				StringRange: &protos.StringPartitionRange{
+					Start:        start,
+					End:          end,
+					EndInclusive: endInclusive,
+				},
+			},
+		},
+	}
+}
+
+func CreateNumericPartition(start int64, end int64, endInclusive bool) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.NewString(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_NumericRange{
+				NumericRange: &protos.NumericPartitionRange{
+					Start:        start,
+					End:          end,
+					EndInclusive: endInclusive,
+				},
+			},
+		},
+	}
+}

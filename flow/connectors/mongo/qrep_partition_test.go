@@ -1,11 +1,13 @@
 package connmongo
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
@@ -117,32 +119,76 @@ func TestComputeStringBoundaries(t *testing.T) {
 	})
 }
 
-func intPartition(start, end int64) *protos.PartitionRange {
-	return &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{
-		IntRange: &protos.IntPartitionRange{Start: start, End: end},
-	}}
+func assertContiguousNumeric(t *testing.T, ranges [][2]int64, minVal, maxVal int64) {
+	t.Helper()
+	require.NotEmpty(t, ranges)
+	require.Equal(t, minVal, ranges[0][0])
+	require.Equal(t, maxVal, ranges[len(ranges)-1][1])
+	for i := range ranges {
+		require.Less(t, ranges[i][0], ranges[i][1])
+		if i+1 < len(ranges) {
+			require.Equal(t, ranges[i][1], ranges[i+1][0])
+		}
+	}
 }
 
-func stringPartition(start, end string, endInclusive bool) *protos.PartitionRange {
-	return &protos.PartitionRange{Range: &protos.PartitionRange_StringRange{
-		StringRange: &protos.StringPartitionRange{Start: start, End: end, EndInclusive: endInclusive},
-	}}
+func TestComputeNumericRanges(t *testing.T) {
+	t.Run("even division", func(t *testing.T) {
+		ranges := computeNumericRanges(1, 100, 10)
+		require.Len(t, ranges, 10)
+		assertContiguousNumeric(t, ranges, 1, 100)
+	})
+
+	t.Run("span smaller than partition count", func(t *testing.T) {
+		ranges := computeNumericRanges(0, 5, 10)
+		require.Len(t, ranges, 5)
+		assertContiguousNumeric(t, ranges, 0, 5)
+	})
+
+	t.Run("two adjacent values", func(t *testing.T) {
+		ranges := computeNumericRanges(7, 8, 4)
+		require.Len(t, ranges, 1)
+		assertContiguousNumeric(t, ranges, 7, 8)
+	})
+
+	t.Run("span does not overflow", func(t *testing.T) {
+		ranges := computeNumericRanges(math.MinInt64+5, math.MaxInt64-5, 10)
+		require.Len(t, ranges, 10)
+		assertContiguousNumeric(t, ranges, math.MinInt64+5, math.MaxInt64-5)
+	})
+
+	t.Run("full int64 domain does not overflow", func(t *testing.T) {
+		ranges := computeNumericRanges(math.MinInt64, math.MaxInt64, 7)
+		require.Len(t, ranges, 7)
+		assertContiguousNumeric(t, ranges, math.MinInt64, math.MaxInt64)
+	})
 }
 
 func TestToRangeFilter(t *testing.T) {
-	t.Run("int range is inclusive on both ends", func(t *testing.T) {
-		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, intPartition(10, 20))
+	t.Run("numeric range is half-open", func(t *testing.T) {
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, utils.CreateNumericPartition(10, 20, false).Range)
 		require.NoError(t, err)
 		require.Equal(t, bson.D{
 			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{
 				bson.E{Key: "$gte", Value: int64(10)},
-				bson.E{Key: "$lte", Value: int64(20)},
+				bson.E{Key: "$lt", Value: int64(20)},
+			}},
+		}, filter)
+	})
+
+	t.Run("last numeric range is closed", func(t *testing.T) {
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, utils.CreateNumericPartition(20, 30, true).Range)
+		require.NoError(t, err)
+		require.Equal(t, bson.D{
+			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{
+				bson.E{Key: "$gte", Value: int64(20)},
+				bson.E{Key: "$lte", Value: int64(30)},
 			}},
 		}, filter)
 	})
 
 	t.Run("string range is half-open", func(t *testing.T) {
-		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, stringPartition("com.a", "com.m", false))
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, utils.CreateStringPartition("com.a", "com.m", false).Range)
 		require.NoError(t, err)
 		require.Equal(t, bson.D{
 			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{
@@ -153,7 +199,7 @@ func TestToRangeFilter(t *testing.T) {
 	})
 
 	t.Run("last string range is closed", func(t *testing.T) {
-		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, stringPartition("com.m", "org.z", true))
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, utils.CreateStringPartition("com.m", "org.z", true).Range)
 		require.NoError(t, err)
 		require.Equal(t, bson.D{
 			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{

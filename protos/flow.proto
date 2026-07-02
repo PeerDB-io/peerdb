@@ -333,6 +333,15 @@ message StringPartitionRange {
   bool end_inclusive = 3;
 }
 
+message NumericPartitionRange {
+  int64 start = 1;
+  int64 end = 2;
+  // a numeric key space may contain fractional values between integer boundaries,
+  // so boundaries cannot be safely incremented without leaving gaps. Handle it
+  // similarly to StringPartitionRange above.
+  bool end_inclusive = 3;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
@@ -343,6 +352,7 @@ message PartitionRange {
     ObjectIdPartitionRange object_id_range = 5;
     NullPartitionRange null_range = 6;
     StringPartitionRange string_range = 7;
+    NumericPartitionRange numeric_range = 8;
   }
 }
 
