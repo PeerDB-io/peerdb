@@ -676,7 +676,7 @@ func TestGetTableSchemaCaseSensitiveIdentifiers(t *testing.T) {
 	assertSchema(schemas[uuTable], []string{"id"}, "id", "uu")
 }
 
-func TestGetTableSchemaPrimaryKeyVariants(t *testing.T) {
+func TestGetTableSchema(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	connector := newTestConnector(t, ctx)
@@ -707,6 +707,7 @@ func TestGetTableSchemaPrimaryKeyVariants(t *testing.T) {
 	compositeTable := dbName + ".composite_pk"
 	noPKTable := dbName + ".no_pk"
 	mixedCaseTable := dbName + ".mixed_case_pk"
+	decimalDefaultsTable := dbName + ".decimal_defaults"
 
 	// Composite PK whose key order (b, a) differs from column definition order (a, b, c),
 	// exercising the seq_in_index sort.
@@ -715,15 +716,25 @@ func TestGetTableSchemaPrimaryKeyVariants(t *testing.T) {
 	exec(fmt.Sprintf("CREATE TABLE %s (a INT, b TEXT)", noPKTable))
 	// PK on a mixed-case column name, exercising the case-preserving column_name join.
 	exec(fmt.Sprintf("CREATE TABLE %s (`MyId` INT PRIMARY KEY, val TEXT)", mixedCaseTable))
+	// Bare DECIMAL defaults to DECIMAL(10,0) in MySQL/MariaDB; verify GetTableSchema preserves that typmod.
+	exec(fmt.Sprintf("CREATE TABLE %s (bare DECIMAL, explicit DECIMAL(10,2))", decimalDefaultsTable))
 
 	schemas, err := connector.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{
 			{SourceTableIdentifier: compositeTable},
 			{SourceTableIdentifier: noPKTable},
 			{SourceTableIdentifier: mixedCaseTable},
+			{SourceTableIdentifier: decimalDefaultsTable},
 		})
 	require.NoError(t, err)
 	assertSchema(schemas[compositeTable], []string{"b", "a"}, "a", "b", "c")
 	assertSchema(schemas[noPKTable], nil, "a", "b")
 	assertSchema(schemas[mixedCaseTable], []string{"MyId"}, "MyId", "val")
+
+	decimalSchema := schemas[decimalDefaultsTable]
+	assertSchema(decimalSchema, nil, "bare", "explicit")
+	require.Equal(t, string(types.QValueKindNumeric), decimalSchema.Columns[0].Type)
+	require.Equal(t, datatypes.MakeNumericTypmod(10, 0), decimalSchema.Columns[0].TypeModifier)
+	require.Equal(t, string(types.QValueKindNumeric), decimalSchema.Columns[1].Type)
+	require.Equal(t, datatypes.MakeNumericTypmod(10, 2), decimalSchema.Columns[1].TypeModifier)
 }
