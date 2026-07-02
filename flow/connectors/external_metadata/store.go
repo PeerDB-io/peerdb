@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strconv"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
@@ -24,8 +27,9 @@ import (
 )
 
 const (
-	lastSyncStateTableName = "metadata_last_sync_state"
-	qrepTableName          = "metadata_qrep_partitions"
+	lastSyncStateTableName       = "metadata_last_sync_state"
+	qrepTableName                = "metadata_qrep_partitions"
+	qrepPartitionRangesTableName = "metadata_qrep_offloaded_partition_ranges"
 )
 
 type PostgresMetadata struct {
@@ -260,6 +264,15 @@ func (p *PostgresMetadata) FinishQRepPartition(
 	jobName string,
 	startTime time.Time,
 ) error {
+	if partition.RangeOffloaded {
+		// The range was offloaded but has since been rehydrated, so drop it before persisting
+		// to metadata_qrep_partitions.
+		// Clone rather than mutate in place because this partition is shared with the pull
+		// goroutine, cloning keeps us from relying on implicit ordering to avoid a write race.
+		// TODO: drop the sync_partition column entirely; nothing reads it back.
+		partition = proto.CloneOf(partition)
+		partition.Range = nil
+	}
 	pbytes, err := protojson.Marshal(partition)
 	if err != nil {
 		return fmt.Errorf("failed to marshal partition to json: %w", err)
@@ -286,6 +299,133 @@ func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *proto
 	return exists, nil
 }
 
+// OffloadPartitionRanges encrypts partition ranges and persists them to the catalog,
+// then clears each partition's range in-place and sets RangeOffloaded so the range can
+// be rehydrated later. Used in conjunction with RestoreOffloadedPartitionRanges.
+func OffloadPartitionRanges(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	parentMirrorName string,
+	runUUID string,
+	partitions []*protos.QRepPartition,
+) error {
+	key, err := internal.PeerDBCurrentEncKey(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load current encryption key: %w", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer shared.RollbackTx(tx, internal.LoggerFromCtx(ctx))
+
+	// delete any orphaned rows from previously failed attempt
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM `+qrepPartitionRangesTableName+` WHERE run_uuid=$1`, runUUID,
+	); err != nil {
+		return fmt.Errorf("failed to clear existing partition ranges: %w", err)
+	}
+
+	insertRows := make([][]any, 0, len(partitions))
+	for _, partition := range partitions {
+		if partition.Range == nil {
+			continue
+		}
+		payload, err := proto.Marshal(partition.Range)
+		if err != nil {
+			return fmt.Errorf("failed to marshal partition range: %w", err)
+		}
+		encrypted, err := key.Encrypt(payload)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt partition range: %w", err)
+		}
+		insertRows = append(insertRows, []any{parentMirrorName, runUUID, partition.PartitionId, key.ID, encrypted})
+
+		partition.Range = nil
+		partition.RangeOffloaded = true
+	}
+
+	if _, err := tx.CopyFrom(ctx,
+		pgx.Identifier{qrepPartitionRangesTableName},
+		[]string{"parent_mirror_name", "run_uuid", "partition_uuid", "enc_key_id", "range_payload"},
+		pgx.CopyFromRows(insertRows),
+	); err != nil {
+		return fmt.Errorf("failed to persist encrypted partition ranges: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit partition ranges: %w", err)
+	}
+	return nil
+}
+
+// RestoreOffloadedPartitionRanges hydrates offloaded partition ranges in-place with the decrypted
+// values fetched from the catalog. Used in conjunction with OffloadPartitionRanges.
+func RestoreOffloadedPartitionRanges(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	runUUID string,
+	partitions []*protos.QRepPartition,
+) error {
+	partitionByIDs := make(map[string]*protos.QRepPartition, len(partitions))
+	for _, partition := range partitions {
+		if !partition.RangeOffloaded {
+			continue
+		}
+		partitionByIDs[partition.PartitionId] = partition
+	}
+	if len(partitionByIDs) == 0 {
+		return nil
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT partition_uuid,enc_key_id,range_payload FROM `+qrepPartitionRangesTableName+` `+
+			`WHERE run_uuid=$1 AND partition_uuid=ANY($2)`,
+		runUUID, slices.Collect(maps.Keys(partitionByIDs)),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to query partition ranges: %w", err)
+	}
+	results, err := pgx.CollectRows(rows, pgx.RowToStructByPos[struct {
+		PartitionID string
+		EncKeyID    string
+		Payload     []byte
+	}])
+	if err != nil {
+		return fmt.Errorf("failed to read encrypted partition ranges: %w", err)
+	}
+
+	for _, res := range results {
+		partition, ok := partitionByIDs[res.PartitionID]
+		if !ok {
+			return fmt.Errorf("received unexpected partition range for partition %s", res.PartitionID)
+		}
+
+		payload, err := internal.Decrypt(ctx, res.EncKeyID, res.Payload)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt partition range for %s: %w", res.PartitionID, err)
+		}
+
+		var partitionRange protos.PartitionRange
+		if err := proto.Unmarshal(payload, &partitionRange); err != nil {
+			return fmt.Errorf("failed to unmarshal partition range for %s: %w", res.PartitionID, err)
+		}
+		partition.Range = &partitionRange
+		delete(partitionByIDs, res.PartitionID)
+	}
+
+	if len(partitionByIDs) > 0 {
+		missing := make([]string, 0, len(partitionByIDs))
+		for id := range partitionByIDs {
+			missing = append(missing, id)
+		}
+		return fmt.Errorf("missing encrypted partition ranges for partitions: %v", missing)
+	}
+
+	return nil
+}
+
 func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -310,6 +450,10 @@ func SyncFlowCleanupInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
 	}
 
 	if _, err := tx.Exec(ctx, `DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM `+qrepPartitionRangesTableName+` WHERE parent_mirror_name = $1`, jobName); err != nil {
 		return err
 	}
 

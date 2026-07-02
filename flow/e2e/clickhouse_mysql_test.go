@@ -24,12 +24,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func mysqlEnumUsesOrdinals() bool {
-	return internal.MySQLTestVersionIsMySQLPos()
+func mysqlEnumUsesOrdinals(source *MySqlSource) bool {
+	return source.Config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL &&
+		source.Config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS
 }
 
 func (s ClickHouseSuite) Test_UnsignedMySQL() {
@@ -596,7 +596,8 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
-	if _, ok := s.source.(*MySqlSource); !ok {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -643,7 +644,7 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
 	require.Len(s.t, rows.Records, 2)
 	require.Equal(s.t, rows.Records[0][1].Value(), rows.Records[1][1].Value(),
 		"snapshot and CDC enum values should be consistent")
-	if mysqlEnumUsesOrdinals() {
+	if mysqlEnumUsesOrdinals(mySource) {
 		require.EqualValues(s.t, 1, rows.Records[0][1].Value())
 	} else {
 		require.Equal(s.t, "active", rows.Records[0][1].Value())
@@ -654,7 +655,8 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
-	if _, ok := s.source.(*MySqlSource); !ok {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -699,7 +701,7 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 	require.EqualValues(s.t, 1, rows.Records[0][0].Value())
 	require.EqualValues(s.t, 2, rows.Records[1][0].Value())
 	require.Equal(s.t, "active", rows.Records[0][1].Value())
-	if mysqlEnumUsesOrdinals() {
+	if mysqlEnumUsesOrdinals(mySource) {
 		require.Equal(s.t, "1", rows.Records[1][1].Value())
 	} else {
 		require.Equal(s.t, "active", rows.Records[1][1].Value())
@@ -1396,70 +1398,29 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", srcTable, dstTable, "id,c1")
 
-	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema := ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	// alter source table, add column addedColumn and insert another row.
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN `addedColumn` BIGINT", srcTableName)))
 	// so that the batch finishes, insert a row into the second source table.
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s VALUES(DEFAULT)`, secondSrcTableName)))
 	EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "addedColumn"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "addedColumn"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
@@ -1521,35 +1482,14 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	EnvWaitForEqualTablesWithNames(env, s, "initial row", srcTable, dstTable, "id,c1")
 
 	// Verify initial schema
-	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema := ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	// ============================================
 	// Simulate gh-ost migration: add columns to test type detection
@@ -1637,76 +1577,26 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	require.Equal(t, fixedBinaryWant, qvalueBytes(dstRows.Records[2][1]))
 	require.Equal(t, varBinaryWant, qvalueBytes(dstRows.Records[2][2]))
 
-	// Verify schema was updated to include new columns with correct types and typmods
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindInt64), // BIGINT
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(types.QValueKindUInt32), // INT UNSIGNED
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c4"),
-				Type:         string(types.QValueKindBytes), // BLOB (binary charset)
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c5"),
-				Type:         string(types.QValueKindString), // TEXT (non-binary charset)
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c6"),
-				Type:         string(types.QValueKindNumeric), // DECIMAL (default 10,0)
-				TypeModifier: datatypes.MakeNumericTypmod(10, 0),
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c7"),
-				Type:         string(types.QValueKindNumeric), // DECIMAL(10,2)
-				TypeModifier: datatypes.MakeNumericTypmod(10, 2),
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c8"),
-				Type:         string(types.QValueKindNumeric), // DECIMAL(18,6)
-				TypeModifier: datatypes.MakeNumericTypmod(18, 6),
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c9"),
-				Type:         string(types.QValueKindBytes), // BINARY(16)
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c10"),
-				Type:         string(types.QValueKindBytes), // VARBINARY(16)
-				TypeModifier: -1,
-			},
-		},
-	}
+	// Verify schema was updated to include the new columns.
+	// BLOB/BINARY/VARBINARY are stored in ClickHouse as String,
+	// our CH GetTableSchemaForTable always returns TypeModifier -1 for decimals
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},   // BIGINT
+		{Name: ExpectedDestinationIdentifier(s, "c3"), Type: string(types.QValueKindUInt32), TypeModifier: -1},  // INT UNSIGNED
+		{Name: ExpectedDestinationIdentifier(s, "c4"), Type: string(types.QValueKindString), TypeModifier: -1},  // BLOB (binary charset)
+		{Name: ExpectedDestinationIdentifier(s, "c5"), Type: string(types.QValueKindString), TypeModifier: -1},  // TEXT (non-binary charset)
+		{Name: ExpectedDestinationIdentifier(s, "c6"), Type: string(types.QValueKindNumeric), TypeModifier: -1}, // DECIMAL (default 10,0)
+		{Name: ExpectedDestinationIdentifier(s, "c7"), Type: string(types.QValueKindNumeric), TypeModifier: -1}, // DECIMAL(10,2)
+		{Name: ExpectedDestinationIdentifier(s, "c8"), Type: string(types.QValueKindNumeric), TypeModifier: -1}, // DECIMAL(18,6)
+		{Name: ExpectedDestinationIdentifier(s, "c9"), Type: string(types.QValueKindString), TypeModifier: -1},  // BINARY(16)
+		{Name: ExpectedDestinationIdentifier(s, "c10"), Type: string(types.QValueKindString), TypeModifier: -1}, // VARBINARY(16)
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
@@ -1938,10 +1828,11 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	if s.cluster {
 		s.t.Skip("source-side incident coverage does not need to run against ClickHouse cluster")
 	}
-	if _, ok := s.source.(*MySqlSource); !ok {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
-	if internal.MySQLTestVersionIsMaria() {
+	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("binlog incident injection requires a MySQL debug build; not available for MariaDB")
 	}
 
@@ -1981,11 +1872,6 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	port, err := strconv.Atoi(mapped.Port())
 	require.NoError(s.t, err)
 
-	replication := protos.MySqlReplicationMechanism_MYSQL_GTID
-	if internal.MySQLTestVersionIsMySQLPos() {
-		replication = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
-	}
-
 	suffix := "mydbginc_" + strings.ToLower(common.RandomString(8))
 	config := &protos.MySqlConfig{
 		// host.docker.internal resolves both from the test process (to the published port) and
@@ -1996,7 +1882,7 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 		Password:             internal.MySQLTestRootPasswordWithFallback("cipass"),
 		DisableTls:           true,
 		Flavor:               protos.MySqlFlavor_MYSQL_MYSQL,
-		ReplicationMechanism: replication,
+		ReplicationMechanism: mySource.Config.ReplicationMechanism,
 	}
 	src, err := setupMyConnector(s.t, suffix, config, "mysql_debug_"+suffix)
 	require.NoError(s.t, err)
@@ -2085,8 +1971,7 @@ func (s ClickHouseSuite) Test_MySQL_Default_Partition_Key_Parallel_Snapshot() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,created_at")
 
 	partitionRows, err := s.catalog.Query(s.t.Context(),
-		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
-		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	defer partitionRows.Close()
@@ -2094,11 +1979,8 @@ func (s ClickHouseSuite) Test_MySQL_Default_Partition_Key_Parallel_Snapshot() {
 	var partitionCount int32
 	var totalRows int64
 	for partitionRows.Next() {
-		var partitionStart, partitionEnd *string
 		var rowsInPartition int64
-		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
-		require.NotNil(s.t, partitionStart)
-		require.NotNil(s.t, partitionEnd)
+		require.NoError(s.t, partitionRows.Scan(&rowsInPartition))
 		totalRows += rowsInPartition
 		partitionCount++
 	}
@@ -2152,8 +2034,7 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_UUID_Parallel_Snapshot(
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
 
 	partitionRows, err := s.catalog.Query(s.t.Context(),
-		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
-		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	defer partitionRows.Close()
@@ -2161,11 +2042,8 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_UUID_Parallel_Snapshot(
 	var partitionCount int32
 	var totalRows int64
 	for partitionRows.Next() {
-		var partitionStart, partitionEnd *string
 		var rowsInPartition int64
-		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
-		require.NotNil(s.t, partitionStart)
-		require.NotNil(s.t, partitionEnd)
+		require.NoError(s.t, partitionRows.Scan(&rowsInPartition))
 		totalRows += rowsInPartition
 		partitionCount++
 	}
@@ -2219,8 +2097,7 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
 
 	partitionRows, err := s.catalog.Query(s.t.Context(),
-		`SELECT partition_start, partition_end, COALESCE(rows_in_partition, 0)
-		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	defer partitionRows.Close()
@@ -2228,11 +2105,8 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 	var partitionCount int32
 	var totalRows int64
 	for partitionRows.Next() {
-		var partitionStart, partitionEnd *string
 		var rowsInPartition int64
-		require.NoError(s.t, partitionRows.Scan(&partitionStart, &partitionEnd, &rowsInPartition))
-		require.Nil(s.t, partitionStart)
-		require.Nil(s.t, partitionEnd)
+		require.NoError(s.t, partitionRows.Scan(&rowsInPartition))
 		totalRows += rowsInPartition
 		partitionCount++
 	}

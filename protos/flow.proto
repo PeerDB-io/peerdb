@@ -453,6 +453,8 @@ message QRepPartition {
   // child table and block range to query instead of the parent watermark table.
   // When populated, the top-level `range` field is unused.
   repeated ChildTableRange child_table_ranges = 5;
+  // When true, PartitionRange get offloaded and encrypted to the catalog to avoid passing through Temporal
+  bool range_offloaded = 6;
 }
 
 message QRepPartitionBatch {
