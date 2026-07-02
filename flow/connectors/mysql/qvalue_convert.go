@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"math/bits"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 	"go.temporal.io/sdk/log"
@@ -214,6 +216,32 @@ func processTime(str string) (time.Duration, error) {
 	return val, nil
 }
 
+// padTrimmedBinary restores a fixed-width binary value
+func padTrimmedBinary(data []byte, width int) []byte {
+	if width <= len(data) {
+		return data
+	}
+	padded := make([]byte, width)
+	copy(padded, data)
+	return padded
+}
+
+func formatMariaDBInet(data []byte) (string, error) {
+	switch len(data) {
+	case 4, 16:
+		return net.IP(data).String(), nil
+	default:
+		return "", fmt.Errorf("invalid inet byte length %d", len(data))
+	}
+}
+
+func decodeMariaDBUUID(data []byte) (uuid.UUID, error) {
+	if len(data) != 16 {
+		return uuid.UUID{}, fmt.Errorf("invalid uuid byte length %d", len(data))
+	}
+	return uuid.FromBytes(data)
+}
+
 func processVector(data []byte) []float32 {
 	floats := make([]float32, 0, len(data)/4)
 	for i := 0; i < len(data); i += 4 {
@@ -304,6 +332,16 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 			return types.QValueBytes{Val: slices.Clone(v)}, nil
 		case types.QValueKindJSON:
 			return types.QValueJSON{Val: string(v)}, nil
+		case types.QValueKindUUID:
+			// snapshot reads via the text protocol, so MariaDB sends the canonical string
+			u, err := uuid.Parse(unsafeString)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueUUID{Val: u}, nil
+		case types.QValueKindINET:
+			// MariaDB INET4/INET6 render as text over the wire
+			return types.QValueINET{Val: string(v)}, nil
 		case types.QValueKindGeometry:
 			return processGeometryData(v)
 		case types.QValueKindNumeric:
@@ -540,12 +578,7 @@ func QValueFromMysqlRowEvent(
 	case string:
 		switch qkind {
 		case types.QValueKindBytes:
-			b := shared.UnsafeFastStringToReadOnlyBytes(val)
-			if n := binaryColumnLength(mytype, ev.ColumnMeta[idx]); len(b) < n {
-				padded := make([]byte, n)
-				copy(padded, b)
-				b = padded
-			}
+			b := padTrimmedBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
 			return types.QValueBytes{Val: b}, nil
 		case types.QValueKindString:
 			s, err := decodeMySQLString(enc, val)
@@ -565,6 +598,20 @@ func QValueFromMysqlRowEvent(
 			b := shared.UnsafeFastStringToReadOnlyBytes(val)
 			floats := processVector(b)
 			return types.QValueArrayFloat32{Val: floats}, nil
+		case types.QValueKindUUID:
+			b := padTrimmedBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
+			u, err := decodeMariaDBUUID(b)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueUUID{Val: u}, nil
+		case types.QValueKindINET:
+			b := padTrimmedBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
+			s, err := formatMariaDBInet(b)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueINET{Val: s}, nil
 		case types.QValueKindTime:
 			tm, err := processTime(val)
 			if err != nil {

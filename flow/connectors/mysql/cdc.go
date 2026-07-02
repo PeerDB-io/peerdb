@@ -872,6 +872,48 @@ func (c *MySqlConnector) PullRecords(
 	return nil
 }
 
+func fieldDescriptionFromMysqlColumn(
+	col *ast.ColumnDef, binlogRowMetadataSupported bool, mirrorVersion uint32,
+) (*protos.FieldDescription, error) {
+	if col.Tp == nil {
+		return nil, fmt.Errorf("mysql column %s has no type", col.Name.OrigColName())
+	}
+
+	qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	nullable := true
+	for _, option := range col.Options {
+		if option.Tp == ast.ColumnOptionNotNull {
+			nullable = false
+			break
+		}
+	}
+
+	typmod := int32(-1)
+	if qkind == types.QValueKindNumeric {
+		precision := col.Tp.GetFlen()
+		scale := col.Tp.GetDecimal()
+		// TiDB leaves bare DECIMAL aliases without flen/decimal; MySQL defaults them to DECIMAL(10,0).
+		if precision < 0 {
+			precision = 10
+		}
+		if scale < 0 {
+			scale = 0
+		}
+		typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
+	}
+
+	return &protos.FieldDescription{
+		Name:         col.Name.OrigColName(),
+		Type:         string(qkind),
+		TypeModifier: typmod,
+		Nullable:     nullable,
+	}, nil
+}
+
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
@@ -922,10 +964,11 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					continue
 				}
 
-				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
+				fd, err := fieldDescriptionFromMysqlColumn(col, binlogRowMetadataSupported, mirrorVersion)
 				if err != nil {
 					return err
 				}
+				qkind := types.QValueKind(fd.Type)
 
 				if oldType, exists := existingColTypes[col.Name.OrigColName()]; exists && oldType != string(qkind) {
 					c.logger.Warn("column type change detected via ALTER TABLE, not propagating",
@@ -944,26 +987,6 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						slog.String("tableName", sourceTableName))
 				}
 
-				nullable := true
-				for _, option := range col.Options {
-					if option.Tp == ast.ColumnOptionNotNull {
-						nullable = false
-					}
-				}
-
-				precision := col.Tp.GetFlen()
-				scale := col.Tp.GetDecimal()
-				typmod := int32(-1)
-				if scale >= 0 || precision >= 0 {
-					typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
-				}
-
-				fd := &protos.FieldDescription{
-					Name:         col.Name.OrigColName(),
-					Type:         string(qkind),
-					TypeModifier: typmod,
-					Nullable:     nullable,
-				}
 				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, fd)
 				// current assumption is the columns will be ordered like this
 				currentSchema.Columns = append(currentSchema.Columns, fd)
@@ -1140,7 +1163,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 
 			if qkind, err := qkindFromMysqlType(
 				tableMap.ColumnType[idx], unsignedMap[idx], charset, req.InternalVersion,
-			); err == nil && qkind != types.QValueKind(fd.Type) {
+			); err == nil && shouldReportColumnTypeChange(types.QValueKind(fd.Type), qkind, c.config.Flavor) {
 				c.logger.Warn("column type change detected from TABLE_MAP_EVENT, not propagating",
 					slog.String("table", sourceTableName),
 					slog.String("column", colName),

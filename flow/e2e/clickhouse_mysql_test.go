@@ -849,6 +849,217 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_MariaDB_UUID_INET() {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("UUID/INET4/INET6 are MariaDB-only types")
+	}
+	// INET4 is the newest of the three (MariaDB 10.10); gating on it guarantees all exist.
+	cmp, err := mysource.CompareServerVersion(s.t.Context(), "10.10.0")
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("UUID/INET4/INET6 require MariaDB 10.10+")
+	}
+
+	srcTableName := "test_uuid_inet"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_uuid_inet_dst"
+
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s(
+			id serial PRIMARY KEY,
+			u uuid,
+			ip4 inet4,
+			ip6 inet6
+		)`, srcFullName)))
+
+	variants := []struct{ u, ip4, ip6 string }{
+		{"6ccd780c-baba-1026-9564-5b8c656024db", "192.168.0.1", "2001:db8::1"},
+		{"00112233-4455-6677-8899-aabbccddeeff", "10.0.0.255", "::1"},
+		{"00000000-0000-0000-0000-000000000000", "0.0.0.0", "::"},
+		{"ffffffff-ffff-ffff-ffff-ffffffffffff", "255.255.255.255", "2001:db8:85a3::8a2e:370:7334"},
+		{"123e4567-e89b-12d3-a456-426614174000", "127.0.0.1", "fe80::1"},
+	}
+
+	insertVariants := func() {
+		for _, v := range variants {
+			require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (u, ip4, ip6) VALUES ('%s', '%s', '%s')`, srcFullName, v.u, v.ip4, v.ip6)))
+		}
+	}
+
+	insertVariants()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting for initial snapshot", dstTableName, "id", len(variants))
+
+	insertVariants()
+
+	EnvWaitForCount(env, s, "waiting for cdc", dstTableName, "id", 2*len(variants))
+
+	// GetRows orders by id, so snapshot rows (ids 1..N) come first, then CDC rows (N+1..2N);
+	// both batches hold the same values in the same order.
+	rows, err := s.GetRows(dstTableName, "id, u, ip4, ip6")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2*len(variants))
+
+	for i, row := range rows.Records {
+		want := variants[i%len(variants)]
+		require.Len(s.t, row, 4)
+		require.Equal(s.t, want.u, fmt.Sprint(row[1].Value()), "uuid mismatch at row %d", i+1)
+		require.Equal(s.t, want.ip4, fmt.Sprint(row[2].Value()), "inet4 mismatch at row %d", i+1)
+		require.Equal(s.t, want.ip6, fmt.Sprint(row[3].Value()), "inet6 mismatch at row %d", i+1)
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_MySQL_MariaTypes exercises the binlog ALTER TABLE ADD COLUMN path
+// (processAlterTableQuery -> QkindFromMysqlColumnType) together with the row-metadata decode
+// path for a broad spectrum of MySQL/MariaDB column types.
+func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnTypes() {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	// ENUM/SET columns added during CDC need binlog row metadata to resolve their member names.
+	cmp, err := mysource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("ALTER ADD COLUMN enum/set decoding requires binlog row metadata")
+	}
+
+	srcTableName := "test_add_col_types"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_add_col_types_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	cols := []struct{ name, def, val string }{
+		// Integer widths: the signed minimum and unsigned maximum pin width + signedness.
+		{"c_tinyint", "TINYINT", "-128"},
+		{"c_tinyint_u", "TINYINT UNSIGNED", "255"},
+		{"c_bool", "TINYINT(1)", "1"},
+		{"c_smallint", "SMALLINT", "-32768"},
+		{"c_smallint_u", "SMALLINT UNSIGNED", "65535"},
+		{"c_mediumint", "MEDIUMINT", "-8388608"},
+		{"c_mediumint_u", "MEDIUMINT UNSIGNED", "16777215"},
+		{"c_int", "INT", "-2147483648"},
+		{"c_int_u", "INT UNSIGNED", "4294967295"},
+		{"c_bigint", "BIGINT", "-9223372036854775808"},
+		{"c_bigint_u", "BIGINT UNSIGNED", "18446744073709551615"},
+		{"c_integer", "INTEGER", "7"}, // synonym; normalizes to int through the parser
+		// Approximate + exact numeric.
+		{"c_float", "FLOAT", "1.5"},
+		{"c_double", "DOUBLE PRECISION", "2.5"}, // synonym; normalizes to double
+		{"c_decimal", "DECIMAL(10,2)", "123.45"},
+		{"c_decimal_big", "DECIMAL(60,3)", "780780780.780"},
+		// Bit.
+		{"c_bit", "BIT(20)", "b'11100011100011100011'"},
+		// Date and time.
+		{"c_date", "DATE", "'2020-01-02'"},
+		{"c_datetime", "DATETIME(3)", "'2020-01-02 03:04:05.678'"},
+		{"c_timestamp", "TIMESTAMP(6)", "'2020-01-02 03:04:05.678901'"},
+		{"c_time", "TIME", "'13:14:15'"},
+		{"c_year", "YEAR", "2021"},
+		// Strings.
+		{"c_char", "CHAR(10)", "'abc'"},
+		{"c_varchar", "VARCHAR(20)", "'hello world'"},
+		{"c_text", "TEXT", "'some text'"},
+		{"c_enum", "ENUM('a','b','c')", "'b'"},
+		{"c_set", "SET('x','y','z')", "'x,z'"},
+		// Binary. BINARY(4) holds exactly 4 bytes, so there is no trailing-zero padding to
+		// reconcile (that case has its own test, Test_MySQL_Binary_Trailing_Zeros).
+		{"c_binary", "BINARY(4)", "'abcd'"},
+		{"c_varbinary", "VARBINARY(10)", "'binblob'"},
+		{"c_blob", "BLOB", "'someblob'"},
+		// JSON.
+		{"c_json", "JSON", `'{"a":2}'`},
+	}
+
+	// MariaDB-specific alias spellings the TiDB parser normalizes to a supported canonical type.
+	// These mirror the MariaDB synonyms in TestAlterTableTypes; they are valid DDL on MariaDB but
+	// not (all) on MySQL, so they only run on MariaDB flavor.
+	if mysource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		cols = append(cols, []struct{ name, def, val string }{
+			// Integer synonyms INT1..INT8 / MIDDLEINT map to the sized integer.
+			{"c_int1", "INT1", "100"},               // -> tinyint
+			{"c_int2", "INT2", "30000"},             // -> smallint
+			{"c_int3", "INT3", "8000000"},           // -> mediumint
+			{"c_int4", "INT4", "2000000000"},        // -> int
+			{"c_int8", "INT8", "9000000000000000"},  // -> bigint
+			{"c_middleint", "MIDDLEINT", "8000000"}, // -> mediumint
+			// Exact-numeric synonyms normalize to decimal.
+			{"c_dec", "DEC(10,2)", "123.45"},
+			{"c_fixed", "FIXED(10,2)", "678.90"},
+			// Approximate-numeric synonym normalizes to double.
+			{"c_real", "REAL", "3.14159"},
+			// Char synonyms normalize to char.
+			{"c_nchar", "NCHAR(10)", "'nchar'"},
+			{"c_national_char", "NATIONAL CHAR(10)", "'natchar'"},
+			// Varchar synonyms normalize to varchar.
+			{"c_nvarchar", "NVARCHAR(20)", "'nvarchar val'"},
+			{"c_char_varying", "CHAR VARYING(20)", "'char varying'"},
+			{"c_varcharacter", "VARCHARACTER(20)", "'varcharacter'"},
+			{"c_national_varchar", "NATIONAL VARCHAR(20)", "'nat varchar'"},
+			// LONG / LONG VARCHAR normalize to mediumtext.
+			{"c_long", "LONG", "'long text'"},
+			{"c_long_varchar", "LONG VARCHAR", "'long varchar text'"},
+		}...)
+	}
+
+	adds := make([]string, len(cols))
+	names := make([]string, 0, len(cols)+1)
+	vals := make([]string, len(cols))
+	names = append(names, "id")
+	for i, c := range cols {
+		adds[i] = "ADD COLUMN " + c.name + " " + c.def
+		names = append(names, c.name)
+		vals[i] = c.val
+	}
+
+	// Single multi-column ALTER: processAlterTableQuery iterates every ADD COLUMN spec, so this
+	// exercises the DDL parse for all types at once.
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("ALTER TABLE %s %s", srcFullName, strings.Join(adds, ", "))))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (%s) VALUES (1, %s)", srcFullName, strings.Join(names, ", "), strings.Join(vals, ", "))))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc add column", srcTableName, dstTableName, strings.Join(names, ","))
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Numbers() {
 	if mysource, ok := s.source.(*MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 		s.t.Skip("only applies to mysql")
