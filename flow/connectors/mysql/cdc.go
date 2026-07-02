@@ -330,9 +330,18 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get event cache count: %w", err)
 	}
-	//nolint:gosec
+
+	var serverId uint32
+	if c.config.ServerId != nil {
+		serverId = *c.config.ServerId
+	} else {
+		// If the configuration doesn't specify a server_id value, fallback to
+		// legacy behavior of generating a random server_id.
+		serverId = rand.Uint32() //nolint:gosec // G404: server_id does not require cryptographic randomness
+	}
+
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
-		ServerID:         rand.Uint32(),
+		ServerID:         serverId,
 		Flavor:           c.Flavor(),
 		Host:             config.Host,
 		Port:             uint16(config.Port),

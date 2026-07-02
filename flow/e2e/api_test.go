@@ -325,6 +325,81 @@ func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	require.NotNil(s.t, response)
 }
 
+// TestValidateCDCMirror_ServerIDPeerReuse verifies that validating a CDC mirror whose MySQL source
+// peer pins a fixed server_id is rejected when that peer already backs another streaming CDC mirror.
+func (s APITestSuite) TestValidateCDCMirror_ServerIDPeerReuse() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("server_id peer-reuse validation is MySQL-specific")
+	}
+	ctx := s.t.Context()
+
+	// Source table backing the existing mirror.
+	require.NoError(s.t, s.source.Exec(ctx,
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "serverid_reuse"))))
+
+	// A MySQL source peer that pins a fixed server_id. It clones the suite's MySQL config, so it
+	// points at the same (reachable) instance.
+	serverID := uint32(4224)
+	pinnedConfig := proto.CloneOf(mySource.Config)
+	pinnedConfig.ServerId = &serverID
+	peerName := "serverid_reuse_" + s.suffix
+	_, err := s.CreatePeer(ctx, &protos.CreatePeerRequest{
+		Peer: &protos.Peer{
+			Name:   peerName,
+			Type:   protos.DBType_MYSQL,
+			Config: &protos.Peer_MysqlConfig{MysqlConfig: pinnedConfig},
+		},
+	})
+	require.NoError(s.t, err)
+
+	// An existing streaming CDC mirror that already uses the pinned-server_id peer as its source.
+	existingGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "serverid_reuse_existing_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, "serverid_reuse"): "serverid_reuse"},
+		Destination:      s.ch.Peer().Name,
+	}
+	existingCfg := existingGen.GenerateFlowConnectionConfigs(s)
+	existingCfg.SourceName = peerName
+	existingCfg.DoInitialSnapshot = true
+	createResp, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: existingCfg})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, createResp)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(ctx, s.catalog, tc, existingCfg.FlowJobName)
+	require.NoError(s.t, err)
+
+	// Validating a second CDC mirror on the same pinned-server_id peer must be rejected.
+	newGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "serverid_reuse_new_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, "serverid_reuse"): "serverid_reuse"},
+		Destination:      s.ch.Peer().Name,
+	}
+	newCfg := newGen.GenerateFlowConnectionConfigs(s)
+	newCfg.SourceName = peerName
+	newCfg.DoInitialSnapshot = true
+
+	res, err := s.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: newCfg})
+	require.Nil(s.t, res)
+	require.Error(s.t, err)
+	st, ok := status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
+	require.Contains(s.t, st.Message(), "cannot be shared across mirrors")
+
+	// Tear down via gRPC: drop the mirror, then the now-unreferenced peer.
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        existingCfg.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	s.waitForFlowDropped(env, existingCfg.FlowJobName)
+
+	_, err = s.DropPeer(ctx, &protos.DropPeerRequest{PeerName: peerName})
+	require.NoError(s.t, err)
+}
+
 func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:

@@ -14,6 +14,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -132,6 +133,70 @@ func TestIntegrationANSIQuotesDDLParsedFromBinlog(t *testing.T) {
 				mode&uint64(tidbmysql.ModeANSIQuotes),
 				"ANSI_QUOTES missing from binlog status vars with extra status vars present",
 			)
+		})
+	}
+}
+
+func sourceHasRegisteredReplica(ctx context.Context, c *MySqlConnector, serverID uint32) (bool, error) {
+	rs, err := c.Execute(ctx, "SHOW REPLICAS")
+	if err != nil {
+		if rs, err = c.Execute(ctx, "SHOW SLAVE HOSTS"); err != nil {
+			return false, fmt.Errorf("failed to query source for registered replicas")
+		}
+	}
+
+	serverIDCol := -1
+	for i, field := range rs.Fields {
+		// Case insensitive match because the column name differs between MySQL and MariaDB.
+		if strings.EqualFold(string(field.Name), "Server_id") {
+			serverIDCol = i
+			break
+		}
+	}
+	if serverIDCol < 0 {
+		return false, fmt.Errorf("no Server_id column in replica list, got fields %v", rs.Fields)
+	}
+
+	for row := range rs.RowNumber() {
+		got, err := rs.GetInt(row, serverIDCol)
+		if err != nil {
+			return false, err
+		}
+		if uint32(got) == serverID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// TestIntegrationConfiguredServerID verifies that an explicitly configured server_id is used for
+// the binlog connection instead of the legacy random fallback: the source must list a replica
+// registered with exactly that id.
+func TestIntegrationConfiguredServerID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+	}{
+		{name: "mysql"},
+		{name: "mariadb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			connector := newTestConnector(t, ctx, tc.name)
+
+			wantServerID := uint32(1987)
+			connector.config.ServerId = &wantServerID
+
+			// Establishing the stream sends COM_REGISTER_SLAVE with the configured server_id.
+			// Ref: https://github.com/mysql/mysql-server/blob/6b6d3ed3d5c6591b446276184642d7d0504ecc86/include/my_command.h#L74
+			startBinlogStream(t, ctx, connector)
+
+			// The source's replica list can lag briefly after registration, so retry until it shows up.
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				found, err := sourceHasRegisteredReplica(ctx, connector, wantServerID)
+				assert.NoError(c, err)
+				assert.True(c, found, "source does not list a replica registered with server_id %d", wantServerID)
+			}, 15*time.Second, time.Second)
 		})
 	}
 }
