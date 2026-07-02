@@ -2057,6 +2057,9 @@ func (s ClickHouseSuite) Test_MySQL_NoPrimaryKey_CDC() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
+			// rand() is required for cluster mode: Distributed tables with multiple shards
+			// need a sharding expression. No natural key exists on a PK-less table.
+			ShardingKey: "rand()",
 		}},
 		Destination: s.Peer().Name,
 	}
