@@ -216,15 +216,8 @@ func processTime(str string) (time.Duration, error) {
 	return val, nil
 }
 
-// padTrimmedMariaDBBinary restores a fixed-width binary value that MariaDB
-// trimmed when binlog-packing it. MariaDB stores BINARY(N) and the native
-// uuid/inet4/inet6 types (all arriving as MYSQL_TYPE_STRING) with trailing
-// 0x00 bytes stripped, so a value such as uuid 123e…4000 loses its final byte
-// and an all-zero value (uuid 0000…0000, inet 0.0.0.0, inet6 ::) arrives with
-// zero length. Right-padding with zeros to the column's declared width
-// reconstructs the original value. width comes from binaryColumnLength, which
-// also distinguishes inet4 (4) from inet6 (16) when the bytes alone cannot.
-func padTrimmedMariaDBBinary(data []byte, width int) []byte {
+// padTrimmedBinary restores a fixed-width binary value
+func padTrimmedBinary(data []byte, width int) []byte {
 	if width <= len(data) {
 		return data
 	}
@@ -585,12 +578,7 @@ func QValueFromMysqlRowEvent(
 	case string:
 		switch qkind {
 		case types.QValueKindBytes:
-			b := shared.UnsafeFastStringToReadOnlyBytes(val)
-			if n := binaryColumnLength(mytype, ev.ColumnMeta[idx]); len(b) < n {
-				padded := make([]byte, n)
-				copy(padded, b)
-				b = padded
-			}
+			b := padTrimmedBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
 			return types.QValueBytes{Val: b}, nil
 		case types.QValueKindString:
 			s, err := decodeMySQLString(enc, val)
@@ -611,14 +599,14 @@ func QValueFromMysqlRowEvent(
 			floats := processVector(b)
 			return types.QValueArrayFloat32{Val: floats}, nil
 		case types.QValueKindUUID:
-			b := padTrimmedMariaDBBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
+			b := padTrimmedBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
 			u, err := decodeMariaDBUUID(b)
 			if err != nil {
 				return nil, err
 			}
 			return types.QValueUUID{Val: u}, nil
 		case types.QValueKindINET:
-			b := padTrimmedMariaDBBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
+			b := padTrimmedBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
 			s, err := formatMariaDBInet(b)
 			if err != nil {
 				return nil, err

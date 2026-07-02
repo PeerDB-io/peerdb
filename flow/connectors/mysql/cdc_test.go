@@ -25,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -164,10 +165,9 @@ func TestParseSQLParsesTrailingNull(t *testing.T) {
 }
 
 func TestAlterTableTypes(t *testing.T) {
-	// addColumnType parses `ALTER TABLE t ADD COLUMN c <colDef>` and returns the
-	// column's InfoSchemaStr, the same value processAlterTableQuery feeds to
-	// QkindFromMysqlColumnType.
-	addColumnType := func(t *testing.T, colDef string) string {
+	// addColumnFieldDescription parses `ALTER TABLE t ADD COLUMN c <colDef>`
+	// and builds the same FieldDescription processAlterTableQuery emits.
+	addColumnFieldDescription := func(t *testing.T, colDef string) *protos.FieldDescription {
 		t.Helper()
 		stmts, warns, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+colDef))
 		require.NoError(t, err)
@@ -179,70 +179,74 @@ func TestAlterTableTypes(t *testing.T) {
 		require.Len(t, alter.Specs[0].NewColumns, 1)
 		col := alter.Specs[0].NewColumns[0]
 		require.NotNil(t, col.Tp)
-		return col.Tp.InfoSchemaStr()
+		fd, err := fieldDescriptionFromMysqlColumn(col, true, shared.InternalVersion_Latest)
+		require.NoError(t, err)
+		return fd
 	}
 
 	for _, tc := range []struct {
-		name   string
-		colDef string
-		want   types.QValueKind
+		name         string
+		colDef       string
+		want         types.QValueKind
+		typeModifier int32
+		notNull      bool
 	}{
 		// integers
-		{"tinyint(1) is boolean", "TINYINT(1)", types.QValueKindBoolean},
-		{"tinyint", "TINYINT", types.QValueKindInt8},
-		{"tinyint unsigned", "TINYINT UNSIGNED", types.QValueKindUInt8},
-		{"smallint", "SMALLINT", types.QValueKindInt16},
-		{"smallint unsigned", "SMALLINT UNSIGNED", types.QValueKindUInt16},
-		{"year", "YEAR", types.QValueKindInt16},
-		{"mediumint", "MEDIUMINT", types.QValueKindInt32},
-		{"mediumint unsigned", "MEDIUMINT UNSIGNED", types.QValueKindUInt32},
-		{"int", "INT", types.QValueKindInt32},
-		{"int unsigned", "INT UNSIGNED", types.QValueKindUInt32},
-		{"bigint", "BIGINT", types.QValueKindInt64},
-		{"bigint unsigned", "BIGINT UNSIGNED", types.QValueKindUInt64},
-		{"bit", "BIT(8)", types.QValueKindUInt64},
-		{"bit no args", "BIT", types.QValueKindUInt64},
+		{name: "tinyint(1) is boolean", colDef: "TINYINT(1)", want: types.QValueKindBoolean},
+		{name: "tinyint", colDef: "TINYINT", want: types.QValueKindInt8},
+		{name: "tinyint unsigned", colDef: "TINYINT UNSIGNED", want: types.QValueKindUInt8},
+		{name: "smallint", colDef: "SMALLINT", want: types.QValueKindInt16},
+		{name: "smallint unsigned", colDef: "SMALLINT UNSIGNED", want: types.QValueKindUInt16},
+		{name: "year", colDef: "YEAR", want: types.QValueKindInt16},
+		{name: "mediumint", colDef: "MEDIUMINT", want: types.QValueKindInt32},
+		{name: "mediumint unsigned", colDef: "MEDIUMINT UNSIGNED", want: types.QValueKindUInt32},
+		{name: "int", colDef: "INT", want: types.QValueKindInt32},
+		{name: "int unsigned", colDef: "INT UNSIGNED", want: types.QValueKindUInt32},
+		{name: "bigint", colDef: "BIGINT", want: types.QValueKindInt64},
+		{name: "bigint unsigned", colDef: "BIGINT UNSIGNED", want: types.QValueKindUInt64},
+		{name: "bit", colDef: "BIT(8)", want: types.QValueKindUInt64},
+		{name: "bit no args", colDef: "BIT", want: types.QValueKindUInt64},
 
 		// floating point and exact numeric
-		{"float", "FLOAT", types.QValueKindFloat32},
-		{"double", "DOUBLE", types.QValueKindFloat64},
-		{"decimal", "DECIMAL(10,2)", types.QValueKindNumeric},
-		{"numeric", "NUMERIC(10,2)", types.QValueKindNumeric},
+		{name: "float", colDef: "FLOAT", want: types.QValueKindFloat32},
+		{name: "double", colDef: "DOUBLE", want: types.QValueKindFloat64},
+		{name: "decimal", colDef: "DECIMAL(10,2)", want: types.QValueKindNumeric, typeModifier: datatypes.MakeNumericTypmod(10, 2)},
+		{name: "numeric", colDef: "NUMERIC(10,2)", want: types.QValueKindNumeric, typeModifier: datatypes.MakeNumericTypmod(10, 2)},
 
 		// strings
-		{"char(10)", "CHAR(10)", types.QValueKindString},
-		{"char", "CHAR", types.QValueKindString},
-		{"character", "CHARACTER", types.QValueKindString},
-		{"character(10)", "CHARACTER(10)", types.QValueKindString},
-		{"varchar", "VARCHAR(255)", types.QValueKindString},
-		{"tinytext", "TINYTEXT", types.QValueKindString},
-		{"text", "TEXT", types.QValueKindString},
-		{"mediumtext", "MEDIUMTEXT", types.QValueKindString},
-		{"longtext", "LONGTEXT", types.QValueKindString},
-		{"set", "SET('a','b','c')", types.QValueKindString},
+		{name: "char(10)", colDef: "CHAR(10)", want: types.QValueKindString},
+		{name: "char", colDef: "CHAR", want: types.QValueKindString},
+		{name: "character", colDef: "CHARACTER", want: types.QValueKindString},
+		{name: "character(10)", colDef: "CHARACTER(10)", want: types.QValueKindString},
+		{name: "varchar", colDef: "VARCHAR(255)", want: types.QValueKindString},
+		{name: "tinytext", colDef: "TINYTEXT", want: types.QValueKindString},
+		{name: "text", colDef: "TEXT", want: types.QValueKindString},
+		{name: "mediumtext", colDef: "MEDIUMTEXT", want: types.QValueKindString},
+		{name: "longtext", colDef: "LONGTEXT", want: types.QValueKindString},
+		{name: "set", colDef: "SET('a','b','c')", want: types.QValueKindString},
 
 		// binary
-		{"binary", "BINARY(16)", types.QValueKindBytes},
-		{"varbinary", "VARBINARY(255)", types.QValueKindBytes},
-		{"tinyblob", "TINYBLOB", types.QValueKindBytes},
-		{"blob", "BLOB", types.QValueKindBytes},
-		{"mediumblob", "MEDIUMBLOB", types.QValueKindBytes},
-		{"longblob", "LONGBLOB", types.QValueKindBytes},
+		{name: "binary", colDef: "BINARY(16)", want: types.QValueKindBytes},
+		{name: "varbinary", colDef: "VARBINARY(255)", want: types.QValueKindBytes},
+		{name: "tinyblob", colDef: "TINYBLOB", want: types.QValueKindBytes},
+		{name: "blob", colDef: "BLOB", want: types.QValueKindBytes},
+		{name: "mediumblob", colDef: "MEDIUMBLOB", want: types.QValueKindBytes},
+		{name: "longblob", colDef: "LONGBLOB", want: types.QValueKindBytes},
 
 		// date and time
-		{"date", "DATE", types.QValueKindDate},
-		{"datetime", "DATETIME", types.QValueKindTimestamp},
-		{"timestamp", "TIMESTAMP", types.QValueKindTimestamp},
-		{"time", "TIME", types.QValueKindTime},
+		{name: "date", colDef: "DATE", want: types.QValueKindDate},
+		{name: "datetime", colDef: "DATETIME", want: types.QValueKindTimestamp},
+		{name: "timestamp", colDef: "TIMESTAMP", want: types.QValueKindTimestamp},
+		{name: "time", colDef: "TIME", want: types.QValueKindTime},
 
 		// json
-		{"json", "JSON", types.QValueKindJSON},
+		{name: "json", colDef: "JSON", want: types.QValueKindJSON},
 
 		// enum (binlog row metadata available -> Enum, not the Uint16 fallback)
-		{"enum", "ENUM('a','b','c')", types.QValueKindEnum},
+		{name: "enum", colDef: "ENUM('a','b','c')", want: types.QValueKindEnum},
 
 		// vector
-		{"vector", "VECTOR(3)", types.QValueKindArrayFloat32},
+		{name: "vector", colDef: "VECTOR(3)", want: types.QValueKindArrayFloat32},
 
 		// Type synonyms: spellings MySQL and MariaDB accept as aliases.
 		// QkindFromMysqlColumnType has no case for any of these names — it works because
@@ -251,130 +255,143 @@ func TestAlterTableTypes(t *testing.T) {
 		// NVARCHAR->varchar, MariaDB INT1..INT8->the sized int, ...).
 
 		// boolean spellings normalize to tinyint(1)
-		{"bool", "BOOL", types.QValueKindBoolean},
-		{"boolean", "BOOLEAN", types.QValueKindBoolean},
+		{name: "bool", colDef: "BOOL", want: types.QValueKindBoolean},
+		{name: "boolean", colDef: "BOOLEAN", want: types.QValueKindBoolean},
 
 		// integer spellings
-		{"integer", "INTEGER", types.QValueKindInt32},
-		{"integer unsigned", "INTEGER UNSIGNED", types.QValueKindUInt32},
+		{name: "integer", colDef: "INTEGER", want: types.QValueKindInt32},
+		{name: "integer unsigned", colDef: "INTEGER UNSIGNED", want: types.QValueKindUInt32},
 		// MariaDB int synonyms INT1..INT8 / MIDDLEINT map to the sized integer
-		{"int1 -> tinyint", "INT1", types.QValueKindInt8},
-		{"int2 -> smallint", "INT2", types.QValueKindInt16},
-		{"int3 -> mediumint", "INT3", types.QValueKindInt32},
-		{"int4 -> int", "INT4", types.QValueKindInt32},
-		{"int8 -> bigint", "INT8", types.QValueKindInt64},
-		{"middleint -> mediumint", "MIDDLEINT", types.QValueKindInt32},
+		{name: "int1 -> tinyint", colDef: "INT1", want: types.QValueKindInt8},
+		{name: "int2 -> smallint", colDef: "INT2", want: types.QValueKindInt16},
+		{name: "int3 -> mediumint", colDef: "INT3", want: types.QValueKindInt32},
+		{name: "int4 -> int", colDef: "INT4", want: types.QValueKindInt32},
+		{name: "int8 -> bigint", colDef: "INT8", want: types.QValueKindInt64},
+		{name: "middleint -> mediumint", colDef: "MIDDLEINT", want: types.QValueKindInt32},
 		// SERIAL is BIGINT UNSIGNED ... AUTO_INCREMENT UNIQUE
-		{"serial -> bigint unsigned", "SERIAL", types.QValueKindUInt64},
+		{name: "serial -> bigint unsigned", colDef: "SERIAL", want: types.QValueKindUInt64, notNull: true},
 
 		// exact numeric spellings normalize to decimal
-		{"dec", "DEC(10,2)", types.QValueKindNumeric},
-		{"fixed", "FIXED(10,2)", types.QValueKindNumeric},
+		{name: "dec", colDef: "DEC(10,2)", want: types.QValueKindNumeric, typeModifier: datatypes.MakeNumericTypmod(10, 2)},
+		{name: "fixed", colDef: "FIXED(10,2)", want: types.QValueKindNumeric, typeModifier: datatypes.MakeNumericTypmod(10, 2)},
 		// Bracketless decimal family defaults to decimal(10,0) (the (M,D) is cut away anyway).
-		{"decimal no args", "DECIMAL", types.QValueKindNumeric},
-		{"numeric no args", "NUMERIC", types.QValueKindNumeric},
-		{"dec no args", "DEC", types.QValueKindNumeric},
-		{"fixed no args", "FIXED", types.QValueKindNumeric},
+		{name: "decimal no args", colDef: "DECIMAL", want: types.QValueKindNumeric, typeModifier: datatypes.MakeNumericTypmod(10, 0)},
+		{name: "numeric no args", colDef: "NUMERIC", want: types.QValueKindNumeric, typeModifier: datatypes.MakeNumericTypmod(10, 0)},
+		{name: "dec no args", colDef: "DEC", want: types.QValueKindNumeric, typeModifier: datatypes.MakeNumericTypmod(10, 0)},
+		{name: "fixed no args", colDef: "FIXED", want: types.QValueKindNumeric, typeModifier: datatypes.MakeNumericTypmod(10, 0)},
 
 		// approximate numeric spellings normalize to double
-		{"double precision", "DOUBLE PRECISION", types.QValueKindFloat64},
-		{"real", "REAL", types.QValueKindFloat64},
+		{name: "double precision", colDef: "DOUBLE PRECISION", want: types.QValueKindFloat64},
+		{name: "real", colDef: "REAL", want: types.QValueKindFloat64},
 		// MariaDB FLOAT4/FLOAT8 synonyms normalize to float/double.
-		{"float4 -> float", "FLOAT4", types.QValueKindFloat32},
-		{"float8 -> double", "FLOAT8", types.QValueKindFloat64},
+		{name: "float4 -> float", colDef: "FLOAT4", want: types.QValueKindFloat32},
+		{name: "float8 -> double", colDef: "FLOAT8", want: types.QValueKindFloat64},
 
 		// char spellings normalize to char
-		{"character(10)", "CHARACTER(10)", types.QValueKindString},
-		{"character", "CHARACTER", types.QValueKindString},
-		{"nchar", "NCHAR(10)", types.QValueKindString},
-		{"national char", "NATIONAL CHAR(10)", types.QValueKindString},
+		{name: "character(10)", colDef: "CHARACTER(10)", want: types.QValueKindString},
+		{name: "character", colDef: "CHARACTER", want: types.QValueKindString},
+		{name: "nchar", colDef: "NCHAR(10)", want: types.QValueKindString},
+		{name: "national char", colDef: "NATIONAL CHAR(10)", want: types.QValueKindString},
 
 		// varchar spellings normalize to varchar
-		{"character varying", "CHARACTER VARYING(255)", types.QValueKindString},
-		{"nvarchar", "NVARCHAR(255)", types.QValueKindString},
-		{"national varchar", "NATIONAL VARCHAR(255)", types.QValueKindString},
+		{name: "character varying", colDef: "CHARACTER VARYING(255)", want: types.QValueKindString},
+		{name: "nvarchar", colDef: "NVARCHAR(255)", want: types.QValueKindString},
+		{name: "national varchar", colDef: "NATIONAL VARCHAR(255)", want: types.QValueKindString},
 		// more MariaDB varchar spellings (all normalize to varchar)
-		{"char varying", "CHAR VARYING(255)", types.QValueKindString},
-		{"varcharacter", "VARCHARACTER(255)", types.QValueKindString},
-		{"national char varying", "NATIONAL CHAR VARYING(255)", types.QValueKindString},
-		{"national character varying", "NATIONAL CHARACTER VARYING(255)", types.QValueKindString},
-		{"national varcharacter", "NATIONAL VARCHARACTER(255)", types.QValueKindString},
-		{"nchar varchar", "NCHAR VARCHAR(255)", types.QValueKindString},
-		{"nchar varying", "NCHAR VARYING(255)", types.QValueKindString},
-		{"nchar varcharacter", "NCHAR VARCHARACTER(255)", types.QValueKindString},
+		{name: "char varying", colDef: "CHAR VARYING(255)", want: types.QValueKindString},
+		{name: "varcharacter", colDef: "VARCHARACTER(255)", want: types.QValueKindString},
+		{name: "national char varying", colDef: "NATIONAL CHAR VARYING(255)", want: types.QValueKindString},
+		{name: "national character varying", colDef: "NATIONAL CHARACTER VARYING(255)", want: types.QValueKindString},
+		{name: "national varcharacter", colDef: "NATIONAL VARCHARACTER(255)", want: types.QValueKindString},
+		{name: "nchar varchar", colDef: "NCHAR VARCHAR(255)", want: types.QValueKindString},
+		{name: "nchar varying", colDef: "NCHAR VARYING(255)", want: types.QValueKindString},
+		{name: "nchar varcharacter", colDef: "NCHAR VARCHARACTER(255)", want: types.QValueKindString},
 
 		// MariaDB NATIONAL CHARACTER normalizes to char
-		{"national character", "NATIONAL CHARACTER(10)", types.QValueKindString},
+		{name: "national character", colDef: "NATIONAL CHARACTER(10)", want: types.QValueKindString},
 
 		// MariaDB LONG / LONG VARCHAR and friends normalize to mediumtext
-		{"long", "LONG", types.QValueKindString},
-		{"long varchar", "LONG VARCHAR", types.QValueKindString},
-		{"long char varying", "LONG CHAR VARYING", types.QValueKindString},
-		{"long character varying", "LONG CHARACTER VARYING", types.QValueKindString},
-		{"long varcharacter", "LONG VARCHARACTER", types.QValueKindString},
+		{name: "long", colDef: "LONG", want: types.QValueKindString},
+		{name: "long varchar", colDef: "LONG VARCHAR", want: types.QValueKindString},
+		{name: "long char varying", colDef: "LONG CHAR VARYING", want: types.QValueKindString},
+		{name: "long character varying", colDef: "LONG CHARACTER VARYING", want: types.QValueKindString},
+		{name: "long varcharacter", colDef: "LONG VARCHARACTER", want: types.QValueKindString},
 		// LONG VARBINARY normalizes to mediumblob
-		{"long varbinary", "LONG VARBINARY", types.QValueKindBytes},
+		{name: "long varbinary", colDef: "LONG VARBINARY", want: types.QValueKindBytes},
 
 		// Display widths: the (M) on integers is parsed away (we cut at "(").
-		{"tinyint width", "TINYINT(4)", types.QValueKindInt8},
-		{"smallint width", "SMALLINT(5)", types.QValueKindInt16},
-		{"mediumint width", "MEDIUMINT(8)", types.QValueKindInt32},
-		{"int width", "INT(11)", types.QValueKindInt32},
-		{"integer width", "INTEGER(11)", types.QValueKindInt32},
-		{"bigint width", "BIGINT(20)", types.QValueKindInt64},
+		{name: "tinyint width", colDef: "TINYINT(4)", want: types.QValueKindInt8},
+		{name: "smallint width", colDef: "SMALLINT(5)", want: types.QValueKindInt16},
+		{name: "mediumint width", colDef: "MEDIUMINT(8)", want: types.QValueKindInt32},
+		{name: "int width", colDef: "INT(11)", want: types.QValueKindInt32},
+		{name: "integer width", colDef: "INTEGER(11)", want: types.QValueKindInt32},
+		{name: "bigint width", colDef: "BIGINT(20)", want: types.QValueKindInt64},
 
 		// ZEROFILL implies UNSIGNED; QkindFromMysqlColumnType strips both suffixes.
-		{"int zerofill", "INT ZEROFILL", types.QValueKindUInt32},
-		{"int width zerofill", "INT(11) ZEROFILL", types.QValueKindUInt32},
-		{"bigint zerofill", "BIGINT ZEROFILL", types.QValueKindUInt64},
+		{name: "int zerofill", colDef: "INT ZEROFILL", want: types.QValueKindUInt32},
+		{name: "int width zerofill", colDef: "INT(11) ZEROFILL", want: types.QValueKindUInt32},
+		{name: "bigint zerofill", colDef: "BIGINT ZEROFILL", want: types.QValueKindUInt64},
 
 		// YEAR width.
-		{"year(4)", "YEAR(4)", types.QValueKindInt16},
+		{name: "year(4)", colDef: "YEAR(4)", want: types.QValueKindInt16},
 
 		// Floating point with precision/scale and unsigned modifiers.
-		{"float(m,d)", "FLOAT(10,2)", types.QValueKindFloat32},
-		{"float unsigned", "FLOAT UNSIGNED", types.QValueKindFloat32},
-		{"double(m,d)", "DOUBLE(10,2)", types.QValueKindFloat64},
-		{"double unsigned", "DOUBLE UNSIGNED", types.QValueKindFloat64},
-		{"double precision(m,d)", "DOUBLE PRECISION(10,2)", types.QValueKindFloat64},
+		{name: "float(m,d)", colDef: "FLOAT(10,2)", want: types.QValueKindFloat32},
+		{name: "float unsigned", colDef: "FLOAT UNSIGNED", want: types.QValueKindFloat32},
+		{name: "double(m,d)", colDef: "DOUBLE(10,2)", want: types.QValueKindFloat64},
+		{name: "double unsigned", colDef: "DOUBLE UNSIGNED", want: types.QValueKindFloat64},
+		{name: "double precision(m,d)", colDef: "DOUBLE PRECISION(10,2)", want: types.QValueKindFloat64},
 
 		// FLOAT(p) single-precision form: p<=24 stays float, p>=25 normalizes to double.
-		{"float(p) p<=24 is float", "FLOAT(24)", types.QValueKindFloat32},
-		{"float(p) p>=25 is double", "FLOAT(25)", types.QValueKindFloat64},
+		{name: "float(p) p<=24 is float", colDef: "FLOAT(24)", want: types.QValueKindFloat32},
+		{name: "float(p) p>=25 is double", colDef: "FLOAT(25)", want: types.QValueKindFloat64},
 
 		// Character types without an explicit length normalize to length 1.
-		{"char without length", "CHAR CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", types.QValueKindString},
-		{"nchar without length", "NCHAR", types.QValueKindString},
-		{"national char without length", "NATIONAL CHAR", types.QValueKindString},
+		{name: "char without length", colDef: "CHAR CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", want: types.QValueKindString},
+		{name: "nchar without length", colDef: "NCHAR", want: types.QValueKindString},
+		{name: "national char without length", colDef: "NATIONAL CHAR", want: types.QValueKindString},
 
 		// Binary without length normalizes to binary(1); blob with length stays bytes.
-		{"binary without length", "BINARY", types.QValueKindBytes},
-		{"blob(M)", "BLOB(100)", types.QValueKindBytes},
+		{name: "binary without length", colDef: "BINARY", want: types.QValueKindBytes},
+		{name: "blob(M)", colDef: "BLOB(100)", want: types.QValueKindBytes},
 
 		// CHARACTER SET binary changes char/varchar/text into binary/blob types.
-		{"char charset binary", "CHAR(10) CHARACTER SET binary", types.QValueKindBytes},
-		{"varchar charset binary", "VARCHAR(10) CHARACTER SET binary", types.QValueKindBytes},
-		{"text charset binary", "TEXT CHARACTER SET binary", types.QValueKindBytes},
+		{name: "char charset binary", colDef: "CHAR(10) CHARACTER SET binary", want: types.QValueKindBytes},
+		{name: "varchar charset binary", colDef: "VARCHAR(10) CHARACTER SET binary", want: types.QValueKindBytes},
+		{name: "text charset binary", colDef: "TEXT CHARACTER SET binary", want: types.QValueKindBytes},
 
 		// Non-binary charset / collate / (deprecated) binary modifiers on string-ish types
 		// don't change the qkind — they only affect collation, which we don't key off here.
-		{"varchar charset", "VARCHAR(10) CHARACTER SET utf8mb4", types.QValueKindString},
-		{"varchar collate", "VARCHAR(10) COLLATE utf8mb4_bin", types.QValueKindString},
-		{"varchar charset collate", "VARCHAR(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", types.QValueKindString},
-		{"text charset", "TEXT CHARACTER SET latin1", types.QValueKindString},
-		{"enum charset", "ENUM('a','b') CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", types.QValueKindEnum},
-		{"set collate", "SET('a','b') COLLATE utf8mb4_bin", types.QValueKindString},
+		{name: "varchar charset", colDef: "VARCHAR(10) CHARACTER SET utf8mb4", want: types.QValueKindString},
+		{name: "varchar collate", colDef: "VARCHAR(10) COLLATE utf8mb4_bin", want: types.QValueKindString},
+		{name: "varchar charset collate", colDef: "VARCHAR(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", want: types.QValueKindString},
+		{name: "text charset", colDef: "TEXT CHARACTER SET latin1", want: types.QValueKindString},
+		{name: "enum charset", colDef: "ENUM('a','b') CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", want: types.QValueKindEnum},
+		{name: "set collate", colDef: "SET('a','b') COLLATE utf8mb4_bin", want: types.QValueKindString},
 		// The deprecated BINARY modifier only forces binary collation; the parser strips it,
 		// so the qkind is unaffected (it is NOT the BINARY column type).
-		{"varchar binary modifier", "VARCHAR(10) BINARY", types.QValueKindString},
-		{"text binary modifier", "TEXT BINARY", types.QValueKindString},
-		{"enum binary modifier", "ENUM('a','b') BINARY", types.QValueKindEnum},
-		{"set binary modifier", "SET('a','b') BINARY", types.QValueKindString},
+		{name: "varchar binary modifier", colDef: "VARCHAR(10) BINARY", want: types.QValueKindString},
+		{name: "text binary modifier", colDef: "TEXT BINARY", want: types.QValueKindString},
+		{name: "enum binary modifier", colDef: "ENUM('a','b') BINARY", want: types.QValueKindEnum},
+		{name: "set binary modifier", colDef: "SET('a','b') BINARY", want: types.QValueKindString},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			qkind, err := QkindFromMysqlColumnType(addColumnType(t, tc.colDef), true, shared.InternalVersion_Latest)
-			require.NoError(t, err)
-			require.Equal(t, tc.want, qkind)
+			typeModifier := int32(-1)
+			if tc.typeModifier != 0 {
+				typeModifier = tc.typeModifier
+			}
+
+			want := &protos.FieldDescription{
+				Name:         "c",
+				Type:         string(tc.want),
+				TypeModifier: typeModifier,
+				Nullable:     !tc.notNull,
+			}
+			require.Equal(t, want, addColumnFieldDescription(t, tc.colDef))
+
+			wantNotNull := *want
+			wantNotNull.Nullable = false
+			require.Equal(t, &wantNotNull, addColumnFieldDescription(t, tc.colDef+" NOT NULL"))
 		})
 	}
 }
