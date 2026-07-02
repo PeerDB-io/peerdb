@@ -19,7 +19,10 @@ func SetupTracerProvider(ctx context.Context, serviceName string, enabled bool) 
 		return nil, nil
 	}
 
-	exporter, err := otlptracegrpc.New(ctx)
+	// otel v1.44.0 introduced a default max request size of 64 MiB, making oversized
+	// exports fail as non-retryable errors; 0 disables it, preserving the previous
+	// unlimited behavior
+	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithMaxRequestSize(0))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 	}

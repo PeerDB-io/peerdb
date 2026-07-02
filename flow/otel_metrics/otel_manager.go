@@ -706,11 +706,14 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
 	var err error
+	// otel v1.44.0 introduced a default max request size of 64 MiB, making oversized
+	// exports fail as non-retryable errors; 0 disables it, preserving the previous
+	// unlimited behavior
 	switch otlpMetricProtocol {
 	case "http/protobuf":
-		metricExporter, err = otlpmetrichttp.New(ctx)
+		metricExporter, err = otlpmetrichttp.New(ctx, otlpmetrichttp.WithMaxRequestSize(0))
 	case "grpc":
-		metricExporter, err = otlpmetricgrpc.New(ctx)
+		metricExporter, err = otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithMaxRequestSize(0))
 	default:
 		return nil, fmt.Errorf("unsupported otel metric protocol: %s", otlpMetricProtocol)
 	}
@@ -741,6 +744,9 @@ func setupMetricsAndProvider(
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithResource(otelResource),
 		sdkmetric.WithView(views...),
+		// otel v1.44.0 introduced a default cardinality limit of 2000 per instrument;
+		// 0 disables it, preserving the previous unlimited behavior
+		sdkmetric.WithCardinalityLimit(0),
 	)
 	return meterProvider, nil
 }
