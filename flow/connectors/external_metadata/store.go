@@ -270,7 +270,7 @@ func (p *PostgresMetadata) FinishQRepPartition(
 		// Clone rather than mutate in place because this partition is shared with the pull
 		// goroutine, cloning keeps us from relying on implicit ordering to avoid a write race.
 		// TODO: drop the sync_partition column entirely; nothing reads it back.
-		partition = proto.Clone(partition).(*protos.QRepPartition)
+		partition = proto.CloneOf(partition)
 		partition.Range = nil
 	}
 	pbytes, err := protojson.Marshal(partition)
