@@ -257,35 +257,20 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", srcTable, dstTable, "id,c1")
 
-	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
+	// MySQL auto-increment ids surface as unsigned bigints, Postgres SERIAL ids as int32.
+	idKind := types.QValueKindInt32
+	if _, isMySQL := s.Source().(*MySqlSource); isMySQL {
+		idKind = types.QValueKindUInt64
 	}
+
+	expectedTableSchema := ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	// alter source table, add column c2 and insert another row.
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName)))
@@ -293,35 +278,15 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	// verify we got our two rows, if schema did not match up it will error.
 	EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
 
 	// alter source table, add column c3, drop column c2 and insert another row.
@@ -330,40 +295,16 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	// verify we got our two rows, if schema did not match up it will error.
 	EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c2 column", srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c3"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
 
 	// alter source table, drop column c3 and insert another row.
@@ -372,40 +313,16 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	// verify we got our two rows, if schema did not match up it will error.
 	EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c3 column", srcTable, dstTable, "id,c1")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c3"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")
 
 	env.Cancel(t.Context())
@@ -631,66 +548,36 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	EnvWaitForEqualTablesWithNames(env, s, "table1 added column", srcTable1, dstTable1, "id,c1,coalesce(c2,0) c2")
 	EnvWaitForEqualTablesWithNames(env, s, "table2 not added column", srcTable2, dstTable2, "id,c1")
 
-	expectedTableSchema1 := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable1),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
+	// MySQL auto-increment ids surface as unsigned bigints, Postgres SERIAL ids as int32.
+	_, isMySQL := s.Source().(*MySqlSource)
+	idKind := types.QValueKindInt32
+	if isMySQL {
+		idKind = types.QValueKindUInt64
 	}
-	expectedTableSchema2 := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable1),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
+
+	// table1 received a DML referencing c2, so c2 reached the destination.
+	expectedTableSchema1 := ExpectedDestinationSchema(s, dstTable1, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
+	// table2's c2 was added on the source but not yet referenced by its own DML. MySQL applies the ALTER
+	// eagerly from the binlog, so c2 has already reached table2's destination; Postgres defers it until
+	// table2's next DML (pgoutput emits the relation message lazily).
+	table2Columns := []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
 	}
+	if isMySQL {
+		table2Columns = append(table2Columns,
+			&protos.FieldDescription{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1})
+	}
+	expectedTableSchema2 := ExpectedDestinationSchema(s, dstTable2, table2Columns)
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema2, output[dstTableName2]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema1, output[dstTableName1]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema2, output[dstTableName2]))
 
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES (3, 3)`, srcTableName1)))
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES (2, 2)`, srcTableName2)))
@@ -701,8 +588,11 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName2]))
+	// After table2's DML arrives, it should have the same columns as table1
+	// while keeping its own table identifier.
+	expectedTableSchema2.Columns = expectedTableSchema1.Columns
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema1, output[dstTableName1]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema2, output[dstTableName2]))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)

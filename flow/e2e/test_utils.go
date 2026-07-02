@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
@@ -767,55 +768,25 @@ func SignalWorkflow[T any](ctx context.Context, env WorkflowRun, signal model.Ty
 	}
 }
 
-func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
-	xColNames := make([]string, 0, len(x.Columns))
-	xColTypes := make([]string, 0, len(x.Columns))
-	yColNames := make([]string, 0, len(y.Columns))
-	yColTypes := make([]string, 0, len(y.Columns))
-	xTypmods := make([]int32, 0, len(x.Columns))
-	yTypmods := make([]int32, 0, len(y.Columns))
-
-	for _, col := range x.Columns {
-		xColNames = append(xColNames, col.Name)
-		xColTypes = append(xColTypes, col.Type)
-		xTypmods = append(xTypmods, col.TypeModifier)
-	}
-	for _, col := range y.Columns {
-		yColNames = append(yColNames, col.Name)
-		yColTypes = append(yColTypes, col.Type)
-		yTypmods = append(yTypmods, col.TypeModifier)
-	}
-
-	return x.TableIdentifier == y.TableIdentifier ||
-		x.IsReplicaIdentityFull == y.IsReplicaIdentityFull ||
-		slices.Compare(x.PrimaryKeyColumns, y.PrimaryKeyColumns) == 0 ||
-		slices.Compare(xColNames, yColNames) == 0 ||
-		slices.Compare(xColTypes, yColTypes) == 0 ||
-		slices.Compare(xTypmods, yTypmods) == 0
-}
-
 func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual *protos.TableSchema) bool {
 	t.Helper()
 
+	var diffs []string
 	if expected.TableIdentifier != actual.TableIdentifier {
-		t.Logf("expected table identifier %s, got %s", expected.TableIdentifier, actual.TableIdentifier)
-		return false
+		diffs = append(diffs, fmt.Sprintf("table identifier: expected %s, got %s", expected.TableIdentifier, actual.TableIdentifier))
 	}
 	if expected.IsReplicaIdentityFull != actual.IsReplicaIdentityFull {
-		t.Logf("expected replica identity full to be %t, got %t", expected.IsReplicaIdentityFull, actual.IsReplicaIdentityFull)
-		return false
+		diffs = append(diffs, fmt.Sprintf("replica identity full: expected %t, got %t",
+			expected.IsReplicaIdentityFull, actual.IsReplicaIdentityFull))
 	}
 	if expected.NullableEnabled != actual.NullableEnabled {
-		t.Logf("expected nullable enabled to be %t, got %t", expected.NullableEnabled, actual.NullableEnabled)
-		return false
+		diffs = append(diffs, fmt.Sprintf("nullable enabled: expected %t, got %t", expected.NullableEnabled, actual.NullableEnabled))
 	}
 	if expected.System != actual.System {
-		t.Logf("expected system to be %s, got %s", expected.System, actual.System)
-		return false
+		diffs = append(diffs, fmt.Sprintf("system: expected %s, got %s", expected.System, actual.System))
 	}
 	if slices.Compare(expected.PrimaryKeyColumns, actual.PrimaryKeyColumns) != 0 {
-		t.Logf("expected primary keys columns %v, got %v", expected.PrimaryKeyColumns, actual.PrimaryKeyColumns)
-		return false
+		diffs = append(diffs, fmt.Sprintf("primary key columns: expected %v, got %v", expected.PrimaryKeyColumns, actual.PrimaryKeyColumns))
 	}
 
 	sortAndExtractColumns := func(cols []*protos.FieldDescription) ([]string, []string, []int32, []bool) {
@@ -842,23 +813,57 @@ func RequireEqualTableSchemas(t *testing.T, expected *protos.TableSchema, actual
 	actualColNames, actualColTypes, actualTypmods, actualNullables := sortAndExtractColumns(actual.Columns)
 
 	if !slices.Equal(expectedColNames, actualColNames) {
-		t.Logf("expected columns names %v, got %v", expectedColNames, actualColNames)
-		return false
+		diffs = append(diffs, fmt.Sprintf("column names: expected %v, got %v", expectedColNames, actualColNames))
 	}
 	if !slices.Equal(expectedColTypes, actualColTypes) {
-		t.Logf("expected column types %v, got %v", expectedColTypes, actualColTypes)
-		return false
+		diffs = append(diffs, fmt.Sprintf("column types: expected %v, got %v", expectedColTypes, actualColTypes))
 	}
 	if !slices.Equal(expectedTypmods, actualTypmods) {
-		t.Logf("expected column typmods %v, got %v", expectedTypmods, actualTypmods)
-		return false
+		diffs = append(diffs, fmt.Sprintf("column typmods: expected %v, got %v", expectedTypmods, actualTypmods))
 	}
 	if !slices.Equal(expectedNullables, actualNullables) {
-		t.Logf("expected nullables %v, got %v", expectedNullables, actualNullables)
+		diffs = append(diffs, fmt.Sprintf("column nullables: expected %v, got %v", expectedNullables, actualNullables))
+	}
+
+	if len(diffs) > 0 {
+		t.Logf("table schema mismatch:\n  %s", strings.Join(diffs, "\n  "))
 		return false
 	}
 
 	return true
+}
+
+func ExpectedDestinationSchema(s GenericSuite, dstTable string, userColumns []*protos.FieldDescription) *protos.TableSchema {
+	idCol := ExpectedDestinationIdentifier(s, "id")
+	schema := &protos.TableSchema{
+		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
+		System:          protos.TypeSystem_Q,
+	}
+
+	switch s.DestinationConnector().(type) {
+	case *connclickhouse.ClickHouseConnector:
+		for _, col := range userColumns {
+			col.Nullable = false
+			schema.Columns = append(schema.Columns, col)
+		}
+		schema.Columns = append(schema.Columns,
+			&protos.FieldDescription{Name: "_peerdb_is_deleted", Type: string(types.QValueKindUInt8), TypeModifier: -1},
+			&protos.FieldDescription{Name: "_peerdb_synced_at", Type: string(types.QValueKindTimestamp), TypeModifier: -1},
+			&protos.FieldDescription{Name: "_peerdb_version", Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		)
+	case *connpostgres.PostgresConnector:
+		schema.PrimaryKeyColumns = []string{idCol}
+		for _, col := range userColumns {
+			col.Nullable = col.Name != idCol
+			schema.Columns = append(schema.Columns, col)
+		}
+		schema.Columns = append(schema.Columns,
+			&protos.FieldDescription{Name: "_PEERDB_SYNCED_AT", Type: string(types.QValueKindTimestamp), TypeModifier: -1, Nullable: true},
+		)
+	default:
+		panic(fmt.Sprintf("ExpectedDestinationSchema: unsupported destination connector %T", s.DestinationConnector()))
+	}
+	return schema
 }
 
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {

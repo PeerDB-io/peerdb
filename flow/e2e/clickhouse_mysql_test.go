@@ -24,7 +24,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -1188,70 +1187,29 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", srcTable, dstTable, "id,c1")
 
-	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema := ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	// alter source table, add column addedColumn and insert another row.
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN `addedColumn` BIGINT", srcTableName)))
 	// so that the batch finishes, insert a row into the second source table.
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s VALUES(DEFAULT)`, secondSrcTableName)))
 	EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "addedColumn"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "addedColumn"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
@@ -1313,35 +1271,14 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	EnvWaitForEqualTablesWithNames(env, s, "initial row", srcTable, dstTable, "id,c1")
 
 	// Verify initial schema
-	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema := ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	// ============================================
 	// Simulate gh-ost migration: add columns to test type detection
@@ -1429,76 +1366,26 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	require.Equal(t, fixedBinaryWant, qvalueBytes(dstRows.Records[2][1]))
 	require.Equal(t, varBinaryWant, qvalueBytes(dstRows.Records[2][2]))
 
-	// Verify schema was updated to include new columns with correct types and typmods
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindInt64), // BIGINT
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(types.QValueKindUInt32), // INT UNSIGNED
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c4"),
-				Type:         string(types.QValueKindBytes), // BLOB (binary charset)
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c5"),
-				Type:         string(types.QValueKindString), // TEXT (non-binary charset)
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c6"),
-				Type:         string(types.QValueKindNumeric), // DECIMAL (default 10,0)
-				TypeModifier: datatypes.MakeNumericTypmod(10, 0),
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c7"),
-				Type:         string(types.QValueKindNumeric), // DECIMAL(10,2)
-				TypeModifier: datatypes.MakeNumericTypmod(10, 2),
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c8"),
-				Type:         string(types.QValueKindNumeric), // DECIMAL(18,6)
-				TypeModifier: datatypes.MakeNumericTypmod(18, 6),
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c9"),
-				Type:         string(types.QValueKindBytes), // BINARY(16)
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c10"),
-				Type:         string(types.QValueKindBytes), // VARBINARY(16)
-				TypeModifier: -1,
-			},
-		},
-	}
+	// Verify schema was updated to include the new columns.
+	// BLOB/BINARY/VARBINARY are stored in ClickHouse as String,
+	// our CH GetTableSchemaForTable always returns TypeModifier -1 for decimals
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(types.QValueKindUInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},   // BIGINT
+		{Name: ExpectedDestinationIdentifier(s, "c3"), Type: string(types.QValueKindUInt32), TypeModifier: -1},  // INT UNSIGNED
+		{Name: ExpectedDestinationIdentifier(s, "c4"), Type: string(types.QValueKindString), TypeModifier: -1},  // BLOB (binary charset)
+		{Name: ExpectedDestinationIdentifier(s, "c5"), Type: string(types.QValueKindString), TypeModifier: -1},  // TEXT (non-binary charset)
+		{Name: ExpectedDestinationIdentifier(s, "c6"), Type: string(types.QValueKindNumeric), TypeModifier: -1}, // DECIMAL (default 10,0)
+		{Name: ExpectedDestinationIdentifier(s, "c7"), Type: string(types.QValueKindNumeric), TypeModifier: -1}, // DECIMAL(10,2)
+		{Name: ExpectedDestinationIdentifier(s, "c8"), Type: string(types.QValueKindNumeric), TypeModifier: -1}, // DECIMAL(18,6)
+		{Name: ExpectedDestinationIdentifier(s, "c9"), Type: string(types.QValueKindString), TypeModifier: -1},  // BINARY(16)
+		{Name: ExpectedDestinationIdentifier(s, "c10"), Type: string(types.QValueKindString), TypeModifier: -1}, // VARBINARY(16)
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
