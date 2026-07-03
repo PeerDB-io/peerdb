@@ -405,6 +405,10 @@ var tidbDiffModeCases = []tidbDiffModeCase{
 		want: "alter t{drop c}", note: "/*M! executes on MariaDB",
 	},
 	{
+		sql: "/*M!!ALTER TABLE t DROP COLUMN c /* trailing */ */", isMariaDB: true,
+		want: "alter t{drop c}", note: "digitless MariaDB reversed comment body was executed",
+	},
+	{
 		sql:  "/*M!100500 ALTER TABLE t DROP COLUMN c */",
 		want: "", note: "/*M! is a plain comment on MySQL",
 	},

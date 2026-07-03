@@ -1,0 +1,1 @@
+/*M!!ALTER TABLE t DROP COLUMN c /* trailing */ */

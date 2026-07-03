@@ -55,6 +55,10 @@ func TestDDLLexerExecCommentDigitRules(t *testing.T) {
 			name: "mbang five digit version prefix skipped", isMariaDB: true,
 			query: "ALTER TABLE t ADD c VARCHAR(/*M!10050 60*/)", wantType: "varchar(60)",
 		},
+		{
+			name: "mbang reversed four digits are code", isMariaDB: true,
+			query: "ALTER TABLE t ADD c VARCHAR(/*M!!1234*/)", wantType: "varchar(1234)",
+		},
 		// reversed comment with <5 digits is not a version comment either
 		{name: "reversed four digits are code", query: "ALTER TABLE t ADD c VARCHAR(/*!!2000*/)", wantType: "varchar(2000)", isMariaDB: true},
 	} {
@@ -110,6 +114,11 @@ func TestDDLLexerExecCommentGating(t *testing.T) {
 		{name: "reversed five digits is plain comment", query: "ALTER TABLE t ADD c INT /*!!11050 NOT NULL*/", isMariaDB: true, wantNN: false},
 		{name: "reversed six digits is plain comment", query: "ALTER TABLE t ADD c INT /*!!110500 NOT NULL*/", isMariaDB: true, wantNN: false},
 		{name: "reversed without digits is code", query: "ALTER TABLE t ADD c INT /*!! NOT NULL*/", isMariaDB: true, wantNN: true},
+		{
+			name: "mbang reversed five digits is plain comment", isMariaDB: true,
+			query: "ALTER TABLE t ADD c INT /*M!!11050 NOT NULL*/", wantNN: false,
+		},
+		{name: "mbang reversed without digits is code", query: "ALTER TABLE t ADD c INT /*M!! NOT NULL*/", isMariaDB: true, wantNN: true},
 		// optimizer-hint syntax is an ordinary comment outside DML keyword position
 		{name: "plus is plain comment", query: "ALTER TABLE t ADD c INT /*+ NOT NULL */", wantNN: false},
 		{name: "empty comment", query: "ALTER TABLE t ADD c INT /**/ NOT NULL", wantNN: true},

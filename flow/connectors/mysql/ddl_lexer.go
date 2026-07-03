@@ -143,8 +143,8 @@ func (lx *ddlLexer) skipLineComment() {
 // accepts 5 or 6 digits, while MySQL accepts a sixth digit only when it is
 // followed by whitespace. Fewer digits mean the body (digits included) is code.
 // MariaDB skips MySQL-style 5.7..9.x gates (50700..99999) but not /*M! gates.
-// MariaDB /*!!NNNNN reverses the gate: surviving digits mean the source skipped
-// it, while a digitless /*!! body was executed.
+// MariaDB /*!!NNNNN and /*M!!NNNNN reverse the gate: surviving digits mean the
+// source skipped it, while a digitless body was executed.
 func (lx *ddlLexer) scanComment() {
 	n := len(lx.s)
 	body := lx.pos + 2
@@ -167,8 +167,16 @@ func (lx *ddlLexer) scanComment() {
 		lx.pos = body + 1 + versionLen
 		lx.execComment++
 	case lx.isMariaDB && body+1 < n && lx.s[body] == 'M' && lx.s[body+1] == '!':
-		versionLen, _ := ddlVersionPrefix(lx.s, body+2, true)
-		lx.pos = body + 2 + versionLen
+		versionPos := body + 2
+		if versionPos < n && lx.s[versionPos] == '!' {
+			if l, _ := ddlVersionPrefix(lx.s, versionPos+1, true); l > 0 {
+				lx.skipPlainComment()
+				return
+			}
+			versionPos++
+		}
+		versionLen, _ := ddlVersionPrefix(lx.s, versionPos, true)
+		lx.pos = versionPos + versionLen
 		lx.execComment++
 	default:
 		lx.skipPlainComment()
