@@ -234,6 +234,7 @@ message MySqlConfig {
   MySqlAuthType auth_type = 15;
   optional AwsAuthenticationConfig aws_auth = 16;
   bool skip_cert_verification = 17;
+  optional uint32 server_id = 18;
 }
 
 message KafkaConfig {

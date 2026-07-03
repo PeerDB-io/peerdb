@@ -1134,6 +1134,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             }
             .into(),
             aws_auth: None,
+            server_id: opts.get("server_id").and_then(|s| s.parse::<u32>().ok()),
         }),
         DbType::DbtypeUnknown => return Ok(None),
     }))

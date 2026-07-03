@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"sync/atomic"
@@ -330,9 +331,19 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get event cache count: %w", err)
 	}
-	//nolint:gosec
+
+	var serverId uint32
+	if c.config.ServerId != nil {
+		serverId = *c.config.ServerId
+	} else {
+		// If the configuration doesn't specify a server_id value, fallback to
+		// default behavior of generating a random server_id in the range [1000, MaxUint32).
+		// Range reference: https://dev.mysql.com/doc/refman/9.7/en/replication-options.html#sysvar_server_id
+		serverId = 1000 + rand.Uint32()%(math.MaxUint32-1000) //nolint:gosec // G404: server_id does not require cryptographic randomness
+	}
+
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
-		ServerID:         rand.Uint32(),
+		ServerID:         serverId,
 		Flavor:           c.Flavor(),
 		Host:             config.Host,
 		Port:             uint16(config.Port),
