@@ -157,9 +157,17 @@ func (p *ddlParser) expectIdent(what string) (string, error) {
 	return "", fmt.Errorf("expected %s at byte %d", what, t.pos)
 }
 
-// parseTableIdent parses ident or ident.ident (any quoting; after '.' even
-// all-digit words are identifiers). Schema is empty when unqualified.
+// parseTableIdent parses ident, ident.ident, or .ident (any quoting; after '.'
+// even all-digit words are identifiers). Schema is empty when unqualified.
 func (p *ddlParser) parseTableIdent() (string, string, error) {
+	if p.peekPunct(0, '.') {
+		p.next()
+		table, err := p.expectIdent("table name after '.'")
+		if err != nil {
+			return "", "", err
+		}
+		return "", table, nil
+	}
 	first, err := p.expectIdent("table name")
 	if err != nil {
 		return "", "", err

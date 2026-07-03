@@ -354,6 +354,10 @@ var tidbDiffModeCases = []tidbDiffModeCase{
 		sql: "ALTER TABLE [db].[t] DROP COLUMN [c]", sqlMode: sqlModeMSSQL,
 		want: "ERROR", note: "MODE_MSSQL lexing is MariaDB-only; on MySQL '[' stays punctuation",
 	},
+	{
+		sql: "ALTER TABLE  .t DROP COLUMN a", sqlMode: sqlModeOracle | sqlModeANSIQuotes, isMariaDB: true,
+		want: "alter t{drop a}", note: "leading-dot table name uses the current database",
+	},
 	// --- MariaDB sql_mode=ORACLE types ---
 	{
 		sql: "ALTER TABLE t MODIFY a NUMBER(10,2)", sqlMode: sqlModeOracle, isMariaDB: true,
