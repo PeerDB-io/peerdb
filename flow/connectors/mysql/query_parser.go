@@ -48,6 +48,8 @@ func leadingKeywords(query string, limit int, isMariaDb bool) []string {
 				return out
 			}
 			i += nl + 1
+		case c == '`' || c == '\'' || c == '"':
+			i = skipQuoted(query, i)
 		case isStatementKeywordByte(c):
 			j := i + 1
 			for j < n && isStatementKeywordByte(query[j]) {
@@ -56,11 +58,34 @@ func leadingKeywords(query string, limit int, isMariaDb bool) []string {
 			out = append(out, strings.ToUpper(query[i:j]))
 			i = j
 		default:
-			// punctuation/operators (=, (, `, ', @, %, ...) — not part of a keyword
+			// punctuation/operators (=, (, @, %, ...) — not part of a keyword
 			i++
 		}
 	}
 	return out
+}
+
+// skipQuoted consumes a backtick-quoted identifier or a single/double-quoted string
+// literal starting at query[i] (which must be the opening quote), returning the index
+// just past the closing quote, or len(query) if it is unterminated.
+func skipQuoted(query string, i int) int {
+	q := query[i]
+	backslashEscapes := q != '`'
+	for j, n := i+1, len(query); j < n; j++ {
+		switch query[j] {
+		case '\\':
+			if backslashEscapes {
+				j++ // skip the escaped byte
+			}
+		case q:
+			if j+1 < n && query[j+1] == q {
+				j++ // doubled quote is an escaped quote; stay inside the span
+				continue
+			}
+			return j + 1
+		}
+	}
+	return len(query)
 }
 
 // executableCommentBody reports the index at which an executable comment's body

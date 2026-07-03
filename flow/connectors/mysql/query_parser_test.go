@@ -117,6 +117,12 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		},
 		{name: "alter table rename column is reported", query: "ALTER TABLE t RENAME COLUMN a TO b", want: false},
 		{name: "alter table rename to table is reported", query: "ALTER TABLE t RENAME TO t2", want: false},
+		// --- NOT benign: a column whose quoted name matches an index keyword must still be reported ---
+		{name: "alter table add backtick key column is reported", query: "ALTER TABLE t ADD `key` VARCHAR(20)", want: false},
+		{name: "alter table add backtick index column is reported", query: "ALTER TABLE t ADD COLUMN `index` INT", want: false},
+		{name: "alter table drop backtick constraint column is reported", query: "ALTER TABLE t DROP `constraint`", want: false},
+		// --- benign: an index op naming a column that matches a keyword stays index-only ---
+		{name: "alter table add index on keyword-named column", query: "ALTER TABLE t ADD INDEX idx (`key`)", want: true},
 		// --- NOT benign: the only statements the handler acts on must still be reported ---
 		{
 			name:  "alter table modify is reported",
