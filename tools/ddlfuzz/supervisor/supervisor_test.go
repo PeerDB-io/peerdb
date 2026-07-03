@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -63,6 +64,171 @@ func TestBudgetArithmetic(t *testing.T) {
 	if !BudgetExhausted(records, 3, 150*time.Minute) {
 		t.Fatalf("wall time should exhaust budget")
 	}
+}
+
+func TestTouchesE2EBinary(t *testing.T) {
+	tests := []struct {
+		name  string
+		paths []string
+		want  bool
+	}{
+		{name: "flow parser", paths: []string{"flow/connectors/mysql/ddl_parser.go"}, want: true},
+		{name: "internal e2echeck", paths: []string{"tools/ddlfuzz/internal/e2echeck/compare.go"}, want: true},
+		{name: "e2e harness", paths: []string{"tools/ddlfuzz/e2e/matcher.go"}, want: true},
+		{name: "e2e main", paths: []string{"tools/ddlfuzz/cmd/ddlfuzz-e2e/main.go"}, want: true},
+		{name: "go mod", paths: []string{"tools/ddlfuzz/go.mod"}, want: true},
+		{name: "oracle", paths: []string{"tools/ddlfuzz/oracle/mysql/digest.cc"}},
+		{name: "seeds", paths: []string{"tools/ddlfuzz/seeds/x.sql"}},
+		{name: "supervisor", paths: []string{"tools/ddlfuzz/supervisor/fixloop.go"}},
+		{name: "docs", paths: []string{"docs/x.md"}},
+		{name: "empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := touchesE2EBinary(tt.paths); got != tt.want {
+				t.Fatalf("touchesE2EBinary(%v)=%v, want %v", tt.paths, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestE2EHotRestartLaneDown(t *testing.T) {
+	cfg := testConfig(t)
+	if err := os.MkdirAll(cfg.BuildDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldBin := []byte("old")
+	newBin := []byte("new")
+	mustWrite(t, cfg.E2EBin, string(oldBin))
+	newPath := filepath.Join(cfg.BuildDir, "ddlfuzz-e2e.new")
+	mustWrite(t, newPath, string(newBin))
+
+	m := NewE2EManager(cfg, nil)
+	if err := m.HotRestart(context.Background(), newPath); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(cfg.E2EBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(newBin) {
+		t.Fatalf("renamed binary mismatch: %q", got)
+	}
+	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
+		t.Fatalf("new binary still exists or stat failed: %v", err)
+	}
+}
+
+func TestPriorFixEvidence(t *testing.T) {
+	tests := []struct {
+		name    string
+		meta    FindingMeta
+		records []AttemptRecord
+		want    bool
+	}{
+		{name: "fixed by sibling", meta: FindingMeta{FixedBy: "aaaaaaaaaaaa"}, want: true},
+		{name: "prior fixed outcome", records: []AttemptRecord{{Outcome: "failed"}, {Outcome: "fixed"}}, want: true},
+		{name: "none", records: []AttemptRecord{{Outcome: "did-not-reproduce"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := priorFixEvidence(tt.meta, tt.records); got != tt.want {
+				t.Fatalf("priorFixEvidence()=%v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfirmFixed(t *testing.T) {
+	t.Run("fixed by exits zero", func(t *testing.T) {
+		cfg := testConfig(t)
+		writeReplayStub(t, cfg, 0)
+		writeMetaFixture(t, cfg, "aaaaaaaaaaaa", "open")
+		metaPath := filepath.Join(cfg.StateDir, "findings", "aaaaaaaaaaaa", "meta.json")
+		meta, err := loadFindingMeta(metaPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta.FixedBy = "bbbbbbbbbbbb"
+		if err := writeFindingMeta(metaPath, meta); err != nil {
+			t.Fatal(err)
+		}
+		attemptPath := filepath.Join(cfg.StateDir, "attempts", "aaaaaaaaaaaa.jsonl")
+
+		finding := mustFinding(t, cfg, "aaaaaaaaaaaa")
+		if !priorFixEvidence(finding.Meta, nil) || !confirmFixed(context.Background(), cfg, finding, nil) {
+			t.Fatalf("expected confirm-fixed success")
+		}
+		got := mustMeta(t, metaPath)
+		if got.Status != "fixed" || got.FixedBy != "bbbbbbbbbbbb" {
+			t.Fatalf("meta mismatch: %#v", got)
+		}
+		records, err := LoadAttemptRecords(attemptPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(records) != 0 {
+			t.Fatalf("confirm-fixed appended attempt records: %#v", records)
+		}
+	})
+
+	t.Run("prior fixed attempt exits zero", func(t *testing.T) {
+		cfg := testConfig(t)
+		writeReplayStub(t, cfg, 0)
+		writeMetaFixture(t, cfg, "bbbbbbbbbbbb", "open")
+		attemptPath := filepath.Join(cfg.StateDir, "attempts", "bbbbbbbbbbbb.jsonl")
+		if err := AppendAttemptRecord(attemptPath, AttemptRecord{Attempt: 1, Sig: "bbbbbbbbbbbb", Outcome: "fixed"}); err != nil {
+			t.Fatal(err)
+		}
+		records, err := LoadAttemptRecords(attemptPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		finding := mustFinding(t, cfg, "bbbbbbbbbbbb")
+		if !priorFixEvidence(finding.Meta, records) || !confirmFixed(context.Background(), cfg, finding, nil) {
+			t.Fatalf("expected confirm-fixed success")
+		}
+		got := mustMeta(t, finding.MetaPath)
+		if got.Status != "fixed" {
+			t.Fatalf("status=%q, want fixed", got.Status)
+		}
+		after, err := LoadAttemptRecords(attemptPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(after) != 1 {
+			t.Fatalf("attempt record count changed: %#v", after)
+		}
+	})
+
+	t.Run("replay still diverges", func(t *testing.T) {
+		cfg := testConfig(t)
+		writeReplayStub(t, cfg, 10)
+		writeMetaFixture(t, cfg, "cccccccccccc", "open")
+		finding := mustFinding(t, cfg, "cccccccccccc")
+		finding.Meta.FixedBy = "aaaaaaaaaaaa"
+		if confirmFixed(context.Background(), cfg, finding, nil) {
+			t.Fatalf("confirmFixed succeeded for exit 10")
+		}
+		got := mustMeta(t, finding.MetaPath)
+		if got.Status != "open" {
+			t.Fatalf("status=%q, want open", got.Status)
+		}
+	})
+
+	t.Run("no evidence skips replay", func(t *testing.T) {
+		cfg := testConfig(t)
+		marker := filepath.Join(cfg.StateDir, "replay-called")
+		writeReplayStubWithMarker(t, cfg, 0, marker)
+		writeMetaFixture(t, cfg, "dddddddddddd", "open")
+		finding := mustFinding(t, cfg, "dddddddddddd")
+		if priorFixEvidence(finding.Meta, nil) && confirmFixed(context.Background(), cfg, finding, nil) {
+			t.Fatalf("unexpected confirm-fixed")
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("replay stub was invoked: %v", err)
+		}
+	})
 }
 
 func TestUntrackedDeletionPolicy(t *testing.T) {
@@ -207,4 +373,49 @@ func writeMetaFixture(t *testing.T, cfg Config, sig, status string) {
 	t.Helper()
 	meta := fmt.Sprintf(`{"sig":%q,"engine":"mysql","sql_mode":0,"lane":"fast","our_sig":"alter t{}","oracle_digest":{"signature":"alter t{col c=int}"},"status":%q,"discovered_at":"2026-07-03T12:00:00Z"}`, sig, status)
 	mustWrite(t, filepath.Join(cfg.StateDir, "findings", sig, "meta.json"), meta)
+}
+
+func writeReplayStub(t *testing.T, cfg Config, exitCode int) {
+	t.Helper()
+	writeReplayStubWithMarker(t, cfg, exitCode, "")
+}
+
+func writeReplayStubWithMarker(t *testing.T, cfg Config, exitCode int, marker string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(cfg.DDLfuzzBin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var script string
+	if marker != "" {
+		script = fmt.Sprintf("#!/bin/sh\nprintf called > %q\nexit %d\n", marker, exitCode)
+	} else {
+		script = fmt.Sprintf("#!/bin/sh\nexit %d\n", exitCode)
+	}
+	if err := os.WriteFile(cfg.DDLfuzzBin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustFinding(t *testing.T, cfg Config, sig string) Finding {
+	t.Helper()
+	findings, err := ScanFindings(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Sig == sig {
+			return f
+		}
+	}
+	t.Fatalf("finding %s not found", sig)
+	return Finding{}
+}
+
+func mustMeta(t *testing.T, path string) FindingMeta {
+	t.Helper()
+	meta, err := loadFindingMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return meta
 }

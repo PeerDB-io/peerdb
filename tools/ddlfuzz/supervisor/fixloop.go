@@ -593,7 +593,7 @@ func parseLooseTime(s string) time.Time {
 	return time.Time{}
 }
 
-func RunFixLoop(ctx context.Context, cfg Config, restarter *FuzzerManager, logf func(string, ...any)) {
+func RunFixLoop(ctx context.Context, cfg Config, restarter *FuzzerManager, e2e *E2EManager, logf func(string, ...any)) {
 	ticker := time.NewTicker(cfg.FindingEvery)
 	defer ticker.Stop()
 	for {
@@ -616,6 +616,19 @@ func RunFixLoop(ctx context.Context, cfg Config, restarter *FuzzerManager, logf 
 				logf("findings scan failed: %v", err)
 				continue
 			}
+			for i := range findings {
+				if findings[i].Meta.Status != "open" && findings[i].Meta.Status != "parked" {
+					continue
+				}
+				records, err := LoadAttemptRecords(filepath.Join(cfg.StateDir, "attempts", findings[i].Sig+".jsonl"))
+				if err != nil {
+					logf("attempt records load failed for %s: %v", findings[i].Sig, err)
+					continue
+				}
+				if priorFixEvidence(findings[i].Meta, records) && confirmFixed(ctx, cfg, findings[i], logf) {
+					findings[i].Meta.Status = "fixed"
+				}
+			}
 			groups, _ := LoadGroups(cfg)
 			parked, _ := LoadParkedList(cfg)
 			_ = ApplyFlapScanAndPark(cfg, groups, findings)
@@ -623,14 +636,14 @@ func RunFixLoop(ctx context.Context, cfg Config, restarter *FuzzerManager, logf 
 			if !ok {
 				continue
 			}
-			if err := FixOnce(ctx, cfg, primary.Sig, false, restarter, siblings, logf); err != nil {
+			if err := FixOnce(ctx, cfg, primary.Sig, false, restarter, e2e, siblings, logf); err != nil {
 				logf("fix attempt for %s failed: %v", primary.Sig, err)
 			}
 		}
 	}
 }
 
-func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, restarter *FuzzerManager, siblings []Finding, logf func(string, ...any)) error {
+func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, restarter *FuzzerManager, e2e *E2EManager, siblings []Finding, logf func(string, ...any)) error {
 	findings, err := ScanFindings(cfg)
 	if err != nil {
 		return err
@@ -651,6 +664,9 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 		return err
 	}
 	attemptN := NextAttemptNumber(records)
+	if priorFixEvidence(finding.Meta, records) && confirmFixed(ctx, cfg, finding, logf) {
+		return nil
+	}
 	if BudgetExhausted(records, 3, 150*time.Minute) {
 		return ParkSignature(cfg, finding, false, "attempt budget exhausted")
 	}
@@ -789,8 +805,18 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 			}
 			if err := rebuildAndHotRestart(ctx, cfg, skipFuzzer, restarter); err != nil {
 				outcome, detail = "failed", err.Error()
-			} else if outcome == "fixed" {
-				_ = enqueueE2EConfirmation(cfg, finding)
+			} else {
+				if touchesE2EBinary(paths) {
+					if err := rebuildAndHotRestartE2E(ctx, cfg, e2e); err != nil {
+						if logf != nil {
+							logf("e2e rebuild after %s failed: %v", sig, err)
+						}
+						_ = writeRunEscalation(cfg, "run-e2e-rebuild-failed.md", err.Error())
+					}
+				}
+				if outcome == "fixed" {
+					_ = enqueueE2EConfirmation(cfg, finding)
+				}
 			}
 		}
 	}
@@ -962,6 +988,36 @@ func validateReplayResolution(ctx context.Context, cfg Config, sig, outcome stri
 	return fmt.Errorf("unknown resolution %q", outcome)
 }
 
+func priorFixEvidence(meta FindingMeta, records []AttemptRecord) bool {
+	if meta.FixedBy != "" {
+		return true
+	}
+	for _, rec := range records {
+		if rec.Outcome == "fixed" {
+			return true
+		}
+	}
+	return false
+}
+
+func confirmFixed(ctx context.Context, cfg Config, f Finding, logf func(string, ...any)) bool {
+	res, err := RunReplay(ctx, cfg, f.Sig)
+	if err != nil || res.ExitCode != 0 {
+		return false
+	}
+	f.Meta.Status = "fixed"
+	if err := writeFindingMeta(f.MetaPath, f.Meta); err != nil {
+		if logf != nil {
+			logf("confirm-fixed meta update for %s failed: %v", f.Sig, err)
+		}
+		return false
+	}
+	if logf != nil {
+		logf("confirm-fixed %s", f.Sig)
+	}
+	return true
+}
+
 func RunReplay(ctx context.Context, cfg Config, sig string) (Result, error) {
 	return RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, cfg.DDLfuzzBin, "replay", sig)
 }
@@ -1054,6 +1110,21 @@ func rebuildAndHotRestart(ctx context.Context, cfg Config, skipFuzzer bool, rest
 		return os.Rename(newBin, cfg.DDLfuzzBin)
 	}
 	return restarter.HotRestart(ctx, newBin)
+}
+
+func rebuildAndHotRestartE2E(ctx context.Context, cfg Config, e2e *E2EManager) error {
+	newBin := filepath.Join(cfg.BuildDir, "ddlfuzz-e2e.new")
+	res, err := RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, "go", "build", "-tags", "ddlfuzz", "-o", newBin, "./cmd/ddlfuzz-e2e")
+	if err != nil || res.ExitCode != 0 {
+		if err == nil {
+			err = fmt.Errorf("exit code %d", res.ExitCode)
+		}
+		return fmt.Errorf("rebuild ddlfuzz-e2e.new failed: %w\n%s", err, resultOutputTail(res, 8000))
+	}
+	if e2e == nil {
+		return os.Rename(newBin, cfg.E2EBin)
+	}
+	return e2e.HotRestart(ctx, newBin)
 }
 
 func enqueueE2EConfirmation(cfg Config, finding Finding) error {

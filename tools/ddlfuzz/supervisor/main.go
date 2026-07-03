@@ -101,7 +101,7 @@ func fixOnceCommand(cfg Config, args []string) error {
 		return err
 	}
 	defer closeLog()
-	return FixOnce(context.Background(), cfg, sig, skipFuzzer, nil, nil, logger)
+	return FixOnce(context.Background(), cfg, sig, skipFuzzer, nil, nil, nil, logger)
 }
 
 func statusCommand(cfg Config) error {
@@ -157,7 +157,7 @@ func runCommand(cfg Config) error {
 	wg.Add(6)
 	go func() { defer wg.Done(); fuzzer.Run(deadlineCtx) }()
 	go func() { defer wg.Done(); e2e.Run(deadlineCtx) }()
-	go func() { defer wg.Done(); RunFixLoop(deadlineCtx, cfg, fuzzer, logger) }()
+	go func() { defer wg.Done(); RunFixLoop(deadlineCtx, cfg, fuzzer, e2e, logger) }()
 	go func() { defer wg.Done(); runReportTickers(deadlineCtx, cfg, fuzzer, e2e, logger) }()
 	go func() { defer wg.Done(); runDiskWatchdog(deadlineCtx, cfg, e2e, logger) }()
 	go func() { defer wg.Done(); runOracleCrossCheck(deadlineCtx, cfg, logger) }()
@@ -376,6 +376,16 @@ func (m *E2EManager) Stop() {
 	if p != nil {
 		p.StopGracefully(60 * time.Second)
 	}
+}
+
+func (m *E2EManager) HotRestart(ctx context.Context, newBin string) error {
+	m.mu.Lock()
+	p := m.proc
+	m.mu.Unlock()
+	if p != nil {
+		p.StopGracefully(60 * time.Second)
+	}
+	return os.Rename(newBin, m.cfg.E2EBin)
 }
 
 func (m *E2EManager) SetDisabled(disabled bool) {
