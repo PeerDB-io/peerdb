@@ -263,10 +263,10 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 	// verbatim LONGTEXT, so there the snapshot and CDC forms match each other but keep the
 	// original whitespace rather than MySQL's normalized form.
 	variants := []struct{ input, mysqlWant string }{
-		{`{"a": 1.0}`, `{"a":1.0}`},                             // DOUBLE keeps its trailing zero
-		{`{"a": 1.5, "b": 2.0}`, `{"a":1.5,"b":2.0}`},           // mixed doubles, keys already sorted
+		{`{"a": 1.0}`, `{"a":1.0}`},                                     // DOUBLE keeps its trailing zero
+		{`{"a": 1.5, "b": 2.0}`, `{"a":1.5,"b":2.0}`},                   // mixed doubles, keys already sorted
 		{`{"n": [1.0, 2, 3.5], "s": "x"}`, `{"n":[1.0,2,3.5],"s":"x"}`}, // nested array with doubles + int
-		{`{"k": "a, b: c"}`, `{"k":"a, b: c"}`},                 // whitespace inside strings is preserved
+		{`{"k": "a, b: c"}`, `{"k":"a, b: c"}`},                         // whitespace inside strings is preserved
 	}
 
 	insertVariants := func() {
