@@ -355,6 +355,9 @@ func (p *ddlParser) parseAddSpec() (*ddlAlterSpec, error) {
 		if err := p.parseColumnList(spec); err != nil {
 			return nil, err
 		}
+		if len(spec.NewColumns) == 0 {
+			return nil, nil
+		}
 		return spec, nil
 	}
 	// bare ADD needs disambiguation; an explicit COLUMN or IF NOT EXISTS already

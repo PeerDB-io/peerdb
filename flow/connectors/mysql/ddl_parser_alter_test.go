@@ -52,6 +52,7 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "ADD SPATIAL INDEX sp (g)"},
 		{alter: "ADD FULLTEXT KEY ft (b) WITH PARSER ngram"},
 		{alter: "ADD INDEX i ((LOWER(a)), b DESC) KEY_BLOCK_SIZE=8 COMMENT 'idx' INVISIBLE"},
+		{alter: "ADD (INDEX i (a))"},
 		{alter: "ADD INDEX IF NOT EXISTS i (a)", maria: true},
 		{alter: "ADD CONSTRAINT IF NOT EXISTS ck CHECK (a > 0)", maria: true},
 		// DROP of non-columns
