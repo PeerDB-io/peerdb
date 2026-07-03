@@ -2,7 +2,6 @@ package qvalue
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"math/big"
 	"strings"
@@ -81,7 +80,7 @@ func TestColumnNameAvroFieldConvert(t *testing.T) {
 
 func TestClickHouseDateTimeRange(t *testing.T) {
 	ctx := context.Background()
-	logger := log.NewStructuredLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	logger := log.NewStructuredLogger(slog.New(slog.DiscardHandler))
 
 	inRange := time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)
 	belowRange := time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC) // MySQL DATETIME min, below ClickHouse
