@@ -20,6 +20,8 @@ on:
 permissions:
   id-token: write
   contents: read
+  # Needed to post PR comments
+  pull-requests: write
 
 jobs:
   flow_test:
@@ -66,6 +68,10 @@ jobs:
                 parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    # Single source of truth for the compatibility-matrix identifier, consumed by both
+    # the ingest step (as its combination-id input) and the post-run test-coverage check.
+    env:
+      COMBINATION_ID: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
     services:
       catalog:
         image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
@@ -709,7 +715,67 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/ingest-test-results
         with:
-          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
+          combination-id: ${{ env.COMBINATION_ID }}
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
+
+      - name: Check all present test functions in the source branch were exercised in CI
+        # Compares the top-level tests that actually ran in CI (from the
+        # normalized results produced by the ingest step above) against every top-level
+        # test defined under ./flow, and fails if the branch defines tests CI never ran.
+        # Only runs for pull requests: it needs a PR number to comment on, and the parens
+        # matter because && binds tighter than || in GitHub Actions expressions.
+        if: (success() || failure()) && github.event.pull_request.number
+        working-directory: ./flow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          tmp="${RUNNER_TEMP:-/tmp}"
+
+          ndjson="../logs/normalized-test-results.ndjson"
+          if [ ! -s "$ndjson" ]; then
+            echo "::error::No normalized test results at ${ndjson} (results ingestion disabled or no tests ran); failing check."
+            exit 1
+          fi
+
+          # (run-tests): top-level test functions observed in CI results, with subtests
+          # collapsed onto their parent (TestFoo/sub -> TestFoo).
+          # This collapse is necessary because the branch test enumeration below only lists top-level tests functions.
+          jq -r '.test' "$ndjson" | { grep '^Test' || true; } | awk -F '/' '{ print $1 }' | sort -u > "${tmp}/run-tests.txt"
+          if [ ! -s "${tmp}/run-tests.txt" ]; then
+            echo "::error::No 'Test*' entries found in CI results; failing check."
+            exit 1
+          fi
+
+          # (tests-in-branch): every top-level test function defined in the source branch.
+          if ! go test -list '.*' ./... > "${tmp}/go-list.txt" 2> "${tmp}/go-list.err"; then
+            echo "::error::'go test -list' failed (likely a compilation error already surfaced by the test step); failing check."
+            cat "${tmp}/go-list.err"
+            exit 1
+          fi
+          { grep '^Test' "${tmp}/go-list.txt" || true; } | sort -u > "${tmp}/tests-in-branch.txt"
+
+          # Tests defined in the branch but never observed in CI results.
+          missing="$(comm -13 "${tmp}/run-tests.txt" "${tmp}/tests-in-branch.txt")"
+          if [ -z "$missing" ]; then
+            echo "All source-branch tests were exercised in CI."
+            exit 0
+          fi
+
+          echo "The following tests in the source branch have not been run in CI:"
+          printf '%s\n' "$missing"
+
+          # Post the summary once per PR
+          {
+            echo "The following tests in the source branch have not been run in test combination ${COMBINATION_ID}:"
+            echo
+            echo '```'
+            printf '%s\n' "$missing"
+            echo '```'
+          } > "${tmp}/missing-tests-comment.md"
+          gh pr comment "$PR_NUMBER" --body-file "${tmp}/missing-tests-comment.md"
+          exit 1
