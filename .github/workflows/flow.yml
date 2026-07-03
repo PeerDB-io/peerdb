@@ -20,8 +20,6 @@ on:
 permissions:
   id-token: write
   contents: read
-  # Needed to post PR comments
-  pull-requests: write
 
 jobs:
   flow_test:
@@ -68,10 +66,6 @@ jobs:
                 parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
-    # Single source of truth for the compatibility-matrix identifier, consumed by both
-    # the ingest step (as its combination-id input) and the post-run test-coverage check.
-    env:
-      COMBINATION_ID: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
     services:
       catalog:
         image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
@@ -715,7 +709,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/ingest-test-results
         with:
-          combination-id: ${{ env.COMBINATION_ID }}
+          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
@@ -724,14 +718,12 @@ jobs:
         # Compares the top-level tests that actually ran in CI (from the
         # normalized results produced by the ingest step above) against every top-level
         # test defined under ./flow, and fails if the branch defines tests CI never ran.
-        # Only runs for pull requests: it needs a PR number to comment on, and the parens
-        # matter because && binds tighter than || in GitHub Actions expressions.
-        if: (success() || failure()) && github.event.pull_request.number
+        # Only runs for pull request builds; skipped for non-PR builds (e.g. push to main).
+        # Parens matter: && binds tighter than || in GitHub Actions expressions.
+        if: |
+          (success() || failure()) &&
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
         working-directory: ./flow
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
           tmp="${RUNNER_TEMP:-/tmp}"
@@ -768,14 +760,4 @@ jobs:
 
           echo "The following tests in the source branch have not been run in CI:"
           printf '%s\n' "$missing"
-
-          # Post the summary once per PR
-          {
-            echo "The following tests in the source branch have not been run in test combination ${COMBINATION_ID}:"
-            echo
-            echo '```'
-            printf '%s\n' "$missing"
-            echo '```'
-          } > "${tmp}/missing-tests-comment.md"
-          gh pr comment "$PR_NUMBER" --body-file "${tmp}/missing-tests-comment.md"
           exit 1
