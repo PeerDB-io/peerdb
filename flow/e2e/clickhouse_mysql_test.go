@@ -237,8 +237,7 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
-	mysource, ok := s.source.(*MySqlSource)
-	if !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -252,17 +251,24 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 			js json NOT NULL
 		)`, srcFullName)))
 
-	variants := []struct{ input, mysqlWant string }{
-		{`{"a": 1.0}`, `{"a":1.0}`},                                     // DOUBLE keeps its trailing zero
-		{`{"a": 1.5, "b": 2.0}`, `{"a":1.5,"b":2.0}`},                   // mixed doubles, keys already sorted
-		{`{"n": [1.0, 2, 3.5], "s": "x"}`, `{"n":[1.0,2,3.5],"s":"x"}`}, // nested array with doubles + int
-		{`{"k": "a, b: c"}`, `{"k":"a, b: c"}`},                         // whitespace inside strings is preserved
+	// Values chosen to exercise the representation differences DBI-823 is about. The key one
+	// is object key order: MySQL stores keys in (length-then-byte) order while the old CDC
+	// path serialized via Go maps (lexicographic order), so {"z":1,"aa":2} diverged between
+	// snapshot and CDC before the fix. We don't hardcode MySQL's own rendering here because
+	// its number normalization is version dependent (e.g. 1.0 may be stored as an integer);
+	// the invariant we assert is that snapshot and CDC agree.
+	variants := []string{
+		`{"z": 1, "aa": 2}`,                           // key order: shorter key sorts after longer one
+		`{"b": 2, "a": 1}`,                            // key order: reversed on storage
+		`{"n": [3, 1, 2], "obj": {"y": 1, "x": 2}}`,   // nested object key order + array order preserved
+		`{"s": "a, b: c"}`,                            // whitespace inside strings is preserved
+		`{"pi": 3.14, "big": 1000000.5, "neg": -2.5}`, // genuine (non-whole) doubles
 	}
 
 	insertVariants := func() {
 		for _, v := range variants {
 			require.NoError(s.t, s.source.Exec(s.t.Context(),
-				fmt.Sprintf(`INSERT INTO %s (js) VALUES ('%s')`, srcFullName, v.input)))
+				fmt.Sprintf(`INSERT INTO %s (js) VALUES ('%s')`, srcFullName, v)))
 		}
 	}
 
@@ -287,21 +293,16 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 	EnvWaitForCount(env, s, "waiting for cdc", dstTableName, "id", 2*len(variants))
 
 	// GetRows orders by id, so snapshot rows (ids 1..N) come first, then CDC rows (N+1..2N);
-	// both batches hold the same values in the same order.
+	// both batches hold the same values in the same order, so row i and row i+N are the same
+	// logical value read via the snapshot and CDC paths respectively.
 	rows, err := s.GetRows(dstTableName, "id, js")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2*len(variants))
 
-	isMaria := mysource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA
-	for i, row := range rows.Records {
-		require.Len(s.t, row, 2)
-		got := fmt.Sprint(row[1].Value())
-		// The snapshot row (i < N) and its matching CDC row (i+N) must be byte-identical.
-		snapshotGot := fmt.Sprint(rows.Records[i%len(variants)][1].Value())
-		require.Equal(s.t, snapshotGot, got, "snapshot/cdc JSON representation differs at row %d", i+1)
-		if !isMaria {
-			require.Equal(s.t, variants[i%len(variants)].mysqlWant, got, "unexpected JSON representation at row %d", i+1)
-		}
+	for i := range variants {
+		snapshotGot := fmt.Sprint(rows.Records[i][1].Value())
+		cdcGot := fmt.Sprint(rows.Records[i+len(variants)][1].Value())
+		require.Equal(s.t, snapshotGot, cdcGot, "snapshot/cdc JSON representation differs for %q", variants[i])
 	}
 
 	env.Cancel(s.t.Context())
