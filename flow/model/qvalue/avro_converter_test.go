@@ -2,6 +2,8 @@ package qvalue
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"math/big"
 	"strings"
 	"testing"
@@ -75,6 +77,62 @@ func TestColumnNameAvroFieldConvert(t *testing.T) {
 			assert.Equal(t, expectedColumnNames[i], ConvertToAvroCompatibleName(columnName))
 		})
 	}
+}
+
+func TestClickHouseDateTimeRange(t *testing.T) {
+	ctx := context.Background()
+	logger := log.NewStructuredLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	inRange := time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)
+	belowRange := time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC) // MySQL DATETIME min, below ClickHouse
+	aboveRange := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+
+	convert := func(t *testing.T, qv types.QValue, dwh protos.DBType, nullable bool) any {
+		t.Helper()
+		field := types.QField{Type: qv.Kind(), Nullable: nullable}
+		val, _, err := QValueToAvro(ctx, qv, &field, dwh, logger, false, nil, internal.BinaryFormatRaw, false)
+		require.NoError(t, err)
+		return val
+	}
+
+	tests := []struct {
+		name     string
+		qv       types.QValue
+		nullable bool
+		// nil expected means the value should be nulled; otherwise the (possibly clamped) time
+		expected *time.Time
+	}{
+		{"timestamp_in_range", types.QValueTimestamp{Val: inRange}, false, &inRange},
+		{"timestamp_below_nonnullable_clamps", types.QValueTimestamp{Val: belowRange}, false, &clickHouseMinTime},
+		{"timestamp_above_nonnullable_clamps", types.QValueTimestamp{Val: aboveRange}, false, &clickHouseMaxTime},
+		{"timestamp_below_nullable_nulls", types.QValueTimestamp{Val: belowRange}, true, nil},
+		{"timestamp_above_nullable_nulls", types.QValueTimestamp{Val: aboveRange}, true, nil},
+		{"timestamptz_below_nonnullable_clamps", types.QValueTimestampTZ{Val: belowRange}, false, &clickHouseMinTime},
+		{"timestamptz_above_nullable_nulls", types.QValueTimestampTZ{Val: aboveRange}, true, nil},
+		{"date_below_nonnullable_clamps", types.QValueDate{Val: belowRange}, false, &clickHouseMinTime},
+		{"date_above_nullable_nulls", types.QValueDate{Val: aboveRange}, true, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val := convert(t, tt.qv, protos.DBType_CLICKHOUSE, tt.nullable)
+			if tt.expected == nil {
+				assert.Nil(t, val, "out-of-range value should be nulled")
+				return
+			}
+			ts, ok := val.(time.Time)
+			require.Truef(t, ok, "expected time.Time, got %T", val)
+			assert.Truef(t, ts.Equal(*tt.expected), "expected %s, got %s", tt.expected, ts)
+		})
+	}
+
+	// Non-ClickHouse targets must not clamp: an out-of-range value passes through untouched.
+	t.Run("other_dwh_no_clamp", func(t *testing.T) {
+		val := convert(t, types.QValueTimestamp{Val: aboveRange}, protos.DBType_POSTGRES, false)
+		ts, ok := val.(time.Time)
+		require.Truef(t, ok, "expected time.Time, got %T", val)
+		assert.True(t, ts.Equal(aboveRange))
+	})
 }
 
 func TestAvroQValueSize(t *testing.T) {
