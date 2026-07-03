@@ -724,7 +724,7 @@ func (p *ddlParser) parseColumnDef(name string, spec *ddlAlterSpec, insideParens
 			typeStr += "(" + strings.Join(st.params, ",") + ")"
 		}
 	}
-	if st.unsigned {
+	if st.unsigned && st.base != "year" {
 		typeStr += " unsigned"
 	}
 	spec.NewColumns = append(spec.NewColumns, ddlColumnDef{

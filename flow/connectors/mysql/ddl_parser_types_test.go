@@ -173,6 +173,7 @@ func TestDDLTypesEnumSetTemporalSpatial(t *testing.T) {
 		{typ: "TIMESTAMP", want: ddlTypesCol("timestamp", -1, -1, false)},
 		{typ: "TIMESTAMP(6)", want: ddlTypesCol("timestamp(6)", -1, -1, false)},
 		{typ: "YEAR", want: ddlTypesCol("year", -1, -1, false)},
+		{typ: "YEAR UNSIGNED NOT NULL", want: ddlTypesCol("year", -1, -1, true)},
 		{typ: "YEAR(4)", want: ddlTypesCol("year(4)", -1, -1, false)},
 		{typ: "SQL_TSI_YEAR DEFAULT 0b101", want: ddlTypesCol("year", -1, -1, false)},
 		{typ: "JSON", want: ddlTypesCol("json", -1, -1, false)},
