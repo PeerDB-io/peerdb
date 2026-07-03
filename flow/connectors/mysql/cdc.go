@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"slices"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -585,7 +584,7 @@ func (c *MySqlConnector) PullRecords(
 			default:
 				c.logger.Warn("unknown generic event", slog.Any("type", event.Header.EventType))
 				otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.BinlogEventTypeKey, strconv.Itoa(int(event.Header.EventType))),
+					attribute.Int(otel_metrics.BinlogEventTypeKey, int(event.Header.EventType)),
 				)))
 			}
 		case *replication.QueryEvent:
