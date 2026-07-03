@@ -75,6 +75,7 @@ func TestDDLTypesIntegers(t *testing.T) {
 func TestDDLTypesDecimalAndFloat(t *testing.T) {
 	ddlTypesRun(t, []ddlTypeCase{
 		{typ: "DECIMAL", want: ddlTypesCol("decimal", -1, -1, false)},
+		{typ: "DECIMAL(0)", want: ddlTypesCol("decimal(10,0)", 10, 0, false)},
 		{typ: "DECIMAL(10)", want: ddlTypesCol("decimal(10)", 10, -1, false)},
 		{typ: "DECIMAL(10,2)", want: ddlTypesCol("decimal(10,2)", 10, 2, false)},
 		// whitespace between params does not survive into TypeStr
@@ -82,8 +83,10 @@ func TestDDLTypesDecimalAndFloat(t *testing.T) {
 		{typ: "DECIMAL(65,30) UNSIGNED", want: ddlTypesCol("decimal(65,30) unsigned", 65, 30, false)},
 		{typ: "DEC(8,3)", want: ddlTypesCol("decimal(8,3)", 8, 3, false)},
 		{typ: "FIXED", want: ddlTypesCol("decimal", -1, -1, false)},
+		{typ: "FIXED(0)", want: ddlTypesCol("decimal(10,0)", 10, 0, false)},
 		{typ: "FIXED(6,2)", want: ddlTypesCol("decimal(6,2)", 6, 2, false)},
 		{typ: "NUMERIC", want: ddlTypesCol("numeric", -1, -1, false)},
+		{typ: "NUMERIC(0)", want: ddlTypesCol("decimal(10,0)", 10, 0, false)},
 		{typ: "NUMERIC(5)", want: ddlTypesCol("numeric(5)", 5, -1, false)},
 		// an explicit scale of 0 must survive as 0, not collapse to -1
 		{typ: "NUMERIC(10,0)", want: ddlTypesCol("numeric(10,0)", 10, 0, false)},
@@ -228,6 +231,7 @@ func TestDDLTypesMariaDBUDTsAndOracle(t *testing.T) {
 		{typ: "VARCHAR2(30)", want: ddlTypesCol("varchar2(30)", -1, -1, false), maria: true, noQkind: true},
 		{typ: "RAW(16)", want: ddlTypesCol("raw(16)", -1, -1, false), maria: true, noQkind: true},
 		{typ: "NUMBER(10,2)", want: ddlTypesCol("decimal(10,2)", 10, 2, false), maria: true, sqlMode: sqlModeOracle},
+		{typ: "NUMBER(0)", want: ddlTypesCol("decimal(10,0)", 10, 0, false), maria: true, sqlMode: sqlModeOracle},
 		{typ: "NUMBER(10)", want: ddlTypesCol("decimal(10)", 10, -1, false), maria: true, sqlMode: sqlModeOracle},
 		{typ: "NUMBER", want: ddlTypesCol("double", -1, -1, false), maria: true, sqlMode: sqlModeOracle},
 		{typ: "VARCHAR2(30)", want: ddlTypesCol("varchar(30)", -1, -1, false), maria: true, sqlMode: sqlModeOracle},

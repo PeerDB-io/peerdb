@@ -728,6 +728,19 @@ func digitsToInt(s string) int {
 	return v
 }
 
+func ddlNormalizeDecimalType(st *ddlColumnState) {
+	if st.base != "decimal" && st.base != "numeric" {
+		return
+	}
+	if !st.written || st.synthetic || len(st.params) == 0 {
+		return
+	}
+	if digitsToInt(st.params[0]) == 0 {
+		st.base = "decimal"
+		st.params = []string{"10", "0"}
+	}
+}
+
 // udtType resolves an unrecognized word in type position. MariaDB treats any
 // identifier there as a candidate UDT (uuid, inet4/6, vector, geometry family,
 // plugin types); MySQL's type keyword set is closed, so an unknown word is a
@@ -917,6 +930,7 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 	case typeSchema == "maxdb_schema" && st.base == "timestamp":
 		st.base = "datetime"
 	}
+	ddlNormalizeDecimalType(st)
 	return nil
 }
 
