@@ -86,6 +86,7 @@ func TestClickHouseDateTimeRange(t *testing.T) {
 	inRange := time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)
 	belowRange := time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC) // MySQL DATETIME min, below ClickHouse
 	aboveRange := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+	defaultTime := DefaultTime(protos.DBType_CLICKHOUSE)
 
 	convert := func(t *testing.T, qv types.QValue, dwh protos.DBType, nullable bool) any {
 		t.Helper()
@@ -99,17 +100,17 @@ func TestClickHouseDateTimeRange(t *testing.T) {
 		name     string
 		qv       types.QValue
 		nullable bool
-		// nil expected means the value should be nulled; otherwise the (possibly clamped) time
+		// nil expected means the value should be nulled; otherwise the resulting time
 		expected *time.Time
 	}{
 		{"timestamp_in_range", types.QValueTimestamp{Val: inRange}, false, &inRange},
-		{"timestamp_below_nonnullable_clamps", types.QValueTimestamp{Val: belowRange}, false, &clickHouseMinTime},
-		{"timestamp_above_nonnullable_clamps", types.QValueTimestamp{Val: aboveRange}, false, &clickHouseMaxTime},
+		{"timestamp_below_nonnullable_defaults", types.QValueTimestamp{Val: belowRange}, false, &defaultTime},
+		{"timestamp_above_nonnullable_defaults", types.QValueTimestamp{Val: aboveRange}, false, &defaultTime},
 		{"timestamp_below_nullable_nulls", types.QValueTimestamp{Val: belowRange}, true, nil},
 		{"timestamp_above_nullable_nulls", types.QValueTimestamp{Val: aboveRange}, true, nil},
-		{"timestamptz_below_nonnullable_clamps", types.QValueTimestampTZ{Val: belowRange}, false, &clickHouseMinTime},
+		{"timestamptz_below_nonnullable_defaults", types.QValueTimestampTZ{Val: belowRange}, false, &defaultTime},
 		{"timestamptz_above_nullable_nulls", types.QValueTimestampTZ{Val: aboveRange}, true, nil},
-		{"date_below_nonnullable_clamps", types.QValueDate{Val: belowRange}, false, &clickHouseMinTime},
+		{"date_below_nonnullable_defaults", types.QValueDate{Val: belowRange}, false, &defaultTime},
 		{"date_above_nullable_nulls", types.QValueDate{Val: aboveRange}, true, nil},
 	}
 
@@ -126,8 +127,8 @@ func TestClickHouseDateTimeRange(t *testing.T) {
 		})
 	}
 
-	// Non-ClickHouse targets must not clamp: an out-of-range value passes through untouched.
-	t.Run("other_dwh_no_clamp", func(t *testing.T) {
+	// Non-ClickHouse targets must not touch out-of-range values: they pass through untouched.
+	t.Run("other_dwh_no_change", func(t *testing.T) {
 		val := convert(t, types.QValueTimestamp{Val: aboveRange}, protos.DBType_POSTGRES, false)
 		ts, ok := val.(time.Time)
 		require.Truef(t, ok, "expected time.Time, got %T", val)

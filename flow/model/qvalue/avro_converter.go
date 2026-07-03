@@ -374,11 +374,6 @@ const (
 	clickHouseMaxYear = 2299
 )
 
-var (
-	clickHouseMinTime = time.Date(clickHouseMinYear, time.January, 1, 0, 0, 0, 0, time.UTC)
-	clickHouseMaxTime = time.Date(clickHouseMaxYear, time.December, 31, 23, 59, 59, 999999000, time.UTC)
-)
-
 func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isDate bool, so sizeOpt) (any, int64) {
 	switch c.TargetDWH {
 	case protos.DBType_BIGQUERY:
@@ -400,11 +395,7 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isD
 			if c.Nullable {
 				return nil, so.nullableSize()
 			}
-			if year < clickHouseMinYear {
-				t = clickHouseMinTime
-			} else {
-				t = clickHouseMaxTime
-			}
+			t = DefaultTime(protos.DBType_CLICKHOUSE)
 		}
 	case protos.DBType_SNOWFLAKE:
 		// Snowflake has issues with avro timestamp types, returning as string form
