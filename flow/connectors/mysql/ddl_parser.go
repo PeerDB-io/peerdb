@@ -956,9 +956,21 @@ func (p *ddlParser) parseColumnAttributeWord(st *ddlColumnState, spec *ddlAlterS
 		if v := p.peek(0); v.kind == tokWord || v.kind == tokString || v.kind == tokQuotedIdent {
 			p.next()
 		}
+	case ddlWordIs(t, "DEFAULT"):
+		p.next()
+		return p.skipColumnAttributeValue()
+	case ddlWordIs(t, "ON") && ddlWordIs(p.peek(1), "UPDATE"):
+		p.next()
+		p.next()
+		return p.skipColumnAttributeValue()
+	case ddlWordIs(t, "REFERENCES"):
+		return p.skipColumnReference()
 	case ddlWordIs(t, "NOT") && ddlWordIs(p.peek(1), "NULL"):
 		st.notNull = true
 		p.next()
+		p.next()
+	case ddlWordIs(t, "NULL"):
+		st.notNull = false
 		p.next()
 	case ddlWordIs(t, "UNSIGNED") || ddlWordIs(t, "ZEROFILL"):
 		st.unsigned = true // zerofill implies unsigned
@@ -997,6 +1009,86 @@ func (p *ddlParser) parseColumnAttributeWord(st *ddlColumnState, spec *ddlAlterS
 		p.next()
 	default:
 		p.next()
+	}
+	return nil
+}
+
+func (p *ddlParser) skipColumnAttributeValue() error {
+	t := p.peek(0)
+	switch {
+	case t.kind == tokErr:
+		return p.lexErr
+	case t.kind == tokPunct && t.text == "(":
+		return p.skipBalanced()
+	case t.kind == tokPunct && (t.text == "+" || t.text == "-"):
+		p.next()
+		t = p.peek(0)
+		if t.kind == tokErr {
+			return p.lexErr
+		}
+	}
+	if t.kind == tokWord || t.kind == tokString || t.kind == tokQuotedIdent {
+		p.next()
+		if p.peekPunct(0, '(') {
+			return p.skipBalanced()
+		}
+	}
+	return nil
+}
+
+func (p *ddlParser) skipColumnReference() error {
+	p.next() // REFERENCES
+	if t := p.peek(0); t.kind == tokWord || t.kind == tokQuotedIdent {
+		p.next()
+		if p.peekPunct(0, '.') {
+			p.next()
+			if t := p.peek(0); t.kind == tokWord || t.kind == tokQuotedIdent {
+				p.next()
+			} else if t.kind == tokErr {
+				return p.lexErr
+			}
+		}
+	} else if t.kind == tokErr {
+		return p.lexErr
+	}
+	if p.peekPunct(0, '(') {
+		if err := p.skipBalanced(); err != nil {
+			return err
+		}
+	}
+	for {
+		switch {
+		case ddlWordIs(p.peek(0), "MATCH"):
+			p.next()
+			if t := p.peek(0); t.kind == tokWord {
+				p.next()
+			} else if t.kind == tokErr {
+				return p.lexErr
+			}
+		case ddlWordIs(p.peek(0), "ON") && (ddlWordIs(p.peek(1), "DELETE") || ddlWordIs(p.peek(1), "UPDATE")):
+			p.next()
+			p.next()
+			if err := p.skipReferenceOption(); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+func (p *ddlParser) skipReferenceOption() error {
+	switch {
+	case ddlWordIs(p.peek(0), "SET") && (ddlWordIs(p.peek(1), "NULL") || ddlWordIs(p.peek(1), "DEFAULT")):
+		p.next()
+		p.next()
+	case ddlWordIs(p.peek(0), "NO") && ddlWordIs(p.peek(1), "ACTION"):
+		p.next()
+		p.next()
+	case p.peek(0).kind == tokWord:
+		p.next()
+	case p.peek(0).kind == tokErr:
+		return p.lexErr
 	}
 	return nil
 }

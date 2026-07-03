@@ -255,6 +255,8 @@ func TestDDLTypesMySQLUnknownTypeErrors(t *testing.T) {
 func TestDDLTypesAttributeSkipping(t *testing.T) {
 	ddlTypesRun(t, []ddlTypeCase{
 		{typ: "INT NULL", want: ddlTypesCol("int", -1, -1, false)},
+		{typ: "INT NOT NULL NULL", want: ddlTypesCol("int", -1, -1, false)},
+		{typ: "INT NULL NOT NULL", want: ddlTypesCol("int", -1, -1, true)},
 		{typ: "INT DEFAULT (1+(2*3)) NOT NULL", want: ddlTypesCol("int", -1, -1, true)},
 		{typ: "VARCHAR(20) DEFAULT (concat('a)b', ')')) NOT NULL", want: ddlTypesCol("varchar(20)", -1, -1, true)},
 		{typ: "INT DEFAULT (/* ) */ 1) NOT NULL", want: ddlTypesCol("int", -1, -1, true)},
@@ -274,6 +276,7 @@ func TestDDLTypesAttributeSkipping(t *testing.T) {
 		{typ: "INT NOT NULL FIRST", want: ddlTypesCol("int", -1, -1, true), hasPos: true},
 		{typ: `VARCHAR(10) ENGINE_ATTRIBUTE='{"k": "v"}' NOT NULL`, want: ddlTypesCol("varchar(10)", -1, -1, true)},
 		{typ: "INT NOT NULL REFERENCES other (id) ON DELETE CASCADE", want: ddlTypesCol("int", -1, -1, true)},
+		{typ: "INT NOT NULL REFERENCES other (id) ON DELETE SET NULL", want: ddlTypesCol("int", -1, -1, true)},
 		{typ: "INT CONSTRAINT ck CHECK (c > 0 AND c < 10) NOT ENFORCED NOT NULL", want: ddlTypesCol("int", -1, -1, true)},
 		{typ: "INT INVISIBLE NOT NULL", want: ddlTypesCol("int", -1, -1, true)},
 		{typ: "VARCHAR(100) COMPRESSED NOT NULL", want: ddlTypesCol("varchar(100)", -1, -1, true), maria: true},

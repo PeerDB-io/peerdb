@@ -293,6 +293,11 @@ func TestDDLAlterHeadModifiers(t *testing.T) {
 	require.Equal(t, "db", alter.Schema)
 	require.Equal(t, "t", alter.Table)
 	require.Equal(t, []ddlAlterSpec{ddlAltPos(ddlAltAddSpec(ddlAltColNN("c", "varchar(255)")))}, alter.Specs)
+
+	alter = ddlParseAlter(t, "ALTER TABLE `db`.`t` ADD COLUMN `c` VARCHAR(255) NOT NULL NULL DEFAULT 'x' AFTER `b`", 0, true)
+	require.Equal(t, "db", alter.Schema)
+	require.Equal(t, "t", alter.Table)
+	require.Equal(t, []ddlAlterSpec{ddlAltPos(ddlAltAddSpec(ddlAltCol("c", "varchar(255)")))}, alter.Specs)
 }
 
 func TestDDLAlterRenameTableForms(t *testing.T) {
