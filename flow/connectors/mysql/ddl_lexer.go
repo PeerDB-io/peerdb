@@ -140,17 +140,19 @@ func (lx *ddlLexer) skipLineComment() {
 // scanComment handles "/*" openers. Executable comments (/*! on both engines,
 // /*M! on MariaDB only) have their bodies lexed as code: source servers patch
 // version comments they skipped into plain comments before binlogging, so any
-// executable comment that survives into the binlog was executed. A 5-6 digit run
-// after the marker is a version prefix and is skipped; fewer digits mean the body
-// (digits included) is code. MariaDB /*!!NNNNN reverses the gate: surviving
-// digits mean the source skipped it, while a digitless /*!! body was executed.
+// executable comment that survives into the binlog was executed. A version
+// prefix is skipped before lexing the body: MariaDB accepts 5 or 6 digits, while
+// MySQL accepts a sixth digit only when it is followed by whitespace. Fewer
+// digits mean the body (digits included) is code. MariaDB /*!!NNNNN reverses the
+// gate: surviving digits mean the source skipped it, while a digitless /*!! body
+// was executed.
 func (lx *ddlLexer) scanComment() {
 	n := len(lx.s)
 	body := lx.pos + 2
 	switch {
 	case body < n && lx.s[body] == '!':
 		if lx.isMariaDB && body+1 < n && lx.s[body+1] == '!' {
-			if d := countDDLDigits(lx.s, body+2); d == 5 || d == 6 {
+			if ddlVersionPrefixLen(lx.s, body+2, true) > 0 {
 				lx.skipPlainComment()
 				return
 			}
@@ -158,33 +160,37 @@ func (lx *ddlLexer) scanComment() {
 			lx.execComment++
 			return
 		}
-		lx.pos = body + 1 + ddlVersionPrefixLen(countDDLDigits(lx.s, body+1))
+		lx.pos = body + 1 + ddlVersionPrefixLen(lx.s, body+1, lx.isMariaDB)
 		lx.execComment++
 	case lx.isMariaDB && body+1 < n && lx.s[body] == 'M' && lx.s[body+1] == '!':
-		lx.pos = body + 2 + ddlVersionPrefixLen(countDDLDigits(lx.s, body+2))
+		lx.pos = body + 2 + ddlVersionPrefixLen(lx.s, body+2, true)
 		lx.execComment++
 	default:
 		lx.skipPlainComment()
 	}
 }
 
-func countDDLDigits(s string, pos int) int {
-	d := 0
-	for pos+d < len(s) && s[pos+d] >= '0' && s[pos+d] <= '9' {
-		d++
-	}
-	return d
+func isDDLVersionSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
 }
 
-func ddlVersionPrefixLen(digits int) int {
-	switch {
-	case digits >= 6:
-		return 6
-	case digits == 5:
-		return 5
-	default:
-		return 0
+func isDDLDigitAt(s string, pos int) bool {
+	return pos < len(s) && s[pos] >= '0' && s[pos] <= '9'
+}
+
+func ddlVersionPrefixLen(s string, pos int, isMariaDB bool) int {
+	for i := range 5 {
+		if !isDDLDigitAt(s, pos+i) {
+			return 0
+		}
 	}
+	if isMariaDB && isDDLDigitAt(s, pos+5) {
+		return 6
+	}
+	if !isMariaDB && isDDLDigitAt(s, pos+5) && pos+6 < len(s) && isDDLVersionSpace(s[pos+6]) {
+		return 6
+	}
+	return 5
 }
 
 // skipPlainComment consumes /* ... */ to the first */ — quote-unaware, no

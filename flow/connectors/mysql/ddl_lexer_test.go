@@ -60,6 +60,26 @@ func TestDDLLexerExecCommentDigitRules(t *testing.T) {
 	}
 }
 
+func TestDDLLexerMySQLExecCommentSixthDigitBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		query     string
+		wantTable string
+	}{
+		{
+			name:      "sixth digit without whitespace is body",
+			query:     "ALTER TABLE  /*!100500r ADD COLUMN c INT */",
+			wantTable: "0r",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			alter := ddlParseAlter(t, tc.query, 0, false)
+			require.Equal(t, tc.wantTable, alter.Table)
+			require.Equal(t, ddlAltAdd(ddlAltCol("c", "int")), alter.Specs)
+		})
+	}
+}
+
 // TestDDLLexerExecCommentGating pins which /*-forms unwrap to code, observed
 // through whether a NOT NULL inside the comment reaches the column.
 func TestDDLLexerExecCommentGating(t *testing.T) {
