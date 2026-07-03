@@ -175,7 +175,7 @@ the case is skipped entirely (unreachable-by-invariant, no-panic check only) iff
 
 ```
 state/
-  corpus/{mysql,mariadb}/<sha1>          # retained inputs; sidecar <sha1>.meta.json {sql_mode}
+  corpus.db                              # retained inputs in SQLite (sql, engine, sql_mode, origin)
   coverage/{mysql,mariadb}.sancov        # OR-accumulated oracle bitmaps (sole retention signal)
                                          # (optional coverage/go.covdata/ only if -cover build used)
   findings/<sig>/repro.sql               # minimized input bytes

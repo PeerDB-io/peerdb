@@ -41,6 +41,8 @@ type config struct {
 	minimizeBudget       time.Duration
 	maxOpenFindings      int
 	duration             time.Duration
+	corpusBudget         int64
+	retainPerPoll        int
 }
 
 func defaultConfig() config {
@@ -65,6 +67,8 @@ func defaultConfig() config {
 		statsInterval:        5 * time.Second,
 		minimizeBudget:       30 * time.Second,
 		maxOpenFindings:      200,
+		corpusBudget:         40 << 30,
+		retainPerPoll:        256,
 	}
 }
 
@@ -87,6 +91,8 @@ func addCommonFlags(fs *flag.FlagSet, cfg *config) {
 	fs.DurationVar(&cfg.minimizeBudget, "minimize-budget", cfg.minimizeBudget, "minimization time budget")
 	fs.IntVar(&cfg.maxOpenFindings, "max-open-findings", cfg.maxOpenFindings, "maximum open findings to record")
 	fs.DurationVar(&cfg.duration, "duration", cfg.duration, "fuzzing duration; 0 runs until signal")
+	fs.Int64Var(&cfg.corpusBudget, "corpus-budget", cfg.corpusBudget, "corpus SQLite disk budget in bytes; 0 = unlimited")
+	fs.IntVar(&cfg.retainPerPoll, "retain-per-poll", cfg.retainPerPoll, "max corpus inputs retained per coverage-growth poll; 0 = unlimited")
 }
 
 func main() {

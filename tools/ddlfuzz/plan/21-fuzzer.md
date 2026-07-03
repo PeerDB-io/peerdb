@@ -98,7 +98,7 @@ tools/ddlfuzz/
   internal/mutate/             # mutators + dictionary
   internal/dict/               # checked-in keyword dictionaries + extract.sh
   internal/seed/               # test-corpus extraction (go/ast)
-  internal/corpus/             # corpus store, sidecars, minimization policy
+  internal/corpus/             # SQLite corpus store, minimization policy
   internal/sancov/             # oracle bitmap accumulation (the sole coverage-retention signal)
   internal/findings/           # meta.json, ledger, parked, escalation-safe writes
   internal/run/                # fuzz orchestrator, stats, state flush
@@ -140,7 +140,7 @@ carries per-case `sql_mode`).
                                                             │ (ourSigs, digests)
                                                      ┌──────▼───────┐
                                                      │ compare +    │──▶ findings/
-                                                     │ dedup+corpus │──▶ corpus/, coverage/
+                                                     │ dedup+corpus │──▶ corpus.db, coverage/
                                                      └──────────────┘
 ```
 
@@ -725,16 +725,20 @@ Per the Scope note, corpus growth is driven **only** by oracle SanCov coverage. 
 **Oracle side (the one retention signal):** `GET_COVERAGE` returns cumulative inline-8bit
 counters. `internal/sancov` keeps an OR-accumulated `[]byte` per engine
 (`state/coverage/{mysql,mariadb}.sancov`). After each poll, `grew := any i where counters[i]!=0 &&
-accum[i]==0`; on growth, retain every input in that poll's `covWindow` not already in the corpus,
-then `accum |= counters`. Polls are frequent and windows small (≤`pollEveryBatches` batches), so
-over-retention is bounded and self-limits as the finite grammar is covered — no live GC needed.
+accum[i]==0`; on growth, retain a bounded sample of that poll's `covWindow` (at most
+`-retain-per-poll`, default 256, smallest inputs first — attribution is window-level guesswork, and
+unbounded whole-window retention measured 354k entries/2.7 GB in 90s and throttled the loop ~20×),
+then `accum |= counters`. The store additionally enforces `-corpus-budget` (default 40 GiB) against
+the SQLite corpus file set (`corpus.db` plus SQLite sidecars): over budget, `Add` refuses,
+`retention_skipped` counts it in stats — a hard disk ceiling; coverage accumulation and findings
+are unaffected.
 `edges.{mysql,mariadb}` in `stats.json` = popcount of each `accum`.
 
-**Corpus store** (`internal/corpus`): files at `state/corpus/{mysql,mariadb}/<sha1>` with sidecar
-`<sha1>.meta.json {sql_mode}` per contract. `sha1 = sha1(sql || 0x00 || sqlMode-le)` (mode part
-of identity because lexing depends on it). Dedup by that content hash. In-memory index loaded at
-startup. Retention writes are atomic (temp+rename). Sidecar also stores `origin` and
-`added_at` (additive fields, contract only mandates `sql_mode`).
+**Corpus store** (`internal/corpus`): SQLite database at `state/corpus.db`, table `corpus`
+containing `engine`, `hash`, `sql_mode`, `origin`, `added_at`, and `sql`. `sha1 =
+sha1(sql || 0x00 || sqlMode-le)` (mode part of identity because lexing depends on it). Dedup by
+unique `(engine, hash)`. The store exposes count, size, and random SQL sampling APIs so callers do
+not depend on the physical storage format.
 
 **Distillation: one optional pass at graceful shutdown**, not a cron. To produce committable
 seeds, sort the retained corpus by size ascending and greedily keep an input only if it adds an

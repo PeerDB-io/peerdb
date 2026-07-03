@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -86,11 +87,12 @@ func runFuzzLoop(ctx context.Context, cfg config) int {
 		fmt.Fprintf(os.Stderr, "fuzz: %v\n", err)
 		return 1
 	}
-	store, err := corpus.Open(filepath.Join(cfg.stateDir, "corpus"))
+	store, err := corpus.Open(filepath.Join(cfg.stateDir, "corpus.db"), cfg.corpusBudget)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "fuzz: corpus: %v\n", err)
 		return 1
 	}
+	defer store.Close()
 	loop := &fuzzLoop{
 		cfg:            cfg,
 		store:          store,
@@ -418,8 +420,20 @@ func (p *oracleProc) pollCoverage(ctx context.Context) {
 	grew, _ := es.accum.Merge(counters)
 	es.mu.Unlock()
 	if grew {
+		// Attribution is window-level guesswork, so keep a bounded sample
+		// instead of the whole window (late-run windows reach pollEvery=32
+		// batches; unbounded retention is what blows up the corpus). Prefer
+		// the smallest inputs — they mutate better.
+		window := p.covWindow
+		if max := p.loop.cfg.retainPerPoll; max > 0 && len(window) > max {
+			window = append([]run.Case(nil), window...)
+			sort.SliceStable(window, func(i, j int) bool {
+				return len(window[i].SQL) < len(window[j].SQL)
+			})
+			window = window[:max]
+		}
 		var added []run.Case
-		for _, c := range p.covWindow {
+		for _, c := range window {
 			if ok, err := p.loop.store.Add(c); err == nil && ok {
 				added = append(added, c)
 			}
@@ -497,6 +511,8 @@ func (l *fuzzLoop) writeStats(rate float64) {
 		"run_seed":               fmt.Sprintf("0x%x", l.seedValue),
 		"class_counts":           copyCounts(l.classCounts),
 		"suppressed":             l.suppressed,
+		"corpus_bytes":           l.store.Bytes(),
+		"retention_skipped":      l.store.SkippedFull(),
 	}
 	l.statsMu.Unlock()
 	_ = writeStatsJSON(l.cfg.stateDir, stats)

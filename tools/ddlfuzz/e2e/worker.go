@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/corpus"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/gen"
 	"github.com/go-mysql-org/go-mysql/client"
 )
@@ -26,6 +27,7 @@ type engineRuntime struct {
 	errs      chan<- error
 	queues    map[string]*expectQueue
 	queueChan chan queueItem
+	corpus    *corpus.Store
 	issued    atomic.Uint64
 }
 
@@ -259,7 +261,7 @@ func (ws *workerState) statement(seq uint64, before snapshot, item *queueItem, m
 		return simpleFallbackDDLForMode(seq, before, modeEntry), "gen"
 	}
 	if choice < 95 {
-		if stmt, ok := pickCorpusRewrite(ws.rt.stateDir, ws.rt.ec, ws.rng, before); ok {
+		if stmt, ok := pickCorpusRewrite(ws.rt.corpus, ws.rt.ec, ws.rng, before); ok {
 			return stmt, "corpus"
 		}
 		return simpleFallbackDDLForMode(seq, before, modeEntry), "gen"

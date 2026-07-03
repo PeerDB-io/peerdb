@@ -104,7 +104,7 @@ Everything here lives in `/Users/ilia/Code/peerdb/tools/ddlfuzz/e2e/` plus one t
     `func Minimize(stmt []byte, sqlMode uint64, engine string, reproduces func([]byte) bool) []byte`.
   - `ddlfuzz replay` subcommand accepting `--from <jsonl> --expect-accept` (oracle cross-check;
     consumed indirectly via supervisor cron — see Cross-checks).
-  - Fast-lane corpus at `state/corpus/{mysql,mariadb}/<sha1>` + `<sha1>.meta.json` (read-only).
+  - Fast-lane corpus in `state/corpus.db` (sampled through `internal/corpus` APIs).
 - **Docker** (compose v2), ports 13306/13307 on localhost.
 - **flow module** via `replace` (go-mysql `client` + `replication` packages, `QkindFromMysqlColumnType`).
 
@@ -585,8 +585,8 @@ Module context: everything in `tools/ddlfuzz` (module `github.com/PeerDB-io/peer
    `func compare(pred predicted, d delta, after snapshot) []finding`. Every rule and
    reconciliation from §6b becomes one code branch — no unlisted tolerances.
 
-5. **Corpus rewrite** (`e2e/rewrite.go`): pick a random `state/corpus/<engine>/<sha1>` (+ its
-   `.meta.json` sql_mode); run `FuzzParseForE2E` on it; skip unless it yields ≥1
+5. **Corpus rewrite** (`e2e/rewrite.go`): pick random SQL for the engine from `state/corpus.db`
+   via `internal/corpus`; run `FuzzParseForE2E` on it; skip unless it yields ≥1
    `alter_table`/`rename_table`. Substitute identifiers **textually with verification**: replace
    every occurrence of the parsed table name (bare and backtick-quoted spellings) with `fixture`,
    map each distinct referenced old-column name onto live fixture columns (cycled), each distinct

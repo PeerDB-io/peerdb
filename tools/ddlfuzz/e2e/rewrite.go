@@ -5,36 +5,22 @@ package e2e
 import (
 	"bytes"
 	"math/rand/v2"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/compare"
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/corpus"
 )
 
-func pickCorpusRewrite(stateDir string, ec engineConfig, rng *rand.Rand, live snapshot) (string, bool) {
-	dir := filepath.Join(stateDir, "corpus", ec.Name)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+func pickCorpusRewrite(store *corpus.Store, ec engineConfig, rng *rand.Rand, live snapshot) (string, bool) {
+	if store == nil {
 		return "", false
 	}
-	var files []string
-	for _, ent := range entries {
-		if ent.IsDir() || strings.HasSuffix(ent.Name(), ".meta.json") {
-			continue
-		}
-		files = append(files, filepath.Join(dir, ent.Name()))
-	}
-	if len(files) == 0 {
-		return "", false
-	}
-	for attempts := 0; attempts < 10 && len(files) > 0; attempts++ {
-		path := files[rng.IntN(len(files))]
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
+	for range 10 {
+		data, ok, err := store.RandomSQL(ec.Name, rng)
+		if err != nil || !ok {
+			return "", false
 		}
 		stmt, ok := rewriteCorpusStatement(data, ec.IsMariaDB, live)
 		if ok {

@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/corpus"
 )
 
 // Run starts the selected e2e engines and blocks until the configured case
@@ -35,6 +38,11 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 	if err := ensureStateLayout(cfg.StateDir); err != nil {
 		return Summary{}, err
 	}
+	corpusStore, err := corpus.Open(filepath.Join(cfg.StateDir, "corpus.db"), 0)
+	if err != nil {
+		return Summary{}, fmt.Errorf("open corpus: %w", err)
+	}
+	defer corpusStore.Close()
 
 	engines, err := parseEngineList(cfg)
 	if err != nil {
@@ -77,6 +85,7 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 			errs:      errs,
 			queues:    queues,
 			queueChan: make(chan queueItem, 64),
+			corpus:    corpusStore,
 		}
 		queueChans[ec.Name] = rt.queueChan
 		done := make(chan struct{}, cfg.Workers)

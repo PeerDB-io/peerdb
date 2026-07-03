@@ -669,7 +669,7 @@ report 0.5d; preflight + hello 0.5d; dry-run hardening (checks 4–9) 0.5–1d.
    specifies `escalations/<sig>.md`; the `run-` prefix cannot collide with 12-hex sigs.
 2. **New top-level dir `tools/ddlfuzz/seeds/`** (committed corpus seeds from fixes) — not in the
    overview layout; imposed on 20 to load at startup (C7). Chosen over writing directly into
-   `state/corpus/` because fixes must ship committable artifacts and state/ is gitignored.
+   `state/corpus.db` because fixes must ship committable artifacts and state/ is gitignored.
 3. **Imposed CLI shapes on 20**: `replay <sig>` exit-code contract (0/10/11/1) and JSON stdout;
    `fuzz` SIGTERM-flush ≤60s + atomic writes + stats cadence (C3–C6, C8). The overview names the
    subcommands but not these semantics — reconciler should confirm 20's plan matches.
