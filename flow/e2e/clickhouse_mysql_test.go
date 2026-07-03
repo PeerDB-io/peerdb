@@ -1738,11 +1738,6 @@ func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Test_MySQL_DateTime_ClickHouse_Range verifies that MySQL DATE/DATETIME values outside
-// ClickHouse's supported DateTime64/Date32 range ([1900, 2299]) are handled gracefully:
-// nullable columns become NULL, non-nullable columns fall back to the ClickHouse default
-// (Unix epoch), and in-range values pass through untouched. Covers both the snapshot and
-// CDC paths, which must agree.
 func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
