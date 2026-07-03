@@ -1682,11 +1682,8 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Test_MariaDB_PartialRowEvent verifies that a MariaDB PARTIAL_ROW_DATA_EVENT (MariaDB 12.3+) - an
-// oversized rows event fragmented across multiple binlog events - surfaces as a resync-required
-// error on the mirror. It runs its own throwaway MariaDB because it must lower
-// binlog_row_event_fragment_threshold to its minimum to force fragmentation, and the event type
-// only exists on MariaDB 12.3+.
+// Test_MariaDB_PartialRowEvent verifies how the mirror handles a MariaDB PARTIAL_ROW_DATA_EVENT
+// (MariaDB 12.3+) - an oversized rows event fragmented across multiple binlog events.
 func (s ClickHouseSuite) Test_MariaDB_PartialRowEvent() {
 	if s.cluster {
 		s.t.Skip("source-side partial row event coverage does not need to run against ClickHouse cluster")
@@ -1695,10 +1692,8 @@ func (s ClickHouseSuite) Test_MariaDB_PartialRowEvent() {
 	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
-	// We spin up our own MariaDB 12.3 below regardless of the suite source, so only run this once -
-	// under the MySQL suite variant - to avoid launching a second throwaway container needlessly.
-	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		s.t.Skip("partial row event test spins up its own MariaDB; skip duplicate run under MariaDB suite")
+	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
+		s.t.Skip("only applies to maria flavor")
 	}
 
 	// binlog_row_event_fragment_threshold is pinned to its 1024-byte minimum so a modest row
@@ -1737,13 +1732,24 @@ func (s ClickHouseSuite) Test_MariaDB_PartialRowEvent() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	// Insert a row larger than the 1024-byte fragment threshold so the CDC rows event is fragmented
-	// into PARTIAL_ROW_DATA_EVENT, which we don't reassemble and must fail loudly on.
-	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, payload) VALUES (1, REPEAT('x', 8192))`, srcFullName)))
-
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
 	require.NoError(s.t, err)
+
+	// A fragmented rows event on a table OUTSIDE the pipe must NOT fail the mirror
+	ignoredFullName := fmt.Sprintf("e2e_test_%s.partial_rows_ignored", suffix)
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, payload LONGTEXT)`, ignoredFullName)))
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, payload) VALUES (1, REPEAT('y', 8192))`, ignoredFullName)))
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, payload) VALUES (1, 'small')`, srcFullName)))
+	EnvWaitForCount(env, s, "waiting for in-pipe row past out-of-pipe partial row event",
+		dstTableName, "id,payload", 1)
+
+	// An oversized row larger than the 1024-byte fragment threshold on the mirrored table itself is
+	// fragmented into PARTIAL_ROW_DATA_EVENTs, which we don't reassemble and must fail loudly on.
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, payload) VALUES (2, REPEAT('x', 8192))`, srcFullName)))
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for partial row event error", func() bool {
 		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "fragmented oversized row events")
 		if err != nil {

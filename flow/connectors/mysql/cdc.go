@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -46,6 +47,45 @@ const (
 )
 
 const mariadbPartialRowDataEvent replication.EventType = 172
+
+const (
+	partialRowsHeaderLen        = 4 + 4 + 1
+	partialRowFlagOrigEventSize = 0x01
+	binlogCommonHeaderLen       = 19
+	rowsEventTableIDSize        = 6
+)
+
+// parsePartialRowEventTableID extracts the source table id from a MariaDB PARTIAL_ROW_DATA_EVENT
+// Layout of data:
+//
+//	[0:4]  seq_no          (uint32 LE, 1-based)
+//	[4:8]  total_fragments (uint32 LE)
+//	[8]    flags           (bit 0 = FL_ORIG_EVENT_SIZE)
+//	[9:17] original size   (present only when FL_ORIG_EVENT_SIZE is set)
+//	then   content         (first fragment: embedded rows event = 19-byte header + post-header)
+//
+// The embedded rows-event post-header begins with a 6-byte little-endian table id.
+func parsePartialRowEventTableID(data []byte) (uint64, uint32, bool) {
+	if len(data) < partialRowsHeaderLen {
+		return 0, 0, false
+	}
+	seqNo := binary.LittleEndian.Uint32(data[0:4])
+	totalFragments := binary.LittleEndian.Uint32(data[4:8])
+	flags := data[8]
+	if seqNo != 1 {
+		// continuation fragment: carries only raw row data, no embedded header, so no table id
+		return 0, totalFragments, false
+	}
+	contentStart := partialRowsHeaderLen
+	if flags&partialRowFlagOrigEventSize != 0 {
+		contentStart += 8
+	}
+	tableIDStart := contentStart + binlogCommonHeaderLen
+	if len(data) < tableIDStart+rowsEventTableIDSize {
+		return 0, totalFragments, false
+	}
+	return mysql.FixedLengthInt(data[tableIDStart : tableIDStart+rowsEventTableIDSize]), totalFragments, true
+}
 
 const (
 	queryStatusVarFlags2  = 0
@@ -542,6 +582,11 @@ func (c *MySqlConnector) PullRecords(
 
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
+	// table id -> "schema.table", maintained from TABLE_MAP_EVENTs
+	tableIdToName := make(map[uint64]string)
+	// When we ignore an out-of-pipe fragmented rows event, its continuation fragments carry no table
+	// id; skip this many remaining PARTIAL_ROW_DATA_EVENTs before resolving table ids again.
+	var partialRowSkipFragments uint32
 	processEvent := func(event *replication.BinlogEvent) error {
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
@@ -576,11 +621,32 @@ func (c *MySqlConnector) PullRecords(
 					slog.Uint64("incident", uint64(incident)), slog.String("message", message))
 				return exceptions.NewMySQLBinlogIncidentError(incident, message)
 			case mariadbPartialRowDataEvent:
-				// MariaDB 12.3+ fragments an oversized rows event across multiple events; we don't
-				// reassemble fragments yet, so the row change is unrecoverable and a resync is required.
+				if partialRowSkipFragments > 0 {
+					// continuation fragments of an out-of-pipe group we already decided to ignore
+					partialRowSkipFragments--
+					break
+				}
+				tableID, totalFragments, ok := parsePartialRowEventTableID(ev.Data)
+				sourceTableName, known := tableIdToName[tableID]
+				if !ok || !known {
+					// couldn't recover/resolve the table, fail loudly
+					c.logger.Error("[mysql] received unresolvable MariaDB partial row data event, resync required",
+						slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)), slog.Bool("parsed", ok))
+					return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent), "", "")
+				}
+				if req.TableNameSchemaMapping[req.TableNameMapping[sourceTableName].Name] == nil {
+					// table not in the pipe - ignore this fragment group and its continuation fragments
+					if totalFragments > 1 {
+						partialRowSkipFragments = totalFragments - 1
+					}
+					c.logger.Warn("[mysql] ignoring MariaDB partial row data event for table outside the pipe",
+						slog.String("table", sourceTableName), slog.Uint64("totalFragments", uint64(totalFragments)))
+					break
+				}
+				schemaName, tableName, _ := strings.Cut(sourceTableName, ".")
 				c.logger.Error("[mysql] received MariaDB partial row data event, resync required",
-					slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)))
-				return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent))
+					slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)), slog.String("table", sourceTableName))
+				return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent), schemaName, tableName)
 			default:
 				c.logger.Warn("unknown generic event", slog.Any("type", event.Header.EventType))
 				otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
@@ -617,6 +683,8 @@ func (c *MySqlConnector) PullRecords(
 					c.processRenameTableQuery(ctx, otelManager, req, s, string(ev.Schema))
 				}
 			}
+		case *replication.TableMapEvent:
+			tableIdToName[ev.TableID] = string(ev.Schema) + "." + string(ev.Table)
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name

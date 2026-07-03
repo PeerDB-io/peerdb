@@ -1247,7 +1247,7 @@ func TestMySQLBinlogIncidentErrorShouldBeNotifyBinlogInvalid(t *testing.T) {
 func TestMySQLUnsupportedPartialRowEventShouldBeNotifyPartialRowEventUnsupported(t *testing.T) {
 	t.Parallel()
 
-	err := exceptions.NewMySQLUnsupportedPartialRowEventError(172)
+	err := exceptions.NewMySQLUnsupportedPartialRowEventError(172, "e2e_test", "partial_rows")
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
 	assert.Equal(t, ErrorNotifyBinlogPartialRowEventUnsupported, errorClass)
 	assert.Equal(t, ErrorInfo{
