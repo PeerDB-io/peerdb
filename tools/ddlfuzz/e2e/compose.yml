@@ -1,0 +1,53 @@
+name: ddlfuzz-e2e
+
+services:
+  mysql:
+    container_name: ddlfuzz-mysql
+    image: mysql:9.7.0
+    command:
+      - --server-id=1
+      - --sync_binlog=0
+      - --innodb_flush_log_at_trx_commit=0
+      - --innodb_buffer_pool_size=256M
+      - --explicit_defaults_for_timestamp=ON
+      - --binlog_expire_logs_seconds=86400
+      - --skip-name-resolve
+      - --character-set-server=utf8mb4
+    tmpfs:
+      - /var/lib/mysql
+    ports:
+      - "13306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ddlfuzz
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 2s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  mariadb:
+    container_name: ddlfuzz-mariadb
+    image: mariadb:13.0.1-rc
+    command:
+      - --log-bin=fuzz
+      - --server-id=1
+      - --sync_binlog=0
+      - --innodb_flush_log_at_trx_commit=0
+      - --innodb_buffer_pool_size=256M
+      - --explicit_defaults_for_timestamp=ON
+      - --binlog_expire_logs_seconds=86400
+      - --skip-name-resolve
+      - --character-set-server=utf8mb4
+    tmpfs:
+      - /var/lib/mysql
+    ports:
+      - "13307:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: ddlfuzz
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-uroot", "-pddlfuzz"]
+      interval: 2s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
