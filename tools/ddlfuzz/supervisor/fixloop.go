@@ -782,7 +782,10 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 		if len(engines) > 0 {
 			if err := RebuildOracles(ctx, cfg, engines); err != nil {
 				outcome, detail = "golden_failed", err.Error()
-			} else if err := RunGolden(ctx, cfg); err != nil {
+			}
+		}
+		if (outcome == "fixed" || outcome == "ledgered") && touchedParserOrOracle(paths) {
+			if err := RunGolden(ctx, cfg); err != nil {
 				outcome, detail = "golden_failed", err.Error()
 			}
 		}

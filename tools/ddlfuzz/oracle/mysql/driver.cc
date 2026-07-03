@@ -218,6 +218,11 @@ static std::string table_schema(const Table_ref *tr) {
   return std::string(tr->db, tr->db_length);
 }
 
+static std::string cstring_to_string(const LEX_CSTRING &s) {
+  if (s.str == nullptr || s.length == 0) return "";
+  return std::string(s.str, s.length);
+}
+
 static void emit_table_name(std::string &out, const Table_ref *tr) {
   append_json_bytes(out, tr == nullptr ? "" : tr->table_name,
                     tr == nullptr ? 0 : tr->table_name_length);
@@ -234,6 +239,18 @@ static void emit_alter(std::string &out, THD *thd) {
   json_escape(out, table_schema(tr));
   out += ",\"table\":";
   emit_table_name(out, tr);
+  if (ai != nullptr && (ai->flags & Alter_info::ALTER_RENAME) != 0 &&
+      ai->new_table_name.str != nullptr) {
+    const std::string old_schema = table_schema(tr);
+    std::string new_schema = cstring_to_string(ai->new_db_name);
+    if (old_schema.empty() && new_schema == cstring_to_string(thd->db()))
+      new_schema.clear();
+    if (new_schema == old_schema) new_schema.clear();
+    out += ",\"new_schema\":";
+    json_escape(out, new_schema);
+    out += ",\"new_table\":";
+    json_escape(out, cstring_to_string(ai->new_table_name));
+  }
   out += ",\"specs\":[";
 
   bool first_spec = true;

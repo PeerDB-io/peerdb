@@ -113,6 +113,18 @@ func touchedOracleEngines(paths []string) []string {
 	return out
 }
 
+func touchedParserOrOracle(paths []string) bool {
+	for _, p := range paths {
+		switch {
+		case strings.HasPrefix(p, "flow/connectors/mysql/"):
+			return true
+		case strings.HasPrefix(p, "tools/ddlfuzz/oracle/"):
+			return true
+		}
+	}
+	return false
+}
+
 func touchesE2EBinary(paths []string) bool {
 	for _, p := range paths {
 		switch {

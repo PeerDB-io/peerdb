@@ -66,9 +66,16 @@ func OracleSig(d *digest.Digest) (sig string, skip bool) {
 	for _, st := range stmts {
 		switch st.Kind {
 		case "alter_table":
+			if st.NewTable != "" && len(st.Specs) == 0 {
+				parts = append(parts, "rename "+sigQual(st.Schema, st.Table)+">"+sigQual(st.NewSchema, st.NewTable))
+				continue
+			}
 			specs := make([]string, 0, len(st.Specs))
 			for _, sp := range st.Specs {
 				specs = append(specs, oracleSpecSig(sp))
+			}
+			if st.NewTable != "" {
+				specs = append(specs, "ren_table "+sigQual(st.Schema, st.Table)+">"+sigQual(st.NewSchema, st.NewTable))
 			}
 			parts = append(parts, "alter "+sigQual(st.Schema, st.Table)+"{"+strings.Join(specs, "; ")+"}")
 		case "rename_table":
@@ -557,6 +564,11 @@ func oracleSpecSig(sp digest.Spec) string {
 		sb.WriteString(sigIdent(sp.OldName))
 		sb.WriteByte('>')
 		sb.WriteString(sigIdent(sp.NewName))
+	case "rename_table":
+		sb.WriteString("ren_table ")
+		sb.WriteString(sigIdent(sp.OldName))
+		sb.WriteByte('>')
+		sb.WriteString(sigIdent(sp.NewName))
 	default:
 		sb.WriteString("drop ")
 		sb.WriteString(sigIdent(sp.OldName))
@@ -806,6 +818,23 @@ func parseSpec(s string) (sigSpec, error) {
 		cols, err := parseCols(colsText)
 		sp.cols = cols
 		return sp, err
+	case strings.HasPrefix(s, "ren_table "):
+		sp.kind = "ren_table"
+		rest := strings.TrimPrefix(s, "ren_table ")
+		oldRaw, newRaw, ok := cutSignatureSep(rest, '>')
+		if !ok {
+			return sp, fmt.Errorf("bad rename table spec %q", s)
+		}
+		old, ok := parseSigIdent(strings.TrimSpace(oldRaw))
+		if !ok {
+			return sp, fmt.Errorf("bad rename table old identifier %q", s)
+		}
+		newName, ok := parseSigIdent(strings.TrimSpace(newRaw))
+		if !ok {
+			return sp, fmt.Errorf("bad rename table new identifier %q", s)
+		}
+		sp.old, sp.new = old, newName
+		return sp, nil
 	case strings.HasPrefix(s, "ren "):
 		sp.kind = "ren"
 		rest := strings.TrimPrefix(s, "ren ")
@@ -1083,6 +1112,8 @@ func renderSpec(sp sigSpec) string {
 		out = "chg " + sigIdent(sp.old) + " " + renderCols(sp.cols)
 	case "ren":
 		out = "ren " + sigIdent(sp.old) + ">" + sigIdent(sp.new)
+	case "ren_table":
+		out = "ren_table " + sigIdent(sp.old) + ">" + sigIdent(sp.new)
 	case "drop":
 		out = "drop " + sigIdent(sp.old)
 	}
@@ -1113,10 +1144,12 @@ func specBucket(kind string) int {
 		return 0
 	case "ren":
 		return 1
-	case "drop":
+	case "ren_table":
 		return 2
-	default:
+	case "drop":
 		return 3
+	default:
+		return 4
 	}
 }
 

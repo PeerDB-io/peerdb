@@ -11,11 +11,13 @@ type Digest struct {
 	Stmts   []Stmt `json:"stmts,omitempty"`
 }
 type Stmt struct {
-	Kind   string `json:"kind"` // other | alter_table | rename_table
-	Schema string `json:"schema"`
-	Table  string `json:"table"`
-	Specs  []Spec `json:"specs"`
-	Pairs  []Pair `json:"pairs"`
+	Kind      string `json:"kind"` // other | alter_table | rename_table
+	Schema    string `json:"schema"`
+	Table     string `json:"table"`
+	NewSchema string `json:"new_schema,omitempty"`
+	NewTable  string `json:"new_table,omitempty"`
+	Specs     []Spec `json:"specs"`
+	Pairs     []Pair `json:"pairs"`
 }
 type Spec struct {
 	Op          string `json:"op"` // add | modify | change | drop | rename_col
@@ -68,6 +70,8 @@ func (d *Digest) Reset() {
 	for i := range d.Stmts {
 		d.Stmts[i].Specs = nil
 		d.Stmts[i].Pairs = nil
+		d.Stmts[i].NewSchema = ""
+		d.Stmts[i].NewTable = ""
 	}
 	d.Stmts = d.Stmts[:0]
 }

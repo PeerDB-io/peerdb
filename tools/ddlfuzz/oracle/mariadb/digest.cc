@@ -56,6 +56,12 @@ void write_schema(Jw &jw, const LEX_CSTRING &db) {
     jw.str(db);
 }
 
+std::string schema_string(const LEX_CSTRING &db) {
+  if (db.str == nullptr || db.length == 0 || is_sentinel(db))
+    return "";
+  return std::string(db.str, db.length);
+}
+
 std::string promoted_blob_base(ulonglong length) {
   if (length <= 255)
     return "tinyblob";
@@ -231,6 +237,17 @@ void write_alter_table(Jw &jw, LEX *lex) {
   write_schema(jw, tl->db);
   jw.raw(",\"table\":");
   jw.str(tl->table_name);
+  if ((lex->alter_info.flags & ALTER_RENAME) != 0 &&
+      lex->name.str != nullptr) {
+    std::string old_schema = schema_string(tl->db);
+    std::string new_schema = schema_string(lex->first_select_lex()->db);
+    if (new_schema == old_schema)
+      new_schema.clear();
+    jw.raw(",\"new_schema\":");
+    jw.str(new_schema.data(), new_schema.size());
+    jw.raw(",\"new_table\":");
+    jw.str(lex->name);
+  }
   jw.raw(",\"specs\":[");
 
   bool first = true;

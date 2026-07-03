@@ -104,6 +104,21 @@ func TestDiffReconciliationRules(t *testing.T) {
 			}}},
 		},
 		{
+			name: "alter table rename only reconciles as rename",
+			our:  "rename t>t2",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "alter_table", Table: "t", NewTable: "t2",
+			}}},
+		},
+		{
+			name: "alter table rename with specs remains alter",
+			our:  "alter t{col c=int32; ren_table t>t2}",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "alter_table", Table: "t", NewTable: "t2",
+				Specs: []digest.Spec{{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "int"}}}},
+			}}},
+		},
+		{
 			name: "mismatch shape",
 			our:  "alter t{col c=int32}",
 			d: acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{

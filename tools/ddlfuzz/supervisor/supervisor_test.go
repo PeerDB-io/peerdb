@@ -92,6 +92,29 @@ func TestTouchesE2EBinary(t *testing.T) {
 	}
 }
 
+func TestTouchedParserOrOracle(t *testing.T) {
+	tests := []struct {
+		name  string
+		paths []string
+		want  bool
+	}{
+		{name: "parser", paths: []string{"flow/connectors/mysql/ddl_parser.go"}, want: true},
+		{name: "parser shim", paths: []string{"flow/connectors/mysql/ddlfuzz_export.go"}, want: true},
+		{name: "mysql oracle", paths: []string{"tools/ddlfuzz/oracle/mysql/driver.cc"}, want: true},
+		{name: "mariadb oracle", paths: []string{"tools/ddlfuzz/oracle/mariadb/digest.cc"}, want: true},
+		{name: "compare only", paths: []string{"tools/ddlfuzz/internal/compare/compare.go"}},
+		{name: "supervisor", paths: []string{"tools/ddlfuzz/supervisor/gate.go"}},
+		{name: "empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := touchedParserOrOracle(tt.paths); got != tt.want {
+				t.Fatalf("touchedParserOrOracle(%v)=%v, want %v", tt.paths, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestE2EHotRestartLaneDown(t *testing.T) {
 	cfg := testConfig(t)
 	if err := os.MkdirAll(cfg.BuildDir, 0o755); err != nil {
