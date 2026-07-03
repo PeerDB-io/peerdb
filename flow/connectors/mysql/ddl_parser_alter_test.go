@@ -407,7 +407,10 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 
 	stmts, err = parseQueryEvent([]byte("RENAME TABLE fixture TO fixture"), 0, true)
 	require.NoError(t, err)
-	require.Empty(t, stmts)
+	require.Len(t, stmts, 1)
+	rename, ok := stmts[0].(*ddlRenameTable)
+	require.True(t, ok, "expected *ddlRenameTable, got %T", stmts[0])
+	require.Equal(t, []ddlRenamePair{{OldTable: "fixture", NewTable: "fixture"}}, rename.Pairs)
 
 	stmts, err = parseQueryEvent([]byte("ALTER TABLE t ADD COLUMN c INT, RENAME TO t2"), 0, false)
 	require.NoError(t, err)
@@ -415,7 +418,7 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 	alter, ok = stmts[0].(*ddlAlterTable)
 	require.True(t, ok, "expected *ddlAlterTable, got %T", stmts[0])
 	require.Equal(t, ddlAltAdd(ddlAltCol("c", "int")), alter.Specs)
-	rename, ok := stmts[1].(*ddlRenameTable)
+	rename, ok = stmts[1].(*ddlRenameTable)
 	require.True(t, ok, "expected *ddlRenameTable, got %T", stmts[1])
 	require.Equal(t, []ddlRenamePair{{OldTable: "t", NewTable: "t2"}}, rename.Pairs)
 
@@ -425,6 +428,12 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 	require.Len(t, stmts, 1)
 	rename = stmts[0].(*ddlRenameTable)
 	require.Equal(t, []ddlRenamePair{{OldTable: "a", NewTable: "b"}, {OldTable: "c", NewTable: "d"}}, rename.Pairs)
+
+	stmts, err = parseQueryEvent([]byte("RENAME TABLES a TO  a, c TO d"), 0, false)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	rename = stmts[0].(*ddlRenameTable)
+	require.Equal(t, []ddlRenamePair{{OldTable: "a", NewTable: "a"}, {OldTable: "c", NewTable: "d"}}, rename.Pairs)
 
 	// MariaDB: statement-level IF EXISTS plus per-pair WAIT/NOWAIT after the old name
 	stmts, err = parseQueryEvent([]byte("RENAME TABLE IF EXISTS db1.old WAIT 3 TO db2.new, x NOWAIT TO y"), 0, true)

@@ -1,0 +1,1 @@
+RENAME TABLES a TO  a, c TO d

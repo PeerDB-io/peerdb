@@ -1394,9 +1394,7 @@ func (p *ddlParser) parseRenameTable() (*ddlRenameTable, error) {
 		pair := ddlRenamePair{
 			OldSchema: oldSchema, OldTable: oldTable, NewSchema: newSchema, NewTable: newTable,
 		}
-		if !ddlRenamePairIsNoop(pair) {
-			stmt.Pairs = append(stmt.Pairs, pair)
-		}
+		stmt.Pairs = append(stmt.Pairs, pair)
 		t := p.peek(0)
 		switch {
 		case t.kind == tokPunct && t.text == ",":
