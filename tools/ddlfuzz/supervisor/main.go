@@ -154,12 +154,13 @@ func runCommand(cfg Config) error {
 	fuzzer := NewFuzzerManager(cfg, logger)
 	e2e := NewE2EManager(cfg, logger)
 	var wg sync.WaitGroup
-	wg.Add(5)
+	wg.Add(6)
 	go func() { defer wg.Done(); fuzzer.Run(deadlineCtx) }()
 	go func() { defer wg.Done(); e2e.Run(deadlineCtx) }()
 	go func() { defer wg.Done(); RunFixLoop(deadlineCtx, cfg, fuzzer, logger) }()
 	go func() { defer wg.Done(); runReportTickers(deadlineCtx, cfg, fuzzer, e2e, logger) }()
 	go func() { defer wg.Done(); runDiskWatchdog(deadlineCtx, cfg, e2e, logger) }()
+	go func() { defer wg.Done(); runOracleCrossCheck(deadlineCtx, cfg, logger) }()
 	<-deadlineCtx.Done()
 	logger("shutdown requested: %v", deadlineCtx.Err())
 	fuzzer.Stop()
@@ -468,6 +469,47 @@ func runDiskWatchdog(ctx context.Context, cfg Config, e *E2EManager, logf func(s
 			}
 			if free < 3*GiB {
 				gzipOldAttempts(cfg, 6*time.Hour)
+			}
+		}
+	}
+}
+
+// runOracleCrossCheck implements reconciliation decision D7: periodically
+// rotate the e2e lane's live-accepted sample and replay it through the parse
+// oracles; an oracle reject of a live-accepted statement is an oracle-harness
+// finding (class oracle-reject-live-accept, filed by the ddlfuzz binary).
+// The rotated file is deleted only after a clean run.
+func runOracleCrossCheck(ctx context.Context, cfg Config, logf func(string, ...any)) {
+	ticker := time.NewTicker(cfg.CrossCheckEvery)
+	defer ticker.Stop()
+	src := filepath.Join(cfg.StateDir, "e2e-live-accepted.jsonl")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			info, err := os.Stat(src)
+			if err != nil || info.Size() == 0 {
+				continue
+			}
+			rotated := src + "." + time.Now().UTC().Format("20060102T150405") + ".rotated"
+			if err := os.Rename(src, rotated); err != nil {
+				logf("oracle cross-check rotate failed: %v", err)
+				continue
+			}
+			res, err := RunTimeout(ctx, cfg.DDLDir, 30*time.Minute, nil,
+				cfg.DDLfuzzBin, "replay", "--from", rotated, "--expect-accept")
+			switch {
+			case err == nil && res.ExitCode == 0:
+				_ = os.Remove(rotated)
+				logf("oracle cross-check clean: %s", strings.TrimSpace(res.Stdout))
+			case err == nil && res.ExitCode == 10:
+				logf("oracle cross-check filed findings: %s (kept %s)", strings.TrimSpace(res.Stdout), rotated)
+			default:
+				if err == nil {
+					err = fmt.Errorf("exit code %d", res.ExitCode)
+				}
+				logf("oracle cross-check failed: %v (kept %s)\n%s", err, rotated, resultOutputTail(res, 4000))
 			}
 		}
 	}

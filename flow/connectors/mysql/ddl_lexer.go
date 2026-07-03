@@ -204,7 +204,10 @@ func (lx *ddlLexer) skipPlainComment() {
 }
 
 // scanText scans a string literal. Doubling the delimiter always escapes it;
-// backslash escapes the next byte unless NO_BACKSLASH_ESCAPES is set.
+// backslash escapes the next byte unless NO_BACKSLASH_ESCAPES is set. A NUL
+// is an ordinary byte here: both servers scan string bodies with a
+// pointer-based end-of-input check, unlike token-start position where NUL
+// ends the query.
 func (lx *ddlLexer) scanText(quote byte) (ddlToken, error) {
 	start := lx.pos
 	noBackslash := lx.sqlMode&sqlModeNoBackslashEscapes != 0
@@ -213,8 +216,6 @@ func (lx *ddlLexer) scanText(quote byte) (ddlToken, error) {
 	for i < n {
 		c := lx.s[i]
 		switch {
-		case c == 0:
-			return ddlToken{}, errUnterminatedString
 		case c == quote:
 			if i+1 < n && lx.s[i+1] == quote {
 				i += 2

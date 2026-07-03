@@ -566,6 +566,11 @@ var tidbDiffModeCases = []tidbDiffModeCase{
 		sql:  "ALTER TABLE t ADD c JSON NOT NULL",
 		want: "alter t{col c=json nn}", note: "json type",
 	},
+	{
+		sql: "ALTER TABLE t ADD c JSON NOT NULL", isMariaDB: true,
+		want: "alter t{col c=string nn}",
+		note: "MariaDB JSON is a LONGTEXT alias (MariaDB KB, JSON Data Type)",
+	},
 }
 
 var tidbDiffCorpus = []tidbDiffCase{
@@ -951,7 +956,7 @@ var tidbDiffCorpus = []tidbDiffCase{
 	},
 	{
 		sql:    "ALTER TABLE t ADD j JSON",
-		engine: "both", note: "json type",
+		engine: "mysql", note: "json type; MariaDB is covered by the LONGTEXT-alias mode case",
 	},
 	{
 		sql:    "ALTER TABLE t ADD g GEOMCOLLECTION",

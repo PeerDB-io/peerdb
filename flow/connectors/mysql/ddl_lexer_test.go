@@ -319,11 +319,15 @@ func TestDDLLexerNulHandling(t *testing.T) {
 	alter := ddlParseAlter(t, "ALTER TABLE t DROP COLUMN a\x00, ADD COLUMN b INT", 0, false)
 	require.Equal(t, []ddlAlterSpec{{OldColumnName: "a"}}, alter.Specs)
 
-	// NUL aborts a quoted identifier and a string literal inside an actionable statement
+	// NUL aborts a quoted identifier inside an actionable statement
 	_, err := parseQueryEvent([]byte("ALTER TABLE `a\x00b` DROP COLUMN c"), 0, false)
 	require.Error(t, err)
-	_, err = parseQueryEvent([]byte("ALTER TABLE t ADD c INT COMMENT 'a\x00b'"), 0, false)
-	require.Error(t, err)
+
+	// but inside a string literal NUL is an ordinary byte: both servers scan
+	// string bodies with a pointer-based end-of-input check
+	stmtsNul, err := parseQueryEvent([]byte("ALTER TABLE t ADD c INT COMMENT 'a\x00b'"), 0, false)
+	require.NoError(t, err)
+	require.Len(t, stmtsNul, 1)
 
 	// NUL inside a line comment ends the comment and the whole input
 	stmts, err := parseQueryEvent([]byte("ALTER TABLE t DROP COLUMN a; -- x\x00ALTER TABLE t DROP COLUMN b"), 0, false)

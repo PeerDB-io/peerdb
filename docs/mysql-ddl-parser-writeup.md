@@ -82,7 +82,9 @@ word, quoted-ident, string, punct (single byte), EOF/err. Key rules, each verifi
   (source skipped it), digitless ⇒ code. `/*+` ⇒ plain comment.
 - Strings: doubling always escapes; backslash escapes unless `sqlModeNoBackslashEscapes`. `"` is a string
   unless `sqlModeANSIQuotes` (then delimited ident). Backtick doubling; `[bracket]` idents under
-  MariaDB+`sqlModeMSSQL`; MySQL-9 `$tag$...$tag$` dollar quoting; NUL = end of input.
+  MariaDB+`sqlModeMSSQL`; MySQL-9 `$tag$...$tag$` dollar quoting; NUL = end of input at token start and
+  in quoted identifiers, but an ordinary byte inside string literals (server string scans are
+  pointer-bounded, not NUL-terminated).
 - sql_mode bits (per-event via status vars; layouts agree across engines below bit 32; the doc table in
   libbinlogevents statement_events.h is stale — trust system_variables.h / sql_class.h):
   ANSI_QUOTES=1<<2, ORACLE=1<<9 (Maria), MSSQL=1<<10 (Maria), NO_BACKSLASH_ESCAPES=1<<20.

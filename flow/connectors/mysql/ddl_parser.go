@@ -794,7 +794,16 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 		if err := p.oracleOrUDTType(st, t, oracle, "number"); err != nil {
 			return err
 		}
-	case "bit", "date", "time", "datetime", "timestamp", "year", "json",
+	case "json":
+		// MariaDB has no native JSON type: the MariaDB KB documents JSON as an
+		// alias for LONGTEXT, and information_schema reports longtext. MySQL
+		// keeps the native type.
+		if p.lx.isMariaDB {
+			st.base = "longtext"
+		} else {
+			st.base = "json"
+		}
+	case "bit", "date", "time", "datetime", "timestamp", "year",
 		"binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob",
 		"tinytext", "text", "mediumtext", "longtext", "enum", "set",
 		"geometry", "point", "linestring", "polygon", "multipoint",

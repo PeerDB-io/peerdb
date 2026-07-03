@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -153,7 +154,10 @@ static RenderedType render_type(const Create_field &cf) {
   RenderedType rendered;
   rendered.type_str = base_type_name(cf);
 
-  const bool unsigned_flag = (cf.flags & (UNSIGNED_FLAG | ZEROFILL_FLAG)) != 0;
+  // YEAR carries UNSIGNED_FLAG internally but information_schema renders it
+  // as plain "year"; suffixing it would flip the qkind to uint16.
+  const bool unsigned_flag = cf.sql_type != MYSQL_TYPE_YEAR &&
+                             (cf.flags & (UNSIGNED_FLAG | ZEROFILL_FLAG)) != 0;
 
   if (cf.sql_type == MYSQL_TYPE_NEWDECIMAL) {
     const size_t width = cf.max_display_width_in_codepoints();
@@ -449,11 +453,22 @@ static void append_coverage(std::string &resp) {
   }
 }
 
+// Bootstraps the component registry. The gunit harness leaves srv_registry
+// null, and stored-program teardown does a my_service lookup through it, so
+// parse-error cleanup of any stored-program statement (CREATE
+// PROCEDURE/FUNCTION/TRIGGER/EVENT) would SIGSEGV without it.
+extern bool initialize_minimal_chassis(SERVICE_TYPE_NO_CONST(registry) *
+                                       *registry);
+
 int main(int, char **argv) {
   const char *progname =
       (argv != nullptr && argv[0] != nullptr) ? argv[0] : "oracle-mysql";
   initialize_stack_direction();
   MY_INIT(progname);
+  if (initialize_minimal_chassis(&srv_registry)) {
+    std::fprintf(stderr, "oracle-mysql: minimal chassis init failed\n");
+    return 2;
+  }
   my_testing::setup_server_for_unit_tests();
   error_handler_hook = my_message_sql;
 

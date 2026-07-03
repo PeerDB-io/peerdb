@@ -105,6 +105,9 @@ func Diff(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo,
 	if skip {
 		return nil
 	}
+	if ContainsSkippedVersionComment(c.SQL, c.Engine) {
+		return nil
+	}
 	if ourErr != nil {
 		return &Divergence{Class: "we_error", Shape: NormalizeError(ourErr.Error()), OurSig: ourSig, OracleSig: oracleSig, OurError: ourErr.Error()}
 	}
@@ -125,6 +128,90 @@ func Diff(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo,
 		OurSig:    ourSig,
 		OracleSig: oracleSig,
 	}
+}
+
+// Version IDs of the pinned oracle servers, MySQL-style MMmmdd encoding.
+const (
+	mysqlVersionID   = 90700  // MySQL 9.7.0
+	mariadbVersionID = 130100 // MariaDB 13.1.0
+)
+
+// ContainsSkippedVersionComment reports whether the input carries an
+// executable version comment that the source engine would have skipped rather
+// than executed. Both engines patch skipped version comments into plain
+// comments in the query text before binlogging it, so such text is
+// unreachable as post-binlog input (the correctness contract's domain) and
+// the case is excluded from signature comparison — the parser under test
+// deliberately executes every surviving executable comment without version
+// checks. The scan is byte-naive (it does not skip string literals), which
+// can only over-skip, never fabricate a divergence.
+//
+// Gating rules (MariaDB KB "Comment Syntax"; MySQL Reference Manual
+// "Comments"): a version prefix is 5 digits with an optional 6th. MySQL
+// executes /*!NNNNN when NNNNN <= its version id. MariaDB additionally
+// ignores the MySQL-compatibility range 50700-99999 unless spelled /*M!, and
+// its reversed /*!!NNNNN form never survives to the binlog with digits
+// intact (executed bodies have the digits blanked, skipped ones the bangs).
+func ContainsSkippedVersionComment(sql []byte, engine uint8) bool {
+	isMaria := engine == run.EngineMariaDB
+	for i := 0; i+2 < len(sql); i++ {
+		if sql[i] != '/' || sql[i+1] != '*' {
+			continue
+		}
+		rest := sql[i+2:]
+		switch {
+		case len(rest) > 1 && rest[0] == '!' && rest[1] == '!' && isMaria:
+			if countDigits(rest[2:]) >= 5 {
+				return true
+			}
+		case rest[0] == '!':
+			if version, ok := versionPrefix(rest[1:], isMaria); ok {
+				if isMaria {
+					if version > mariadbVersionID || (version >= 50700 && version <= 99999) {
+						return true
+					}
+				} else if version > mysqlVersionID {
+					return true
+				}
+			}
+		case len(rest) > 1 && rest[0] == 'M' && rest[1] == '!' && isMaria:
+			if version, ok := versionPrefix(rest[2:], isMaria); ok && version > mariadbVersionID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func countDigits(s []byte) int {
+	d := 0
+	for d < len(s) && s[d] >= '0' && s[d] <= '9' {
+		d++
+	}
+	return d
+}
+
+// versionPrefix extracts the 5-6 digit version number after an executable
+// comment marker. MariaDB takes a 6th digit whenever present; MySQL only
+// when a whitespace byte follows it (otherwise the 6th digit is body text).
+func versionPrefix(s []byte, isMaria bool) (int, bool) {
+	if countDigits(s) < 5 {
+		return 0, false
+	}
+	n := 5
+	if len(s) > 5 && s[5] >= '0' && s[5] <= '9' &&
+		(isMaria || (len(s) > 6 && isSpaceByte(s[6]))) {
+		n = 6
+	}
+	v, err := strconv.Atoi(string(s[:n]))
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+func isSpaceByte(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
 }
 
 func MakeDescriptor(c run.Case, lane string, div *Divergence) Descriptor {

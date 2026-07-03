@@ -7,13 +7,17 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/run"
 )
 
+// Store is safe for concurrent use: multiple oracle-proc goroutines (across
+// both engines) call Add and Count.
 type Store struct {
 	Root  string
+	mu    sync.Mutex
 	index map[string]struct{}
 }
 
@@ -57,9 +61,13 @@ func (s *Store) Add(c run.Case) (bool, error) {
 	engine := run.EngineName(c.Engine)
 	hash := Hash(c.SQL, c.SQLMode)
 	key := engine + "/" + hash
+	s.mu.Lock()
 	if _, ok := s.index[key]; ok {
+		s.mu.Unlock()
 		return false, nil
 	}
+	s.index[key] = struct{}{}
+	s.mu.Unlock()
 	dir := filepath.Join(s.Root, engine)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
@@ -73,11 +81,12 @@ func (s *Store) Add(c run.Case) (bool, error) {
 	if err := writeAtomic(filepath.Join(dir, hash+".meta.json"), b); err != nil {
 		return false, err
 	}
-	s.index[key] = struct{}{}
 	return true, nil
 }
 
 func (s *Store) Count(engine string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	n := 0
 	for key := range s.index {
 		if len(key) > len(engine)+1 && key[:len(engine)+1] == engine+"/" {

@@ -1,3 +1,5 @@
+//go:build ddlfuzz
+
 package e2e
 
 import "strings"

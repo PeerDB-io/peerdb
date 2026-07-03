@@ -13,17 +13,13 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strconv"
-	"sync/atomic"
 	"syscall"
 	"time"
 
-	ddllexec "github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/exec"
-	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/gen"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/golden"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/minimize"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/replay"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/run"
-	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/seed"
 )
 
 type config struct {
@@ -220,97 +216,7 @@ func runFuzz(ctx context.Context, cfg config) int {
 	if cfg.memCeiling > 0 {
 		debug.SetMemoryLimit(cfg.memCeiling * 3 / 4)
 	}
-	if err := os.MkdirAll(cfg.stateDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "fuzz: %v\n", err)
-		return 1
-	}
-	seedValue, err := loadOrInitSeed(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fuzz: %v\n", err)
-		return 1
-	}
-	rng := rand.New(rand.NewPCG(seedValue, 0x9e3779b97f4a7c15))
-	seeds, _ := seed.LoadDir(cfg.seedsDir)
-	worker := ddllexec.NewWorker(0, cfg.caseDeadline, nil)
-	start := time.Now()
-	var total atomic.Uint64
-	done := ctx.Done()
-	var cancel context.CancelFunc
-	if cfg.duration > 0 {
-		var cctx context.Context
-		cctx, cancel = context.WithTimeout(ctx, cfg.duration)
-		done = cctx.Done()
-		defer cancel()
-	}
-	statsTicker := time.NewTicker(cfg.statsInterval)
-	heartbeatTicker := time.NewTicker(30 * time.Second)
-	defer statsTicker.Stop()
-	defer heartbeatTicker.Stop()
-	writeStats := func(rate float64) {
-		_ = writeStatsJSON(cfg.stateDir, map[string]any{
-			"ts":                      time.Now().UTC().Format(time.RFC3339),
-			"execs_total":             total.Load(),
-			"execs_per_sec":           rate,
-			"corpus_count":            map[string]int{"mysql": 0, "mariadb": 0},
-			"edges":                   map[string]int{"go": 0, "mysql": 0, "mariadb": 0},
-			"oracle_restarts":         map[string]int{"mysql": 0, "mariadb": 0},
-			"findings_emitted_total":  0,
-			"run_seed":                fmt.Sprintf("0x%x", seedValue),
-			"suppressed":              0,
-			"live_oracles_configured": oracleExists(cfg),
-		})
-	}
-	writeStats(0)
-	last := time.Now()
-	lastTotal := uint64(0)
-	for {
-		select {
-		case <-done:
-			elapsed := time.Since(start).Seconds()
-			rate := 0.0
-			if elapsed > 0 {
-				rate = float64(total.Load()) / elapsed
-			}
-			writeStats(rate)
-			return 0
-		case <-statsTicker.C:
-			now := time.Now()
-			cur := total.Load()
-			rate := float64(cur-lastTotal) / now.Sub(last).Seconds()
-			fmt.Fprintf(os.Stderr, "execs/s=%.0f corpus=mysql:%d,maria:%d edges=go:0,my:0,ma:0 findings=open:0,supp:0 abandoned=0 procs=my:%d/%d,ma:%d/%d uptime=%s\n",
-				rate, len(seeds), len(seeds), boolInt(fileExists(cfg.mysqlOracle))*cfg.oracleProcsPerEngine, cfg.oracleProcsPerEngine,
-				boolInt(fileExists(cfg.mariaOracle))*cfg.oracleProcsPerEngine, cfg.oracleProcsPerEngine, time.Since(start).Round(time.Second))
-			last, lastTotal = now, cur
-		case <-heartbeatTicker.C:
-			elapsed := time.Since(start).Seconds()
-			rate := 0.0
-			if elapsed > 0 {
-				rate = float64(total.Load()) / elapsed
-			}
-			writeStats(rate)
-		default:
-			batch := make([]run.Case, 0, cfg.batch)
-			for len(batch) < cfg.batch {
-				engine := run.EngineMySQL
-				if rng.Float64() >= cfg.engineBias {
-					engine = run.EngineMariaDB
-				}
-				sql := gen.Generate(rng, engine == run.EngineMariaDB)
-				if len(seeds) > 0 && rng.IntN(100) < 25 {
-					s := seeds[rng.IntN(len(seeds))]
-					sql = s.SQL
-					if s.Engine == "mariadb" {
-						engine = run.EngineMariaDB
-					} else if s.Engine == "mysql" {
-						engine = run.EngineMySQL
-					}
-				}
-				batch = append(batch, run.Case{SQL: []byte(sql), SQLMode: chooseMode(rng, engine), Engine: engine, Origin: run.OriginGen, Seed: rng.Uint64()})
-			}
-			_ = worker.RunBatch(batch)
-			total.Add(uint64(len(batch)))
-		}
-	}
+	return runFuzzLoop(ctx, cfg)
 }
 
 func runMinimize(cfg config, sig string) int {
@@ -380,22 +286,6 @@ func writeStatsJSON(stateDir string, v map[string]any) error {
 		return err
 	}
 	return os.Rename(name, path)
-}
-
-func oracleExists(cfg config) bool {
-	return fileExists(cfg.mysqlOracle) && fileExists(cfg.mariaOracle)
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func boolInt(v bool) int {
-	if v {
-		return 1
-	}
-	return 0
 }
 
 func bytesTrimSpace(b []byte) []byte {

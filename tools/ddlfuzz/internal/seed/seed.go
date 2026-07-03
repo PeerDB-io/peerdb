@@ -109,11 +109,6 @@ func Extract(flowMysqlDir string) ([]Seed, error) {
 		if s.Engine == "" {
 			s.Engine = "both"
 		}
-		if s.ExpectSig == "" {
-			if exp, ok := expectBySQL[s.SQL]; ok {
-				s.ExpectSig = exp
-			}
-		}
 		key := s.SQL + "\x00" + s.Engine + "\x00" + strconv.FormatUint(s.SQLMode, 10) + "\x00" + s.ExpectSig
 		if _, ok := seen[key]; ok {
 			return
@@ -132,15 +127,10 @@ func Extract(flowMysqlDir string) ([]Seed, error) {
 		if name == "ddl_parser_tidb_diff_test.go" {
 			collectExpectMaps(file, expectBySQL)
 			collectTidbModeCases(file, name, add)
-			collectTidbCorpus(file, name, add)
+			collectTidbCorpus(file, name, expectBySQL, add)
 		}
 		collectFieldStrings(file, name, add)
 		collectDDLStrings(file, name, add)
-	}
-	for _, s := range seeds {
-		if exp, ok := expectBySQL[s.SQL]; ok && s.ExpectSig == "" {
-			s.ExpectSig = exp
-		}
 	}
 	return seeds, nil
 }
@@ -196,11 +186,21 @@ func collectTidbModeCases(file *ast.File, source string, add func(Seed)) {
 	})
 }
 
-func collectTidbCorpus(file *ast.File, source string, add func(Seed)) {
+// collectTidbCorpus is the only collector that attaches the
+// tidbDiffOverrides/tidbDiffFailWant annotations: those expectations were
+// written for the corpus context (the entry's declared engine, sql_mode 0),
+// so string-mined duplicates of the same SQL must not inherit them.
+func collectTidbCorpus(file *ast.File, source string, expectBySQL map[string]string, add func(Seed)) {
+	annotated := func(s Seed) Seed {
+		if exp, ok := expectBySQL[s.SQL]; ok {
+			s.ExpectSig = exp
+		}
+		return s
+	}
 	forEachNamedComposite(file, "tidbDiffCorpus", func(cl *ast.CompositeLit) {
 		for _, elt := range cl.Elts {
 			if child, ok := elt.(*ast.CompositeLit); ok {
-				add(parseCorpusCase(child, source))
+				add(annotated(parseCorpusCase(child, source)))
 			}
 		}
 	})
@@ -209,7 +209,7 @@ func collectTidbCorpus(file *ast.File, source string, add func(Seed)) {
 		if !ok || typeName(cl.Type) != "tidbDiffCase" {
 			return true
 		}
-		add(parseCorpusCase(cl, source))
+		add(annotated(parseCorpusCase(cl, source)))
 		return true
 	})
 }

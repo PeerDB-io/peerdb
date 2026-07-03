@@ -104,6 +104,39 @@ func TestDiffReconciliationRules(t *testing.T) {
 	}
 }
 
+func TestContainsSkippedVersionComment(t *testing.T) {
+	tests := []struct {
+		sql    string
+		engine uint8
+		want   bool
+	}{
+		{"ALTER TABLE t /*!80000 ADD COLUMN c INT */ DROP COLUMN d", run.EngineMariaDB, true},
+		{"ALTER TABLE t /*!80000 ADD COLUMN c INT */", run.EngineMySQL, false},
+		{"ALTER TABLE t /*!50600 ADD COLUMN c INT */", run.EngineMariaDB, false},
+		{"ALTER TABLE t /*!130200 ADD COLUMN c INT */", run.EngineMariaDB, true},
+		{"ALTER TABLE t /*!100500 ADD COLUMN c INT */", run.EngineMariaDB, false},
+		{"ALTER TABLE t /*!90700 ADD COLUMN c INT */", run.EngineMySQL, false},
+		{"ALTER TABLE t /*!90701 ADD COLUMN c INT */", run.EngineMySQL, true},
+		// MySQL only takes the 6th digit when whitespace follows it
+		{"ALTER TABLE t /*!123456 ADD COLUMN c INT */", run.EngineMySQL, true},
+		{"ALTER TABLE t /*!888888x*/", run.EngineMySQL, false},
+		{"ALTER TABLE t /*M!140000 ADD COLUMN c INT */", run.EngineMariaDB, true},
+		{"ALTER TABLE t /*M!100500 ADD COLUMN c INT */", run.EngineMariaDB, false},
+		{"ALTER TABLE t /*M!100500 ADD COLUMN c INT */", run.EngineMySQL, false},
+		// reversed comments never keep their digits in binlogged text
+		{"ALTER TABLE t /*!!100500 ADD COLUMN c INT */", run.EngineMariaDB, true},
+		{"ALTER TABLE t /*!! ADD COLUMN c INT */", run.EngineMariaDB, false},
+		{"ALTER TABLE t /*! ADD COLUMN c INT */", run.EngineMariaDB, false},
+		{"ALTER TABLE t /*!123 ADD COLUMN c INT */", run.EngineMySQL, false},
+		{"ALTER TABLE t ADD c INT", run.EngineMySQL, false},
+	}
+	for _, tc := range tests {
+		if got := ContainsSkippedVersionComment([]byte(tc.sql), tc.engine); got != tc.want {
+			t.Errorf("ContainsSkippedVersionComment(%q, %d) = %v, want %v", tc.sql, tc.engine, got, tc.want)
+		}
+	}
+}
+
 func TestDescriptorStability(t *testing.T) {
 	a := Descriptor{V: 1, Engine: "mysql", SQLMode: SQLModeANSIQuotes | 1<<63, Class: "we_error", Lane: "fast", Shape: NormalizeError(`parse "table_a" at byte 10`)}
 	b := Descriptor{V: 1, Engine: "mysql", SQLMode: SQLModeANSIQuotes, Class: "we_error", Lane: "fast", Shape: NormalizeError(`parse "table_b" at byte 999`)}

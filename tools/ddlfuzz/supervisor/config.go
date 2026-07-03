@@ -37,10 +37,11 @@ type Config struct {
 	LintCache     string
 	StartedAt     time.Time
 	Deadline      time.Time
-	ReportEvery   time.Duration
-	DiskEvery     time.Duration
-	FindingEvery  time.Duration
-	CoverageEvery time.Duration
+	ReportEvery     time.Duration
+	DiskEvery       time.Duration
+	FindingEvery    time.Duration
+	CoverageEvery   time.Duration
+	CrossCheckEvery time.Duration
 }
 
 func LoadConfig() (Config, error) {
@@ -91,10 +92,11 @@ func LoadConfig() (Config, error) {
 		LintCache:     filepath.Join(home, "Library", "Caches", "golangci-lint"),
 		StartedAt:     now,
 		Deadline:      now.Add(time.Duration(hours * float64(time.Hour))),
-		ReportEvery:   time.Hour,
-		DiskEvery:     10 * time.Minute,
-		FindingEvery:  30 * time.Second,
-		CoverageEvery: time.Hour,
+		ReportEvery:     time.Hour,
+		DiskEvery:       10 * time.Minute,
+		FindingEvery:    30 * time.Second,
+		CoverageEvery:   time.Hour,
+		CrossCheckEvery: 6 * time.Hour,
 	}
 	return cfg, nil
 }

@@ -59,6 +59,7 @@
 {"sql":"ALTER TABLE t ADD c SET('a','b') NOT NULL","engine":"mysql","sql_mode":0,"expect_sig":"alter t{col c=string nn}","source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c ENUM('x') NOT NULL DEFAULT 'x'","engine":"mysql","sql_mode":0,"expect_sig":"alter t{col c=enum nn}","source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c JSON NOT NULL","engine":"mysql","sql_mode":0,"expect_sig":"alter t{col c=json nn}","source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c JSON NOT NULL","engine":"mariadb","sql_mode":0,"expect_sig":"alter t{col c=string nn}","source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"SET STATEMENT max_statement_time=60 FOR INSERT INTO mysql.rds_heartbeat2(id, value) values (1,1782476058116) ON DUPLICATE KEY UPDATE value = 1782476058116","engine":"mariadb","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"SET STATEMENT max_statement_time=60 FOR DELETE FROM mysql.rds_sysinfo where name = 'innodb_txn_key'","engine":"mariadb","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"SET STATEMENT max_statement_time=60 FOR flush table","engine":"mariadb","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
@@ -152,7 +153,7 @@
 {"sql":"ALTER TABLE t ADD c TINYINT(1)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c TINYINT(1) UNSIGNED","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD y YEAR(4)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD j JSON","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD j JSON","engine":"mysql","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD g GEOMCOLLECTION","engine":"mysql","sql_mode":0,"expect_sig":"alter t{col g=geometry}","source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD g GEOMETRYCOLLECTION","engine":"both","sql_mode":0,"expect_sig":"alter t{col g=geometry}","source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD g GEOMETRY REF_SYSTEM_ID=4326","engine":"mariadb","sql_mode":0,"expect_sig":"alter t{col g=geometry}","source":"ddl_parser_tidb_diff_test.go"}
@@ -227,17 +228,18 @@
 {"sql":"UPDATE t SET note = 'RENAME TABLE a TO b' WHERE id = 1","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE \"db\".\"t\" ADD COLUMN \"c\" INT NOT NULL","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE \"t\" DROP COLUMN \"we\"\"ird\"","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE \"db\".\"t\" ADD COLUMN \"c\" INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c VARCHAR(10) DEFAULT \"a,b\", ADD d INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c VARCHAR(10) DEFAULT 'a\\', ADD d INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c VARCHAR(10) DEFAULT 'it\\'s', ADD d INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE [db].[t] ADD COLUMN [c] INT NOT NULL","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE [db].[t] DROP COLUMN [c]","engine":"both","sql_mode":0,"expect_sig":"ERROR","source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE [db].[t] DROP COLUMN [c]","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t MODIFY a NUMBER(10,2)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t MODIFY a NUMBER(10)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t MODIFY a NUMBER","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c VARCHAR2(30) NOT NULL","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c RAW(16)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD c CLOB","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=string}","source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c CLOB","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c BLOB","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"/*!!100500 ALTER TABLE t DROP COLUMN c */","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"/*!! ALTER TABLE t DROP COLUMN c */","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
@@ -285,35 +287,42 @@
 {"sql":"SET STATEMENT max_statement_time=60 FOR INSERT INTO mysql.rds_heartbeat2(id, value) values (1,1782476058116) ON DUPLICATE KEY UPDATE value = 1782476058116","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"SET STATEMENT max_statement_time=60 FOR DELETE FROM mysql.rds_sysinfo where name = 'innodb_txn_key'","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"SET STATEMENT max_statement_time=60 FOR flush table","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD INDEX idx (a)","engine":"both","sql_mode":0,"expect_sig":"alter t{}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD COLUMN c INT","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=int32}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"SET STATEMENT max_statement_time=60, sort_buffer_size=1000000 FOR ALTER TABLE t MODIFY c INT","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=int32}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"SET STATEMENT max_statement_time=60 FOR RENAME TABLE a TO b","engine":"both","sql_mode":0,"expect_sig":"rename a\u003eb","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"SET STATEMENT sql_mode=CONCAT(@@sql_mode, ',ANSI_QUOTES') FOR ALTER TABLE t ADD c INT","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=int32}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"SET STATEMENT lc_messages='en FOR us' FOR ALTER TABLE t DROP COLUMN c","engine":"both","sql_mode":0,"expect_sig":"alter t{drop c}","source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD INDEX idx (a)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD COLUMN c INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"SET STATEMENT max_statement_time=60, sort_buffer_size=1000000 FOR ALTER TABLE t MODIFY c INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"SET STATEMENT max_statement_time=60 FOR RENAME TABLE a TO b","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"SET STATEMENT sql_mode=CONCAT(@@sql_mode, ',ANSI_QUOTES') FOR ALTER TABLE t ADD c INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"SET STATEMENT lc_messages='en FOR us' FOR ALTER TABLE t DROP COLUMN c","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t /*!80000 ADD COLUMN c INT */","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t /*M! MODIFY c INT */","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=int32}","source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t /*M! MODIFY c INT */","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t /*M! MODIFY c INT */ ADD INDEX idx (a)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t /*M!100500 ADD COLUMN c INT */","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=int32}","source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t /*M!100500 ADD COLUMN c INT */","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t /*!80000 ADD c VARCHAR(10) DEFAULT 'x*/y' */","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c INT /*!80000 , ADD d INT */","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD c TEXT COMMENT $$migration$$","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=string}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD g GEOMCOLLECTION","engine":"both","sql_mode":0,"expect_sig":"alter t{col g=geometry}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD g GEOMETRY REF_SYSTEM_ID=4326","engine":"both","sql_mode":0,"expect_sig":"alter t{col g=geometry}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t1 MODIFY a NUMBER(10,2)","engine":"both","sql_mode":0,"expect_sig":"alter t1{col a=ERR}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t1 MODIFY a NUMBER","engine":"both","sql_mode":0,"expect_sig":"alter t1{col a=ERR}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t1 ADD c VARCHAR2(10)","engine":"both","sql_mode":0,"expect_sig":"alter t1{col c=ERR}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t1 ADD c RAW(16)","engine":"both","sql_mode":0,"expect_sig":"alter t1{col c=ERR}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"RENAME TABLE a WAIT 5 TO b, c NOWAIT TO d","engine":"both","sql_mode":0,"expect_sig":"rename a\u003eb, c\u003ed","source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t DROP COLUMN c\u0000\u0000","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c INT DEFAULT (1+1)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c TEXT COMMENT $$migration$$","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c CHAR(8) BYTE","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD j JSON","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD g GEOMCOLLECTION","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD g GEOMETRYCOLLECTION","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD g GEOMETRY REF_SYSTEM_ID=4326","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t1 MODIFY a NUMBER(10,2)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t1 MODIFY a NUMBER","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t1 ADD c VARCHAR2(10)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t1 ADD c RAW(16)","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD vector INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"RENAME TABLE a WAIT 5 TO b, c NOWAIT TO d","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c INT COLUMN_FORMAT DYNAMIC STORAGE DISK","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD c INT VISIBLE","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=int32}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD c INT ENGINE_ATTRIBUTE='{\"k\":1}' SECONDARY_ENGINE_ATTRIBUTE='{}'","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=int32}","source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c INT INVISIBLE","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c INT VISIBLE","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c INT ENGINE_ATTRIBUTE='{\"k\":1}' SECONDARY_ENGINE_ATTRIBUTE='{}'","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLE t ADD c INT CHECK (c \u003e 0) NOT ENFORCED","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD c BLOB COMPRESSED","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=bytes}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD c TEXT COMPRESSED=zlib","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=string}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER TABLE t ADD b INT AS (a*2) PERSISTENT","engine":"both","sql_mode":0,"expect_sig":"alter t{col b=int32}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER ONLINE TABLE t ADD COLUMN c INT","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=int32}","source":"ddl_parser_tidb_diff_test.go"}
-{"sql":"ALTER ONLINE IGNORE TABLE t ADD COLUMN c INT","engine":"both","sql_mode":0,"expect_sig":"alter t{col c=int32}","source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c BLOB COMPRESSED","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD c TEXT COMPRESSED=zlib","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER TABLE t ADD b INT AS (a*2) PERSISTENT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER ONLINE TABLE t ADD COLUMN c INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
+{"sql":"ALTER ONLINE IGNORE TABLE t ADD COLUMN c INT","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER USER 'ipsadmin'@'%' DISCARD OLD PASSWORD","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"ALTER TABLESPACE ts ADD DATAFILE 'f'","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}
 {"sql":"CREATE SEQUENCE s START WITH 1","engine":"both","sql_mode":0,"source":"ddl_parser_tidb_diff_test.go"}

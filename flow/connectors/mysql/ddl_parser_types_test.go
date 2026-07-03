@@ -170,6 +170,8 @@ func TestDDLTypesEnumSetTemporalSpatial(t *testing.T) {
 		{typ: "YEAR", want: ddlTypesCol("year", -1, -1, false)},
 		{typ: "YEAR(4)", want: ddlTypesCol("year(4)", -1, -1, false)},
 		{typ: "JSON", want: ddlTypesCol("json", -1, -1, false)},
+		// MariaDB JSON is a LONGTEXT alias (MariaDB KB, JSON Data Type)
+		{typ: "JSON", want: ddlTypesCol("longtext", -1, -1, false), maria: true},
 		{typ: "GEOMETRY", want: ddlTypesCol("geometry", -1, -1, false)},
 		{typ: "POINT", want: ddlTypesCol("point", -1, -1, false)},
 		{typ: "LINESTRING", want: ddlTypesCol("linestring", -1, -1, false)},
