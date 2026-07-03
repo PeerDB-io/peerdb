@@ -1,0 +1,1 @@
+ALTER TABLE "db"."t" ADD COLUMN "K" INT KEY 

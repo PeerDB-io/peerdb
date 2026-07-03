@@ -317,6 +317,10 @@ var tidbDiffModeCases = []tidbDiffModeCase{
 		want: "alter db.t{col c=int32 nn}", note: "ansi quotes idents",
 	},
 	{
+		sql: `ALTER TABLE "db"."t" ADD COLUMN "K" INT KEY`, sqlMode: sqlModeANSIQuotes,
+		want: "alter db.t{col K=int32 nn}", note: "primary-key shorthand implies not null",
+	},
+	{
 		sql: `ALTER TABLE "t" DROP COLUMN "we""ird"`, sqlMode: sqlModeANSIQuotes,
 		want: `alter t{drop we"ird}`, note: "ansi quotes doubled delimiter",
 	},

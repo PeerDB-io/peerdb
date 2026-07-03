@@ -1019,6 +1019,21 @@ func (p *ddlParser) parseColumnAttributeWord(st *ddlColumnState, spec *ddlAlterS
 	case ddlWordIs(t, "NULL"):
 		st.notNull = false
 		p.next()
+	case ddlWordIs(t, "AUTO_INCREMENT"):
+		st.notNull = true
+		p.next()
+	case ddlWordIs(t, "PRIMARY") && ddlWordIs(p.peek(1), "KEY"):
+		st.notNull = true
+		p.next()
+		p.next()
+	case ddlWordIs(t, "UNIQUE"):
+		p.next()
+		if ddlWordIs(p.peek(0), "KEY") {
+			p.next()
+		}
+	case ddlWordIs(t, "KEY"):
+		st.notNull = true
+		p.next()
 	case ddlWordIs(t, "UNSIGNED") || ddlWordIs(t, "ZEROFILL"):
 		st.unsigned = true // zerofill implies unsigned
 		p.next()
