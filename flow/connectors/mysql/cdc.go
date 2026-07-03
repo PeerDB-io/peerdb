@@ -46,11 +46,6 @@ const (
 	binlogStalenessMultiplier    = 3
 )
 
-// mariadbPartialRowDataEvent is MariaDB 12.3+ PARTIAL_ROW_DATA_EVENT (Log_event_type = 172).
-// It fragments an oversized rows event across several binlog events, which a consumer must buffer
-// and reassemble before decoding. go-mysql lib has no constant or parser for it, so it
-// surfaces as a GenericEvent; we don't reassemble fragments yet, so we fail loudly rather than
-// silently dropping the row change.
 const mariadbPartialRowDataEvent replication.EventType = 172
 
 const (
