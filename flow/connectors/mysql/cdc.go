@@ -42,8 +42,6 @@ import (
 
 const (
 	defaultBinlogHeartbeatPeriod = time.Minute
-	binlogStalenessMultiplier    = 3
-	defaultBinlogStaleness       = binlogStalenessMultiplier * defaultBinlogHeartbeatPeriod
 )
 
 const (
@@ -92,21 +90,6 @@ func setParserSQLModeFromStatusVars(mysqlParser *parser.Parser, statusVars []byt
 		sqlMode = tidbmysql.ModeANSIQuotes
 	}
 	mysqlParser.SetSQLMode(sqlMode)
-}
-
-func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
-	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
-}
-
-func (c *MySqlConnector) binlogStalenessThresholdFromEnv(ctx context.Context, env map[string]string) (time.Duration, error) {
-	binlogStalenessThreshold, err := internal.PeerDBMySQLBinlogStalenessSeconds(ctx, env)
-	if err != nil {
-		return 0, err
-	}
-	if binlogStalenessThreshold == defaultBinlogStaleness {
-		return c.binlogStalenessThreshold(), nil
-	}
-	return binlogStalenessThreshold, nil
 }
 
 func parseSQL(parser *parser.Parser, query []byte) ([]ast.StmtNode, []error, error) {
@@ -455,7 +438,7 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
-	binlogStalenessThreshold, err := c.binlogStalenessThresholdFromEnv(ctx, req.Env)
+	binlogStalenessThreshold, err := internal.PeerDBMySQLBinlogStalenessSeconds(ctx, req.Env)
 	if err != nil {
 		return err
 	}
