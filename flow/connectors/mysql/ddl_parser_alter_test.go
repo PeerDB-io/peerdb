@@ -450,6 +450,26 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 	rename = stmts[0].(*ddlRenameTable)
 	require.Equal(t, []ddlRenamePair{{OldTable: "a", NewTable: "b"}, {OldTable: "c", NewTable: "d"}}, rename.Pairs)
 
+	// ddlfuzz 7f5636632ad9: unquoted keyword-shaped source name mixed with
+	// schema-qualified pairs (MariaDB)
+	stmts, err = parseQueryEvent(
+		[]byte("RENAME TABLE ROLLUP TO `mydb`.`_mytable_old`, `mydb`.`_mytable_new` TO `mydb`.`mytable`"), 0, true)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	rename = stmts[0].(*ddlRenameTable)
+	require.Equal(t, []ddlRenamePair{
+		{OldTable: "ROLLUP", NewSchema: "mydb", NewTable: "_mytable_old"},
+		{OldSchema: "mydb", OldTable: "_mytable_new", NewSchema: "mydb", NewTable: "mytable"},
+	}, rename.Pairs)
+
+	// MariaDB twin of the 8ba763557d03 self-pair case: pairs renaming a table
+	// to itself must be retained, not silently dropped
+	stmts, err = parseQueryEvent([]byte("RENAME TABLE ak TO b, d TO d"), 0, true)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	rename = stmts[0].(*ddlRenameTable)
+	require.Equal(t, []ddlRenamePair{{OldTable: "ak", NewTable: "b"}, {OldTable: "d", NewTable: "d"}}, rename.Pairs)
+
 	// RENAME USER is the only other RENAME head; ignored
 	stmts, err = parseQueryEvent([]byte("RENAME USER 'o'@'%' TO 'n'@'%'"), 0, false)
 	require.NoError(t, err)

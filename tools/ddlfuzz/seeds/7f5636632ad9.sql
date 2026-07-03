@@ -1,0 +1,1 @@
+RENAME TABLE ROLLUP TO `mydb`.`_mytable_old`, `mydb`.`_mytable_new` TO `mydb`.`mytable`
