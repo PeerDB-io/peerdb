@@ -454,6 +454,7 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
+	isMariaDb := c.Flavor() == mysql.MariaDBFlavor
 	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
@@ -596,22 +597,36 @@ func (c *MySqlConnector) PullRecords(
 			setParserSQLModeFromStatusVars(mysqlParser, ev.StatusVars)
 			stmts, warns, err := parseSQL(mysqlParser, ev.Query)
 			if err != nil {
-				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				if classifyUnparsedStatement(string(ev.Query), isMariaDb) == ddlKindIgnored {
+					c.logger.Warn("skipping parse failure for non-replicated statement",
+						slog.String("query", string(ev.Query)), slog.Any("error", err))
+				} else {
+					c.logger.Error("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+					otelManager.Metrics.ParseSQLErrorsCounter.Add(ctx, 1)
+				}
 				break
 			}
 			if len(warns) > 0 {
-				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
+				warnStrs := make([]string, len(warns))
+				for i, w := range warns {
+					warnStrs[i] = w.Error()
+				}
+				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warnStrs))
 			}
 			for _, stmt := range stmts {
-				switch s := stmt.(type) {
-				case *ast.AlterTableStmt:
+				kind, alterStmt, renameStmt := classifyParsedStatement(stmt)
+				switch kind {
+				case ddlKindAlterTable:
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, otelManager, req, s,
+						ctx, catalogPool, otelManager, req, alterStmt,
 						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
-				case *ast.RenameTableStmt:
-					c.processRenameTableQuery(ctx, otelManager, req, s, string(ev.Schema))
+				case ddlKindRenameTable:
+					c.processRenameTableQuery(ctx, otelManager, req, renameStmt, string(ev.Schema))
+				case ddlKindIgnored:
+				default:
+					return fmt.Errorf("unknown stmt kind: %v", kind)
 				}
 			}
 		case *replication.RowsEvent:

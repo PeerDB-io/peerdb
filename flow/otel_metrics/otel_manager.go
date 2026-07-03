@@ -82,6 +82,7 @@ const (
 	ServerWalEndLagGaugeName             = "wal_end_lag"
 	UsedMySQLCharsetsName                = "used_mysql_charsets"
 	ColumnTypeChangesName                = "column_type_changes"
+	ParseSQLErrorsCounterName            = "parse_sql_errors"
 	OnlineSchemaMigrationsName           = "online_schema_migrations"
 )
 
@@ -139,6 +140,7 @@ type Metrics struct {
 	ServerWalEndLagGauge             metric.Int64Gauge
 	UsedMySQLCharsetsCounter         metric.Int64Counter
 	ColumnTypeChangesCounter         metric.Int64Counter
+	ParseSQLErrorsCounter            metric.Int64Counter
 	OnlineSchemaMigrationsCounter    metric.Int64Counter
 }
 
@@ -591,6 +593,11 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 			"Counter of column type changes detected on the CDC path, with `source` label holding the source peer type, "+
 				"`from`/`to` labels holding the source/target type and `sourceEventType` holding the source of event(ddl, eventMetadata)"),
 	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ParseSQLErrorsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ParseSQLErrorsCounterName),
+		metric.WithDescription("Counter of errors encountered while parsing MySQL QueryEvent SQL on the CDC path")); err != nil {
 		return err
 	}
 
