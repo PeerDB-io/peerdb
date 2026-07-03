@@ -236,6 +236,88 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_MySQL_JSON_SnapshotCDCConsistency guards DBI-823: a JSON column read during the
+// initial snapshot (MySQL text protocol) must have the same representation as the same
+// value read over CDC (binlog JSONB decoder). The snapshot path compacts the server-
+// rendered JSON and CDC uses RenderJSONAsMySQLText, so the two forms must line up byte for
+// byte — including that a JSON DOUBLE keeps its "1.0" form rather than collapsing to "1".
+func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_json_repr"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_json_repr_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id serial PRIMARY KEY,
+			js json NOT NULL
+		)`, srcFullName)))
+
+	// input is what we hand MySQL; mysqlWant is MySQL's own compact, type-faithful rendering.
+	// Keys are chosen already in MySQL's canonical (length-then-byte) order so the expected
+	// text is unambiguous. mysqlWant is only asserted for real MySQL: MariaDB stores JSON as
+	// verbatim LONGTEXT, so there the snapshot and CDC forms match each other but keep the
+	// original whitespace rather than MySQL's normalized form.
+	variants := []struct{ input, mysqlWant string }{
+		{`{"a": 1.0}`, `{"a":1.0}`},                             // DOUBLE keeps its trailing zero
+		{`{"a": 1.5, "b": 2.0}`, `{"a":1.5,"b":2.0}`},           // mixed doubles, keys already sorted
+		{`{"n": [1.0, 2, 3.5], "s": "x"}`, `{"n":[1.0,2,3.5],"s":"x"}`}, // nested array with doubles + int
+		{`{"k": "a, b: c"}`, `{"k":"a, b: c"}`},                 // whitespace inside strings is preserved
+	}
+
+	insertVariants := func() {
+		for _, v := range variants {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf(`INSERT INTO %s (js) VALUES ('%s')`, srcFullName, v.input)))
+		}
+	}
+
+	insertVariants()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting for initial snapshot", dstTableName, "id", len(variants))
+
+	insertVariants()
+
+	EnvWaitForCount(env, s, "waiting for cdc", dstTableName, "id", 2*len(variants))
+
+	// GetRows orders by id, so snapshot rows (ids 1..N) come first, then CDC rows (N+1..2N);
+	// both batches hold the same values in the same order.
+	rows, err := s.GetRows(dstTableName, "id, js")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2*len(variants))
+
+	isMaria := mysource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA
+	for i, row := range rows.Records {
+		require.Len(s.t, row, 2)
+		got := fmt.Sprint(row[1].Value())
+		// The snapshot row (i < N) and its matching CDC row (i+N) must be byte-identical.
+		snapshotGot := fmt.Sprint(rows.Records[i%len(variants)][1].Value())
+		require.Equal(s.t, snapshotGot, got, "snapshot/cdc JSON representation differs at row %d", i+1)
+		if !isMaria {
+			require.Equal(s.t, variants[i%len(variants)].mysqlWant, got, "unexpected JSON representation at row %d", i+1)
+		}
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 	mySource, ok := s.source.(*MySqlSource)
 	if !ok {

@@ -101,3 +101,31 @@ func TestProcessTime(t *testing.T) {
 		require.Equal(t, ts.out, tm)
 	}
 }
+
+// TestCompactMySQLJSON verifies the snapshot text-protocol JSON is compacted to match the
+// compact form produced by the CDC binlog path (RenderJSONAsMySQLText). Whitespace after
+// ':' and ',' is elided while number literals, string contents, and key order are preserved.
+func TestCompactMySQLJSON(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		// MySQL server-rendered text: space after ':' and ','.
+		{`{"a": 1, "b": 2}`, `{"a":1,"b":2}`},
+		// DOUBLE keeps its trailing zero; it is not renumbered.
+		{`{"x": 1.0}`, `{"x":1.0}`},
+		// Object key order is preserved (not lexicographically sorted).
+		{`{"b": 1, "a": 2}`, `{"b":1,"a":2}`},
+		// Nested arrays/objects.
+		{`{"arr": [1, 2, {"k": "v"}]}`, `{"arr":[1,2,{"k":"v"}]}`},
+		// Whitespace inside string values is untouched.
+		{`{"s": "a, b: c"}`, `{"s":"a, b: c"}`},
+		{`{}`, `{}`},
+		{`[]`, `[]`},
+	} {
+		require.Equal(t, tc.want, compactMySQLJSON([]byte(tc.in)), "in=%q", tc.in)
+	}
+
+	// Invalid JSON falls back to the original bytes rather than dropping the value.
+	require.Equal(t, `not json`, compactMySQLJSON([]byte(`not json`)))
+}
