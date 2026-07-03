@@ -91,7 +91,9 @@ func parseQueryEvent(query []byte, sqlMode uint64, isMariaDB bool) ([]ddlStateme
 			if err != nil {
 				return nil, fmt.Errorf("RENAME TABLE parse failed: %w", err)
 			}
-			stmts = append(stmts, stmt)
+			if len(stmt.Pairs) > 0 {
+				stmts = append(stmts, stmt)
+			}
 		case ddlWordIs(t, "SET") && ddlWordIs(p.peek(1), "STATEMENT"):
 			if !p.skipSetStatementVars() {
 				return stmts, nil
@@ -324,7 +326,7 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 		if spec != nil {
 			stmt.Specs = append(stmt.Specs, *spec)
 		}
-		if pair != nil {
+		if pair != nil && !ddlRenamePairIsNoop(*pair) {
 			rename.Pairs = append(rename.Pairs, *pair)
 		}
 		t = p.peek(0)
@@ -351,6 +353,10 @@ func ddlAlterTableStatements(alter *ddlAlterTable, rename *ddlRenameTable) []ddl
 	}
 	out = append(out, rename)
 	return out
+}
+
+func ddlRenamePairIsNoop(pair ddlRenamePair) bool {
+	return pair.OldSchema == pair.NewSchema && pair.OldTable == pair.NewTable
 }
 
 func ddlAlterSpecsHaveImplicitPositionShift(specs []ddlAlterSpec) bool {
@@ -1385,9 +1391,12 @@ func (p *ddlParser) parseRenameTable() (*ddlRenameTable, error) {
 		if err != nil {
 			return nil, err
 		}
-		stmt.Pairs = append(stmt.Pairs, ddlRenamePair{
+		pair := ddlRenamePair{
 			OldSchema: oldSchema, OldTable: oldTable, NewSchema: newSchema, NewTable: newTable,
-		})
+		}
+		if !ddlRenamePairIsNoop(pair) {
+			stmt.Pairs = append(stmt.Pairs, pair)
+		}
 		t := p.peek(0)
 		switch {
 		case t.kind == tokPunct && t.text == ",":

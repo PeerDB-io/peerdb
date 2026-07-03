@@ -1,0 +1,1 @@
+ALTER TABLE fixture RENAME TO fixture

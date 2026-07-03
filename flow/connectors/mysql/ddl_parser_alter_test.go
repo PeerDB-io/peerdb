@@ -381,10 +381,38 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 		})
 	}
 
-	stmts, err := parseQueryEvent([]byte("ALTER TABLE t ADD COLUMN c INT, RENAME TO t2"), 0, false)
+	for _, query := range []string{
+		"ALTER TABLE fixture RENAME TO fixture",
+		"ALTER TABLE fixture RENAME = fixture",
+		"ALTER TABLE fixture RENAME fixture",
+	} {
+		t.Run(query, func(t *testing.T) {
+			stmts, err := parseQueryEvent([]byte(query), 0, true)
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+			alter, ok := stmts[0].(*ddlAlterTable)
+			require.True(t, ok, "expected *ddlAlterTable, got %T", stmts[0])
+			require.Equal(t, "fixture", alter.Table)
+			require.Empty(t, alter.Specs)
+			require.False(t, ddlIsActionable(stmts))
+		})
+	}
+
+	stmts, err := parseQueryEvent([]byte("ALTER TABLE fixture ADD COLUMN added INT, RENAME TO fixture"), 0, true)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	alter, ok := stmts[0].(*ddlAlterTable)
+	require.True(t, ok, "expected *ddlAlterTable, got %T", stmts[0])
+	require.Equal(t, ddlAltAdd(ddlAltCol("added", "int")), alter.Specs)
+
+	stmts, err = parseQueryEvent([]byte("RENAME TABLE fixture TO fixture"), 0, true)
+	require.NoError(t, err)
+	require.Empty(t, stmts)
+
+	stmts, err = parseQueryEvent([]byte("ALTER TABLE t ADD COLUMN c INT, RENAME TO t2"), 0, false)
 	require.NoError(t, err)
 	require.Len(t, stmts, 2)
-	alter, ok := stmts[0].(*ddlAlterTable)
+	alter, ok = stmts[0].(*ddlAlterTable)
 	require.True(t, ok, "expected *ddlAlterTable, got %T", stmts[0])
 	require.Equal(t, ddlAltAdd(ddlAltCol("c", "int")), alter.Specs)
 	rename, ok := stmts[1].(*ddlRenameTable)
