@@ -111,6 +111,9 @@ func Diff(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo,
 	if ourErr != nil {
 		return &Divergence{Class: "we_error", Shape: NormalizeError(ourErr.Error()), OurSig: ourSig, OracleSig: oracleSig, OurError: ourErr.Error()}
 	}
+	if ourSig == oracleSig {
+		return nil
+	}
 	ourCanon, err := Canonicalize(ourSig, SideOur)
 	if err != nil {
 		return &Divergence{Class: "sig_mismatch", Shape: "parse_our_sig", OurSig: ourSig, OracleSig: oracleSig}

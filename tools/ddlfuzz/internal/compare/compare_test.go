@@ -72,6 +72,18 @@ func TestDiffReconciliationRules(t *testing.T) {
 			}},
 		},
 		{
+			name: "raw equality before ambiguous identifier parse",
+			our:  "alter t{col firs,=int32 @pos}",
+			d: acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{
+				Name: "firs,", TypeStr: "int",
+			}}, HasPosition: true}),
+		},
+		{
+			name: "raw equality before empty identifier parse",
+			our:  "alter t{drop }",
+			d:    acceptAlter(digest.Spec{Op: "drop", OldName: ""}),
+		},
+		{
 			name: "mismatch shape",
 			our:  "alter t{col c=int32}",
 			d: acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{
