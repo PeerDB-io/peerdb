@@ -3,6 +3,7 @@
 package connmysql
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 )
@@ -51,5 +52,23 @@ func assertFuzzParity(t *testing.T, sql string, sqlMode uint64, isMariaDB bool, 
 	}
 	if got != want {
 		t.Fatalf("FuzzDDLSignature=%q want %q", got, want)
+	}
+}
+
+func TestDDLFuzzParseForE2EImplicitPositionShift(t *testing.T) {
+	data, err := FuzzParseForE2E(
+		[]byte("ALTER TABLE fixture RENAME COLUMN `new``tick` TO `имя2`, ADD COLUMN `new``tick` enum('a','b') NOT NULL"),
+		0,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("FuzzParseForE2E error: %v", err)
+	}
+	var got e2eStmts
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal e2e stmts: %v", err)
+	}
+	if len(got.Stmts) != 1 || len(got.Stmts[0].Specs) == 0 || !got.Stmts[0].Specs[0].HasPosition {
+		t.Fatalf("expected implicit position shift in first spec: %s", data)
 	}
 }

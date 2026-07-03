@@ -726,8 +726,8 @@ func parseAlter(part string) (sigStmt, error) {
 	if strings.TrimSpace(inside) == "" {
 		return st, nil
 	}
-	for _, raw := range SplitTopLevel([]byte(inside), ';') {
-		sp, err := parseSpec(strings.TrimSpace(string(raw)))
+	for _, raw := range splitSignatureTopLevel(inside, ';') {
+		sp, err := parseSpec(strings.TrimSpace(raw))
 		if err != nil {
 			return sigStmt{}, err
 		}
@@ -742,8 +742,8 @@ func parseRename(part string) (sigStmt, error) {
 	if body == "" {
 		return st, nil
 	}
-	for _, raw := range SplitTopLevel([]byte(body), ',') {
-		p := strings.TrimSpace(string(raw))
+	for _, raw := range splitSignatureTopLevel(body, ',') {
+		p := strings.TrimSpace(raw)
 		old, newName, ok := strings.Cut(p, ">")
 		if !ok {
 			return sigStmt{}, fmt.Errorf("bad rename pair %q", p)
@@ -798,10 +798,10 @@ func parseCols(s string) ([]sigCol, error) {
 	if strings.TrimSpace(s) == "" {
 		return nil, nil
 	}
-	parts := SplitTopLevel([]byte(s), ',')
+	parts := splitSignatureTopLevel(s, ',')
 	cols := make([]sigCol, 0, len(parts))
 	for _, raw := range parts {
-		col, err := parseCol(strings.TrimSpace(string(raw)))
+		col, err := parseCol(strings.TrimSpace(raw))
 		if err != nil {
 			return nil, err
 		}
@@ -865,6 +865,29 @@ func renderSignature(stmts []sigStmt) string {
 		}
 	}
 	return strings.Join(parts, " | ")
+}
+
+func splitSignatureTopLevel(s string, sep byte) []string {
+	var out []string
+	start := 0
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if s[i] == sep && depth == 0 {
+				out = append(out, strings.TrimSpace(s[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	out = append(out, strings.TrimSpace(s[start:]))
+	return out
 }
 
 func renderSpec(sp sigSpec) string {

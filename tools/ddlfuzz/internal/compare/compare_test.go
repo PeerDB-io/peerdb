@@ -63,6 +63,16 @@ func TestDiffReconciliationRules(t *testing.T) {
 			}}},
 		},
 		{
+			name: "raw backtick in identifier with reordered specs",
+			our:  "alter fixture{ren new`tick>имя2; col new`tick=enum nn}",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "alter_table", Table: "fixture", Specs: []digest.Spec{
+					{Op: "add", Cols: []digest.Col{{Name: "new`tick", TypeStr: "enum", NotNull: true}}},
+					{Op: "rename_col", OldName: "new`tick", NewName: "имя2"},
+				},
+			}}},
+		},
+		{
 			name: "multi statement truncation",
 			our:  "alter t{drop c}",
 			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{

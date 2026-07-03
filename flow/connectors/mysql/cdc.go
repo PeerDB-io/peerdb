@@ -886,7 +886,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		}
 	}
 
-	hasPositionShiftingDdlChanges := false
+	hasPositionShiftingDdlChanges := ddlAlterSpecsHaveImplicitPositionShift(stmt.Specs)
 
 	for _, spec := range stmt.Specs {
 		if len(spec.NewColumns) > 0 {

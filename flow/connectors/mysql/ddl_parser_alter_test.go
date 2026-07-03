@@ -276,6 +276,43 @@ func TestDDLAlterMixedSpecOrdering(t *testing.T) {
 	}
 }
 
+func TestDDLAlterSpecNameReuseImpliesPositionShift(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		sql  string
+		want bool
+	}{
+		{
+			name: "rename then add old name with embedded backtick",
+			sql:  "ALTER TABLE fixture RENAME COLUMN `new``tick` TO `имя2`, ADD COLUMN `new``tick` enum('a','b') NOT NULL",
+			want: true,
+		},
+		{
+			name: "drop then add same name",
+			sql:  "ALTER TABLE fixture DROP COLUMN period2, ADD COLUMN period2 datetime(3) COMMENT 'ddlfuzz'",
+			want: true,
+		},
+		{
+			name: "change away then add old name",
+			sql:  "ALTER TABLE fixture CHANGE COLUMN n4 first2 json NOT NULL, ADD COLUMN n4 blob NOT NULL",
+			want: true,
+		},
+		{
+			name: "ordinary change keeps name",
+			sql:  "ALTER TABLE fixture CHANGE COLUMN n2 n2 int NOT NULL",
+		},
+		{
+			name: "independent drop and add",
+			sql:  "ALTER TABLE fixture DROP COLUMN old_c, ADD COLUMN new_c int",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			alter := ddlParseAlter(t, tc.sql, 0, false)
+			require.Equal(t, tc.want, ddlAlterSpecsHaveImplicitPositionShift(alter.Specs))
+		})
+	}
+}
+
 func TestDDLAlterHeadModifiers(t *testing.T) {
 	// MariaDB head: ALTER alter_options TABLE opt_if_exists table_ident opt_lock_wait_timeout
 	stmts, err := parseQueryEvent([]byte("ALTER ONLINE IGNORE TABLE IF EXISTS db.t WAIT 10 DROP COLUMN c"), 0, true)

@@ -270,6 +270,45 @@ func (p *ddlParser) parseAlterTable() (*ddlAlterTable, error) {
 	}
 }
 
+func ddlAlterSpecsHaveImplicitPositionShift(specs []ddlAlterSpec) bool {
+	removed := make(map[string]struct{})
+	added := make(map[string]struct{})
+	for _, spec := range specs {
+		var removes, adds []string
+		switch {
+		case spec.NewColumnName != "":
+			removes = append(removes, spec.OldColumnName)
+			adds = append(adds, spec.NewColumnName)
+		case len(spec.NewColumns) > 0:
+			if spec.OldColumnName != "" && len(spec.NewColumns) == 1 && spec.OldColumnName != spec.NewColumns[0].Name {
+				removes = append(removes, spec.OldColumnName)
+			}
+			for _, col := range spec.NewColumns {
+				adds = append(adds, col.Name)
+			}
+		case spec.OldColumnName != "":
+			removes = append(removes, spec.OldColumnName)
+		}
+		for _, name := range removes {
+			if _, ok := added[name]; ok {
+				return true
+			}
+		}
+		for _, name := range adds {
+			if _, ok := removed[name]; ok {
+				return true
+			}
+		}
+		for _, name := range removes {
+			removed[name] = struct{}{}
+		}
+		for _, name := range adds {
+			added[name] = struct{}{}
+		}
+	}
+	return false
+}
+
 // parseAlterSpec parses one comma-separated ALTER TABLE spec. Column-relevant
 // specs are returned; everything else — index/constraint/option/partition specs,
 // ALGORITHM/LOCK/FORCE/ORDER BY, CONVERT TO, table options — is consumed

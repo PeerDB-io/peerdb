@@ -157,9 +157,13 @@ func fuzzDDLStmtsToE2E(stmts []ddlStatement) e2eStmts {
 		switch st := s.(type) {
 		case *ddlAlterTable:
 			es := e2eStmt{Kind: "alter_table", Schema: st.Schema, Table: st.Table, Specs: []e2eSpec{}}
-			for _, sp := range st.Specs {
+			implicitPositionShift := ddlAlterSpecsHaveImplicitPositionShift(st.Specs)
+			for i, sp := range st.Specs {
 				var spec e2eSpec
 				spec.HasPosition = sp.HasPosition
+				if implicitPositionShift && i == 0 {
+					spec.HasPosition = true
+				}
 				switch {
 				case sp.NewColumnName != "":
 					spec.Op = "rename_col"
