@@ -37,6 +37,7 @@ func gateSteps(cfg Config) []GateStep {
 		{Name: "flow golangci-lint mysql", Dir: flow, Timeout: 10 * time.Minute, Args: []string{"golangci-lint", "run", "./connectors/mysql/..."}},
 		{Name: "flow ddlfuzz tag build", Dir: flow, Timeout: 10 * time.Minute, Args: []string{"go", "build", "-tags", "ddlfuzz", "./..."}},
 		{Name: "ddlfuzz go test", Dir: cfg.DDLDir, Timeout: 15 * time.Minute, Args: []string{"go", "test", "./..."}},
+		{Name: "ddlfuzz tag build", Dir: cfg.DDLDir, Timeout: 10 * time.Minute, Args: []string{"go", "build", "-tags", "ddlfuzz", "./..."}},
 	}
 }
 
@@ -110,4 +111,22 @@ func touchedOracleEngines(paths []string) []string {
 		out = append(out, engine)
 	}
 	return out
+}
+
+func touchesE2EBinary(paths []string) bool {
+	for _, p := range paths {
+		switch {
+		case p == "tools/ddlfuzz/go.mod", p == "tools/ddlfuzz/go.sum":
+			return true
+		case strings.HasPrefix(p, "flow/"):
+			return true
+		case strings.HasPrefix(p, "tools/ddlfuzz/e2e/"):
+			return true
+		case strings.HasPrefix(p, "tools/ddlfuzz/cmd/ddlfuzz-e2e/"):
+			return true
+		case strings.HasPrefix(p, "tools/ddlfuzz/internal/"):
+			return true
+		}
+	}
+	return false
 }
