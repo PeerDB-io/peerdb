@@ -11,9 +11,6 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/google/uuid"
-	"github.com/pingcap/tidb/pkg/parser"
-	"github.com/pingcap/tidb/pkg/parser/ast"
-	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -91,18 +88,16 @@ func TestANSIQuotesDDLParsedFromBinlog(t *testing.T) {
 	// Validate extraction
 	mode, ok := sqlModeFromStatusVars(statusVars)
 	require.True(t, ok)
-	require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars")
+	require.NotZero(t, mode&sqlModeANSIQuotes, "ANSI_QUOTES missing from binlog status vars")
 
 	// Validate parsing
-	mysqlParser := parser.New()
-	setParserSQLModeFromStatusVars(mysqlParser, statusVars)
-	stmts, _, err := mysqlParser.ParseSQL(query)
+	stmts, err := parseQueryEvent([]byte(query), mode, false)
 	require.NoError(t, err)
 	require.Len(t, stmts, 1)
-	require.IsType(t, &ast.AlterTableStmt{}, stmts[0])
+	require.IsType(t, &ddlAlterTable{}, stmts[0])
 
 	// Validate parsing fails without the mode
-	_, _, err = parser.New().ParseSQL(query)
+	_, err = parseQueryEvent([]byte(query), 0, false)
 	require.Error(t, err)
 
 	// Status vars with codes > 1 are written after sql_mode (code 1). Every
@@ -122,44 +117,19 @@ func TestANSIQuotesDDLParsedFromBinlog(t *testing.T) {
 
 	mode, ok = sqlModeFromStatusVars(statusVars)
 	require.True(t, ok)
-	require.NotZero(t, mode&uint64(tidbmysql.ModeANSIQuotes), "ANSI_QUOTES missing from binlog status vars with extra status vars present")
+	require.NotZero(t, mode&sqlModeANSIQuotes, "ANSI_QUOTES missing from binlog status vars with extra status vars present")
 }
 
 func TestParseSQLParsesTrailingNull(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		query  []byte
-		assert func(*testing.T, ast.StmtNode)
-	}{
-		{
-			name:  "alter table",
-			query: []byte("ALTER TABLE t ADD COLUMN c INT\x00"),
-			assert: func(t *testing.T, stmt ast.StmtNode) {
-				t.Helper()
-				require.IsType(t, &ast.AlterTableStmt{}, stmt)
-			},
-		},
-		{
-			name:  "commit",
-			query: []byte("COMMIT\x00"),
-			assert: func(t *testing.T, stmt ast.StmtNode) {
-				t.Helper()
-				require.IsType(t, &ast.CommitStmt{}, stmt)
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			mysqlParser := parser.New()
-			_, _, err := mysqlParser.ParseSQL(string(tc.query))
-			require.Error(t, err)
+	stmts, err := parseQueryEvent([]byte("ALTER TABLE t ADD COLUMN c INT\x00"), 0, false)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	require.IsType(t, &ddlAlterTable{}, stmts[0])
 
-			stmts, warns, err := parseSQL(mysqlParser, tc.query)
-			require.NoError(t, err)
-			require.Empty(t, warns)
-			require.Len(t, stmts, 1)
-			tc.assert(t, stmts[0])
-		})
-	}
+	// an ignored statement with a trailing NUL yields nothing, not an error
+	stmts, err = parseQueryEvent([]byte("COMMIT\x00"), 0, false)
+	require.NoError(t, err)
+	require.Empty(t, stmts)
 }
 
 func TestClassifyOnlineSchemaMigrationTool(t *testing.T) {
@@ -181,24 +151,22 @@ func TestClassifyOnlineSchemaMigrationTool(t *testing.T) {
 }
 
 func TestParseSQLParsesGhOstRename(t *testing.T) {
-	mysqlParser := parser.New()
 	// the atomic swap gh-ost issues at the end of a migration
 	query := []byte("RENAME TABLE `mydb`.`users` TO `mydb`.`_users_del`, `mydb`.`_users_gho` TO `mydb`.`users`")
-	stmts, warns, err := parseSQL(mysqlParser, query)
+	stmts, err := parseQueryEvent(query, 0, false)
 	require.NoError(t, err)
-	require.Empty(t, warns)
 	require.Len(t, stmts, 1)
 
-	rename, ok := stmts[0].(*ast.RenameTableStmt)
+	rename, ok := stmts[0].(*ddlRenameTable)
 	require.True(t, ok)
-	require.Len(t, rename.TableToTables, 2)
+	require.Len(t, rename.Pairs, 2)
 
 	// the rename that lands on the tracked table is the ghost table swap
-	swap := rename.TableToTables[1]
-	require.Equal(t, "users", swap.NewTable.Name.String())
-	require.Equal(t, "_users_gho", swap.OldTable.Name.String())
+	swap := rename.Pairs[1]
+	require.Equal(t, "users", swap.NewTable)
+	require.Equal(t, "_users_gho", swap.OldTable)
 	require.Equal(t, OnlineSchemaMigrationToolGhOst,
-		classifyOnlineSchemaMigrationTool(swap.OldTable.Name.String(), swap.NewTable.Name.String()))
+		classifyOnlineSchemaMigrationTool(swap.OldTable, swap.NewTable))
 }
 
 // newMetricsTestOtelManager builds an OtelManager backed by a ManualReader so tests
@@ -250,12 +218,12 @@ func TestProcessRenameTableQueryMetric(t *testing.T) {
 	ctx := t.Context()
 	c := &MySqlConnector{logger: log.NewStructuredLogger(slog.Default())}
 
-	parseRename := func(query string) *ast.RenameTableStmt {
+	parseRename := func(query string) *ddlRenameTable {
 		t.Helper()
-		stmts, _, err := parseSQL(parser.New(), []byte(query))
+		stmts, err := parseQueryEvent([]byte(query), 0, false)
 		require.NoError(t, err)
 		require.Len(t, stmts, 1)
-		rename, ok := stmts[0].(*ast.RenameTableStmt)
+		rename, ok := stmts[0].(*ddlRenameTable)
 		require.True(t, ok)
 		return rename
 	}

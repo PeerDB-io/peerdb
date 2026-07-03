@@ -1,7 +1,6 @@
 package connmysql
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"crypto/tls"
@@ -17,10 +16,6 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
-	"github.com/pingcap/tidb/pkg/parser"
-	"github.com/pingcap/tidb/pkg/parser/ast"
-	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
-	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -85,22 +80,8 @@ func sqlModeFromStatusVars(statusVars []byte) (uint64, bool) {
 	return 0, false
 }
 
-func setParserSQLModeFromStatusVars(mysqlParser *parser.Parser, statusVars []byte) {
-	var sqlMode tidbmysql.SQLMode
-	if mode, ok := sqlModeFromStatusVars(statusVars); ok && mode&uint64(tidbmysql.ModeANSIQuotes) != 0 {
-		sqlMode = tidbmysql.ModeANSIQuotes
-	}
-	mysqlParser.SetSQLMode(sqlMode)
-}
-
 func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
 	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
-}
-
-func parseSQL(parser *parser.Parser, query []byte) ([]ast.StmtNode, []error, error) {
-	// TIDB parser errors on null-terminated strings
-	trimmedQuery := shared.UnsafeFastReadOnlyBytesToString(bytes.TrimRight(query, "\x00"))
-	return parser.ParseSQL(trimmedQuery)
 }
 
 func (c *MySqlConnector) GetTableSchema(
@@ -540,7 +521,6 @@ func (c *MySqlConnector) PullRecords(
 	}
 
 	lastEventAt := time.Now()
-	var mysqlParser *parser.Parser
 	processEvent := func(event *replication.BinlogEvent) error {
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
@@ -580,42 +560,25 @@ func (c *MySqlConnector) PullRecords(
 				updatedOffset = posToOffsetText(pos)
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
-			if mysqlParser == nil {
-				mysqlParser = parser.New()
-			}
-			setParserSQLModeFromStatusVars(mysqlParser, ev.StatusVars)
-			stmts, warns, err := parseSQL(mysqlParser, ev.Query)
+			sqlMode, _ := sqlModeFromStatusVars(ev.StatusVars)
+			stmts, err := parseQueryEvent(ev.Query, sqlMode, isMariaDb)
 			if err != nil {
-				if classifyUnparsedStatement(string(ev.Query), isMariaDb) == ddlKindIgnored {
-					c.logger.Warn("skipping parse failure for non-replicated statement",
-						slog.String("query", string(ev.Query)), slog.Any("error", err))
-				} else {
-					c.logger.Error("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
-					otelManager.Metrics.ParseSQLErrorsCounter.Add(ctx, 1)
-				}
+				c.logger.Error("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				otelManager.Metrics.ParseSQLErrorsCounter.Add(ctx, 1)
 				break
 			}
-			if len(warns) > 0 {
-				warnStrs := make([]string, len(warns))
-				for i, w := range warns {
-					warnStrs[i] = w.Error()
-				}
-				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warnStrs))
-			}
 			for _, stmt := range stmts {
-				kind, alterStmt, renameStmt := classifyParsedStatement(stmt)
-				switch kind {
-				case ddlKindAlterTable:
+				switch stmt := stmt.(type) {
+				case *ddlAlterTable:
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, otelManager, req, alterStmt,
+						ctx, catalogPool, otelManager, req, stmt,
 						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
-				case ddlKindRenameTable:
-					c.processRenameTableQuery(ctx, otelManager, req, renameStmt, string(ev.Schema))
-				case ddlKindIgnored:
+				case *ddlRenameTable:
+					c.processRenameTableQuery(ctx, otelManager, req, stmt, string(ev.Schema))
 				default:
-					return fmt.Errorf("unknown stmt kind: %v", kind)
+					return fmt.Errorf("unknown stmt kind: %T", stmt)
 				}
 			}
 		case *replication.RowsEvent:
@@ -889,17 +852,17 @@ func (c *MySqlConnector) PullRecords(
 
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
-	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
+	req *model.PullRecordsRequest[model.RecordItems], stmt *ddlAlterTable, stmtSchema string,
 	binlogRowMetadataSupported bool, mirrorVersion uint32,
 ) error {
 	// if ALTER TABLE doesn't have database/schema name, use one attached to event
 	var sourceSchemaName string
-	if stmt.Table.Schema.String() != "" {
-		sourceSchemaName = stmt.Table.Schema.String()
+	if stmt.Schema != "" {
+		sourceSchemaName = stmt.Schema
 	} else {
 		sourceSchemaName = stmtSchema
 	}
-	sourceTableName := sourceSchemaName + "." + stmt.Table.Name.String()
+	sourceTableName := sourceSchemaName + "." + stmt.Table
 
 	destinationTableName := req.TableNameMapping[sourceTableName].Name
 	if destinationTableName == "" {
@@ -926,71 +889,62 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 	hasPositionShiftingDdlChanges := false
 
 	for _, spec := range stmt.Specs {
-		if spec.NewColumns != nil {
+		if len(spec.NewColumns) > 0 {
 			// these are added columns
 			for _, col := range spec.NewColumns {
-				if col.Tp == nil {
-					// ignore, can be plain ALTER TABLE ... ALTER COLUMN ... DEFAULT ...
-					c.logger.Warn("ALTER TABLE with no column type detected, ignoring",
-						slog.String("columnName", col.Name.String()),
-						slog.String("tableName", sourceTableName))
+				qkind, err := QkindFromMysqlColumnType(col.TypeStr, binlogRowMetadataSupported, mirrorVersion)
+				if err != nil {
+					// e.g. a MariaDB UDT (uuid, inet6, ...) with no type mapping yet;
+					// hard-failing here would wedge the CDC pull loop, so skip the column
+					c.logger.Error("failed to map column type from ALTER TABLE, skipping column",
+						slog.String("columnName", col.Name),
+						slog.String("columnType", col.TypeStr),
+						slog.String("tableName", sourceTableName),
+						slog.Any("error", err))
+					otelManager.Metrics.ParseSQLErrorsCounter.Add(ctx, 1)
 					continue
 				}
 
-				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
-				if err != nil {
-					return err
-				}
-
-				if oldType, exists := existingColTypes[col.Name.OrigColName()]; exists && oldType != string(qkind) {
+				if oldType, exists := existingColTypes[col.Name]; exists && oldType != string(qkind) {
 					c.logger.Warn("column type change detected via ALTER TABLE, not propagating",
 						slog.String("table", sourceTableName),
-						slog.String("column", col.Name.OrigColName()),
+						slog.String("column", col.Name),
 						slog.String("from", oldType),
 						slog.String("to", string(qkind)))
 					c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(oldType), qkind,
 						otel_metrics.SourceEventTypeDDL)
 				}
 
-				if spec.Position != nil && spec.Position.Tp != ast.ColumnPositionNone {
+				if spec.HasPosition {
 					hasPositionShiftingDdlChanges = true
 					c.logger.Warn("column added with position specifier (FIRST/AFTER)",
-						slog.String("columnName", col.Name.String()),
+						slog.String("columnName", col.Name),
 						slog.String("tableName", sourceTableName))
 				}
 
-				nullable := true
-				for _, option := range col.Options {
-					if option.Tp == ast.ColumnOptionNotNull {
-						nullable = false
-					}
-				}
-
-				precision := col.Tp.GetFlen()
-				scale := col.Tp.GetDecimal()
 				typmod := int32(-1)
-				if scale >= 0 || precision >= 0 {
-					typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
+				if col.Scale >= 0 || col.Precision >= 0 {
+					typmod = datatypes.MakeNumericTypmod(int32(col.Precision), int32(col.Scale))
 				}
 
 				fd := &protos.FieldDescription{
-					Name:         col.Name.OrigColName(),
+					Name:         col.Name,
 					Type:         string(qkind),
 					TypeModifier: typmod,
-					Nullable:     nullable,
+					Nullable:     !col.NotNull,
 				}
 				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, fd)
 				// current assumption is the columns will be ordered like this
 				currentSchema.Columns = append(currentSchema.Columns, fd)
 			}
-		} else if spec.OldColumnName != nil {
+		} else if spec.OldColumnName != "" {
 			// this could be dropped or renamed column
-			if spec.NewColumnName != nil {
+			if spec.NewColumnName != "" {
 				c.logger.Warn("renamed column detected but not propagating",
-					slog.String("columnOldName", spec.OldColumnName.String()), slog.String("columnNewName", spec.NewColumnName.String()))
+					slog.String("columnOldName", spec.OldColumnName), slog.String("columnNewName", spec.NewColumnName))
 			} else {
 				hasPositionShiftingDdlChanges = true
-				c.logger.Warn("dropped column detected but not propagating", slog.String("columnName", spec.OldColumnName.String()))
+				c.logger.Warn("dropped column detected but not propagating", slog.String("columnName", spec.OldColumnName))
 			}
 		}
 	}
@@ -1028,28 +982,24 @@ func (c *MySqlConnector) processRenameTableQuery(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
-	stmt *ast.RenameTableStmt,
+	stmt *ddlRenameTable,
 	stmtSchema string,
 ) {
-	for _, t2t := range stmt.TableToTables {
-		if t2t.NewTable == nil || t2t.OldTable == nil {
-			continue
-		}
-
+	for _, pair := range stmt.Pairs {
 		// if the rename target has no schema, fall back to the one on the event
-		newSchemaName := t2t.NewTable.Schema.String()
+		newSchemaName := pair.NewSchema
 		if newSchemaName == "" {
 			newSchemaName = stmtSchema
 		}
-		newTableName := newSchemaName + "." + t2t.NewTable.Name.String()
+		newTableName := newSchemaName + "." + pair.NewTable
 
 		// only care about renames that land on a table we are replicating
 		if _, tracked := req.TableNameMapping[newTableName]; !tracked {
 			continue
 		}
 
-		oldTableName := t2t.OldTable.Name.String()
-		tool := classifyOnlineSchemaMigrationTool(oldTableName, t2t.NewTable.Name.String())
+		oldTableName := pair.OldTable
+		tool := classifyOnlineSchemaMigrationTool(oldTableName, pair.NewTable)
 
 		c.logger.Info("table atomically renamed into a tracked table, likely an online schema migration",
 			slog.String("table", newTableName),

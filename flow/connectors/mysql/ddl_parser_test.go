@@ -6,7 +6,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIsBenignUnparsedStatement(t *testing.T) {
+// ddlIsActionable reports whether parseQueryEvent output would make the CDC loop
+// act: any RENAME TABLE, or an ALTER TABLE with at least one column-relevant
+// spec. Index/constraint/option-only ALTER TABLE parses into empty Specs and is
+// benign.
+func ddlIsActionable(stmts []ddlStatement) bool {
+	for _, stmt := range stmts {
+		switch s := stmt.(type) {
+		case *ddlRenameTable:
+			return true
+		case *ddlAlterTable:
+			if len(s.Specs) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestDDLBenignClassification migrates every case of the old
+// TestIsBenignUnparsedStatement (query_parser_test.go). want == true means the
+// statement is benign noise: parseQueryEvent returns no error and no actionable
+// result. Expectations that deliberately differ from the old classifier are
+// flagged inline.
+func TestDDLBenignClassification(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		query     string
@@ -116,7 +139,10 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 			want:  false,
 		},
 		{name: "alter table rename column is reported", query: "ALTER TABLE t RENAME COLUMN a TO b", want: false},
-		{name: "alter table rename to table is reported", query: "ALTER TABLE t RENAME TO t2", want: false},
+		// CHANGED expectation vs the old fallback classifier: ALTER TABLE ... RENAME TO
+		// now parses into an empty-spec ddlAlterTable, matching production behavior on
+		// the TiDB parsed path, which never acted on alter-table renames.
+		{name: "alter table rename to table is benign", query: "ALTER TABLE t RENAME TO t2", want: true},
 		// --- NOT benign: the only statements the handler acts on must still be reported ---
 		{
 			name:  "alter table modify is reported",
@@ -133,7 +159,9 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		{name: "rename table is reported", query: "RENAME TABLE `a` TO `b`", want: false},
 		{name: "rename table multi is reported", query: "RENAME TABLE `users` TO `_users_del`, `_users_gho` TO `users`", want: false},
 		{name: "rename tables mariadb is reported on maria", query: "RENAME TABLES `a` TO `b`, `c` TO `d`", want: false, isMariaDb: true},
-		{name: "rename tables mariadb is not reported on mysql", query: "RENAME TABLES `a` TO `b`, `c` TO `d`", want: true, isMariaDb: false},
+		// FLIPPED expectation: RENAME TABLES is valid undocumented MySQL (grammar
+		// table_or_tables); the old classifier's MariaDB-only gating was wrong.
+		{name: "rename tables is reported on mysql too", query: "RENAME TABLES `a` TO `b`, `c` TO `d`", want: false, isMariaDb: false},
 		// --- executable comments (/*! */, /*M! */) are lexed as code, not skipped ---
 		{
 			name:  "alter table with executable comment column op is reported",
@@ -162,7 +190,9 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		{name: "alter table behind block comment", query: "/* abc-123 */ ALTER TABLE `db`.`t` ADD COLUMN c INT", want: false},
 		{name: "alter table behind line comment", query: "-- migration\nALTER TABLE t ADD COLUMN c INT", want: false},
 		{name: "alter table behind hash comment", query: "# note\nALTER TABLE t ADD COLUMN c INT", want: false},
-		{name: "alter table behind cr terminated line comment", query: "-- migration\rALTER TABLE t ADD COLUMN c INT", want: false},
+		// FLIPPED expectation: the lexer terminates line comments at \n or NUL
+		// only, so the \r and the ALTER after it stay inside the comment.
+		{name: "alter table behind cr terminated line comment is benign", query: "-- migration\rALTER TABLE t ADD COLUMN c INT", want: true},
 		{name: "alter table with leading whitespace", query: "\n\t\f\v  ALTER TABLE t ADD COLUMN c INT", want: false},
 		// --- edge cases: nothing actionable recognized => benign ---
 		{name: "empty", query: "", want: true},
@@ -174,8 +204,110 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// want == true means the statement is benign noise, i.e. classified as ddlKindIgnored.
-			require.Equal(t, tc.want, classifyUnparsedStatement(tc.query, tc.isMariaDb) == ddlKindIgnored)
+			stmts, err := parseQueryEvent([]byte(tc.query), 0, tc.isMariaDb)
+			benign := err == nil && !ddlIsActionable(stmts)
+			require.Equal(t, tc.want, benign)
 		})
 	}
+}
+
+// ddlParseAlter parses a query expected to yield exactly one *ddlAlterTable.
+func ddlParseAlter(t *testing.T, query string, sqlMode uint64, isMariaDB bool) *ddlAlterTable {
+	t.Helper()
+	stmts, err := parseQueryEvent([]byte(query), sqlMode, isMariaDB)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	alter, ok := stmts[0].(*ddlAlterTable)
+	require.True(t, ok, "expected *ddlAlterTable, got %T", stmts[0])
+	return alter
+}
+
+func TestDDLAnsiQuotesLexing(t *testing.T) {
+	alter := ddlParseAlter(t, `ALTER TABLE "db"."t" ADD COLUMN "c" INT`, sqlModeANSIQuotes, false)
+	require.Equal(t, "db", alter.Schema)
+	require.Equal(t, "t", alter.Table)
+	require.Equal(t, "c", alter.Specs[0].NewColumns[0].Name)
+
+	// without the mode the double-quoted table ident is a string literal: parse error
+	_, err := parseQueryEvent([]byte(`ALTER TABLE "db"."t" ADD COLUMN "c" INT`), 0, false)
+	require.Error(t, err)
+}
+
+func TestDDLNoBackslashEscapesLexing(t *testing.T) {
+	query := []byte(`ALTER TABLE t ADD c VARCHAR(10) DEFAULT 'a\', ADD d INT`)
+
+	// under NO_BACKSLASH_ESCAPES the backslash is a literal byte, the string closes
+	// before the comma and both specs parse
+	stmts, err := parseQueryEvent(query, sqlModeNoBackslashEscapes, false)
+	require.NoError(t, err)
+	alter := stmts[0].(*ddlAlterTable)
+	require.Len(t, alter.Specs, 2)
+
+	// with backslash escapes \' does not close the string, which then never
+	// terminates — an error, never a silently swallowed ADD spec
+	_, err = parseQueryEvent(query, 0, false)
+	require.Error(t, err)
+}
+
+func TestDDLMoreLexerModes(t *testing.T) {
+	// MariaDB MSSQL-mode bracket identifiers
+	alter := ddlParseAlter(t, "ALTER TABLE [db].[t] DROP COLUMN [c]", sqlModeMSSQL, true)
+	require.Equal(t, "db", alter.Schema)
+	require.Equal(t, "t", alter.Table)
+	require.Equal(t, "c", alter.Specs[0].OldColumnName)
+
+	// MySQL 9 dollar-quoted strings: content (commas, quotes) must not leak out
+	alter = ddlParseAlter(t, "ALTER TABLE t ADD c VARCHAR(20) DEFAULT $q$it's, fine$q$ NOT NULL", 0, false)
+	require.Equal(t, []ddlColumnDef{{Name: "c", TypeStr: "varchar(20)", Precision: -1, Scale: -1, NotNull: true}},
+		alter.Specs[0].NewColumns)
+}
+
+func TestDDLTrailingNulAndMultiStatement(t *testing.T) {
+	alter := ddlParseAlter(t, "ALTER TABLE t ADD COLUMN c INT\x00\x00", 0, false)
+	require.Equal(t, "c", alter.Specs[0].NewColumns[0].Name)
+
+	stmts, err := parseQueryEvent([]byte("COMMIT\x00"), 0, false)
+	require.NoError(t, err)
+	require.Empty(t, stmts)
+
+	// after an actionable statement the remainder keeps being classified
+	stmts, err = parseQueryEvent([]byte("ALTER TABLE t DROP COLUMN a; ALTER TABLE t ADD COLUMN b INT"), 0, false)
+	require.NoError(t, err)
+	require.Len(t, stmts, 2)
+
+	// but an ignored head swallows everything after it, semicolons included
+	stmts, err = parseQueryEvent([]byte("CREATE PROCEDURE p() BEGIN ALTER TABLE t DROP COLUMN a; END"), 0, false)
+	require.NoError(t, err)
+	require.Empty(t, stmts)
+
+	// trailing semicolon and comment after an actionable statement
+	stmts, err = parseQueryEvent([]byte("ALTER TABLE t DROP COLUMN a; -- done"), 0, false)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+}
+
+func TestDDLParseErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		query     string
+		isMariaDB bool
+	}{
+		{name: "unknown type on mysql", query: "ALTER TABLE t ADD COLUMN c UUID"},
+		{name: "unterminated string in actionable", query: "ALTER TABLE t ADD COLUMN c INT COMMENT 'oops"},
+		{name: "unterminated quoted ident in actionable", query: "ALTER TABLE `t ADD c INT"},
+		{name: "unbalanced paren in benign spec", query: "ALTER TABLE t ADD INDEX i (a"},
+		{name: "missing column name", query: "ALTER TABLE t ADD COLUMN"},
+		{name: "rename table missing TO", query: "RENAME TABLE a b"},
+		{name: "rename column missing TO", query: "ALTER TABLE t RENAME COLUMN a b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseQueryEvent([]byte(tc.query), 0, tc.isMariaDB)
+			require.Error(t, err)
+		})
+	}
+
+	// the same lexer failure inside an ignored statement stays benign
+	stmts, err := parseQueryEvent([]byte("INSERT INTO t VALUES ('oops"), 0, false)
+	require.NoError(t, err)
+	require.Empty(t, stmts)
 }
