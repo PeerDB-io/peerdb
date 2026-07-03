@@ -388,14 +388,10 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isD
 			}
 		}
 	case protos.DBType_CLICKHOUSE:
-		year := t.Year()
-		if year < clickHouseMinYear || year > clickHouseMaxYear {
-			c.logger.Warn("value outside ClickHouse's supported DateTime range [1900, 2299]",
-				"value", t.String(), "nullable", c.Nullable)
-			if c.Nullable {
-				return nil, so.nullableSize()
-			}
-			t = DefaultTime(protos.DBType_CLICKHOUSE)
+		if year := t.Year(); year < clickHouseMinYear {
+			t = time.Date(clickHouseMinYear, time.January, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+		} else if year > clickHouseMaxYear {
+			t = time.Date(clickHouseMaxYear, time.December, 31, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
 		}
 	case protos.DBType_SNOWFLAKE:
 		// Snowflake has issues with avro timestamp types, returning as string form

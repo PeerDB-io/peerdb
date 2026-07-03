@@ -1738,6 +1738,10 @@ func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_MySQL_DateTime_ClickHouse_Range verifies that MySQL DATE/DATETIME values outside
+// ClickHouse's supported DateTime64/Date32 range ([1900, 2299]) are clamped to the nearest
+// boundary (date clamped, time-of-day preserved) rather than overflowing, on both the
+// snapshot and CDC paths, which must agree. In-range values pass through untouched.
 func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
@@ -1763,8 +1767,9 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 			dt_ok DATETIME NOT NULL
 		)`, quotedSrcFullName)))
 
-	// '1000-01-01' and '9999-12-31' are valid MySQL DATE/DATETIME values but fall
-	// outside ClickHouse's [1900, 2299] range.
+	// '1000-06-15' and '9999-06-15' are valid MySQL DATE/DATETIME values but fall outside
+	// ClickHouse's [1900, 2299] range. The distinctive time-of-day (05:30:45) verifies that
+	// clamping preserves the time-of-day, matching parseDateTime64BestEffortOrNull.
 	insertRow := func(id int) error {
 		return s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (
 			id,
@@ -1772,8 +1777,8 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 			dt_null_low, dt_null_high, dt_nn_low, dt_nn_high, dt_ok
 		) VALUES (
 			%d,
-			'1000-01-01', '9999-12-31', '1000-01-01', '9999-12-31', '2000-01-02',
-			'1000-01-01 00:00:00', '9999-12-31 23:59:59', '1000-01-01 00:00:00', '9999-12-31 23:59:59', '2000-01-02 03:04:05'
+			'1000-06-15', '9999-06-15', '1000-06-15', '9999-06-15', '2000-01-02',
+			'1000-06-15 05:30:45', '9999-06-15 05:30:45', '1000-06-15 05:30:45', '9999-06-15 05:30:45', '2000-01-02 03:04:05'
 		)`, quotedSrcFullName, id))
 	}
 
@@ -1787,7 +1792,7 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	// Enable nullable columns so nullable source columns map to Nullable(...) in ClickHouse,
-	// exercising the NULL branch for out-of-range values (NOT NULL columns stay non-nullable).
+	// verifying that clamping happens regardless of column nullability.
 	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
 
 	tc := NewTemporalClient(s.t)
@@ -1807,36 +1812,31 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 	require.Len(s.t, rows.Records, 2, "expected snapshot + cdc rows")
 
 	assertDate := func(qv types.QValue, expect string) {
-		if expect == "" {
-			require.Nil(s.t, qv.Value(), "expected out-of-range nullable DATE to be NULL")
-			return
-		}
 		tv, ok := qv.Value().(time.Time)
 		require.Truef(s.t, ok, "expected time.Time, got %T", qv.Value())
 		require.Equal(s.t, expect, tv.UTC().Format("2006-01-02"))
 	}
 	assertDateTime := func(qv types.QValue, expect string) {
-		if expect == "" {
-			require.Nil(s.t, qv.Value(), "expected out-of-range nullable DATETIME to be NULL")
-			return
-		}
 		tv, ok := qv.Value().(time.Time)
 		require.Truef(s.t, ok, "expected time.Time, got %T", qv.Value())
 		require.Equal(s.t, expect, tv.UTC().Format("2006-01-02 15:04:05.999999"))
 	}
 
+	// Out-of-range values are clamped to the nearest ClickHouse boundary (date clamped,
+	// time-of-day preserved), regardless of nullability; in-range values pass through.
+	// Both the snapshot (id=1) and CDC (id=2) rows must agree.
 	for _, row := range rows.Records {
-		// DATE (Date32): nullable out-of-range -> NULL, non-nullable -> Unix epoch, in-range -> preserved.
-		assertDate(row[1], "")           // d_null_low
-		assertDate(row[2], "")           // d_null_high
-		assertDate(row[3], "1970-01-01") // d_nn_low
-		assertDate(row[4], "1970-01-01") // d_nn_high
+		// DATE (Date32): clamps to the boundary day.
+		assertDate(row[1], "1900-01-01") // d_null_low
+		assertDate(row[2], "2299-12-31") // d_null_high
+		assertDate(row[3], "1900-01-01") // d_nn_low
+		assertDate(row[4], "2299-12-31") // d_nn_high
 		assertDate(row[5], "2000-01-02") // d_ok
-		// DATETIME (DateTime64(6)): same handling.
-		assertDateTime(row[6], "")                     // dt_null_low
-		assertDateTime(row[7], "")                     // dt_null_high
-		assertDateTime(row[8], "1970-01-01 00:00:00")  // dt_nn_low
-		assertDateTime(row[9], "1970-01-01 00:00:00")  // dt_nn_high
+		// DATETIME (DateTime64(6)): clamps the date, preserves the time-of-day.
+		assertDateTime(row[6], "1900-01-01 05:30:45")  // dt_null_low
+		assertDateTime(row[7], "2299-12-31 05:30:45")  // dt_null_high
+		assertDateTime(row[8], "1900-01-01 05:30:45")  // dt_nn_low
+		assertDateTime(row[9], "2299-12-31 05:30:45")  // dt_nn_high
 		assertDateTime(row[10], "2000-01-02 03:04:05") // dt_ok
 	}
 

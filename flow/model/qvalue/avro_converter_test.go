@@ -83,46 +83,57 @@ func TestClickHouseDateTimeRange(t *testing.T) {
 	logger := log.NewStructuredLogger(slog.New(slog.DiscardHandler))
 
 	inRange := time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)
-	belowRange := time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC) // MySQL DATETIME min, below ClickHouse
-	aboveRange := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
-	defaultTime := DefaultTime(protos.DBType_CLICKHOUSE)
+	belowRange := time.Date(1000, 6, 15, 5, 30, 45, 123456000, time.UTC)
+	aboveRange := time.Date(9999, 6, 15, 5, 30, 45, 123456000, time.UTC)
+	// ClickHouse clamps the date to the [1900, 2299] boundary but preserves the time-of-day,
+	// matching parseDateTime64BestEffortOrNull. This holds regardless of column nullability.
+	belowClamped := time.Date(clickHouseMinYear, time.January, 1, 5, 30, 45, 123456000, time.UTC)
+	aboveClamped := time.Date(clickHouseMaxYear, time.December, 31, 5, 30, 45, 123456000, time.UTC)
+	// Dates truncate the time-of-day, so both boundaries land on midnight of the boundary day.
+	belowDate := time.Date(clickHouseMinYear, time.January, 1, 0, 0, 0, 0, time.UTC)
+	aboveDate := time.Date(clickHouseMaxYear, time.December, 31, 0, 0, 0, 0, time.UTC)
 
 	convert := func(t *testing.T, qv types.QValue, dwh protos.DBType, nullable bool) any {
 		t.Helper()
 		field := types.QField{Type: qv.Kind(), Nullable: nullable}
 		val, _, err := QValueToAvro(ctx, qv, &field, dwh, logger, false, nil, internal.BinaryFormatRaw, false)
 		require.NoError(t, err)
+		if p, ok := val.(*any); ok {
+			return *p
+		}
 		return val
 	}
 
+	// isDate marks date values, which are encoded as whole days (time-of-day truncated).
 	tests := []struct {
 		name     string
 		qv       types.QValue
 		nullable bool
-		// nil expected means the value should be nulled; otherwise the resulting time
-		expected *time.Time
+		isDate   bool
+		expected time.Time
 	}{
-		{"timestamp_in_range", types.QValueTimestamp{Val: inRange}, false, &inRange},
-		{"timestamp_below_nonnullable_defaults", types.QValueTimestamp{Val: belowRange}, false, &defaultTime},
-		{"timestamp_above_nonnullable_defaults", types.QValueTimestamp{Val: aboveRange}, false, &defaultTime},
-		{"timestamp_below_nullable_nulls", types.QValueTimestamp{Val: belowRange}, true, nil},
-		{"timestamp_above_nullable_nulls", types.QValueTimestamp{Val: aboveRange}, true, nil},
-		{"timestamptz_below_nonnullable_defaults", types.QValueTimestampTZ{Val: belowRange}, false, &defaultTime},
-		{"timestamptz_above_nullable_nulls", types.QValueTimestampTZ{Val: aboveRange}, true, nil},
-		{"date_below_nonnullable_defaults", types.QValueDate{Val: belowRange}, false, &defaultTime},
-		{"date_above_nullable_nulls", types.QValueDate{Val: aboveRange}, true, nil},
+		{"timestamp_in_range", types.QValueTimestamp{Val: inRange}, false, false, inRange},
+		{"timestamp_below_clamps", types.QValueTimestamp{Val: belowRange}, false, false, belowClamped},
+		{"timestamp_above_clamps", types.QValueTimestamp{Val: aboveRange}, false, false, aboveClamped},
+		{"timestamp_below_nullable_clamps", types.QValueTimestamp{Val: belowRange}, true, false, belowClamped},
+		{"timestamp_above_nullable_clamps", types.QValueTimestamp{Val: aboveRange}, true, false, aboveClamped},
+		{"timestamptz_below_clamps", types.QValueTimestampTZ{Val: belowRange}, false, false, belowClamped},
+		{"timestamptz_above_nullable_clamps", types.QValueTimestampTZ{Val: aboveRange}, true, false, aboveClamped},
+		{"date_below_clamps", types.QValueDate{Val: belowRange}, false, true, belowDate},
+		{"date_above_nullable_clamps", types.QValueDate{Val: aboveRange}, true, true, aboveDate},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			val := convert(t, tt.qv, protos.DBType_CLICKHOUSE, tt.nullable)
-			if tt.expected == nil {
-				assert.Nil(t, val, "out-of-range value should be nulled")
-				return
-			}
 			ts, ok := val.(time.Time)
 			require.Truef(t, ok, "expected time.Time, got %T", val)
-			assert.Truef(t, ts.Equal(*tt.expected), "expected %s, got %s", tt.expected, ts)
+			if tt.isDate {
+				// Compare only the date part, since dates are encoded as whole days.
+				assert.Equal(t, tt.expected.Format("2006-01-02"), ts.UTC().Format("2006-01-02"))
+			} else {
+				assert.Truef(t, ts.Equal(tt.expected), "expected %s, got %s", tt.expected, ts)
+			}
 		})
 	}
 
