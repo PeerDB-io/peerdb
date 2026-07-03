@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/compare"
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 	ddllexec "github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/exec"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/findings"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/oracle"
@@ -121,6 +123,31 @@ func replayOne(ctx context.Context, cfg Config, sig string) (Result, int) {
 	if f, ok := meta["sql_mode"].(float64); ok {
 		mode = uint64(f)
 	}
+	if offlineE2EReproducible(meta) {
+		in, err := e2eInputFromMeta(meta)
+		if err != nil {
+			return Result{Sig: sig, Engine: engine, SQLMode: mode, Class: "malformed", Shape: err.Error(), OracleDigest: json.RawMessage("null")}, ExitMalformed
+		}
+		res, err := e2echeck.Reproduce(in)
+		if err != nil {
+			return Result{Sig: sig, Engine: engine, SQLMode: mode, OurSig: stringFromMeta(meta, "our_sig"), OurError: stringFromMeta(meta, "our_error"), Class: "malformed", Shape: err.Error(), OracleDigest: json.RawMessage("null")}, ExitMalformed
+		}
+		out := Result{
+			Sig:          sig,
+			Engine:       engine,
+			SQLMode:      mode,
+			OurSig:       stringFromMeta(meta, "our_sig"),
+			OurError:     stringFromMeta(meta, "our_error"),
+			OracleDigest: json.RawMessage("null"),
+			Reconciled:   res.Reconciled,
+		}
+		if !res.Reconciled {
+			out.Class = res.Class
+			out.Shape = res.Shape
+			return out, ExitDiverged
+		}
+		return out, ExitOK
+	}
 	engineID, _ := run.EngineID(engine)
 	c := run.Case{SQL: sql, SQLMode: mode, Engine: engineID, Origin: run.OriginReplay}
 	res := ddllexec.NewWorker(0, cfg.CaseDeadline, nil).RunBatch([]run.Case{c})[0]
@@ -209,6 +236,131 @@ func RunExpectAccept(ctx context.Context, cfg Config, from string, w io.Writer) 
 		return ExitDiverged
 	}
 	return ExitOK
+}
+
+// offlineE2EReproducible reports whether the finding carries the complete e2e
+// capture meta the offline reproducer consumes. Findings recorded before the
+// capture existed, and lane:"e2e" classes the reproducer does not model
+// (oracle-reject-live-accept), keep replaying through the fast lane exactly as
+// they did before the reproducer — this must not regress a running campaign's
+// state (preflight treats exit 11 on any finding as blocking).
+func offlineE2EReproducible(meta map[string]any) bool {
+	if lane, _ := meta["lane"].(string); lane != "e2e" {
+		return false
+	}
+	class, _ := meta["class"].(string)
+	if !strings.HasPrefix(class, "e2e-") {
+		return false
+	}
+	for _, key := range []string{
+		"submitted_text", "binlog_query", "status_vars_hex",
+		"before_snapshot", "after_snapshot", "info_schema_delta",
+	} {
+		if _, ok := meta[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func e2eInputFromMeta(meta map[string]any) (e2echeck.Input, error) {
+	engine, _ := meta["engine"].(string)
+	class, _ := meta["class"].(string)
+	mode, ok := uint64FromMeta(meta, "sql_mode")
+	if !ok {
+		return e2echeck.Input{}, fmt.Errorf("missing sql_mode")
+	}
+	submitted, ok := meta["submitted_text"].(string)
+	if !ok || submitted == "" {
+		return e2echeck.Input{}, fmt.Errorf("missing submitted_text")
+	}
+	binlogQuery, ok := meta["binlog_query"].(string)
+	if !ok || binlogQuery == "" {
+		return e2echeck.Input{}, fmt.Errorf("missing binlog_query")
+	}
+	statusVarsHex, ok := meta["status_vars_hex"].(string)
+	if !ok {
+		return e2echeck.Input{}, fmt.Errorf("missing status_vars_hex")
+	}
+	before, err := decodeMetaValue[e2echeck.Snapshot](meta, "before_snapshot")
+	if err != nil {
+		return e2echeck.Input{}, err
+	}
+	after, err := decodeMetaValue[e2echeck.Snapshot](meta, "after_snapshot")
+	if err != nil {
+		return e2echeck.Input{}, err
+	}
+	delta, err := decodeMetaValue[e2echeck.Delta](meta, "info_schema_delta")
+	if err != nil {
+		return e2echeck.Input{}, err
+	}
+	in := e2echeck.Input{
+		Engine:        engine,
+		IsMariaDB:     engine == "mariadb",
+		SQLMode:       mode,
+		Submitted:     submitted,
+		BinlogQuery:   binlogQuery,
+		StatusVarsHex: statusVarsHex,
+		Before:        before,
+		After:         after,
+		Delta:         delta,
+		Class:         class,
+	}
+	if expected, ok := uint64FromMeta(meta, "expected_relevant"); ok {
+		in.ExpectedRelevant = &expected
+	}
+	return in, nil
+}
+
+func decodeMetaValue[T any](meta map[string]any, key string) (T, error) {
+	var out T
+	raw, ok := meta[key]
+	if !ok || raw == nil {
+		return out, fmt.Errorf("missing %s", key)
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return out, fmt.Errorf("decode %s: %w", key, err)
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return out, fmt.Errorf("decode %s: %w", key, err)
+	}
+	return out, nil
+}
+
+func uint64FromMeta(meta map[string]any, key string) (uint64, bool) {
+	switch v := meta[key].(type) {
+	case float64:
+		if v < 0 {
+			return 0, false
+		}
+		return uint64(v), true
+	case int:
+		if v < 0 {
+			return 0, false
+		}
+		return uint64(v), true
+	case int64:
+		if v < 0 {
+			return 0, false
+		}
+		return uint64(v), true
+	case uint64:
+		return v, true
+	case json.Number:
+		u, err := v.Int64()
+		if err != nil || u < 0 {
+			return 0, false
+		}
+		return uint64(u), true
+	default:
+		return 0, false
+	}
+}
+
+func stringFromMeta(meta map[string]any, key string) string {
+	s, _ := meta[key].(string)
+	return s
 }
 
 func readFinding(stateDir, sig string) (map[string]any, []byte, error) {

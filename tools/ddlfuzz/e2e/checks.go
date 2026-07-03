@@ -12,50 +12,21 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
-	"github.com/PeerDB-io/peerdb/flow/shared/types"
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/findings"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/minimize"
 	"github.com/go-mysql-org/go-mysql/replication"
 )
 
-type parsedStmts struct {
-	Stmts []parsedStmt `json:"stmts"`
-}
-
-type parsedStmt struct {
-	Kind   string       `json:"kind"`
-	Schema string       `json:"schema,omitempty"`
-	Table  string       `json:"table,omitempty"`
-	Specs  []parsedSpec `json:"specs,omitempty"`
-	Pairs  []parsedPair `json:"pairs,omitempty"`
-}
-
-type parsedSpec struct {
-	Op          string      `json:"op"`
-	OldName     string      `json:"old_name,omitempty"`
-	NewName     string      `json:"new_name,omitempty"`
-	Cols        []parsedCol `json:"cols,omitempty"`
-	HasPosition bool        `json:"has_position"`
-}
-
-type parsedCol struct {
-	Name      string `json:"name"`
-	TypeStr   string `json:"type_str"`
-	NotNull   bool   `json:"not_null"`
-	Precision int    `json:"precision"`
-	Scale     int    `json:"scale"`
-}
-
-type parsedPair struct {
-	OldSchema string `json:"old_schema"`
-	OldTable  string `json:"old_table"`
-	NewSchema string `json:"new_schema"`
-	NewTable  string `json:"new_table"`
-}
+type parsedStmts = e2echeck.ParsedStmts
+type parsedStmt = e2echeck.ParsedStmt
+type parsedSpec = e2echeck.ParsedSpec
+type parsedCol = e2echeck.ParsedCol
+type parsedPair = e2echeck.ParsedPair
+type semanticFinding = e2echeck.SemanticFinding
 
 type findingInput struct {
 	Class       string
@@ -66,6 +37,8 @@ type findingInput struct {
 	OurSig      string
 	OurError    string
 	Delta       delta
+	Before      snapshot
+	After       snapshot
 	RawEvent    []byte
 	StatusVars  []byte
 	Submitted   string
@@ -90,11 +63,16 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 			SQLMode:     0,
 			SQLModeName: exp.SQLModeName,
 			Delta:       actualDelta,
+			Before:      exp.Before,
+			After:       exp.After,
 			RawEvent:    raw,
 			StatusVars:  statusVars,
 			Submitted:   exp.Submitted,
 			BinlogText:  string(query),
-			Meta:        map[string]any{"status_vars_hex": hex.EncodeToString(statusVars)},
+			Meta: map[string]any{
+				"status_vars_hex":   hex.EncodeToString(statusVars),
+				"expected_relevant": exp.SQLModeRelevant,
+			},
 		})
 	}
 	if ok && mode&relevantMask != exp.SQLModeRelevant {
@@ -105,6 +83,8 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 			SQLMode:     mode,
 			SQLModeName: exp.SQLModeName,
 			Delta:       actualDelta,
+			Before:      exp.Before,
+			After:       exp.After,
 			RawEvent:    raw,
 			StatusVars:  statusVars,
 			Submitted:   exp.Submitted,
@@ -124,6 +104,8 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 			SQLMode:     mode,
 			SQLModeName: exp.SQLModeName,
 			Delta:       actualDelta,
+			Before:      exp.Before,
+			After:       exp.After,
 			RawEvent:    raw,
 			StatusVars:  statusVars,
 			Submitted:   exp.Submitted,
@@ -147,6 +129,8 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 			OurSig:      liveSig,
 			OurError:    errString(liveErr),
 			Delta:       actualDelta,
+			Before:      exp.Before,
+			After:       exp.After,
 			RawEvent:    raw,
 			StatusVars:  statusVars,
 			Submitted:   exp.Submitted,
@@ -166,15 +150,19 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 			OurSig:      liveSig,
 			OurError:    errString(liveErr),
 			Delta:       actualDelta,
+			Before:      exp.Before,
+			After:       exp.After,
 			RawEvent:    raw,
 			StatusVars:  statusVars,
 			Submitted:   exp.Submitted,
 			BinlogText:  string(query),
 			Meta: map[string]any{
-				"submitted_sig":   subSig,
-				"submitted_error": errString(subErr),
-				"live_sig":        liveSig,
-				"live_error":      errString(liveErr),
+				"submitted_sig":     subSig,
+				"submitted_error":   errString(subErr),
+				"live_sig":          liveSig,
+				"live_error":        errString(liveErr),
+				"expected_relevant": exp.SQLModeRelevant,
+				"actual_relevant":   mode & relevantMask,
 			},
 		})
 	}
@@ -190,6 +178,8 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 			OurSig:      liveSig,
 			OurError:    errString(parseErr),
 			Delta:       actualDelta,
+			Before:      exp.Before,
+			After:       exp.After,
 			RawEvent:    raw,
 			StatusVars:  statusVars,
 			Submitted:   exp.Submitted,
@@ -206,14 +196,20 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 			OurSig:      liveSig,
 			OurError:    errString(parseErr),
 			Delta:       actualDelta,
+			Before:      exp.Before,
+			After:       exp.After,
 			RawEvent:    raw,
 			StatusVars:  statusVars,
 			Submitted:   exp.Submitted,
 			BinlogText:  string(query),
-			Meta:        map[string]any{"schema_changed": !actualDelta.empty()},
+			Meta:        map[string]any{"schema_changed": !actualDelta.Empty()},
 		})
 	} else {
-		for _, sf := range compareSemantics(exp, parsed, actualDelta) {
+		for _, sf := range e2echeck.CompareSemantics(e2echeck.SemanticInput{
+			Before: exp.Before,
+			After:  exp.After,
+			Actual: actualDelta,
+		}, parsed) {
 			findingCount += recordE2EFinding(stateDir, stats, findingInput{
 				Class:       sf.Class,
 				Engine:      ec,
@@ -223,6 +219,8 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 				OurSig:      liveSig,
 				OurError:    errString(liveErr),
 				Delta:       actualDelta,
+				Before:      exp.Before,
+				After:       exp.After,
 				RawEvent:    raw,
 				StatusVars:  statusVars,
 				Submitted:   exp.Submitted,
@@ -290,293 +288,6 @@ func safeParseForE2E(query []byte, mode uint64, isMariaDB bool) (out parsedStmts
 	return out, nil, panicked
 }
 
-type semanticFinding struct {
-	Class string
-	Meta  map[string]any
-}
-
-type predicted struct {
-	Added       map[string]parsedCol
-	Dropped     map[string]bool
-	Changed     map[string]parsedCol
-	Renamed     map[string]string
-	RenameAttrs map[string]colRow
-	HasPosition bool
-	TablePairs  []parsedPair
-}
-
-func applyPredicted(before snapshot, parsed parsedStmts) predicted {
-	p := predicted{
-		Added:       make(map[string]parsedCol),
-		Dropped:     make(map[string]bool),
-		Changed:     make(map[string]parsedCol),
-		Renamed:     make(map[string]string),
-		RenameAttrs: make(map[string]colRow),
-	}
-	for _, stmt := range parsed.Stmts {
-		switch stmt.Kind {
-		case "alter_table":
-			for _, spec := range stmt.Specs {
-				if spec.HasPosition {
-					p.HasPosition = true
-				}
-				switch spec.Op {
-				case "add":
-					for _, col := range spec.Cols {
-						if _, existed := before[col.Name]; existed {
-							p.Changed[col.Name] = col
-						} else {
-							p.Added[col.Name] = col
-						}
-					}
-				case "change":
-					if len(spec.Cols) == 0 {
-						continue
-					}
-					col := spec.Cols[0]
-					if col.Name == spec.OldName {
-						p.Changed[col.Name] = col
-					} else {
-						p.Dropped[spec.OldName] = true
-						p.Added[col.Name] = col
-					}
-				case "rename_col":
-					p.Dropped[spec.OldName] = true
-					p.Added[spec.NewName] = parsedCol{Name: spec.NewName}
-					p.Renamed[spec.OldName] = spec.NewName
-					if old, ok := before[spec.OldName]; ok {
-						p.RenameAttrs[spec.NewName] = old
-					}
-				case "drop":
-					p.Dropped[spec.OldName] = true
-				}
-			}
-		case "rename_table":
-			p.TablePairs = append(p.TablePairs, stmt.Pairs...)
-		}
-	}
-	return p
-}
-
-func compareSemantics(exp caseExpect, parsed parsedStmts, actual delta) []semanticFinding {
-	if len(parsed.Stmts) == 0 {
-		if !actual.empty() {
-			return []semanticFinding{{Class: "e2e-missed-column-effect", Meta: map[string]any{"benign_classification": true}}}
-		}
-		return nil
-	}
-
-	pred := applyPredicted(exp.Before, parsed)
-	var out []semanticFinding
-	actualAdded := rowsToSet(actual.Added)
-	actualDropped := rowsToSet(actual.Dropped)
-	actualChanged := changesToSet(actual.Changed)
-
-	if len(pred.TablePairs) > 0 {
-		droppedTables, addedTables := tableSetDelta(exp.BeforeTables, exp.AfterTables)
-		for _, pair := range pred.TablePairs {
-			if !contains(droppedTables, pair.OldTable) || !contains(addedTables, pair.NewTable) {
-				out = append(out, semanticFinding{
-					Class: "e2e-missed-column-effect",
-					Meta: map[string]any{
-						"table_rename_expected": pair,
-						"table_dropped_actual":  droppedTables,
-						"table_added_actual":    addedTables,
-					},
-				})
-			}
-		}
-	}
-
-	if missing, unexpected := compareSetMap(pred.Added, actualAdded); len(missing) > 0 || len(unexpected) > 0 {
-		out = append(out, semanticFinding{
-			Class: "e2e-missed-column-effect",
-			Meta:  map[string]any{"added_missing": missing, "added_unexpected": unexpected},
-		})
-	}
-	if missing, unexpected := compareBoolSet(pred.Dropped, actualDropped); len(missing) > 0 || len(unexpected) > 0 {
-		out = append(out, semanticFinding{
-			Class: "e2e-missed-column-effect",
-			Meta:  map[string]any{"dropped_missing": missing, "dropped_unexpected": unexpected},
-		})
-	}
-	for name := range actualChanged {
-		if _, ok := pred.Changed[name]; !ok && !pred.Dropped[name] {
-			if ch, ok := changeByName(actual.Changed, name); ok && ordinalOnlyChange(ch) {
-				continue
-			}
-			out = append(out, semanticFinding{
-				Class: "e2e-missed-column-effect",
-				Meta:  map[string]any{"changed_unexpected": name},
-			})
-		}
-	}
-
-	for name, col := range pred.Added {
-		row, ok := exp.After[name]
-		if !ok {
-			continue
-		}
-		if old, renamed := pred.RenameAttrs[name]; renamed {
-			if row.ColumnType != old.ColumnType {
-				out = append(out, semanticFinding{
-					Class: "e2e-col-attr",
-					Meta:  map[string]any{"column": name, "attribute": "rename_column_type", "want": old.ColumnType, "got": row.ColumnType},
-				})
-			}
-			continue
-		}
-		out = append(out, compareColumnAttrs(name, col, row)...)
-	}
-	for name, col := range pred.Changed {
-		row, ok := exp.After[name]
-		if !ok {
-			continue
-		}
-		out = append(out, compareColumnAttrs(name, col, row)...)
-	}
-
-	if !pred.HasPosition && len(actual.Dropped) == 0 {
-		for _, ch := range actual.Changed {
-			if ch.Before.Ordinal != ch.After.Ordinal {
-				out = append(out, semanticFinding{
-					Class: "e2e-position-missed",
-					Meta:  map[string]any{"column": ch.Name, "before_ordinal": ch.Before.Ordinal, "after_ordinal": ch.After.Ordinal},
-				})
-				break
-			}
-		}
-	}
-
-	return out
-}
-
-func compareColumnAttrs(name string, col parsedCol, row colRow) []semanticFinding {
-	var out []semanticFinding
-	wantKind := qkindString(col.TypeStr)
-	gotKind := qkindString(row.ColumnType)
-	if wantKind != gotKind {
-		out = append(out, semanticFinding{
-			Class: "e2e-col-attr",
-			Meta:  map[string]any{"column": name, "attribute": "qkind", "want": wantKind, "got": gotKind, "want_type": col.TypeStr, "got_type": row.ColumnType},
-		})
-	}
-
-	wantNotNull := col.NotNull
-	gotNotNull := strings.EqualFold(row.IsNullable, "NO")
-	if wantNotNull != gotNotNull && !(gotNotNull && !wantNotNull && nullableImpliedNotNull(row)) {
-		out = append(out, semanticFinding{
-			Class: "e2e-col-attr",
-			Meta:  map[string]any{"column": name, "attribute": "nullability", "want_not_null": wantNotNull, "got_not_null": gotNotNull, "column_key": row.ColumnKey},
-		})
-	}
-
-	if gotKind == string(types.QValueKindNumeric) {
-		if col.Precision >= 0 && (!row.NumPrec.Valid || row.NumPrec.Int64 != int64(col.Precision)) {
-			out = append(out, semanticFinding{
-				Class: "e2e-col-attr",
-				Meta:  map[string]any{"column": name, "attribute": "numeric_precision", "want": col.Precision, "got": row.NumPrec},
-			})
-		}
-		if col.Scale >= 0 && (!row.NumScale.Valid || row.NumScale.Int64 != int64(col.Scale)) {
-			out = append(out, semanticFinding{
-				Class: "e2e-col-attr",
-				Meta:  map[string]any{"column": name, "attribute": "numeric_scale", "want": col.Scale, "got": row.NumScale},
-			})
-		}
-	}
-	return out
-}
-
-func nullableImpliedNotNull(row colRow) bool {
-	if row.ColumnKey == "PRI" {
-		return true
-	}
-	t := strings.ToLower(row.ColumnType)
-	return strings.Contains(t, "auto_increment") || strings.HasPrefix(t, "serial")
-}
-
-func qkindString(typeStr string) string {
-	kind, err := connmysql.QkindFromMysqlColumnType(typeStr, true, 0)
-	if err != nil {
-		return "ERR"
-	}
-	return string(kind)
-}
-
-func rowsToSet(rows []colRow) map[string]bool {
-	out := make(map[string]bool, len(rows))
-	for _, row := range rows {
-		out[row.Name] = true
-	}
-	return out
-}
-
-func changesToSet(changes []columnChange) map[string]bool {
-	out := make(map[string]bool, len(changes))
-	for _, ch := range changes {
-		out[ch.Name] = true
-	}
-	return out
-}
-
-func changeByName(changes []columnChange, name string) (columnChange, bool) {
-	for _, ch := range changes {
-		if ch.Name == name {
-			return ch, true
-		}
-	}
-	return columnChange{}, false
-}
-
-func ordinalOnlyChange(ch columnChange) bool {
-	before := ch.Before
-	after := ch.After
-	before.Ordinal = after.Ordinal
-	return before == after
-}
-
-func compareSetMap(pred map[string]parsedCol, actual map[string]bool) (missing, unexpected []string) {
-	for name := range pred {
-		if !actual[name] {
-			missing = append(missing, name)
-		}
-	}
-	for name := range actual {
-		if _, ok := pred[name]; !ok {
-			unexpected = append(unexpected, name)
-		}
-	}
-	slices.Sort(missing)
-	slices.Sort(unexpected)
-	return missing, unexpected
-}
-
-func compareBoolSet(pred map[string]bool, actual map[string]bool) (missing, unexpected []string) {
-	for name := range pred {
-		if !actual[name] {
-			missing = append(missing, name)
-		}
-	}
-	for name := range actual {
-		if !pred[name] {
-			unexpected = append(unexpected, name)
-		}
-	}
-	slices.Sort(missing)
-	slices.Sort(unexpected)
-	return missing, unexpected
-}
-
-func contains(items []string, want string) bool {
-	for _, item := range items {
-		if item == want {
-			return true
-		}
-	}
-	return false
-}
-
 func inferRenames(before, after map[string]bool) []renameSummary {
 	dropped, added := tableSetDelta(before, after)
 	if len(dropped) != 1 || len(added) != 1 {
@@ -589,6 +300,15 @@ func recordE2EFinding(stateDir string, stats *Stats, in findingInput) int {
 	if in.Submitted == "" {
 		in.Submitted = string(in.Statement)
 	}
+	if in.BinlogText == "" {
+		in.BinlogText = in.Submitted
+	}
+	if in.Before == nil {
+		in.Before = snapshot{}
+	}
+	if in.After == nil {
+		in.After = snapshot{}
+	}
 	meta := map[string]any{
 		"lane":                "e2e",
 		"class":               in.Class,
@@ -596,8 +316,12 @@ func recordE2EFinding(stateDir string, stats *Stats, in findingInput) int {
 		"sql_mode":            in.SQLMode,
 		"sql_mode_name":       in.SQLModeName,
 		"submitted_text":      in.Submitted,
-		"binlog_text_differs": in.BinlogText != "" && in.BinlogText != in.Submitted,
+		"binlog_query":        in.BinlogText,
+		"binlog_text":         in.BinlogText,
+		"binlog_text_differs": in.BinlogText != in.Submitted,
 		"info_schema_delta":   in.Delta,
+		"before_snapshot":     in.Before,
+		"after_snapshot":      in.After,
 		"binlog_event_hex":    hex.EncodeToString(in.RawEvent),
 		"status_vars_hex":     hex.EncodeToString(in.StatusVars),
 		"server_image":        in.Engine.Image,
@@ -605,6 +329,9 @@ func recordE2EFinding(stateDir string, stats *Stats, in findingInput) int {
 		"minimized":           false,
 	}
 	for k, v := range in.Meta {
+		if isE2ERequiredMeta(k) {
+			continue
+		}
 		meta[k] = v
 	}
 
@@ -639,6 +366,18 @@ func recordE2EFinding(stateDir string, stats *Stats, in findingInput) int {
 		return 1
 	}
 	return 0
+}
+
+func isE2ERequiredMeta(key string) bool {
+	switch key {
+	case "lane", "class", "engine", "sql_mode", "sql_mode_name",
+		"submitted_text", "binlog_query", "binlog_text_differs",
+		"status_vars_hex", "info_schema_delta", "before_snapshot",
+		"after_snapshot", "server_image", "oracle_digest":
+		return true
+	default:
+		return false
+	}
 }
 
 func callFindingsRecord(stateDir string, f findings.Finding) (sig string, isNew bool, err error) {

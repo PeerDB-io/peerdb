@@ -2,14 +2,18 @@
 
 package e2e
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
+)
 
 const (
-	sqlModeANSIQuotes         uint64 = 1 << 2
-	sqlModeOracle             uint64 = 1 << 9
-	sqlModeMSSQL              uint64 = 1 << 10
-	sqlModeNoBackslashEscapes uint64 = 1 << 20
-	relevantMask                     = sqlModeANSIQuotes | sqlModeOracle | sqlModeMSSQL | sqlModeNoBackslashEscapes
+	sqlModeANSIQuotes         = e2echeck.SQLModeANSIQuotes
+	sqlModeOracle             = e2echeck.SQLModeOracle
+	sqlModeMSSQL              = e2echeck.SQLModeMSSQL
+	sqlModeNoBackslashEscapes = e2echeck.SQLModeNoBackslashEscapes
+	relevantMask              = e2echeck.RelevantSQLModeMask
 )
 
 var relevantBits = map[string]uint64{
