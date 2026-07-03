@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -137,38 +138,6 @@ func TestIntegrationANSIQuotesDDLParsedFromBinlog(t *testing.T) {
 	}
 }
 
-func sourceHasRegisteredReplica(ctx context.Context, c *MySqlConnector, serverID uint32) (bool, error) {
-	rs, err := c.Execute(ctx, "SHOW REPLICAS")
-	if err != nil {
-		if rs, err = c.Execute(ctx, "SHOW SLAVE HOSTS"); err != nil {
-			return false, fmt.Errorf("failed to query source for registered replicas")
-		}
-	}
-
-	serverIDCol := -1
-	for i, field := range rs.Fields {
-		// Case insensitive match because the column name differs between MySQL and MariaDB.
-		if strings.EqualFold(string(field.Name), "Server_id") {
-			serverIDCol = i
-			break
-		}
-	}
-	if serverIDCol < 0 {
-		return false, fmt.Errorf("no Server_id column in replica list, got fields %v", rs.Fields)
-	}
-
-	for row := range rs.RowNumber() {
-		got, err := rs.GetInt(row, serverIDCol)
-		if err != nil {
-			return false, err
-		}
-		if uint32(got) == serverID {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // TestIntegrationConfiguredServerID verifies that an explicitly configured server_id is used for
 // the binlog connection instead of the legacy random fallback: the source must list a replica
 // registered with exactly that id.
@@ -193,7 +162,7 @@ func TestIntegrationConfiguredServerID(t *testing.T) {
 
 			// The source's replica list can lag briefly after registration, so retry until it shows up.
 			require.EventuallyWithT(t, func(c *assert.CollectT) {
-				found, err := sourceHasRegisteredReplica(ctx, connector, wantServerID)
+				found, err := mysql_validation.HasReplicaWithServerId(connector.conn.Load(), wantServerID)
 				assert.NoError(c, err)
 				assert.True(c, found, "source does not list a replica registered with server_id %d", wantServerID)
 			}, 15*time.Second, time.Second)
