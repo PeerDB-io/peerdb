@@ -276,6 +276,10 @@ func TestDDLLexerIdentifierForms(t *testing.T) {
 		// digit-leading identifiers are legal (MY_LEX_NUMBER_IDENT)
 		{name: "digit leading identifiers", query: "ALTER TABLE 23ai DROP COLUMN 1c", table: "23ai", col: "1c"},
 		{name: "all digit identifier after dot", query: "ALTER TABLE db.123 DROP COLUMN c", schema: "db", table: "123", col: "c"},
+		{
+			name: "exponent shaped identifier after dot", isMariaDB: true,
+			query: "/*!ALTER TABLE db.1E23A DROP COLUMN c */", schema: "db", table: "1E23A", col: "c",
+		},
 		// '1e' without exponent digits is an identifier (the "1e1 test")
 		{name: "1e alone is an identifier", query: "ALTER TABLE 1e DROP COLUMN c", table: "1e", col: "c"},
 	} {

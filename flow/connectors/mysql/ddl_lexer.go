@@ -52,11 +52,12 @@ var (
 // runs. Anything else is emitted as single punctuation bytes — the parser only
 // needs balanced parens and commas from those.
 type ddlLexer struct {
-	s           string
-	pos         int
-	sqlMode     uint64
-	execComment int // depth of executable comment bodies currently lexed as code
-	isMariaDB   bool
+	s             string
+	pos           int
+	sqlMode       uint64
+	execComment   int  // depth of executable comment bodies currently lexed as code
+	identAfterDot bool // server lexes the immediate ident after '.' in qualified names as an identifier
+	isMariaDB     bool
 }
 
 func isDDLIdentByte(c byte) bool {
@@ -86,6 +87,9 @@ func (lx *ddlLexer) next() (ddlToken, error) {
 		}
 		c := lx.s[lx.pos]
 		switch {
+		case lx.identAfterDot && isDDLIdentByte(c):
+			lx.identAfterDot = false
+			return lx.scanWord(), nil
 		case c == 0:
 			// an embedded NUL terminates the input, like the server's end-of-query state
 			return ddlToken{kind: tokEOF, pos: lx.pos}, nil
@@ -126,6 +130,7 @@ func (lx *ddlLexer) next() (ddlToken, error) {
 			return lx.scanWord(), nil
 		default:
 			tok := ddlToken{kind: tokPunct, text: lx.s[lx.pos : lx.pos+1], pos: lx.pos}
+			lx.identAfterDot = c == '.' && lx.pos+1 < n && isDDLIdentByte(lx.s[lx.pos+1])
 			lx.pos++
 			return tok, nil
 		}

@@ -1,0 +1,1 @@
+/*!ALTER TABLE db.1E23A ADD c INT */
