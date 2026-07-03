@@ -236,11 +236,6 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Test_MySQL_JSON_SnapshotCDCConsistency guards DBI-823: a JSON column read during the
-// initial snapshot (MySQL text protocol) must have the same representation as the same
-// value read over CDC (binlog JSONB decoder). The snapshot path compacts the server-
-// rendered JSON and CDC uses RenderJSONAsMySQLText, so the two forms must line up byte for
-// byte — including that a JSON DOUBLE keeps its "1.0" form rather than collapsing to "1".
 func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 	mysource, ok := s.source.(*MySqlSource)
 	if !ok {
@@ -257,11 +252,6 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 			js json NOT NULL
 		)`, srcFullName)))
 
-	// input is what we hand MySQL; mysqlWant is MySQL's own compact, type-faithful rendering.
-	// Keys are chosen already in MySQL's canonical (length-then-byte) order so the expected
-	// text is unambiguous. mysqlWant is only asserted for real MySQL: MariaDB stores JSON as
-	// verbatim LONGTEXT, so there the snapshot and CDC forms match each other but keep the
-	// original whitespace rather than MySQL's normalized form.
 	variants := []struct{ input, mysqlWant string }{
 		{`{"a": 1.0}`, `{"a":1.0}`},                                     // DOUBLE keeps its trailing zero
 		{`{"a": 1.5, "b": 2.0}`, `{"a":1.5,"b":2.0}`},                   // mixed doubles, keys already sorted

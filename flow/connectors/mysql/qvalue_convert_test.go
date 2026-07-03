@@ -102,9 +102,6 @@ func TestProcessTime(t *testing.T) {
 	}
 }
 
-// TestCompactMySQLJSON verifies the snapshot text-protocol JSON is compacted to match the
-// compact form produced by the CDC binlog path (RenderJSONAsMySQLText). Whitespace after
-// ':' and ',' is elided while number literals, string contents, and key order are preserved.
 func TestCompactMySQLJSON(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
