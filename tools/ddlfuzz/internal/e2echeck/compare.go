@@ -59,11 +59,14 @@ func applyPredicted(before Snapshot, parsed ParsedStmts) predicted {
 						p.Changed[col.Name] = col
 					} else {
 						p.Dropped[spec.OldName] = true
-						p.Added[col.Name] = col
+						p.produceColumn(before, col.Name, col)
 					}
 				case "rename_col":
+					if spec.OldName == spec.NewName {
+						continue
+					}
 					p.Dropped[spec.OldName] = true
-					p.Added[spec.NewName] = ParsedCol{Name: spec.NewName}
+					p.produceColumn(before, spec.NewName, ParsedCol{Name: spec.NewName})
 					p.Renamed[spec.OldName] = spec.NewName
 					if old, ok := before[spec.OldName]; ok {
 						p.RenameAttrs[spec.NewName] = old
@@ -76,7 +79,26 @@ func applyPredicted(before Snapshot, parsed ParsedStmts) predicted {
 			p.TablePairs = append(p.TablePairs, stmt.Pairs...)
 		}
 	}
+	for name := range p.Dropped {
+		if _, ok := p.Added[name]; ok {
+			delete(p.Dropped, name)
+			p.HasPosition = true
+			continue
+		}
+		if _, ok := p.Changed[name]; ok {
+			delete(p.Dropped, name)
+			p.HasPosition = true
+		}
+	}
 	return p
+}
+
+func (p *predicted) produceColumn(before Snapshot, name string, col ParsedCol) {
+	if _, existed := before[name]; existed {
+		p.Changed[name] = col
+	} else {
+		p.Added[name] = col
+	}
 }
 
 func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
@@ -154,6 +176,15 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 	for name, col := range pred.Changed {
 		row, ok := in.After[name]
 		if !ok {
+			continue
+		}
+		if old, renamed := pred.RenameAttrs[name]; renamed {
+			if row.ColumnType != old.ColumnType {
+				out = append(out, SemanticFinding{
+					Class: ClassColumnAttr,
+					Meta:  map[string]any{"column": name, "attribute": "rename_column_type", "want": old.ColumnType, "got": row.ColumnType},
+				})
+			}
 			continue
 		}
 		out = append(out, compareColumnAttrs(name, col, row)...)
