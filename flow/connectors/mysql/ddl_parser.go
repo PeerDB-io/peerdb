@@ -769,6 +769,20 @@ func ddlNormalizeFloatPrecisionType(st *ddlColumnState) {
 	}
 }
 
+func ddlNormalizeIntegerDisplayWidth(st *ddlColumnState) {
+	if !st.written || st.synthetic || len(st.params) == 0 {
+		return
+	}
+	switch st.base {
+	case "tinyint", "smallint", "mediumint", "int", "bigint":
+	default:
+		return
+	}
+	if width := digitsToInt(st.params[0]); width >= 0 {
+		st.params[0] = strconv.Itoa(width)
+	}
+}
+
 // udtType resolves an unrecognized word in type position. MariaDB treats any
 // identifier there as a candidate UDT (uuid, inet4/6, vector, geometry family,
 // plugin types); MySQL's type keyword set is closed, so an unknown word is a
@@ -960,6 +974,7 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 	}
 	ddlNormalizeFloatPrecisionType(st)
 	ddlNormalizeDecimalType(st)
+	ddlNormalizeIntegerDisplayWidth(st)
 	return nil
 }
 
