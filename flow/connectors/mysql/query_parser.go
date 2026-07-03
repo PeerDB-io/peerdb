@@ -225,7 +225,7 @@ func classifyParsedStatement(stmt ast.StmtNode) (ddlKind, *ast.AlterTableStmt, *
 // SET STATEMENT ... FOR ... heartbeats, stored-routine bodies, MariaDB-only DDL),
 // which are the bulk of the noise this drops.
 func classifyUnparsedStatement(query string, isMariaDb bool) ddlKind {
-	kw := stripSetStatementPrefix(leadingKeywords(query, 24, isMariaDb))
+	kw := stripSetStatementPrefix(leadingKeywords(query, 100, isMariaDb))
 	if len(kw) == 0 {
 		return ddlKindIgnored
 	}
