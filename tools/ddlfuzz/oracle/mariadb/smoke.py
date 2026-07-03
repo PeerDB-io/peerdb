@@ -214,7 +214,8 @@ def run_smoke(soak: int | None) -> None:
             assert_json_equal(actual, expected, sql)
 
         cov1 = oracle.coverage()
-        assert len(cov1) > 1_000_000, len(cov1)
+        # deduped single __sancov_cntrs region (~379 KB), not per-TU copies
+        assert len(cov1) > 100_000, len(cov1)
         assert any(cov1), "coverage bitmap is all zero"
 
         second = oracle.parse_batch(batch)

@@ -355,8 +355,16 @@ void handle_parse_batch(Reader &r) {
 
 extern "C" void __sanitizer_cov_8bit_counters_init(uint8_t *start,
                                                     uint8_t *stop) {
-  if (start != stop)
-    g_regions.emplace_back(start, stop);
+  if (start == stop)
+    return;
+  // On Mach-O every instrumented TU's module ctor passes the same
+  // section$start/section$end boundary pair for the merged __sancov_cntrs
+  // section (645 identical calls observed); dedup so GET_COVERAGE ships the
+  // bitmap once instead of 244 MB of copies.
+  for (const auto &region : g_regions)
+    if (region.first == start && region.second == stop)
+      return;
+  g_regions.emplace_back(start, stop);
 }
 
 int main(int argc, char **argv) {

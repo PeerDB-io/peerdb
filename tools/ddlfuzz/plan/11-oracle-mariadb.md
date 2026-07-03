@@ -139,16 +139,21 @@ fallback for future flag drift.
   provides the strong hook:
 
 ```cpp
-static std::vector<std::pair<uint8_t*,uint8_t*>> g_regions;   // 645 regions observed
+static std::vector<std::pair<uint8_t*,uint8_t*>> g_regions;
 extern "C" void __sanitizer_cov_8bit_counters_init(uint8_t *start, uint8_t *stop) {
-  if (start != stop) g_regions.emplace_back(start, stop);
+  if (start == stop) return;
+  for (auto &r : g_regions) if (r.first == start && r.second == stop) return;  // dedup, see below
+  g_regions.emplace_back(start, stop);
 }
 ```
 
-- GET_COVERAGE response = `u32 n` + concatenation of all regions in registration order
-  (deterministic under static linking). Counters are cumulative, never reset by the oracle.
-  Note: 8-bit counters wrap mod 256; the client OR-accumulates over time so transient zeros are
-  absorbed. Probe-validated: ~2.6M nonzero counters after init, +~350k after 16 parses.
+- **Dedup is load-bearing**: on Mach-O every instrumented TU's module ctor passes the *same*
+  whole-section `section$start/end$__DATA$__sancov_cntrs` pair (645 identical calls observed);
+  without dedup GET_COVERAGE ships 645 copies of the ~379 KB bitmap = 244 MB per poll.
+- GET_COVERAGE response = `u32 n` + concatenation of all distinct regions in registration order
+  (deterministic under static linking; ~379 KB total). Counters are cumulative, never reset by
+  the oracle. Note: 8-bit counters wrap mod 256; the client OR-accumulates over time so transient
+  zeros are absorbed.
 
 ### D5. sql_mode: install the raw u64 directly
 

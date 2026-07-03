@@ -53,6 +53,14 @@ extern "C" void __sanitizer_cov_8bit_counters_init(uint8_t *start,
   if (start >= stop || g_cov_region_count >= kMaxCovRegions) return;
   const size_t len = static_cast<size_t>(stop - start);
   if (len > kMaxCoverageBytes) return;
+  // On Mach-O every instrumented TU's module ctor passes the same
+  // section$start/section$end boundary pair for the merged __sancov_cntrs
+  // section; without dedup GET_COVERAGE would ship thousands of identical
+  // copies of the bitmap.
+  for (size_t i = 0; i < g_cov_region_count; ++i) {
+    if (g_cov_regions[i].start == start && g_cov_regions[i].stop == stop)
+      return;
+  }
   g_cov_regions[g_cov_region_count++] = {start, stop};
 }
 

@@ -323,8 +323,11 @@ extern "C" void __sanitizer_cov_8bit_counters_init(uint8_t *start, uint8_t *stop
 }
 ```
 `GET_COVERAGE` returns the concatenation of all regions' bytes in registration order (cumulative, never
-zeroed — the counters accumulate across cases by design). With full static linking there is typically
-one region, but accumulate a vector to be safe. Do **not** define
+zeroed — the counters accumulate across cases by design). **Dedup identical (start,stop) pairs**: on
+Mach-O every instrumented TU's ctor passes the same whole-section boundary pair, so without dedup the
+region list is thousands of copies of one region (observed: 39×1.66 MB before the 64 MiB cap; deduped
+payload is ~1.7 MB — the main section plus a distinct region from the instrumented
+libprotobuf-lite.dylib). Do **not** define
 `__sanitizer_cov_trace_pc_guard*` or `__sanitizer_cov_pcs_init` — the inline-8bit-counters mode does not
 reference them (confirmed: the only undefined sancov symbol in a test object was
 `__sanitizer_cov_8bit_counters_init`).

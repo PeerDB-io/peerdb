@@ -31,10 +31,10 @@ func Load(path, engine string) (*Accumulator, error) {
 }
 
 // Merge folds a fresh coverage snapshot into the accumulator. The oracle's
-// bitmap spans the whole server binary but only the small parser region is
-// ever hit, so the map is overwhelmingly zero; processing 8 bytes at a time
-// and skipping words that add no new coverage turns a full 244 MB byte scan
-// into a near-free pass once coverage plateaus.
+// bitmap spans the whole server binary (~379 KB mariadb / ~1.7 MB mysql of
+// deduped counters) but only the small parser region is ever hit, so the map
+// is overwhelmingly zero; processing 8 bytes at a time and skipping words
+// that add no new coverage makes the scan near-free once coverage plateaus.
 func (a *Accumulator) Merge(counters []byte) (grew bool, newEdges int) {
 	n := len(counters)
 	if n == 0 {
