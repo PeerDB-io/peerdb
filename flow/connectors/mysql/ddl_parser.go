@@ -850,7 +850,9 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 		} else {
 			st.base = "json"
 		}
-	case "bit", "date", "time", "datetime", "timestamp", "year",
+	case "sql_tsi_year", "year":
+		st.base = "year"
+	case "bit", "date", "time", "datetime", "timestamp",
 		"binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob",
 		"tinytext", "text", "mediumtext", "longtext", "enum", "set",
 		"geometry", "point", "linestring", "polygon", "multipoint",

@@ -1,0 +1,1 @@
+ALTER /*! /*! TABLE t MODIFY c SQL_TSI_YEAR */
