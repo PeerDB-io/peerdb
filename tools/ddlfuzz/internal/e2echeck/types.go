@@ -167,7 +167,7 @@ func DiffSnapshots(before, after Snapshot) Delta {
 			continue
 		}
 		if prev.ColumnType != row.ColumnType || prev.IsNullable != row.IsNullable ||
-			prev.Ordinal != row.Ordinal || prev.ColumnKey != row.ColumnKey ||
+			prev.Ordinal != row.Ordinal ||
 			!sameNullableInt(prev.NumPrec, row.NumPrec) || !sameNullableInt(prev.NumScale, row.NumScale) {
 			d.Changed = append(d.Changed, ColumnChange{Name: name, Before: prev, After: row})
 		}

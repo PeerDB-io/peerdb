@@ -106,6 +106,9 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 				})
 			}
 		}
+		if len(pred.Added) == 0 && len(pred.Dropped) == 0 && len(pred.Changed) == 0 && len(pred.Renamed) == 0 {
+			return out
+		}
 	}
 
 	if missing, unexpected := compareSetMap(pred.Added, actualAdded); len(missing) > 0 || len(unexpected) > 0 {
@@ -122,7 +125,7 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 	}
 	for name := range actualChanged {
 		if _, ok := pred.Changed[name]; !ok && !pred.Dropped[name] {
-			if ch, ok := changeByName(actual.Changed, name); ok && ordinalOnlyChange(ch) {
+			if ch, ok := changeByName(actual.Changed, name); ok && (ordinalOnlyChange(ch) || columnKeyOnlyChange(ch)) {
 				continue
 			}
 			out = append(out, SemanticFinding{
@@ -248,12 +251,18 @@ func ordinalOnlyChange(ch ColumnChange) bool {
 	return colRowsEqual(before, after)
 }
 
+func columnKeyOnlyChange(ch ColumnChange) bool {
+	before := ch.Before
+	after := ch.After
+	before.ColumnKey = after.ColumnKey
+	return colRowsEqual(before, after)
+}
+
 func colRowsEqual(a, b ColRow) bool {
 	return a.Name == b.Name &&
 		a.Ordinal == b.Ordinal &&
 		a.ColumnType == b.ColumnType &&
 		a.IsNullable == b.IsNullable &&
-		a.ColumnKey == b.ColumnKey &&
 		sameNullableInt(a.NumPrec, b.NumPrec) &&
 		sameNullableInt(a.NumScale, b.NumScale)
 }
