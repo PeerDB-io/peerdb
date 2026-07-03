@@ -94,6 +94,8 @@ func TestDDLTypesDecimalAndFloat(t *testing.T) {
 		{typ: "FLOAT4", want: ddlTypesCol("float", -1, -1, false)},
 		// float params are written through but never feed typmods
 		{typ: "FLOAT(10)", want: ddlTypesCol("float(10)", -1, -1, false)},
+		{typ: "FLOAT(25)", want: ddlTypesCol("double", -1, -1, false)},
+		{typ: "FLOAT(/*!100000 40*/)", want: ddlTypesCol("double", -1, -1, false), maria: true},
 		{typ: "FLOAT(7,4)", want: ddlTypesCol("float(7,4)", -1, -1, false)},
 		{typ: "FLOAT UNSIGNED", want: ddlTypesCol("float unsigned", -1, -1, false)},
 		{typ: "DOUBLE", want: ddlTypesCol("double", -1, -1, false)},

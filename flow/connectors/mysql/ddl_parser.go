@@ -758,6 +758,17 @@ func ddlNormalizeDecimalType(st *ddlColumnState) {
 	}
 }
 
+func ddlNormalizeFloatPrecisionType(st *ddlColumnState) {
+	if st.base != "float" || !st.written || st.synthetic || len(st.params) != 1 {
+		return
+	}
+	if digitsToInt(st.params[0]) > 24 {
+		st.base = "double"
+		st.params = nil
+		st.written = false
+	}
+}
+
 // udtType resolves an unrecognized word in type position. MariaDB treats any
 // identifier there as a candidate UDT (uuid, inet4/6, vector, geometry family,
 // plugin types); MySQL's type keyword set is closed, so an unknown word is a
@@ -947,6 +958,7 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 	case typeSchema == "maxdb_schema" && st.base == "timestamp":
 		st.base = "datetime"
 	}
+	ddlNormalizeFloatPrecisionType(st)
 	ddlNormalizeDecimalType(st)
 	return nil
 }
