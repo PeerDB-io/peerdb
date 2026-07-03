@@ -96,7 +96,7 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 		})
 	}
 
-	if string(query) != exp.Submitted {
+	if !e2echeck.EquivalentQueryText(exp.Submitted, string(query)) {
 		findingCount += recordE2EFinding(stateDir, stats, findingInput{
 			Class:       "e2e-query-rewrite",
 			Engine:      ec,

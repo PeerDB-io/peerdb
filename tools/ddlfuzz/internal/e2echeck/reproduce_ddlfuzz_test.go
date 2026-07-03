@@ -99,6 +99,13 @@ func TestReproduceByClass(t *testing.T) {
 				validStatus),
 		},
 		{
+			name: "query rewrite boundary whitespace reconciled",
+			in: baseInput(ClassQueryRewrite,
+				" \tALTER TABLE t ADD COLUMN n1 INT \r\n",
+				"ALTER TABLE t ADD COLUMN n1 INT",
+				validStatus),
+		},
+		{
 			name: "panic class reconciled",
 			in: baseInput(ClassPanic,
 				"ALTER TABLE t ADD COLUMN n1 INT",
