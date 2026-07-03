@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/compare"
@@ -122,7 +123,7 @@ func replayOne(ctx context.Context, cfg Config, sig string) (Result, int) {
 	if f, ok := meta["sql_mode"].(float64); ok {
 		mode = uint64(f)
 	}
-	if lane, _ := meta["lane"].(string); lane == "e2e" {
+	if offlineE2EReproducible(meta) {
 		in, err := e2eInputFromMeta(meta)
 		if err != nil {
 			return Result{Sig: sig, Engine: engine, SQLMode: mode, Class: "malformed", Shape: err.Error(), OracleDigest: json.RawMessage("null")}, ExitMalformed
@@ -237,6 +238,31 @@ func RunExpectAccept(ctx context.Context, cfg Config, from string, w io.Writer) 
 	return ExitOK
 }
 
+// offlineE2EReproducible reports whether the finding carries the complete e2e
+// capture meta the offline reproducer consumes. Findings recorded before the
+// capture existed, and lane:"e2e" classes the reproducer does not model
+// (oracle-reject-live-accept), keep replaying through the fast lane exactly as
+// they did before the reproducer — this must not regress a running campaign's
+// state (preflight treats exit 11 on any finding as blocking).
+func offlineE2EReproducible(meta map[string]any) bool {
+	if lane, _ := meta["lane"].(string); lane != "e2e" {
+		return false
+	}
+	class, _ := meta["class"].(string)
+	if !strings.HasPrefix(class, "e2e-") {
+		return false
+	}
+	for _, key := range []string{
+		"submitted_text", "binlog_query", "status_vars_hex",
+		"before_snapshot", "after_snapshot", "info_schema_delta",
+	} {
+		if _, ok := meta[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func e2eInputFromMeta(meta map[string]any) (e2echeck.Input, error) {
 	engine, _ := meta["engine"].(string)
 	class, _ := meta["class"].(string)
@@ -250,11 +276,7 @@ func e2eInputFromMeta(meta map[string]any) (e2echeck.Input, error) {
 	}
 	binlogQuery, ok := meta["binlog_query"].(string)
 	if !ok || binlogQuery == "" {
-		if legacy, legacyOK := meta["binlog_text"].(string); legacyOK && legacy != "" {
-			binlogQuery = legacy
-		} else {
-			return e2echeck.Input{}, fmt.Errorf("missing binlog_query")
-		}
+		return e2echeck.Input{}, fmt.Errorf("missing binlog_query")
 	}
 	statusVarsHex, ok := meta["status_vars_hex"].(string)
 	if !ok {
@@ -286,9 +308,6 @@ func e2eInputFromMeta(meta map[string]any) (e2echeck.Input, error) {
 	}
 	if expected, ok := uint64FromMeta(meta, "expected_relevant"); ok {
 		in.ExpectedRelevant = &expected
-	}
-	if actual, ok := uint64FromMeta(meta, "actual_relevant"); ok {
-		in.ActualRelevant = &actual
 	}
 	return in, nil
 }

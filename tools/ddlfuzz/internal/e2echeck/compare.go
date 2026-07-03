@@ -6,11 +6,9 @@ import (
 )
 
 type SemanticInput struct {
-	Engine    string
-	IsMariaDB bool
-	Before    Snapshot
-	After     Snapshot
-	Actual    Delta
+	Before Snapshot
+	After  Snapshot
+	Actual Delta
 }
 
 type SemanticFinding struct {
@@ -110,13 +108,13 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 		}
 	}
 
-	if missing, unexpected := CompareSetMap(pred.Added, actualAdded); len(missing) > 0 || len(unexpected) > 0 {
+	if missing, unexpected := compareSetMap(pred.Added, actualAdded); len(missing) > 0 || len(unexpected) > 0 {
 		out = append(out, SemanticFinding{
 			Class: ClassMissedColumnEffect,
 			Meta:  map[string]any{"added_missing": missing, "added_unexpected": unexpected},
 		})
 	}
-	if missing, unexpected := CompareBoolSet(pred.Dropped, actualDropped); len(missing) > 0 || len(unexpected) > 0 {
+	if missing, unexpected := compareBoolSet(pred.Dropped, actualDropped); len(missing) > 0 || len(unexpected) > 0 {
 		out = append(out, SemanticFinding{
 			Class: ClassMissedColumnEffect,
 			Meta:  map[string]any{"dropped_missing": missing, "dropped_unexpected": unexpected},
@@ -148,14 +146,14 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 			}
 			continue
 		}
-		out = append(out, CompareColumnAttrs(in, name, col, row)...)
+		out = append(out, compareColumnAttrs(name, col, row)...)
 	}
 	for name, col := range pred.Changed {
 		row, ok := in.After[name]
 		if !ok {
 			continue
 		}
-		out = append(out, CompareColumnAttrs(in, name, col, row)...)
+		out = append(out, compareColumnAttrs(name, col, row)...)
 	}
 
 	if !pred.HasPosition && len(actual.Dropped) == 0 {
@@ -173,11 +171,11 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 	return out
 }
 
-func CompareColumnAttrs(in SemanticInput, name string, col ParsedCol, row ColRow) []SemanticFinding {
+func compareColumnAttrs(name string, col ParsedCol, row ColRow) []SemanticFinding {
 	var out []SemanticFinding
 	wantKind := qkindString(col.TypeStr)
 	gotKind := qkindString(row.ColumnType)
-	if wantKind != gotKind && !mariaJSONAlias(in, col, row, wantKind, gotKind) {
+	if wantKind != gotKind {
 		out = append(out, SemanticFinding{
 			Class: ClassColumnAttr,
 			Meta:  map[string]any{"column": name, "attribute": "qkind", "want": wantKind, "got": gotKind, "want_type": col.TypeStr, "got_type": row.ColumnType},
@@ -216,16 +214,6 @@ func nullableImpliedNotNull(row ColRow) bool {
 	}
 	t := strings.ToLower(row.ColumnType)
 	return strings.Contains(t, "auto_increment") || strings.HasPrefix(t, "serial")
-}
-
-func mariaJSONAlias(in SemanticInput, col ParsedCol, row ColRow, wantKind, gotKind string) bool {
-	if !in.IsMariaDB && in.Engine != "mariadb" {
-		return false
-	}
-	return strings.EqualFold(col.TypeStr, "json") &&
-		strings.EqualFold(row.ColumnType, "longtext") &&
-		wantKind == "json" &&
-		gotKind == "string"
 }
 
 func rowsToSet(rows []ColRow) map[string]bool {
@@ -270,7 +258,7 @@ func colRowsEqual(a, b ColRow) bool {
 		sameNullableInt(a.NumScale, b.NumScale)
 }
 
-func CompareSetMap(pred map[string]ParsedCol, actual map[string]bool) (missing, unexpected []string) {
+func compareSetMap(pred map[string]ParsedCol, actual map[string]bool) (missing, unexpected []string) {
 	for name := range pred {
 		if !actual[name] {
 			missing = append(missing, name)
@@ -286,7 +274,7 @@ func CompareSetMap(pred map[string]ParsedCol, actual map[string]bool) (missing, 
 	return missing, unexpected
 }
 
-func CompareBoolSet(pred map[string]bool, actual map[string]bool) (missing, unexpected []string) {
+func compareBoolSet(pred map[string]bool, actual map[string]bool) (missing, unexpected []string) {
 	for name := range pred {
 		if !actual[name] {
 			missing = append(missing, name)

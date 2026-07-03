@@ -48,7 +48,6 @@ func TestReproduceByClass(t *testing.T) {
 					ansiStatus)
 				in.SQLMode = SQLModeANSIQuotes
 				in.ExpectedRelevant = &expectedZero
-				in.ActualRelevant = &expectedANSI
 				return in
 			}(),
 			wantClass: ClassSQLModeMismatch,
@@ -62,7 +61,6 @@ func TestReproduceByClass(t *testing.T) {
 					ansiStatus)
 				in.SQLMode = SQLModeANSIQuotes
 				in.ExpectedRelevant = &expectedANSI
-				in.ActualRelevant = &expectedANSI
 				return in
 			}(),
 		},
@@ -162,7 +160,12 @@ func TestReproduceByClass(t *testing.T) {
 			}(),
 		},
 		{
-			name: "mariadb json alias reconciled",
+			// The MariaDB json→longtext alias reconciles because the parser
+			// itself emits longtext for JSON on MariaDB (ddl_parser.go); the
+			// compare code deliberately has no alias special case
+			// (30-e2e-lane.md §Reconciliations), so a parser regression here
+			// would diverge.
+			name: "mariadb json alias reconciled by parser",
 			in: func() Input {
 				after := withRows(base, ColRow{Name: "j", Ordinal: 4, ColumnType: "longtext", IsNullable: "YES"})
 				in := withSnapshots(baseInput(ClassColumnAttr,

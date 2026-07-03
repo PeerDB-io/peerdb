@@ -35,9 +35,7 @@ func Reproduce(in Input) (Result, error) {
 		return Result{Reconciled: true}, nil
 	case ClassPanic:
 		return reproducePanic(in)
-	case ClassParseErrorLiveAccept:
-		return reproduceParseError(in)
-	case ClassMissedColumnEffect, ClassColumnAttr, ClassPositionMissed:
+	case ClassParseErrorLiveAccept, ClassMissedColumnEffect, ClassColumnAttr, ClassPositionMissed:
 		return reproduceSemantics(in)
 	default:
 		return Result{}, fmt.Errorf("unsupported e2e class %q", in.Class)
@@ -61,11 +59,9 @@ func reproducePlumbing(in Input) (Result, error) {
 		if in.ExpectedRelevant != nil {
 			expected = *in.ExpectedRelevant & RelevantSQLModeMask
 		}
-		actual := mode & RelevantSQLModeMask
-		if in.ActualRelevant != nil {
-			actual = *in.ActualRelevant & RelevantSQLModeMask
-		}
-		if actual != expected {
+		// actual is recomputed from the status vars so a walker fix
+		// reconciles here; the divergence-time value is not reused.
+		if actual := mode & RelevantSQLModeMask; actual != expected {
 			return diverged(ClassSQLModeMismatch, "sql-mode", fmt.Sprintf("expected relevant %d, got %d", expected, actual)), nil
 		}
 	}
@@ -109,24 +105,6 @@ func reproducePanic(in Input) (Result, error) {
 	return Result{Reconciled: true}, nil
 }
 
-func reproduceParseError(in Input) (Result, error) {
-	parsed, err, panicked := safeParseForE2E([]byte(in.BinlogQuery), in.SQLMode, in.IsMariaDB)
-	if panicked != nil {
-		return diverged(ClassPanic, "parse-panic", fmt.Sprint(panicked)), nil
-	}
-	if err != nil {
-		return diverged(ClassParseErrorLiveAccept, "parse-error-live-accept", err.Error()), nil
-	}
-	findings := CompareSemantics(SemanticInput{
-		Engine:    in.Engine,
-		IsMariaDB: in.IsMariaDB,
-		Before:    in.Before,
-		After:     in.After,
-		Actual:    in.Delta,
-	}, parsed)
-	return resultFromFindings(findings), nil
-}
-
 func reproduceSemantics(in Input) (Result, error) {
 	parsed, err, panicked := safeParseForE2E([]byte(in.BinlogQuery), in.SQLMode, in.IsMariaDB)
 	if panicked != nil {
@@ -136,11 +114,9 @@ func reproduceSemantics(in Input) (Result, error) {
 		return diverged(ClassParseErrorLiveAccept, "parse-error-live-accept", err.Error()), nil
 	}
 	findings := CompareSemantics(SemanticInput{
-		Engine:    in.Engine,
-		IsMariaDB: in.IsMariaDB,
-		Before:    in.Before,
-		After:     in.After,
-		Actual:    in.Delta,
+		Before: in.Before,
+		After:  in.After,
+		Actual: in.Delta,
 	}, parsed)
 	return resultFromFindings(findings), nil
 }

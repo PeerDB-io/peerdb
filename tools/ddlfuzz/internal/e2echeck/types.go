@@ -38,8 +38,10 @@ type Input struct {
 	Delta         Delta
 	Class         string
 
+	// ExpectedRelevant is the session-readback relevant sql_mode recorded at
+	// find time (meta expected_relevant); the offline check cannot re-read the
+	// live session, so it is carried instead of recomputed.
 	ExpectedRelevant *uint64
-	ActualRelevant   *uint64
 }
 
 type Result struct {

@@ -32,7 +32,8 @@ PROTOCOL — follow strictly, in order:
 (a) REPRODUCE FIRST. Run:
       tools/ddlfuzz/build/ddlfuzz replay {SIG}
     Exit 0 = matches (does NOT reproduce): print `RESULT: failed {SIG} did-not-reproduce` and stop.
-    Exit 10 = signature divergence, 11 = panic/hang, 1 = harness error. You may additionally write
+    Exit 10 = still diverges (the JSON `class` says how, incl. panic/timeout), 11 = the finding is
+    malformed/unreadable, 1 = harness error. You may additionally write
     a one-off Go test in flow/connectors/mysql/ calling parseQueryEvent with the repro bytes and
     meta's sql_mode/engine to inspect the AST directly (delete the one-off before committing, or
     turn it into the regression test of step b1).
