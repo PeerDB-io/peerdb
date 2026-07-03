@@ -187,10 +187,69 @@ func (p *ddlParser) parseTableIdent() (string, string, error) {
 func (p *ddlParser) skipLockWait() {
 	if ddlWordIs(p.peek(0), "NOWAIT") {
 		p.next()
-	} else if ddlWordIs(p.peek(0), "WAIT") && isAllDigits(p.peek(1)) {
-		p.next()
+		return
+	}
+	if !ddlWordIs(p.peek(0), "WAIT") {
+		return
+	}
+	n := lockWaitTimeoutTokenCount(p)
+	if n == 0 {
+		return
+	}
+	p.next()
+	for range n {
 		p.next()
 	}
+}
+
+func lockWaitTimeoutTokenCount(p *ddlParser) int {
+	switch {
+	case isUnsignedNumberWord(p.peek(1), true):
+		return 1
+	case p.peekPunct(1, '+') && isUnsignedNumberWord(p.peek(2), false):
+		return 2
+	case p.peekPunct(1, '.') && isAllDigits(p.peek(2)):
+		return 2
+	case p.peekPunct(1, '+') && p.peekPunct(2, '.') && isAllDigits(p.peek(3)):
+		return 3
+	default:
+		return 0
+	}
+}
+
+func isUnsignedNumberWord(t ddlToken, allowHex bool) bool {
+	if t.kind != tokWord || t.text == "" {
+		return false
+	}
+	s := t.text
+	if len(s) > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X') {
+		if !allowHex {
+			return false
+		}
+		for i := 2; i < len(s); i++ {
+			if !isDDLHexDigitByte(s[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	i := 0
+	for i < len(s) && isDDLDigitByte(s[i]) {
+		i++
+	}
+	if i == 0 {
+		return false
+	}
+	if i < len(s) && s[i] == '.' {
+		i++
+		for i < len(s) && isDDLDigitByte(s[i]) {
+			i++
+		}
+	}
+	if end, ok := scanDDLExponent(s, i); ok {
+		i = end
+	}
+	return i == len(s)
 }
 
 func isAllDigits(t ddlToken) bool {
@@ -198,7 +257,7 @@ func isAllDigits(t ddlToken) bool {
 		return false
 	}
 	for i := range len(t.text) {
-		if t.text[i] < '0' || t.text[i] > '9' {
+		if !isDDLDigitByte(t.text[i]) {
 			return false
 		}
 	}

@@ -369,6 +369,12 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 		{OldTable: "x", NewTable: "y"},
 	}, rename.Pairs)
 
+	stmts, err = parseQueryEvent([]byte("RENAME TABLE a WAIT 5e5 TO b, c NOWAIT TO d"), 0, true)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	rename = stmts[0].(*ddlRenameTable)
+	require.Equal(t, []ddlRenamePair{{OldTable: "a", NewTable: "b"}, {OldTable: "c", NewTable: "d"}}, rename.Pairs)
+
 	// RENAME USER is the only other RENAME head; ignored
 	stmts, err = parseQueryEvent([]byte("RENAME USER 'o'@'%' TO 'n'@'%'"), 0, false)
 	require.NoError(t, err)
