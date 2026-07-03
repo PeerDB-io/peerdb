@@ -17,6 +17,12 @@ func TestEquivalentQueryText(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "final statement terminator",
+			submitted: "ALTER TABLE t ADD COLUMN n1 INT;",
+			binlog:    "ALTER TABLE t ADD COLUMN n1 INT",
+			want:      true,
+		},
+		{
 			name:      "mariadb reversed skipped comment plainified",
 			submitted: "ALTER TABLE fixture ADD n1 INT /*!!11050 NOT NULL*/",
 			binlog:    "ALTER TABLE fixture ADD n1 INT /*  11050 NOT NULL*/",
@@ -24,9 +30,22 @@ func TestEquivalentQueryText(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "mariadb mysql skipped comment plainified",
+			submitted: "ALTER TABLE fixture ADD n1 INT /*!80000NOT NULL*/",
+			binlog:    "ALTER TABLE fixture ADD n1 INT /* 80000NOT NULL*/",
+			maria:     true,
+			want:      true,
+		},
+		{
 			name:      "mysql reversed comment is not normalized",
 			submitted: "ALTER TABLE fixture ADD n1 INT /*!!11050 NOT NULL*/",
 			binlog:    "ALTER TABLE fixture ADD n1 INT /*  11050 NOT NULL*/",
+			want:      false,
+		},
+		{
+			name:      "mysql version comment is not normalized",
+			submitted: "ALTER TABLE fixture ADD n1 INT /*!80000NOT NULL*/",
+			binlog:    "ALTER TABLE fixture ADD n1 INT /* 80000NOT NULL*/",
 			want:      false,
 		},
 		{

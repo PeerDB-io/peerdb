@@ -106,6 +106,13 @@ func TestReproduceByClass(t *testing.T) {
 				validStatus),
 		},
 		{
+			name: "query rewrite final semicolon reconciled",
+			in: baseInput(ClassQueryRewrite,
+				"ALTER TABLE t ADD COLUMN n1 INT;",
+				"ALTER TABLE t ADD COLUMN n1 INT",
+				validStatus),
+		},
+		{
 			name: "mariadb reversed skipped comment rewrite reconciled",
 			in: func() Input {
 				in := baseInput(ClassQueryRewrite,
@@ -118,10 +125,30 @@ func TestReproduceByClass(t *testing.T) {
 			}(),
 		},
 		{
+			name: "mariadb mysql skipped comment rewrite reconciled",
+			in: func() Input {
+				in := baseInput(ClassQueryRewrite,
+					"ALTER TABLE fixture ADD n1 INT /*!80000NOT NULL*/",
+					"ALTER TABLE fixture ADD n1 INT /* 80000NOT NULL*/",
+					validStatus)
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				return in
+			}(),
+		},
+		{
 			name: "mysql reversed skipped comment rewrite still diverges",
 			in: baseInput(ClassQueryRewrite,
 				"ALTER TABLE fixture ADD n1 INT /*!!11050 NOT NULL*/",
 				"ALTER TABLE fixture ADD n1 INT /*  11050 NOT NULL*/",
+				validStatus),
+			wantClass: ClassQueryRewrite,
+		},
+		{
+			name: "mysql skipped comment rewrite still diverges",
+			in: baseInput(ClassQueryRewrite,
+				"ALTER TABLE fixture ADD n1 INT /*!80000NOT NULL*/",
+				"ALTER TABLE fixture ADD n1 INT /* 80000NOT NULL*/",
 				validStatus),
 			wantClass: ClassQueryRewrite,
 		},

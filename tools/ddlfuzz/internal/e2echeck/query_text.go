@@ -5,19 +5,26 @@ import "strings"
 const sqlBoundaryWhitespace = " \t\n\r\f\v"
 
 func EquivalentQueryText(a, b string, isMariaDB bool) bool {
-	a = strings.Trim(a, sqlBoundaryWhitespace)
-	b = strings.Trim(b, sqlBoundaryWhitespace)
+	a = normalizeQueryTextBoundary(a)
+	b = normalizeQueryTextBoundary(b)
 	if a == b {
 		return true
 	}
 	if !isMariaDB {
 		return false
 	}
-	return plainifyMariaDBReversedSkippedComments(a) == b ||
-		a == plainifyMariaDBReversedSkippedComments(b)
+	return plainifyMariaDBSkippedComments(a) == plainifyMariaDBSkippedComments(b)
 }
 
-func plainifyMariaDBReversedSkippedComments(s string) string {
+func normalizeQueryTextBoundary(s string) string {
+	s = strings.Trim(s, sqlBoundaryWhitespace)
+	if strings.HasSuffix(s, ";") {
+		s = strings.Trim(s[:len(s)-1], sqlBoundaryWhitespace)
+	}
+	return s
+}
+
+func plainifyMariaDBSkippedComments(s string) string {
 	var out []byte
 	for i := 0; i+3 < len(s); {
 		switch s[i] {
@@ -33,13 +40,9 @@ func plainifyMariaDBReversedSkippedComments(s string) string {
 			continue
 		}
 		end := strings.Index(s[i+2:], "*/")
+		out = plainifyMariaDBSkippedCommentMarker(s, out, i)
 		if end < 0 {
-			return stringWithReversedCommentPlainified(s, out, i)
-		}
-		if s[i+2] == '!' && s[i+3] == '!' && mariaReversedVersionLen(s, i+4) > 0 {
-			out = ensureQueryTextCopy(s, out)
-			out[i+2] = ' '
-			out[i+3] = ' '
+			break
 		}
 		i += 2 + end + 2
 	}
@@ -49,18 +52,22 @@ func plainifyMariaDBReversedSkippedComments(s string) string {
 	return string(out)
 }
 
-func stringWithReversedCommentPlainified(s string, out []byte, i int) string {
-	if i+3 >= len(s) || s[i] != '/' || s[i+1] != '*' || s[i+2] != '!' || s[i+3] != '!' ||
-		mariaReversedVersionLen(s, i+4) == 0 {
-		if out == nil {
-			return s
-		}
-		return string(out)
+func plainifyMariaDBSkippedCommentMarker(s string, out []byte, i int) []byte {
+	if i+3 >= len(s) || s[i] != '/' || s[i+1] != '*' || s[i+2] != '!' {
+		return out
+	}
+	if s[i+3] == '!' && mariaSkippedVersionLen(s, i+4) > 0 {
+		out = ensureQueryTextCopy(s, out)
+		out[i+2] = ' '
+		out[i+3] = ' '
+		return out
+	}
+	if mariaSkippedVersionLen(s, i+3) == 0 {
+		return out
 	}
 	out = ensureQueryTextCopy(s, out)
 	out[i+2] = ' '
-	out[i+3] = ' '
-	return string(out)
+	return out
 }
 
 func ensureQueryTextCopy(s string, out []byte) []byte {
@@ -90,7 +97,7 @@ func skipQuotedQueryText(s string, pos int, closer byte) int {
 	return len(s)
 }
 
-func mariaReversedVersionLen(s string, pos int) int {
+func mariaSkippedVersionLen(s string, pos int) int {
 	for i := range 5 {
 		if pos+i >= len(s) || s[pos+i] < '0' || s[pos+i] > '9' {
 			return 0
