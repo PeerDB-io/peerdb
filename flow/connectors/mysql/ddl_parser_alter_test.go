@@ -212,6 +212,10 @@ func TestDDLAlterMixedSpecOrdering(t *testing.T) {
 			},
 		},
 		{
+			alter: "ADD COLUMN n6 inet6 NOT NULL, RENAME COLUMN n6 TO vector2", maria: true,
+			want: []ddlAlterSpec{ddlAltAddSpec(ddlAltColNN("n6", "inet6")), {OldColumnName: "n6", NewColumnName: "vector2"}},
+		},
+		{
 			alter: "ADD c ENUM('a,b','c)d'), DROP f",
 			want:  []ddlAlterSpec{ddlAltAddSpec(ddlAltCol("c", "enum('a,b','c)d')")), {OldColumnName: "f"}},
 		},

@@ -50,10 +50,11 @@ func defaultConfig() config {
 	if execWorkers < 1 {
 		execWorkers = 1
 	}
+	baseDir := defaultBaseDir()
 	return config{
-		stateDir:             "./state",
-		mysqlOracle:          "build/oracle-mysql",
-		mariaOracle:          "build/oracle-mariadb",
+		stateDir:             filepath.Join(baseDir, "state"),
+		mysqlOracle:          filepath.Join(baseDir, "build", "oracle-mysql"),
+		mariaOracle:          filepath.Join(baseDir, "build", "oracle-mariadb"),
 		oracleProcsPerEngine: 5,
 		oracleBatchTimeout:   10 * time.Second,
 		batch:                1000,
@@ -61,7 +62,7 @@ func defaultConfig() config {
 		genWorkers:           2,
 		caseDeadline:         100 * time.Millisecond,
 		memCeiling:           4 << 30,
-		seedsDir:             "./seeds",
+		seedsDir:             filepath.Join(baseDir, "seeds"),
 		engineBias:           0.5,
 		mutRatio:             0.6,
 		statsInterval:        5 * time.Second,
@@ -70,6 +71,13 @@ func defaultConfig() config {
 		corpusBudget:         40 << 30,
 		retainPerPoll:        256,
 	}
+}
+
+func defaultBaseDir() string {
+	if _, err := os.Stat(filepath.Join("tools", "ddlfuzz", "go.mod")); err == nil {
+		return filepath.Join("tools", "ddlfuzz")
+	}
+	return "."
 }
 
 func addCommonFlags(fs *flag.FlagSet, cfg *config) {
