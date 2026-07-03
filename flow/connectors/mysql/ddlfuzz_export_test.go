@@ -72,3 +72,18 @@ func TestDDLFuzzParseForE2EImplicitPositionShift(t *testing.T) {
 		t.Fatalf("expected implicit position shift in first spec: %s", data)
 	}
 }
+
+func TestDDLFuzzSignatureEscapesDelimiterIdentifiers(t *testing.T) {
+	got, err := FuzzDDLSignature(
+		[]byte("ALTER TABLE `mt5_managers` ADD COLUMN (`(` INT UNSIGNED NOT NULL DEFAULT 0,`B` INT UNSIGNED NOT NULL DEFAULT 0)"),
+		0,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("FuzzDDLSignature error: %v", err)
+	}
+	want := "alter mt5_managers{col `(`=uint32 nn, B=uint32 nn}"
+	if got != want {
+		t.Fatalf("FuzzDDLSignature=%q want %q", got, want)
+	}
+}

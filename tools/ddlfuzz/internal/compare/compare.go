@@ -70,11 +70,11 @@ func OracleSig(d *digest.Digest) (sig string, skip bool) {
 			for _, sp := range st.Specs {
 				specs = append(specs, oracleSpecSig(sp))
 			}
-			parts = append(parts, "alter "+qual(st.Schema, st.Table)+"{"+strings.Join(specs, "; ")+"}")
+			parts = append(parts, "alter "+sigQual(st.Schema, st.Table)+"{"+strings.Join(specs, "; ")+"}")
 		case "rename_table":
 			pairs := make([]string, 0, len(st.Pairs))
 			for _, p := range st.Pairs {
-				pairs = append(pairs, qual(p.OldSchema, p.OldTable)+">"+qual(p.NewSchema, p.NewTable))
+				pairs = append(pairs, sigQual(p.OldSchema, p.OldTable)+">"+sigQual(p.NewSchema, p.NewTable))
 			}
 			parts = append(parts, "rename "+strings.Join(pairs, ", "))
 		}
@@ -541,7 +541,7 @@ func oracleSpecSig(sp digest.Spec) string {
 		}
 	case "change":
 		sb.WriteString("chg ")
-		sb.WriteString(sp.OldName)
+		sb.WriteString(sigIdent(sp.OldName))
 		sb.WriteByte(' ')
 		for i, c := range sp.Cols {
 			if i > 0 {
@@ -551,15 +551,15 @@ func oracleSpecSig(sp digest.Spec) string {
 		}
 	case "drop":
 		sb.WriteString("drop ")
-		sb.WriteString(sp.OldName)
+		sb.WriteString(sigIdent(sp.OldName))
 	case "rename_col":
 		sb.WriteString("ren ")
-		sb.WriteString(sp.OldName)
+		sb.WriteString(sigIdent(sp.OldName))
 		sb.WriteByte('>')
-		sb.WriteString(sp.NewName)
+		sb.WriteString(sigIdent(sp.NewName))
 	default:
 		sb.WriteString("drop ")
-		sb.WriteString(sp.OldName)
+		sb.WriteString(sigIdent(sp.OldName))
 	}
 	if sp.HasPosition {
 		sb.WriteString(" @pos")
@@ -569,7 +569,7 @@ func oracleSpecSig(sp digest.Spec) string {
 
 func oracleColSig(c digest.Col) string {
 	var sb strings.Builder
-	sb.WriteString(c.Name)
+	sb.WriteString(sigIdent(c.Name))
 	sb.WriteByte('=')
 	kind, err := connmysql.QkindFromMysqlColumnType(c.TypeStr, true, 0)
 	if err != nil {
@@ -593,11 +593,18 @@ func oracleColSig(c digest.Col) string {
 	return sb.String()
 }
 
-func qual(schema, table string) string {
+func sigQual(schema, table string) string {
 	if schema == "" {
-		return table
+		return sigIdent(table)
 	}
-	return schema + "." + table
+	return sigIdent(schema) + "." + sigIdent(table)
+}
+
+func sigIdent(s string) string {
+	if s != "" && !strings.HasPrefix(s, "`") && !strings.ContainsAny(s, " \t\r\n\v\f=,;(){}|>.") {
+		return s
+	}
+	return "`" + strings.ReplaceAll(s, "`", "``") + "`"
 }
 
 func errString(err error) string {
@@ -689,8 +696,24 @@ func splitStatements(sig string) []string {
 	var out []string
 	depth := 0
 	start := 0
+	inIdent := false
 	for i := 0; i < len(sig); i++ {
+		if inIdent {
+			if sig[i] == '`' {
+				if i+1 < len(sig) && sig[i+1] == '`' {
+					i++
+					continue
+				}
+				inIdent = false
+			}
+			continue
+		}
 		switch sig[i] {
+		case '`':
+			if !sigQuoteStarts(sig, i) {
+				continue
+			}
+			inIdent = true
 		case '{':
 			depth++
 		case '}':
@@ -710,8 +733,7 @@ func splitStatements(sig string) []string {
 
 func parseAlter(part string) (sigStmt, error) {
 	body := strings.TrimPrefix(part, "alter ")
-	open := strings.IndexByte(body, '{')
-	close := strings.LastIndexByte(body, '}')
+	open, close := alterBraceIndexes(body)
 	if open < 0 || close < open {
 		return sigStmt{}, errors.New("alter signature missing braces")
 	}
@@ -744,9 +766,17 @@ func parseRename(part string) (sigStmt, error) {
 	}
 	for _, raw := range splitSignatureTopLevel(body, ',') {
 		p := strings.TrimSpace(raw)
-		old, newName, ok := strings.Cut(p, ">")
+		oldRaw, newRaw, ok := cutSignatureSep(p, '>')
 		if !ok {
 			return sigStmt{}, fmt.Errorf("bad rename pair %q", p)
+		}
+		old, ok := parseSigIdent(strings.TrimSpace(oldRaw))
+		if !ok {
+			return sigStmt{}, fmt.Errorf("bad rename old identifier %q", p)
+		}
+		newName, ok := parseSigIdent(strings.TrimSpace(newRaw))
+		if !ok {
+			return sigStmt{}, fmt.Errorf("bad rename new identifier %q", p)
 		}
 		st.pairs = append(st.pairs, sigPair{old: old, new: newName})
 	}
@@ -768,7 +798,7 @@ func parseSpec(s string) (sigSpec, error) {
 	case strings.HasPrefix(s, "chg "):
 		sp.kind = "chg"
 		rest := strings.TrimPrefix(s, "chg ")
-		old, colsText, ok := strings.Cut(rest, " ")
+		old, colsText, ok := parseSigIdentPrefix(rest)
 		if !ok {
 			return sp, fmt.Errorf("bad change spec %q", s)
 		}
@@ -779,15 +809,27 @@ func parseSpec(s string) (sigSpec, error) {
 	case strings.HasPrefix(s, "ren "):
 		sp.kind = "ren"
 		rest := strings.TrimPrefix(s, "ren ")
-		old, newName, ok := strings.Cut(rest, ">")
+		oldRaw, newRaw, ok := cutSignatureSep(rest, '>')
 		if !ok {
 			return sp, fmt.Errorf("bad rename column spec %q", s)
+		}
+		old, ok := parseSigIdent(strings.TrimSpace(oldRaw))
+		if !ok {
+			return sp, fmt.Errorf("bad rename old identifier %q", s)
+		}
+		newName, ok := parseSigIdent(strings.TrimSpace(newRaw))
+		if !ok {
+			return sp, fmt.Errorf("bad rename new identifier %q", s)
 		}
 		sp.old, sp.new = old, newName
 		return sp, nil
 	case strings.HasPrefix(s, "drop "):
 		sp.kind = "drop"
-		sp.old = strings.TrimPrefix(s, "drop ")
+		old, ok := parseSigIdent(strings.TrimSpace(strings.TrimPrefix(s, "drop ")))
+		if !ok {
+			return sp, fmt.Errorf("bad drop identifier %q", s)
+		}
+		sp.old = old
 		return sp, nil
 	default:
 		return sp, fmt.Errorf("bad spec %q", s)
@@ -811,9 +853,13 @@ func parseCols(s string) ([]sigCol, error) {
 }
 
 func parseCol(s string) (sigCol, error) {
-	name, rest, ok := strings.Cut(s, "=")
+	nameRaw, rest, ok := cutSignatureSep(s, '=')
 	if !ok {
 		return sigCol{}, fmt.Errorf("bad col %q", s)
+	}
+	name, ok := parseSigIdent(strings.TrimSpace(nameRaw))
+	if !ok {
+		return sigCol{}, fmt.Errorf("bad column identifier %q", s)
 	}
 	col := sigCol{name: name, prec: -1, scale: -1}
 	if strings.HasSuffix(rest, " nn") {
@@ -842,6 +888,128 @@ func parseCol(s string) (sigCol, error) {
 	return col, nil
 }
 
+func alterBraceIndexes(body string) (int, int) {
+	open, close := -1, -1
+	inIdent := false
+	for i := 0; i < len(body); i++ {
+		if inIdent {
+			if body[i] == '`' {
+				if i+1 < len(body) && body[i+1] == '`' {
+					i++
+					continue
+				}
+				inIdent = false
+			}
+			continue
+		}
+		switch body[i] {
+		case '`':
+			if !sigQuoteStarts(body, i) {
+				continue
+			}
+			inIdent = true
+		case '{':
+			if open < 0 {
+				open = i
+			}
+		case '}':
+			close = i
+		}
+	}
+	return open, close
+}
+
+func cutSignatureSep(s string, sep byte) (string, string, bool) {
+	depth := 0
+	inIdent := false
+	for i := 0; i < len(s); i++ {
+		if inIdent {
+			if s[i] == '`' {
+				if i+1 < len(s) && s[i+1] == '`' {
+					i++
+					continue
+				}
+				inIdent = false
+			}
+			continue
+		}
+		switch s[i] {
+		case '`':
+			if !sigQuoteStarts(s, i) {
+				continue
+			}
+			inIdent = true
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if s[i] == sep && depth == 0 {
+				return s[:i], s[i+1:], true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func parseSigIdentPrefix(s string) (string, string, bool) {
+	s = strings.TrimLeftFunc(s, unicode.IsSpace)
+	if strings.HasPrefix(s, "`") {
+		ident, end, ok := parseQuotedSigIdent(s)
+		if !ok {
+			return "", "", false
+		}
+		return ident, strings.TrimLeftFunc(s[end:], unicode.IsSpace), true
+	}
+	idx := strings.IndexFunc(s, unicode.IsSpace)
+	if idx < 0 {
+		return "", "", false
+	}
+	return s[:idx], strings.TrimLeftFunc(s[idx:], unicode.IsSpace), true
+}
+
+func parseSigIdent(s string) (string, bool) {
+	if strings.HasPrefix(s, "`") {
+		ident, end, ok := parseQuotedSigIdent(s)
+		return ident, ok && end == len(s)
+	}
+	return s, true
+}
+
+func parseQuotedSigIdent(s string) (string, int, bool) {
+	if !strings.HasPrefix(s, "`") {
+		return "", 0, false
+	}
+	var sb strings.Builder
+	for i := 1; i < len(s); i++ {
+		if s[i] != '`' {
+			sb.WriteByte(s[i])
+			continue
+		}
+		if i+1 < len(s) && s[i+1] == '`' {
+			sb.WriteByte('`')
+			i++
+			continue
+		}
+		return sb.String(), i + 1, true
+	}
+	return "", 0, false
+}
+
+func sigQuoteStarts(s string, i int) bool {
+	if i == 0 {
+		return true
+	}
+	switch s[i-1] {
+	case ' ', '\t', '\r', '\n', '\v', '\f', '{', ';', ',', '>', '.':
+		return true
+	default:
+		return false
+	}
+}
+
 func renderSignature(stmts []sigStmt) string {
 	parts := make([]string, 0, len(stmts))
 	for _, st := range stmts {
@@ -859,7 +1027,7 @@ func renderSignature(stmts []sigStmt) string {
 		case "rename":
 			pairs := make([]string, 0, len(st.pairs))
 			for _, p := range st.pairs {
-				pairs = append(pairs, p.old+">"+p.new)
+				pairs = append(pairs, sigIdent(p.old)+">"+sigIdent(p.new))
 			}
 			parts = append(parts, "rename "+strings.Join(pairs, ", "))
 		}
@@ -871,8 +1039,24 @@ func splitSignatureTopLevel(s string, sep byte) []string {
 	var out []string
 	start := 0
 	depth := 0
+	inIdent := false
 	for i := 0; i < len(s); i++ {
+		if inIdent {
+			if s[i] == '`' {
+				if i+1 < len(s) && s[i+1] == '`' {
+					i++
+					continue
+				}
+				inIdent = false
+			}
+			continue
+		}
 		switch s[i] {
+		case '`':
+			if !sigQuoteStarts(s, i) {
+				continue
+			}
+			inIdent = true
 		case '(':
 			depth++
 		case ')':
@@ -896,11 +1080,11 @@ func renderSpec(sp sigSpec) string {
 	case "col":
 		out = "col " + renderCols(sp.cols)
 	case "chg":
-		out = "chg " + sp.old + " " + renderCols(sp.cols)
+		out = "chg " + sigIdent(sp.old) + " " + renderCols(sp.cols)
 	case "ren":
-		out = "ren " + sp.old + ">" + sp.new
+		out = "ren " + sigIdent(sp.old) + ">" + sigIdent(sp.new)
 	case "drop":
-		out = "drop " + sp.old
+		out = "drop " + sigIdent(sp.old)
 	}
 	if sp.pos {
 		out += " @pos"
@@ -911,7 +1095,7 @@ func renderSpec(sp sigSpec) string {
 func renderCols(cols []sigCol) string {
 	parts := make([]string, 0, len(cols))
 	for _, c := range cols {
-		s := c.name + "=" + c.kind
+		s := sigIdent(c.name) + "=" + c.kind
 		if c.kind == string(types.QValueKindNumeric) {
 			s += fmt.Sprintf("(%d,%d)", c.prec, c.scale)
 		}

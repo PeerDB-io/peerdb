@@ -157,6 +157,10 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		// quoted reserved words are always plain column names
 		{alter: "ADD `key` INT", want: ddlAltAdd(ddlAltCol("key", "int"))},
 		{alter: "DROP `index`", want: ddlAltDrop("index")},
+		{
+			alter: "ADD COLUMN (`(` INT UNSIGNED NOT NULL DEFAULT 0, `B` INT UNSIGNED NOT NULL DEFAULT 0)",
+			want:  ddlAltAdd(ddlAltColNN("(", "int unsigned"), ddlAltColNN("B", "int unsigned")),
+		},
 		// MariaDB per-spec IF [NOT] EXISTS on the column-relevant items
 		{alter: "ADD COLUMN IF NOT EXISTS (a INT, b INT)", maria: true, want: ddlAltAdd(ddlAltCol("a", "int"), ddlAltCol("b", "int"))},
 		{alter: "MODIFY IF EXISTS c INT", maria: true, want: ddlAltAdd(ddlAltCol("c", "int"))},

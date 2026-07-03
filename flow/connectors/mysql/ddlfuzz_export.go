@@ -11,9 +11,8 @@ import (
 )
 
 // FuzzDDLSignature parses query with parseQueryEvent and reduces the result to
-// the ddlfuzz comparison signature (grammar in plan/00-overview.md, identical to
-// ddl_parser_tidb_diff_test.go's ddlDiffSignature). Panics are NOT recovered
-// here; the fuzz driver contains them.
+// the ddlfuzz comparison signature. Panics are NOT recovered here; the fuzz
+// driver contains them.
 func FuzzDDLSignature(query []byte, sqlMode uint64, isMariaDB bool) (string, error) {
 	stmts, err := parseQueryEvent(query, sqlMode, isMariaDB)
 	if err != nil {
@@ -43,7 +42,7 @@ func FuzzParseForE2E(query []byte, sqlMode uint64, isMariaDB bool) ([]byte, erro
 
 func fuzzDDLColSig(c ddlColumnDef) string {
 	var sb strings.Builder
-	sb.WriteString(c.Name)
+	sb.WriteString(fuzzDDLSigIdent(c.Name))
 	sb.WriteByte('=')
 	kind, err := QkindFromMysqlColumnType(c.TypeStr, true, 0)
 	if err != nil {
@@ -64,10 +63,10 @@ func fuzzDDLSpecSig(sp ddlAlterSpec) string {
 	var sb strings.Builder
 	switch {
 	case sp.NewColumnName != "":
-		sb.WriteString("ren " + sp.OldColumnName + ">" + sp.NewColumnName)
+		sb.WriteString("ren " + fuzzDDLSigIdent(sp.OldColumnName) + ">" + fuzzDDLSigIdent(sp.NewColumnName))
 	case len(sp.NewColumns) > 0:
 		if sp.OldColumnName != "" {
-			sb.WriteString("chg " + sp.OldColumnName + " ")
+			sb.WriteString("chg " + fuzzDDLSigIdent(sp.OldColumnName) + " ")
 		} else {
 			sb.WriteString("col ")
 		}
@@ -78,7 +77,7 @@ func fuzzDDLSpecSig(sp ddlAlterSpec) string {
 			sb.WriteString(fuzzDDLColSig(c))
 		}
 	default:
-		sb.WriteString("drop " + sp.OldColumnName)
+		sb.WriteString("drop " + fuzzDDLSigIdent(sp.OldColumnName))
 	}
 	if sp.HasPosition {
 		sb.WriteString(" @pos")
@@ -88,9 +87,16 @@ func fuzzDDLSpecSig(sp ddlAlterSpec) string {
 
 func fuzzDDLQual(schema, table string) string {
 	if schema == "" {
-		return table
+		return fuzzDDLSigIdent(table)
 	}
-	return schema + "." + table
+	return fuzzDDLSigIdent(schema) + "." + fuzzDDLSigIdent(table)
+}
+
+func fuzzDDLSigIdent(s string) string {
+	if s != "" && !strings.HasPrefix(s, "`") && !strings.ContainsAny(s, " \t\r\n\v\f=,;(){}|>.") {
+		return s
+	}
+	return "`" + strings.ReplaceAll(s, "`", "``") + "`"
 }
 
 func fuzzDDLSignature(stmts []ddlStatement) string {

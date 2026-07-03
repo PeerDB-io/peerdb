@@ -82,16 +82,26 @@ func TestDiffReconciliationRules(t *testing.T) {
 			}},
 		},
 		{
-			name: "raw equality before ambiguous identifier parse",
-			our:  "alter t{col firs,=int32 @pos}",
+			name: "escaped comma identifier reconciles",
+			our:  "alter t{col `firs,`=int32 @pos}",
 			d: acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{
 				Name: "firs,", TypeStr: "int",
 			}}, HasPosition: true}),
 		},
 		{
-			name: "raw equality before empty identifier parse",
-			our:  "alter t{drop }",
+			name: "escaped empty identifier reconciles",
+			our:  "alter t{drop ``}",
 			d:    acceptAlter(digest.Spec{Op: "drop", OldName: ""}),
+		},
+		{
+			name: "escaped paren identifier parenthesized add flattens",
+			our:  "alter mt5_managers{col `(`=uint32 nn, B=uint32 nn}",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "alter_table", Table: "mt5_managers", Specs: []digest.Spec{
+					{Op: "add", Cols: []digest.Col{{Name: "(", TypeStr: "int(10) unsigned", NotNull: true, ParamsWritten: []int{10}}}},
+					{Op: "add", Cols: []digest.Col{{Name: "B", TypeStr: "int(10) unsigned", NotNull: true, ParamsWritten: []int{10}}}},
+				},
+			}}},
 		},
 		{
 			name: "mismatch shape",
