@@ -1,1 +1,1 @@
-/*M!!ALTER TABLE t DROP COLUMN c /* trailing */ */
+SET STATEMENT max_statement_time=60, sort_buffer_size=100E00009FOR ALTER TABLE t MODIFY c INT

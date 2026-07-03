@@ -64,6 +64,14 @@ func isDDLIdentByte(c byte) bool {
 		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80
 }
 
+func isDDLDigitByte(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+func isDDLHexDigitByte(c byte) bool {
+	return isDDLDigitByte(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
+
 // isDDLSpaceOrCntrl matches the server's my_isspace || my_iscntrl test used to
 // decide whether "--" starts a line comment.
 func isDDLSpaceOrCntrl(c byte) bool {
@@ -112,6 +120,8 @@ func (lx *ddlLexer) next() (ddlToken, error) {
 				return tok, err
 			}
 			return lx.scanWord(), nil
+		case isDDLDigitByte(c):
+			return lx.scanNumberOrWord(), nil
 		case isDDLIdentByte(c):
 			return lx.scanWord(), nil
 		default:
@@ -333,6 +343,77 @@ func (lx *ddlLexer) scanDollarQuoted() (ddlToken, bool, error) {
 	tok := ddlToken{kind: tokString, text: rest[:end], pos: lx.pos}
 	lx.pos = j + 1 + end + len(tag)
 	return tok, true, nil
+}
+
+func scanDDLExponent(s string, pos int) (int, bool) {
+	if pos >= len(s) || (s[pos] != 'e' && s[pos] != 'E') {
+		return pos, false
+	}
+	i := pos + 1
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		i++
+	}
+	if i >= len(s) || !isDDLDigitByte(s[i]) {
+		return pos, false
+	}
+	for i < len(s) && isDDLDigitByte(s[i]) {
+		i++
+	}
+	return i, true
+}
+
+func (lx *ddlLexer) scanNumberOrWord() ddlToken {
+	start := lx.pos
+	n := len(lx.s)
+	if start+1 < n && lx.s[start] == '0' {
+		switch lx.s[start+1] {
+		case 'x', 'X':
+			i := start + 2
+			for i < n && isDDLHexDigitByte(lx.s[i]) {
+				i++
+			}
+			if i > start+2 && (i >= n || !isDDLIdentByte(lx.s[i])) {
+				lx.pos = i
+				return ddlToken{kind: tokWord, text: lx.s[start:i], pos: start}
+			}
+			return lx.scanWord()
+		case 'b', 'B':
+			i := start + 2
+			for i < n && (lx.s[i] == '0' || lx.s[i] == '1') {
+				i++
+			}
+			if i > start+2 && (i >= n || !isDDLIdentByte(lx.s[i])) {
+				lx.pos = i
+				return ddlToken{kind: tokWord, text: lx.s[start:i], pos: start}
+			}
+			return lx.scanWord()
+		}
+	}
+
+	i := start
+	for i < n && isDDLDigitByte(lx.s[i]) {
+		i++
+	}
+	if i < n && lx.s[i] == '.' && !(i+1 < n && lx.s[i+1] == '.') {
+		i++
+		for i < n && isDDLDigitByte(lx.s[i]) {
+			i++
+		}
+		if end, ok := scanDDLExponent(lx.s, i); ok {
+			i = end
+		}
+		lx.pos = i
+		return ddlToken{kind: tokWord, text: lx.s[start:i], pos: start}
+	}
+	if end, ok := scanDDLExponent(lx.s, i); ok {
+		lx.pos = end
+		return ddlToken{kind: tokWord, text: lx.s[start:end], pos: start}
+	}
+	if i < n && isDDLIdentByte(lx.s[i]) {
+		return lx.scanWord()
+	}
+	lx.pos = i
+	return ddlToken{kind: tokWord, text: lx.s[start:i], pos: start}
 }
 
 func (lx *ddlLexer) scanWord() ddlToken {

@@ -386,6 +386,10 @@ func TestDDLAlterSetStatement(t *testing.T) {
 		"SET STATEMENT a='wait FOR it', b=CAST('FOR' AS CHAR(3)) FOR ALTER TABLE t DROP COLUMN c", true)
 	require.Equal(t, ddlAltDrop("c"), specs)
 
+	specs = ddlAlterSpecsOf(t,
+		"SET STATEMENT max_statement_time=60, sort_buffer_size=100E00009FOR ALTER TABLE t MODIFY c INT", true)
+	require.Equal(t, ddlAltAdd(ddlAltCol("c", "int")), specs)
+
 	// an index-only inner ALTER TABLE still parses, into an empty-spec (benign) alter
 	specs = ddlAlterSpecsOf(t, "SET STATEMENT max_statement_time=60 FOR ALTER TABLE t ADD INDEX i (a)", true)
 	require.Empty(t, specs)
