@@ -209,6 +209,7 @@ func TestDDLTypesCharsetSuffixes(t *testing.T) {
 		{typ: "CHAR(5) ASCII", want: ddlTypesCol("char(5)", -1, -1, false)},
 		{typ: "CHAR(5) UNICODE", want: ddlTypesCol("char(5)", -1, -1, false)},
 		{typ: "VARCHAR(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL", want: ddlTypesCol("varchar(10)", -1, -1, true)},
+		{typ: "VARBINARY(128) COLLATE utf8_bin NOT NULL DEFAULT ''", want: ddlTypesCol("varchar(128)", -1, -1, true), maria: true},
 		{typ: "CHAR(3) BYTE", want: ddlTypesCol("binary(3)", -1, -1, false), maria: true},
 		{typ: "VARCHAR(10) BYTE", want: ddlTypesCol("varbinary(10)", -1, -1, false), maria: true},
 		{typ: "TEXT BYTE", want: ddlTypesCol("blob", -1, -1, false), maria: true},

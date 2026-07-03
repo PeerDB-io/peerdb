@@ -1,0 +1,1 @@
+ALTER TABLE `mt5_holidays` MODIFY `Description` VARBINARY(128) COLLATE utf8_bin NOT NULL DEFAULT '' 

@@ -641,13 +641,15 @@ func (p *ddlParser) skipListElement() error {
 // ddlColumnState carries a column definition through type and attribute parsing
 // before it is rendered into a ddlColumnDef.
 type ddlColumnState struct {
-	base      string
-	enumList  string   // raw enum/set element list exactly as written
-	params    []string // written type params
-	written   bool     // a '(' params list was written in the DDL text
-	synthetic bool     // params were synthesized (BOOLEAN -> tinyint(1)), not written
-	unsigned  bool
-	notNull   bool
+	base          string
+	enumList      string   // raw enum/set element list exactly as written
+	params        []string // written type params
+	written       bool     // a '(' params list was written in the DDL text
+	synthetic     bool     // params were synthesized (BOOLEAN -> tinyint(1)), not written
+	unsigned      bool
+	notNull       bool
+	charsetSeen   bool
+	charsetBinary bool
 }
 
 // ddlBinaryCharsetRemap: CHARACTER SET binary (or MariaDB's BYTE suffix) turns
@@ -662,8 +664,23 @@ var ddlBinaryCharsetRemap = map[string]string{
 	"longtext":   "longblob",
 }
 
+var ddlCharacterCharsetRemap = map[string]string{
+	"binary":     "char",
+	"varbinary":  "varchar",
+	"tinyblob":   "tinytext",
+	"blob":       "text",
+	"mediumblob": "mediumtext",
+	"longblob":   "longtext",
+}
+
 func ddlRemapToBinary(st *ddlColumnState) {
 	if remapped, ok := ddlBinaryCharsetRemap[st.base]; ok {
+		st.base = remapped
+	}
+}
+
+func ddlRemapToCharacter(st *ddlColumnState) {
+	if remapped, ok := ddlCharacterCharsetRemap[st.base]; ok {
 		st.base = remapped
 	}
 }
@@ -1096,6 +1113,9 @@ func (p *ddlParser) parseColumnAttributeWord(st *ddlColumnState, spec *ddlAlterS
 		p.next()
 		p.next()
 		p.applyCharset(st)
+	case ddlWordIs(t, "COLLATE"):
+		p.next()
+		p.applyCollation(st)
 	case ddlWordIs(t, "BYTE"):
 		// CHAR(n) BYTE et al: BYTE in the charset-suffix slot means binary on
 		// both engines (mysql sql_yacc.yy opt_charset_with_opt_binary BYTE_SYM)
@@ -1195,12 +1215,33 @@ func (p *ddlParser) skipReferenceOption() error {
 
 // applyCharset consumes a charset name; CHARACTER SET binary remaps character
 // types to their binary counterparts.
+// Non-binary charsets reverse binary string aliases back to character names.
 func (p *ddlParser) applyCharset(st *ddlColumnState) {
 	t := p.peek(0)
 	if t.kind == tokWord || t.kind == tokQuotedIdent || t.kind == tokString {
-		if strings.EqualFold(t.text, "binary") {
+		st.charsetSeen = true
+		st.charsetBinary = strings.EqualFold(t.text, "binary")
+		if st.charsetBinary {
 			ddlRemapToBinary(st)
+		} else {
+			ddlRemapToCharacter(st)
 		}
+		p.next()
+	}
+}
+
+func (p *ddlParser) applyCollation(st *ddlColumnState) {
+	t := p.peek(0)
+	if t.kind == tokWord || t.kind == tokQuotedIdent || t.kind == tokString {
+		isBinary := strings.EqualFold(t.text, "binary")
+		switch {
+		case isBinary && (!st.charsetSeen || st.charsetBinary):
+			ddlRemapToBinary(st)
+		case !isBinary:
+			ddlRemapToCharacter(st)
+		}
+		st.charsetSeen = true
+		st.charsetBinary = isBinary
 		p.next()
 	}
 }
