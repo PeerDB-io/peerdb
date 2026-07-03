@@ -328,6 +328,10 @@ func ParseCodexJSONL(streamPath, lastMessagePath string) (CodexParseResult, erro
 		}
 		defer f.Close()
 		sc := bufio.NewScanner(f)
+		// Codex --json emits one JSON object per line; agent messages and embedded
+		// command output routinely exceed bufio.Scanner's 64 KiB default, which would
+		// error the whole parse and cause the supervisor to discard a successful fix.
+		sc.Buffer(make([]byte, 0, 1<<20), 256<<20)
 		for sc.Scan() {
 			line := bytes.TrimSpace(sc.Bytes())
 			if len(line) == 0 {
