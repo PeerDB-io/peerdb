@@ -57,6 +57,20 @@ func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
 	assert.Regexp(t, "^lookup "+hostName+"( on [\\w\\d\\.:]*)?: no such host$", errInfo.Code, "Unexpected error code")
 }
 
+func TestSSHTunnelConnectionErrorShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors how the Postgres CDC loop wraps a read failure once the SSH tunnel has gone bad.
+	err := fmt.Errorf("error in PullRecords: %w",
+		exceptions.NewSSHTunnelConnectionError(fmt.Errorf("ReceiveMessage failed: %w", net.ErrClosed)))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_CONNECTION_LOST",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestNeonConnectivityErrorShouldBeConnectivity(t *testing.T) {
 	t.Skip("Not a good idea to run this test in CI as it goes to Neon, maybe we need a better mock")
 	config, err := pgx.ParseConfig("postgres://random-endpoint-id-here.us-east-2.aws.neon.tech:5432/db?options=endpoint%3Dtest_endpoint")
@@ -253,6 +267,21 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 			}, errInfo, "Unexpected error info")
 		})
 	}
+}
+
+func TestClickHouseAccessDeniedErrorShouldBeNotifyPermissions(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrAccessDenied),
+		Message: "user@example.com: Not enough privileges. To execute this query, it's necessary to have the grant READ ON S3",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf(
+			"failed to normalize records: failed to copy avro stages to destination: %w", err)))
+	assert.Equal(t, ErrorNotifyClickHousePermissionsError, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrAccessDenied)),
+	}, errInfo, "Unexpected error info")
 }
 
 func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {

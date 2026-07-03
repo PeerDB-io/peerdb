@@ -10,7 +10,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func setupMySQLConnectorWithDirectSSH(ctx context.Context, t *testing.T) *MySqlConnector {
@@ -41,11 +40,8 @@ func setupMySQLConnectorWithDirectSSH(ctx context.Context, t *testing.T) *MySqlC
 	return connector
 }
 
-func TestMySQLSyncerClose(t *testing.T) {
+func TestMySQLOnlyIntegrationSyncerClose(t *testing.T) {
 	t.Parallel()
-	if internal.MySQLTestVersionIsMaria() {
-		t.Skip("Skipping for MariaDB")
-	}
 
 	ctx := t.Context()
 	connector := setupMySQLConnectorWithDirectSSH(ctx, t)

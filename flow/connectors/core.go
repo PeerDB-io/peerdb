@@ -110,7 +110,7 @@ type CDCPullConnectorCore interface {
 	FinishExport(any) error
 
 	// Setup replication in prep for initial copy
-	SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error)
+	SetupReplication(context.Context, shared.CatalogPool, *protos.SetupReplicationInput) (model.SetupReplicationResult, error)
 
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
 	SetupReplConn(context.Context, map[string]string) error

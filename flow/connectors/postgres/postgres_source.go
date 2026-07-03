@@ -114,6 +114,22 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 }
 
 func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]string) error {
+	// For IAM-authenticated connections, force a fresh token before connecting.
+	// This guarantees each activity retry uses a new token rather than a potentially
+	// stale cached one (cache TTL 10 min; token validity 15 min).
+	if c.rdsAuth != nil {
+		host := c.Config.Host
+		if c.Config.TlsHost != "" {
+			host = c.Config.TlsHost
+		}
+		if _, err := c.rdsAuth.GetFreshRdsToken(ctx, utils.RDSConnectionConfig{
+			Host: host,
+			Port: c.Config.Port,
+			User: c.Config.User,
+		}, "POSTGRES"); err != nil {
+			return fmt.Errorf("failed to refresh RDS IAM token before replication setup: %w", err)
+		}
+	}
 	conn, wst, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return err
@@ -758,6 +774,7 @@ func (c *PostgresConnector) FinishExport(tx any) error {
 // SetupReplication sets up replication for the source connector
 func (c *PostgresConnector) SetupReplication(
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
 	if !shared.IsValidReplicationName(req.FlowJobName) {
@@ -793,6 +810,27 @@ func (c *PostgresConnector) SetupReplication(
 			Exclude: make(map[string]struct{}, 0),
 		}
 	}
+
+	// Add a user-facing warning if replication slot creation is taking a long time,
+	// which is often caused by an open transaction blocking the creation.
+	slotCreateStart := time.Now()
+	stopSlotCreateWarning := common.Interval(ctx, 1*time.Minute, func() {
+		elapsed := time.Since(slotCreateStart)
+		if elapsed >= 1*time.Minute {
+			msg := fmt.Sprintf(
+				"Replication slot creation is taking very long (%s), possibly blocked by an open transaction."+
+					" Run the following on the source to identify blockers:"+
+					" SELECT pid, usename, application_name, state, now() - xact_start AS duration, query"+
+					" FROM pg_stat_activity WHERE xact_start IS NOT NULL AND pid != pg_backend_pid() ORDER BY xact_start;",
+				elapsed.Round(time.Second),
+			)
+			if err := alerting.InsertFlowLog(ctx, catalogPool, req.FlowJobName, msg, alerting.FlowErrorTypeWarn); err != nil {
+				c.logger.Error("failed to insert slot creation warning", slog.Any("error", err))
+			}
+		}
+	})
+	defer stopSlotCreateWarning()
+
 	// Create the replication slot and publication
 	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping,
 		req.DoInitialSnapshot, skipSnapshotExport, req.Env)

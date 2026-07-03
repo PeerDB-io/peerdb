@@ -583,7 +583,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 			if bytes > 100<<30 { // 100 GiB
 				msg := fmt.Sprintf("large table detected: %s (%s). Counting/partitioning queries for parallel "+
 					"snapshotting may take minutes to hours to execute. This is normal for tables over 100 GiB.",
-					config.WatermarkTable, utils.FormatTableSize(bytes))
+					config.WatermarkTable, utils.HumanReadableBytes(bytes))
 				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, msg)
 			}
 		} else {
@@ -596,6 +596,17 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to get partitions from source", err))
 	}
 	if len(partitions) > 0 {
+		shouldOffload, err := internal.PeerDBOffloadPartitionRanges(ctx, config.Env)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read offload partition ranges setting: %w", err)
+		}
+		if shouldOffload && config.InitialCopyOnly {
+			if err := connmetadata.OffloadPartitionRanges(
+				ctx, a.CatalogPool, config.ParentMirrorName, runUUID, partitions,
+			); err != nil {
+				return nil, fmt.Errorf("failed to offload partition ranges: %w", err)
+			}
+		}
 		if err := monitoring.InitializeQRepRun(
 			ctx,
 			logger,
@@ -661,6 +672,10 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	if err != nil {
 		logger.Error("failed to initialize replication method", slog.Any("error", err))
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+
+	if err := connmetadata.RestoreOffloadedPartitionRanges(ctx, a.CatalogPool, runUUID, partitions.Partitions); err != nil {
+		return fmt.Errorf("failed to rehydrate partition ranges: %w", err)
 	}
 
 	for i, partition := range partitions.Partitions {
@@ -1068,6 +1083,7 @@ type metricsFlowMetadata struct {
 	config                *protos.FlowConnectionConfigsCore
 	sourcePeerConfig      *protos.Peer
 	destinationPeerConfig *protos.Peer
+	tags                  map[string]string
 	name                  string
 	workflowID            string
 	sourcePeerName        string
@@ -1091,6 +1107,7 @@ func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadat
 		},
 		FlowName: m.config.FlowJobName,
 		Status:   m.status,
+		Tags:     m.tags,
 	}
 }
 
@@ -1270,6 +1287,7 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 				f.config_proto AS config_proto,
 				f.workflow_id AS workflow_id,
 				f.updated_at AS updated_at,
+				f.tags AS tags,
 				COALESCE(sp.name, '') AS source_peer_name,
 				COALESCE(sp.type, 0) AS source_peer_type,
 				COALESCE(dp.name, '') AS destination_peer_name,
@@ -1303,6 +1321,7 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 			&configProto,
 			&f.workflowID,
 			&f.updatedAt,
+			&f.tags,
 			&f.sourcePeerName,
 			&f.sourcePeerType,
 			&f.destinationPeerName,
@@ -1619,6 +1638,10 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
 			return true, nil
 		}
+	case *protos.PartitionRange_StringRange:
+		// checking for new rows is only possible for standalone QRepFlowWorkflow;
+		// this is a legacy feature and string partitioning is not supported
+		return false, errors.New("checking for new rows by a string partition range is not supported")
 	default:
 		return false, fmt.Errorf("unknown range type: %v", x)
 	}

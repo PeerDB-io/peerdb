@@ -273,13 +273,13 @@ func (c *PostgresConnector) IsQRepPartitionSynced(ctx context.Context,
 	// setup the query string
 	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
 	queryString := fmt.Sprintf(
-		"SELECT EXISTS(SELECT * FROM %s WHERE partitionID=$1)",
+		"SELECT EXISTS(SELECT * FROM %s WHERE flowJobName=$1 AND partitionID=$2)",
 		metadataTableIdentifier.Sanitize(),
 	)
 
 	// prepare and execute the query
 	var result bool
-	if err := c.conn.QueryRow(ctx, queryString, req.PartitionId).Scan(&result); err != nil {
+	if err := c.conn.QueryRow(ctx, queryString, req.FlowJobName, req.PartitionId).Scan(&result); err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 

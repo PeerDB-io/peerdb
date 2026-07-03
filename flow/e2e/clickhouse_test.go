@@ -19,6 +19,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	protojson "google.golang.org/protobuf/encoding/protojson"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
@@ -54,6 +55,15 @@ func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 	}))
 }
 
+func TestPeerFlowE2ETestSuiteMariaDB_CH(t *testing.T) {
+	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mach_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
+		return source, suffix, err
+	}))
+}
+
 func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
@@ -68,6 +78,15 @@ func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
 		t.Helper()
 		suffix := "mychcl_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuiteMariaDB_CH_Cluster(t *testing.T) {
+	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "machcl_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	}))
 }
@@ -3223,6 +3242,9 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 3
+	// disable range offloading so the TID block ranges remain queryable from peerdb_stats.qrep_partitions;
+	// offloading itself is covered by Test_Offload_Partition_Ranges
+	flowConnConfig.Env = map[string]string{"PEERDB_OFFLOAD_PARTITION_RANGES": "false"}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3652,4 +3674,109 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Offload_Partition_Ranges() {
+	srcTable := "test_offload_partition_ranges"
+	srcFullName := s.attachSchemaSuffix(srcTable)
+	dstTable := "test_offload_partition_ranges_dst"
+
+	const numRows = 100
+	const numPartitions = 8
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s (id BIGINT PRIMARY KEY, val INT NOT NULL)", srcFullName)))
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s (id, val) VALUES (%d, %d)", srcFullName, i, i)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("offload_partition_ranges"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: s.DestinationTable(dstTable),
+			PartitionKey:               "id",
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumPartitionsOverride = numPartitions
+	flowConnConfig.Env = map[string]string{"PEERDB_OFFLOAD_PARTITION_RANGES": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
+
+	// the offloaded ranges must be persisted into metadata_qrep_offloaded_partition_ranges
+	rangeRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT enc_key_id, range_payload FROM metadata_qrep_offloaded_partition_ranges WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer rangeRows.Close()
+	var offloadedNumPartitions int32
+	for rangeRows.Next() {
+		var encKeyID string
+		var rangePayload []byte
+		require.NoError(s.t, rangeRows.Scan(&encKeyID, &rangePayload))
+		// no encryption key is configured for CI so enc_key_id is empty
+		require.Empty(s.t, encKeyID)
+		require.NotEmpty(s.t, rangePayload)
+		offloadedNumPartitions++
+	}
+	require.NoError(s.t, rangeRows.Err())
+	require.EqualValues(s.t, numPartitions, offloadedNumPartitions)
+
+	// the offloaded ranges must not be persisted into metadata_qrep_partitions
+	res, err := s.catalog.Query(s.t.Context(),
+		`SELECT sync_partition FROM metadata_qrep_partitions WHERE job_name LIKE '%' || $1 || '%'`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer res.Close()
+	var metaCount int
+	for res.Next() {
+		var syncPartition []byte
+		require.NoError(s.t, res.Scan(&syncPartition))
+		var partition protos.QRepPartition
+		require.NoError(s.t, protojson.Unmarshal(syncPartition, &partition))
+		require.Nil(s.t, partition.Range)
+		require.True(s.t, partition.RangeOffloaded)
+		metaCount++
+	}
+	require.NoError(s.t, res.Err())
+	require.NotZero(s.t, metaCount)
+
+	// the offloaded ranges must not be persisted into peerdb_stats.qrep_partitions
+	statsRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer statsRows.Close()
+	var statsCount int
+	for statsRows.Next() {
+		var partitionStart, partitionEnd *string
+		require.NoError(s.t, statsRows.Scan(&partitionStart, &partitionEnd))
+		require.Nil(s.t, partitionStart)
+		require.Nil(s.t, partitionEnd)
+		statsCount++
+	}
+	require.NoError(s.t, statsRows.Err())
+	require.NotZero(s.t, statsCount)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+
+	// dropping the mirror should delete metadata_qrep_offloaded_partition_ranges entries for this mirror
+	dropEnv := ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	EnvWaitForFinished(s.t, dropEnv, 3*time.Minute)
+
+	var remainingRanges int64
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		`SELECT COUNT(*) FROM metadata_qrep_offloaded_partition_ranges WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&remainingRanges))
+	require.Zero(s.t, remainingRanges)
 }

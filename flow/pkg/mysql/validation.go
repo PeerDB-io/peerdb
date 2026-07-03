@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	MySQLMinVersionForBinlogRowMetadata   = "8.0.1"
-	MariaDBMinVersionForBinlogRowMetadata = "10.5.0"
+	MySQLMinVersionForBinlogRowMetadata            = "8.0.1"
+	MariaDBMinVersionForBinlogRowMetadata          = "10.5.0"
+	MySQLMinVersionForBinlogTransactionCompression = "8.0.20"
 )
 
 func CompareServerVersion(conn *client.Conn, version string) (int, error) {

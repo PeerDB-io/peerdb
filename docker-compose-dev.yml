@@ -9,7 +9,7 @@ x-ports:
   - &peerdb-ui-port           ${PEERBD_UI_PORT:-3030}:3000
   - &temporal-port            ${TEMPORAL_PORT:-7233}:7233
   - &temporal-ui-port         ${TEMPORAL_UI_PORT:-8085}:8080
-  - &flow-api-grpc-port            ${FLOW_API_PORT:-8112}:8112
+  - &flow-api-grpc-port       ${FLOW_API_PORT:-8112}:8112
   - &flow-api-http-port       ${FLOW_API_HTTP_PORT:-8113}:8113
   - &flow-worker-debug-port   ${DOCKER_GO_DEBUG_PORT_FLOW_WORKER:-40001}:40000
   - &flow-snapshot-worker-debug-port ${DOCKER_GO_DEBUG_PORT_FLOW_SNAPSHOT_WORKER:-40002}:40000
@@ -47,6 +47,8 @@ x-flow-worker-env: &flow-worker-env
   # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  # Temporary AWS Credentials for local IAM auth testing
+  AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
   # For GCS, set this to "auto" without the quotes
   AWS_REGION: ${AWS_REGION:-}
   # For GCS, set this as: https://storage.googleapis.com
@@ -58,7 +60,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:18-alpine@sha256:96d56f7f57c6aacd1fcb908bc83b345ec5f83231ee486dd66a1baadce274db88
+    image: postgres:18-alpine@sha256:1b1689b20d16a014a3d195653381cf2caa75a41a92d93b255a9d6ea29fd353aa
     command: -c config_file=/etc/postgresql.conf
     ports:
       - *peerdb-catalog-port
@@ -170,6 +172,8 @@ services:
       - *flow-snapshot-worker-debug-port
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       temporal-admin-tools:
         condition: service_healthy

@@ -80,6 +80,9 @@ const (
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 	CodeNotificationCounterName          = "code_notification"
 	ServerWalEndLagGaugeName             = "wal_end_lag"
+	UsedMySQLCharsetsName                = "used_mysql_charsets"
+	ColumnTypeChangesName                = "column_type_changes"
+	OnlineSchemaMigrationsName           = "online_schema_migrations"
 )
 
 type Metrics struct {
@@ -134,6 +137,9 @@ type Metrics struct {
 	LogRetentionGauge                metric.Float64Gauge
 	UnchangedToastValuesCounter      metric.Int64Counter
 	ServerWalEndLagGauge             metric.Int64Gauge
+	UsedMySQLCharsetsCounter         metric.Int64Counter
+	ColumnTypeChangesCounter         metric.Int64Counter
+	OnlineSchemaMigrationsCounter    metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -573,6 +579,30 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 
+	if om.Metrics.UsedMySQLCharsetsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UsedMySQLCharsetsName),
+		metric.WithDescription(
+			"Counter of used MySQL charsets, with `charset` label and `status` label indicating unsupported/transcoded/not_transcoded"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ColumnTypeChangesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ColumnTypeChangesName),
+		metric.WithDescription(
+			"Counter of column type changes detected on the CDC path, with `source` label holding the source peer type, "+
+				"`from`/`to` labels holding the source/target type and `sourceEventType` holding the source of event(ddl, eventMetadata)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.OnlineSchemaMigrationsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(OnlineSchemaMigrationsName),
+		metric.WithDescription(
+			"Counter of online schema migrations detected on the CDC path, i.e. a tracked table being atomically "+
+				"renamed into by a shadow/ghost table, with `source` label holding the source peer type and `tool` "+
+				"label holding the detected migration tool (gh-ost, pt-online-schema-change, other)"),
+	); err != nil {
+		return err
+	}
+
 	if CodeNotificationCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CodeNotificationCounterName),
 		metric.WithDescription("One-off notifications with unique `message` attribute, triggers generic non-paging alert"),
 	); err != nil {
@@ -676,11 +706,14 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
 	var err error
+	// otel v1.44.0 introduced a default max request size of 64 MiB, making oversized
+	// exports fail as non-retryable errors; 0 disables it, preserving the previous
+	// unlimited behavior
 	switch otlpMetricProtocol {
 	case "http/protobuf":
-		metricExporter, err = otlpmetrichttp.New(ctx)
+		metricExporter, err = otlpmetrichttp.New(ctx, otlpmetrichttp.WithMaxRequestSize(0))
 	case "grpc":
-		metricExporter, err = otlpmetricgrpc.New(ctx)
+		metricExporter, err = otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithMaxRequestSize(0))
 	default:
 		return nil, fmt.Errorf("unsupported otel metric protocol: %s", otlpMetricProtocol)
 	}
@@ -711,6 +744,9 @@ func setupMetricsAndProvider(
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithResource(otelResource),
 		sdkmetric.WithView(views...),
+		// otel v1.44.0 introduced a default cardinality limit of 2000 per instrument;
+		// 0 disables it, preserving the previous unlimited behavior
+		sdkmetric.WithCardinalityLimit(0),
 	)
 	return meterProvider, nil
 }

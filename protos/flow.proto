@@ -324,6 +324,15 @@ message ObjectIdPartitionRange {
   string end = 2;
 }
 
+message StringPartitionRange {
+  string start = 1;
+  string end = 2;
+  // unlike numeric/temporal ranges, string boundaries cannot be safely
+  // incremented; so the partition boundaries are [start, end) except
+  // for the last partition being [start, end]; hence this bool is needed.
+  bool end_inclusive = 3;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
@@ -333,6 +342,7 @@ message PartitionRange {
     UIntPartitionRange uint_range = 4;
     ObjectIdPartitionRange object_id_range = 5;
     NullPartitionRange null_range = 6;
+    StringPartitionRange string_range = 7;
   }
 }
 
@@ -443,6 +453,8 @@ message QRepPartition {
   // child table and block range to query instead of the parent watermark table.
   // When populated, the top-level `range` field is unused.
   repeated ChildTableRange child_table_ranges = 5;
+  // When true, PartitionRange get offloaded and encrypted to the catalog to avoid passing through Temporal
+  bool range_offloaded = 6;
 }
 
 message QRepPartitionBatch {
@@ -666,6 +678,7 @@ message AdditionalContextMetadata{
 
 message GetDefaultPartitionKeyForTablesInput {
   repeated TableMapping table_mappings = 1;
+  map<string, TableSchema> table_schema_mapping = 2;
 }
 
 message GetDefaultPartitionKeyForTablesOutput {

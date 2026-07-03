@@ -8,6 +8,12 @@ def resolve_env(var_name, default=None):
             return line.strip().split('=', 1)[1]
     return default
 
+def resolve_ancillary_env(var_name, default=None):
+    for line in str(read_file('ancillary.env')).splitlines():
+        if line.startswith(var_name + '='):
+            return line.strip().split('=', 1)[1]
+    return default
+
 docker_compose('./docker-compose-dev.yml', project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
 
 peerbd_ui_port = resolve_env('PEERBD_UI_PORT', '3030')
@@ -137,6 +143,55 @@ local_resource(
     resource_deps=['postgres2']
 )
 
+local_resource(
+    'setup-postgres-peer',
+    cmd='./local_provision_scripts/setup-postgres-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-postgres']
+)
+
+local_resource(
+    'setup-postgres2-peer',
+    cmd='./local_provision_scripts/setup-postgres2-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-postgres2'],
+)
+
+local_resource(
+    'setup-clickhouse-peer',
+    cmd='./local_provision_scripts/setup-clickhouse-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-clickhouse'],
+)
+
+local_resource(
+    'setup-mongodb-peer',
+    cmd='./local_provision_scripts/setup-mongodb-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-mongodb'],
+)
+
+local_resource(
+    'setup-mysql-gtid-peer',
+    cmd='./local_provision_scripts/setup-mysql-gtid-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-mysql-gtid'],
+)
+
+local_resource(
+    'setup-mysql-pos-peer',
+    cmd='./local_provision_scripts/setup-mysql-pos-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-mysql-pos'],
+)
+
+local_resource(
+    'setup-mariadb-peer',
+    cmd='./local_provision_scripts/setup-mariadb-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-mariadb'],
+)
+
 # This is not defined as a resource as we need the file to be present
 # when `docker_compose` loads the configuration (next line).
 local('./generate-test-environment.sh')
@@ -150,32 +205,32 @@ docker_compose('./ancillary-docker-compose.yml', env_file=tiltfile_dir + '/ancil
 # This way, users can choose which ones to start and when, depending on the tests they want to run.
 
 dc_resource('clickhouse', labels=['Ancillary-DB'], links=[
-    link('http://localhost:11123', 'ClickHouse HTTP'),
-    link('http://localhost:11000', 'ClickHouse TCP'),
+    link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_HTTP_PORT', '8123'), 'ClickHouse HTTP'),
+    link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_NATIVE_PORT', '9000'), 'ClickHouse TCP'),
 ], auto_init=False)
 
 dc_resource('mongodb', labels=['Ancillary-DB'], links=[
-    link('http://localhost:11017', 'MongoDB'),
+    link('http://localhost:' + resolve_ancillary_env('CI_MONGO_PORT', '27017'), 'MongoDB'),
 ], auto_init=False)
 
 dc_resource('mysql-gtid', labels=['Ancillary-DB'], links=[
-    link('http://localhost:3306', 'MySQL GTID'),
+    link('http://localhost:' + resolve_ancillary_env('CI_MYSQL_GTID_PORT', '3306'), 'MySQL GTID'),
 ], auto_init=False)
 
 dc_resource('mysql-pos', labels=['Ancillary-DB'], links=[
-    link('http://localhost:3307', 'MySQL File-Pos'),
+    link('http://localhost:' + resolve_ancillary_env('CI_MYSQL_POS_PORT', '3307'), 'MySQL File-Pos'),
 ], auto_init=False)
 
 dc_resource('mariadb', labels=['Ancillary-DB'], links=[
-    link('http://localhost:3308', 'MariaDB'),
+    link('http://localhost:' + resolve_ancillary_env('CI_MARIADB_PORT', '3308'), 'MariaDB'),
 ], auto_init=False)
 
 dc_resource('postgres', labels=['Ancillary-DB'], links=[
-    link('http://localhost:5432', 'PostgreSQL'),
+    link('http://localhost:' + resolve_ancillary_env('PG_PORT', '5436'), 'PostgreSQL'),
 ], auto_init=False)
 
 dc_resource('postgres2', labels=['Ancillary-DB'], links=[
-    link('http://localhost:5437', 'PostgreSQL (secondary)'),
+    link('http://localhost:' + resolve_ancillary_env('PG2_PORT', '5437'), 'PostgreSQL (secondary)'),
 ], auto_init=False)
 
 local_resource(
@@ -240,11 +295,12 @@ def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
         allow_parallel=True,
     )
 
-def connector_test(connector, extra_deps=[], vars_overrides={}):
+def connector_test(connector, extra_deps=[], vars_overrides={}, name='', test_run=''):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
+    test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
-        'connector_' + connector,
-        cmd='cd flow && %s go test -count=1 -v ./connectors/%s/...' % (overrides_str, connector),
+        'connector_' + (name or connector),
+        cmd='cd flow && %s go test -count=1 -v%s ./connectors/%s/...' % (overrides_str, test_run_arg, connector),
         labels=['Test'],
         auto_init=False,
         resource_deps=['catalog'] + extra_deps,
@@ -255,14 +311,19 @@ def connector_test(connector, extra_deps=[], vars_overrides={}):
 mysql_gtid_vars = {
     'CI_MYSQL_PORT': resolve_env('CI_MYSQL_GTID_PORT'),
     'CI_MYSQL_VERSION': resolve_env('CI_MYSQL_GTID_VERSION'),
+    'CI_MYSQL_ROOT_PASSWORD': resolve_env('CI_MYSQL_ROOT_PASSWORD'),
+    'CI_SSH_MYSQL_HOST': resolve_env('CI_SSH_MYSQL_HOST'),
 }
 mysql_pos_vars = {
     'CI_MYSQL_PORT': resolve_env('CI_MYSQL_POS_PORT'),
     'CI_MYSQL_VERSION': resolve_env('CI_MYSQL_POS_VERSION'),
+    'CI_MYSQL_ROOT_PASSWORD': resolve_env('CI_MYSQL_ROOT_PASSWORD'),
+    'CI_SSH_MYSQL_HOST': resolve_env('CI_SSH_MYSQL_HOST'),
 }
 mariadb_vars = {
-    'CI_MYSQL_PORT': resolve_env('CI_MARIADB_PORT'),
-    'CI_MYSQL_VERSION': resolve_env('CI_MARIADB_VERSION'),
+    'CI_MARIADB_PORT': resolve_env('CI_MARIADB_PORT'),
+    'CI_MARIADB_VERSION': resolve_env('CI_MARIADB_VERSION'),
+    'CI_MARIADB_ROOT_PASSWORD': resolve_env('CI_MARIADB_ROOT_PASSWORD'),
 }
 
 # Generic e2e tests
@@ -278,7 +339,7 @@ e2e_test('mysql-gtid', 'TestGenericCH_MySQL', ['provision-mysql-gtid'], vars_ove
 e2e_test('mysql-pos', 'TestGenericCH_MySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
 
 # MariaDB to ClickHouse generic tests
-e2e_test('mariadb', 'TestGenericCH_MySQL', ['provision-mariadb'], vars_overrides=mariadb_vars)
+e2e_test('mariadb', 'TestGenericCH_MariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 # MongoDB to ClickHouse test suite
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
@@ -289,7 +350,7 @@ e2e_test('switchboard-postgres', 'TestSwitchboardPostgres', ['provision-postgres
 
 e2e_test('switchboard-mysql-gtid', 'TestSwitchboardMySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
 e2e_test('switchboard-mysql-pos', 'TestSwitchboardMySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
-e2e_test('switchboard-mariadb', 'TestSwitchboardMySQL', ['provision-mariadb'], vars_overrides=mariadb_vars)
+e2e_test('switchboard-mariadb', 'TestSwitchboardMariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 e2e_test('switchboard-mongodb', 'TestSwitchboardMongo', ['provision-mongodb'])
 
@@ -299,7 +360,7 @@ e2e_test('peer-flow-postgres', '^TestPeerFlowE2ETestSuitePG_CH$', ['provision-po
 
 e2e_test('peer-flow-mysql-gtid', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
 e2e_test('peer-flow-mysql-pos', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
-e2e_test('peer-flow-mariadb', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mariadb'], vars_overrides=mariadb_vars)
+e2e_test('peer-flow-mariadb', '^TestPeerFlowE2ETestSuiteMariaDB_CH$', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 # API e2e tests
 
@@ -307,13 +368,18 @@ e2e_test('api-postgres', 'TestApiPg', ['provision-postgres'])
 
 e2e_test('api-mysql-gtid', 'TestApiMy', ['provision-mysql-gtid', 'provision-postgres'], vars_overrides=mysql_gtid_vars)
 e2e_test('api-mysql-pos', 'TestApiMy', ['provision-mysql-pos', 'provision-postgres'], vars_overrides=mysql_pos_vars)
-e2e_test('api-mariadb', 'TestApiMy', ['provision-mariadb', 'provision-postgres'], vars_overrides=mariadb_vars)
+e2e_test('api-mariadb', 'TestApiMariaDB', ['provision-mariadb', 'provision-postgres'], vars_overrides=mariadb_vars)
 
 e2e_test('api-mongodb', 'TestApiMongo', ['provision-mongodb'])
 
 # Connectors tests
 
 connector_test('postgres', ['provision-postgres'])
+
+connector_test('mysql', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars, name='mysql-gtid', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
+connector_test('mysql', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars, name='mysql-pos', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
+connector_test('mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name='mariadb', test_run="'TestIntegration.*/mariadb$'")
+
 connector_test('mongo', ['provision-mongodb'])
-connector_test('mysql', ['provision-mysql-gtid'])
+
 connector_test('clickhouse', ['provision-clickhouse'])

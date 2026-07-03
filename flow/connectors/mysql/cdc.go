@@ -1,10 +1,12 @@
 package connmysql
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,9 +19,12 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
+	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/text/encoding"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -41,6 +46,54 @@ const (
 	defaultBinlogStaleness       = binlogStalenessMultiplier * defaultBinlogHeartbeatPeriod
 )
 
+const (
+	queryStatusVarFlags2  = 0
+	queryStatusVarSQLMode = 1
+)
+
+const (
+	OnlineSchemaMigrationToolGhOst = "gh-ost"
+	OnlineSchemaMigrationToolPtOsc = "pt-online-schema-change"
+	OnlineSchemaMigrationToolOther = "other"
+)
+
+// sqlModeFromStatusVars extracts the sql_mode bitmask from a QueryEvent's status vars.
+// Both MySQL and MariaDB guarantee status vars are written in increasing order,
+// so we only need to parse 0 and 1 to get to 1
+// https://dev.mysql.com/doc/dev/mysql-server/latest/classmysql_1_1binlog_1_1event_1_1Query__event.html#Query_event_binary_format
+// https://github.com/MariaDB/server/blob/c3ec2dc368a8c7165cdbea58208eb828e76ebc57/sql/log_event_server.cc#L1083-L1087
+func sqlModeFromStatusVars(statusVars []byte) (uint64, bool) {
+	for pos := 0; pos < len(statusVars); {
+		code := statusVars[pos]
+		pos++
+
+		switch code {
+		case queryStatusVarFlags2:
+			pos += 4
+		case queryStatusVarSQLMode:
+			if pos+8 > len(statusVars) {
+				return 0, false
+			}
+			return binary.LittleEndian.Uint64(statusVars[pos : pos+8]), true
+		default:
+			return 0, false
+		}
+
+		if pos > len(statusVars) {
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+func setParserSQLModeFromStatusVars(mysqlParser *parser.Parser, statusVars []byte) {
+	var sqlMode tidbmysql.SQLMode
+	if mode, ok := sqlModeFromStatusVars(statusVars); ok && mode&uint64(tidbmysql.ModeANSIQuotes) != 0 {
+		sqlMode = tidbmysql.ModeANSIQuotes
+	}
+	mysqlParser.SetSQLMode(sqlMode)
+}
+
 func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
 	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
 }
@@ -54,6 +107,12 @@ func (c *MySqlConnector) binlogStalenessThresholdFromEnv(ctx context.Context, en
 		return c.binlogStalenessThreshold(), nil
 	}
 	return binlogStalenessThreshold, nil
+}
+
+func parseSQL(parser *parser.Parser, query []byte) ([]ast.StmtNode, []error, error) {
+	// TIDB parser errors on null-terminated strings
+	trimmedQuery := shared.UnsafeFastReadOnlyBytesToString(bytes.TrimRight(query, "\x00"))
+	return parser.ParseSQL(trimmedQuery)
 }
 
 func (c *MySqlConnector) GetTableSchema(
@@ -208,6 +267,7 @@ func (c *MySqlConnector) FinishExport(any) error {
 
 func (c *MySqlConnector) SetupReplication(
 	ctx context.Context,
+	catalogPool shared.CatalogPool,
 	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
 	var gtidModeOn bool
@@ -488,8 +548,275 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	recordCommitLagMetric := func(ctx context.Context, commitTs uint64) {
+		if commitTs > 0 {
+			otelManager.Metrics.CommitLagGauge.Record(ctx,
+				time.Now().UTC().Sub(time.UnixMicro(int64(commitTs))).Microseconds())
+		}
+	}
+
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
+	processEvent := func(event *replication.BinlogEvent) error {
+		switch ev := event.Event.(type) {
+		case *replication.GTIDEvent:
+			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
+		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
+			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
+		case *replication.XIDEvent:
+			if gset != nil {
+				gset = ev.GSet
+				updatedOffset = gset.String() // accumulated from GTID events above
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+			} else if event.Header.LogPos > pos.Pos {
+				pos.Pos = event.Header.LogPos
+				updatedOffset = posToOffsetText(pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+			}
+			inTx = false
+		case *replication.RotateEvent:
+			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
+				pos.Name = string(ev.NextLogName)
+				pos.Pos = uint32(ev.Position)
+				updatedOffset = posToOffsetText(pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
+			}
+		case *replication.GenericEvent:
+			// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
+			if event.Header.EventType == replication.INCIDENT_EVENT {
+				incident, message := parseIncidentEvent(ev.Data)
+				c.logger.Error("[mysql] received binlog incident event, resync required",
+					slog.Uint64("incident", uint64(incident)), slog.String("message", message))
+				return exceptions.NewMySQLBinlogIncidentError(incident, message)
+			}
+		case *replication.QueryEvent:
+			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
+				pos.Pos = event.Header.LogPos
+				updatedOffset = posToOffsetText(pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+			}
+			if mysqlParser == nil {
+				mysqlParser = parser.New()
+			}
+			setParserSQLModeFromStatusVars(mysqlParser, ev.StatusVars)
+			stmts, warns, err := parseSQL(mysqlParser, ev.Query)
+			if err != nil {
+				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				break
+			}
+			if len(warns) > 0 {
+				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
+			}
+			for _, stmt := range stmts {
+				switch s := stmt.(type) {
+				case *ast.AlterTableStmt:
+					if err := c.processAlterTableQuery(
+						ctx, catalogPool, otelManager, req, s,
+						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
+						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
+					}
+				case *ast.RenameTableStmt:
+					c.processRenameTableQuery(ctx, otelManager, req, s, string(ev.Schema))
+				}
+			}
+		case *replication.RowsEvent:
+			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
+			destinationTableName := req.TableNameMapping[sourceTableName].Name
+			exclusion := req.TableNameMapping[sourceTableName].Exclude
+			schema := req.TableNameSchemaMapping[destinationTableName]
+			if schema != nil {
+				// The issue is global, but only error if we see a table in the pipe
+				// Otherwise users could be confused
+				if binlogRowMetadataSupported && ev.Table.ColumnName == nil {
+					e := exceptions.NewMySQLUnsupportedBinlogRowMetadataError(string(ev.Table.Schema), string(ev.Table.Table))
+					c.logger.Error(e.Error())
+					return e
+				}
+				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
+				fetchedBytes.Add(int64(len(event.RawData)))
+				totalFetchedBytes.Add(int64(len(event.RawData)))
+				inTx = true
+				enumMap := ev.Table.EnumStrValueMap()
+				setMap := ev.Table.SetStrValueMap()
+
+				// Build colIdx -> encoding directly from TABLE_MAP charset metadata.
+				// This mirrors go-mysql's collation traversal without allocating its maps;
+				// when all character columns are utf8/ascii/binary, the slice stays nil.
+				colEncodings, err := c.tableMapColumnEncodings(ctx, ev.Table, enumMap, setMap, otelManager)
+				if err != nil {
+					return err
+				}
+				encFor := func(idx int) encoding.Encoding {
+					if idx >= 0 && idx < len(colEncodings) {
+						return colEncodings[idx]
+					}
+					return nil
+				}
+
+				// Process TABLE_MAP_EVENT schema to detect new columns
+				var fields []*protos.FieldDescription
+				if ev.Table.ColumnName != nil {
+					var err error
+					fields, err = c.processTableMapEventSchema(
+						ctx, catalogPool, otelManager, req, ev.Table,
+						sourceTableName, destinationTableName, schema, exclusion,
+					)
+					if err != nil {
+						return err
+					}
+				}
+
+				getFd := func(idx int) *protos.FieldDescription {
+					if fields != nil {
+						if idx < len(fields) {
+							return fields[idx]
+						}
+						return nil
+					}
+					if idx < len(schema.Columns) {
+						return schema.Columns[idx]
+					}
+					if !skewLossReported {
+						skewLossReported = true
+						c.logger.Warn("Column ordinal position out of range, ignoring", slog.Int("position", idx))
+					}
+					return nil
+				}
+				switch event.Header.EventType {
+				case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2, replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1:
+					for _, row := range ev.Rows {
+						items := model.NewRecordItems(len(row))
+						for idx, val := range row {
+							fd := getFd(idx)
+							if fd == nil {
+								continue
+							}
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+							if err != nil {
+								return err
+							}
+							items.AddColumn(fd.Name, val)
+						}
+						if sourceSchemaAsDestinationColumn {
+							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
+						}
+
+						if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
+							BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
+							Items:                items,
+							SourceTableName:      sourceTableName,
+							DestinationTableName: destinationTableName,
+						}); err != nil {
+							return err
+						}
+					}
+				case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2, replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
+					for idx := 0; idx < len(ev.Rows); idx += 2 {
+						var unchangedToastColumns map[string]struct{}
+						if len(ev.SkippedColumns) > idx+1 {
+							unchangedToastColumns = make(map[string]struct{}, len(ev.SkippedColumns[idx+1]))
+							for _, skipped := range ev.SkippedColumns[idx+1] {
+								unchangedToastColumns[schema.Columns[skipped].Name] = struct{}{}
+							}
+						}
+
+						oldRow := ev.Rows[idx]
+						oldItems := model.NewRecordItems(len(oldRow))
+						for idx, val := range oldRow {
+							fd := getFd(idx)
+							if fd == nil {
+								continue
+							}
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+							if err != nil {
+								return err
+							}
+							oldItems.AddColumn(fd.Name, val)
+						}
+						newRow := ev.Rows[idx+1]
+						newItems := model.NewRecordItems(len(newRow))
+						for idx, val := range ev.Rows[idx+1] {
+							fd := getFd(idx)
+							if fd == nil {
+								continue
+							}
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+							if err != nil {
+								return err
+							}
+							newItems.AddColumn(fd.Name, val)
+						}
+						if sourceSchemaAsDestinationColumn {
+							newItems.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
+						}
+
+						if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
+							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
+							OldItems:              oldItems,
+							NewItems:              newItems,
+							SourceTableName:       sourceTableName,
+							DestinationTableName:  destinationTableName,
+							UnchangedToastColumns: unchangedToastColumns,
+						}); err != nil {
+							return err
+						}
+					}
+				case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
+					for idx, row := range ev.Rows {
+						var unchangedToastColumns map[string]struct{}
+						if len(ev.SkippedColumns) > idx {
+							unchangedToastColumns = make(map[string]struct{}, len(ev.SkippedColumns[idx]))
+							for _, skipped := range ev.SkippedColumns[idx] {
+								unchangedToastColumns[schema.Columns[skipped].Name] = struct{}{}
+							}
+						}
+
+						items := model.NewRecordItems(len(row))
+						for idx, val := range row {
+							fd := getFd(idx)
+							if fd == nil {
+								continue
+							}
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+							if err != nil {
+								return err
+							}
+							items.AddColumn(fd.Name, val)
+						}
+						if sourceSchemaAsDestinationColumn {
+							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
+						}
+
+						if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
+							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
+							Items:                 items,
+							SourceTableName:       sourceTableName,
+							DestinationTableName:  destinationTableName,
+							UnchangedToastColumns: unchangedToastColumns,
+						}); err != nil {
+							return err
+						}
+					}
+				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
+					return fmt.Errorf("mysql v0 replication protocol not supported")
+				}
+			}
+			if event.Header.Timestamp > 0 {
+				otelManager.Metrics.LatestConsumedLogEventGauge.Record(
+					ctx,
+					int64(event.Header.Timestamp),
+				)
+			}
+		}
+
+		return nil
+	}
+
 	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
 		var event *replication.BinlogEvent
 		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
@@ -545,247 +872,67 @@ func (c *MySqlConnector) PullRecords(
 		allFetchedBytes.Add(int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
-		case *replication.GTIDEvent:
-			if ev.ImmediateCommitTimestamp > 0 {
-				otelManager.Metrics.CommitLagGauge.Record(ctx,
-					time.Now().UTC().Sub(time.UnixMicro(int64(ev.ImmediateCommitTimestamp))).Microseconds())
+		case *replication.TransactionPayloadEvent:
+			for _, inner := range ev.Events {
+				err = processEvent(inner)
+				if err != nil {
+					return err
+				}
 			}
-		case *replication.XIDEvent:
-			if gset != nil {
-				gset = ev.GSet
-				updatedOffset = gset.String()
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			} else if event.Header.LogPos > pos.Pos {
-				pos.Pos = event.Header.LogPos
-				updatedOffset = posToOffsetText(pos)
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			}
-			inTx = false
-		case *replication.RotateEvent:
-			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
-				pos.Name = string(ev.NextLogName)
-				pos.Pos = uint32(ev.Position)
-				updatedOffset = posToOffsetText(pos)
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
-			}
-		case *replication.GenericEvent:
-			// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
-			if event.Header.EventType == replication.INCIDENT_EVENT {
-				incident, message := parseIncidentEvent(ev.Data)
-				c.logger.Error("[mysql] received binlog incident event, resync required",
-					slog.Uint64("incident", uint64(incident)), slog.String("message", message))
-				return exceptions.NewMySQLBinlogIncidentError(incident, message)
-			}
-		case *replication.QueryEvent:
-			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
-				pos.Pos = event.Header.LogPos
-				updatedOffset = posToOffsetText(pos)
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			}
-			if mysqlParser == nil {
-				mysqlParser = parser.New()
-			}
-			stmts, warns, err := mysqlParser.ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
+		default:
+			err = processEvent(event)
 			if err != nil {
-				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
-				break
-			}
-			if len(warns) > 0 {
-				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
-			}
-			for _, stmt := range stmts {
-				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
-					if err := c.processAlterTableQuery(
-						ctx, catalogPool, req, alterTableStmt, string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
-						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
-					}
-				}
-			}
-		case *replication.RowsEvent:
-			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
-			destinationTableName := req.TableNameMapping[sourceTableName].Name
-			exclusion := req.TableNameMapping[sourceTableName].Exclude
-			schema := req.TableNameSchemaMapping[destinationTableName]
-			if schema != nil {
-				// The issue is global, but only error if we see a table in the pipe
-				// Otherwise users could be confused
-				if binlogRowMetadataSupported && ev.Table.ColumnName == nil {
-					e := exceptions.NewMySQLUnsupportedBinlogRowMetadataError(string(ev.Table.Schema), string(ev.Table.Table))
-					c.logger.Error(e.Error())
-					return e
-				}
-				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
-				fetchedBytes.Add(int64(len(event.RawData)))
-				totalFetchedBytes.Add(int64(len(event.RawData)))
-				inTx = true
-				enumMap := ev.Table.EnumStrValueMap()
-				setMap := ev.Table.SetStrValueMap()
-
-				// Process TABLE_MAP_EVENT schema to detect new columns
-				var fields []*protos.FieldDescription
-				if ev.Table.ColumnName != nil {
-					var err error
-					fields, err = c.processTableMapEventSchema(
-						ctx, catalogPool, req, ev.Table,
-						sourceTableName, destinationTableName, schema, exclusion,
-					)
-					if err != nil {
-						return err
-					}
-				}
-
-				getFd := func(idx int) *protos.FieldDescription {
-					if fields != nil {
-						if idx < len(fields) {
-							return fields[idx]
-						}
-						return nil
-					}
-					if idx < len(schema.Columns) {
-						return schema.Columns[idx]
-					}
-					if !skewLossReported {
-						skewLossReported = true
-						c.logger.Warn("Column ordinal position out of range, ignoring", slog.Int("position", idx))
-					}
-					return nil
-				}
-				switch event.Header.EventType {
-				case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2, replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1:
-					for _, row := range ev.Rows {
-						items := model.NewRecordItems(len(row))
-						for idx, val := range row {
-							fd := getFd(idx)
-							if fd == nil {
-								continue
-							}
-							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
-							if err != nil {
-								return err
-							}
-							items.AddColumn(fd.Name, val)
-						}
-						if sourceSchemaAsDestinationColumn {
-							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
-						}
-
-						if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-							BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
-							Items:                items,
-							SourceTableName:      sourceTableName,
-							DestinationTableName: destinationTableName,
-						}); err != nil {
-							return err
-						}
-					}
-				case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2, replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
-					for idx := 0; idx < len(ev.Rows); idx += 2 {
-						var unchangedToastColumns map[string]struct{}
-						if len(ev.SkippedColumns) > idx+1 {
-							unchangedToastColumns = make(map[string]struct{}, len(ev.SkippedColumns[idx+1]))
-							for _, skipped := range ev.SkippedColumns[idx+1] {
-								unchangedToastColumns[schema.Columns[skipped].Name] = struct{}{}
-							}
-						}
-
-						oldRow := ev.Rows[idx]
-						oldItems := model.NewRecordItems(len(oldRow))
-						for idx, val := range oldRow {
-							fd := getFd(idx)
-							if fd == nil {
-								continue
-							}
-							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
-							if err != nil {
-								return err
-							}
-							oldItems.AddColumn(fd.Name, val)
-						}
-						newRow := ev.Rows[idx+1]
-						newItems := model.NewRecordItems(len(newRow))
-						for idx, val := range ev.Rows[idx+1] {
-							fd := getFd(idx)
-							if fd == nil {
-								continue
-							}
-							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
-							if err != nil {
-								return err
-							}
-							newItems.AddColumn(fd.Name, val)
-						}
-						if sourceSchemaAsDestinationColumn {
-							newItems.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
-						}
-
-						if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
-							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
-							OldItems:              oldItems,
-							NewItems:              newItems,
-							SourceTableName:       sourceTableName,
-							DestinationTableName:  destinationTableName,
-							UnchangedToastColumns: unchangedToastColumns,
-						}); err != nil {
-							return err
-						}
-					}
-				case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
-					for idx, row := range ev.Rows {
-						var unchangedToastColumns map[string]struct{}
-						if len(ev.SkippedColumns) > idx {
-							unchangedToastColumns = make(map[string]struct{}, len(ev.SkippedColumns[idx]))
-							for _, skipped := range ev.SkippedColumns[idx] {
-								unchangedToastColumns[schema.Columns[skipped].Name] = struct{}{}
-							}
-						}
-
-						items := model.NewRecordItems(len(row))
-						for idx, val := range row {
-							fd := getFd(idx)
-							if fd == nil {
-								continue
-							}
-							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
-							if err != nil {
-								return err
-							}
-							items.AddColumn(fd.Name, val)
-						}
-						if sourceSchemaAsDestinationColumn {
-							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
-						}
-
-						if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
-							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
-							Items:                 items,
-							SourceTableName:       sourceTableName,
-							DestinationTableName:  destinationTableName,
-							UnchangedToastColumns: unchangedToastColumns,
-						}); err != nil {
-							return err
-						}
-					}
-				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
-					return fmt.Errorf("mysql v0 replication protocol not supported")
-				}
-			}
-			if event.Header.Timestamp > 0 {
-				otelManager.Metrics.LatestConsumedLogEventGauge.Record(
-					ctx,
-					int64(event.Header.Timestamp),
-				)
+				return err
 			}
 		}
 	}
 	return nil
 }
 
+func fieldDescriptionFromMysqlColumn(
+	col *ast.ColumnDef, binlogRowMetadataSupported bool, mirrorVersion uint32,
+) (*protos.FieldDescription, error) {
+	if col.Tp == nil {
+		return nil, fmt.Errorf("mysql column %s has no type", col.Name.OrigColName())
+	}
+
+	qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	nullable := true
+	for _, option := range col.Options {
+		if option.Tp == ast.ColumnOptionNotNull {
+			nullable = false
+			break
+		}
+	}
+
+	typmod := int32(-1)
+	if qkind == types.QValueKindNumeric {
+		precision := col.Tp.GetFlen()
+		scale := col.Tp.GetDecimal()
+		// TiDB leaves bare DECIMAL aliases without flen/decimal; MySQL defaults them to DECIMAL(10,0).
+		if precision < 0 {
+			precision = 10
+		}
+		if scale < 0 {
+			scale = 0
+		}
+		typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
+	}
+
+	return &protos.FieldDescription{
+		Name:         col.Name.OrigColName(),
+		Type:         string(qkind),
+		TypeModifier: typmod,
+		Nullable:     nullable,
+	}, nil
+}
+
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
 	binlogRowMetadataSupported bool, mirrorVersion uint32,
 ) error {
@@ -813,6 +960,13 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		NullableEnabled: currentSchema != nil && currentSchema.NullableEnabled,
 	}
 
+	existingColTypes := make(map[string]string)
+	if currentSchema != nil {
+		for _, col := range currentSchema.Columns {
+			existingColTypes[col.Name] = col.Type
+		}
+	}
+
 	hasPositionShiftingDdlChanges := false
 
 	for _, spec := range stmt.Specs {
@@ -827,6 +981,22 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					continue
 				}
 
+				fd, err := fieldDescriptionFromMysqlColumn(col, binlogRowMetadataSupported, mirrorVersion)
+				if err != nil {
+					return err
+				}
+				qkind := types.QValueKind(fd.Type)
+
+				if oldType, exists := existingColTypes[col.Name.OrigColName()]; exists && oldType != string(qkind) {
+					c.logger.Warn("column type change detected via ALTER TABLE, not propagating",
+						slog.String("table", sourceTableName),
+						slog.String("column", col.Name.OrigColName()),
+						slog.String("from", oldType),
+						slog.String("to", string(qkind)))
+					c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(oldType), qkind,
+						otel_metrics.SourceEventTypeDDL)
+				}
+
 				if spec.Position != nil && spec.Position.Tp != ast.ColumnPositionNone {
 					hasPositionShiftingDdlChanges = true
 					c.logger.Warn("column added with position specifier (FIRST/AFTER)",
@@ -834,31 +1004,6 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						slog.String("tableName", sourceTableName))
 				}
 
-				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
-				if err != nil {
-					return err
-				}
-
-				nullable := true
-				for _, option := range col.Options {
-					if option.Tp == ast.ColumnOptionNotNull {
-						nullable = false
-					}
-				}
-
-				precision := col.Tp.GetFlen()
-				scale := col.Tp.GetDecimal()
-				typmod := int32(-1)
-				if scale >= 0 || precision >= 0 {
-					typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
-				}
-
-				fd := &protos.FieldDescription{
-					Name:         col.Name.OrigColName(),
-					Type:         string(qkind),
-					TypeModifier: typmod,
-					Nullable:     nullable,
-				}
 				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, fd)
 				// current assumption is the columns will be ordered like this
 				currentSchema.Columns = append(currentSchema.Columns, fd)
@@ -894,22 +1039,101 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 	return nil
 }
 
+// processRenameTableQuery detects online schema-migration tools (gh-ost,
+// pt-online-schema-change, ...). These never issue an ALTER on the tracked
+// table; instead they build a shadow/ghost copy with the new schema and
+// atomically rename it into place, e.g.:
+//
+//	RENAME TABLE users TO _users_del, _users_gho TO users
+//
+// The resulting schema change surfaces to us only later, as row-event metadata
+// (see processTableMapEventSchema). Here we just meter how often a tracked table
+// is renamed-into, so we can gauge how prevalent these tools are
+func (c *MySqlConnector) processRenameTableQuery(
+	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
+	req *model.PullRecordsRequest[model.RecordItems],
+	stmt *ast.RenameTableStmt,
+	stmtSchema string,
+) {
+	for _, t2t := range stmt.TableToTables {
+		if t2t.NewTable == nil || t2t.OldTable == nil {
+			continue
+		}
+
+		// if the rename target has no schema, fall back to the one on the event
+		newSchemaName := t2t.NewTable.Schema.String()
+		if newSchemaName == "" {
+			newSchemaName = stmtSchema
+		}
+		newTableName := newSchemaName + "." + t2t.NewTable.Name.String()
+
+		// only care about renames that land on a table we are replicating
+		if _, tracked := req.TableNameMapping[newTableName]; !tracked {
+			continue
+		}
+
+		oldTableName := t2t.OldTable.Name.String()
+		tool := classifyOnlineSchemaMigrationTool(oldTableName, t2t.NewTable.Name.String())
+
+		c.logger.Info("table atomically renamed into a tracked table, likely an online schema migration",
+			slog.String("table", newTableName),
+			slog.String("renamedFrom", oldTableName),
+			slog.String("tool", tool))
+
+		otelManager.Metrics.OnlineSchemaMigrationsCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.SourcePeerType, "mysql"),
+			attribute.String(otel_metrics.OnlineSchemaMigrationTool, tool),
+		)))
+	}
+}
+
+// classifyOnlineSchemaMigrationTool guesses which online schema-change tool
+// performed a rename, based on the shadow table's naming convention:
+//   - gh-ost ghost table:                _<table>_gho
+//   - pt-online-schema-change new table: _<table>_new
+//
+// Anything else that renames into a tracked table is bucketed as "other".
+func classifyOnlineSchemaMigrationTool(oldTable, newTable string) string {
+	switch oldTable {
+	case "_" + newTable + "_gho":
+		return OnlineSchemaMigrationToolGhOst
+	case "_" + newTable + "_new":
+		return OnlineSchemaMigrationToolPtOsc
+	default:
+		return OnlineSchemaMigrationToolOther
+	}
+}
+
 func posToOffsetText(pos mysql.Position) string {
 	return fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
 }
 
 // parseIncidentEvent extracts the incident number and human-readable message.
-// Best-effort: returns what it can if the body is truncated.
+// Best-effort: returns a diagnostic message if the body is malformed.
 func parseIncidentEvent(data []byte) (uint16, string) {
 	if len(data) < 2 {
-		return 0, ""
+		return 0, fmt.Sprintf("(payload too short: len=%d, raw=0x%s)",
+			len(data), hex.EncodeToString(data))
 	}
 	incident := binary.LittleEndian.Uint16(data[:2])
 	if len(data) < 3 {
-		return incident, ""
+		return incident, fmt.Sprintf("(payload too short: len=%d, raw=0x%s)",
+			len(data), hex.EncodeToString(data))
 	}
 	end := min(3+int(data[2]), len(data))
 	return incident, string(data[3:end])
+}
+
+func (c *MySqlConnector) recordColumnTypeChange(
+	ctx context.Context, otelManager *otel_metrics.OtelManager, from types.QValueKind, to types.QValueKind,
+	eventType string,
+) {
+	otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.TypeChangeFromKey, string(from)),
+		attribute.String(otel_metrics.TypeChangeToKey, string(to)),
+		attribute.String(otel_metrics.SourceEventTypeKey, eventType),
+	)))
 }
 
 // processTableMapEventSchema compares the TABLE_MAP_EVENT schema against the cached schema
@@ -918,6 +1142,7 @@ func parseIncidentEvent(data []byte) (uint16, string) {
 func (c *MySqlConnector) processTableMapEventSchema(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
 	tableMap *replication.TableMapEvent,
 	sourceTableName string,
@@ -945,14 +1170,26 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			continue
 		}
 
+		var charset uint16
+		if collation, ok := collationMap[idx]; ok {
+			charset = uint16(collation)
+		}
+
 		if fd, exists := existingCols[colName]; exists {
 			newFds[idx] = fd
+
+			if qkind, err := qkindFromMysqlType(
+				tableMap.ColumnType[idx], unsignedMap[idx], charset, req.InternalVersion,
+			); err == nil && shouldReportColumnTypeChange(types.QValueKind(fd.Type), qkind, c.config.Flavor) {
+				c.logger.Warn("column type change detected from TABLE_MAP_EVENT, not propagating",
+					slog.String("table", sourceTableName),
+					slog.String("column", colName),
+					slog.String("from", fd.Type),
+					slog.String("to", string(qkind)))
+				c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(fd.Type), qkind, otel_metrics.SourceEventTypeEventMetadata)
+			}
 		} else {
 			// New column detected - get type from TABLE_MAP_EVENT
-			var charset uint16
-			if collation, ok := collationMap[idx]; ok {
-				charset = uint16(collation)
-			}
 			mytype := tableMap.ColumnType[idx]
 			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset, req.InternalVersion)
 			if err != nil {

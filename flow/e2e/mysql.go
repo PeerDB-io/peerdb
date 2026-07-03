@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
@@ -12,7 +11,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -20,128 +18,46 @@ import (
 type MySqlSource struct {
 	*connmysql.MySqlConnector
 	Config *protos.MySqlConfig
+	// peer name, defaults to "mysql"
+	Name string
 }
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	myVersion := internal.MySQLTestVersion()
-	if myVersion == "" {
-		t.Error("Expected CI_MYSQL_VERSION to be set")
-	}
-	var replicationMode protos.MySqlReplicationMechanism
-	var mysqlFlavor protos.MySqlFlavor
-	switch myVersion {
-	case "mysql-gtid":
-		replicationMode = protos.MySqlReplicationMechanism_MYSQL_GTID
-		mysqlFlavor = protos.MySqlFlavor_MYSQL_MYSQL
-	case "mysql-pos":
-		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
-		mysqlFlavor = protos.MySqlFlavor_MYSQL_MYSQL
-	case "maria":
-		replicationMode = protos.MySqlReplicationMechanism_MYSQL_GTID
-		mysqlFlavor = protos.MySqlFlavor_MYSQL_MARIA
-	default:
-		t.Error("unexpected mysql version", myVersion)
-	}
-	return SetupMyCore(t, suffix, replicationMode, mysqlFlavor)
+	flavor, replication := internal.MySQLTestFlavorAndMechanism(t)
+	return setupMyConnector(t, suffix, internal.GetMySQLConfigFromEnv(flavor, replication), "")
 }
 
-func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicationMechanism, flavor protos.MySqlFlavor) (*MySqlSource, error) {
+func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	config := &protos.MySqlConfig{
-		Host:                 internal.MySQLTestHost(),
-		Port:                 internal.MySQLTestPort(),
-		User:                 "root",
-		Password:             "cipass",
-		Database:             "",
-		Setup:                nil,
-		Compression:          0,
-		DisableTls:           true,
-		Flavor:               flavor,
-		ReplicationMechanism: replication,
-	}
+	flavor, replication := internal.MariaDBTestFlavorAndMechanism(t)
+	return setupMyConnector(t, suffix, internal.GetMariaDBConfigFromEnv(flavor, replication), "mariadb")
+}
 
+func setupMyConnector(t *testing.T, suffix string, config *protos.MySqlConfig, peerName string) (*MySqlSource, error) {
+	t.Helper()
 	connector, err := connmysql.NewMySqlConnector(t.Context(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mysql connection: %w", err)
 	}
 
-	if _, err := connector.Execute(
-		t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS `e2e_test_%s`", suffix),
-	); err != nil {
-		connector.Close()
-		return nil, err
-	}
-
-	if _, err := connector.Execute(
-		t.Context(), fmt.Sprintf("CREATE DATABASE `e2e_test_%s`", suffix),
-	); err != nil {
-		connector.Close()
-		return nil, err
-	}
-
-	setupSql := []string{
-		"set global binlog_format=row",
-		"set global binlog_row_image=full",
-		"set global max_connections=500",
-	}
-
-	if cmp, err := connector.CompareServerVersion(t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata); err != nil {
-		t.Fatal(err)
-	} else if cmp >= 0 {
-		setupSql = append(setupSql, "set global binlog_row_metadata=full")
-	}
-
-	if flavor != protos.MySqlFlavor_MYSQL_MARIA {
-		rs, err := connector.Execute(t.Context(), "select @@gtid_mode")
-		if err != nil {
-			connector.Close()
-			return nil, err
-		}
-		gtidMode, err := rs.GetString(0, 0)
-		if err != nil {
-			connector.Close()
-			return nil, err
-		}
-		if replication == protos.MySqlReplicationMechanism_MYSQL_GTID {
-			if strings.EqualFold(gtidMode, "off") {
-				// The value of @@GLOBAL.GTID_MODE can only be changed one step at a time:
-				// OFF <-> OFF_PERMISSIVE <-> ON_PERMISSIVE <-> ON
-				setupSql = append(setupSql,
-					"select get_lock('settings',-1)",
-					"set global enforce_gtid_consistency=on",
-					"set global gtid_mode=off_permissive",
-					"set global gtid_mode=on_permissive",
-					"set global gtid_mode=on",
-					"do release_lock('settings')",
-				)
-			}
-		} else if replication == protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
-			if strings.EqualFold(gtidMode, "on") {
-				// The value of @@GLOBAL.GTID_MODE can only be changed one step at a time:
-				// ON <-> ON_PERMISSIVE <-> OFF_PERMISSIVE <-> OFF
-				setupSql = append(setupSql,
-					"select get_lock('settings',-1)",
-					"set global enforce_gtid_consistency=off",
-					"set global gtid_mode=on_permissive",
-					"set global gtid_mode=off_permissive",
-					"set global gtid_mode=off",
-					"do release_lock('settings')",
-				)
-			}
-		} else {
-			return nil, fmt.Errorf("unexpected replication mechanism: %v", replication)
-		}
-	}
-
-	for _, sql := range setupSql {
+	dbName := "e2e_test_" + suffix
+	for _, sql := range []string{
+		fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", dbName),
+		fmt.Sprintf("CREATE DATABASE `%s`", dbName),
+	} {
 		if _, err := connector.Execute(t.Context(), sql); err != nil {
 			connector.Close()
-			return nil, fmt.Errorf("error executing %s: %v", sql, err)
+			return nil, err
 		}
 	}
 
-	return &MySqlSource{MySqlConnector: connector, Config: config}, nil
+	if err := connmysql.ConfigureReplication(t, connector, config); err != nil {
+		connector.Close()
+		return nil, err
+	}
+
+	return &MySqlSource{MySqlConnector: connector, Config: config, Name: peerName}, nil
 }
 
 func (s *MySqlSource) Connector() connectors.Connector {
@@ -161,8 +77,12 @@ func (s *MySqlSource) Teardown(t *testing.T, ctx context.Context, suffix string)
 func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 
+	name := s.Name
+	if name == "" {
+		name = "mysql"
+	}
 	peer := &protos.Peer{
-		Name: "mysql",
+		Name: name,
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: s.Config,
