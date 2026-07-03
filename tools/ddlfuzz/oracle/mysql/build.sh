@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=/Users/ilia/Code/peerdb/tools/ddlfuzz
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC=/Users/ilia/Code/mysql-server
 BUILD="$ROOT/build/mysql-build"
 OUT="$ROOT/build/oracle-mysql"

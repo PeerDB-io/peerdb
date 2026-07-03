@@ -12,6 +12,7 @@
 #include "sql-common/my_decimal.h"
 #include "sql/check_stack.h"
 #include "sql/create_field.h"
+#include "sql/handler.h"
 #include "sql/protocol_classic.h"
 #include "sql/sql_alter.h"
 #include "sql/sql_class.h"
@@ -19,6 +20,8 @@
 #include "sql/sql_lex.h"
 #include "sql/sql_list.h"
 #include "sql/sql_parse.h"
+#include "sql/sql_plugin.h"
+#include "sql/sql_plugin_ref.h"
 #include "sql/table.h"
 #include "sql/mysqld.h"
 #include "unittest/gunit/fake_table.h"
@@ -468,6 +471,55 @@ static void append_coverage(std::string &resp) {
 extern bool initialize_minimal_chassis(SERVICE_TYPE_NO_CONST(registry) *
                                        *registry);
 
+// The gunit bootstrap loads no storage-engine plugins, so
+// global_system_variables.table_plugin / temp_table_plugin stay null. Any
+// CREATE TABLE whose ENGINE clause fails to resolve (every named engine here
+// — none are registered) takes the engine-substitution path in
+// PT_create_table_stmt::make_cmd -> HA_CREATE_INFO::set_db_type ->
+// ha_default_handlerton -> plugin_lock, which derefs the null default plugin
+// ref and SIGSEGVs (finding 64ce75c8aad4). Register a parse-only stand-in
+// engine via the same insert_hton2plugin hook the server's own unit tests use
+// (unittest/gunit/opt_costconstants-t.cc) and install it as the default:
+// ha_default_plugin then short-circuits on the THD-cached ref before ever
+// touching plugin_lock. The digest never reads the handlerton (CREATE TABLE
+// digests as kind:"other"), so a zeroed hton is safe for parse +
+// contextualize; downstream parse-time consumers are null-tolerant
+// (ha_resolve_storage_engine_name already special-cases unit tests).
+static handlerton g_stand_in_hton{};
+static st_plugin_int g_stand_in_se_plugin{};
+
+static void install_default_se_stand_in(THD *thd) {
+  if (global_system_variables.table_plugin != nullptr &&
+      global_system_variables.temp_table_plugin != nullptr) {
+    return;
+  }
+  const uint slot = static_cast<uint>(num_hton2plugins());
+  g_stand_in_hton.slot = slot;
+  g_stand_in_hton.state = SHOW_OPTION_YES;
+  g_stand_in_hton.db_type = DB_TYPE_UNKNOWN;
+  g_stand_in_se_plugin.name = {STRING_WITH_LEN("ddlfuzz_stand_in")};
+  g_stand_in_se_plugin.state = PLUGIN_IS_READY;
+  g_stand_in_se_plugin.ref_count = 1;
+  g_stand_in_se_plugin.data = &g_stand_in_hton;
+  insert_hton2plugin(slot, &g_stand_in_se_plugin);
+#ifdef NDEBUG
+  const plugin_ref ref = &g_stand_in_se_plugin;
+#else
+  static st_plugin_int *ref_holder = &g_stand_in_se_plugin;
+  const plugin_ref ref = &ref_holder;
+#endif
+  if (global_system_variables.table_plugin == nullptr)
+    global_system_variables.table_plugin = ref;
+  if (global_system_variables.temp_table_plugin == nullptr)
+    global_system_variables.temp_table_plugin = ref;
+  // thd->variables was copied from the globals at THD construction, before
+  // this ran; patch the session copies the fast path actually reads.
+  if (thd->variables.table_plugin == nullptr)
+    thd->variables.table_plugin = ref;
+  if (thd->variables.temp_table_plugin == nullptr)
+    thd->variables.temp_table_plugin = ref;
+}
+
 int main(int, char **argv) {
   const char *progname =
       (argv != nullptr && argv[0] != nullptr) ? argv[0] : "oracle-mysql";
@@ -483,6 +535,7 @@ int main(int, char **argv) {
   auto *init = new my_testing::Server_initializer();
   init->SetUp();
   THD *thd = init->thd();
+  install_default_se_stand_in(thd);
 
   thd->get_protocol_classic()->add_client_capability(CLIENT_MULTI_QUERIES);
   thd->variables.character_set_client = &my_charset_utf8mb4_0900_ai_ci;
