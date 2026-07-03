@@ -241,14 +241,21 @@ func (m *matcher) alignExpect(q *expectQueue, qe *replication.QueryEvent, exp ca
 func (m *matcher) handleQueryEvent(ctx context.Context, ev *replication.BinlogEvent, qe *replication.QueryEvent, exp caseExpect) {
 	defer func() {
 		if r := recover(); r != nil {
+			actualDelta := diffSnapshots(exp.Before, exp.After)
+			actualDelta.Renamed = inferRenames(exp.BeforeTables, exp.AfterTables)
 			recordE2EFinding(m.stateDir, m.stats, findingInput{
 				Class:       "e2e-panic",
 				Engine:      m.ec,
 				Statement:   []byte(exp.Submitted),
 				SQLMode:     exp.SQLModeRelevant,
 				SQLModeName: exp.SQLModeName,
+				Delta:       actualDelta,
+				Before:      exp.Before,
+				After:       exp.After,
 				RawEvent:    slices.Clone(ev.RawData),
 				StatusVars:  slices.Clone(qe.StatusVars),
+				Submitted:   exp.Submitted,
+				BinlogText:  string(qe.Query),
 				Meta: map[string]any{
 					"panic": fmt.Sprint(r),
 				},

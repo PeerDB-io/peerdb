@@ -37,7 +37,23 @@ PROTOCOL — follow strictly, in order:
     meta's sql_mode/engine to inspect the AST directly (delete the one-off before committing, or
     turn it into the regression test of step b1).
 
-(b) ROOT-CAUSE into EXACTLY ONE bucket, then act:
+(b) ROOT-CAUSE into EXACTLY ONE bucket, then act. If meta `lane` is `"e2e"`, classify by the
+    recorded e2e class first:
+    - PARSER BUG (`e2e-missed-column-effect`, `e2e-col-attr`, `e2e-position-missed`) →
+      our parser's extracted effect differs from the server's executed effect recorded in
+      `info_schema_delta` / snapshots. Fix in flow/connectors/mysql/, add a regression test and
+      seed. The `e2e-missed-column-effect` benign-but-schema-changed case is highest severity:
+      never make an actionable statement silently benign.
+    - HARNESS BUG (`e2e-plumbing-sig`, `e2e-sqlmode-mismatch`, `e2e-statusvar-walk`,
+      `e2e-query-rewrite`) → status-var walker / signature-plumbing issue. Fix under
+      tools/ddlfuzz/ (shim or e2e); do NOT edit the parser unless the walker feeds a genuinely
+      wrong mode that a parser change must handle.
+    - SERVER SKEW / GENUINE DIVERGENCE → live `mariadb:13.0.1-rc` differs from the `13.1`
+      behavior modeled by our side. Ledger with a MariaDB KB or server-source citation. For
+      e2e findings resolved by a parser or harness fix, `ddlfuzz replay {SIG}` must exit 0; for
+      ledgered skew it may remain 10. No live containers are required.
+
+    For non-e2e findings, use the fast-lane buckets:
     1. PARSER/LEXER BUG (our code wrong) →
        - Fix in flow/connectors/mysql/ (ddl_parser.go / ddl_lexer.go / related). Respect the
          parser's safety property (writeup): never make an actionable statement silently benign.

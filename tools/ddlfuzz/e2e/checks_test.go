@@ -3,9 +3,9 @@
 package e2e
 
 import (
-	"database/sql"
 	"testing"
 
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 	"github.com/go-mysql-org/go-mysql/replication"
 )
 
@@ -63,7 +63,7 @@ func TestCompareSemanticsOpsAndReconciliations(t *testing.T) {
 			before: base,
 			after: withRows(base, colRow{
 				Name: "n1", Ordinal: 4, ColumnType: "decimal(10,2)", IsNullable: "YES",
-				NumPrec: sql.NullInt64{Int64: 10, Valid: true}, NumScale: sql.NullInt64{Int64: 2, Valid: true},
+				NumPrec: int64Ptr(10), NumScale: int64Ptr(2),
 			}),
 			parsed: oneAlter(parsedSpec{Op: "add", Cols: []parsedCol{{Name: "n1", TypeStr: "decimal(10,2)", Precision: 10, Scale: 2}}}),
 		},
@@ -103,7 +103,11 @@ func TestCompareSemanticsOpsAndReconciliations(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			findings := compareSemantics(caseExpect{Before: tc.before, After: tc.after}, tc.parsed, diffSnapshots(tc.before, tc.after))
+			findings := e2echeck.CompareSemantics(e2echeck.SemanticInput{
+				Before: tc.before,
+				After:  tc.after,
+				Actual: diffSnapshots(tc.before, tc.after),
+			}, tc.parsed)
 			got := findingClasses(findings)
 			if !sameStrings(got, tc.want) {
 				t.Fatalf("classes = %v, want %v", got, tc.want)
@@ -118,7 +122,8 @@ func TestCompareSemanticsRenameTable(t *testing.T) {
 		AfterTables:  map[string]bool{"fixture_r": true},
 	}
 	parsed := parsedStmts{Stmts: []parsedStmt{{Kind: "rename_table", Pairs: []parsedPair{{OldTable: "fixture", NewTable: "fixture_r"}}}}}
-	if got := compareSemantics(exp, parsed, delta{}); len(got) != 0 {
+	actual := delta{Renamed: inferRenames(exp.BeforeTables, exp.AfterTables)}
+	if got := e2echeck.CompareSemantics(e2echeck.SemanticInput{Actual: actual}, parsed); len(got) != 0 {
 		t.Fatalf("rename findings = %v, want none", got)
 	}
 }
@@ -206,6 +211,10 @@ func findingClasses(in []semanticFinding) []string {
 		out[i] = f.Class
 	}
 	return out
+}
+
+func int64Ptr(v int64) *int64 {
+	return &v
 }
 
 func sameStrings(a, b []string) bool {

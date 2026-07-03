@@ -194,7 +194,7 @@ func controlDropSQL(table string) string {
 }
 
 func canonicalColumns(s snapshot) []string {
-	cols := s.columnsByOrdinal()
+	cols := columnsByOrdinal(s)
 	if len(cols) == 0 {
 		return []string{"id", "c_int", "c_dec"}
 	}

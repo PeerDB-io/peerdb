@@ -3,43 +3,18 @@
 package e2e
 
 import (
-	"database/sql"
 	"fmt"
-	"slices"
 	"strings"
 
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 	"github.com/go-mysql-org/go-mysql/client"
 )
 
-type colRow struct {
-	Name       string        `json:"name"`
-	Ordinal    int           `json:"ordinal_position"`
-	ColumnType string        `json:"column_type"`
-	IsNullable string        `json:"is_nullable"`
-	ColumnKey  string        `json:"column_key"`
-	NumPrec    sql.NullInt64 `json:"numeric_precision"`
-	NumScale   sql.NullInt64 `json:"numeric_scale"`
-}
-
-type snapshot map[string]colRow
-
-type columnChange struct {
-	Name   string `json:"name"`
-	Before colRow `json:"before"`
-	After  colRow `json:"after"`
-}
-
-type delta struct {
-	Added   []colRow        `json:"added"`
-	Dropped []colRow        `json:"dropped"`
-	Changed []columnChange  `json:"changed"`
-	Renamed []renameSummary `json:"renamed,omitempty"`
-}
-
-type renameSummary struct {
-	Old string `json:"old"`
-	New string `json:"new"`
-}
+type colRow = e2echeck.ColRow
+type snapshot = e2echeck.Snapshot
+type columnChange = e2echeck.ColumnChange
+type delta = e2echeck.Delta
+type renameSummary = e2echeck.RenameSummary
 
 func readSnapshot(conn *client.Conn, schema, table string) (snapshot, error) {
 	query := fmt.Sprintf(
@@ -128,75 +103,29 @@ func readTables(conn *client.Conn, schema string) (map[string]bool, error) {
 func nullInt(rs interface {
 	IsNull(int, int) (bool, error)
 	GetInt(int, int) (int64, error)
-}, row, col int) (sql.NullInt64, error) {
+}, row, col int) (*int64, error) {
 	isNull, err := rs.IsNull(row, col)
 	if err != nil {
-		return sql.NullInt64{}, err
+		return nil, err
 	}
 	if isNull {
-		return sql.NullInt64{}, nil
+		return nil, nil
 	}
 	v, err := rs.GetInt(row, col)
 	if err != nil {
-		return sql.NullInt64{}, err
+		return nil, err
 	}
-	return sql.NullInt64{Int64: v, Valid: true}, nil
+	return &v, nil
 }
 
 func diffSnapshots(before, after snapshot) delta {
-	var d delta
-	for name, row := range after {
-		prev, ok := before[name]
-		if !ok {
-			d.Added = append(d.Added, row)
-			continue
-		}
-		if prev.ColumnType != row.ColumnType || prev.IsNullable != row.IsNullable ||
-			prev.Ordinal != row.Ordinal || prev.ColumnKey != row.ColumnKey ||
-			prev.NumPrec != row.NumPrec || prev.NumScale != row.NumScale {
-			d.Changed = append(d.Changed, columnChange{Name: name, Before: prev, After: row})
-		}
-	}
-	for name, row := range before {
-		if _, ok := after[name]; !ok {
-			d.Dropped = append(d.Dropped, row)
-		}
-	}
-	slices.SortFunc(d.Added, func(a, b colRow) int { return a.Ordinal - b.Ordinal })
-	slices.SortFunc(d.Dropped, func(a, b colRow) int { return a.Ordinal - b.Ordinal })
-	slices.SortFunc(d.Changed, func(a, b columnChange) int { return a.After.Ordinal - b.After.Ordinal })
-	return d
+	return e2echeck.DiffSnapshots(before, after)
 }
 
-func (s snapshot) columnsByOrdinal() []string {
-	rows := make([]colRow, 0, len(s))
-	for _, row := range s {
-		rows = append(rows, row)
-	}
-	slices.SortFunc(rows, func(a, b colRow) int { return a.Ordinal - b.Ordinal })
-	out := make([]string, len(rows))
-	for i, row := range rows {
-		out[i] = row.Name
-	}
-	return out
-}
-
-func (d delta) empty() bool {
-	return len(d.Added) == 0 && len(d.Dropped) == 0 && len(d.Changed) == 0 && len(d.Renamed) == 0
+func columnsByOrdinal(s snapshot) []string {
+	return s.ColumnsByOrdinal()
 }
 
 func tableSetDelta(before, after map[string]bool) (dropped, added []string) {
-	for name := range before {
-		if !after[name] {
-			dropped = append(dropped, name)
-		}
-	}
-	for name := range after {
-		if !before[name] {
-			added = append(added, name)
-		}
-	}
-	slices.Sort(dropped)
-	slices.Sort(added)
-	return dropped, added
+	return e2echeck.TableSetDelta(before, after)
 }

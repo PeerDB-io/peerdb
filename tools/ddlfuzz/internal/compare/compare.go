@@ -14,8 +14,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
-	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/digest"
 	ddllexec "github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/exec"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/run"
@@ -305,7 +303,7 @@ func Canonicalize(sig string, side Side) (string, error) {
 		}
 		for i := range flattened {
 			for j := range flattened[i].cols {
-				if side == SideOur && flattened[i].cols[j].kind == string(types.QValueKindNumeric) {
+				if side == SideOur && flattened[i].cols[j].kind == "numeric" {
 					if flattened[i].cols[j].prec == -1 {
 						flattened[i].cols[j].prec = 10
 					}
@@ -571,13 +569,9 @@ func oracleColSig(c digest.Col) string {
 	var sb strings.Builder
 	sb.WriteString(sigIdent(c.Name))
 	sb.WriteByte('=')
-	kind, err := connmysql.QkindFromMysqlColumnType(c.TypeStr, true, 0)
-	if err != nil {
-		sb.WriteString("ERR")
-	} else {
-		sb.WriteString(string(kind))
-	}
-	if kind == types.QValueKindNumeric {
+	kind := qkindString(c.TypeStr)
+	sb.WriteString(kind)
+	if kind == "numeric" {
 		p, s := -1, -1
 		if len(c.ParamsWritten) > 0 {
 			p = c.ParamsWritten[0]
@@ -591,6 +585,66 @@ func oracleColSig(c digest.Col) string {
 		sb.WriteString(" nn")
 	}
 	return sb.String()
+}
+
+func qkindString(typeStr string) string {
+	ct, _ := strings.CutSuffix(typeStr, " /* mariadb-5.3 */")
+	ct, _ = strings.CutSuffix(ct, " zerofill")
+	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
+	ct, param, _ := strings.Cut(ct, "(")
+	switch strings.ToLower(ct) {
+	case "json":
+		return "json"
+	case "char", "varchar", "text", "set", "tinytext", "mediumtext", "longtext":
+		return "string"
+	case "enum":
+		return "enum"
+	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob":
+		return "bytes"
+	case "date":
+		return "date"
+	case "datetime", "timestamp":
+		return "timestamp"
+	case "time":
+		return "time"
+	case "decimal", "numeric":
+		return "numeric"
+	case "float":
+		return "float32"
+	case "double":
+		return "float64"
+	case "tinyint":
+		if strings.HasPrefix(param, "1)") {
+			return "bool"
+		}
+		if isUnsigned {
+			return "uint8"
+		}
+		return "int8"
+	case "smallint", "year":
+		if isUnsigned {
+			return "uint16"
+		}
+		return "int16"
+	case "mediumint", "int":
+		if isUnsigned {
+			return "uint32"
+		}
+		return "int32"
+	case "bit":
+		return "uint64"
+	case "bigint":
+		if isUnsigned {
+			return "uint64"
+		}
+		return "int64"
+	case "vector":
+		return "array_float32"
+	case "geometry", "point", "polygon", "linestring", "multipoint", "multilinestring", "multipolygon", "geomcollection", "geometrycollection":
+		return "geometry"
+	default:
+		return "ERR"
+	}
 }
 
 func sigQual(schema, table string) string {
@@ -1096,7 +1150,7 @@ func renderCols(cols []sigCol) string {
 	parts := make([]string, 0, len(cols))
 	for _, c := range cols {
 		s := sigIdent(c.name) + "=" + c.kind
-		if c.kind == string(types.QValueKindNumeric) {
+		if c.kind == "numeric" {
 			s += fmt.Sprintf("(%d,%d)", c.prec, c.scale)
 		}
 		if c.notNull {
