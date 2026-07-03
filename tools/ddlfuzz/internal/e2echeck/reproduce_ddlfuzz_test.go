@@ -106,6 +106,26 @@ func TestReproduceByClass(t *testing.T) {
 				validStatus),
 		},
 		{
+			name: "mariadb reversed skipped comment rewrite reconciled",
+			in: func() Input {
+				in := baseInput(ClassQueryRewrite,
+					"ALTER TABLE fixture ADD n1 INT /*!!11050 NOT NULL*/",
+					"ALTER TABLE fixture ADD n1 INT /*  11050 NOT NULL*/",
+					validStatus)
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				return in
+			}(),
+		},
+		{
+			name: "mysql reversed skipped comment rewrite still diverges",
+			in: baseInput(ClassQueryRewrite,
+				"ALTER TABLE fixture ADD n1 INT /*!!11050 NOT NULL*/",
+				"ALTER TABLE fixture ADD n1 INT /*  11050 NOT NULL*/",
+				validStatus),
+			wantClass: ClassQueryRewrite,
+		},
+		{
 			name: "panic class reconciled",
 			in: baseInput(ClassPanic,
 				"ALTER TABLE t ADD COLUMN n1 INT",
