@@ -42,6 +42,10 @@ func TestDDLLexerExecCommentDigitRules(t *testing.T) {
 		{name: "bang four digits are code", query: "ALTER TABLE t ADD c VARCHAR(/*!2000*/)", wantType: "varchar(2000)"},
 		{name: "bang five digit version prefix skipped", query: "ALTER TABLE t ADD c VARCHAR(/*!80000 30*/)", wantType: "varchar(30)"},
 		{
+			name: "mariadb bang pre 5.7 prefix executes", isMariaDB: true,
+			query: "ALTER TABLE t ADD c VARCHAR(/*!50699 30*/)", wantType: "varchar(30)",
+		},
+		{
 			name: "bang six digit version prefix skipped", isMariaDB: true,
 			query: "ALTER TABLE t ADD c VARCHAR(/*!100000 40*/)", wantType: "varchar(40)",
 		},
@@ -95,6 +99,10 @@ func TestDDLLexerExecCommentGating(t *testing.T) {
 		// 5 digits not followed by a space: warning but the version is honored
 		// the engine may warn, but the version prefix is still honored
 		{name: "five digits without space still a version prefix", query: "ALTER TABLE t ADD c INT /*!80000NOT NULL*/", wantNN: true},
+		{
+			name: "mariadb mysql 5.7 to 9.x version gate is plain comment", isMariaDB: true,
+			query: "ALTER TABLE t ADD c INT /*!80000NOT NULL*/", wantNN: false,
+		},
 		// MariaDB has no whitespace-after-digits requirement at all
 		{name: "mariadb six digits without space", query: "ALTER TABLE t ADD c INT /*M!100000NOT NULL*/", isMariaDB: true, wantNN: true},
 		// surviving /*!! digits mean the source skipped the body (executed ones
@@ -124,6 +132,9 @@ func TestDDLLexerExecCommentGating(t *testing.T) {
 	// mysqldump wraps index toggles in executable comments; the body lexes as
 	// code and parses into a benign empty-spec alter
 	alter := ddlParseAlter(t, "/*!40000 ALTER TABLE `t` DISABLE KEYS */", 0, false)
+	require.Empty(t, alter.Specs)
+
+	alter = ddlParseAlter(t, "ALTER TABLE fixture /*!80000 ADD COLUMN n1 INT */", 0, true)
 	require.Empty(t, alter.Specs)
 }
 

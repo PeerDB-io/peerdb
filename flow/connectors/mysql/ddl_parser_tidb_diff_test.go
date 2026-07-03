@@ -413,6 +413,10 @@ var tidbDiffModeCases = []tidbDiffModeCase{
 		want: "alter t{}", note: "mysqldump header executes on MariaDB too (40000 is below its skip range)",
 	},
 	{
+		sql: "ALTER TABLE fixture /*!80000 ADD COLUMN n1 INT */", isMariaDB: true,
+		want: "alter fixture{}", note: "MariaDB skips MySQL-style executable comments in the 50700..99999 range",
+	},
+	{
 		sql:  "ALTER TABLE t /*!80000 ADD COLUMN c INT, */ DROP COLUMN d",
 		want: "alter t{col c=int32; drop d}", note: "versioned comment body lexes as code mid-statement",
 	},

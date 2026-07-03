@@ -1,0 +1,1 @@
+ALTER TABLE fixture /*!80000 ADD COLUMN n1 INT */

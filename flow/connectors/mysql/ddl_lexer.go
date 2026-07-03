@@ -138,21 +138,20 @@ func (lx *ddlLexer) skipLineComment() {
 }
 
 // scanComment handles "/*" openers. Executable comments (/*! on both engines,
-// /*M! on MariaDB only) have their bodies lexed as code: source servers patch
-// version comments they skipped into plain comments before binlogging, so any
-// executable comment that survives into the binlog was executed. A version
-// prefix is skipped before lexing the body: MariaDB accepts 5 or 6 digits, while
-// MySQL accepts a sixth digit only when it is followed by whitespace. Fewer
-// digits mean the body (digits included) is code. MariaDB /*!!NNNNN reverses the
-// gate: surviving digits mean the source skipped it, while a digitless /*!! body
-// was executed.
+// /*M! on MariaDB only) have their bodies lexed as code when the server would
+// execute them. A version prefix is skipped before lexing the body: MariaDB
+// accepts 5 or 6 digits, while MySQL accepts a sixth digit only when it is
+// followed by whitespace. Fewer digits mean the body (digits included) is code.
+// MariaDB skips MySQL-style 5.7..9.x gates (50700..99999) but not /*M! gates.
+// MariaDB /*!!NNNNN reverses the gate: surviving digits mean the source skipped
+// it, while a digitless /*!! body was executed.
 func (lx *ddlLexer) scanComment() {
 	n := len(lx.s)
 	body := lx.pos + 2
 	switch {
 	case body < n && lx.s[body] == '!':
 		if lx.isMariaDB && body+1 < n && lx.s[body+1] == '!' {
-			if ddlVersionPrefixLen(lx.s, body+2, true) > 0 {
+			if l, _ := ddlVersionPrefix(lx.s, body+2, true); l > 0 {
 				lx.skipPlainComment()
 				return
 			}
@@ -160,10 +159,16 @@ func (lx *ddlLexer) scanComment() {
 			lx.execComment++
 			return
 		}
-		lx.pos = body + 1 + ddlVersionPrefixLen(lx.s, body+1, lx.isMariaDB)
+		versionLen, version := ddlVersionPrefix(lx.s, body+1, lx.isMariaDB)
+		if lx.isMariaDB && version >= 50700 && version <= 99999 {
+			lx.skipPlainComment()
+			return
+		}
+		lx.pos = body + 1 + versionLen
 		lx.execComment++
 	case lx.isMariaDB && body+1 < n && lx.s[body] == 'M' && lx.s[body+1] == '!':
-		lx.pos = body + 2 + ddlVersionPrefixLen(lx.s, body+2, true)
+		versionLen, _ := ddlVersionPrefix(lx.s, body+2, true)
+		lx.pos = body + 2 + versionLen
 		lx.execComment++
 	default:
 		lx.skipPlainComment()
@@ -178,19 +183,23 @@ func isDDLDigitAt(s string, pos int) bool {
 	return pos < len(s) && s[pos] >= '0' && s[pos] <= '9'
 }
 
-func ddlVersionPrefixLen(s string, pos int, isMariaDB bool) int {
+func ddlVersionPrefix(s string, pos int, isMariaDB bool) (int, int) {
 	for i := range 5 {
 		if !isDDLDigitAt(s, pos+i) {
-			return 0
+			return 0, 0
 		}
 	}
+	version := 0
+	for i := range 5 {
+		version = version*10 + int(s[pos+i]-'0')
+	}
 	if isMariaDB && isDDLDigitAt(s, pos+5) {
-		return 6
+		return 6, version*10 + int(s[pos+5]-'0')
 	}
 	if !isMariaDB && isDDLDigitAt(s, pos+5) && pos+6 < len(s) && isDDLVersionSpace(s[pos+6]) {
-		return 6
+		return 6, version*10 + int(s[pos+5]-'0')
 	}
-	return 5
+	return 5, version
 }
 
 // skipPlainComment consumes /* ... */ to the first */ — quote-unaware, no
