@@ -241,11 +241,11 @@ static void emit_alter(std::string &out, THD *thd) {
   emit_table_name(out, tr);
   if (ai != nullptr && (ai->flags & Alter_info::ALTER_RENAME) != 0 &&
       ai->new_table_name.str != nullptr) {
-    const std::string old_schema = table_schema(tr);
+    // An unqualified rename target copies the session db (our sentinel) into
+    // new_db_name; map it back to "" so the schema stays as written, like
+    // table_schema does for the table itself.
     std::string new_schema = cstring_to_string(ai->new_db_name);
-    if (old_schema.empty() && new_schema == cstring_to_string(thd->db()))
-      new_schema.clear();
-    if (new_schema == old_schema) new_schema.clear();
+    if (new_schema == cstring_to_string(thd->db())) new_schema.clear();
     out += ",\"new_schema\":";
     json_escape(out, new_schema);
     out += ",\"new_table\":";
@@ -559,7 +559,11 @@ int main(int, char **argv) {
   thd->variables.character_set_results = &my_charset_utf8mb4_0900_ai_ci;
   thd->variables.collation_connection = &my_charset_utf8mb4_0900_ai_ci;
   thd->update_charset();
-  LEX_CSTRING db{"db", 2};
+  // Sentinel session db so an unqualified rename target (which copies the
+  // session db) can be told apart from one written as a real schema name;
+  // mirrors kSentinelDb in the MariaDB oracle.
+  static const char kSentinelDb[] = "peerdb_ddlfuzz_nodb";
+  LEX_CSTRING db{kSentinelDb, sizeof(kSentinelDb) - 1};
   thd->reset_db(db);
 
   std::vector<uint8_t> body;

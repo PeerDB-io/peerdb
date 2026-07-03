@@ -111,12 +111,50 @@ func TestDiffReconciliationRules(t *testing.T) {
 			}}},
 		},
 		{
-			name: "alter table rename with specs remains alter",
-			our:  "alter t{col c=int32; ren_table t>t2}",
+			name: "alter table rename keeps schema as written",
+			our:  "rename d1.t>d1.t2",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "alter_table", Schema: "d1", Table: "t", NewSchema: "d1", NewTable: "t2",
+			}}},
+		},
+		{
+			name: "alter table cross schema rename",
+			our:  "rename d1.t>d2.t2",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "alter_table", Schema: "d1", Table: "t", NewSchema: "d2", NewTable: "t2",
+			}}},
+		},
+		{
+			name: "alter table rename to same name is a noop",
+			our:  "alter t{}",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "alter_table", Table: "t", NewTable: "t",
+			}}},
+		},
+		{
+			name: "alter table rename with specs splits into alter and rename",
+			our:  "alter t{col c=int32} | rename t>t2",
 			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
 				Kind: "alter_table", Table: "t", NewTable: "t2",
 				Specs: []digest.Spec{{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "int"}}}},
 			}}},
+		},
+		{
+			name: "alter table rename does not mask spec mismatch",
+			our:  "alter t{col c=int64} | rename t>t2",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "alter_table", Table: "t", NewTable: "t2",
+				Specs: []digest.Spec{{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "int"}}}},
+			}}},
+			want: "sig_mismatch",
+		},
+		{
+			name: "alter table rename does not mask target mismatch",
+			our:  "rename t>t3",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "alter_table", Table: "t", NewTable: "t2",
+			}}},
+			want: "sig_mismatch",
 		},
 		{
 			name: "mismatch shape",
