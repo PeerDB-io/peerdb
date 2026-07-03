@@ -121,8 +121,10 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "DROP SYSTEM VERSIONING", maria: true},
 		{alter: "ADD VECTOR INDEX v (emb) M=6 DISTANCE=cosine", maria: true},
 		{alter: "ADD VECTOR KEY vk (emb)", maria: true},
-		// ambiguity #3/#5: PERIOD/VECTOR after bare ADD are column names when the
-		// second word is not FOR/IF or INDEX/KEY/IF (valid MySQL; MariaDB <= 11.6 for vector)
+		{alter: "ADD VECTOR v (emb)", maria: true},
+		{alter: "ADD VECTOR RAW(N6)", maria: true},
+		// ambiguity #3/#5: PERIOD/VECTOR after bare ADD are column names unless
+		// they start a period or vector-index form.
 		{alter: "ADD period date", want: ddlAltAdd(ddlAltCol("period", "date"))},
 		{alter: "ADD period TIMESTAMP NOT NULL", want: ddlAltAdd(ddlAltColNN("period", "timestamp"))},
 		{alter: "ADD vector INT", want: ddlAltAdd(ddlAltCol("vector", "int"))},
@@ -197,6 +199,10 @@ func TestDDLAlterMixedSpecOrdering(t *testing.T) {
 		{alter: "UNION=(t1,t2), ADD COLUMN c INT", want: ddlAltAdd(ddlAltCol("c", "int"))},
 		{
 			alter: "ADD VECTOR INDEX v (emb) M=6 DISTANCE=cosine, ADD COLUMN c INT", maria: true,
+			want: ddlAltAdd(ddlAltCol("c", "int")),
+		},
+		{
+			alter: "ADD VECTOR v (emb), ADD COLUMN c INT", maria: true,
 			want: ddlAltAdd(ddlAltCol("c", "int")),
 		},
 		{

@@ -377,11 +377,12 @@ func (p *ddlParser) parseAddSpec() (*ddlAlterSpec, error) {
 					return nil, p.skipSpecRemainder()
 				}
 			case "VECTOR":
-				// MariaDB's key_def makes INDEX/KEY optional after VECTOR
-				// (sql_yacc.yy spatial_or_vector opt_key_or_index), so
-				// ADD VECTOR(v) is a vector-index add there, not a column
+				// MariaDB's key_def makes INDEX/KEY and the index name optional
+				// after VECTOR (sql_yacc.yy spatial_or_vector opt_key_or_index
+				// opt_if_not_exists opt_ident), so ADD VECTOR v(c) is a
+				// vector-index add there, not a column.
 				if ddlWordIs(p.peek(1), "INDEX") || ddlWordIs(p.peek(1), "KEY") || ddlWordIs(p.peek(1), "IF") ||
-					(p.lx.isMariaDB && p.peekPunct(1, '(')) {
+					p.looksLikeMariaVectorIndexAdd() {
 					return nil, p.skipSpecRemainder()
 				}
 			}
@@ -396,6 +397,27 @@ func (p *ddlParser) parseAddSpec() (*ddlAlterSpec, error) {
 		return nil, err
 	}
 	return spec, nil
+}
+
+func (p *ddlParser) looksLikeMariaVectorIndexAdd() bool {
+	if !p.lx.isMariaDB {
+		return false
+	}
+	i := 1 // token after VECTOR
+	if ddlWordIs(p.peek(i), "INDEX") || ddlWordIs(p.peek(i), "KEY") {
+		i++
+	}
+	if ddlWordIs(p.peek(i), "IF") && ddlWordIs(p.peek(i+1), "NOT") && ddlWordIs(p.peek(i+2), "EXISTS") {
+		i += 3
+	}
+	if p.peekPunct(i, '(') {
+		return true
+	}
+	t := p.peek(i)
+	if t.kind == tokWord || t.kind == tokQuotedIdent {
+		return p.peekPunct(i+1, '(')
+	}
+	return false
 }
 
 func (p *ddlParser) parseDropSpec() (*ddlAlterSpec, error) {

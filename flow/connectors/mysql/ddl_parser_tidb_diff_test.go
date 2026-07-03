@@ -537,6 +537,14 @@ var tidbDiffModeCases = []tidbDiffModeCase{
 		want: "alter t{}", note: "vector index add is benign",
 	},
 	{
+		sql: "/*!ALTER TABLE t ADD VECTOR  v (emb) */", isMariaDB: true,
+		want: "alter t{}", note: "vector index with optional name inside executable comment",
+	},
+	{
+		sql: "ALTER TABLE t ADD VECTOR RAW(N6)", sqlMode: sqlModeOracle, isMariaDB: true,
+		want: "alter t{}", note: "vector index with optional INDEX keyword omitted",
+	},
+	{
 		sql: "SET STATEMENT a=CAST(1 AS CHAR) FOR ALTER TABLE t DROP COLUMN c", isMariaDB: true,
 		want: "alter t{drop c}", note: "SET STATEMENT value is a full expression",
 	},
