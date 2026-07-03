@@ -74,13 +74,6 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		// ambiguity #8: a non-keyword after ALTER is a column name; still benign (no type change)
 		{alter: "ALTER period SET DEFAULT 5", maria: true},
 		// RENAME inside the list
-		{alter: "RENAME TO t2"},
-		{alter: "RENAME AS t2"},
-		{alter: "RENAME = t2"},
-		{alter: "RENAME t2"},
-		{alter: "RENAME db2.t2"},
-		// ambiguity #9: bare RENAME <word> is a table rename, consumed and dropped
-		{alter: "RENAME period"},
 		{alter: "RENAME INDEX ix TO iy"},
 		{alter: "RENAME KEY kx TO ky"},
 		{alter: "RENAME INDEX IF EXISTS ix TO iy", maria: true},
@@ -353,11 +346,56 @@ func TestDDLAlterHeadModifiers(t *testing.T) {
 }
 
 func TestDDLAlterRenameTableForms(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		want  ddlRenamePair
+	}{
+		{
+			query: "ALTER TABLE t RENAME TO t2",
+			want:  ddlRenamePair{OldTable: "t", NewTable: "t2"},
+		},
+		{
+			query: "ALTER TABLE db.t RENAME AS db2.t2",
+			want:  ddlRenamePair{OldSchema: "db", OldTable: "t", NewSchema: "db2", NewTable: "t2"},
+		},
+		{
+			query: "ALTER TABLE t RENAME = t2",
+			want:  ddlRenamePair{OldTable: "t", NewTable: "t2"},
+		},
+		{
+			query: "ALTER TABLE t RENAME t2",
+			want:  ddlRenamePair{OldTable: "t", NewTable: "t2"},
+		},
+		{
+			query: "ALTER TABLE t RENAME period",
+			want:  ddlRenamePair{OldTable: "t", NewTable: "period"},
+		},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			stmts, err := parseQueryEvent([]byte(tc.query), 0, false)
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+			rename, ok := stmts[0].(*ddlRenameTable)
+			require.True(t, ok, "expected *ddlRenameTable, got %T", stmts[0])
+			require.Equal(t, []ddlRenamePair{tc.want}, rename.Pairs)
+		})
+	}
+
+	stmts, err := parseQueryEvent([]byte("ALTER TABLE t ADD COLUMN c INT, RENAME TO t2"), 0, false)
+	require.NoError(t, err)
+	require.Len(t, stmts, 2)
+	alter, ok := stmts[0].(*ddlAlterTable)
+	require.True(t, ok, "expected *ddlAlterTable, got %T", stmts[0])
+	require.Equal(t, ddlAltAdd(ddlAltCol("c", "int")), alter.Specs)
+	rename, ok := stmts[1].(*ddlRenameTable)
+	require.True(t, ok, "expected *ddlRenameTable, got %T", stmts[1])
+	require.Equal(t, []ddlRenamePair{{OldTable: "t", NewTable: "t2"}}, rename.Pairs)
+
 	// RENAME TABLES is valid on MySQL too.
-	stmts, err := parseQueryEvent([]byte("RENAME TABLES a TO b, c TO d"), 0, false)
+	stmts, err = parseQueryEvent([]byte("RENAME TABLES a TO b, c TO d"), 0, false)
 	require.NoError(t, err)
 	require.Len(t, stmts, 1)
-	rename := stmts[0].(*ddlRenameTable)
+	rename = stmts[0].(*ddlRenameTable)
 	require.Equal(t, []ddlRenamePair{{OldTable: "a", NewTable: "b"}, {OldTable: "c", NewTable: "d"}}, rename.Pairs)
 
 	// MariaDB: statement-level IF EXISTS plus per-pair WAIT/NOWAIT after the old name

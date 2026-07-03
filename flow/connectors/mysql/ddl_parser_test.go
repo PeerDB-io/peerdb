@@ -139,10 +139,10 @@ func TestDDLBenignClassification(t *testing.T) {
 			want:  false,
 		},
 		{name: "alter table rename column is reported", query: "ALTER TABLE t RENAME COLUMN a TO b", want: false},
-		// CHANGED expectation vs the old fallback classifier: ALTER TABLE ... RENAME TO
-		// now parses into an empty-spec ddlAlterTable, matching production behavior on
-		// the TiDB parsed path, which never acted on alter-table renames.
-		{name: "alter table rename to table is benign", query: "ALTER TABLE t RENAME TO t2", want: true},
+		// CHANGED expectation vs the old fallback classifier and TiDB parsed path:
+		// ALTER TABLE ... RENAME is a table rename and must be reported.
+		{name: "alter table rename to table is reported", query: "ALTER TABLE t RENAME TO t2", want: false},
+		{name: "alter table bare rename table is reported", query: "ALTER TABLE t RENAME t2", want: false},
 		// --- NOT benign: the only statements the handler acts on must still be reported ---
 		{
 			name:  "alter table modify is reported",

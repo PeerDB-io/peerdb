@@ -77,11 +77,11 @@ func parseQueryEvent(query []byte, sqlMode uint64, isMariaDB bool) ([]ddlStateme
 			if !ddlWordIs(p.peek(i), "TABLE") {
 				return stmts, nil
 			}
-			stmt, err := p.parseAlterTable()
+			parsed, err := p.parseAlterTable()
 			if err != nil {
 				return nil, fmt.Errorf("ALTER TABLE parse failed: %w", err)
 			}
-			stmts = append(stmts, stmt)
+			stmts = append(stmts, parsed...)
 		case ddlWordIs(t, "RENAME"):
 			// RENAME TABLES is valid (undocumented) MySQL too, not just MariaDB
 			if !ddlWordIs(p.peek(1), "TABLE") && !ddlWordIs(p.peek(1), "TABLES") {
@@ -295,7 +295,7 @@ func (p *ddlParser) skipSetStatementVars() bool {
 	}
 }
 
-func (p *ddlParser) parseAlterTable() (*ddlAlterTable, error) {
+func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 	p.next() // ALTER
 	for ddlWordIs(p.peek(0), "ONLINE") || ddlWordIs(p.peek(0), "IGNORE") {
 		p.next()
@@ -308,33 +308,49 @@ func (p *ddlParser) parseAlterTable() (*ddlAlterTable, error) {
 	}
 	p.skipLockWait()
 	stmt := &ddlAlterTable{Schema: schema, Table: table}
+	rename := &ddlRenameTable{}
 	for {
 		t := p.peek(0)
 		if t.kind == tokEOF || (t.kind == tokPunct && t.text == ";") {
-			return stmt, nil
+			return ddlAlterTableStatements(stmt, rename), nil
 		}
 		if t.kind == tokErr {
 			return nil, p.lexErr
 		}
-		spec, err := p.parseAlterSpec()
+		spec, pair, err := p.parseAlterSpec(schema, table)
 		if err != nil {
 			return nil, err
 		}
 		if spec != nil {
 			stmt.Specs = append(stmt.Specs, *spec)
 		}
+		if pair != nil {
+			rename.Pairs = append(rename.Pairs, *pair)
+		}
 		t = p.peek(0)
 		switch {
 		case t.kind == tokPunct && t.text == ",":
 			p.next()
 		case t.kind == tokEOF || (t.kind == tokPunct && t.text == ";"):
-			return stmt, nil
+			return ddlAlterTableStatements(stmt, rename), nil
 		case t.kind == tokErr:
 			return nil, p.lexErr
 		default:
 			return nil, fmt.Errorf("unexpected token %q after ALTER TABLE spec at byte %d", t.text, t.pos)
 		}
 	}
+}
+
+func ddlAlterTableStatements(alter *ddlAlterTable, rename *ddlRenameTable) []ddlStatement {
+	if len(rename.Pairs) == 0 {
+		return []ddlStatement{alter}
+	}
+	out := make([]ddlStatement, 0, 2)
+	if len(alter.Specs) > 0 {
+		out = append(out, alter)
+	}
+	out = append(out, rename)
+	return out
 }
 
 func ddlAlterSpecsHaveImplicitPositionShift(specs []ddlAlterSpec) bool {
@@ -380,29 +396,33 @@ func ddlAlterSpecsHaveImplicitPositionShift(specs []ddlAlterSpec) bool {
 // specs are returned; everything else — index/constraint/option/partition specs,
 // ALGORITHM/LOCK/FORCE/ORDER BY, CONVERT TO, table options — is consumed
 // (balanced parens, quote-aware) and dropped by returning nil.
-func (p *ddlParser) parseAlterSpec() (*ddlAlterSpec, error) {
+func (p *ddlParser) parseAlterSpec(tableSchema, table string) (*ddlAlterSpec, *ddlRenamePair, error) {
 	t := p.peek(0)
 	if t.kind != tokWord {
-		return nil, p.skipSpecRemainder()
+		return nil, nil, p.skipSpecRemainder()
 	}
 	switch {
 	case ddlWordIs(t, "ADD"):
 		p.next()
-		return p.parseAddSpec()
+		spec, err := p.parseAddSpec()
+		return spec, nil, err
 	case ddlWordIs(t, "DROP"):
 		p.next()
-		return p.parseDropSpec()
+		spec, err := p.parseDropSpec()
+		return spec, nil, err
 	case ddlWordIs(t, "MODIFY"):
 		p.next()
-		return p.parseModifySpec()
+		spec, err := p.parseModifySpec()
+		return spec, nil, err
 	case ddlWordIs(t, "CHANGE"):
 		p.next()
-		return p.parseChangeSpec()
+		spec, err := p.parseChangeSpec()
+		return spec, nil, err
 	case ddlWordIs(t, "RENAME"):
 		p.next()
-		return p.parseRenameSpec()
+		return p.parseRenameSpec(tableSchema, table)
 	default:
-		return nil, p.skipSpecRemainder()
+		return nil, nil, p.skipSpecRemainder()
 	}
 }
 
@@ -546,7 +566,7 @@ func (p *ddlParser) parseChangeSpec() (*ddlAlterSpec, error) {
 	return spec, nil
 }
 
-func (p *ddlParser) parseRenameSpec() (*ddlAlterSpec, error) {
+func (p *ddlParser) parseRenameSpec(tableSchema, table string) (*ddlAlterSpec, *ddlRenamePair, error) {
 	t := p.peek(0)
 	switch {
 	case ddlWordIs(t, "COLUMN"):
@@ -554,28 +574,36 @@ func (p *ddlParser) parseRenameSpec() (*ddlAlterSpec, error) {
 		p.consumeWords("IF", "EXISTS")
 		oldName, err := p.expectIdent("column name")
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !p.consumeWords("TO") {
 			at := p.peek(0)
 			if at.kind == tokErr {
-				return nil, p.lexErr
+				return nil, nil, p.lexErr
 			}
-			return nil, fmt.Errorf("expected TO in RENAME COLUMN at byte %d", at.pos)
+			return nil, nil, fmt.Errorf("expected TO in RENAME COLUMN at byte %d", at.pos)
 		}
 		newName, err := p.expectIdent("new column name")
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return &ddlAlterSpec{OldColumnName: oldName, NewColumnName: newName}, nil
+		return &ddlAlterSpec{OldColumnName: oldName, NewColumnName: newName}, nil, nil
 	case ddlWordIs(t, "INDEX") || ddlWordIs(t, "KEY"):
-		return nil, p.skipSpecRemainder()
+		return nil, nil, p.skipSpecRemainder()
 	default:
-		// RENAME [TO|AS|=] <table> — and bare RENAME <word> for any other word is
-		// a table rename too. Consumed and dropped: the TiDB path never acted on
-		// alter-table renames either.
-		return nil, p.skipSpecRemainder()
+		newSchema, newTable, err := p.parseAlterTableRenameTarget()
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, &ddlRenamePair{OldSchema: tableSchema, OldTable: table, NewSchema: newSchema, NewTable: newTable}, nil
 	}
+}
+
+func (p *ddlParser) parseAlterTableRenameTarget() (string, string, error) {
+	if ddlWordIs(p.peek(0), "TO") || ddlWordIs(p.peek(0), "AS") || p.peekPunct(0, '=') {
+		p.next()
+	}
+	return p.parseTableIdent()
 }
 
 // skipSpecRemainder consumes the rest of the current alter spec — until a ',' or

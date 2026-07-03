@@ -233,6 +233,9 @@ var tidbDiffOverrides = map[string]string{
 	// version gate passes.
 	"ALTER TABLE t /*M! MODIFY c INT */":           "alter t{col c=int32}",
 	"ALTER TABLE t /*M!100500 ADD COLUMN c INT */": "alter t{col c=int32}",
+	// ALTER TABLE ... RENAME is a table rename; the TiDB path ignored it as an
+	// empty ALTER TABLE.
+	"ALTER TABLE t RENAME = t2": "rename t>t2",
 }
 
 // tidbDiffFailWant holds the expected signature for every corpus statement the

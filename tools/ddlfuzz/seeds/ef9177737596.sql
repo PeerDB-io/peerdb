@@ -1,0 +1,1 @@
+ALTER TABLE fixture MODIFY COLUMN c_bit tinyint(1) VISIBLE, DROP COLUMN `n3`, CHANGE COLUMN c_enum n3 int NULL

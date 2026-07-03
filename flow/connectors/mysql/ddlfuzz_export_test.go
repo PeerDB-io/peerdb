@@ -73,6 +73,24 @@ func TestDDLFuzzParseForE2EImplicitPositionShift(t *testing.T) {
 	}
 }
 
+func TestDDLFuzzParseForE2EAlterTableRename(t *testing.T) {
+	data, err := FuzzParseForE2E([]byte("ALTER TABLE fixture RENAME t2"), 262191, false)
+	if err != nil {
+		t.Fatalf("FuzzParseForE2E error: %v", err)
+	}
+	var got e2eStmts
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal e2e stmts: %v", err)
+	}
+	if len(got.Stmts) != 1 || got.Stmts[0].Kind != "rename_table" || len(got.Stmts[0].Pairs) != 1 {
+		t.Fatalf("expected one rename_table statement: %s", data)
+	}
+	pair := got.Stmts[0].Pairs[0]
+	if pair.OldTable != "fixture" || pair.NewTable != "t2" {
+		t.Fatalf("unexpected rename pair: %#v", pair)
+	}
+}
+
 func TestDDLFuzzSignatureEscapesDelimiterIdentifiers(t *testing.T) {
 	got, err := FuzzDDLSignature(
 		[]byte("ALTER TABLE `mt5_managers` ADD COLUMN (`(` INT UNSIGNED NOT NULL DEFAULT 0,`B` INT UNSIGNED NOT NULL DEFAULT 0)"),
