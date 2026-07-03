@@ -251,12 +251,6 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 			js json NOT NULL
 		)`, srcFullName)))
 
-	// Values chosen to exercise the representation differences DBI-823 is about. The key one
-	// is object key order: MySQL stores keys in (length-then-byte) order while the old CDC
-	// path serialized via Go maps (lexicographic order), so {"z":1,"aa":2} diverged between
-	// snapshot and CDC before the fix. We don't hardcode MySQL's own rendering here because
-	// its number normalization is version dependent (e.g. 1.0 may be stored as an integer);
-	// the invariant we assert is that snapshot and CDC agree.
 	variants := []string{
 		`{"z": 1, "aa": 2}`,                           // key order: shorter key sorts after longer one
 		`{"b": 2, "a": 1}`,                            // key order: reversed on storage
