@@ -44,8 +44,8 @@ func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
 // MySQLTestContainerConfig parameterizes a throwaway MySQL/MariaDB testcontainer source.
 type MySQLTestContainerConfig struct {
 	Image string
-	// ExtraServerFlags are appended to a common small-footprint server flag base, e.g.
-	// "--binlog-row-event-fragment-threshold=1024" (MariaDB) or "--mysqlx=0" (MySQL).
+	// ExtraServerFlags are appended to a common small-footprint server flag base (which already
+	// includes flavor-aware low-resource flags), e.g. "--binlog-row-event-fragment-threshold=1024".
 	ExtraServerFlags     []string
 	Flavor               protos.MySqlFlavor
 	ReplicationMechanism protos.MySqlReplicationMechanism
@@ -73,14 +73,26 @@ func SetupMySQLTestContainerSource(
 
 	// Common small-footprint server flags valid on both MySQL 8 and MariaDB. Both official
 	// entrypoints prepend the server binary when the first arg starts with "-", so none is needed.
-	cmd := append([]string{
+	// These throwaway servers run alongside every other container on the machine, so keep their
+	// resource usage low.
+	cmd := []string{
 		"--server-id=1",
 		"--log-bin=mysql-bin",
 		"--binlog-format=ROW",
 		"--innodb-buffer-pool-size=64M",
+		"--innodb-log-buffer-size=8M",
 		"--performance-schema=OFF",
 		"--max-connections=20",
-	}, cfg.ExtraServerFlags...)
+		"--table-open-cache=64",
+		"--table-definition-cache=128",
+	}
+	// Flavor-specific low-resource flags for options that only exist on one server.
+	if cfg.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		cmd = append(cmd, "--aria-pagecache-buffer-size=8M")
+	} else {
+		cmd = append(cmd, "--mysqlx=0")
+	}
+	cmd = append(cmd, cfg.ExtraServerFlags...)
 
 	req := testcontainers.ContainerRequest{
 		Image:        cfg.Image,

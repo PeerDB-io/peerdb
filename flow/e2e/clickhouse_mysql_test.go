@@ -1622,17 +1622,10 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 		s.t.Skip("binlog incident injection requires a MySQL debug build; not available for MariaDB")
 	}
 
-	// mysql-debug is a MySQL image; disable mysqlx and trim caches to keep the one-off server small.
 	src, suffix := SetupMySQLTestContainerSource(s.t, "mydbginc", MySQLTestContainerConfig{
 		Image:                "ghcr.io/peerdb-io/mysql-debug:8.0.46",
 		Flavor:               protos.MySqlFlavor_MYSQL_MYSQL,
 		ReplicationMechanism: mySource.Config.ReplicationMechanism,
-		ExtraServerFlags: []string{
-			"--mysqlx=0",
-			"--table-open-cache=64",
-			"--table-definition-cache=128",
-			"--innodb-log-buffer-size=8M",
-		},
 	})
 
 	srcTableName := "incident"
