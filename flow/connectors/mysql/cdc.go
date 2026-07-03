@@ -56,12 +56,11 @@ const (
 )
 
 // parsePartialRowEventTableID extracts the source table id from a MariaDB PARTIAL_ROW_DATA_EVENT
-// Layout of data:
 //
-//	[0:4]  seq_no          (uint32 LE, 1-based)
-//	[4:8]  total_fragments (uint32 LE)
+//	[0:4]  total_fragments (uint32 LE)
+//	[4:8]  seq_no          (uint32 LE, 1-based)
 //	[8]    flags           (bit 0 = FL_ORIG_EVENT_SIZE)
-//	[9:17] original size   (present only when FL_ORIG_EVENT_SIZE is set)
+//	[9:17] original size   (present only when FL_ORIG_EVENT_SIZE is set, i.e. on the first fragment)
 //	then   content         (first fragment: embedded rows event = 19-byte header + post-header)
 //
 // The embedded rows-event post-header begins with a 6-byte little-endian table id.
@@ -69,8 +68,8 @@ func parsePartialRowEventTableID(data []byte) (uint64, uint32, bool) {
 	if len(data) < partialRowsHeaderLen {
 		return 0, 0, false
 	}
-	seqNo := binary.LittleEndian.Uint32(data[0:4])
-	totalFragments := binary.LittleEndian.Uint32(data[4:8])
+	totalFragments := binary.LittleEndian.Uint32(data[0:4])
+	seqNo := binary.LittleEndian.Uint32(data[4:8])
 	flags := data[8]
 	if seqNo != 1 {
 		// continuation fragment: carries only raw row data, no embedded header, so no table id

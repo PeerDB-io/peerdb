@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -437,4 +438,36 @@ func TestIntegrationGetTableSchemaPrimaryKeyVariants(t *testing.T) {
 			assertSchema(schemas[mixedCaseTable], []string{"MyId"}, "MyId", "val")
 		})
 	}
+}
+
+func TestParsePartialRowEventTableID(t *testing.T) {
+	t.Parallel()
+
+	// Real PARTIAL_ROW_DATA_EVENT payloads captured from MariaDB 12.3
+	decode := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		require.NoError(t, err)
+		return b
+	}
+	// first fragment: total=9, seq=1, flags=FL_ORIG_EVENT_SIZE, then origSize + embedded rows event
+	firstFragment := decode("09000000010000000126200000000000002cc0476a" +
+		"17010000002a20000000000000000012000000000001000203fc0100000000200000")
+	// a continuation fragment: total=9, seq=2, no flags, raw row data
+	continuationFragment := decode("09000000020000000079797979797979797979")
+
+	tableID, total, ok := parsePartialRowEventTableID(firstFragment)
+	require.True(t, ok, "first fragment table id should be recoverable")
+	require.Equal(t, uint64(18), tableID)
+	require.Equal(t, uint32(9), total)
+
+	_, total, ok = parsePartialRowEventTableID(continuationFragment)
+	require.False(t, ok, "continuation fragment carries no table id")
+	require.Equal(t, uint32(9), total, "total_fragments is still readable on continuation fragments")
+
+	// too short for even the post-header
+	_, _, ok = parsePartialRowEventTableID([]byte{0x09, 0x00, 0x00})
+	require.False(t, ok)
+	// post-header present but content truncated before the embedded table id
+	_, _, ok = parsePartialRowEventTableID(firstFragment[:partialRowsHeaderLen+8+binlogCommonHeaderLen+2])
+	require.False(t, ok)
 }
