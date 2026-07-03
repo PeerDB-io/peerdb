@@ -2055,6 +2055,7 @@ type MySqlConfig struct {
 	AuthType             MySqlAuthType             `protobuf:"varint,15,opt,name=auth_type,json=authType,proto3,enum=peerdb_peers.MySqlAuthType" json:"auth_type,omitempty"`
 	AwsAuth              *AwsAuthenticationConfig  `protobuf:"bytes,16,opt,name=aws_auth,json=awsAuth,proto3,oneof" json:"aws_auth,omitempty"`
 	SkipCertVerification bool                      `protobuf:"varint,17,opt,name=skip_cert_verification,json=skipCertVerification,proto3" json:"skip_cert_verification,omitempty"`
+	ServerId             *uint32                   `protobuf:"varint,18,opt,name=server_id,json=serverId,proto3,oneof" json:"server_id,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -2199,6 +2200,13 @@ func (x *MySqlConfig) GetSkipCertVerification() bool {
 		return x.SkipCertVerification
 	}
 	return false
+}
+
+func (x *MySqlConfig) GetServerId() uint32 {
+	if x != nil && x.ServerId != nil {
+		return *x.ServerId
+	}
+	return 0
 }
 
 type KafkaConfig struct {
@@ -2850,7 +2858,7 @@ const file_peers_proto_rawDesc = "" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x12\n" +
 	"\x04user\x18\x03 \x01(\tR\x04user\x12!\n" +
 	"\bpassword\x18\x04 \x01(\tB\x05\x90\xfa\x91?\x01R\bpassword\x12\x1a\n" +
-	"\bdatabase\x18\x05 \x01(\tR\bdatabase\"\xce\x05\n" +
+	"\bdatabase\x18\x05 \x01(\tR\bdatabase\"\xfe\x05\n" +
 	"\vMySqlConfig\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x12\n" +
@@ -2870,11 +2878,14 @@ const file_peers_proto_rawDesc = "" +
 	"\aroot_ca\x18\x0e \x01(\tB\x05\x90\xfa\x91?\x01H\x01R\x06rootCa\x88\x01\x01\x128\n" +
 	"\tauth_type\x18\x0f \x01(\x0e2\x1b.peerdb_peers.MySqlAuthTypeR\bauthType\x12E\n" +
 	"\baws_auth\x18\x10 \x01(\v2%.peerdb_peers.AwsAuthenticationConfigH\x02R\aawsAuth\x88\x01\x01\x124\n" +
-	"\x16skip_cert_verification\x18\x11 \x01(\bR\x14skipCertVerificationB\r\n" +
+	"\x16skip_cert_verification\x18\x11 \x01(\bR\x14skipCertVerification\x12 \n" +
+	"\tserver_id\x18\x12 \x01(\rH\x03R\bserverId\x88\x01\x01B\r\n" +
 	"\v_ssh_configB\n" +
 	"\n" +
 	"\b_root_caB\v\n" +
-	"\t_aws_auth\"\xbe\x03\n" +
+	"\t_aws_authB\f\n" +
+	"\n" +
+	"_server_id\"\xbe\x03\n" +
 	"\vKafkaConfig\x12\x18\n" +
 	"\aservers\x18\x01 \x03(\tR\aservers\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12!\n" +
