@@ -1,0 +1,1 @@
+ALTER TABLE `t` ADD INDEX idx_c (`first`) COMMENT 'idx,comment', ORDER BY after, modify

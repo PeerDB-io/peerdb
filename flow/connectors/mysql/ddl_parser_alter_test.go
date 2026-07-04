@@ -84,6 +84,7 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "CONVERT TO CHARACTER SET DEFAULT"},
 		{alter: "FORCE"},
 		{alter: "ORDER BY a, b"},
+		{alter: "ORDER BY after, modify"},
 		{alter: "DISABLE KEYS"},
 		{alter: "ENABLE KEYS"},
 		// standalone_alter_commands incl. partition expressions (VALUES LESS THAN needs balanced parens)

@@ -454,6 +454,10 @@ func (p *ddlParser) parseAlterSpec(tableSchema, table string) (*ddlAlterSpec, *d
 	case ddlWordIs(t, "RENAME"):
 		p.next()
 		return p.parseRenameSpec(tableSchema, table)
+	case ddlWordIs(t, "ORDER") && ddlWordIs(p.peek(1), "BY"):
+		p.next()
+		p.next()
+		return nil, nil, p.skipAlterOrderList()
 	default:
 		return nil, nil, p.skipSpecRemainder()
 	}
@@ -670,6 +674,24 @@ func (p *ddlParser) skipSpecRemainder() error {
 			if err := p.skipBalanced(); err != nil {
 				return err
 			}
+		case t.kind == tokPunct && t.text == ")":
+			return fmt.Errorf("unbalanced ')' at byte %d", t.pos)
+		default:
+			p.next()
+		}
+	}
+}
+
+func (p *ddlParser) skipAlterOrderList() error {
+	for {
+		t := p.peek(0)
+		switch {
+		case t.kind == tokErr:
+			return p.lexErr
+		case t.kind == tokEOF:
+			return nil
+		case t.kind == tokPunct && t.text == ";":
+			return nil
 		case t.kind == tokPunct && t.text == ")":
 			return fmt.Errorf("unbalanced ')' at byte %d", t.pos)
 		default:
