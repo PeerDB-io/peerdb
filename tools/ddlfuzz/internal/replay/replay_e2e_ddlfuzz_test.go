@@ -27,7 +27,7 @@ func TestReplayE2EFindingOffline(t *testing.T) {
 		"n1": {Name: "n1", Ordinal: 2, ColumnType: "bigint", IsNullable: "YES"},
 	}
 	divSig := "aaaaaaaaaaaa"
-	writeE2EFinding(t, stateDir, divSig, "e2e-col-attr", before, divAfter)
+	writeE2EFinding(t, stateDir, divSig, "e2e-col-attr", "open", before, divAfter)
 
 	var divOut bytes.Buffer
 	if code := Run(context.Background(), Config{StateDir: stateDir, CaseDeadline: time.Second}, divSig, &divOut); code != ExitDiverged {
@@ -46,7 +46,7 @@ func TestReplayE2EFindingOffline(t *testing.T) {
 		"n1": {Name: "n1", Ordinal: 2, ColumnType: "int", IsNullable: "YES"},
 	}
 	okSig := "bbbbbbbbbbbb"
-	writeE2EFinding(t, stateDir, okSig, "e2e-col-attr", before, okAfter)
+	writeE2EFinding(t, stateDir, okSig, "e2e-col-attr", "open", before, okAfter)
 
 	var okOut bytes.Buffer
 	if code := Run(context.Background(), Config{StateDir: stateDir, CaseDeadline: time.Second}, okSig, &okOut); code != ExitOK {
@@ -61,7 +61,42 @@ func TestReplayE2EFindingOffline(t *testing.T) {
 	}
 }
 
-func writeE2EFinding(t *testing.T, stateDir, sig, class string, before, after e2echeck.Snapshot) {
+func TestRunAllE2EFindingOffline(t *testing.T) {
+	stateDir := t.TempDir()
+	before := e2echeck.Snapshot{
+		"id": {Name: "id", Ordinal: 1, ColumnType: "bigint", IsNullable: "NO", ColumnKey: "PRI"},
+	}
+	after := e2echeck.Snapshot{
+		"id": {Name: "id", Ordinal: 1, ColumnType: "bigint", IsNullable: "NO", ColumnKey: "PRI"},
+		"n1": {Name: "n1", Ordinal: 2, ColumnType: "bigint", IsNullable: "YES"},
+	}
+	writeE2EFinding(t, stateDir, "aaaaaaaaaaaa", "e2e-col-attr", "fixed", before, after)
+
+	oldBatcher := newBatcher
+	defer func() { newBatcher = oldBatcher }()
+	newBatcher = func(engine, bin string, timeout time.Duration) digestBatcher {
+		t.Fatalf("offline e2e finding used oracle batcher")
+		return nil
+	}
+
+	var out bytes.Buffer
+	code := RunAll(context.Background(), Config{StateDir: stateDir, CaseDeadline: time.Second}, &out)
+	if code != ExitDiverged {
+		t.Fatalf("RunAll exit = %d, want %d; out=%s", code, ExitDiverged, out.String())
+	}
+	var summary Summary
+	if err := json.Unmarshal(out.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v", err)
+	}
+	if len(summary.FixedRegressed) != 1 || summary.FixedRegressed[0] != "aaaaaaaaaaaa" {
+		t.Fatalf("fixed_regressed = %#v", summary.FixedRegressed)
+	}
+	if len(summary.Regressions) != 1 || summary.Regressions[0].Class != "e2e-col-attr" {
+		t.Fatalf("regressions = %+v", summary.Regressions)
+	}
+}
+
+func writeE2EFinding(t *testing.T, stateDir, sig, class, status string, before, after e2echeck.Snapshot) {
 	t.Helper()
 	dir := filepath.Join(stateDir, "findings", sig)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -88,7 +123,7 @@ func writeE2EFinding(t *testing.T, stateDir, sig, class string, before, after e2
 		"our_sig":             "",
 		"our_error":           "",
 		"server_image":        "mysql:9.7.0",
-		"status":              "open",
+		"status":              status,
 		"discovered_at":       "2026-07-03T00:00:00Z",
 		"minimized":           false,
 	}

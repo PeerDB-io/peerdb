@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/compare"
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/digest"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 	ddllexec "github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/exec"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/findings"
@@ -38,6 +39,7 @@ type Summary struct {
 	Checked        int      `json:"checked"`
 	FixedOK        int      `json:"fixed_ok"`
 	FixedRegressed []string `json:"fixed_regressed"`
+	Regressions    []Result `json:"regressions,omitempty"`
 	Malformed      []string `json:"malformed"`
 	Open           int      `json:"open"`
 	Ledgered       int      `json:"ledgered"`
@@ -56,12 +58,41 @@ type Result struct {
 	Shape        string          `json:"shape,omitempty"`
 }
 
+type digestBatcher interface {
+	Start(context.Context, string) error
+	ParseBatch(context.Context, []run.Case) ([]*digest.Digest, [][]byte, error)
+	Close() error
+}
+
+var (
+	newBatcher = func(engine, bin string, timeout time.Duration) digestBatcher {
+		return oracle.NewClient(engine, bin, timeout)
+	}
+	singleDigest = oracle.SingleDigest
+)
+
 func Run(ctx context.Context, cfg Config, sig string, w io.Writer) int {
 	if sig != "" {
 		res, code := replayOne(ctx, cfg, sig)
 		_ = json.NewEncoder(w).Encode(res)
 		return code
 	}
+	return RunAll(ctx, cfg, w)
+}
+
+type replayFinding struct {
+	sig    string
+	status string
+	engine string
+	mode   uint64
+	sql    []byte
+	c      run.Case
+	result Result
+	code   int
+	done   bool
+}
+
+func RunAll(ctx context.Context, cfg Config, w io.Writer) int {
 	summary := Summary{}
 	root := filepath.Join(cfg.StateDir, "findings")
 	entries, err := os.ReadDir(root)
@@ -74,22 +105,63 @@ func Run(ctx context.Context, cfg Config, sig string, w io.Writer) int {
 		_ = json.NewEncoder(w).Encode(summary)
 		return ExitMalformed
 	}
+	var all []replayFinding
+	byEngine := map[string][]int{"mysql": nil, "mariadb": nil}
 	for _, ent := range entries {
 		if !ent.IsDir() || len(ent.Name()) != 12 {
 			continue
 		}
-		res, code := replayOne(ctx, cfg, ent.Name())
-		if code == ExitMalformed {
-			summary.Malformed = append(summary.Malformed, ent.Name())
+		f := replayFinding{sig: ent.Name()}
+		meta, sql, err := readFinding(cfg.StateDir, ent.Name())
+		if err != nil {
+			f.result = Result{Sig: ent.Name(), Class: "malformed", Shape: err.Error()}
+			f.code = ExitMalformed
+			f.done = true
+			all = append(all, f)
 			continue
 		}
-		status := statusOf(cfg.StateDir, ent.Name())
-		switch status {
+		f.status, _ = meta["status"].(string)
+		if f.status == "" {
+			f.status = "open"
+		}
+		f.engine, _ = meta["engine"].(string)
+		if f.engine != "mysql" && f.engine != "mariadb" {
+			f.result = Result{Sig: ent.Name(), Class: "malformed", Shape: "bad engine"}
+			f.code = ExitMalformed
+			f.done = true
+			all = append(all, f)
+			continue
+		}
+		f.mode, _ = uint64FromMeta(meta, "sql_mode")
+		if offlineE2EReproducible(meta) {
+			f.result, f.code = replayE2EOne(ent.Name(), f.engine, f.mode, meta)
+			f.done = true
+			all = append(all, f)
+			continue
+		}
+		engineID, _ := run.EngineID(f.engine)
+		f.sql = sql
+		f.c = run.Case{SQL: sql, SQLMode: f.mode, Engine: engineID, Origin: run.OriginReplay}
+		all = append(all, f)
+		byEngine[f.engine] = append(byEngine[f.engine], len(all)-1)
+	}
+	for _, engine := range []string{"mysql", "mariadb"} {
+		runReplayBatch(ctx, cfg, engine, byEngine[engine], all)
+	}
+	for _, f := range all {
+		res, code := f.result, f.code
+		if code == ExitMalformed {
+			summary.Malformed = append(summary.Malformed, f.sig)
+			continue
+		}
+		switch f.status {
 		case "fixed":
 			if res.Reconciled {
 				summary.FixedOK++
 			} else {
-				summary.FixedRegressed = append(summary.FixedRegressed, ent.Name())
+				summary.FixedRegressed = append(summary.FixedRegressed, f.sig)
+				summary.Regressions = append(summary.Regressions, res)
+				fmt.Fprintf(os.Stderr, "regressed %s: class=%s shape=%s ours=%s\n", f.sig, res.Class, res.Shape, resultOurs(res))
 			}
 		case "ledgered":
 			summary.Ledgered++
@@ -110,6 +182,61 @@ func Run(ctx context.Context, cfg Config, sig string, w io.Writer) int {
 	return ExitOK
 }
 
+func runReplayBatch(ctx context.Context, cfg Config, engine string, indexes []int, all []replayFinding) {
+	if len(indexes) == 0 {
+		return
+	}
+	cases := make([]run.Case, len(indexes))
+	for i, idx := range indexes {
+		cases[i] = all[idx].c
+	}
+	parserResults := ddllexec.NewWorker(0, cfg.CaseDeadline, nil).RunBatch(cases)
+	bin := cfg.MySQLOracle
+	if engine == "mariadb" {
+		bin = cfg.MariaDBOracle
+	}
+	var client digestBatcher
+	defer func() {
+		if client != nil {
+			_ = client.Close()
+		}
+	}()
+	for start := 0; start < len(indexes); start += 256 {
+		end := start + 256
+		if end > len(indexes) {
+			end = len(indexes)
+		}
+		if client == nil {
+			client = newBatcher(engine, bin, cfg.Timeout)
+			if err := client.Start(ctx, filepath.Join(cfg.StateDir, "log", "oracle-"+engine+"-replayall.log")); err != nil {
+				_ = client.Close()
+				client = nil
+				fallbackReplayBatch(ctx, cfg, indexes[start:end], all)
+				continue
+			}
+		}
+		ds, raw, err := client.ParseBatch(ctx, cases[start:end])
+		if err != nil || len(ds) != end-start || len(raw) != end-start {
+			_ = client.Close()
+			client = nil
+			fallbackReplayBatch(ctx, cfg, indexes[start:end], all)
+			continue
+		}
+		for i := start; i < end; i++ {
+			idx := indexes[i]
+			all[idx].result, all[idx].code = replayFastResult(all[idx].sig, all[idx].engine, all[idx].mode, all[idx].c, parserResults[i], ds[i], raw[i])
+			all[idx].done = true
+		}
+	}
+}
+
+func fallbackReplayBatch(ctx context.Context, cfg Config, indexes []int, all []replayFinding) {
+	for _, idx := range indexes {
+		all[idx].result, all[idx].code = replayOne(ctx, cfg, all[idx].sig)
+		all[idx].done = true
+	}
+}
+
 func replayOne(ctx context.Context, cfg Config, sig string) (Result, int) {
 	meta, sql, err := readFinding(cfg.StateDir, sig)
 	if err != nil {
@@ -124,29 +251,7 @@ func replayOne(ctx context.Context, cfg Config, sig string) (Result, int) {
 		mode = uint64(f)
 	}
 	if offlineE2EReproducible(meta) {
-		in, err := e2eInputFromMeta(meta)
-		if err != nil {
-			return Result{Sig: sig, Engine: engine, SQLMode: mode, Class: "malformed", Shape: err.Error(), OracleDigest: json.RawMessage("null")}, ExitMalformed
-		}
-		res, err := e2echeck.Reproduce(in)
-		if err != nil {
-			return Result{Sig: sig, Engine: engine, SQLMode: mode, OurSig: stringFromMeta(meta, "our_sig"), OurError: stringFromMeta(meta, "our_error"), Class: "malformed", Shape: err.Error(), OracleDigest: json.RawMessage("null")}, ExitMalformed
-		}
-		out := Result{
-			Sig:          sig,
-			Engine:       engine,
-			SQLMode:      mode,
-			OurSig:       stringFromMeta(meta, "our_sig"),
-			OurError:     stringFromMeta(meta, "our_error"),
-			OracleDigest: json.RawMessage("null"),
-			Reconciled:   res.Reconciled,
-		}
-		if !res.Reconciled {
-			out.Class = res.Class
-			out.Shape = res.Shape
-			return out, ExitDiverged
-		}
-		return out, ExitOK
+		return replayE2EOne(sig, engine, mode, meta)
 	}
 	engineID, _ := run.EngineID(engine)
 	c := run.Case{SQL: sql, SQLMode: mode, Engine: engineID, Origin: run.OriginReplay}
@@ -155,10 +260,40 @@ func replayOne(ctx context.Context, cfg Config, sig string) (Result, int) {
 	if engine == "mariadb" {
 		bin = cfg.MariaDBOracle
 	}
-	d, raw, err := oracle.SingleDigest(ctx, engine, bin, cfg.Timeout, c, cfg.StateDir)
+	d, raw, err := singleDigest(ctx, engine, bin, cfg.Timeout, c, cfg.StateDir)
 	if err != nil {
 		return Result{Sig: sig, Engine: engine, SQLMode: mode, Class: "malformed", Shape: err.Error()}, ExitMalformed
 	}
+	return replayFastResult(sig, engine, mode, c, res, d, raw)
+}
+
+func replayE2EOne(sig, engine string, mode uint64, meta map[string]any) (Result, int) {
+	in, err := e2eInputFromMeta(meta)
+	if err != nil {
+		return Result{Sig: sig, Engine: engine, SQLMode: mode, Class: "malformed", Shape: err.Error(), OracleDigest: json.RawMessage("null")}, ExitMalformed
+	}
+	res, err := e2echeck.Reproduce(in)
+	if err != nil {
+		return Result{Sig: sig, Engine: engine, SQLMode: mode, OurSig: stringFromMeta(meta, "our_sig"), OurError: stringFromMeta(meta, "our_error"), Class: "malformed", Shape: err.Error(), OracleDigest: json.RawMessage("null")}, ExitMalformed
+	}
+	out := Result{
+		Sig:          sig,
+		Engine:       engine,
+		SQLMode:      mode,
+		OurSig:       stringFromMeta(meta, "our_sig"),
+		OurError:     stringFromMeta(meta, "our_error"),
+		OracleDigest: json.RawMessage("null"),
+		Reconciled:   res.Reconciled,
+	}
+	if !res.Reconciled {
+		out.Class = res.Class
+		out.Shape = res.Shape
+		return out, ExitDiverged
+	}
+	return out, ExitOK
+}
+
+func replayFastResult(sig, engine string, mode uint64, c run.Case, res ddllexec.Result, d *digest.Digest, raw []byte) (Result, int) {
 	div := compare.Diff(c, res.Sig, res.Err, res.Panic, d)
 	out := Result{Sig: sig, Engine: engine, SQLMode: mode, OurSig: res.Sig, OracleDigest: raw, Reconciled: div == nil}
 	if res.Err != nil {
@@ -170,6 +305,13 @@ func replayOne(ctx context.Context, cfg Config, sig string) (Result, int) {
 		return out, ExitDiverged
 	}
 	return out, ExitOK
+}
+
+func resultOurs(res Result) string {
+	if res.OurError != "" {
+		return res.OurError
+	}
+	return res.OurSig
 }
 
 func RunExpectAccept(ctx context.Context, cfg Config, from string, w io.Writer) int {

@@ -143,9 +143,11 @@ func runCommand(cmd string, cfg config, args []string) int {
 	addCommonFlags(fs, &cfg)
 	var from string
 	var expectAccept bool
+	var replayAll bool
 	if cmd == "replay" {
 		fs.StringVar(&from, "from", "", "JSONL input for oracle cross-check replay")
 		fs.BoolVar(&expectAccept, "expect-accept", false, "expect replay --from inputs to be accepted by the oracle")
+		fs.BoolVar(&replayAll, "all", false, "replay all findings")
 	}
 	fs.Usage = func() {
 		commandUsage(os.Stderr, fs, cmd)
@@ -186,6 +188,13 @@ func runCommand(cmd string, cfg config, args []string) int {
 		if len(rest) > 1 {
 			fs.Usage()
 			return 2
+		}
+		if replayAll && len(rest) != 0 {
+			fs.Usage()
+			return 2
+		}
+		if replayAll {
+			return replay.RunAll(ctx, rcfg, os.Stdout)
 		}
 		if len(rest) == 1 {
 			sig = rest[0]

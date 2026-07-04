@@ -1185,29 +1185,62 @@ func ledgerHasCitation(cfg Config, sig string) bool {
 }
 
 func preflightReplayAll(ctx context.Context, cfg Config) error {
-	findings, err := ScanFindings(cfg)
-	if err != nil {
-		return err
+	res, err := RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, cfg.DDLfuzzBin, "replay", "--all")
+	if err == nil && res.ExitCode == 0 {
+		return nil
 	}
-	for _, f := range findings {
-		status := f.Meta.Status
-		res, err := RunReplay(ctx, cfg, f.Sig)
-		switch status {
-		case "fixed":
-			if err != nil || res.ExitCode != 0 {
-				return fmt.Errorf("fixed finding %s regressed: exit=%d err=%v", f.Sig, res.ExitCode, err)
-			}
-		case "ledgered", "parked":
-			if res.ExitCode == 11 || res.ExitCode == 1 {
-				return fmt.Errorf("%s finding %s cannot be evaluated: exit=%d", status, f.Sig, res.ExitCode)
-			}
-		default:
-			if res.ExitCode == 11 || res.ExitCode == 1 {
-				return fmt.Errorf("open finding %s cannot be evaluated: exit=%d", f.Sig, res.ExitCode)
-			}
+	return replayAllFailure(res, err)
+}
+
+type replayAllSummary struct {
+	FixedRegressed []string          `json:"fixed_regressed"`
+	Regressions    []replayAllResult `json:"regressions"`
+	Malformed      []string          `json:"malformed"`
+}
+
+type replayAllResult struct {
+	Sig      string `json:"sig"`
+	OurSig   string `json:"our_sig"`
+	OurError string `json:"our_error"`
+	Class    string `json:"class"`
+	Shape    string `json:"shape"`
+}
+
+func replayAllFailure(res Result, runErr error) error {
+	var summary replayAllSummary
+	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &summary); err != nil {
+		if runErr == nil {
+			runErr = fmt.Errorf("exit code %d", res.ExitCode)
 		}
+		return fmt.Errorf("replay --all failed: %w\n%s", runErr, resultOutputTail(res, 4000))
 	}
-	return nil
+	switch res.ExitCode {
+	case 10:
+		return fmt.Errorf("fixed finding(s) regressed: %s", strings.Join(replayRegressionDetails(summary), ", "))
+	case 11:
+		return fmt.Errorf("finding(s) cannot be evaluated: %s", strings.Join(summary.Malformed, ", "))
+	default:
+		if runErr == nil {
+			runErr = fmt.Errorf("exit code %d", res.ExitCode)
+		}
+		return fmt.Errorf("replay --all failed: %w\n%s", runErr, resultOutputTail(res, 4000))
+	}
+}
+
+func replayRegressionDetails(summary replayAllSummary) []string {
+	bySig := map[string]replayAllResult{}
+	for _, r := range summary.Regressions {
+		bySig[r.Sig] = r
+	}
+	out := make([]string, 0, len(summary.FixedRegressed))
+	for _, sig := range summary.FixedRegressed {
+		if r, ok := bySig[sig]; ok {
+			out = append(out, fmt.Sprintf("%s class=%s shape=%s", sig, r.Class, r.Shape))
+			continue
+		}
+		out = append(out, sig)
+	}
+	return out
 }
 
 func applySuccessfulStatuses(ctx context.Context, cfg Config, primarySig, outcome string) error {

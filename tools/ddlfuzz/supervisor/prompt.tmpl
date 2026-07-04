@@ -87,7 +87,11 @@ PROTOCOL — follow strictly, in order:
         && go build -tags ddlfuzz ./...
       cd ../tools/ddlfuzz && go build -tags ddlfuzz ./... && go test ./...
     And: tools/ddlfuzz/build/ddlfuzz replay {SIG} must now exit 0 (buckets 1/2). For bucket 3 it
-    may still exit 10 — the ledger entry is the resolution.
+    may still exit 10 — the ledger entry is the resolution. Also run
+    tools/ddlfuzz/build/ddlfuzz replay --all before committing. This is a fast batched regression
+    check across ALL findings using the same rebuilt binary; it is READ-ONLY over other findings'
+    state and does not violate the "never touch other findings" guardrail. If it exits nonzero or
+    reports fixed_regressed, the fix broke another finding — revise before committing.
 
 (d) Update tools/ddlfuzz/state/findings/{SIG}/meta.json: set "status" to "fixed" (buckets 1/2) or
     "ledgered" (bucket 3). Touch no other finding's meta.

@@ -57,6 +57,32 @@ func TestGroupKeyNormalization(t *testing.T) {
 	}
 }
 
+func TestReplayAllFailure(t *testing.T) {
+	t.Run("fixed regressed", func(t *testing.T) {
+		res := Result{ExitCode: 10, Stdout: `{"fixed_regressed":["aaaaaaaaaaaa"],"regressions":[{"sig":"aaaaaaaaaaaa","class":"we_error","shape":"syntax"}]}`}
+		err := replayAllFailure(res, fmt.Errorf("exit status 10"))
+		if err == nil || !strings.Contains(err.Error(), "fixed finding(s) regressed: aaaaaaaaaaaa class=we_error shape=syntax") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("malformed", func(t *testing.T) {
+		res := Result{ExitCode: 11, Stdout: `{"malformed":["bbbbbbbbbbbb","cccccccccccc"]}`}
+		err := replayAllFailure(res, fmt.Errorf("exit status 11"))
+		if err == nil || !strings.Contains(err.Error(), "finding(s) cannot be evaluated: bbbbbbbbbbbb, cccccccccccc") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("garbage stdout", func(t *testing.T) {
+		res := Result{ExitCode: 1, Stdout: `not-json`, Stderr: `boom`}
+		err := replayAllFailure(res, fmt.Errorf("exit status 1"))
+		if err == nil || !strings.Contains(err.Error(), "replay --all failed") || !strings.Contains(err.Error(), "not-json") || !strings.Contains(err.Error(), "boom") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
 func TestBudgetArithmetic(t *testing.T) {
 	base := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
 	records := []AttemptRecord{
