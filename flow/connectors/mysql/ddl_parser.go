@@ -914,7 +914,7 @@ func ddlNormalizeIntegerDisplayWidth(st *ddlColumnState) {
 }
 
 func ddlNormalizeMySQLUnsignedTinyintOne(st *ddlColumnState, isMariaDB bool) {
-	if isMariaDB || !st.unsigned || st.zerofill || st.base != "tinyint" || !st.written || len(st.params) != 1 {
+	if isMariaDB || !st.unsigned || st.base != "tinyint" || !st.written || len(st.params) != 1 {
 		return
 	}
 	if digitsToInt(st.params[0]) == 1 {
