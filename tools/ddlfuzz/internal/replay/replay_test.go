@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -93,6 +94,32 @@ func TestRunAllBatchedVerdicts(t *testing.T) {
 	}
 }
 
+func TestRunAllBatchedVerdictsMultipleOracleBatches(t *testing.T) {
+	stateDir := t.TempDir()
+	for i := range 300 {
+		writeReplayFinding(t, stateDir, fmt.Sprintf("%012x", i), "mysql", "fixed", "CREATE TABLE t (id INT)")
+	}
+
+	oldBatcher := newBatcher
+	defer func() { newBatcher = oldBatcher }()
+	newBatcher = func(engine, bin string, timeout time.Duration) digestBatcher {
+		return &fakeBatcher{}
+	}
+
+	var out bytes.Buffer
+	code := RunAll(context.Background(), Config{StateDir: stateDir, CaseDeadline: time.Second}, &out)
+	if code != ExitOK {
+		t.Fatalf("RunAll exit = %d, want %d; out=%s", code, ExitOK, out.String())
+	}
+	var summary Summary
+	if err := json.Unmarshal(out.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v", err)
+	}
+	if summary.Checked != 300 || summary.FixedOK != 300 {
+		t.Fatalf("summary = %+v", summary)
+	}
+}
+
 func TestRunAllMalformed(t *testing.T) {
 	stateDir := t.TempDir()
 	dir := filepath.Join(stateDir, "findings", "aaaaaaaaaaaa")
@@ -165,16 +192,23 @@ func (f *fakeBatcher) Start(context.Context, string) error {
 	return nil
 }
 
-func (f *fakeBatcher) ParseBatch(context.Context, []run.Case) ([]*digest.Digest, [][]byte, error) {
+func (f *fakeBatcher) ParseBatch(_ context.Context, cases []run.Case) ([]*digest.Digest, [][]byte, error) {
 	if f.err != nil {
 		return nil, nil, f.err
 	}
-	raw := make([][]byte, len(f.digests))
-	for i, d := range f.digests {
+	digests := f.digests
+	if len(digests) == 0 {
+		digests = make([]*digest.Digest, len(cases))
+		for i := range digests {
+			digests[i] = &digest.Digest{Verdict: "reject"}
+		}
+	}
+	raw := make([][]byte, len(digests))
+	for i, d := range digests {
 		b, _ := json.Marshal(d)
 		raw[i] = b
 	}
-	return f.digests, raw, nil
+	return digests, raw, nil
 }
 
 func (f *fakeBatcher) Close() error {

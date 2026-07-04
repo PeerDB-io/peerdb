@@ -322,6 +322,7 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 	stmt := &ddlAlterTable{Schema: schema, Table: table}
 	knownColumns := make(map[string]struct{})
 	var rename *ddlRenamePair
+	partitionListMayContinue := false
 	for {
 		t := p.peek(0)
 		if t.kind == tokEOF || (t.kind == tokPunct && t.text == ";") {
@@ -330,10 +331,11 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 		if t.kind == tokErr {
 			return nil, p.lexErr
 		}
-		spec, pair, err := p.parseAlterSpec(schema, table)
+		spec, pair, nextPartitionListMayContinue, err := p.parseAlterSpec(schema, table, partitionListMayContinue)
 		if err != nil {
 			return nil, err
 		}
+		partitionListMayContinue = nextPartitionListMayContinue
 		if spec != nil {
 			spec = ddlFilterAddIfNotExists(spec, knownColumns)
 		}
@@ -468,38 +470,70 @@ func ddlAlterSpecsHaveImplicitPositionShift(specs []ddlAlterSpec) bool {
 // specs are returned; everything else — index/constraint/option/partition specs,
 // ALGORITHM/LOCK/FORCE/ORDER BY, CONVERT TO, table options — is consumed
 // (balanced parens, quote-aware) and dropped by returning nil.
-func (p *ddlParser) parseAlterSpec(tableSchema, table string) (*ddlAlterSpec, *ddlRenamePair, error) {
+func (p *ddlParser) parseAlterSpec(tableSchema, table string, partitionListMayContinue bool) (*ddlAlterSpec, *ddlRenamePair, bool, error) {
+	if partitionListMayContinue && p.consumePartitionNameListContinuation() {
+		return nil, nil, true, nil
+	}
 	t := p.peek(0)
 	if t.kind != tokWord {
-		return nil, nil, p.skipSpecRemainder()
+		return nil, nil, false, p.skipSpecRemainder()
 	}
 	switch {
 	case ddlWordIs(t, "ADD"):
 		p.next()
 		spec, err := p.parseAddSpec()
-		return spec, nil, err
+		return spec, nil, false, err
 	case ddlWordIs(t, "DROP"):
 		p.next()
-		spec, err := p.parseDropSpec()
-		return spec, nil, err
+		spec, continuesPartitionList, err := p.parseDropSpec()
+		return spec, nil, continuesPartitionList, err
 	case ddlWordIs(t, "MODIFY"):
 		p.next()
 		spec, err := p.parseModifySpec()
-		return spec, nil, err
+		return spec, nil, false, err
 	case ddlWordIs(t, "CHANGE"):
 		p.next()
 		spec, err := p.parseChangeSpec()
-		return spec, nil, err
+		return spec, nil, false, err
 	case ddlWordIs(t, "RENAME"):
 		p.next()
-		return p.parseRenameSpec(tableSchema, table)
+		spec, pair, err := p.parseRenameSpec(tableSchema, table)
+		return spec, pair, false, err
 	case ddlWordIs(t, "ORDER") && ddlWordIs(p.peek(1), "BY"):
 		p.next()
 		p.next()
-		return nil, nil, p.skipAlterOrderList()
+		return nil, nil, false, p.skipAlterOrderList()
+	case ddlAlterSpecStartsPartitionNameList(t, p.peek(1)):
+		return nil, nil, true, p.skipSpecRemainder()
 	default:
-		return nil, nil, p.skipSpecRemainder()
+		return nil, nil, false, p.skipSpecRemainder()
 	}
+}
+
+func ddlAlterSpecStartsPartitionNameList(t, next ddlToken) bool {
+	if !ddlWordIs(next, "PARTITION") {
+		return false
+	}
+	switch strings.ToUpper(t.text) {
+	case "REBUILD", "OPTIMIZE", "ANALYZE", "CHECK", "REPAIR", "TRUNCATE",
+		"DISCARD", "IMPORT", "REORGANIZE":
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *ddlParser) consumePartitionNameListContinuation() bool {
+	t := p.peek(0)
+	if t.kind != tokWord && t.kind != tokQuotedIdent {
+		return false
+	}
+	next := p.peek(1)
+	if next.kind == tokEOF || (next.kind == tokPunct && (next.text == "," || next.text == ";")) {
+		p.next()
+		return true
+	}
+	return false
 }
 
 func (p *ddlParser) parseAddSpec() (*ddlAlterSpec, error) {
@@ -579,25 +613,25 @@ func (p *ddlParser) looksLikeMariaVectorIndexAdd() bool {
 	return false
 }
 
-func (p *ddlParser) parseDropSpec() (*ddlAlterSpec, error) {
+func (p *ddlParser) parseDropSpec() (*ddlAlterSpec, bool, error) {
 	sawColumn := p.consumeWords("COLUMN")
 	sawIfExists := p.consumeWords("IF", "EXISTS")
 	if !sawColumn && !sawIfExists {
 		if t := p.peek(0); t.kind == tokWord {
 			switch strings.ToUpper(t.text) {
 			case "INDEX", "KEY", "PRIMARY", "FOREIGN", "CONSTRAINT", "CHECK", "PARTITION":
-				return nil, p.skipSpecRemainder()
+				return nil, ddlWordIs(t, "PARTITION"), p.skipSpecRemainder()
 			case "PERIOD":
 				if ddlWordIs(p.peek(1), "FOR") || ddlWordIs(p.peek(1), "IF") {
-					return nil, p.skipSpecRemainder()
+					return nil, false, p.skipSpecRemainder()
 				}
 			case "SYSTEM":
 				if ddlWordIs(p.peek(1), "VERSIONING") {
-					return nil, p.skipSpecRemainder()
+					return nil, false, p.skipSpecRemainder()
 				}
 			case "VECTOR":
 				if ddlWordIs(p.peek(1), "INDEX") || ddlWordIs(p.peek(1), "KEY") {
-					return nil, p.skipSpecRemainder()
+					return nil, false, p.skipSpecRemainder()
 				}
 			}
 		}
@@ -605,10 +639,10 @@ func (p *ddlParser) parseDropSpec() (*ddlAlterSpec, error) {
 	// any other word after DROP is a column name (DROP first, DROP algorithm, ...)
 	name, err := p.expectIdent("column name")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// RESTRICT | CASCADE (MariaDB)
-	return &ddlAlterSpec{OldColumnName: name}, p.skipSpecRemainder()
+	return &ddlAlterSpec{OldColumnName: name}, false, p.skipSpecRemainder()
 }
 
 func (p *ddlParser) parseModifySpec() (*ddlAlterSpec, error) {
