@@ -15,29 +15,30 @@ import (
 const defaultRepoRoot = "/Users/ilia/Code/peerdb"
 
 type Config struct {
-	Root          string
-	DDLDir        string
-	StateDir      string
-	BuildDir      string
-	PromptPath    string
-	DDLfuzzBin    string
-	E2EBin        string
-	MySQLOracle   string
-	MariaOracle   string
-	MySQLBuild    string
-	MariaBuild    string
-	ComposeFile   string
-	FixModel      string
-	MaxTokens     int64
-	AttemptTO     time.Duration
-	RunHours      float64
-	CodexBypass   bool
-	GoCache       string
-	GoModCache    string
-	LintCache     string
-	StartedAt     time.Time
-	Deadline      time.Time
+	Root            string
+	DDLDir          string
+	StateDir        string
+	BuildDir        string
+	PromptPath      string
+	DDLfuzzBin      string
+	E2EBin          string
+	MySQLOracle     string
+	MariaOracle     string
+	MySQLBuild      string
+	MariaBuild      string
+	ComposeFile     string
+	FixModel        string
+	MaxTokens       int64
+	AttemptTO       time.Duration
+	RunHours        float64
+	CodexBypass     bool
+	GoCache         string
+	GoModCache      string
+	LintCache       string
+	StartedAt       time.Time
+	Deadline        time.Time
 	ReportEvery     time.Duration
+	SampleEvery     time.Duration
 	DiskEvery       time.Duration
 	FindingEvery    time.Duration
 	CoverageEvery   time.Duration
@@ -72,27 +73,28 @@ func LoadConfig() (Config, error) {
 	home, _ := os.UserHomeDir()
 	now := time.Now()
 	cfg := Config{
-		Root:          root,
-		DDLDir:        ddlDir,
-		StateDir:      stateDir,
-		BuildDir:      buildDir,
-		PromptPath:    filepath.Join(ddlDir, "supervisor", "prompt.tmpl"),
-		DDLfuzzBin:    filepath.Join(buildDir, "ddlfuzz"),
-		E2EBin:        filepath.Join(buildDir, "ddlfuzz-e2e"),
-		MySQLOracle:   filepath.Join(buildDir, "oracle-mysql"),
-		MariaOracle:   filepath.Join(buildDir, "oracle-mariadb"),
-		MySQLBuild:    filepath.Join(ddlDir, "oracle", "mysql", "build.sh"),
-		MariaBuild:    filepath.Join(ddlDir, "oracle", "mariadb", "build.sh"),
-		ComposeFile:   filepath.Join(ddlDir, "e2e", "compose.yml"),
-		FixModel:      model,
-		MaxTokens:     maxTokens,
-		AttemptTO:     attemptTO,
-		RunHours:      hours,
-		CodexBypass:   os.Getenv("DDLFUZZ_CODEX_BYPASS") == "1",
-		LintCache:     filepath.Join(home, "Library", "Caches", "golangci-lint"),
-		StartedAt:     now,
-		Deadline:      now.Add(time.Duration(hours * float64(time.Hour))),
+		Root:            root,
+		DDLDir:          ddlDir,
+		StateDir:        stateDir,
+		BuildDir:        buildDir,
+		PromptPath:      filepath.Join(ddlDir, "supervisor", "prompt.tmpl"),
+		DDLfuzzBin:      filepath.Join(buildDir, "ddlfuzz"),
+		E2EBin:          filepath.Join(buildDir, "ddlfuzz-e2e"),
+		MySQLOracle:     filepath.Join(buildDir, "oracle-mysql"),
+		MariaOracle:     filepath.Join(buildDir, "oracle-mariadb"),
+		MySQLBuild:      filepath.Join(ddlDir, "oracle", "mysql", "build.sh"),
+		MariaBuild:      filepath.Join(ddlDir, "oracle", "mariadb", "build.sh"),
+		ComposeFile:     filepath.Join(ddlDir, "e2e", "compose.yml"),
+		FixModel:        model,
+		MaxTokens:       maxTokens,
+		AttemptTO:       attemptTO,
+		RunHours:        hours,
+		CodexBypass:     os.Getenv("DDLFUZZ_CODEX_BYPASS") == "1",
+		LintCache:       filepath.Join(home, "Library", "Caches", "golangci-lint"),
+		StartedAt:       now,
+		Deadline:        now.Add(time.Duration(hours * float64(time.Hour))),
 		ReportEvery:     time.Hour,
+		SampleEvery:     5 * time.Second,
 		DiskEvery:       10 * time.Minute,
 		FindingEvery:    30 * time.Second,
 		CoverageEvery:   time.Hour,

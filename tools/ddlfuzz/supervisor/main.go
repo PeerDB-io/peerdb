@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -48,7 +47,12 @@ func main() {
 			os.Exit(1)
 		}
 	case "status":
-		if err := statusCommand(cfg); err != nil {
+		if err := statusCommand(cfg, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "watch":
+		if err := watchCommand(cfg, os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -59,7 +63,7 @@ func main() {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "Usage: ddlsuper run|hello|gate|fix-once|status")
+	fmt.Fprintln(w, "Usage: ddlsuper run|hello|gate|fix-once|status|watch")
 }
 
 func helloCommand(_ Config, args []string) error {
@@ -104,25 +108,6 @@ func fixOnceCommand(cfg Config, args []string) error {
 	return FixOnce(context.Background(), cfg, sig, skipFuzzer, nil, nil, nil, logger)
 }
 
-func statusCommand(cfg Config) error {
-	reportPath := filepath.Join(cfg.StateDir, "report.md")
-	if data, err := os.ReadFile(reportPath); err == nil && len(data) > 0 {
-		sc := bufio.NewScanner(strings.NewReader(string(data)))
-		lines := 0
-		for sc.Scan() && lines < 80 {
-			fmt.Println(sc.Text())
-			lines++
-		}
-		return sc.Err()
-	}
-	report, err := RenderReport(cfg, "running", ComponentSnapshot{})
-	if err != nil {
-		return err
-	}
-	fmt.Print(report)
-	return nil
-}
-
 func runCommand(cfg Config) error {
 	if err := cfg.ensureStateDirs(); err != nil {
 		return err
@@ -138,6 +123,10 @@ func runCommand(cfg Config) error {
 		return err
 	}
 	defer lock.Close()
+	if err := WriteRunState(cfg); err != nil {
+		return err
+	}
+	_ = os.Remove(filepath.Join(cfg.StateDir, "current-attempt.json"))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -438,10 +427,13 @@ func (w logWriter) Write(p []byte) (int, error) {
 
 func runReportTickers(ctx context.Context, cfg Config, f *FuzzerManager, e *E2EManager, logf func(string, ...any)) {
 	report := time.NewTicker(cfg.ReportEvery)
+	sample := time.NewTicker(cfg.SampleEvery)
 	coverage := time.NewTicker(cfg.CoverageEvery)
 	defer report.Stop()
+	defer sample.Stop()
 	defer coverage.Stop()
 	_ = WriteReport(cfg, "running", mergeSnapshots(f.Snapshot(), e.Snapshot()))
+	_ = AppendSample(cfg, CollectSample(cfg))
 	for {
 		select {
 		case <-ctx.Done():
@@ -449,6 +441,10 @@ func runReportTickers(ctx context.Context, cfg Config, f *FuzzerManager, e *E2EM
 		case <-report.C:
 			if err := WriteReport(cfg, "running", mergeSnapshots(f.Snapshot(), e.Snapshot())); err != nil {
 				logf("report write failed: %v", err)
+			}
+		case <-sample.C:
+			if err := AppendSample(cfg, CollectSample(cfg)); err != nil {
+				logf("sample append failed: %v", err)
 			}
 		case <-coverage.C:
 			if err := AppendCoverageHistory(cfg); err != nil {

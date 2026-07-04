@@ -460,6 +460,206 @@ func TestCodexJSONLParsingFromFixture(t *testing.T) {
 	}
 }
 
+func TestRatePositiveDeltaSum(t *testing.T) {
+	base := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	samples := []SampleRecord{{TS: base, Fuzz: SampleFuzz{ExecsTotal: 0}}, {TS: base.Add(30 * time.Second), Fuzz: SampleFuzz{ExecsTotal: 300}}, {TS: base.Add(time.Minute), Fuzz: SampleFuzz{ExecsTotal: 600}}}
+	rate, covered, ok := Rate(samples, func(s SampleRecord) int64 { return s.Fuzz.ExecsTotal }, time.Minute, base.Add(time.Minute))
+	if !ok || rate != 10 || covered != time.Minute {
+		t.Fatalf("steady rate=%v covered=%v ok=%v", rate, covered, ok)
+	}
+	reset := []SampleRecord{{TS: base, Fuzz: SampleFuzz{ExecsTotal: 1000}}, {TS: base.Add(30 * time.Second), Fuzz: SampleFuzz{ExecsTotal: 0}}, {TS: base.Add(time.Minute), Fuzz: SampleFuzz{ExecsTotal: 400}}}
+	rate, _, ok = Rate(reset, func(s SampleRecord) int64 { return s.Fuzz.ExecsTotal }, time.Minute, base.Add(time.Minute))
+	if !ok || rate != float64(400)/60 {
+		t.Fatalf("reset rate=%v ok=%v", rate, ok)
+	}
+	_, _, ok = Rate(samples[:1], func(s SampleRecord) int64 { return s.Fuzz.ExecsTotal }, time.Minute, base)
+	if ok {
+		t.Fatalf("single sample should not produce a rate")
+	}
+	rate, covered, ok = Rate(samples[1:], func(s SampleRecord) int64 { return s.Fuzz.ExecsTotal }, 15*time.Minute, base.Add(time.Minute))
+	if !ok || covered != 30*time.Second || rate != 10 {
+		t.Fatalf("short rate=%v covered=%v ok=%v", rate, covered, ok)
+	}
+}
+
+func TestReadSamplesTail(t *testing.T) {
+	cfg := testConfig(t)
+	base := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	var lines []string
+	for i := 0; i < 20; i++ {
+		data, err := json.Marshal(SampleRecord{TS: base.Add(time.Duration(i) * time.Second), Fuzz: SampleFuzz{ExecsTotal: int64(i)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, string(data))
+	}
+	mustWrite(t, filepath.Join(cfg.StateDir, "samples.jsonl"), strings.Join(lines, "\n")+"\n")
+	got := ReadSamplesTail(cfg, 1200)
+	if len(got) == 0 || got[0].Fuzz.ExecsTotal == 0 || got[len(got)-1].Fuzz.ExecsTotal != 19 {
+		t.Fatalf("tail parse mismatch: %#v", got)
+	}
+	cfg2 := testConfig(t)
+	if got := ReadSamplesTail(cfg2, 100); got != nil {
+		t.Fatalf("missing samples got %#v", got)
+	}
+	mustWrite(t, filepath.Join(cfg2.StateDir, "samples.jsonl"), "")
+	if got := ReadSamplesTail(cfg2, 100); got != nil {
+		t.Fatalf("empty samples got %#v", got)
+	}
+}
+
+func TestSparkline(t *testing.T) {
+	base := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	samples := []SampleRecord{{TS: base, Fuzz: SampleFuzz{ExecsTotal: 0}}, {TS: base.Add(time.Minute), Fuzz: SampleFuzz{ExecsTotal: 10}}, {TS: base.Add(2 * time.Minute), Fuzz: SampleFuzz{ExecsTotal: 30}}, {TS: base.Add(4 * time.Minute), Fuzz: SampleFuzz{ExecsTotal: 70}}}
+	if got := Sparkline(samples, func(s SampleRecord) int64 { return s.Fuzz.ExecsTotal }, 4*time.Minute, 4); got != "·▄██" {
+		t.Fatalf("sparkline=%q", got)
+	}
+	if got := Sparkline(samples[:1], func(s SampleRecord) int64 { return s.Fuzz.ExecsTotal }, 4*time.Minute, 3); got != "···" {
+		t.Fatalf("empty sparkline=%q", got)
+	}
+}
+
+func TestGroupRows(t *testing.T) {
+	cfg := testConfig(t)
+	now := time.Date(2026, 7, 3, 15, 0, 0, 0, time.UTC)
+	writeStatusMeta(t, cfg, "sig1", "mysql", "classA", "shapeA", "2026-07-03T12:00:00Z")
+	writeStatusMeta(t, cfg, "sig2", "mariadb", "classA", "shapeA", "2026-07-03T13:00:00Z")
+	writeStatusMeta(t, cfg, "sig3", "mysql", "classB", "shapeB", "2026-07-03T14:00:00Z")
+	writeStatusMeta(t, cfg, "sig4", "mariadb", "classC", "shapeC", "2026-07-03T14:30:00Z")
+	for _, sig := range []string{"sig1", "sig2", "sig3"} {
+		if err := AppendAttemptRecord(filepath.Join(cfg.StateDir, "attempts", sig+".jsonl"), AttemptRecord{Attempt: 1, Sig: sig}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	groupA := GroupInfoForMeta(FindingMeta{Class: "classA", Shape: "shapeA"}).Key
+	if err := SaveGroups(cfg, map[string]*GroupRecord{groupA: &GroupRecord{Parked: true, FixCount: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	rows, more := BuildGroupRows(cfg, now, 10)
+	if more != 0 || len(rows) != 3 {
+		t.Fatalf("rows=%#v more=%d", rows, more)
+	}
+	if rows[0].Sigs != 2 || rows[0].Attempts != 2 || rows[0].MySQL != 1 || rows[0].MariaDB != 1 || rows[0].OldestAge != "3h" || !strings.Contains(rows[0].Flags, "flap-parked") {
+		t.Fatalf("group row mismatch: %#v", rows[0])
+	}
+}
+
+func TestCurrentAttemptStale(t *testing.T) {
+	cfg := testConfig(t)
+	now := time.Now()
+	cur := CurrentAttempt{Sig: "sig", Attempt: 1, MaxAttempts: 3, StartedAt: now.Add(-time.Hour), AttemptDeadline: now.Add(-10 * time.Minute)}
+	if err := atomicWriteJSON(filepath.Join(cfg.StateDir, "current-attempt.json"), cur, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := collectFixAgent(cfg, now, RunStatus{Alive: false}, SpendRecord{})
+	if got.State != "stale" || !got.Stale {
+		t.Fatalf("stale attempt mismatch: %#v", got)
+	}
+	cur.AttemptDeadline = now.Add(time.Hour)
+	if err := atomicWriteJSON(filepath.Join(cfg.StateDir, "current-attempt.json"), cur, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = collectFixAgent(cfg, now, RunStatus{Alive: true}, SpendRecord{})
+	if got.State != "running" || got.Stale {
+		t.Fatalf("running attempt mismatch: %#v", got)
+	}
+	if err := os.Remove(filepath.Join(cfg.StateDir, "current-attempt.json")); err != nil {
+		t.Fatal(err)
+	}
+	got = collectFixAgent(cfg, now, RunStatus{Alive: true}, SpendRecord{})
+	if got.State != "idle" {
+		t.Fatalf("missing attempt should be idle: %#v", got)
+	}
+}
+
+func TestMetricTableAlignment(t *testing.T) {
+	rows := metricTable([]string{"METRIC", "NOW", "Δ1m"}, [][]string{{paint(true, sgrGreen, "execs/s"), "10", "2"}, {"very-long-metric-name", "1000", "30"}}, 80, true)
+	if visibleWidth(paint(true, sgrRed, "abc")) != 3 {
+		t.Fatalf("visibleWidth counts SGR")
+	}
+	if !strings.Contains(rows[1], "    10") || !strings.Contains(rows[2], "  1000") {
+		t.Fatalf("numeric columns not right aligned: %#v", rows)
+	}
+	truncated := metricTable([]string{"METRIC", "NOW"}, [][]string{{"metric", "abcdefghijklmnopqrstuvwxyz"}}, 18, false)
+	if visibleWidth(truncated[1]) > 18 || !strings.HasSuffix(truncated[1], "…") {
+		t.Fatalf("truncate mismatch: %#v", truncated)
+	}
+}
+
+func TestSideBySide(t *testing.T) {
+	got := sideBySide([]string{paint(true, sgrGreen, "A"), "BBBB"}, []string{"one"}, 6, 3)
+	if len(got) != 2 {
+		t.Fatalf("len=%d", len(got))
+	}
+	if !strings.HasSuffix(got[0], "one") || visibleWidth(stripANSI(strings.TrimSuffix(got[0], "one"))) != 9 {
+		t.Fatalf("first line padding/gutter mismatch: %q", got[0])
+	}
+	if visibleWidth(got[1]) != 9 {
+		t.Fatalf("blank right side width=%d line=%q", visibleWidth(got[1]), got[1])
+	}
+}
+
+func TestFrameBreakpoint(t *testing.T) {
+	snap := statusFixture(t)
+	wide := RenderStatus(snap, false, 130)
+	if fast, e2e := strings.Index(wide, "FAST LANE"), strings.Index(wide, "E2E LANE"); fast < 0 || e2e < 0 || lineOf(wide, fast) != lineOf(wide, e2e) {
+		t.Fatalf("wide lanes not paired:\n%s", wide)
+	}
+	narrow := RenderStatus(snap, false, 100)
+	order := []string{"FAST LANE", "E2E LANE", "FINDINGS", "FIX AGENT", "EVENTS"}
+	last := -1
+	for _, pane := range order {
+		idx := strings.Index(narrow, pane)
+		if idx <= last {
+			t.Fatalf("pane order mismatch for %s:\n%s", pane, narrow)
+		}
+		last = idx
+	}
+}
+
+func TestRenderStatusSmoke(t *testing.T) {
+	snap := statusFixture(t)
+	out := RenderStatus(snap, false, 130)
+	for _, want := range []string{"ddlfuzz", "FAST LANE", "E2E LANE", "FINDINGS", "FIX AGENT", "EVENTS", "METRIC", "classA|shapea", "n/a"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("render missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("color disabled but ANSI present")
+	}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if visibleWidth(line) > 130 {
+			t.Fatalf("line too wide (%d): %q", visibleWidth(line), line)
+		}
+	}
+}
+
+func TestEventsFilter(t *testing.T) {
+	cfg := testConfig(t)
+	log := strings.Join([]string{"2026-07-03T12:00:00Z fuzzer: execs/s=1 restarts=my:0,ma:0", "2026-07-03T12:00:01Z e2e: heartbeat cases=1", "2026-07-03T12:00:02Z fuzzer exited: boom", "2026-07-03T12:00:03Z fix committed for abc"}, "\n") + "\n"
+	mustWrite(t, filepath.Join(cfg.StateDir, "supervisor.log"), log)
+	events := readEvents(cfg)
+	if len(events) != 2 || !strings.Contains(events[0].Message, "exited") || !strings.Contains(events[1].Message, "fix committed") {
+		t.Fatalf("events=%#v", events)
+	}
+}
+
+func TestStatusJSON(t *testing.T) {
+	snap := statusFixture(t)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var round StatusSnapshot
+	if err := json.Unmarshal(data, &round); err != nil {
+		t.Fatal(err)
+	}
+	if round.Findings.Counts.Open == 0 || round.Run.FixModel == "" {
+		t.Fatalf("round trip mismatch: %#v", round)
+	}
+}
+
 func mustWrite(t *testing.T, path, data string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -528,4 +728,46 @@ func mustMeta(t *testing.T, path string) FindingMeta {
 		t.Fatal(err)
 	}
 	return meta
+}
+
+func writeStatusMeta(t *testing.T, cfg Config, sig, engine, class, shape, discovered string) {
+	t.Helper()
+	meta := FindingMeta{Sig: sig, Engine: engine, Status: "open", DiscoveredAt: discovered, Class: class, Shape: shape, OurSig: "ours", OracleDigest: json.RawMessage(`{"signature":"oracle"}`)}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(cfg.StateDir, "findings", sig, "meta.json"), string(data))
+}
+
+func statusFixture(t *testing.T) StatusSnapshot {
+	t.Helper()
+	cfg := testConfig(t)
+	now := time.Date(2026, 7, 3, 15, 0, 0, 0, time.UTC)
+	cfg.StartedAt = now.Add(-3 * time.Hour)
+	cfg.Deadline = now.Add(61 * time.Hour)
+	cfg.RunHours = 72
+	cfg.FixModel = "gpt-5.5"
+	if err := WriteRunState(cfg); err != nil {
+		t.Fatal(err)
+	}
+	writeStatusMeta(t, cfg, "sig1", "mysql", "classA", "shapeA", "2026-07-03T12:00:00Z")
+	writeStatusMeta(t, cfg, "sig2", "mariadb", "classA", "shapeA", "2026-07-03T13:00:00Z")
+	mustWrite(t, filepath.Join(cfg.StateDir, "stats.json"), `{"ts":"2026-07-03T14:59:56Z","execs_total":1000,"execs_per_sec":405000,"findings_emitted_total":10,"corpus_count":{"mysql":77600,"mariadb":66400},"edges":{"go":1,"mysql":20987,"mariadb":10416},"oracle_restarts":{"mysql":0,"mariadb":0}}`)
+	mustWrite(t, filepath.Join(cfg.StateDir, "e2e-stats.json"), `{"updated_at":1783090797,"cases":{"mysql":10,"mariadb":12},"exec_rejects":{"mysql":3,"mariadb":4}}`)
+	mustWrite(t, filepath.Join(cfg.StateDir, "supervisor.log"), "2026-07-03T14:59:58Z fix committed for sig1\n")
+	samples := []SampleRecord{
+		{TS: now.Add(-time.Minute), Fuzz: SampleFuzz{ExecsTotal: 100, Suppressed: 1, Edges: map[string]int64{"mysql": 10, "mariadb": 5}}, E2E: SampleE2E{Cases: map[string]int64{"mysql": 1, "mariadb": 1}, ExecRejects: map[string]int64{"mysql": 1}}},
+		{TS: now, Fuzz: SampleFuzz{ExecsTotal: 700, Suppressed: 7, Edges: map[string]int64{"mysql": 13, "mariadb": 5}}, E2E: SampleE2E{Cases: map[string]int64{"mysql": 5, "mariadb": 5}, ExecRejects: map[string]int64{"mysql": 2, "mariadb": 2}}},
+	}
+	for _, rec := range samples {
+		if err := AppendSample(cfg, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return CollectStatus(cfg)
+}
+
+func lineOf(s string, idx int) int {
+	return strings.Count(s[:idx], "\n")
 }

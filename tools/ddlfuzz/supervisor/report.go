@@ -20,6 +20,7 @@ type FastStats struct {
 	CorpusCount          map[string]int64 `json:"corpus_count"`
 	Edges                map[string]int64 `json:"edges"`
 	OracleRestarts       map[string]int64 `json:"oracle_restarts"`
+	Suppressed           int64            `json:"suppressed"`
 	FindingsEmittedTotal int64            `json:"findings_emitted_total"`
 	Extra                map[string]any   `json:"-"`
 	Raw                  map[string]any   `json:"-"`
@@ -209,6 +210,11 @@ func attemptSummary(cfg Config) map[string]int {
 	out := map[string]int{"total": 0, "fixed": 0, "ledgered": 0, "failed": 0, "timeout": 0}
 	files, _ := filepath.Glob(filepath.Join(cfg.StateDir, "attempts", "*.jsonl"))
 	for _, path := range files {
+		// attempts/ also holds <sig>.attempt<N>.stream.jsonl codex transcripts;
+		// only <sig>.jsonl files are attempt records.
+		if strings.Contains(filepath.Base(path), ".attempt") {
+			continue
+		}
 		records, err := LoadAttemptRecords(path)
 		if err != nil {
 			continue

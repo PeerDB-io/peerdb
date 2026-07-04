@@ -738,8 +738,15 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 	if logf != nil {
 		logf("starting codex attempt %d for %s", attemptN, sig)
 	}
+	if err := writeCurrentAttempt(cfg, finding, attemptN, "agent", started); err != nil && logf != nil {
+		logf("current attempt write failed: %v", err)
+	}
+	defer os.Remove(filepath.Join(cfg.StateDir, "current-attempt.json"))
 	codexExit, timedOut, err := runCodexAttempt(ctx, cfg, prompt, streamPath, lastPath, stderrPath)
 	ended := time.Now()
+	if err := writeCurrentAttempt(cfg, finding, attemptN, "validate", started); err != nil && logf != nil {
+		logf("current attempt validate write failed: %v", err)
+	}
 	if timedOut {
 		outcome = "timeout"
 		detail = "codex attempt timed out"
