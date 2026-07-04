@@ -3,16 +3,25 @@ package dict
 import (
 	"embed"
 	"strings"
+	"sync"
 )
 
 //go:embed mysql.txt mariadb.txt
 var files embed.FS
 
+var (
+	mysqlTokens   = sync.OnceValue(func() []string { return parse("mysql.txt") })
+	mariadbTokens = sync.OnceValue(func() []string { return parse("mariadb.txt") })
+)
+
 func Tokens(engine string) []string {
-	name := "mysql.txt"
 	if engine == "mariadb" || engine == "maria" {
-		name = "mariadb.txt"
+		return mariadbTokens()
 	}
+	return mysqlTokens()
+}
+
+func parse(name string) []string {
 	b, err := files.ReadFile(name)
 	if err != nil {
 		return nil

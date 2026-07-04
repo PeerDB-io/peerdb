@@ -25,6 +25,12 @@ import (
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/seed"
 )
 
+const (
+	recentRingSize    = 8192
+	basePoolByteCap   = 256 << 20
+	maxBaseEvictTries = 64
+)
+
 // fuzzLoop is the differential fast lane: generated/mutated cases go through
 // the parser under test and the engine's parse oracle, divergences are
 // classified by internal/compare and recorded as findings, and corpus
@@ -34,9 +40,16 @@ import (
 // MB oracle bitmap) run under this lock, not the global statsMu, so the two
 // engines merge in parallel and stats reads never block a merge.
 type engineState struct {
-	mu    sync.Mutex
-	accum *sancov.Accumulator
-	bases []run.Case
+	mu             sync.Mutex
+	accum          *sancov.Accumulator
+	bases          []run.Case
+	baseKeys       map[string]struct{}
+	basesBytes     int64
+	recent         [recentRingSize]run.Case
+	recentPos      int
+	recentN        int
+	recentKeys     map[string]int
+	retainedByTier [3]uint64
 }
 
 type fuzzLoop struct {
@@ -73,6 +86,70 @@ type oracleProc struct {
 	spawnErrors int
 }
 
+func (es *engineState) appendBaseLocked(c run.Case, rng *rand.Rand) {
+	k := baseKey(c)
+	if _, ok := es.baseKeys[k]; ok {
+		return
+	}
+	es.bases = append(es.bases, c)
+	es.baseKeys[k] = struct{}{}
+	es.basesBytes += int64(len(c.SQL))
+	es.evictBasesLocked(rng)
+}
+
+func (es *engineState) evictBasesLocked(rng *rand.Rand) {
+	if rng == nil {
+		rng = rand.New(rand.NewPCG(5, 6))
+	}
+	for es.basesBytes > basePoolByteCap && len(es.bases) > 0 {
+		idx := -1
+		for i := 0; i < maxBaseEvictTries; i++ {
+			cand := rng.IntN(len(es.bases))
+			if es.recentKeys[baseKey(es.bases[cand])] == 0 {
+				idx = cand
+				break
+			}
+		}
+		if idx < 0 {
+			for i, c := range es.bases {
+				if es.recentKeys[baseKey(c)] == 0 {
+					idx = i
+					break
+				}
+			}
+		}
+		if idx < 0 {
+			return
+		}
+		delete(es.baseKeys, baseKey(es.bases[idx]))
+		es.basesBytes -= int64(len(es.bases[idx].SQL))
+		last := len(es.bases) - 1
+		es.bases[idx] = es.bases[last]
+		es.bases = es.bases[:last]
+	}
+}
+
+func (es *engineState) pushRecentLocked(c run.Case) {
+	if es.recentN == len(es.recent) {
+		old := es.recent[es.recentPos]
+		k := baseKey(old)
+		if es.recentKeys[k] <= 1 {
+			delete(es.recentKeys, k)
+		} else {
+			es.recentKeys[k]--
+		}
+	} else {
+		es.recentN++
+	}
+	es.recent[es.recentPos] = c
+	es.recentKeys[baseKey(c)]++
+	es.recentPos = (es.recentPos + 1) % len(es.recent)
+}
+
+func baseKey(c run.Case) string {
+	return string(c.SQL) + "\x00" + fmt.Sprint(c.SQLMode)
+}
+
 func runFuzzLoop(ctx context.Context, cfg config) int {
 	if err := os.MkdirAll(cfg.stateDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "fuzz: %v\n", err)
@@ -107,7 +184,11 @@ func runFuzzLoop(ctx context.Context, cfg config) int {
 			fmt.Fprintf(os.Stderr, "fuzz: coverage: %v\n", err)
 			return 1
 		}
-		loop.engines[engine] = &engineState{accum: acc}
+		loop.engines[engine] = &engineState{accum: acc, baseKeys: map[string]struct{}{}, recentKeys: map[string]int{}}
+	}
+	if err := loop.loadCorpusBases(); err != nil {
+		fmt.Fprintf(os.Stderr, "fuzz: corpus reload: %v\n", err)
+		return 1
 	}
 	seeds, _ := seed.LoadDir(cfg.seedsDir)
 	loop.loadSeedBases(seeds)
@@ -207,10 +288,29 @@ func (l *fuzzLoop) loadSeedBases(seeds []seed.Seed) {
 		for _, engine := range engines {
 			c := run.Case{SQL: []byte(s.SQL), SQLMode: s.SQLMode, Engine: engine, Origin: run.OriginCorpus}
 			es := l.engines[run.EngineName(engine)]
-			es.bases = append(es.bases, c)
+			es.mu.Lock()
+			es.appendBaseLocked(c, nil)
+			es.mu.Unlock()
 			_, _ = l.store.Add(c)
 		}
 	}
+}
+
+func (l *fuzzLoop) loadCorpusBases() error {
+	rng := rand.New(rand.NewPCG(l.seedValue^0xfeed, 0xc0ffee))
+	for _, engine := range []uint8{run.EngineMySQL, run.EngineMariaDB} {
+		cases, err := l.store.AllCases(run.EngineName(engine))
+		if err != nil {
+			return err
+		}
+		es := l.engines[run.EngineName(engine)]
+		es.mu.Lock()
+		for _, c := range cases {
+			es.appendBaseLocked(c, rng)
+		}
+		es.mu.Unlock()
+	}
+	return nil
 }
 
 func (l *fuzzLoop) produce(ctx context.Context, workerID int, channels map[uint8]chan []run.Case) {
@@ -237,8 +337,15 @@ func (l *fuzzLoop) nextCase(rng *rand.Rand, engine uint8) run.Case {
 	es.mu.Lock()
 	var base run.Case
 	haveBase := false
+	baseTier := run.BaseTierOld
 	if len(es.bases) > 0 && rng.Float64() < l.cfg.mutRatio {
-		base = es.bases[rng.IntN(len(es.bases))]
+		if es.recentN > 0 && rng.IntN(2) == 0 {
+			base = es.recent[rng.IntN(es.recentN)]
+			baseTier = run.BaseTierRecent
+		} else {
+			base = es.bases[rng.IntN(len(es.bases))]
+			baseTier = run.BaseTierOld
+		}
 		haveBase = true
 	}
 	es.mu.Unlock()
@@ -247,15 +354,18 @@ func (l *fuzzLoop) nextCase(rng *rand.Rand, engine uint8) run.Case {
 		c.Engine = engine
 		c.Origin = run.OriginMut
 		c.Seed = rng.Uint64()
+		c.BaseTier = baseTier
 		return c
 	}
-	sql := gen.Generate(rng, engine == run.EngineMariaDB)
+	mode := gen.ChooseMode(rng, engine == run.EngineMariaDB)
+	sql := gen.Generate(rng, engine == run.EngineMariaDB, mode)
 	return run.Case{
-		SQL:     []byte(sql),
-		SQLMode: chooseMode(rng, engine),
-		Engine:  engine,
-		Origin:  run.OriginGen,
-		Seed:    rng.Uint64(),
+		SQL:      []byte(sql),
+		SQLMode:  mode,
+		Engine:   engine,
+		Origin:   run.OriginGen,
+		Seed:     rng.Uint64(),
+		BaseTier: run.BaseTierFreshGen,
 	}
 }
 
@@ -439,7 +549,13 @@ func (p *oracleProc) pollCoverage(ctx context.Context) {
 			}
 		}
 		es.mu.Lock()
-		es.bases = append(es.bases, added...)
+		for _, c := range added {
+			es.pushRecentLocked(c)
+			es.appendBaseLocked(c, rand.New(rand.NewPCG(uint64(len(c.SQL))+c.SQLMode, uint64(c.Engine)+1)))
+			if c.BaseTier < uint8(len(es.retainedByTier)) {
+				es.retainedByTier[c.BaseTier]++
+			}
+		}
 		es.mu.Unlock()
 		p.emptyPolls = 0
 		p.pollEvery = 1
@@ -514,8 +630,36 @@ func (l *fuzzLoop) writeStats(rate float64) {
 		"corpus_bytes":           l.store.Bytes(),
 		"retention_skipped":      l.store.SkippedFull(),
 	}
+	stats["retained_by_tier"] = l.retainedByTierStats()
+	stats["bases_bytes"] = l.basesBytesStats()
 	l.statsMu.Unlock()
 	_ = writeStatsJSON(l.cfg.stateDir, stats)
+}
+
+func (l *fuzzLoop) retainedByTierStats() map[string]map[string]uint64 {
+	out := map[string]map[string]uint64{}
+	for _, engine := range []string{"mysql", "mariadb"} {
+		es := l.engines[engine]
+		es.mu.Lock()
+		out[engine] = map[string]uint64{
+			"fresh_gen":   es.retainedByTier[run.BaseTierFreshGen],
+			"recent_base": es.retainedByTier[run.BaseTierRecent],
+			"old_base":    es.retainedByTier[run.BaseTierOld],
+		}
+		es.mu.Unlock()
+	}
+	return out
+}
+
+func (l *fuzzLoop) basesBytesStats() map[string]int64 {
+	out := map[string]int64{}
+	for _, engine := range []string{"mysql", "mariadb"} {
+		es := l.engines[engine]
+		es.mu.Lock()
+		out[engine] = es.basesBytes
+		es.mu.Unlock()
+	}
+	return out
 }
 
 func (l *fuzzLoop) edgeCount(engine string) int {

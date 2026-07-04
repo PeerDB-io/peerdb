@@ -33,26 +33,76 @@ func LoadDir(dir string) ([]Seed, error) {
 	var out []Seed
 	path := filepath.Join(dir, "seeds.jsonl")
 	f, err := os.Open(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err == nil {
+		defer f.Close()
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line == "" {
+				continue
+			}
+			var s Seed
+			if err := json.Unmarshal([]byte(line), &s); err != nil {
+				return nil, err
+			}
+			out = append(out, s)
+		}
+		if err := sc.Err(); err != nil {
+			return nil, err
+		}
+	}
+	fixSeeds, err := loadFixSeeds(dir)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, fixSeeds...), nil
+}
+
+func loadFixSeeds(dir string) ([]Seed, error) {
+	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
+	var out []Seed
+	for _, ent := range entries {
+		name := ent.Name()
+		if ent.IsDir() || !strings.HasSuffix(name, ".sql") {
 			continue
 		}
-		var s Seed
-		if err := json.Unmarshal([]byte(line), &s); err != nil {
+		stem := strings.TrimSuffix(name, ".sql")
+		sqlBytes, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
 			return nil, err
+		}
+		s := Seed{SQL: string(sqlBytes), Engine: "both", Source: name}
+		metaBytes, err := os.ReadFile(filepath.Join(dir, stem+".meta.json"))
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		if err == nil {
+			var meta struct {
+				Engine    string `json:"engine"`
+				SQLMode   uint64 `json:"sql_mode"`
+				ExpectSig string `json:"expect_sig"`
+			}
+			if err := json.Unmarshal(metaBytes, &meta); err != nil {
+				return nil, err
+			}
+			if meta.Engine != "" {
+				s.Engine = meta.Engine
+			}
+			s.SQLMode = meta.SQLMode
+			s.ExpectSig = meta.ExpectSig
 		}
 		out = append(out, s)
 	}
-	return out, sc.Err()
+	return out, nil
 }
 
 func WriteJSONL(path string, seeds []Seed) error {

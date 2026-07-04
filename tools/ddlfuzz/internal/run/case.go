@@ -16,12 +16,19 @@ const (
 )
 
 type Case struct {
-	SQL     []byte
-	SQLMode uint64
-	Engine  uint8
-	Origin  uint8
-	Seed    uint64
+	SQL      []byte
+	SQLMode  uint64
+	Engine   uint8
+	Origin   uint8
+	Seed     uint64
+	BaseTier uint8
 }
+
+const (
+	BaseTierFreshGen uint8 = iota
+	BaseTierRecent
+	BaseTierOld
+)
 
 func EngineName(engine uint8) string {
 	switch engine {

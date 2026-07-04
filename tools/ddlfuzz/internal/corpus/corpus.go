@@ -182,6 +182,49 @@ func (s *Store) Count(engine string) int {
 	return n
 }
 
+func (s *Store) AllCases(engine string) ([]run.Case, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.Query(`SELECT sql, sql_mode, origin FROM corpus WHERE engine = ? ORDER BY id`, engine)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	engineID, err := run.EngineID(engine)
+	if err != nil {
+		return nil, err
+	}
+	var out []run.Case
+	for rows.Next() {
+		var c run.Case
+		var mode, origin string
+		if err := rows.Scan(&c.SQL, &mode, &origin); err != nil {
+			return nil, err
+		}
+		c.SQLMode, _ = strconv.ParseUint(mode, 10, 64)
+		c.Engine = engineID
+		c.Origin = originID(origin)
+		c.BaseTier = run.BaseTierOld
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func originID(origin string) uint8 {
+	switch origin {
+	case "gen":
+		return run.OriginGen
+	case "mut":
+		return run.OriginMut
+	case "golden":
+		return run.OriginGolden
+	case "replay":
+		return run.OriginReplay
+	default:
+		return run.OriginCorpus
+	}
+}
+
 // RandomSQL returns one retained SQL input for engine, selected by random id.
 func (s *Store) RandomSQL(engine string, rng *rand.Rand) ([]byte, bool, error) {
 	s.mu.Lock()

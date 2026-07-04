@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/golden"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/minimize"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/replay"
-	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/run"
 )
 
 type config struct {
@@ -284,14 +282,6 @@ func loadOrInitSeed(cfg config) (uint64, error) {
 		return 0, err
 	}
 	return v, nil
-}
-
-func chooseMode(rng *rand.Rand, engine uint8) uint64 {
-	modes := []uint64{0, 0, 0, 1 << 2, 1 << 20, (1 << 2) | (1 << 20)}
-	if engine == run.EngineMariaDB {
-		modes = append(modes, 1<<9, 1<<10, (1<<9)|(1<<2), (1<<10)|(1<<20))
-	}
-	return modes[rng.IntN(len(modes))]
 }
 
 func writeStatsJSON(stateDir string, v map[string]any) error {
