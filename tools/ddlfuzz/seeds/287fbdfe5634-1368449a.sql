@@ -1,0 +1,1 @@
+RENAME TABLE  `fixture` TO `bP`

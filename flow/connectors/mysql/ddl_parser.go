@@ -1434,7 +1434,7 @@ func (p *ddlParser) parseRenameTable() (*ddlRenameTable, error) {
 			}
 			return nil, fmt.Errorf("expected TO in RENAME TABLE at byte %d", t.pos)
 		}
-		newSchema, newTable, err := p.parseTableIdent()
+		newSchema, newTable, err := p.parseAlterTableRenameIdent()
 		if err != nil {
 			return nil, err
 		}
