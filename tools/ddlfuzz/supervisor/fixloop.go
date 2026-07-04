@@ -703,8 +703,14 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 	if priorFixEvidence(finding.Meta, records) && confirmFixed(ctx, cfg, finding, logf) {
 		return nil
 	}
+	if finding.Meta.Status == "" || finding.Meta.Status == "open" {
+		closed, err := autoResolveReconciled(ctx, cfg, finding, logf)
+		if err != nil || closed {
+			return err
+		}
+	}
 	if BudgetExhausted(records, 3, 150*time.Minute) {
-		return ParkSignature(cfg, finding, false, "attempt budget exhausted")
+		return parkBudgetExhausted(cfg, finding, logf)
 	}
 
 	lastGood, err := loadLastGoodCommit(cfg)
@@ -780,11 +786,14 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 
 	if outcome == "failed" || outcome == "timeout" || outcome == "no_result" {
 		_ = rollbackAttempt(ctx, cfg, lastGood, beforeUntracked)
+		if logf != nil {
+			logf("attempt %d for %s: %s%s", attemptN, sig, outcome, eventDetailSuffix(detail))
+		}
 		rec := AttemptRecord{Attempt: attemptN, Sig: sig, StartedAt: started, EndedAt: ended, Outcome: outcome, Detail: detail, Tokens: tokens, ThreadID: threadID, Transcript: relTo(cfg.StateDir, streamPath), LastMessage: relTo(cfg.StateDir, lastPath), Diff: relTo(cfg.StateDir, diffPath)}
 		_ = AppendAttemptRecord(attemptLog, rec)
 		records = append(records, rec)
 		if BudgetExhausted(records, 3, 150*time.Minute) {
-			return ParkSignature(cfg, finding, false, "attempt budget exhausted")
+			return parkBudgetExhausted(cfg, finding, logf)
 		}
 		return nil
 	}
@@ -868,12 +877,20 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 	}
 	if outcome != "fixed" && outcome != "ledgered" {
 		_ = rollbackAttempt(ctx, cfg, lastGood, beforeUntracked)
+		if logf != nil {
+			logf("attempt %d for %s: rollback (%s)", attemptN, sig, outcome)
+		}
+	} else if logf != nil {
+		logf("attempt %d for %s: %s", attemptN, sig, outcome)
+		if outcome == "fixed" {
+			logf("committed fix %s", sig)
+		}
 	}
 	rec := AttemptRecord{Attempt: attemptN, Sig: sig, StartedAt: started, EndedAt: time.Now(), Outcome: outcome, Detail: detail, Tokens: tokens, Commits: commits, ThreadID: threadID, Transcript: relTo(cfg.StateDir, streamPath), LastMessage: relTo(cfg.StateDir, lastPath), Diff: relTo(cfg.StateDir, diffPath)}
 	_ = AppendAttemptRecord(attemptLog, rec)
 	records = append(records, rec)
 	if outcome != "fixed" && outcome != "ledgered" && BudgetExhausted(records, 3, 150*time.Minute) {
-		return ParkSignature(cfg, finding, false, "attempt budget exhausted")
+		return parkBudgetExhausted(cfg, finding, logf)
 	}
 	return nil
 }
@@ -1062,6 +1079,84 @@ func confirmFixed(ctx context.Context, cfg Config, f Finding, logf func(string, 
 		logf("confirm-fixed %s", f.Sig)
 	}
 	return true
+}
+
+// autoResolveReconciled closes an open finding that no longer reproduces at
+// HEAD (an earlier, unrelated fix resolved it) instead of spending codex
+// attempts on a guaranteed did-not-reproduce. Only a clean replay exit 0 on a
+// finding whose replay path validates the recorded divergence closes it;
+// divergence (10), malformed (11), and replay errors fall through to the
+// normal attempt flow. Unlike replayReproduces, which asks "does it still
+// diverge?" (exit 10), this needs the reconciled/can't-evaluate distinction.
+func autoResolveReconciled(ctx context.Context, cfg Config, f Finding, logf func(string, ...any)) (bool, error) {
+	if !replayValidatesFinding(f.MetaPath) {
+		return false, nil
+	}
+	res, err := RunReplay(ctx, cfg, f.Sig)
+	if err != nil || res.ExitCode != 0 {
+		return false, nil
+	}
+	fields := map[string]any{
+		"status":          "fixed",
+		"resolved_reason": "reconciles at HEAD (fixed by another change)",
+		"resolved_at":     time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := writeFindingMetaFields(f.MetaPath, fields); err != nil {
+		return false, err
+	}
+	if logf != nil {
+		logf("auto-resolved %s (reconciles at HEAD)", f.Sig)
+	}
+	return true, nil
+}
+
+// replayValidatesFinding mirrors internal/replay's routing: fast-lane findings
+// replay their recorded divergence directly, and lane:"e2e" findings do so
+// only when they carry the complete offline capture (offlineE2EReproducible).
+// Other e2e findings fall back to the fast-lane replay, where exit 0 does not
+// prove the live divergence is gone, so the pre-attempt gate must skip them.
+func replayValidatesFinding(metaPath string) bool {
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return false
+	}
+	raw := map[string]any{}
+	if json.Unmarshal(data, &raw) != nil {
+		return false
+	}
+	if lane, _ := raw["lane"].(string); lane != "e2e" {
+		return true
+	}
+	if class, _ := raw["class"].(string); !strings.HasPrefix(class, "e2e-") {
+		return false
+	}
+	for _, key := range []string{
+		"submitted_text", "binlog_query", "status_vars_hex",
+		"before_snapshot", "after_snapshot", "info_schema_delta",
+	} {
+		if _, ok := raw[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func parkBudgetExhausted(cfg Config, finding Finding, logf func(string, ...any)) error {
+	if logf != nil {
+		logf("parked %s (attempt budget exhausted)", finding.Sig)
+	}
+	return ParkSignature(cfg, finding, false, "attempt budget exhausted")
+}
+
+func eventDetailSuffix(detail string) string {
+	if strings.TrimSpace(detail) == "" {
+		return ""
+	}
+	detail = oneLine(detail)
+	if r := []rune(detail); len(r) > 160 {
+		detail = string(r[:160]) + "..."
+	}
+	return " (" + detail + ")"
 }
 
 func RunReplay(ctx context.Context, cfg Config, sig string) (Result, error) {

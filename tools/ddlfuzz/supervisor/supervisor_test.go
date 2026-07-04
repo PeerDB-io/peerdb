@@ -264,6 +264,203 @@ func TestConfirmFixed(t *testing.T) {
 	})
 }
 
+func TestReplayValidatesFinding(t *testing.T) {
+	cfg := testConfig(t)
+	write := func(sig, meta string) string {
+		path := filepath.Join(cfg.StateDir, "findings", sig, "meta.json")
+		mustWrite(t, path, meta)
+		return path
+	}
+	fast := write("aaaaaaaaaaaa", `{"sig":"aaaaaaaaaaaa","lane":"fast","status":"open"}`)
+	if !replayValidatesFinding(fast) {
+		t.Fatalf("fast-lane finding should validate")
+	}
+	partial := write("bbbbbbbbbbbb", `{"sig":"bbbbbbbbbbbb","lane":"e2e","class":"e2e-apply-diverge","status":"open","submitted_text":"x"}`)
+	if replayValidatesFinding(partial) {
+		t.Fatalf("e2e finding without full capture should not validate")
+	}
+	reject := write("cccccccccccc", `{"sig":"cccccccccccc","lane":"e2e","class":"oracle-reject-live-accept","status":"open"}`)
+	if replayValidatesFinding(reject) {
+		t.Fatalf("oracle-reject-live-accept should not validate")
+	}
+	full := write("dddddddddddd", `{"sig":"dddddddddddd","lane":"e2e","class":"e2e-apply-diverge","status":"open","submitted_text":"x","binlog_query":"x","status_vars_hex":"","before_snapshot":{},"after_snapshot":{},"info_schema_delta":{}}`)
+	if !replayValidatesFinding(full) {
+		t.Fatalf("e2e finding with full capture should validate")
+	}
+	if replayValidatesFinding(filepath.Join(cfg.StateDir, "findings", "missing", "meta.json")) {
+		t.Fatalf("missing meta should not validate")
+	}
+}
+
+func TestAutoResolveReconciled(t *testing.T) {
+	t.Run("closes reconciled fast-lane finding", func(t *testing.T) {
+		cfg := testConfig(t)
+		writeReplayStub(t, cfg, 0)
+		sig := "aaaaaaaaaaaa"
+		path := filepath.Join(cfg.StateDir, "findings", sig, "meta.json")
+		mustWrite(t, path, fmt.Sprintf(`{"sig":%q,"engine":"mysql","lane":"fast","status":"open","times_seen":4,"discovered_at":"2026-07-03T12:00:00Z"}`, sig))
+		var events []string
+		logf := func(format string, args ...any) { events = append(events, fmt.Sprintf(format, args...)) }
+		closed, err := autoResolveReconciled(context.Background(), cfg, mustFinding(t, cfg, sig), logf)
+		if err != nil || !closed {
+			t.Fatalf("closed=%v err=%v, want close", closed, err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(mustRead(t, path), &raw); err != nil {
+			t.Fatal(err)
+		}
+		if raw["status"] != "fixed" || raw["resolved_reason"] != "reconciles at HEAD (fixed by another change)" || raw["resolved_at"] == nil {
+			t.Fatalf("meta not closed with reason: %#v", raw)
+		}
+		if int(raw["times_seen"].(float64)) != 4 {
+			t.Fatalf("raw meta fields pruned: %#v", raw)
+		}
+		if len(events) != 1 || events[0] != "auto-resolved "+sig+" (reconciles at HEAD)" {
+			t.Fatalf("events=%#v", events)
+		}
+	})
+
+	t.Run("still diverging stays open", func(t *testing.T) {
+		cfg := testConfig(t)
+		writeReplayStub(t, cfg, 10)
+		writeMetaFixture(t, cfg, "bbbbbbbbbbbb", "open")
+		finding := mustFinding(t, cfg, "bbbbbbbbbbbb")
+		closed, err := autoResolveReconciled(context.Background(), cfg, finding, nil)
+		if err != nil || closed {
+			t.Fatalf("closed=%v err=%v, want proceed", closed, err)
+		}
+		if got := mustMeta(t, finding.MetaPath); got.Status != "open" {
+			t.Fatalf("status=%q, want open", got.Status)
+		}
+	})
+
+	t.Run("unevaluable replay stays open", func(t *testing.T) {
+		cfg := testConfig(t)
+		writeReplayStub(t, cfg, 11)
+		writeMetaFixture(t, cfg, "cccccccccccc", "open")
+		finding := mustFinding(t, cfg, "cccccccccccc")
+		closed, err := autoResolveReconciled(context.Background(), cfg, finding, nil)
+		if err != nil || closed {
+			t.Fatalf("closed=%v err=%v, want proceed", closed, err)
+		}
+		if got := mustMeta(t, finding.MetaPath); got.Status != "open" {
+			t.Fatalf("status=%q, want open", got.Status)
+		}
+	})
+
+	t.Run("e2e without offline capture skips replay", func(t *testing.T) {
+		cfg := testConfig(t)
+		marker := filepath.Join(cfg.StateDir, "replay-called")
+		writeReplayStubWithMarker(t, cfg, 0, marker)
+		sig := "dddddddddddd"
+		path := filepath.Join(cfg.StateDir, "findings", sig, "meta.json")
+		mustWrite(t, path, fmt.Sprintf(`{"sig":%q,"engine":"mysql","lane":"e2e","class":"e2e-apply-diverge","status":"open","discovered_at":"2026-07-03T12:00:00Z"}`, sig))
+		closed, err := autoResolveReconciled(context.Background(), cfg, mustFinding(t, cfg, sig), nil)
+		if err != nil || closed {
+			t.Fatalf("closed=%v err=%v, want conservative skip", closed, err)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("replay stub was invoked for non-offline e2e finding")
+		}
+		if got := mustMeta(t, path); got.Status != "open" {
+			t.Fatalf("status=%q, want open", got.Status)
+		}
+	})
+
+	t.Run("e2e with offline capture closes", func(t *testing.T) {
+		cfg := testConfig(t)
+		writeReplayStub(t, cfg, 0)
+		sig := "eeeeeeeeeeee"
+		path := filepath.Join(cfg.StateDir, "findings", sig, "meta.json")
+		mustWrite(t, path, fmt.Sprintf(`{"sig":%q,"engine":"mysql","lane":"e2e","class":"e2e-apply-diverge","status":"open","discovered_at":"2026-07-03T12:00:00Z","submitted_text":"x","binlog_query":"x","status_vars_hex":"","before_snapshot":{},"after_snapshot":{},"info_schema_delta":{}}`, sig))
+		closed, err := autoResolveReconciled(context.Background(), cfg, mustFinding(t, cfg, sig), nil)
+		if err != nil || !closed {
+			t.Fatalf("closed=%v err=%v, want close", closed, err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(mustRead(t, path), &raw); err != nil {
+			t.Fatal(err)
+		}
+		if raw["status"] != "fixed" || raw["submitted_text"] != "x" {
+			t.Fatalf("capture keys pruned or not closed: %#v", raw)
+		}
+	})
+}
+
+func TestFixOnceAutoResolvesBeforeCodex(t *testing.T) {
+	cfg := testConfig(t)
+	writeReplayStub(t, cfg, 0)
+	sig := "aaaaaaaaaaaa"
+	writeMetaFixture(t, cfg, sig, "open")
+	var events []string
+	logf := func(format string, args ...any) { events = append(events, fmt.Sprintf(format, args...)) }
+	if err := FixOnce(context.Background(), cfg, sig, true, nil, nil, nil, logf); err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(mustRead(t, filepath.Join(cfg.StateDir, "findings", sig, "meta.json")), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["status"] != "fixed" || raw["resolved_reason"] == nil {
+		t.Fatalf("finding not auto-resolved: %#v", raw)
+	}
+	records, err := LoadAttemptRecords(filepath.Join(cfg.StateDir, "attempts", sig+".jsonl"))
+	if err != nil || len(records) != 0 {
+		t.Fatalf("attempt budget consumed: err=%v records=%#v", err, records)
+	}
+	joined := strings.Join(events, "\n")
+	if !strings.Contains(joined, "auto-resolved "+sig+" (reconciles at HEAD)") {
+		t.Fatalf("missing auto-resolve event: %q", joined)
+	}
+	if strings.Contains(joined, "starting codex attempt") {
+		t.Fatalf("codex attempt started for reconciled finding: %q", joined)
+	}
+	parked, err := LoadParkedList(cfg)
+	if err != nil || len(parked) != 0 {
+		t.Fatalf("auto-resolve parked the finding: %v err=%v", parked, err)
+	}
+	findings, err := ScanFindings(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := SelectFinding(cfg, findings, parked, map[string]*GroupRecord{}); ok {
+		t.Fatalf("auto-resolved finding still selectable")
+	}
+}
+
+func TestFixOnceReproducingProceedsToAttempt(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.AttemptTO = time.Minute
+	writeReplayStub(t, cfg, 10)
+	sig := "bbbbbbbbbbbb"
+	writeMetaFixture(t, cfg, sig, "open")
+	mustWrite(t, cfg.PromptPath, "fix {SIG} attempt {ATTEMPT_N}\n")
+	initTestRepo(t, cfg)
+	writeFakeCodex(t)
+	var events []string
+	logf := func(format string, args ...any) { events = append(events, fmt.Sprintf(format, args...)) }
+	if err := FixOnce(context.Background(), cfg, sig, true, nil, nil, nil, logf); err != nil {
+		t.Fatal(err)
+	}
+	records, err := LoadAttemptRecords(filepath.Join(cfg.StateDir, "attempts", sig+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Outcome != "no_result" {
+		t.Fatalf("records=%#v, want one no_result attempt", records)
+	}
+	if got := mustMeta(t, filepath.Join(cfg.StateDir, "findings", sig, "meta.json")); got.Status != "open" {
+		t.Fatalf("status=%q, want open", got.Status)
+	}
+	joined := strings.Join(events, "\n")
+	if !strings.Contains(joined, "starting codex attempt 1 for "+sig) {
+		t.Fatalf("missing start event: %q", joined)
+	}
+	if !strings.Contains(joined, "attempt 1 for "+sig+": no_result (missing RESULT line)") {
+		t.Fatalf("missing outcome event: %q", joined)
+	}
+}
+
 func TestUntrackedDeletionPolicy(t *testing.T) {
 	before := pathSet{"tools/ddlfuzz/existing.txt": {}}
 	after := pathSet{
@@ -645,6 +842,53 @@ func TestEventsFilter(t *testing.T) {
 	}
 }
 
+func TestEventsFilterAttemptOutcomes(t *testing.T) {
+	cfg := testConfig(t)
+	want := []string{
+		"starting codex attempt 2 for abc123def456",
+		"attempt 2 for abc123def456: failed (did-not-reproduce)",
+		"attempt 3 for abc123def456: rollback (gate_failed)",
+		"attempt 1 for abc123def456: fixed",
+		"committed fix abc123def456",
+		"auto-resolved abc123def456 (reconciles at HEAD)",
+		"parked abc123def456 (attempt budget exhausted)",
+	}
+	lines := []string{"2026-07-03T12:00:00Z fuzzer: execs/s=1 restarts=my:0,ma:0"}
+	for i, msg := range want {
+		lines = append(lines, fmt.Sprintf("2026-07-03T12:00:%02dZ %s", i+1, msg))
+	}
+	lines = append(lines, "2026-07-03T12:00:59Z e2e: heartbeat cases=1")
+	mustWrite(t, filepath.Join(cfg.StateDir, "supervisor.log"), strings.Join(lines, "\n")+"\n")
+	events := readEvents(cfg)
+	if len(events) != len(want) {
+		t.Fatalf("got %d events, want %d: %#v", len(events), len(want), events)
+	}
+	for i, msg := range want {
+		if events[i].Message != msg {
+			t.Fatalf("event %d = %q, want %q", i, events[i].Message, msg)
+		}
+		if len(events[i].Time) != 8 || events[i].Time[2] != ':' || events[i].Time[5] != ':' {
+			t.Fatalf("event %d time %q not HH:MM:SS", i, events[i].Time)
+		}
+	}
+}
+
+func TestEventDetailSuffix(t *testing.T) {
+	if got := eventDetailSuffix(""); got != "" {
+		t.Fatalf("empty detail suffix %q", got)
+	}
+	if got := eventDetailSuffix("did-not-reproduce"); got != " (did-not-reproduce)" {
+		t.Fatalf("suffix %q", got)
+	}
+	if got := eventDetailSuffix("multi\nline\tdetail"); got != " (multi line detail)" {
+		t.Fatalf("multiline suffix %q", got)
+	}
+	long := eventDetailSuffix(strings.Repeat("x", 500))
+	if len(long) > 170 || !strings.HasSuffix(long, "...)") {
+		t.Fatalf("long detail not truncated: %d %q", len(long), long)
+	}
+}
+
 func TestStatusJSON(t *testing.T) {
 	snap := statusFixture(t)
 	data, err := json.Marshal(snap)
@@ -704,6 +948,33 @@ func writeReplayStubWithMarker(t *testing.T, cfg Config, exitCode int, marker st
 	if err := os.WriteFile(cfg.DDLfuzzBin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func initTestRepo(t *testing.T, cfg Config) {
+	t.Helper()
+	run := func(args ...string) {
+		res, err := RunTimeout(context.Background(), cfg.Root, time.Minute, nil, "git", args...)
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s%s", args, err, res.Stdout, res.Stderr)
+		}
+	}
+	run("-C", cfg.Root, "init", "-q")
+	run("-C", cfg.Root, "-c", "user.email=test@test", "-c", "user.name=test", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "init")
+	head, err := GitHead(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(cfg.StateDir, "last_good_commit"), head+"\n")
+}
+
+func writeFakeCodex(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncat >/dev/null\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func mustFinding(t *testing.T, cfg Config, sig string) Finding {
