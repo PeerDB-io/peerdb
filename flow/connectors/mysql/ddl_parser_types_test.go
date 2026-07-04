@@ -323,3 +323,19 @@ func TestDDLTypesMariaDBCompressedInfoSchemaSuffix(t *testing.T) {
 		})
 	}
 }
+
+func TestDDLTypesTinyintZerofillQkind(t *testing.T) {
+	for _, tc := range []struct {
+		columnType string
+		want       string
+	}{
+		{columnType: "tinyint(1)", want: "bool"},
+		{columnType: "tinyint(1) unsigned zerofill", want: "uint8"},
+	} {
+		t.Run(tc.columnType, func(t *testing.T) {
+			got, err := QkindFromMysqlColumnType(tc.columnType, true, 0)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, string(got))
+		})
+	}
+}

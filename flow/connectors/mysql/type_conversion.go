@@ -12,7 +12,7 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 	// https://mariadb.com/docs/server/reference/data-types/date-and-time-data-types/timestamp#tab-current-1
 	ct, _ = strings.CutSuffix(ct, " /* mariadb-5.3 */")
 	ct = trimMariaDBCompressedColumnType(ct)
-	ct, _ = strings.CutSuffix(ct, " zerofill")
+	ct, isZerofill := strings.CutSuffix(ct, " zerofill")
 	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
 	ct, param, _ := strings.Cut(ct, "(")
 	switch strings.ToLower(ct) {
@@ -40,6 +40,9 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 	case "double":
 		return types.QValueKindFloat64, nil
 	case "tinyint":
+		if isZerofill {
+			return types.QValueKindUInt8, nil
+		}
 		if strings.HasPrefix(param, "1)") {
 			return types.QValueKindBoolean, nil
 		} else if isUnsigned {
