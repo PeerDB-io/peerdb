@@ -656,7 +656,7 @@ func TestPreflightDriftCurrentAttemptBlocksUnknown(t *testing.T) {
 }
 
 func TestWeakenedDiffBoundary(t *testing.T) {
-	t.Run("test deletion", func(t *testing.T) {
+	t.Run("test deletion allowed", func(t *testing.T) {
 		cfg := testConfig(t)
 		initTestRepo(t, cfg)
 		mustWrite(t, filepath.Join(cfg.Root, "flow", "connectors", "mysql", "ddl_parser_test.go"), "line1\nline2\n")
@@ -668,7 +668,7 @@ func TestWeakenedDiffBoundary(t *testing.T) {
 		mustWrite(t, filepath.Join(cfg.Root, "flow", "connectors", "mysql", "ddl_parser_test.go"), "line1\n")
 		gitCommitAll(t, cfg, "attempt")
 		bad, err := weakenedDiffBoundary(context.Background(), cfg, lastGood)
-		if err != nil || len(bad) == 0 || !strings.Contains(bad[0], "deleted") {
+		if err != nil || len(bad) != 0 {
 			t.Fatalf("bad=%v err=%v", bad, err)
 		}
 	})

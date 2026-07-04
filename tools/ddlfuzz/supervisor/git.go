@@ -164,24 +164,6 @@ func GitTouchedPaths(ctx context.Context, cfg Config, sha string) ([]string, err
 	return paths, sc.Err()
 }
 
-func GitNumstat(ctx context.Context, cfg Config, sha string, paths ...string) ([][3]string, error) {
-	args := []string{"diff", "--numstat", sha + "..HEAD", "--"}
-	args = append(args, paths...)
-	res, err := runGit(ctx, cfg, time.Minute, args...)
-	if err != nil {
-		return nil, fmt.Errorf("git diff --numstat %s..HEAD: %w: %s", sha, err, resultOutputTail(res, 4000))
-	}
-	var rows [][3]string
-	sc := bufio.NewScanner(strings.NewReader(res.Stdout))
-	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) >= 3 {
-			rows = append(rows, [3]string{fields[0], fields[1], fields[2]})
-		}
-	}
-	return rows, sc.Err()
-}
-
 func GitNameStatus(ctx context.Context, cfg Config, sha string, diffFilter string, paths ...string) ([]string, error) {
 	args := []string{"diff", "--name-status"}
 	if diffFilter != "" {

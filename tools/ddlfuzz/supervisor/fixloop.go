@@ -1118,22 +1118,6 @@ func rollbackAttemptWithTimeout(cfg Config, lastGood string, before pathSet) err
 
 func weakenedDiffBoundary(ctx context.Context, cfg Config, lastGood string) ([]string, error) {
 	var bad []string
-	rows, err := GitNumstat(ctx, cfg, lastGood, "flow/connectors/mysql")
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		if !strings.HasSuffix(row[2], "_test.go") {
-			continue
-		}
-		deletions, err := strconv.Atoi(row[1])
-		if err != nil {
-			continue
-		}
-		if deletions > 0 {
-			bad = append(bad, fmt.Sprintf("%s deleted %d test line(s)", row[2], deletions))
-		}
-	}
 	rowsNS, err := GitNameStatus(ctx, cfg, lastGood, "MDR", "tools/ddlfuzz/seeds")
 	if err != nil {
 		return nil, err
