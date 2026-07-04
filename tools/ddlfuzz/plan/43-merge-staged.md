@@ -262,36 +262,156 @@ stray write there would silently persist).
    no co-author trailer. (Land into the campaign via this very mechanism once bootstrapped — see
    Risks for the bootstrap note.)
 
-## Acceptance checks
+## Acceptance protocol (executable)
 
-1. Unit (`supervisor/`): slot state machine — second-waiter EEXIST; cancel-vs-claim race (both
-   orders); keep-hold = unlink+recreate with new id, re-ack forced; expiry (dead pid, 6h
-   backstop, never-after-claim); cleanup; id mismatch ignored.
-2. Unit: manifest hash — deterministic, content-sensitive, relpath-sorted, dirty-tree files
-   included; Go verifier matches a build.sh-produced manifest byte-for-byte.
-3. Unit: servicing decision table — `git_drift`, `stale_request`, `deadline_too_close`,
-   `not_ff`-as-internal, rollback on each validation failure, journal lifecycle.
-4. Integration (no codex): fake finding + stubbed long attempt → hold ack deferred until attempt
-   completes; no new attempt starts while hold active; fuzzer monitor untouched throughout.
-5. E2E smoke (short `DDLFUZZ_HOURS`, planted-bug rig from 40's checks): trivial staged commit →
-   `merge-staged` exits 0, `last_good_commit` advanced, fuzzer hot-restarted, `merges.jsonl`
-   entry, slot empty.
-6. Conflict path: staged conflicting with campaign HEAD → exit 2 at the dry-run, slot never
-   created; conflict injected between dry-run and ack → merge --abort, hold released, exit 2,
-   loop resumes attempts.
-7. Oracle path: touch oracle source in staged without rebuilding → `stale_oracle_binaries`,
-   rolled back; with rebuild → binaries+manifest copied, HELLO + golden ran.
-8. **Self-restart smoke** (the gating check for the exec path): staged commit bumping a
-   supervisor string → merge succeeds, same PID after exec, flock reacquired, `run-start`
-   deadline preserved, fuzzer/lane relaunched, slot drained, `selfrestart.json` gone, resume
-   preflight skipped gate+golden (log assertion). Run this before trusting `restart:true` at all.
-9. `--no-restart`: `RESTART_REQUIRED` written, old supervisor keeps running, next `run`
-   fast-resumes and clears the marker.
-10. Cancel: Ctrl-C during hold → slot cleared, attempts resume next tick; cancel after claim →
-    exit 7, result observed, "race-applied" reported.
-11. Crash recovery: SIGKILL supervisor between ff-merge and bookkeeping → restart resets to
-    journaled `last_good`, `crash_recovered` result, retry merges cleanly. Inline mode: same
-    merge with supervisor stopped.
+Run by an agent **between campaigns**: stop the supervisor first, run the whole protocol, restart
+the campaign at the end. Checks that need a live supervisor start their own short runs against the
+REAL state dir (real corpus/findings keep accruing — that is fine and intentional). Working
+directory `/Users/ilia/Code/peerdb`; `DDL=tools/ddlfuzz`, `SUPER=$DDL/build/ddlsuper`. Budget
+~3-5h wall: every successful merge runs the full gate (first ~30-45min warms the go cache,
+subsequent ~5-15min); supervised checks pay one full preflight (~20-40min).
+
+Any assert failing: stop, write `state/escalations/run-acceptance.md` with the check id and
+evidence, run cleanup D, and do NOT resume the campaign until understood.
+
+### P — preconditions (abort if any fails)
+
+- P1. No supervisor: flock free (`$SUPER status` shows alive=false; `pgrep -f 'ddlsuper run'` empty).
+- P2. Campaign tree on `parser-wip`, tracked-clean; this component already landed on `parser-wip`.
+- P3. Oracle binaries healthy (`$SUPER hello` both engines) and manifests present — if
+  `$DDL/build/oracle-*.manifest.json` missing, run both `oracle/*/build.sh` once (incremental).
+- P4. `docker info` ok; codex authed (only the supervised runs' preflight needs it).
+- P5. Snapshot for cleanup: `ORIG_HEAD=$(git rev-parse parser-wip)`;
+  `ORIG_LAST_GOOD=$(cat $DDL/state/last_good_commit)`; note `$DDL/state/untracked.baseline` mtime.
+
+### S — setup
+
+- S1. `cd $DDL && go build -o build/ddlsuper ./supervisor`.
+- S2. Staged worktree (first time): `git worktree add -b ddlfuzz-staged $DDL/staged parser-wip`
+  (branch already exists → `git worktree add $DDL/staged ddlfuzz-staged`, then
+  `git -C $DDL/staged merge parser-wip`).
+- S3. Automated suite: `cd $DDL && go build ./... && go vet ./... && go test ./... &&
+  golangci-lint run ./supervisor/...` — covers slot state machine, cancel/claim races, adoption,
+  expiry, manifest hash, servicing decision table, run-start semantics, restart degradation,
+  untracked-deletion policy.
+- S4. `$SUPER selfcheck` exits 0 and prints the build stamp.
+
+Throwaway staged commit helper (used repeatedly; empty commits merge cleanly and pass the gate):
+`git -C $DDL/staged commit --allow-empty -m "ddlfuzz-acceptance: <label>"`.
+
+### A — inline mode (no supervisor; each merged check costs one gate)
+
+- A1 **happy path**: throwaway staged commit; `$SUPER merge-staged` → exit 0,
+  `result=merged new_head=<staged head>`. Assert: `git rev-parse parser-wip` == staged head;
+  `state/last_good_commit` == new head; last `state/merges.jsonl` line carries the id and heads;
+  `state/merge/` empty; `build/ddlfuzz` mtime advanced.
+- A2 **busy slot + adoption**: write `state/merge/request.json`
+  `{"id":"acceptbusy0001","pid":1,"phase":"hold","created_at":"<now>"}` (pid 1 = always alive) →
+  `$SUPER merge-staged` exits 6 "slot busy". Rewrite it with `"pid":999999` (dead) → throwaway
+  staged commit → `merge-staged` exits 0 (adopted the abandoned hold instead of failing busy).
+- A3 **conflict**: commit `acceptance-scratch.md` with line "left" directly on `parser-wip`;
+  commit the same file with line "right" in staged → `merge-staged` exits 2 at the dry-run,
+  printing the merge-tree failure; assert staged has no in-progress merge
+  (`git -C $DDL/staged status` clean, no MERGE_HEAD) and `parser-wip` untouched. Then resolve by
+  merging parser-wip into staged by hand (pick one side), `merge-staged` → exit 0.
+- A4 **stale oracle**: staged commit appending a `// ddlfuzz-acceptance` comment line to a
+  `tools/ddlfuzz/oracle/mysql/*.cc` file, WITHOUT rebuilding → `merge-staged` → exit 3,
+  detail names the mysql manifest (missing/stale or hash mismatch). Assert: `parser-wip` back at
+  its pre-merge head; `state/last_good_commit` unchanged; `state/merge-inflight.json` absent.
+  (This check pays a full gate before failing — expected.)
+- A5 **oracle handoff** (expensive, run once): in the staged worktree run
+  `tools/ddlfuzz/oracle/mysql/build.sh` (builds into `staged/tools/ddlfuzz/build/` and writes the
+  manifest via `go run` with `DDLFUZZ_ROOT` = staged checkout) → `merge-staged` → exit 0. Assert:
+  campaign `build/oracle-mysql` and its manifest mtimes advanced; recomputed hash matches:
+  `DDLFUZZ_ROOT=$PWD go run ./supervisor oracle-manifest --engine mysql --out /tmp/m.json` from
+  `$DDL` equals `source_hash` in `build/oracle-mysql.manifest.json`; `build/ddlfuzz golden`
+  exits 0.
+- A6 **crash recovery**: create a throwaway commit directly on `parser-wip` (simulates a
+  half-merged tree); write `state/merge-inflight.json`
+  `{"id":"acceptcrash001","last_good":"<pre-commit head>","expect_staged_head":"x"}` and a
+  matching `state/merge/claimed.json`. Throwaway staged commit → `merge-staged` → exit 0.
+  Assert: the fake commit is NOT in `parser-wip` history (recovery reset it before merging);
+  `merge-inflight.json` absent; final head == staged head.
+- A7 **deadline guard** (cheap, no campaign): throwaway staged commit →
+  `DDLFUZZ_HOURS=0.75 $SUPER merge-staged` → exit 2, `result=deadline_too_close`, tree untouched.
+  Clean up the staged commit only if skipping straight to D (otherwise B1 merges it).
+- A8 **Ctrl-C on inline** (interrupt safety): throwaway staged commit; run `merge-staged`, SIGINT
+  it ~30s into the gate. Assert: `parser-wip` back at pre-merge head (rollback ran on the
+  cancelled context), and EITHER `merge-inflight.json` absent OR present-and-recovered by the
+  next `merge-staged` (A6 behavior). Slot empty afterward.
+
+### B — supervised mode (one short campaign serves B and C)
+
+Start in tmux: `cd $DDL && DDLFUZZ_HOURS=6 DDLFUZZ_MAX_TOKENS=1 ./build/ddlsuper run`; wait for
+"preflight OK". `DDLFUZZ_MAX_TOKENS=1` keeps the codex fix loop from launching attempts against
+real open findings while fuzzing and merge servicing run normally (it writes
+`escalations/run-spend-cap.md` — delete at cleanup). Record `SUPER_PID=$(pgrep -f 'ddlsuper run')`
+and the deadline shown by `$SUPER status`.
+
+- B1 **hold/ack/merge**: throwaway staged commit; `$SUPER merge-staged` from a second shell →
+  ack within ~2 ticks (≤90s; watch `state/merge/ack.json` appear), then exit 0 `result=merged`.
+  Assert: `supervisor.log` has "servicing merge request" and the fuzzer hot-restart lines;
+  `stats.json` `ts` resumes advancing ≤3min after the merge (fuzzer restarted, not left down);
+  `state/merge/` empty.
+- B2 **Ctrl-C during hold**: start `merge-staged` with no new staged commit, SIGINT it while
+  "waiting for ack" (or just after ack, before it submits). Assert: exit 7, `state/merge/` has no
+  request within 5s (CLI canceled it — not the supervisor expiry), fix loop resumes (next tick
+  logs nothing about the dead request).
+- B3 **busy**: `merge-staged` in shell A (holding), `merge-staged` in shell B → B exits 6 naming
+  A's id/pid. SIGINT A.
+- B4 **keep-hold + adoption, live**: `merge-staged` in shell A; once `ack.json` exists,
+  `kill -9` A (dead owner, hold orphaned). `$SUPER merge-cancel --keep-hold` → prints new hold id.
+  Throwaway staged commit; `merge-staged` → adopts the hold (no exit 6) and completes exit 0.
+- B5 **merge-cancel semantics**: with the slot empty, `$SUPER merge-cancel` → "nothing to cancel",
+  exit 0. Fabricate a live-pid hold (pid 1) → `merge-cancel` → "merge request canceled", exit 7,
+  slot empty.
+- B6 **shutdown drain**: fabricate a hold with pid 1 and id `acceptdrain001`; Ctrl-C the
+  supervisor → clean exit; assert `state/merge/result.json` has
+  `{"id":"acceptdrain001","result":"shutting_down"}`. Clear the slot. Restart the campaign
+  (`DDLFUZZ_HOURS=6 DDLFUZZ_MAX_TOKENS=1 ./build/ddlsuper run` — full preflight) for C.
+
+### C — self-restart (the gating checks for restart-by-default)
+
+- C1 **exec handoff**: staged commit touching `tools/ddlfuzz/supervisor/` (append a comment line
+  to `selfrestart.go`); `$SUPER merge-staged` → exit 0 with `supervisor_restart=restarting`.
+  Within ~3min assert ALL of: `ps -p $SUPER_PID` still shows `ddlsuper run` (same PID across
+  exec); `supervisor.log` has "exec handoff to rebuilt ddlsuper" followed by "resume preflight
+  accepted validated head <new head>"; `$SUPER selfcheck` build stamp == new `parser-wip` head;
+  `state/selfrestart.json` absent; `$SUPER status` deadline UNCHANGED from the value recorded at
+  B start (run-start survived); `stats.json` advancing again (fuzzer relaunched); `state/merge/`
+  empty. This check is the go/no-go for keeping restart-by-default: if exec misbehaves here, flip
+  the default (see Risks) before any real campaign uses it.
+- C2 **--no-restart**: another supervisor-touching staged commit;
+  `$SUPER merge-staged --no-restart` → exit 0 with `supervisor_restart=required`. Assert:
+  `state/RESTART_REQUIRED` exists with the new head; same supervisor PID, no exec lines in the
+  log; `$SUPER status` shows the restart banner. Then Ctrl-C the supervisor and rerun
+  (`DDLFUZZ_HOURS=6 DDLFUZZ_MAX_TOKENS=1 ./build/ddlsuper run`) → log shows "resume preflight
+  accepted" (no golden/gate re-run — "preflight OK" within ~3min), `RESTART_REQUIRED` cleared.
+- C3 **resume marker invalidation**: while the supervisor is STOPPED (Ctrl-C after C2), write a
+  bogus `state/RESTART_REQUIRED` with `"validated_head":"0000000000000000"` → `ddlsuper run` →
+  log shows "resume marker head mismatch ... full preflight required", marker deleted, full
+  preflight proceeds. Ctrl-C once "preflight OK" appears.
+
+### D — cleanup & campaign resume
+
+- D1. Stop any test supervisor (Ctrl-C, wait for clean exit; verify flock free).
+- D2. Drop acceptance history: `git -C /Users/ilia/Code/peerdb reset --hard <keep-head>` on
+  `parser-wip` and `git -C $DDL/staged reset --hard <keep-head>` on `ddlfuzz-staged`, where
+  keep-head discards only the `ddlfuzz-acceptance:` / scratch commits (empty commits carried no
+  files; A3-A5 commits did — verify `git status` clean after reset). Never `rm -rf` worktree
+  parents; the staged worktree stays.
+- D3. Realign artifacts with the reset tree: rerun both `oracle/*/build.sh` manifest steps (or
+  full scripts — incremental) so `build/oracle-*.manifest.json` matches the tree again;
+  `echo "$(git rev-parse HEAD)" > state/last_good_commit` after confirming the gate is green on
+  the reset head (or restore `$ORIG_LAST_GOOD` if the reset head equals `$ORIG_HEAD`).
+- D4. Clear residue: `state/merge/` contents, `state/merge-inflight.json`, `state/RESTART_REQUIRED`,
+  `state/selfrestart.json`, `state/run-start` (next campaign writes a fresh one),
+  `state/escalations/run-spend-cap.md`, `/tmp/m.json`, `acceptance-scratch.md` if it survived.
+  Leave `state/merges.jsonl` (append-only log; stale entries are harmless history).
+- D5. Final verification: branch `parser-wip`, tracked-clean; `$SUPER status` alive=false;
+  `build/ddlfuzz golden` exit 0; `$SUPER hello` both engines.
+- D6. Resume the real campaign: `DDLFUZZ_HOURS=<n> ./build/ddlsuper run` (full preflight — no
+  resume markers remain).
 
 ## Risks & fallbacks
 

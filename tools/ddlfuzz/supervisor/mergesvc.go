@@ -183,8 +183,17 @@ func (s *MergeService) serviceClaimed(ctx context.Context, req MergeRequest) Mer
 }
 
 func (s *MergeService) rollback(ctx context.Context, lastGood string, before pathSet) {
-	_ = s.deps.resetHard(ctx, s.cfg, lastGood)
-	after, err := GitUntrackedSet(ctx, s.cfg)
+	// Shutdown or Ctrl-C mid-validation cancels ctx while the tree is merged;
+	// the rollback must still run, and the journal may only go once the reset
+	// actually succeeded — otherwise startup crash recovery is the way back.
+	rctx := context.WithoutCancel(ctx)
+	if err := s.deps.resetHard(rctx, s.cfg, lastGood); err != nil {
+		if s.logf != nil {
+			s.logf("merge rollback reset failed; journal kept for crash recovery: %v", err)
+		}
+		return
+	}
+	after, err := GitUntrackedSet(rctx, s.cfg)
 	if err == nil && before != nil {
 		_ = s.deps.deleteNew(s.cfg, before, after)
 	}

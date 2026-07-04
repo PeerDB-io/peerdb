@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -30,16 +32,19 @@ func mergeStagedCommand(cfg Config, args []string) error {
 	if err != nil {
 		return cliExitError{code: 1, err: err}
 	}
-	if err := mergeStagedSanity(context.Background(), cfg); err != nil {
+	// Ctrl-C at any wait must cancel the slot cleanly, not orphan it.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := mergeStagedSanity(ctx, cfg); err != nil {
 		return cliExitError{code: 2, err: err}
 	}
-	if err := mergeTreeDryRun(context.Background(), cfg); err != nil {
+	if err := mergeTreeDryRun(ctx, cfg); err != nil {
 		return cliExitError{code: 2, err: err}
 	}
 	lock, err := TrySupervisorLock(cfg)
 	if err == nil {
 		defer func() { _ = lock.Close() }()
-		result := runInlineMerge(context.Background(), cfg, !noRestart)
+		result := runInlineMerge(ctx, cfg, !noRestart)
 		printMergeResult(result)
 		return cliExitError{code: mergeExitCode(result), err: nil}
 	}
@@ -56,17 +61,17 @@ func mergeStagedCommand(cfg Config, args []string) error {
 		}
 		return cliExitError{code: 1, err: err}
 	}
-	ack, err := waitForAck(context.Background(), cfg, slot, id, ackTimeout)
+	ack, err := waitForAck(ctx, cfg, slot, id, ackTimeout)
 	if err != nil {
 		_ = slot.Cancel()
-		return cliExitError{code: 5, err: err}
+		return cliExitError{code: waitExitCode(ctx, err), err: err}
 	}
-	if err := mergeAckedHeadIntoStaged(context.Background(), cfg, ack.AckedHead); err != nil {
-		_ = abortStagedMerge(context.Background(), cfg)
+	if err := mergeAckedHeadIntoStaged(ctx, cfg, ack.AckedHead); err != nil {
+		_ = abortStagedMerge(context.WithoutCancel(ctx), cfg)
 		_ = slot.Cancel()
 		return cliExitError{code: 2, err: err}
 	}
-	stagedHead, err := gitStagedWorktreeHead(context.Background(), cfg)
+	stagedHead, err := gitStagedWorktreeHead(ctx, cfg)
 	if err != nil {
 		_ = slot.Cancel()
 		return cliExitError{code: 1, err: err}
@@ -75,13 +80,28 @@ func mergeStagedCommand(cfg Config, args []string) error {
 	if err := slot.Submit(req, stagedHead); err != nil {
 		return cliExitError{code: 5, err: err}
 	}
-	result, err := waitForResult(context.Background(), cfg, slot, id, resultTimeout)
+	result, err := waitForResult(ctx, cfg, slot, id, resultTimeout)
 	if err != nil {
+		if ctx.Err() != nil {
+			if cancelErr := slot.Cancel(); os.IsNotExist(cancelErr) {
+				fmt.Println("interrupted after claim; the merge will complete or roll back on its own (result lands in state/merge/result.json)")
+			} else {
+				fmt.Println("merge request canceled")
+			}
+			return cliExitError{code: 7, err: nil}
+		}
 		return cliExitError{code: 5, err: err}
 	}
 	printMergeResult(result)
 	_ = slot.Clear()
 	return cliExitError{code: mergeExitCode(result), err: nil}
+}
+
+func waitExitCode(ctx context.Context, err error) int {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return 7
+	}
+	return 5
 }
 
 func mergeCancelCommand(cfg Config, args []string) error {
