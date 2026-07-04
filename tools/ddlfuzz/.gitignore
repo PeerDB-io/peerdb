@@ -1,5 +1,7 @@
 build/
 state/
+staged/
+worktrees/
 # stray command binaries from `go build ./cmd/...` without -o build/
 /ddlfuzz
 /ddlfuzz-e2e
