@@ -1,0 +1,1 @@
+ALTER TABLE db.orders RENAME COLUMN old_col TO "", RENAME COLUMN "system" TO "select", DROP b RESTRICT, MODIFY COLUMN "system" VARCHAR(32) DEFAULT 'quote''s', ADD after_col YEAR FIRST

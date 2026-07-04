@@ -60,7 +60,7 @@ func fuzzDDLColSig(c ddlColumnDef) string {
 func fuzzDDLSpecSig(sp ddlAlterSpec) string {
 	var sb strings.Builder
 	switch {
-	case sp.NewColumnName != "":
+	case sp.RenameColumn:
 		sb.WriteString("ren " + fuzzDDLSigIdent(sp.OldColumnName) + ">" + fuzzDDLSigIdent(sp.NewColumnName))
 	case len(sp.NewColumns) > 0:
 		if sp.OldColumnName != "" {
@@ -169,7 +169,7 @@ func fuzzDDLStmtsToE2E(stmts []ddlStatement) e2eStmts {
 					spec.HasPosition = true
 				}
 				switch {
-				case sp.NewColumnName != "":
+				case sp.RenameColumn:
 					spec.Op = "rename_col"
 					spec.OldName = sp.OldColumnName
 					spec.NewName = sp.NewColumnName

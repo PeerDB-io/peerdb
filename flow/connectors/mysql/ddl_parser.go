@@ -19,10 +19,12 @@ type ddlColumnDef struct {
 }
 
 type ddlAlterSpec struct {
-	OldColumnName string         // CHANGE old name, DROP [COLUMN] name, RENAME COLUMN old name
-	NewColumnName string         // RENAME COLUMN new name
-	NewColumns    []ddlColumnDef // ADD (single or parenthesized multi), MODIFY, CHANGE
-	HasPosition   bool           // a FIRST/AFTER placement was written on this spec
+	OldColumnName  string         // CHANGE old name, DROP [COLUMN] name, RENAME COLUMN old name
+	NewColumnName  string         // RENAME COLUMN new name
+	NewColumns     []ddlColumnDef // ADD (single or parenthesized multi), MODIFY, CHANGE
+	AddIfNotExists bool
+	RenameColumn   bool // true for RENAME COLUMN, including renames to an empty identifier
+	HasPosition    bool // a FIRST/AFTER placement was written on this spec
 }
 
 type ddlAlterTable struct {
@@ -318,6 +320,7 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 	}
 	p.skipLockWait()
 	stmt := &ddlAlterTable{Schema: schema, Table: table}
+	knownColumns := make(map[string]struct{})
 	var rename *ddlRenamePair
 	for {
 		t := p.peek(0)
@@ -332,6 +335,10 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 			return nil, err
 		}
 		if spec != nil {
+			spec = ddlFilterAddIfNotExists(spec, knownColumns)
+		}
+		if spec != nil {
+			ddlApplyAlterSpecColumnNames(knownColumns, spec)
 			stmt.Specs = append(stmt.Specs, *spec)
 		}
 		if pair != nil {
@@ -371,13 +378,60 @@ func ddlRenamePairIsNoop(pair ddlRenamePair) bool {
 	return pair.OldSchema == pair.NewSchema && pair.OldTable == pair.NewTable
 }
 
+func ddlFilterAddIfNotExists(spec *ddlAlterSpec, knownColumns map[string]struct{}) *ddlAlterSpec {
+	if !spec.AddIfNotExists {
+		return spec
+	}
+	spec.AddIfNotExists = false
+	cols := spec.NewColumns[:0]
+	for _, col := range spec.NewColumns {
+		if _, ok := knownColumns[ddlColumnNameKey(col.Name)]; ok {
+			continue
+		}
+		cols = append(cols, col)
+	}
+	spec.NewColumns = cols
+	if len(spec.NewColumns) == 0 && spec.OldColumnName == "" && !spec.RenameColumn {
+		return nil
+	}
+	return spec
+}
+
+func ddlApplyAlterSpecColumnNames(knownColumns map[string]struct{}, spec *ddlAlterSpec) {
+	var removes, adds []string
+	switch {
+	case spec.RenameColumn:
+		removes = append(removes, spec.OldColumnName)
+		adds = append(adds, spec.NewColumnName)
+	case len(spec.NewColumns) > 0:
+		if spec.OldColumnName != "" && len(spec.NewColumns) == 1 && spec.OldColumnName != spec.NewColumns[0].Name {
+			removes = append(removes, spec.OldColumnName)
+		}
+		for _, col := range spec.NewColumns {
+			adds = append(adds, col.Name)
+		}
+	case spec.OldColumnName != "":
+		removes = append(removes, spec.OldColumnName)
+	}
+	for _, name := range removes {
+		delete(knownColumns, ddlColumnNameKey(name))
+	}
+	for _, name := range adds {
+		knownColumns[ddlColumnNameKey(name)] = struct{}{}
+	}
+}
+
+func ddlColumnNameKey(name string) string {
+	return strings.ToLower(name)
+}
+
 func ddlAlterSpecsHaveImplicitPositionShift(specs []ddlAlterSpec) bool {
 	removed := make(map[string]struct{})
 	added := make(map[string]struct{})
 	for _, spec := range specs {
 		var removes, adds []string
 		switch {
-		case spec.NewColumnName != "":
+		case spec.RenameColumn:
 			removes = append(removes, spec.OldColumnName)
 			adds = append(adds, spec.NewColumnName)
 		case len(spec.NewColumns) > 0:
@@ -452,7 +506,7 @@ func (p *ddlParser) parseAddSpec() (*ddlAlterSpec, error) {
 	sawColumn := p.consumeWords("COLUMN")
 	sawIfNotExists := p.consumeWords("IF", "NOT", "EXISTS")
 	if p.peekPunct(0, '(') {
-		spec := &ddlAlterSpec{}
+		spec := &ddlAlterSpec{AddIfNotExists: sawIfNotExists}
 		if err := p.parseColumnList(spec); err != nil {
 			return nil, err
 		}
@@ -500,6 +554,7 @@ func (p *ddlParser) parseAddSpec() (*ddlAlterSpec, error) {
 	if err := p.parseColumnDef(name, spec, false); err != nil {
 		return nil, err
 	}
+	spec.AddIfNotExists = sawIfNotExists
 	return spec, nil
 }
 
@@ -559,6 +614,9 @@ func (p *ddlParser) parseDropSpec() (*ddlAlterSpec, error) {
 func (p *ddlParser) parseModifySpec() (*ddlAlterSpec, error) {
 	p.consumeWords("COLUMN")
 	p.consumeWords("IF", "EXISTS")
+	if t := p.peek(0); t.kind == tokPunct && t.text == "," {
+		return nil, nil
+	}
 	name, err := p.expectIdent("column name")
 	if err != nil {
 		return nil, err
@@ -609,7 +667,7 @@ func (p *ddlParser) parseRenameSpec(tableSchema, table string) (*ddlAlterSpec, *
 		if err != nil {
 			return nil, nil, err
 		}
-		return &ddlAlterSpec{OldColumnName: oldName, NewColumnName: newName}, nil, nil
+		return &ddlAlterSpec{OldColumnName: oldName, NewColumnName: newName, RenameColumn: true}, nil, nil
 	case ddlWordIs(t, "INDEX") || ddlWordIs(t, "KEY"):
 		return nil, nil, p.skipSpecRemainder()
 	default:
@@ -1098,12 +1156,20 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 		}
 	}
 	if p.peekPunct(0, '(') && !st.synthetic {
+		paramsWritten := true
 		if st.base == "enum" || st.base == "set" {
 			raw, err := p.captureParenContents()
 			if err != nil {
 				return err
 			}
 			st.enumList = raw
+		} else if st.base == "vector" {
+			params, written, err := p.parseVectorTypeParams()
+			if err != nil {
+				return err
+			}
+			st.params = params
+			paramsWritten = written
 		} else {
 			params, err := p.parseTypeParams()
 			if err != nil {
@@ -1111,7 +1177,7 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 			}
 			st.params = params
 		}
-		st.written = true
+		st.written = paramsWritten
 	}
 	if oracle {
 		switch {
@@ -1133,6 +1199,36 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 	ddlNormalizeDecimalType(st)
 	ddlNormalizeIntegerDisplayWidth(st)
 	return nil
+}
+
+func (p *ddlParser) parseVectorTypeParams() ([]string, bool, error) {
+	if !p.vectorTypeParamsAreSimple() {
+		_, err := p.captureParenContents()
+		return nil, false, err
+	}
+	params, err := p.parseTypeParams()
+	return params, true, err
+}
+
+func (p *ddlParser) vectorTypeParamsAreSimple() bool {
+	i := 1
+	if p.peek(i).kind != tokWord {
+		return false
+	}
+	for {
+		i++
+		switch {
+		case p.peekPunct(i, ')'):
+			return true
+		case p.peekPunct(i, ','):
+			i++
+			if p.peek(i).kind != tokWord {
+				return false
+			}
+		default:
+			return false
+		}
+	}
 }
 
 // captureParenContents consumes a balanced '(' ... ')' group and returns the raw

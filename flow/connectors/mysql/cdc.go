@@ -939,7 +939,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 			}
 		} else if spec.OldColumnName != "" {
 			// this could be dropped or renamed column
-			if spec.NewColumnName != "" {
+			if spec.RenameColumn {
 				c.logger.Warn("renamed column detected but not propagating",
 					slog.String("columnOldName", spec.OldColumnName), slog.String("columnNewName", spec.NewColumnName))
 			} else {
