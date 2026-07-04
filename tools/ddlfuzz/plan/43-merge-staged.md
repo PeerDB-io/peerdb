@@ -221,8 +221,10 @@ HEAD matches → same fast resume path, delete marker.
 
 ## Inline mode (no supervisor running)
 
-`merge-staged` holding the `supervisor.pid` flock runs the pipeline itself: crash recovery first
-(same journal logic), then quiescence (base = HEAD; warn if HEAD != `last_good_commit`; require
+`merge-staged` holding the `supervisor.pid` flock runs the pipeline itself: orphaned-child
+cleanup first (the `state/children.json` scan from 40's process model — a dead supervisor may
+have left a codex/fuzzer/e2e group alive; unkillable ⇒ escalation + exit 1, no merge), then crash
+recovery (same journal logic), then quiescence (base = HEAD; warn if HEAD != `last_good_commit`; require
 `parser-wip` + tracked-clean), ff-merge, full validation (gate / oracle handoff / replay-all),
 bookkeeping (`last_good_commit`, baseline, `merges.jsonl`), rebuild `build/ddlfuzz`,
 `build/ddlfuzz-e2e`, and — if `supervisor/` touched — `build/ddlsuper` (no exec: nothing is

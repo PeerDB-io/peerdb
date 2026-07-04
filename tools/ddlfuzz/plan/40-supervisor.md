@@ -103,7 +103,7 @@ arrays); the Go module already exists and component 20 is Go; one binary removes
 - State-dir additions (extensions to the overview layout — see Contract issues #1):
   `state/stats.json` (20), `state/e2e-stats.json` (30), `state/e2e-queue/{pending,processing,done}/` (30),
   `state/groups.json`, `state/last_good_commit`, `state/untracked.baseline`, `state/BLOCKED`,
-  `state/coverage/history/edges.csv`, `state/attempts/<sig>.attempt<N>.stream.jsonl`,
+  `state/children.json`, `state/coverage/history/edges.csv`, `state/attempts/<sig>.attempt<N>.stream.jsonl`,
   `.attempt<N>.last.txt` and `.attempt<N>.diff` (supervisor), `state/supervisor.log`,
   `state/spend.json`.
 - `state/report.md` heartbeat + final report (contractual location).
@@ -192,6 +192,17 @@ Goroutines:
    hourly; deadline clock 1min.
 
 All child processes are started with `Setpgid: true`; kill is always `syscall.Kill(-pgid, sig)`.
+Every spawned child is also recorded in `state/children.json` (pid, pgid, leader start time,
+command; atomic rewrite; entry removed when the child is reaped, before `Done()` fires). Only the
+`supervisor.pid` flock holder writes the registry (`fix-once` holds no flock and does not track);
+`run` startup and the inline merge CLI scan it to kill process groups orphaned by a dead
+supervisor before touching git. Identity is pgid liveness (POSIX forbids reusing a pid while it
+names a live process group; a leader start-time mismatch against the recorded value is an anomaly
+and blocks). Kill = SIGTERM to every matched group up front, ≤60s drain each, then SIGKILL, ≤30s;
+a group that survives (and is not all-zombie) writes `escalations/run-orphans.md` and blocks the
+run rather than proceeding. The self-restart exec needs no handoff marker: children are stopped
+and deregistered before `syscall.Exec`, so the resumed image's scan is a no-op. A crash between
+spawn and the registry write can leave one untracked orphan (window ~ms; accepted).
 Supervisor logs to `state/supervisor.log` (append, line-buffered, with timestamps). No sleep
 prevention: the host runs Amphetamine (out of scope); the supervisor tolerates wall-clock jumps
 (deadline math uses absolute time, monitors are stateless per tick).
@@ -212,7 +223,9 @@ supervision, while the human is still at the keyboard)
 Any preflight failure: print the reason, write `state/BLOCKED` (reason + failing command output),
 exit 2 — the run never begins. `rm -f state/BLOCKED` on entry.
 
-1. Acquire lock `state/supervisor.pid` (flock; refuse to double-run).
+1. Acquire lock `state/supervisor.pid` (flock; refuse to double-run), then kill children orphaned
+   by a previous supervisor via the `state/children.json` scan (see Process model; unkillable ⇒
+   `escalations/run-orphans.md` + blocked).
 2. Repo state: branch is `parser-wip`; tracked tree clean (`git status --porcelain` minus `??`
    lines is empty); record `state/untracked.baseline` (the `??` set).
 3. Tools present: `codex`, `docker` (+ `docker info` succeeds), `jq`, `golangci-lint`, `go` on
@@ -663,7 +676,8 @@ report 0.5d; preflight + hello 0.5d; dry-run hardening (checks 4–9) 0.5–1d.
 1. **State-dir additions** (now ratified in 00-overview's state layout + Reconciliation
    decision D6): `stats.json`, `e2e-stats.json`, `e2e-queue/{pending,processing,done}/`,
    `groups.json`, `last_good_commit`, `untracked.baseline`,
-   `BLOCKED`, `spend.json`, `supervisor.log`, `supervisor.pid`, `coverage/history/edges.csv`,
+   `BLOCKED`, `spend.json`, `supervisor.log`, `supervisor.pid`, `children.json`,
+   `coverage/history/edges.csv`,
    `attempts/<sig>.attempt<N>.{stream.jsonl,diff}`. All additive; no contracted paths change
    meaning. Also `escalations/run-*.md` for run-level (non-sig) escalations — the overview only
    specifies `escalations/<sig>.md`; the `run-` prefix cannot collide with 12-hex sigs.

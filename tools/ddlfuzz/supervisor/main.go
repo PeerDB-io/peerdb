@@ -147,6 +147,11 @@ func runCommand(cfg Config) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
+	if err := killOrphanedChildren(cfg, logger); err != nil {
+		WriteBlocked(cfg, err)
+		return err
+	}
+	initChildTracking(cfg)
 	if err := WriteRunState(cfg); err != nil {
 		return err
 	}
@@ -189,6 +194,9 @@ func runCommand(cfg Config) error {
 	e2e.Stop()
 	if execRestartPending.Load() {
 		wg.Wait()
+		if children, err := loadChildRegistry(childRegistryPath(cfg)); err == nil && len(children) > 0 {
+			logger("warning: children registry non-empty at exec handoff: %d entries", len(children))
+		}
 		logger("exec handoff to rebuilt ddlsuper")
 		closeLog()
 		_ = lock.Close()

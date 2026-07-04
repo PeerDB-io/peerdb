@@ -201,6 +201,7 @@ state/
   seed, inflight.jsonl                   # fuzzer PRNG seed + in-flight batch journal (20)
   groups.json, last_good_commit, untracked.baseline, BLOCKED, spend.json,
   supervisor.{log,pid}                   # supervisor state (40)
+  children.json                          # live child-pgid registry for orphan kill on restart (40)
   merge/{request,ack,claimed,result}.json # merge-staged single-slot handoff (43)
   merges.jsonl, merge-inflight.json       # accepted merge log + crash-recovery journal (43)
   run-start, selfrestart.json, RESTART_REQUIRED # run deadline + supervisor handoff markers (43)

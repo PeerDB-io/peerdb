@@ -44,6 +44,11 @@ func mergeStagedCommand(cfg Config, args []string) error {
 	lock, err := TrySupervisorLock(cfg)
 	if err == nil {
 		defer func() { _ = lock.Close() }()
+		if err := killOrphanedChildren(cfg, func(format string, args ...any) { fmt.Printf(format+"\n", args...) }); err != nil {
+			fmt.Fprintf(os.Stderr, "orphan child cleanup failed: %v\n", err)
+			return cliExitError{code: 1, err: nil}
+		}
+		initChildTracking(cfg)
 		result := runInlineMerge(ctx, cfg, !noRestart)
 		printMergeResult(result)
 		return cliExitError{code: mergeExitCode(result), err: nil}

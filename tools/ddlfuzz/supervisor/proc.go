@@ -49,12 +49,14 @@ func StartWithStdin(dir string, stdin io.Reader, stdout, stderr io.Writer, name 
 		_, _ = cmd.Process.Wait()
 		return nil, err
 	}
+	procTracker.register(cmd, pgid)
 	p := &Proc{cmd: cmd, pgid: pgid, done: make(chan struct{})}
 	go func() {
 		err := cmd.Wait()
 		p.waitMu.Lock()
 		p.waitErr = err
 		p.waitMu.Unlock()
+		procTracker.deregister(cmd.Process.Pid)
 		close(p.done)
 	}()
 	return p, nil
