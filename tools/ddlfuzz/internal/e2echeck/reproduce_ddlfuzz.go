@@ -71,6 +71,10 @@ func reproducePlumbing(in Input) (Result, error) {
 			return diverged(ClassSQLModeMismatch, "sql-mode", fmt.Sprintf("expected relevant %d, got %d", expected, actual)), nil
 		}
 	}
+	if in.Class == ClassPlumbingSig && IsHarnessControlQuery(in.BinlogQuery) &&
+		!EquivalentQueryText(in.Submitted, in.BinlogQuery, in.IsMariaDB) {
+		return Result{Reconciled: true}, nil
+	}
 
 	liveSig, liveErr, livePanic := safeDDLSignature([]byte(in.BinlogQuery), mode, in.IsMariaDB)
 	subSig, subErr, subPanic := safeDDLSignature([]byte(in.Submitted), submittedMode, in.IsMariaDB)

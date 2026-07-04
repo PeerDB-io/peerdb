@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 	"github.com/go-mysql-org/go-mysql/client"
 	gomysql "github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -212,7 +213,8 @@ func (m *matcher) run(ctx context.Context, stream *replication.BinlogStreamer) {
 // alignExpect resynchronizes the per-worker FIFO with the binlog stream after a
 // dropped marker/control event shifts them apart. It advances past stale
 // expectations until the kinds line up (markers/controls match their text; a DDL
-// expectation pairs with any non-marker event), instead of crashing the lane.
+// expectation pairs with any non-marker, non-control event), instead of crashing
+// the lane.
 // aligned=false means this event's expectation is not enqueued yet; the caller
 // skips the event and re-anchors on a later marker.
 func (m *matcher) alignExpect(q *expectQueue, qe *replication.QueryEvent, exp caseExpect) (caseExpect, bool) {
@@ -225,7 +227,7 @@ func (m *matcher) alignExpect(q *expectQueue, qe *replication.QueryEvent, exp ca
 				return exp, true
 			}
 		case expectDDL:
-			if !gotIsMarker {
+			if !gotIsMarker && !e2echeck.IsHarnessControlQuery(query) {
 				return exp, true
 			}
 		}
