@@ -7,13 +7,14 @@ const sqlBoundaryWhitespace = " \t\n\r\f\v"
 func EquivalentQueryText(a, b string, isMariaDB bool) bool {
 	a = normalizeQueryTextBoundary(a)
 	b = normalizeQueryTextBoundary(b)
-	if a == b {
+	if equivalentNormalizedQueryText(a, b, isMariaDB) {
 		return true
 	}
-	if !isMariaDB {
-		return false
-	}
-	return plainifyMariaDBSkippedComments(a) == plainifyMariaDBSkippedComments(b)
+	return queryTextWithOnlyEmptyTail(a, b, isMariaDB) || queryTextWithOnlyEmptyTail(b, a, isMariaDB)
+}
+
+func equivalentNormalizedQueryText(a, b string, isMariaDB bool) bool {
+	return a == b || isMariaDB && plainifyMariaDBSkippedComments(a) == plainifyMariaDBSkippedComments(b)
 }
 
 func normalizeQueryTextBoundary(s string) string {
@@ -22,6 +23,66 @@ func normalizeQueryTextBoundary(s string) string {
 		s = strings.Trim(s[:len(s)-1], sqlBoundaryWhitespace)
 	}
 	return s
+}
+
+func queryTextWithOnlyEmptyTail(candidate, base string, isMariaDB bool) bool {
+	for i := 0; i < len(candidate); {
+		switch candidate[i] {
+		case '\'', '"', '`':
+			i = skipQuotedQueryText(candidate, i, candidate[i])
+			continue
+		case '[':
+			i = skipQuotedQueryText(candidate, i, ']')
+			continue
+		case '#':
+			i = skipLineCommentQueryText(candidate, i+1)
+			continue
+		case '-':
+			if i+2 < len(candidate) && candidate[i+1] == '-' && isSQLBoundaryWhitespace(candidate[i+2]) {
+				i = skipLineCommentQueryText(candidate, i+3)
+				continue
+			}
+		case '/':
+			if i+1 < len(candidate) && candidate[i+1] == '*' {
+				i = skipBlockCommentQueryText(candidate, i+2)
+				continue
+			}
+		case ';':
+			head := normalizeQueryTextBoundary(candidate[:i+1])
+			if equivalentNormalizedQueryText(head, base, isMariaDB) && onlyEmptyQueryTextStatements(candidate[i+1:]) {
+				return true
+			}
+		}
+		i++
+	}
+	return false
+}
+
+func onlyEmptyQueryTextStatements(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] != ';' && !isSQLBoundaryWhitespace(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func skipLineCommentQueryText(s string, pos int) int {
+	for pos < len(s) && s[pos] != '\n' && s[pos] != 0 {
+		pos++
+	}
+	return pos
+}
+
+func skipBlockCommentQueryText(s string, pos int) int {
+	if end := strings.Index(s[pos:], "*/"); end >= 0 {
+		return pos + end + 2
+	}
+	return len(s)
+}
+
+func isSQLBoundaryWhitespace(c byte) bool {
+	return strings.IndexByte(sqlBoundaryWhitespace, c) >= 0
 }
 
 func plainifyMariaDBSkippedComments(s string) string {

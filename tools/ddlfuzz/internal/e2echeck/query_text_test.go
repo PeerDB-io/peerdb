@@ -23,6 +23,24 @@ func TestEquivalentQueryText(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "trailing empty statements",
+			submitted: "ALTER TABLE t ADD COLUMN n1 INT; ;",
+			binlog:    "ALTER TABLE t ADD COLUMN n1 INT",
+			want:      true,
+		},
+		{
+			name:      "trailing empty statements after quoted semicolon",
+			submitted: "ALTER TABLE t ADD COLUMN n1 INT COMMENT ';'; ;",
+			binlog:    "ALTER TABLE t ADD COLUMN n1 INT COMMENT ';'",
+			want:      true,
+		},
+		{
+			name:      "nonempty second statement is not normalized",
+			submitted: "ALTER TABLE t ADD COLUMN n1 INT; ALTER TABLE t ADD COLUMN n2 INT",
+			binlog:    "ALTER TABLE t ADD COLUMN n1 INT",
+			want:      false,
+		},
+		{
 			name:      "mariadb reversed skipped comment plainified",
 			submitted: "ALTER TABLE fixture ADD n1 INT /*!!11050 NOT NULL*/",
 			binlog:    "ALTER TABLE fixture ADD n1 INT /*  11050 NOT NULL*/",

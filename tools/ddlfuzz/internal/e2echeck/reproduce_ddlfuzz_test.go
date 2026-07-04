@@ -113,6 +113,21 @@ func TestReproduceByClass(t *testing.T) {
 				validStatus),
 		},
 		{
+			name: "query rewrite trailing empty statements reconciled",
+			in: baseInput(ClassQueryRewrite,
+				"ALTER TABLE t ADD COLUMN n1 INT; ;",
+				"ALTER TABLE t ADD COLUMN n1 INT",
+				validStatus),
+		},
+		{
+			name: "query rewrite nonempty second statement still diverges",
+			in: baseInput(ClassQueryRewrite,
+				"ALTER TABLE t ADD COLUMN n1 INT; ALTER TABLE t ADD COLUMN n2 INT",
+				"ALTER TABLE t ADD COLUMN n1 INT",
+				validStatus),
+			wantClass: ClassQueryRewrite,
+		},
+		{
 			name: "mariadb reversed skipped comment rewrite reconciled",
 			in: func() Input {
 				in := baseInput(ClassQueryRewrite,
