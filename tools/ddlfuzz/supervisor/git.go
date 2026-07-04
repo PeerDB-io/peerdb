@@ -176,6 +176,46 @@ func GitTouchedPaths(ctx context.Context, cfg Config, sha string) ([]string, err
 	return paths, sc.Err()
 }
 
+func GitNumstat(ctx context.Context, cfg Config, sha string, paths ...string) ([][3]string, error) {
+	args := []string{"diff", "--numstat", sha + "..HEAD", "--"}
+	args = append(args, paths...)
+	res, err := runGit(ctx, cfg, time.Minute, args...)
+	if err != nil {
+		return nil, fmt.Errorf("git diff --numstat %s..HEAD: %w: %s", sha, err, resultOutputTail(res, 4000))
+	}
+	var rows [][3]string
+	sc := bufio.NewScanner(strings.NewReader(res.Stdout))
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) >= 3 {
+			rows = append(rows, [3]string{fields[0], fields[1], fields[2]})
+		}
+	}
+	return rows, sc.Err()
+}
+
+func GitNameStatus(ctx context.Context, cfg Config, sha string, diffFilter string, paths ...string) ([]string, error) {
+	args := []string{"diff", "--name-status"}
+	if diffFilter != "" {
+		args = append(args, "--diff-filter="+diffFilter)
+	}
+	args = append(args, sha+"..HEAD", "--")
+	args = append(args, paths...)
+	res, err := runGit(ctx, cfg, time.Minute, args...)
+	if err != nil {
+		return nil, fmt.Errorf("git diff --name-status %s..HEAD: %w: %s", sha, err, resultOutputTail(res, 4000))
+	}
+	var rows []string
+	sc := bufio.NewScanner(strings.NewReader(res.Stdout))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line != "" {
+			rows = append(rows, line)
+		}
+	}
+	return rows, sc.Err()
+}
+
 func GitSaveDiff(ctx context.Context, cfg Config, sha, outPath string) error {
 	res, err := runGit(ctx, cfg, 2*time.Minute, "diff", sha+"..HEAD")
 	if err != nil {
@@ -255,11 +295,14 @@ func forbiddenTouchedPaths(paths []string, primarySig string) []string {
 	var bad []string
 	touchesFlow := false
 	touchesOracle := false
+	touchesCompare := false
 	for _, p := range paths {
 		switch {
 		case p == "tools/ddlfuzz/state/parked.list":
 			bad = append(bad, p)
 		case strings.HasPrefix(p, ".github/"):
+			bad = append(bad, p)
+		case strings.HasPrefix(p, "flow/") && !strings.HasPrefix(p, "flow/connectors/mysql/"):
 			bad = append(bad, p)
 		case p == "docs/mysql-clickhouse-charset-e2e.md" || p == "docs/temporal-history.md" || p == "flow/e2e/clickhouse_mysql_charset_test.go":
 			bad = append(bad, p)
@@ -275,9 +318,15 @@ func forbiddenTouchedPaths(paths []string, primarySig string) []string {
 		if strings.HasPrefix(p, "tools/ddlfuzz/oracle/") {
 			touchesOracle = true
 		}
+		if strings.HasPrefix(p, "tools/ddlfuzz/internal/compare/") {
+			touchesCompare = true
+		}
 	}
 	if touchesFlow && touchesOracle {
 		bad = append(bad, "flow/ and tools/ddlfuzz/oracle/ touched in same attempt")
+	}
+	if touchesFlow && touchesCompare {
+		bad = append(bad, "flow/ and tools/ddlfuzz/internal/compare/ touched in same attempt")
 	}
 	return bad
 }

@@ -518,6 +518,112 @@ func TestUntrackedDeletionPolicy(t *testing.T) {
 	}
 }
 
+func TestPreflightDriftClassification(t *testing.T) {
+	cfg := testConfig(t)
+	commits := []Commit{{SHA: "aaa111", Subject: "attempt"}, {SHA: "bbb222", Subject: "manual"}}
+	if err := AppendAttemptRecord(filepath.Join(cfg.StateDir, "attempts", "aaaaaaaaaaaa.jsonl"), AttemptRecord{Outcome: "regression", Commits: []string{"aaa111"}}); err != nil {
+		t.Fatal(err)
+	}
+	class, detail, err := classifyPreflightDrift(cfg, commits[:1])
+	if err != nil || class != driftResidue || !strings.Contains(detail, "attempt") {
+		t.Fatalf("residue class=%s detail=%q err=%v", class, detail, err)
+	}
+	class, detail, err = classifyPreflightDrift(cfg, commits[1:])
+	if err != nil || class != driftHuman || !strings.Contains(detail, "manual") {
+		t.Fatalf("human class=%s detail=%q err=%v", class, detail, err)
+	}
+	class, detail, err = classifyPreflightDrift(cfg, commits)
+	if err != nil || class != driftBlocked || !strings.Contains(detail, "attempt residue") || !strings.Contains(detail, "unknown") {
+		t.Fatalf("mixed class=%s detail=%q err=%v", class, detail, err)
+	}
+}
+
+func TestPreflightDriftCurrentAttemptBlocksUnknown(t *testing.T) {
+	cfg := testConfig(t)
+	cur := CurrentAttempt{Sig: "aaaaaaaaaaaa", Attempt: 1}
+	if err := atomicWriteJSON(filepath.Join(cfg.StateDir, "current-attempt.json"), cur, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	class, detail, err := classifyPreflightDrift(cfg, []Commit{{SHA: "ccc333", Subject: "unknown"}})
+	if err != nil || class != driftBlocked || !strings.Contains(detail, "current-attempt.json") {
+		t.Fatalf("class=%s detail=%q err=%v", class, detail, err)
+	}
+}
+
+func TestWeakenedDiffBoundary(t *testing.T) {
+	t.Run("test deletion", func(t *testing.T) {
+		cfg := testConfig(t)
+		initTestRepo(t, cfg)
+		mustWrite(t, filepath.Join(cfg.Root, "flow", "connectors", "mysql", "ddl_parser_test.go"), "line1\nline2\n")
+		gitCommitAll(t, cfg, "base")
+		lastGood, err := GitHead(context.Background(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, filepath.Join(cfg.Root, "flow", "connectors", "mysql", "ddl_parser_test.go"), "line1\n")
+		gitCommitAll(t, cfg, "attempt")
+		bad, err := weakenedDiffBoundary(context.Background(), cfg, lastGood)
+		if err != nil || len(bad) == 0 || !strings.Contains(bad[0], "deleted") {
+			t.Fatalf("bad=%v err=%v", bad, err)
+		}
+	})
+
+	t.Run("seed modification", func(t *testing.T) {
+		cfg := testConfig(t)
+		initTestRepo(t, cfg)
+		mustWrite(t, filepath.Join(cfg.Root, "tools", "ddlfuzz", "seeds", "seed.sql"), "ALTER TABLE t ADD c INT\n")
+		gitCommitAll(t, cfg, "base")
+		lastGood, err := GitHead(context.Background(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, filepath.Join(cfg.Root, "tools", "ddlfuzz", "seeds", "seed.sql"), "ALTER TABLE t DROP c\n")
+		gitCommitAll(t, cfg, "attempt")
+		bad, err := weakenedDiffBoundary(context.Background(), cfg, lastGood)
+		if err != nil || len(bad) == 0 || !strings.Contains(bad[0], "seeds modified/removed") {
+			t.Fatalf("bad=%v err=%v", bad, err)
+		}
+	})
+
+	t.Run("seed addition allowed", func(t *testing.T) {
+		cfg := testConfig(t)
+		initTestRepo(t, cfg)
+		lastGood, err := GitHead(context.Background(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, filepath.Join(cfg.Root, "tools", "ddlfuzz", "seeds", "new.sql"), "ALTER TABLE t ADD c INT\n")
+		gitCommitAll(t, cfg, "attempt")
+		bad, err := weakenedDiffBoundary(context.Background(), cfg, lastGood)
+		if err != nil || len(bad) != 0 {
+			t.Fatalf("bad=%v err=%v", bad, err)
+		}
+	})
+}
+
+func TestForbiddenTouchedPathsBoundary(t *testing.T) {
+	tests := []struct {
+		name  string
+		paths []string
+		want  string
+	}{
+		{name: "flow outside mysql", paths: []string{"flow/e2e/x.go"}, want: "flow/e2e/x.go"},
+		{name: "flow compare combo", paths: []string{"flow/connectors/mysql/ddl_parser.go", "tools/ddlfuzz/internal/compare/compare.go"}, want: "flow/ and tools/ddlfuzz/internal/compare/ touched in same attempt"},
+		{name: "mysql only ok", paths: []string{"flow/connectors/mysql/ddl_parser.go"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := strings.Join(forbiddenTouchedPaths(tt.paths, "aaaaaaaaaaaa"), "\n")
+			if tt.want == "" && got != "" {
+				t.Fatalf("got forbidden paths %q", got)
+			}
+			if tt.want != "" && !strings.Contains(got, tt.want) {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAttemptRecordRoundTrip(t *testing.T) {
 	cfg := testConfig(t)
 	path := filepath.Join(cfg.StateDir, "attempts", "deadbeef0123.jsonl")
@@ -991,6 +1097,18 @@ func initTestRepo(t *testing.T, cfg Config) {
 		t.Fatal(err)
 	}
 	mustWrite(t, filepath.Join(cfg.StateDir, "last_good_commit"), head+"\n")
+}
+
+func gitCommitAll(t *testing.T, cfg Config, msg string) {
+	t.Helper()
+	run := func(args ...string) {
+		res, err := RunTimeout(context.Background(), cfg.Root, time.Minute, nil, "git", args...)
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s%s", args, err, res.Stdout, res.Stderr)
+		}
+	}
+	run("-C", cfg.Root, "add", ".")
+	run("-C", cfg.Root, "-c", "user.email=test@test", "-c", "user.name=test", "-c", "commit.gpgsign=false", "commit", "-q", "-m", msg)
 }
 
 func writeFakeCodex(t *testing.T) {

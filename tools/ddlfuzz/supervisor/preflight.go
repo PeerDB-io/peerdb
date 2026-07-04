@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -91,6 +93,12 @@ func RunPreflight(ctx context.Context, cfg *Config, logf func(string, ...any)) e
 			return err
 		}
 		return writeUntrackedBaseline(*cfg, untracked)
+	}); err != nil {
+		return err
+	}
+
+	if err := step("attempt drift", func() error {
+		return handlePreflightDrift(ctx, *cfg, logf)
 	}); err != nil {
 		return err
 	}
@@ -216,6 +224,137 @@ func RunPreflight(ctx context.Context, cfg *Config, logf func(string, ...any)) e
 		logf("preflight complete in %s", time.Since(start).Round(time.Second))
 	}
 	return nil
+}
+
+type driftClass string
+
+const (
+	driftNone    driftClass = "none"
+	driftResidue driftClass = "residue"
+	driftHuman   driftClass = "human"
+	driftBlocked driftClass = "blocked"
+)
+
+func handlePreflightDrift(ctx context.Context, cfg Config, logf func(string, ...any)) error {
+	lastGood, err := loadLastGoodCommit(cfg)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	head, err := GitHead(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if head == lastGood {
+		return nil
+	}
+	commits, err := GitCommitsSince(ctx, cfg, lastGood)
+	if err != nil {
+		return err
+	}
+	class, detail, err := classifyPreflightDrift(cfg, commits)
+	if err != nil {
+		return err
+	}
+	switch class {
+	case driftNone:
+		return nil
+	case driftResidue:
+		if logf != nil {
+			logf("preflight drift: resetting %d failed-attempt residue commit(s) to %s", len(commits), lastGood)
+		}
+		return GitResetHard(ctx, cfg, lastGood)
+	case driftHuman:
+		if logf != nil {
+			logf("preflight drift: keeping human commit(s): %s", detail)
+		}
+		return nil
+	default:
+		return fmt.Errorf("HEAD drift from last_good_commit is ambiguous; resolve manually: %s", detail)
+	}
+}
+
+func classifyPreflightDrift(cfg Config, commits []Commit) (driftClass, string, error) {
+	if len(commits) == 0 {
+		return driftNone, "", nil
+	}
+	attributed, unreadable, err := residueCommitSet(cfg)
+	if err != nil {
+		return driftBlocked, err.Error(), nil
+	}
+	if len(unreadable) > 0 {
+		return driftBlocked, "unreadable attempt records: " + strings.Join(unreadable, ", "), nil
+	}
+	var residue, unknown []string
+	for _, c := range commits {
+		label := c.SHA
+		if c.Subject != "" {
+			label += " " + c.Subject
+		}
+		if attributed[c.SHA] {
+			residue = append(residue, label)
+		} else {
+			unknown = append(unknown, label)
+		}
+	}
+	switch {
+	case len(residue) == len(commits):
+		return driftResidue, strings.Join(residue, ", "), nil
+	case len(unknown) == len(commits):
+		if currentAttemptExists(cfg) {
+			return driftBlocked, "current-attempt.json exists with unknown commit(s): " + strings.Join(unknown, ", "), nil
+		}
+		return driftHuman, strings.Join(unknown, ", "), nil
+	default:
+		return driftBlocked, "attempt residue: " + strings.Join(residue, ", ") + "; unknown: " + strings.Join(unknown, ", "), nil
+	}
+}
+
+func residueCommitSet(cfg Config) (map[string]bool, []string, error) {
+	out := make(map[string]bool)
+	attemptsDir := filepath.Join(cfg.StateDir, "attempts")
+	entries, err := os.ReadDir(attemptsDir)
+	if os.IsNotExist(err) {
+		return out, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	var unreadable []string
+	for _, ent := range entries {
+		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".jsonl") {
+			continue
+		}
+		path := filepath.Join(attemptsDir, ent.Name())
+		records, err := LoadAttemptRecords(path)
+		if err != nil {
+			unreadable = append(unreadable, ent.Name())
+			continue
+		}
+		for _, rec := range records {
+			if rec.Outcome == "fixed" || rec.Outcome == "ledgered" {
+				continue
+			}
+			for _, sha := range rec.Commits {
+				if strings.TrimSpace(sha) != "" {
+					out[strings.TrimSpace(sha)] = true
+				}
+			}
+		}
+	}
+	sort.Strings(unreadable)
+	return out, unreadable, nil
+}
+
+func currentAttemptExists(cfg Config) bool {
+	data, err := os.ReadFile(filepath.Join(cfg.StateDir, "current-attempt.json"))
+	if err != nil {
+		return false
+	}
+	var cur CurrentAttempt
+	return json.Unmarshal(data, &cur) == nil && cur.Sig != ""
 }
 
 func PopulateGoEnv(ctx context.Context, cfg *Config) error {

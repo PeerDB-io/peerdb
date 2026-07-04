@@ -126,7 +126,6 @@ func runCommand(cfg Config) error {
 	if err := WriteRunState(cfg); err != nil {
 		return err
 	}
-	_ = os.Remove(filepath.Join(cfg.StateDir, "current-attempt.json"))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -137,6 +136,7 @@ func runCommand(cfg Config) error {
 		WriteBlocked(cfg, err)
 		return err
 	}
+	_ = os.Remove(filepath.Join(cfg.StateDir, "current-attempt.json"))
 	fmt.Printf("preflight OK - supervising until deadline (%.2fh); Ctrl-C = graceful shutdown; status: build/ddlsuper status. Tip: run inside tmux.\n", cfg.RunHours)
 	logger("preflight OK - supervising until %s", cfg.Deadline.Format(time.RFC3339))
 

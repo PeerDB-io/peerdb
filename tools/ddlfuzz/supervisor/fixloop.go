@@ -784,8 +784,15 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 		logf("spend accounting failed: %v", spendErr)
 	}
 
-	if outcome == "failed" || outcome == "timeout" || outcome == "no_result" {
-		_ = rollbackAttempt(ctx, cfg, lastGood, beforeUntracked)
+	if outcome == "failed" && (ctx.Err() != nil || errors.Is(err, context.Canceled)) {
+		outcome = "aborted"
+		if detail == "" {
+			detail = "attempt canceled"
+		}
+	}
+
+	if outcome == "failed" || outcome == "timeout" || outcome == "no_result" || outcome == "aborted" {
+		_ = rollbackAttemptWithTimeout(cfg, lastGood, beforeUntracked)
 		if logf != nil {
 			logf("attempt %d for %s: %s%s", attemptN, sig, outcome, eventDetailSuffix(detail))
 		}
@@ -817,6 +824,10 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 			outcome, detail = "failed", err.Error()
 		} else if bad := forbiddenTouchedPaths(paths, sig); len(bad) > 0 {
 			outcome, detail = "forbidden_paths", strings.Join(bad, ", ")
+		} else if bad, err := weakenedDiffBoundary(ctx, cfg, lastGood); err != nil {
+			outcome, detail = "failed", err.Error()
+		} else if len(bad) > 0 {
+			outcome, detail = "test_weakened", strings.Join(bad, "; ")
 		}
 	}
 	if outcome == "fixed" || outcome == "ledgered" {
@@ -844,23 +855,27 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 	}
 	if outcome == "fixed" || outcome == "ledgered" {
 		if err := preflightReplayAll(ctx, cfg); err != nil {
-			outcome, detail = "regression", err.Error()
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				outcome, detail = "aborted", err.Error()
+			} else {
+				outcome, detail = "regression", err.Error()
+			}
 		}
 	}
 	if outcome == "fixed" || outcome == "ledgered" {
 		head, err := GitHead(ctx, cfg)
 		if err != nil {
 			outcome, detail = "failed", err.Error()
-		} else if err := atomicWriteFile(filepath.Join(cfg.StateDir, "last_good_commit"), []byte(head+"\n"), 0o644); err != nil {
-			outcome, detail = "failed", err.Error()
 		} else {
-			RecordGroupFix(cfg, finding.Group.Key, sig)
-			if err := applySuccessfulStatuses(ctx, cfg, sig, outcome); err != nil && logf != nil {
-				logf("status update after %s failed: %v", sig, err)
-			}
 			if err := rebuildAndHotRestart(ctx, cfg, skipFuzzer, restarter); err != nil {
 				outcome, detail = "failed", err.Error()
+			} else if err := atomicWriteFile(filepath.Join(cfg.StateDir, "last_good_commit"), []byte(head+"\n"), 0o644); err != nil {
+				outcome, detail = "failed", err.Error()
 			} else {
+				RecordGroupFix(cfg, finding.Group.Key, sig)
+				if err := applySuccessfulStatuses(ctx, cfg, sig, outcome); err != nil && logf != nil {
+					logf("status update after %s failed: %v", sig, err)
+				}
 				if touchesE2EBinary(paths) {
 					if err := rebuildAndHotRestartE2E(ctx, cfg, e2e); err != nil {
 						if logf != nil {
@@ -875,8 +890,14 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 			}
 		}
 	}
+	if outcome != "fixed" && outcome != "ledgered" && ctx.Err() != nil && validationOutcome(outcome) {
+		outcome = "aborted"
+		if detail == "" {
+			detail = ctx.Err().Error()
+		}
+	}
 	if outcome != "fixed" && outcome != "ledgered" {
-		_ = rollbackAttempt(ctx, cfg, lastGood, beforeUntracked)
+		_ = rollbackAttemptWithTimeout(cfg, lastGood, beforeUntracked)
 		if logf != nil {
 			logf("attempt %d for %s: rollback (%s)", attemptN, sig, outcome)
 		}
@@ -889,6 +910,9 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 	rec := AttemptRecord{Attempt: attemptN, Sig: sig, StartedAt: started, EndedAt: time.Now(), Outcome: outcome, Detail: detail, Tokens: tokens, Commits: commits, ThreadID: threadID, Transcript: relTo(cfg.StateDir, streamPath), LastMessage: relTo(cfg.StateDir, lastPath), Diff: relTo(cfg.StateDir, diffPath)}
 	_ = AppendAttemptRecord(attemptLog, rec)
 	records = append(records, rec)
+	if outcome == "test_weakened" {
+		return parkTestWeakened(cfg, finding, logf)
+	}
 	if outcome != "fixed" && outcome != "ledgered" && BudgetExhausted(records, 3, 150*time.Minute) {
 		return parkBudgetExhausted(cfg, finding, logf)
 	}
@@ -1009,6 +1033,49 @@ func rollbackAttempt(ctx context.Context, cfg Config, lastGood string, before pa
 	return err
 }
 
+func rollbackAttemptWithTimeout(cfg Config, lastGood string, before pathSet) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	return rollbackAttempt(ctx, cfg, lastGood, before)
+}
+
+func weakenedDiffBoundary(ctx context.Context, cfg Config, lastGood string) ([]string, error) {
+	var bad []string
+	rows, err := GitNumstat(ctx, cfg, lastGood, "flow/connectors/mysql")
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if !strings.HasSuffix(row[2], "_test.go") {
+			continue
+		}
+		deletions, err := strconv.Atoi(row[1])
+		if err != nil {
+			continue
+		}
+		if deletions > 0 {
+			bad = append(bad, fmt.Sprintf("%s deleted %d test line(s)", row[2], deletions))
+		}
+	}
+	rowsNS, err := GitNameStatus(ctx, cfg, lastGood, "MDR", "tools/ddlfuzz/seeds")
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rowsNS {
+		bad = append(bad, "seeds modified/removed: "+row)
+	}
+	return bad, nil
+}
+
+func validationOutcome(outcome string) bool {
+	switch outcome {
+	case "failed", "gate_failed", "golden_failed", "replay_failed", "regression":
+		return true
+	default:
+		return false
+	}
+}
+
 func loadLastGoodCommit(cfg Config) (string, error) {
 	data, err := os.ReadFile(filepath.Join(cfg.StateDir, "last_good_commit"))
 	if err != nil {
@@ -1064,6 +1131,9 @@ func priorFixEvidence(meta FindingMeta, records []AttemptRecord) bool {
 }
 
 func confirmFixed(ctx context.Context, cfg Config, f Finding, logf func(string, ...any)) bool {
+	if !replayValidatesFinding(f.MetaPath) {
+		return false
+	}
 	res, err := RunReplay(ctx, cfg, f.Sig)
 	if err != nil || res.ExitCode != 0 {
 		return false
@@ -1146,6 +1216,13 @@ func parkBudgetExhausted(cfg Config, finding Finding, logf func(string, ...any))
 		logf("parked %s (attempt budget exhausted)", finding.Sig)
 	}
 	return ParkSignature(cfg, finding, false, "attempt budget exhausted")
+}
+
+func parkTestWeakened(cfg Config, finding Finding, logf func(string, ...any)) error {
+	if logf != nil {
+		logf("parked %s (attempt modified existing test expectations/seeds)", finding.Sig)
+	}
+	return ParkSignature(cfg, finding, false, "attempt modified existing test expectations/seeds")
 }
 
 func eventDetailSuffix(detail string) string {
