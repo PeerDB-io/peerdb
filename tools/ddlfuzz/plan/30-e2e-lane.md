@@ -40,7 +40,7 @@ Everything here lives in `/Users/ilia/Code/peerdb/tools/ddlfuzz/e2e/` plus one t
 
 ### Consumed
 
-- **Export shim** `flow/connectors/mysql/ddlfuzz_export.go` (`//go:build ddlfuzz`), from 00:
+- **Export shim** `flow/connectors/mysql/ddlfuzz_export.go`, from 00:
   `FuzzDDLSignature(query []byte, sqlMode uint64, isMariaDB bool) (string, error)`.
 - **Shim additions this component requires** (exact text; component 20 lands the file, these two
   functions must be included — see Contract issues #2):
@@ -100,9 +100,6 @@ Everything here lives in `/Users/ilia/Code/peerdb/tools/ddlfuzz/e2e/` plus one t
     writing the 00 `findings/<sig>/{repro.sql,meta.json}` layout with 20's canonical descriptor
     (stable, identifier-insensitive). `Finding` carries class, engine, sql_mode, statement bytes,
     our_sig/our_error, and an opaque `Meta map[string]any` merged into meta.json.
-  - `internal/minimize`: fast-lane minimizer callable in-process (descoped; findings record
-    `minimized:false`):
-    `func Minimize(stmt []byte, sqlMode uint64, engine string, reproduces func([]byte) bool) []byte`.
   - `ddlfuzz replay` subcommand accepting `--from <jsonl> --expect-accept` (oracle cross-check;
     consumed indirectly via supervisor cron — see Cross-checks).
   - Fast-lane corpus in `state/corpus.db` (sampled through `internal/corpus` APIs).
@@ -112,7 +109,7 @@ Everything here lives in `/Users/ilia/Code/peerdb/tools/ddlfuzz/e2e/` plus one t
 ### Provided
 
 - `e2e/compose.yml`, `e2e/up.sh`, `e2e/down.sh`, `e2e/health.sh`, `e2e/smoke.sh`.
-- `build/ddlfuzz-e2e` binary (`go build -tags ddlfuzz -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e`).
+- `build/ddlfuzz-e2e` binary (`go build -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e`).
 - Findings with `lane:"e2e"` in the shared pipeline; classes defined in Design §7.
 - State files (all under `state/`, additions to the 00 layout — Contract issues #3):
   - `e2e-stats.json` — heartbeat stats (schema in §9), consumed by component 40.
@@ -488,14 +485,7 @@ All findings go through `internal/findings.Record` (20's descriptor → `<sig>`)
 
 `repro.sql` = the submitted statement bytes.
 
-**Minimization**: fast-lane minimization via `internal/minimize` is descoped; findings record
-`minimized:false`. If the divergence is e2e-only (oracle and our
-parse agree; the disagreement is with the live server), fall back to replay-based bisection:
-ddmin over the ALTER spec list (split on top-level commas via a paren/quote-aware splitter —
-reuse 20's tokenizer helper if exported, else a local 30-line splitter), re-executing each
-candidate through the live pipeline on a dedicated minimizer schema `fuzz_min`, max 50
-executions, keep the smallest statement that still reproduces the same class+descriptor. Store
-`minimized:true/false` accordingly.
+Findings are filed unminimized (`minimized:false`).
 
 ### 8. Side channels
 
@@ -531,8 +521,8 @@ executions, keep the smallest statement that still reproduces the same class+des
   be throttled hard and still exhaust its purpose. Measure in smoke and record actuals in
   `report.md`.
 - **Backlog throttling**: matcher-pending count per engine (sum of FIFO depths). Workers pause
-  while pending > 256, resume ≤ 256; low-water hysteresis is descoped. Keeps binlog lag bounded
-  and memory flat.
+  while pending > 256, resume once it drops back to ≤ 256. Keeps binlog lag bounded and memory
+  flat.
 - **Stats** `state/e2e-stats.json`, rewritten atomically (tmp+rename) every 10s:
 
   ```jsonc
@@ -568,14 +558,13 @@ executions, keep the smallest statement that still reproduces the same class+des
 ## Implementation steps
 
 Module context: everything in `tools/ddlfuzz` (module `github.com/PeerDB-io/peerdb/tools/ddlfuzz`,
-`replace github.com/PeerDB-io/peerdb/flow => ../../flow`). All Go builds/tests for this lane use
-`-tags ddlfuzz`.
+`replace github.com/PeerDB-io/peerdb/flow => ../../flow`).
 
 1. **Shim additions** — add `FuzzSQLModeFromStatusVars` and `FuzzParseForE2E` (exact code in
    Interfaces) to `flow/connectors/mysql/ddlfuzz_export.go`. `FuzzParseForE2E` body: call
    `parseQueryEvent`, walk `[]ddlStatement` with a type switch mirroring
    `ddl_parser_tidb_diff_test.go:90-109`'s shape, marshal the structs above with
-   `encoding/json`. Verify: `cd flow && go build -tags ddlfuzz ./...`.
+   `encoding/json`. Verify: `cd flow && go build ./...`.
 
 2. **Compose + scripts** — write `e2e/compose.yml` exactly as §1, `e2e/up.sh`, `e2e/down.sh`,
    `e2e/health.sh` (§9; `chmod +x`). Verify: `e2e/up.sh && e2e/health.sh && e2e/down.sh`.
@@ -628,9 +617,9 @@ Module context: everything in `tools/ddlfuzz` (module `github.com/PeerDB-io/peer
    engine — setup schemas → capture position → start matcher goroutine → start K worker
    goroutines → stats ticker → queue poller. SIGTERM/SIGINT: stop workers, drain matcher 10s,
    final stats write, exit 0. Any harness error (§4) → log + exit 3 (supervisor restarts).
-   Build: `go build -tags ddlfuzz -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e`.
+   Build: `go build -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e`.
 
-7. **Unit tests** (no containers; `go test -tags ddlfuzz ./e2e/`):
+7. **Unit tests** (no containers; `go test ./e2e/`):
    - applier/compare over canned before/after snapshots for every op + every reconciliation
      (PRI-implied NOT NULL, maria json alias, decimal default, AFTER-last no-shift);
    - sqlmode readback→bits table incl. composites;
@@ -644,7 +633,7 @@ Module context: everything in `tools/ddlfuzz` (module `github.com/PeerDB-io/peer
    #!/bin/sh
    set -eu
    cd "$(dirname "$0")/.."
-   go build -tags ddlfuzz -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e
+   go build -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e
    e2e/up.sh
    trap 'e2e/down.sh' EXIT
    ./build/ddlfuzz-e2e --state state --cases 100 --smoke
@@ -659,8 +648,8 @@ Module context: everything in `tools/ddlfuzz` (module `github.com/PeerDB-io/peer
 
 ## Acceptance checks
 
-1. `cd flow && go build -tags ddlfuzz ./...` — shim (incl. the two additions) compiles.
-2. `cd tools/ddlfuzz && go vet -tags ddlfuzz ./e2e/... ./cmd/ddlfuzz-e2e && go test -tags ddlfuzz ./e2e/`
+1. `cd flow && go build ./...` — shim (incl. the two additions) compiles.
+2. `cd tools/ddlfuzz && go vet ./e2e/... ./cmd/ddlfuzz-e2e && go test ./e2e/`
    — unit suite green.
 3. `e2e/up.sh && e2e/health.sh` green on darwin/arm64; `docker compose -p ddlfuzz-e2e ps` shows
    both containers healthy; no port conflict with a concurrently running
@@ -700,7 +689,7 @@ Module context: everything in `tools/ddlfuzz` (module `github.com/PeerDB-io/peer
   rejects file feeds profile tightening; no design change needed.
 - **tmpfs memory pressure** (two servers + binlogs in RAM) — binlog on tmpfs grows with query
   text only (~100B/case → ~5GB/72h/engine worst case). Mitigation: `binlog_expire_logs_seconds=86400`
-  (24h expiry). The 6-hourly `FLUSH BINARY LOGS` + `PURGE` loop is descoped.
+  (24h expiry).
 
 ## Effort
 
@@ -720,7 +709,7 @@ Total ≈ 4 days.
    violated; requesting ratification.
 2. **Shim contract addition**: 00 defines only `FuzzDDLSignature`. This lane requires
    `FuzzSQLModeFromStatusVars` and `FuzzParseForE2E` (exact signatures/JSON in Interfaces) in the
-   same build-tagged `ddlfuzz_export.go`. Without them the plumbing check (status-var walker on
+   same `ddlfuzz_export.go`. Without them the plumbing check (status-var walker on
    real bytes) and structured semantic comparison are impossible — the signature string is too
    lossy to diff against an info_schema delta.
 3. **State-dir additions**: `state/e2e-stats.json`, `state/e2e-exec-rejects.jsonl`,

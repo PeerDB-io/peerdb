@@ -68,9 +68,9 @@ On re-discovery of an existing sig: if status was `fixed` it re-opens and `repro
   previous occurrence's repro — producing the internally-inconsistent records observed (repro.sql vs
   our_sig/digest), and clobbering committed seeds. The specific input that triggered a *particular*
   occurrence is lost.
-- Consider: keep a canonical (first/minimized) repro separate from "latest occurrence"? Retain N
+- Consider: keep a canonical (first) repro separate from "latest occurrence"? Retain N
   distinct repros per sig? Don't overwrite an *open* finding's repro? Per-occurrence seed naming
-  (`<sig>.<n>.sql` or content-hash) to stop seed clobber? How does this interact with `minimize`?
+  (`<sig>.<n>.sql` or content-hash) to stop seed clobber?
 
 ## Cross-cutting considerations for any proposal
 - **Do not regress divergence-storm dedup** — the reason coarse sigs exist. Any fineness must keep
@@ -79,8 +79,8 @@ On re-discovery of an existing sig: if status was `fixed` it re-opens and `repro
   contained (descriptor in `internal/compare`, `internal/findings.Record`, `supervisor/park.go`),
   behavior-preserving for the fast lane's comparison results, and not perturb existing on-disk sigs
   more than necessary (a sig-format change re-buckets all findings — assess migration/impact).
-- **Interactions:** confirm-fixed (plan 51), the e2e offline reproduction (plan 50), the coarse
-  `group_key` used by the fix-agent prompt's sibling grouping, and `minimize`.
+- **Interactions:** confirm-fixed (plan 51), the e2e offline reproduction (plan 50), and the
+  coarse `group_key` used by the fix-agent prompt's sibling grouping.
 - **Evidence to gather:** enumerate the current parked/open findings by (class, shape); measure how
   many distinct repros/our_sigs hide under each coarse sig; check `groups.json` fix_counts; quantify
   the storm risk of each granularity option from the generator's construct space.
@@ -187,8 +187,7 @@ desired "unpark by re-bucketing" for the 10 never-attempted parked bugs. Old `gr
 inert. No state rewrite required. `replay`/preflight are sig-identity-blind (they re-check
 divergence of the recorded repro), so existing dirs keep working.
 
-**Interactions.** minimize: `FastLanePredicate` preserves descriptor equality — a finer shape makes
-shrinking *stricter* (cannot shrink into a different count-family), which is correct.
+**Interactions.**
 group_key: `NormalizeShape` masks digits but not kind words, so groups become finer too — see the
 group-key note under the recommendation. confirm-fixed (51): unaffected, and needed less often.
 e2e repro (50): the e2e shape needs 50's check-detail plumbing — ship A's e2e part with/after 50.
@@ -225,7 +224,7 @@ un-parking the 10 zero-attempt ones would be a manual one-time cleanup.
 **Interactions.** Depends on plan 51's ordering (confirm-fixed before flap scan — already true in
 `RunFixLoop`) and on plan 50 for e2e replay to be meaningful (else the "reproduces" gate can't be
 evaluated for e2e findings — treat `exit 11` as "does not count toward flap"). Sibling grouping
-and minimize untouched. Weakness: does nothing about double-fix, stale repro/meta, or seed
+untouched. Weakness: does nothing about double-fix, stale repro/meta, or seed
 clobber — distinct bugs still share sigs; the fix agent still sees a repro that may not reproduce
 the meta it reads.
 
@@ -255,8 +254,7 @@ grow one file per successful fix (already the intent). Zero storm exposure.
 **Migration.** Fully additive. Existing stale repro/meta pairs heal on their next rewrite event
 (or stay stale-but-frozen, which preflight tolerates since replay only checks divergence).
 
-**Interactions.** minimize writes a shrunken `repro.sql` deliberately — allowed (it re-verifies
-descriptor equality first); pairing rule applies to `Record` only. Plan 50 *requires* item 4 or
+**Interactions.** Pairing rule applies to `Record` only. Plan 50 *requires* item 4 or
 its capture meta doesn't survive the first supervisor status flip. Plan 51 benefits: confirm-fixed
 re-marks `fixed` without touching repro, consistent with pairing.
 
@@ -451,8 +449,6 @@ overwriting the first fix's committed `.sql` — a prompt-only change; do NOT to
   sigs remain suppressed under their old identities; the underlying bugs resurface as fresh fine
   sigs with new attempt budget (the intended "unpark by re-bucketing" of the 10 zero-attempt bugs).
   Old `groups.json` keys go inert. No state rewrite.
-- **minimize:** `FastLanePredicate` preserves descriptor equality; finer shapes make shrinking
-  stricter (can't cross count-families) — correct, no change needed.
 - **plan 50 (e2e replay):** §3 gives e2e findings real shapes; §4 meta round-trip is what lets
   plan-50 capture fields survive supervisor status flips (previously pruned). For the flap
   reproduce-gate, an e2e sig whose replay can't be evaluated (`exit 11`) simply doesn't count.
@@ -491,7 +487,7 @@ Golden / integration: `./build/ddlfuzz golden` MUST stay `irreconcilable:0` (beh
 only shape strings of divergences change, and golden seeds are reconciling cases). `ddlfuzz replay`
 on a scratch fixture finding returns the enriched shape in JSON with the right exit code.
 
-Acceptance: standard gate green — untagged `go build ./... && go test ./...`; `-tags ddlfuzz`
-build+vet+test across `./internal/... ./e2e/... ./supervisor/...`; `flow` `-tags ddlfuzz` build;
+Acceptance: standard gate green — `go build ./... && go vet ./... && go test ./...` in
+`tools/ddlfuzz`; `flow` build;
 `./build/ddlfuzz golden` == `irreconcilable:0`. Post-merge, one supervisor cycle shows no
 park-on-arrival, dimension-prefix group keys, and enriched stmt_count/e2e shapes on new findings.

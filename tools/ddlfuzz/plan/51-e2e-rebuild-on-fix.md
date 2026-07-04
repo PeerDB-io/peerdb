@@ -50,9 +50,9 @@ Everything else — notably `tools/ddlfuzz/oracle/**` (C++ oracle sources, rebui
 the e2e lane.
 
 Rationale for a static superset rather than the exact import closure: the true closure
-(`go list -tags ddlfuzz -deps ./cmd/ddlfuzz-e2e`) is `flow/connectors/mysql` + ~20 transitive
+(`go list -deps ./cmd/ddlfuzz-e2e`) is `flow/connectors/mysql` + ~20 transitive
 `flow/**` packages + `e2e` + `cmd/ddlfuzz-e2e` + `internal/{compare,corpus,digest,e2echeck,exec,
-findings,gen,minimize,run}`. Freezing that list is brittle (an agent fix adding one import edge
+findings,gen,run}`. Freezing that list is brittle (an agent fix adding one import edge
 silently defeats the trigger — exactly this bug again), and running `go list` in the success path
 adds a toolchain call for no benefit. The superset's only cost is a spurious lane restart on a
 fast-lane-only `internal/**` change (e.g. `internal/mutate`): ~seconds of lane downtime, compose
@@ -137,20 +137,18 @@ environmental only; the secondary safeguard (§2) bounds the fallout of a stale 
 
 ### Gate addition
 
-The current gate never compiles the e2e binary: `e2e/**`, `cmd/ddlfuzz-e2e`, and the tagged files
-in `internal/{e2echeck,exec,replay}` are `//go:build ddlfuzz`, excluded from the untagged
-`go test ./...` step, and the tagged build step runs only in `flow/`. Append a step to
-`gateSteps` (`gate.go:31`):
+The gate must compile the e2e binary: `go test ./...` alone does not build test-less main
+packages like `cmd/ddlfuzz-e2e`. Append a step to `gateSteps` (`gate.go:31`):
 
 ```go
-{Name: "ddlfuzz tag build", Dir: cfg.DDLDir, Timeout: 10 * time.Minute,
-	Args: []string{"go", "build", "-tags", "ddlfuzz", "./..."}},
+{Name: "ddlfuzz go build", Dir: cfg.DDLDir, Timeout: 10 * time.Minute,
+	Args: []string{"go", "build", "./..."}},
 ```
 
 This makes an agent commit that breaks the e2e binary a `gate_failed` attempt (rolled back)
 instead of a post-success rebuild surprise. Also append the equivalent line to the agent's step
 (c) gate text in `supervisor/prompt.tmpl` so the agent pre-runs the same gate
-(`cd ../tools/ddlfuzz && go build -tags ddlfuzz ./... && go test ./...`).
+(`cd ../tools/ddlfuzz && go build ./... && go test ./...`).
 
 ### Plumbing
 
@@ -235,20 +233,18 @@ start `ddlsuper run` with short `DDLFUZZ_HOURS`, drive one `fix-once` whose comm
 `supervisor.log` shows the e2e restart, the lane PID changed, and `e2e-stats.json` `updated_at`
 resumes ticking.
 
-## 4. Build-tag / acceptance
+## 4. Acceptance
 
-From `tools/ddlfuzz/` (all must stay green, untagged first — supervisor is an untagged
-`package main`):
+From `tools/ddlfuzz/` (all must stay green):
 
 ```
 go build ./... && go vet ./... && go test ./...
-go build -tags ddlfuzz ./...
 go build -o build/ddlsuper ./supervisor
-go build -tags ddlfuzz -o build/ddlfuzz ./cmd/ddlfuzz
-go build -tags ddlfuzz -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e
+go build -o build/ddlfuzz ./cmd/ddlfuzz
+go build -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e
 ```
 
-Plus `cd flow && go build ./... && go build -tags ddlfuzz ./...` unchanged.
+Plus `cd flow && go build ./...` unchanged.
 
 ## 5. Scope guard
 
@@ -264,7 +260,7 @@ Plus `cd flow && go build ./... && go build -tags ddlfuzz ./...` unchanged.
 
 ## Contract issues
 
-1. Gate gains a 7th step (`go build -tags ddlfuzz ./...` in `tools/ddlfuzz/`) — plan 40 calls its
+1. Gate gains a 7th step (`go build ./...` in `tools/ddlfuzz/`) — plan 40 calls its
    gate "verbatim from the overview"; this is an additive extension, mirrored into the agent
    prompt's step (c).
 2. Plan 40 §Fix cycle step 5 ("rebuild `build/ddlfuzz` … hot-restart handshake") is extended with

@@ -9,7 +9,7 @@ to reproduce them **offline from the recorded meta — no containers, no live DB
 the exact comparison logic the live lane already runs.
 
 Scope: `tools/ddlfuzz/` + `supervisor/prompt.tmpl` only. **No parser changes. No server/oracle
-builds. No live containers.** Validate with `go test` (tagged + untagged) and synthetic findings.
+builds. No live containers.** Validate with `go test` and synthetic findings.
 
 ## Background (verified in this tree)
 
@@ -27,9 +27,8 @@ builds. No live containers.** Validate with `go test` (tagged + untagged) and sy
   `submitted_text`/`info_schema_delta` `null`. Confirmed on live findings (only `e2e-position-missed`
   carried full context; `e2e-col-attr`/`e2e-missed-column-effect`/`e2e-plumbing-sig`/
   `e2e-query-rewrite` did not).
-- `internal/replay` compiles **untagged** (fast-lane worker uses the tagged/untagged split in
-  `internal/exec`); reaching `FuzzParseForE2E`/`FuzzSQLModeFromStatusVars` is `//go:build ddlfuzz`.
-  The untagged `go build ./...` gate MUST stay green.
+- `internal/replay` reaches `FuzzParseForE2E`/`FuzzSQLModeFromStatusVars` through the flow shim.
+  The `go build ./...` gate MUST stay green.
 
 ## Deliverables
 
@@ -116,11 +115,6 @@ func Reproduce(in Input) (Result, error)
 - **Move** `applyPredicted`, `compareSemantics`, `compareColumnAttrs`, `compareSetMap`,
   `compareBoolSet`, snapshot/delta types into `internal/e2echeck`; `e2e/checks.go` calls them from
   there so the live lane and offline repro are provably identical.
-- **Build tags:** the parser-touching parts (`FuzzParseForE2E`/`FuzzSQLModeFromStatusVars`) are
-  `//go:build ddlfuzz`. Provide an untagged stub file so `internal/e2echeck` and its importers build
-  untagged (mirror `internal/exec`): untagged `Reproduce` returns a "requires ddlfuzz build" error.
-  The campaign driver is built `-tags ddlfuzz`, so the real path is always used at runtime.
-
 ### 3. Lane-aware `replay` (`internal/replay/replay.go`)
 
 - In `replayOne`, read `meta["lane"]`. If `"e2e"`: build `e2echeck.Input` from meta and call
@@ -154,13 +148,13 @@ decide). e2e disposition buckets:
 
 - `internal/e2echeck`: table-driven `Reproduce` over synthetic `Input`s — one per class, covering a
   known-divergence and a reconciled case (PRI NOT NULL, maria json alias, decimal default, AFTER-last
-  no-shift, status-var mode round-trip, query-rewrite). Runs untagged=skip / tagged=real.
+  no-shift, status-var mode round-trip, query-rewrite).
 - `internal/replay`: a synthetic `findings/<sig>/` with full e2e meta (§1) → `replay <sig>` returns
   10 with the right class, and a reconciled fixture returns 0. (Write meta to a temp state dir.)
 - `e2e`: keep existing tests green (the moved functions are re-exported/called from `e2echeck`).
-- Acceptance (from `tools/ddlfuzz/`): untagged `go build ./... && go vet ./... && go test ./...`
-  green; tagged `go build/vet/test -tags ddlfuzz ./...` green; `go build -tags ddlfuzz -o
-  build/ddlfuzz ./cmd/ddlfuzz` and `-o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e` build.
+- Acceptance (from `tools/ddlfuzz/`): `go build ./... && go vet ./... && go test ./...`
+  green; `go build -o build/ddlfuzz ./cmd/ddlfuzz` and `-o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e`
+  build.
 
 ## Notes / non-goals
 

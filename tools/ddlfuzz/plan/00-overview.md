@@ -49,7 +49,7 @@ tools/ddlfuzz/
     mysql/              # MySQL oracle driver sources + build script
     mariadb/            # MariaDB oracle driver sources + build script
   build/                # gitignored: out-of-source server builds, oracle/fuzz/lane/super binaries
-  cmd/ddlfuzz/          # Go driver: fuzz / golden / replay / minimize subcommands
+  cmd/ddlfuzz/          # Go driver: fuzz / golden / replay subcommands
   cmd/ddlfuzz-e2e/      # slow-lane binary (thin main; logic in e2e/)
   internal/...          # Go packages (generator, oracle client, compare, corpus, ...)
   e2e/                  # slow lane: compose file + fixture/matcher code
@@ -65,11 +65,9 @@ tools/ddlfuzz/
 ## Contract: access to the parser under test
 
 `parseQueryEvent` and the signature reduction are unexported in package `connmysql`. The flow
-module gains one build-tagged file, `flow/connectors/mysql/ddlfuzz_export.go`:
+module gains one file, `flow/connectors/mysql/ddlfuzz_export.go`:
 
 ```go
-//go:build ddlfuzz
-
 package connmysql
 
 // FuzzDDLSignature parses and reduces to the comparison signature (grammar below).
@@ -77,7 +75,7 @@ package connmysql
 func FuzzDDLSignature(query []byte, sqlMode uint64, isMariaDB bool) (string, error)
 ```
 
-The fuzz binary builds with `-tags ddlfuzz`. The signature rendering inside is a port of
+The signature rendering inside is a port of
 `ddlDiffSignature`/`ddlDiffSpecSig`/`ddlDiffColSig` from `ddl_parser_tidb_diff_test.go` (same
 output grammar, see below). `QkindFromMysqlColumnType` is already exported for the oracle side.
 
@@ -178,7 +176,7 @@ state/
   corpus.db                              # retained inputs in SQLite (sql, engine, sql_mode, origin)
   coverage/{mysql,mariadb}.sancov        # OR-accumulated oracle bitmaps (sole retention signal)
                                          # (optional coverage/go.covdata/ only if -cover build used)
-  findings/<sig>/repro.sql               # minimized input bytes
+  findings/<sig>/repro.sql               # repro input bytes
   findings/<sig>/meta.json               # {sig, engine, sql_mode, lane:"fast"|"e2e", our_sig,
                                          #  our_error, oracle_digest, status:"open"|"fixed"|
                                          #  "ledgered"|"parked", discovered_at, minimized}
@@ -198,7 +196,7 @@ state/
   e2e-live-accepted.jsonl                # oracle cross-check feed (30 writes, 40 rotates+replays)
   findings/index.jsonl                   # append-only finding log for cheap tailing (20 writes)
   coverage/history/edges.csv             # hourly edge counts for the plateau assessment (40)
-  seed, inflight.jsonl                   # fuzzer PRNG seed; in-flight batch journal descoped (20)
+  seed                                   # fuzzer PRNG seed (20)
   groups.json, last_good_commit, untracked.baseline, BLOCKED, spend.json,
   supervisor.{log,pid}                   # supervisor state (40)
   children.json                          # live child-pgid registry for orphan kill on restart (40)
@@ -221,7 +219,7 @@ identifier spellings).
 | `10-oracle-mysql.md` | MySQL 9.7 in-process parse oracle | oracle binary (protocol v1, digest, SanCov) | server checkout (RO) |
 | `11-oracle-mariadb.md` | MariaDB 13.1 in-process parse oracle | same | server checkout (RO) |
 | `20-skeleton-first.md` | Landing commit for 20 (do first) | Go module + real export shim + frozen interface stubs so 30/40 can compile | flow module |
-| `21-fuzzer.md` | Go differential driver | `ddlfuzz` binary: fuzz/golden/replay/minimize; generator, mutators, oracle-SanCov corpus, comparison + reconciliation, dedup, findings; oracle process pool | oracle binaries, export shim, state dir |
+| `21-fuzzer.md` | Go differential driver | `ddlfuzz` binary: fuzz/golden/replay; generator, mutators, oracle-SanCov corpus, comparison + reconciliation, dedup, findings; oracle process pool | oracle binaries, export shim, state dir |
 | `30-e2e-lane.md` | Live-binlog slow lane | e2e findings (lane:"e2e"), plumbing + semantic validation | containers, flow module, state dir |
 | `40-supervisor.md` | 72h unattended run loop | supervisor process, fix-agent (headless `codex exec`) cycle, gate, parking/escalation, restarts, report | everything above |
 | `43-merge-staged.md` | Safe staged merge coordination | `ddlsuper merge-staged`, merge slot protocol, staged oracle handoff, supervisor self-restart | supervisor, git worktrees, oracle manifests |
@@ -233,8 +231,8 @@ identifier spellings).
   mismatch is reconciled (oracle harness fix or documented expectation fix) before any fuzzing
   throughput counts.
 - **Oracle changes always re-run golden validation** (enforced by 40's gate).
-- **Preflight on every fuzzer restart** (40): replay-all is descoped; accepted substitutes are
-  per-attempt replay-all and merge-servicing replay.
+- **Replay regression checks** (40): every fix attempt runs `replay --all`, and merge servicing
+  replays before accepting a merge.
 - **Core budget** during the 72h run: ~10 oracle processes (5 per engine), 1-2 Go driver +
   generation, ~2 e2e containers + workers + matcher, remainder for the fix agent when active.
 - **Charset scope**: byte-safe client charsets only (utf8/utf8mb4/latin1/ascii). Generators and
@@ -243,8 +241,8 @@ identifier spellings).
 - **Verification gate** (used by 40, defined once): from `flow/`:
   `go build ./... && go vet ./connectors/mysql/ && go test ./connectors/mysql/ -run
   'TestDDL|TestProcessRenameTableQueryMetric|TestClassifyOnlineSchemaMigrationTool' -count=1 &&
-  golangci-lint run ./connectors/mysql/...` plus `go build -tags ddlfuzz ./...` (shim compiles)
-  and `go test ./...` in `tools/ddlfuzz`. Never run the whole connmysql test package without a
+  golangci-lint run ./connectors/mysql/...` plus `go build ./...` and `go test ./...` in
+  `tools/ddlfuzz`. Never run the whole connmysql test package without a
   live DB (non-DDL tests need one).
 - Commits: on branch `parser-wip`, no Claude co-author trailer.
 

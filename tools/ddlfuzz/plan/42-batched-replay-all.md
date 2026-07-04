@@ -107,9 +107,8 @@ explicitly it is READ-ONLY over other findings' state, so running it does not vi
   identical to per-case path).
 - Unit (supervisor): the preflight failure-message helper over fabricated `Result`s (exit 10
   with summary JSON, exit 11, garbage stdout).
-- `go build ./... && go vet ./... && go test ./...` and the `-tags ddlfuzz` variants, in
-  tools/ddlfuzz.
-- `go build -tags ddlfuzz -o build/ddlfuzz ./cmd/ddlfuzz && ./build/ddlfuzz golden` → `irreconcilable:0`.
+- `go build ./... && go vet ./... && go test ./...` in tools/ddlfuzz.
+- `go build -o build/ddlfuzz ./cmd/ddlfuzz && ./build/ddlfuzz golden` → `irreconcilable:0`.
 - Equivalence (manual, with real findings fixture): per-sig `replay <sig>` loop vs `replay --all`
   over the same ~168 findings — identical per-finding pass/regress verdicts; record wall-time
   speedup.

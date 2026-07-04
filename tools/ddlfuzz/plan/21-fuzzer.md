@@ -6,7 +6,7 @@ toolchain: go1.26 (host has go1.26.3 darwin/arm64).
 
 ## Goal
 
-One binary, `cmd/ddlfuzz`, with four subcommands:
+One binary, `cmd/ddlfuzz`, with three subcommands:
 
 - `fuzz` — generate/mutate cases, run them through `FuzzDDLSignature` (contained) and the oracle
   pool, compare via the reconciliation rules, retain corpus on **oracle SanCov coverage**, file
@@ -15,9 +15,8 @@ One binary, `cmd/ddlfuzz`, with four subcommands:
 - `golden` — replay all existing test corpora through both oracles + our parser; report every
   irreconcilable case; exit 0 only when clean. Blocks fuzzing (enforced by 40).
 - `replay` — re-execute `state/findings/*` and check each against its `status`; exit codes below.
-- `minimize` — divergence-signature-preserving delta debugging of a finding's repro (descoped).
 
-Plus one build-tagged export shim in the flow module (step 1) and a checked-in keyword dictionary
+Plus one export shim in the flow module (step 1) and a checked-in keyword dictionary
 extracted from the servers' lexer symbol tables (step 8).
 
 ## Scope — single 72h campaign, not a reusable platform
@@ -42,7 +41,7 @@ below still describes the heavier mechanism, this scope note governs:
   or on signal; the final report states coverage plateau, checklist coverage, and open/fixed/
   parked counts as *information*, not pass/fail.
 - Everything else (containment, comparison + R1–R13, generator, mutators, seeds, golden, replay,
-  minimize (descoped), oracle pool) is in scope as written.
+  oracle pool) is in scope as written.
 
 ## Interfaces
 
@@ -50,7 +49,7 @@ Consumed (per overview contracts — do not restate, conform):
 - Oracle binaries `tools/ddlfuzz/build/oracle-mysql`, `tools/ddlfuzz/build/oracle-mariadb`
   (components 10/11), speaking wire protocol v1 on stdin/stdout, digest JSON schema as specified.
 - `flow/connectors/mysql` via `replace ../../flow`; `QkindFromMysqlColumnType` (exported),
-  `FuzzDDLSignature` (shim, `-tags ddlfuzz`).
+  `FuzzDDLSignature` (shim).
 - `state/` directory layout, `ledger.jsonl`, `parked.list`.
 
 Provided:
@@ -58,8 +57,7 @@ Provided:
   post-hoc Go-coverage report only, see step 10; the run path does not need it).
 - Findings written to `state/findings/<sig>/{repro.sql,meta.json}` per contract.
 - Corpus + coverage files per the state-dir contract.
-- Exit-code contract for `replay`/`golden` (used by 40): section "replay / minimize" (minimize
-  descoped).
+- Exit-code contract for `replay`/`golden` (used by 40): section "replay".
 - The `<sig>` divergence-descriptor definition (section "Divergence descriptor"), referenced by
   30/40.
 - **Exported Go APIs consumed by component 30** (in-process, same module; signatures normative in
@@ -72,13 +70,8 @@ Provided:
     — the single findings writer (descriptor, dedup vs ledger/parked, atomic dir writes,
     index.jsonl append). `Finding` carries class, engine, sql_mode, lane, statement bytes,
     our_sig/our_error, and an opaque `Meta map[string]any` merged into meta.json.
-  - `internal/minimize.Minimize(stmt []byte, sqlMode uint64, engine string, reproduces func([]byte) bool) []byte`
-    (descoped; package removed)
-    — ddmin core with the caller-supplied predicate; plus
-    `internal/minimize.FastLanePredicate(sig string) func([]byte) bool` (runs oracle+shim and
-    checks descriptor equality; descoped) for 30's first-try minimization.
   - `internal/compare.SplitTopLevel(b []byte, sep byte) [][]byte` — the quote/paren-aware
-    splitter (the minimizer use is descoped; 30 reuses it for spec-list bisection).
+    splitter (30 reuses it for spec-list bisection).
 
 ## Design
 
@@ -95,7 +88,7 @@ tools/ddlfuzz/
   internal/oracle/             # process pool, respawn, crash bisection, HELLO, coverage polling
   internal/digest/             # digest JSON types + decoding
   internal/compare/            # oracle-side signature reduction, reconciliation, descriptor, dedup
-  internal/exec/               # contained execution of FuzzDDLSignature (workers, watchdog)
+  internal/exec/               # contained execution of FuzzDDLSignature (workers, per-case deadline)
   internal/gen/                # grammar-table generator
   internal/mutate/             # mutators + dictionary
   internal/dict/               # checked-in keyword dictionaries + extract.sh
@@ -105,7 +98,6 @@ tools/ddlfuzz/
   internal/findings/           # meta.json, ledger, parked, escalation-safe writes
   internal/run/                # fuzz orchestrator, stats, state flush
   internal/golden/             # golden subcommand
-  internal/minimize/           # ddmin (descoped; removed)
 ```
 
 `go.mod` also needs the transitive requirements of `flow` resolvable; run `go mod tidy` once —
@@ -155,12 +147,10 @@ Comparison runs on the oracle-client goroutine's completion path (cheap; equal-f
 ### Step 1 — export shim (flow module)
 
 Create `flow/connectors/mysql/ddlfuzz_export.go` exactly as follows (the helper names are
-`fuzzDDL*`-prefixed so `go test -tags ddlfuzz` does not collide with the test file's `ddlDiff*`
+`fuzzDDL*`-prefixed so `go test` does not collide with the test file's `ddlDiff*`
 functions):
 
 ```go
-//go:build ddlfuzz
-
 package connmysql
 
 import (
@@ -257,8 +247,8 @@ func fuzzDDLSignature(stmts []ddlStatement) string {
 }
 ```
 
-Component 30 (e2e lane) additionally requires two exports in the **same** shim file (both
-build-tagged `ddlfuzz`, panics not recovered — callers contain them):
+Component 30 (e2e lane) additionally requires two exports in the **same** shim file (panics not
+recovered — callers contain them):
 
 ```go
 // FuzzSQLModeFromStatusVars extracts the per-event sql_mode from a binlog
@@ -292,11 +282,10 @@ func FuzzParseForE2E(query []byte, sqlMode uint64, isMariaDB bool) ([]byte, erro
 `fuzzDDLStmtsToE2E` is a private helper in the shim producing the structs of 30's JSON schema;
 `type_str` is `ddlColumnDef.TypeStr` verbatim. Add `encoding/json` to the shim imports.
 
-Fidelity guard: add `flow/connectors/mysql/ddlfuzz_export_test.go` with `//go:build ddlfuzz`
+Fidelity guard: add `flow/connectors/mysql/ddlfuzz_export_test.go`
 asserting `fuzzDDLSignature` ≡ `ddlDiffSignature` and `FuzzDDLSignature` ≡ `ddlDiffOurSig`
 semantics over `tidbDiffModeCases` (loop the table, compare outputs; "ERROR" want ⇔ err != nil).
-Runs only under `go test -tags ddlfuzz ./connectors/mysql/ -run TestDDLFuzzExportParity`; the
-overview's verification gate already requires `go build -tags ddlfuzz ./...` to compile.
+Runs via `go test ./connectors/mysql/ -run TestDDLFuzzExportParity`.
 
 ### Step 2 — wire protocol client (`internal/wire`)
 
@@ -347,9 +336,8 @@ type proc struct {
 - **Spawn**: `exec.Command(binPath)`; stderr → per-proc rotating log file
   `state/log/oracle-<engine>-<i>.log` (cap 8 MiB, truncate-on-rotate). On start: `Hello()`
   within 10 s or fail spawn. Respawn with exponential backoff (100 ms → 5 s); >20 consecutive
-  spawn failures = fatal (exit 3, supervisor restarts).
-  Ratification: the implementation parks fatal paths on `wg.Wait`; the supervisor's stale-stats
-  watchdog (`stats.json` ts >5min) is the accepted recovery mechanism in place of exit(3).
+  spawn failures = fatal. The fatal path parks on `wg.Wait`; recovery is the supervisor's
+  stale-stats watchdog (`stats.json` ts >5 min ⇒ restart).
 - **Submit path** (one goroutine per proc): pull batch from engine channel, `ParseBatch` with a
   watchdog timer of `-oracle-batch-timeout` (default 10 s ≈ 1000×10 ms worst case). On timeout:
   SIGKILL, treat as crash.
@@ -550,9 +538,8 @@ R13. **Spec canonicalization of BOTH sides before comparison** (00-overview Reco
     `OracleSig` and our-signature comparison both go through this pass; `golden` and `replay`
     use the identical code path. The raw (pre-canonical) signatures are what meta.json records.
 
-Ratified reconciliation helpers: `compare.ContainsSkippedVersionComment` and
-`e2echeck.EquivalentQueryText` are sanctioned tolerances for whitespace, trailing `;`, and
-version-comment differences.
+Additional sanctioned tolerances: `compare.ContainsSkippedVersionComment` and
+`e2echeck.EquivalentQueryText` (whitespace, trailing `;`, version-comment differences).
 
 **Mismatch shape** (for class `sig_mismatch`): walk both signatures' parse (split on `" | "`,
 then heads/specs/cols) and report the first difference as one of:
@@ -617,15 +604,11 @@ updates `repro.sql`, logging loudly).
 
 ### Step 6 — panic/hang containment (`internal/exec`)
 
-Ratification: watchdog/abandoned-worker hang containment is descoped. Shipped containment is a
-per-case timer plus leaked parser goroutine; `curSeq`/`curDead` were removed as write-only. If
-timeout-class findings rise after retention/mutation changes land, reverse this descope first.
-
 ```go
 type Worker struct {
-    id      int
-    curSeq  atomic.Uint64 // bumped before each case
-    curDead atomic.Int64  // deadline unixnano for current case
+    id       int
+    parser   ParserFunc
+    deadline time.Duration
 }
 func (w *Worker) RunBatch(b []run.Case) []Result // Result{Sig string; Err error; Panic *PanicInfo}
 ```
@@ -633,18 +616,12 @@ func (w *Worker) RunBatch(b []run.Case) []Result // Result{Sig string; Err error
 - Each case executes inside `func() (r Result) { defer func(){ if p := recover(); p != nil {
   r.Panic = &PanicInfo{Value: fmt.Sprint(p), Stack: debug.Stack()} } }(); sig, err :=
   connmysql.FuzzDDLSignature(c.SQL, c.SQLMode, c.Engine==1); ... }()`.
-- **Watchdog** goroutine ticks every 25 ms, scans all workers: if a worker's `curSeq` hasn't
-  advanced and `now > curDead` (deadline = start + `-case-deadline`, default 100 ms), the case is
-  declared hung: file finding class `timeout` (input recorded from the worker's published case
-  pointer), mark the goroutine abandoned, and start a replacement worker. Abandoned goroutines
-  cannot be killed; when abandoned-count exceeds 8 or process RSS exceeds `-mem-ceiling`
-  (default 4 GiB, checked via `runtime.MemStats.Sys` + OS RSS each watchdog tick), flush state
-  and `os.Exit(3)` — the supervisor restarts us; findings already on disk.
+- **Hang containment** is a per-case timer: the parser call runs in its own goroutine; if it
+  misses the deadline (`-case-deadline`, default 100 ms) the case is filed as class `timeout`
+  and the goroutine is leaked (it cannot be killed).
 - `debug.SetMemoryLimit(ceiling*3/4)` at startup (soft backstop for allocation-heavy inputs);
-  a single case OOMing the process before the watchdog reacts is caught by the supervisor
-  restart + preflight replay (the batch is journaled: see state flush, step 11).
-- Deadline is generous (100 ms ≈ 10⁵× median) so false positives are effectively impossible;
-  watchdog resolution means actual containment latency ≤125 ms.
+  a single case OOMing the process is caught by the supervisor restart.
+- Deadline is generous (100 ms ≈ 10⁵× median) so false positives are effectively impossible.
 
 ### Step 7 — dedup and findings (`internal/findings`)
 
@@ -663,7 +640,7 @@ component of the divergence descriptor MUST be one of these — shared with 30/4
 fast lane:  sig_mismatch     our accepted signature ≠ oracle-derived signature (canonical forms)
             we_error         oracle accepted, parseQueryEvent returned an error
             panic            FuzzDDLSignature panicked (any input, any verdict)
-            timeout          per-case deadline tripped (our watchdog)
+            timeout          per-case deadline tripped
             oracle_crash     oracle process died on a case (isolated by bisection)
             oracle_timeout   oracle batch/case exceeded batch-timeout
 e2e lane:   e2e-statusvar-walk, e2e-sqlmode-mismatch, e2e-plumbing-sig, e2e-panic,
@@ -773,7 +750,10 @@ the durable artifacts; distillation only tidies the corpus for the exit-criteria
 
 **Optional Go-coverage report (post-hoc, off the run path):** for a human-facing sanity check on
 how much of `ddl_lexer.go`/`ddl_parser.go` the campaign exercised, the binary *may* be built with
-`go build -tags ddlfuzz -cover -coverpkg=github.com/PeerDB-io/peerdb/flow/connectors/mysql` and
+`go build -cover -covermode=atomic
+-coverpkg=github.com/PeerDB-io/peerdb/flow/connectors/mysql,github.com/PeerDB-io/peerdb/tools/ddlfuzz/cmd/ddlfuzz`
+(atomic mode is required by `runtime/coverage.WriteCounters`; `cmd/ddlfuzz` must be in coverpkg
+so the instrumented main gets the coverage init hook) and
 dump a single cumulative profile via `runtime/coverage.WriteCountersDir` at shutdown, rendered
 with `go tool covdata`. This is a report, not a retention input; the run never reads it back, and
 `edges.go` in `stats.json` is 0/absent when the binary is built without `-cover`.
@@ -786,20 +766,15 @@ with `go tool covdata`. This is a report, not a retention input; the run never r
   Each emitted `Case.Seed` records the PCG state before generation so a single case is
   reproducible via `replay --seed`.
 - **Stats line** (stderr, every `-stats-interval` default 5 s):
-  `execs/s=NNN corpus=mysql:A,maria:B edges=go:E,my:F,ma:G findings=open:O,supp:S`
-  `abandoned=X procs=my:5/5,ma:5/5 uptime=Th`. `execs/s` is EWMA over the interval.
+  `execs/s=NNN corpus=mysql:A,maria:B edges=my:F,ma:G findings=open:O,supp:S`
+  `restarts=my:X,ma:Y uptime=Th`. `execs/s` is EWMA over the interval.
 - **`state/stats.json`** written atomically every **30 s** — schema per 40's C6 (Reconciliation
   decision D12): `{ts (RFC3339), execs_total, execs_per_sec, corpus_count:{mysql,mariadb},
   edges:{go,mysql,mariadb}, oracle_restarts:{mysql,mariadb}, findings_emitted_total}` plus
   additive extras `run_seed`, `class_counts`, `suppressed`. This is the machine-readable
   heartbeat 40 polls (staleness >5 min ⇒ 40 treats the fuzzer as wedged).
 - **State flush cadence**: `{mysql,mariadb}.sancov` every 30 s and on shutdown; corpus files
-  written immediately on retention (already durable); findings written immediately. A tiny
-  **journal** `state/inflight.jsonl` records batches handed to exec workers but not yet compared
-  (append on dispatch, truncate-compact every 30 s to only still-inflight); on restart, preflight
-  (40) already replays findings, and we re-load and re-run journaled inflight cases first so an
-  input that crashed us mid-batch is re-encountered and filed.
-  Ratification: `state/inflight.jsonl` crash journaling is descoped.
+  written immediately on retention (already durable); findings written immediately.
 - **Graceful shutdown**: on SIGTERM/SIGINT, stop generators, drain exec+oracle channels with a
   hard **60 s** budget (coordinator requirement), flush all state atomically (temp+rename for
   every file), then exit 0. Exceeding 60 s → flush-what-we-have and exit 0 anyway (never hang the
@@ -880,10 +855,7 @@ Replays the seed corpus (step 9 extraction; same source of truth) through both o
   expect, class}` and a summary. **Exit 0 iff zero irreconcilable cases**, else exit 1. 40's gate
   runs `ddlfuzz golden` and blocks fuzzing on nonzero exit.
 
-### Step 15 — `replay` and `minimize`
-
-Ratification: the `minimize` subcommand, `internal/minimize`, and fast-lane predicate are removed
-as an approved descope; findings record `minimized:false`.
+### Step 15 — `replay`
 
 **`replay`** two modes:
 - `ddlfuzz replay` (no arg): re-execute every `state/findings/*/repro.sql` against a fresh oracle
@@ -912,16 +884,7 @@ as an approved descope; findings record `minimized:false`.
   internal error. The input file is owned by the caller (40 rotates before invoking, deletes
   after a clean run).
 
-**`minimize`** (`ddlfuzz minimize <sig>`): delta-debugging (ddmin) with a
-divergence-preserving predicate: `pred(bytes) == (descriptor(run(bytes)).sig == targetSig)` —
-re-runs the candidate through both the oracle (fresh proc) and `FuzzDDLSignature` and recomputes
-the full descriptor; the shrink is accepted only when the sig is byte-identical to the target
-(so we never "minimize" into a different bug). Stages, each bounded by `-minimize-budget`
-(default 30 s total): (1) line granularity (split on `\n`), (2) token granularity (local
-tokenizer boundaries), (3) char/byte granularity (respecting byte-safety — never split a UTF-8
-sequence). On success rewrite `repro.sql`, set `meta.json.minimized=true`. Idempotent; safe to
-re-run. `minimize` is invoked by the fuzz loop opportunistically (one background minimize at a
-time for newly-filed non-trivial findings) and by 40.
+Findings are filed unminimized (`meta.json.minimized=false`).
 
 ### CLI flags (all subcommands share a root flagset where sensible)
 
@@ -932,7 +895,6 @@ time for newly-filed non-trivial findings) and by 40.
 -oracle-procs-per-engine N default 5
 -oracle-batch-timeout d    default 10s
 -batch N                   default 1000
--exec-workers N            default = GOMAXPROCS-2
 -gen-workers N             default 2
 -case-deadline d           default 100ms
 -mem-ceiling bytes         default 4GiB
@@ -941,12 +903,11 @@ time for newly-filed non-trivial findings) and by 40.
 -engine-bias f             default 0.5 (P(mysql))
 -mut-ratio f               default 0.6
 -stats-interval d          default 5s
--minimize-budget d         default 30s (descoped)
 -max-open-findings N       default 200
 -duration d                default 0 (until signal)   [fuzz]
 ```
 
-Subcommands: `ddlfuzz fuzz|golden|replay|minimize [args]` (`minimize` descoped). `-h` prints per-subcommand help.
+Subcommands: `ddlfuzz fuzz|golden|replay [args]`. `-h` prints per-subcommand help.
 
 ## Generator construct checklist (public-doc enumeration)
 
@@ -1116,7 +1077,7 @@ not repeated here. Summary of what is and is not a finding:
 
 ## Acceptance checks
 
-- `go build -tags ddlfuzz ./...` in `flow/` succeeds (shim compiles); the overview verification
+- `go build ./...` in `flow/` succeeds (shim compiles); the overview verification
   gate passes unchanged.
 - `cd tools/ddlfuzz && go build ./... && go vet ./... && go test ./...` green. Unit tests:
   - `internal/compare`: table-driven, one row per rule R1–R13 reusing the exact quirks from
@@ -1130,12 +1091,12 @@ not repeated here. Summary of what is and is not a finding:
   - `internal/seed`: ≥600 seeds; every `tidbDiffModeCases` present with exact mode/engine.
   - `internal/dict`: files non-empty, ASCII-only.
   - `internal/exec`: a deliberately-panicking stub is contained and yields class `panic`; a
-    sleep-stub trips the watchdog and yields class `timeout`.
+    sleep-stub trips the per-case deadline and yields class `timeout`.
 - `ddlfuzz golden` exits 0 (once oracles exist) — the go/no-go for fuzzing.
 - `ddlfuzz replay` on a seeded synthetic finding returns the documented exit codes.
 - Throughput smoke: with fake oracles echoing digests, `fuzz` sustains ≥100k cases/s aggregate
   and stats.json updates every 30 s; SIGTERM flushes and exits 0 within 60 s.
-- Crash-resume: kill -9 mid-run; no state file corrupt. `inflight.jsonl` replay is descoped.
+- Crash-resume: kill -9 mid-run; restart succeeds with no state file corrupt.
 
 ## Risks & fallbacks
 
@@ -1149,11 +1110,11 @@ not repeated here. Summary of what is and is not a finding:
   equality (compare our sig to a lazily-built oracle sig; skip full decode when verdict byte
   says reject and our side didn't panic). Fallback: hand-rolled scanner for the fixed schema.
 - **Divergence storm** (a single real bug hit by millions of inputs). Mitigation: dedup by
-  `<sig>` + `max-open-findings` cap; minimize-once policy is descoped. The fix agent (40, now
-  headless `codex exec`) ledgers/fixes, and R12 suppression re-reads the ledger every 60 s so throughput
-  recovers without a restart.
-- **Watchdog false positives** under GC pauses. Mitigation: 100 ms deadline is 10⁵× median;
-  `debug.SetGCPercent` tuned modestly; abandoned-worker count tolerated up to 8 before restart.
+  `<sig>` + `max-open-findings` cap; the fix agent (40, now headless `codex exec`)
+  ledgers/fixes, and R12 suppression re-reads the ledger every 60 s so throughput recovers
+  without a restart.
+- **Per-case deadline false positives** under GC pauses. Mitigation: 100 ms deadline is
+  10⁵× median; `debug.SetGCPercent` tuned modestly.
 - **Local mutation tokenizer diverges from the real lexer**, producing malformed splices.
   Acceptable: mutations need not be lexically valid (that is the point); byte-safety is the only
   hard invariant and is asserted post-mutation.
@@ -1167,12 +1128,12 @@ no live distillation.
 - `internal/wire` + `internal/oracle` (pool, respawn, bisection, coverage poll): 3 d.
 - `internal/digest` + `internal/compare` (rules incl. R13 canonicalization, descriptor, dedup) +
   unit tests: 3 d.
-- `internal/exec` (containment, watchdog): 1 d.
+- `internal/exec` (containment): 1 d.
 - `internal/sancov` + `internal/corpus` (retention + shutdown distillation): 1 d.
 - `internal/gen` (full grammar tables): 3 d.
 - `internal/mutate` + `internal/dict` + `internal/seed`: 2 d.
-- `internal/run` (orchestrator, stats, flush; journal/resume descoped): 2 d.
-- `golden`, `replay`, `minimize` subcommands (`minimize` descoped): 2 d.
+- `internal/run` (orchestrator, stats, flush): 2 d.
+- `golden`, `replay` subcommands: 2 d.
 - Integration, perf tuning to ≥100k/s, acceptance checks: 2 d.
 
 **Total ≈ 19–20 person-days** (excludes oracle components 10/11 and supervisor 40). The bulk is

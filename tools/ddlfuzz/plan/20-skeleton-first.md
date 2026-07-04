@@ -21,7 +21,7 @@ Rules:
 From `/Users/ilia/Code/peerdb`:
 
 ```
-cd flow && go build -tags ddlfuzz ./...          # shim compiles under the tag
+cd flow && go build ./...                        # shim compiles
 cd ../tools/ddlfuzz && go build ./... && go vet ./... && go test ./...   # module green
 go build -o build/ddlfuzz ./cmd/ddlfuzz          # binary builds
 ```
@@ -58,11 +58,9 @@ needs errgroup).
 ### 3. Export shim — `flow/connectors/mysql/ddlfuzz_export.go` (REAL, not a stub)
 
 Exactly this (all three functions; 30 consumes `FuzzSQLModeFromStatusVars` and `FuzzParseForE2E`,
-40 uses none of these directly but the file must compile under `-tags ddlfuzz`):
+40 uses none of these directly):
 
 ```go
-//go:build ddlfuzz
-
 package connmysql
 
 import (
@@ -266,9 +264,9 @@ Verify the unexported names against the current parser source before typing: `pa
 `flow/connectors/mysql/ddl_parser.go` / `type_conversion.go`. If a name differs, match the source
 (the parser is authoritative), not this doc.
 
-Also add the parity guard `flow/connectors/mysql/ddlfuzz_export_test.go` (`//go:build ddlfuzz`) per
+Also add the parity guard `flow/connectors/mysql/ddlfuzz_export_test.go` per
 `21-fuzzer.md` step 1 — it can be a `t.Skip("filled in with full impl")` stub for now, but the file
-must compile under the tag.
+must compile.
 
 ### 4. `internal/` stub packages — exact exported surface 30 imports
 
@@ -372,25 +370,6 @@ func Record(stateDir string, f Finding) (sig string, isNew bool, err error) {
 }
 ```
 
-**`internal/minimize/minimize.go`** — descoped; package removed:
-
-```go
-package minimize
-
-// Minimize shrinks stmt via ddmin, keeping only inputs for which reproduces
-// stays true. Bounded internally.
-func Minimize(stmt []byte, sqlMode uint64, engine string, reproduces func([]byte) bool) []byte {
-	panic("ddlfuzz: not implemented")
-}
-
-// FastLanePredicate returns a reproduces-predicate that runs a candidate through
-// the oracle + shim and reports whether it still yields the target sig's
-// divergence descriptor. Used by the e2e lane's first-try minimization.
-func FastLanePredicate(sig string) func([]byte) bool {
-	panic("ddlfuzz: not implemented")
-}
-```
-
 **`internal/compare/compare.go`** — `SplitTopLevel` consumed by 30; the rest is your full-impl
 home. Land just the splitter signature now (30 reuses it for spec-list bisection):
 
@@ -406,7 +385,7 @@ func SplitTopLevel(b []byte, sep byte) [][]byte {
 
 ### 5. `cmd/ddlfuzz/main.go` — subcommand skeleton (40 shells out to these)
 
-Real flag parsing + dispatch for `fuzz | golden | replay | minimize`; stub actions print
+Real flag parsing + dispatch for `fuzz | golden | replay`; stub actions print
 `"<cmd>: not implemented"` to stderr and `os.Exit(70)`. This lets 40 be written against the CLI
 shape now; the documented exit codes (0/10/11/1 for `replay`, per D5) are wired in with the full
 impl. Include `-h`/per-subcommand usage. Keep the flag names from `21-fuzzer.md` §CLI flags so 40's
@@ -427,5 +406,5 @@ do not write behavioral tests yet — those ship with the real implementation.
 
 Once the acceptance block is green and the skeleton commit is pushed to your branch, that is the
 cue (relay it to the coordinator) for the 30 and 40 agents to start: 30 imports
-`internal/{gen,findings,minimize,compare}` + the shim; 40 builds the module and shells the
+`internal/{gen,findings,compare}` + the shim; 40 builds the module and shells the
 `cmd/ddlfuzz` CLI. Then continue with the full `21-fuzzer.md` behind these frozen signatures.

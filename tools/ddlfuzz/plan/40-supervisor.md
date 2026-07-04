@@ -218,7 +218,7 @@ report, exit 0. INT/TERM to the supervisor triggers the same path immediately.
 Disk watchdog (state volume free space via statfs + `docker system df`): `<10GiB` ⇒ compose down +
 kill lane (e2e is the big consumer), `escalations/run-disk-low.md`, continue fast lane; re-enable
 e2e if free rises back above 20GiB. `<3GiB` ⇒ pause fix-agent launches until >5GiB. Never delete
-corpus/findings/coverage; attempt-transcript gzip is descoped.
+corpus/findings/coverage.
 
 ### Startup sequence (inside `ddlsuper run`; all preflight is here — synchronous, before any
 supervision, while the human is still at the keyboard)
@@ -300,7 +300,7 @@ in the prompt as context. One fix often closes the whole group via the post-fix 
 5. **On success:** `last_good_commit` ← new HEAD; supervisor (authoritatively) sets meta status
    (`fixed`/`ledgered`) on the primary and on every open finding that replayed clean in 4f
    (`fixed_by`); rebuild `build/ddlfuzz` to `build/ddlfuzz.new`
-   (`go build -tags '' -o ...` — the driver binary; note the ddlfuzz-tagged flow shim is compiled
+   (`go build -o ...` — the driver binary; the flow shim is compiled
    into it via the replace directive) and, if oracle sources changed, the oracle binaries are
    already rebuilt in 4e; **hot-restart handshake**: SIGTERM fuzzer → wait ≤60s for exit (SIGKILL
    pgroup at 60s) → `mv build/ddlfuzz.new build/ddlfuzz` → relaunch (fuzzer reloads retained
@@ -369,9 +369,9 @@ group: <group_key> (class=<class>, shape=<shape>)   flap: <yes/no>
 Diagnosis extraction: `jq -r 'select(.type=="item.completed" and .item.type=="agent_message") | .item.text'`
 over the attempt stream-jsonl (codex `--json` events), last 40 lines kept.
 
-### Fix-agent prompt template (`tools/ddlfuzz/supervisor/prompt.tmpl`, complete text)
+### Fix-agent prompt template (`tools/ddlfuzz/supervisor/prompt.tmpl`)
 
-Ratification: the shipped `supervisor/prompt.tmpl` is authoritative over the embedded copy below.
+The shipped `supervisor/prompt.tmpl` is authoritative; the copy below is illustrative.
 
 Placeholders `{NAME}` are substituted by `ddlsuper` with plain string replacement. `{SIBLINGS}` is
 "none" or a bulleted list of `sig — class/shape — repro path`. `{PRIOR_ATTEMPTS_SUMMARY}` is "none"
