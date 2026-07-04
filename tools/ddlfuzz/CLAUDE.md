@@ -31,6 +31,19 @@ conflict/not-ff/stale · `3` gate/golden/stale-oracle (rolled back) · `4` repla
 back) · `6` slot busy · `7` canceled. Cancel from another shell with `ddlsuper merge-cancel
 [--keep-hold]`; `ddlsuper status` shows the merge slot.
 
+`--no-restart` (only relevant when the merged diff touches `supervisor/`): by default a
+supervisor-touching merge rebuilds `ddlsuper` and exec-restarts it in place — same PID, fast
+resume, new supervisor code live immediately (`supervisor_restart=restarting`). `--no-restart`
+skips the exec: the merge still lands, validates, and rebuilds `ddlsuper`, but it writes a
+`state/RESTART_REQUIRED` marker (`supervisor_restart=required`, shown as a banner in `ddlsuper
+status`) and leaves the running supervisor on the *old* image — correct against the merged tree,
+just not-new. Pick up the rebuilt binary whenever you like with Ctrl-C + `ddlsuper run`: preflight
+sees the marker, HEAD matches the validated head, so it fast-resumes (skips golden + gate) and
+clears the marker. Use it to avoid betting a live campaign on an in-place exec of a risky
+supervisor change, or to defer the restart to a controlled moment. (Merges that don't touch
+`supervisor/` never restart, so the flag is a no-op there; and with no supervisor running the
+merge is inline and inherently no-restart — it rebuilds `ddlsuper` and the next `run` fast-resumes.)
+
 For oracle changes, rebuild in staged (`oracle/*/build.sh`, which writes the manifest) so the hash
 matches — merge servicing verifies the manifest before copying binaries and re-runs golden.
 
