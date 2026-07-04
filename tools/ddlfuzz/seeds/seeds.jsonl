@@ -723,3 +723,7 @@
 {"sql":"ALTER TABLE `a\u0000b` DROP COLUMN c","engine":"both","sql_mode":0,"source":"ddl_lexer_test.go"}
 {"sql":"ALTER TABLE t ADD c INT COMMENT 'a\u0000b'","engine":"both","sql_mode":0,"source":"ddl_lexer_test.go"}
 {"sql":"ALTER TABLE t DROP COLUMN a; -- x\u0000ALTER TABLE t DROP COLUMN b","engine":"both","sql_mode":0,"source":"ddl_lexer_test.go"}
+{"sql":"ALTER TABLE CamelCase ADD COLUMN c INT","engine":"both","sql_mode":0,"expect_sig":"alter CamelCase{col c=int32}","source":"anchor-case"}
+{"sql":"ALTER TABLE Db1.TBL ADD COLUMN C INT","engine":"both","sql_mode":0,"expect_sig":"alter Db1.TBL{col C=int32}","source":"anchor-case"}
+{"sql":"ALTER TABLE t RENAME TO T","engine":"mariadb","sql_mode":0,"expect_sig":"rename t\u003eT","source":"anchor-case"}
+{"sql":"RENAME TABLE Foo TO Bar","engine":"mysql","sql_mode":0,"expect_sig":"rename Foo\u003eBar","source":"anchor-case"}
