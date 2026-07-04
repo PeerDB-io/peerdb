@@ -554,6 +554,14 @@ int main(int, char **argv) {
   THD *thd = init->thd();
   install_default_se_stand_in(thd);
 
+  // macOS autosizes lower_case_table_names=2 on a case-insensitive datadir
+  // (mysqld.cc), folding schema/table idents at parse — unfaithful to Linux
+  // production (lctn=0). This is a parse-only process (no table files ever
+  // opened), so override the exported globals post-init, mirroring the MariaDB
+  // oracle (plan 12 part 1 step 3).
+  lower_case_table_names = 0;
+  table_alias_charset = &my_charset_bin;
+
   thd->get_protocol_classic()->add_client_capability(CLIENT_MULTI_QUERIES);
   thd->variables.character_set_client = &my_charset_utf8mb4_0900_ai_ci;
   thd->variables.character_set_results = &my_charset_utf8mb4_0900_ai_ci;
