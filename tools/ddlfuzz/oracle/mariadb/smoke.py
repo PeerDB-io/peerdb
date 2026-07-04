@@ -127,6 +127,16 @@ class Oracle:
 CASES: list[tuple[int, str, str | tuple[str, str]]] = [
     (
         0,
+        "ALTER TABLE CamelCase ADD COLUMN c INT",
+        '{"verdict":"accept","stmts":[{"kind":"alter_table","schema":"","table":"CamelCase","specs":[{"op":"add","cols":[{"name":"c","type_str":"int(11)","not_null":false,"params_written":[11]}],"has_position":false}]}]}',
+    ),
+    (
+        0,
+        "ALTER TABLE t RENAME TO T",
+        '{"verdict":"accept","stmts":[{"kind":"alter_table","schema":"","table":"t","new_schema":"","new_table":"T","specs":[]}]}',
+    ),
+    (
+        0,
         "ALTER TABLE t ADD COLUMN c DECIMAL(10,2) UNSIGNED NOT NULL AFTER x",
         '{"verdict":"accept","stmts":[{"kind":"alter_table","schema":"","table":"t","specs":[{"op":"add","cols":[{"name":"c","type_str":"decimal(10,2) unsigned","not_null":true,"params_written":[10,2]}],"has_position":true}]}]}',
     ),

@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 
-ROOT = Path("/Users/ilia/Code/peerdb/tools/ddlfuzz")
+ROOT = Path(__file__).resolve().parents[2]
 BIN = ROOT / "build" / "oracle-mysql"
 
 PARSE_BATCH = 1
@@ -23,6 +23,30 @@ HELLO = 3
 
 
 EXPECTED = {
+    "ALTER TABLE CamelCase ADD COLUMN c INT": {
+        "verdict": "accept",
+        "stmts": [
+            {
+                "kind": "alter_table",
+                "schema": "",
+                "table": "CamelCase",
+                "specs": [
+                    {
+                        "op": "add",
+                        "cols": [
+                            {
+                                "name": "c",
+                                "type_str": "int",
+                                "not_null": False,
+                                "params_written": None,
+                            }
+                        ],
+                        "has_position": False,
+                    }
+                ],
+            }
+        ],
+    },
     "ALTER TABLE t ADD c INT NOT NULL": {
         "verdict": "accept",
         "stmts": [

@@ -3,6 +3,7 @@
 #include "sql_lex.h"
 #include "sql_parse.h"
 #include "sql_alter.h"
+#include "mysqld.h"
 #include "field.h"
 #include "table.h"
 
@@ -274,6 +275,9 @@ void init_server(const std::string &scratch) {
                     nullptr};
   if (mysql_server_init(static_cast<int>(args.size()), argv.data(), groups))
     fatal("server init failed");
+
+  lower_case_table_names = 0;
+  table_alias_charset = &my_charset_bin;
 
   g_thd = static_cast<THD *>(create_embedded_thd(kClientMultiStatements));
   if (g_thd == nullptr)
