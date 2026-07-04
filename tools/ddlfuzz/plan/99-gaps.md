@@ -1,3 +1,9 @@
+<!-- HANDOFF: commit this file as tools/ddlfuzz/plan/99-gaps.md (strip this comment).
+     It lives in state/ (gitignored) so the live supervisor cannot delete it or trip its
+     pre-attempt untracked-file gate. plan/99-gaps.md holds an identical working copy, but
+     it is untracked and may be rollback-deleted by a failed fix attempt - this state/ copy
+     is authoritative. Committing mid-campaign will wedge the fix loop on HEAD drift; commit
+     when the supervisor is stopped or fold into the next fix commit. -->
 # 99 — implementation audit: gaps and defects
 
 Audit of the implemented rig + the parser under test against plans 00–52, 2026-07-03 (campaign
