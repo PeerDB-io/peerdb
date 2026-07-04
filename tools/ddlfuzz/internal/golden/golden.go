@@ -66,7 +66,7 @@ func Run(ctx context.Context, cfg Config, w io.Writer) (Summary, error) {
 				return summary, err
 			}
 			div := compare.Diff(c, res.Sig, res.Err, res.Panic, d)
-			oracleSig, _ := compare.OracleSig(d)
+			oracleSig, _ := compare.OracleSigForEngine(d, c.Engine)
 			row := Row{SQL: s.SQL, Engine: engine, SQLMode: s.SQLMode, Our: res.Sig, Oracle: oracleSig, Expect: s.ExpectSig, Reconcile: div == nil}
 			if res.Err != nil {
 				row.OurError = res.Err.Error()

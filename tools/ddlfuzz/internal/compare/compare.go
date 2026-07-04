@@ -49,6 +49,14 @@ type Descriptor struct {
 }
 
 func OracleSig(d *digest.Digest) (sig string, skip bool) {
+	return oracleSig(d, 0, false)
+}
+
+func OracleSigForEngine(d *digest.Digest, engine uint8) (sig string, skip bool) {
+	return oracleSig(d, engine, true)
+}
+
+func oracleSig(d *digest.Digest, engine uint8, engineKnown bool) (sig string, skip bool) {
 	if d == nil || d.Verdict != "accept" {
 		return "", false
 	}
@@ -79,7 +87,7 @@ func OracleSig(d *digest.Digest) (sig string, skip bool) {
 			}
 			specs := make([]string, 0, len(st.Specs))
 			for _, sp := range st.Specs {
-				specs = append(specs, oracleSpecSig(sp))
+				specs = append(specs, oracleSpecSig(sp, engine, engineKnown))
 			}
 			parts = append(parts, "alter "+sigQual(st.Schema, st.Table)+"{"+strings.Join(specs, "; ")+"}")
 			if rename != "" {
@@ -115,7 +123,7 @@ func Diff(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo,
 	if d.Verdict != "accept" {
 		return &Divergence{Class: "oracle_crash", Shape: "bad_digest", OurSig: ourSig, OurError: errString(ourErr)}
 	}
-	oracleSig, skip := OracleSig(d)
+	oracleSig, skip := OracleSigForEngine(d, c.Engine)
 	if skip {
 		return nil
 	}
@@ -588,7 +596,7 @@ var (
 	hexAddrRE = regexp.MustCompile(`0x[0-9a-fA-F]+`)
 )
 
-func oracleSpecSig(sp digest.Spec) string {
+func oracleSpecSig(sp digest.Spec, engine uint8, engineKnown bool) string {
 	var sb strings.Builder
 	switch sp.Op {
 	case "add", "modify":
@@ -597,7 +605,7 @@ func oracleSpecSig(sp digest.Spec) string {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString(oracleColSig(c))
+			sb.WriteString(oracleColSig(c, engine, engineKnown))
 		}
 	case "change":
 		sb.WriteString("chg ")
@@ -607,7 +615,7 @@ func oracleSpecSig(sp digest.Spec) string {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString(oracleColSig(c))
+			sb.WriteString(oracleColSig(c, engine, engineKnown))
 		}
 	case "drop":
 		sb.WriteString("drop ")
@@ -627,11 +635,11 @@ func oracleSpecSig(sp digest.Spec) string {
 	return sb.String()
 }
 
-func oracleColSig(c digest.Col) string {
+func oracleColSig(c digest.Col, engine uint8, engineKnown bool) string {
 	var sb strings.Builder
 	sb.WriteString(sigIdent(c.Name))
 	sb.WriteByte('=')
-	kind, err := connmysql.QkindFromMysqlColumnType(c.TypeStr, true, 0)
+	kind, err := oracleColKind(c, engine, engineKnown)
 	if err != nil {
 		sb.WriteString("ERR")
 	} else {
@@ -651,6 +659,14 @@ func oracleColSig(c digest.Col) string {
 		sb.WriteString(" nn")
 	}
 	return sb.String()
+}
+
+func oracleColKind(c digest.Col, engine uint8, engineKnown bool) (types.QValueKind, error) {
+	if engineKnown && engine == run.EngineMySQL && c.TypeStr == "tinyint(1) unsigned" &&
+		len(c.ParamsWritten) == 1 && c.ParamsWritten[0] == 1 {
+		return types.QValueKindUInt8, nil
+	}
+	return connmysql.QkindFromMysqlColumnType(c.TypeStr, true, 0)
 }
 
 func sigQual(schema, table string) string {

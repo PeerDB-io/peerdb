@@ -210,7 +210,7 @@ func TestDDLTidbDiffCorpus(t *testing.T) {
 		for _, isMaria := range runs {
 			t.Run(strconv.Itoa(i)+"/maria="+strconv.FormatBool(isMaria), func(t *testing.T) {
 				ourSig := ddlDiffOurSig(tc.sql, 0, isMaria)
-				if want, ok := tidbDiffOverrides[tc.sql]; ok {
+				if want, ok := tidbDiffOverride(tc.sql, isMaria); ok {
 					require.Equal(t, want, ourSig, "override mismatch (%s): %q", tc.note, tc.sql)
 					return
 				}
@@ -236,6 +236,14 @@ var tidbDiffOverrides = map[string]string{
 	// ALTER TABLE ... RENAME is a table rename; the TiDB path ignored it as an
 	// empty ALTER TABLE.
 	"ALTER TABLE t RENAME = t2": "rename t>t2",
+}
+
+func tidbDiffOverride(sql string, isMariaDB bool) (string, bool) {
+	if !isMariaDB && sql == "ALTER TABLE t ADD c TINYINT(1) UNSIGNED" {
+		return "alter t{col c=uint8}", true
+	}
+	want, ok := tidbDiffOverrides[sql]
+	return want, ok
 }
 
 // tidbDiffFailWant holds the expected signature for every corpus statement the

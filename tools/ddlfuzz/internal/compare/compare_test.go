@@ -12,11 +12,12 @@ import (
 func TestDiffReconciliationRules(t *testing.T) {
 	base := run.Case{SQL: []byte("ALTER TABLE t ADD c INT"), Engine: run.EngineMySQL}
 	tests := []struct {
-		name string
-		our  string
-		err  error
-		d    *digest.Digest
-		want string
+		name   string
+		our    string
+		err    error
+		d      *digest.Digest
+		engine uint8
+		want   string
 	}{
 		{
 			name: "reject reconciles",
@@ -38,10 +39,18 @@ func TestDiffReconciliationRules(t *testing.T) {
 			}}}),
 		},
 		{
-			name: "bool tinyint one",
-			our:  "alter t{col c=bool}",
+			name: "mysql unsigned tinyint one",
+			our:  "alter t{col c=uint8}",
 			d: acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{
-				Name: "c", TypeStr: "tinyint(1) unsigned",
+				Name: "c", TypeStr: "tinyint(1) unsigned", ParamsWritten: []int{1},
+			}}}),
+		},
+		{
+			name:   "mariadb unsigned tinyint one",
+			our:    "alter t{col c=bool}",
+			engine: run.EngineMariaDB,
+			d: acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{
+				Name: "c", TypeStr: "tinyint(1) unsigned", ParamsWritten: []int{1},
 			}}}),
 		},
 		{
@@ -174,7 +183,11 @@ func TestDiffReconciliationRules(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			div := Diff(base, tc.our, tc.err, nil, tc.d)
+			c := base
+			if tc.engine != 0 {
+				c.Engine = tc.engine
+			}
+			div := Diff(c, tc.our, tc.err, nil, tc.d)
 			if tc.want == "" && div != nil {
 				t.Fatalf("unexpected divergence: %+v", div)
 			}

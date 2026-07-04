@@ -46,6 +46,10 @@ func TestDDLTypesIntegers(t *testing.T) {
 		{typ: "TINYINT", want: ddlTypesCol("tinyint", -1, -1, false)},
 		{typ: "TINYINT(1)", want: ddlTypesCol("tinyint(1)", 1, -1, false)},
 		{typ: "TINYINT(01)", want: ddlTypesCol("tinyint(1)", 1, -1, false), maria: true},
+		{typ: "TINYINT(1) UNSIGNED", want: ddlTypesCol("tinyint unsigned", -1, -1, false)},
+		{typ: "TINYINT(01) UNSIGNED", want: ddlTypesCol("tinyint unsigned", -1, -1, false)},
+		{typ: "TINYINT(1) UNSIGNED", want: ddlTypesCol("tinyint(1) unsigned", 1, -1, false), maria: true},
+		{typ: "TINYINT(1) ZEROFILL", want: ddlTypesCol("tinyint(1) unsigned", 1, -1, false)},
 		{typ: "TINYINT(3) UNSIGNED", want: ddlTypesCol("tinyint(3) unsigned", 3, -1, false)},
 		{typ: "INT1", want: ddlTypesCol("tinyint", -1, -1, false)},
 		// INT1 is an alias for TINYINT, so INT1(1) must keep bool detection

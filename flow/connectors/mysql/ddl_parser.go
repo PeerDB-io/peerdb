@@ -751,6 +751,7 @@ type ddlColumnState struct {
 	written       bool     // a '(' params list was written in the DDL text
 	synthetic     bool     // params were synthesized (BOOLEAN -> tinyint(1)), not written
 	unsigned      bool
+	zerofill      bool
 	notNull       bool
 	charsetSeen   bool
 	charsetBinary bool
@@ -811,6 +812,7 @@ func (p *ddlParser) parseColumnDef(name string, spec *ddlAlterSpec, insideParens
 	if err := p.parseColumnAttributes(&st, spec, insideParens); err != nil {
 		return err
 	}
+	ddlNormalizeMySQLUnsignedTinyintOne(&st, p.lx.isMariaDB)
 	precision, scale := -1, -1
 	if st.written && !st.synthetic && ddlNumericParamsApply(st.base) {
 		if len(st.params) >= 1 {
@@ -884,6 +886,16 @@ func ddlNormalizeIntegerDisplayWidth(st *ddlColumnState) {
 	}
 	if width := digitsToInt(st.params[0]); width >= 0 {
 		st.params[0] = strconv.Itoa(width)
+	}
+}
+
+func ddlNormalizeMySQLUnsignedTinyintOne(st *ddlColumnState, isMariaDB bool) {
+	if isMariaDB || !st.unsigned || st.zerofill || st.base != "tinyint" || !st.written || len(st.params) != 1 {
+		return
+	}
+	if digitsToInt(st.params[0]) == 1 {
+		st.params = nil
+		st.written = false
 	}
 }
 
@@ -1222,6 +1234,9 @@ func (p *ddlParser) parseColumnAttributeWord(st *ddlColumnState, spec *ddlAlterS
 		p.next()
 	case ddlWordIs(t, "UNSIGNED") || ddlWordIs(t, "ZEROFILL"):
 		st.unsigned = true // zerofill implies unsigned
+		if ddlWordIs(t, "ZEROFILL") {
+			st.zerofill = true
+		}
 		p.next()
 	case ddlWordIs(t, "FIRST"):
 		spec.HasPosition = true
