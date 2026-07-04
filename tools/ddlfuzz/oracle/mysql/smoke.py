@@ -387,6 +387,22 @@ def rss_kb(pid: int) -> int:
     return int(out.strip())
 
 
+def footprint_kb(pid: int) -> int:
+    try:
+        out = subprocess.run(
+            ["vmmap", "--summary", str(pid)], capture_output=True, text=True
+        ).stdout
+    except FileNotFoundError:
+        return -1
+    for line in out.splitlines():
+        if line.startswith("Physical footprint:"):
+            val = line.split()[-1]
+            for suffix, mult in (("G", 1024 * 1024), ("M", 1024), ("K", 1)):
+                if val.endswith(suffix):
+                    return int(float(val[: -len(suffix)]) * mult)
+    return -1
+
+
 def assert_digest(sql: str, raw: bytes) -> None:
     actual = json.loads(raw)
     expected = EXPECTED[sql]
@@ -452,6 +468,22 @@ def main() -> int:
         time.sleep(0.2)
         after = rss_kb(oracle.proc.pid)
         assert after - before < 50 * 1024, (before, after)
+
+        sp_before = footprint_kb(oracle.proc.pid)
+        if sp_before > 0:
+            sp_batch = [
+                (
+                    0,
+                    f"CREATE PROCEDURE sp_{i}() BEGIN DECLARE v INT; "
+                    f"SET v = 1; END".encode(),
+                )
+                for i in range(1000)
+            ]
+            for _ in range(4):
+                replies = oracle.parse(sp_batch)
+                assert json.loads(replies[0])["verdict"] == "accept", replies[0]
+            sp_after = footprint_kb(oracle.proc.pid)
+            assert sp_after - sp_before < 32 * 1024, (sp_before, sp_after)
 
     finally:
         oracle.close()

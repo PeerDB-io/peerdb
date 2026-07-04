@@ -177,10 +177,15 @@ Before each **statement**: `lex_start(thd); mysql_reset_thd_for_next_command(thd
 `reset_for_next_command` (`sql/sql_parse.cc:5198`) clears the item list, DA
 (`:5241` `clear_error()`, `:5242` `reset_diagnostics_area()`, `:5243` `reset_statement_cond_count()`),
 error flags — exactly the state that would otherwise wedge the next parse.
+After each **statement** (before the next `lex_start`, and once more at event end):
+`thd->end_statement()` — runs `lex_end` (`sql/sql_lex.cc:546`), which does
+`sp_head::destroy(lex->sphead)` and `LEX::release_plugins`. Without it every parsed
+`CREATE PROCEDURE/FUNCTION/TRIGGER/EVENT` leaks the sp_head's private MEM_ROOT (~26KB), which lives
+outside `thd->mem_root` and so survives the reclaim below.
 After each **event** (all statements done, digest emitted): `thd->cleanup_after_query()`
 (`sql/sql_class.cc:1862`, frees items) then reclaim the MEM_ROOT the way `dispatch_command` does
 (`sql/sql_parse.cc:2527`): `if (thd->mem_root->allocated_size() < 40960)
-thd->mem_root->ClearForReuse(); else thd->mem_root->Clear();`. This is what keeps 72h memory flat;
+thd->mem_root->ClearForReuse(); else thd->mem_root->Clear();`. Together these keep 72h memory flat;
 gunit tests never hit it because they use a fresh THD per test.
 
 ### D7 — Multi-statement enumeration (contract: one entry per executed statement, in order)

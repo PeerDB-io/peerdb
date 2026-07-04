@@ -380,6 +380,7 @@ static std::string accept_digest(const std::vector<std::string> &stmts) {
 }
 
 static void reclaim_after_event(THD *thd) {
+  thd->end_statement();
   thd->cleanup_after_query();
   if (thd->mem_root->allocated_size() < 40960) {
     thd->mem_root->ClearForReuse();
@@ -454,6 +455,8 @@ static std::string parse_event(THD *thd, uint64_t sql_mode, const char *stmt,
       ++p;
       --remaining;
     }
+    if (remaining == 0) break;
+    thd->end_statement();
   }
 
   std::string result = accept_digest(stmts);
