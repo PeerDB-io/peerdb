@@ -184,7 +184,9 @@ Goroutines:
    retrying every 30min (never give up entirely — a later fix commit may repair it), mark degraded
    in report. Wedge detection: `stats.json` `ts` stale > 5min ⇒ SIGTERM, 60s, SIGKILL pgroup,
    restart (counts toward breaker).
-2. **e2e monitor** — compose up + lane process; same backoff/breaker per sub-part; breaker trip ⇒
+2. **e2e monitor** — compose up + lane process; same backoff/breaker per sub-part; wedge
+   detection per 30 §9 (`e2e-stats.json` `updated_at` stale > 60s after a 90s startup grace, or
+   `matcher_last_event_at` lag > 300s while cases advance); breaker trip ⇒
    `escalations/run-e2e-crashloop.md`, compose down, retry every 30min. e2e death never affects
    the fast lane.
 3. **fix loop** — serialized, one attempt at a time (below).

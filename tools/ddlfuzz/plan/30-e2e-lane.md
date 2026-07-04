@@ -522,7 +522,12 @@ executions, keep the smallest statement that still reproduces the same class+des
 
   Supervisor heartbeat embeds it; staleness > 60s or `matcher_last_event_at` lag > 300s while
   cases advance = unhealthy (supervisor restarts the lane binary; containers only if
-  `health.sh` fails).
+  `health.sh` fails). 60s is safe against idle: the writer ticks every 10s regardless of
+  worker throttling, so staleness means hung, not quiet. Staleness is enforced only after 90s
+  of lane uptime — nothing writes at startup, so right after a restart the on-disk file is the
+  previous lane's. A zero `matcher_last_event_at` counts lag from lane start; "cases advance"
+  = between successive 1-min wedge ticks. Ambiguities resolve toward restart: the lane is
+  stateless and the crash-loop breaker bounds over-eager restarts.
 - **Crash-resumability**: the lane persists nothing between cases except append-only jsonl,
   queue files, and findings — all written atomically (findings dir via 20's Record; jsonl via
   O_APPEND single-writer; queue via rename). On restart: recreate schemas/fixtures

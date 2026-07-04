@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -289,7 +288,7 @@ func (m *FuzzerManager) Run(ctx context.Context) {
 				m.logf("fuzzer exited: %v", p.Err())
 				break waitLoop
 			case <-wedge.C:
-				if statsStale(m.cfg, filepath.Join(m.cfg.StateDir, "stats.json"), "ts", 5*time.Minute) {
+				if statsStale(filepath.Join(m.cfg.StateDir, "stats.json"), "ts", 5*time.Minute) {
 					m.logf("fuzzer stats stale; restarting")
 					p.StopGracefully(60 * time.Second)
 				}
@@ -386,6 +385,7 @@ func (m *E2EManager) Run(ctx context.Context) {
 			continue
 		}
 		m.setProc(p, true)
+		wedgeCheck := newE2EWedgeCheck(time.Now())
 		wedge := time.NewTicker(time.Minute)
 	waitLoop:
 		for {
@@ -401,8 +401,8 @@ func (m *E2EManager) Run(ctx context.Context) {
 				m.logf("e2e lane exited: %v", p.Err())
 				break waitLoop
 			case <-wedge.C:
-				if statsStale(m.cfg, filepath.Join(m.cfg.StateDir, "e2e-stats.json"), "updated_at", 5*time.Minute) {
-					m.logf("e2e stats stale; restarting lane")
+				if reason, wedged := wedgeCheck.check(filepath.Join(m.cfg.StateDir, "e2e-stats.json"), time.Now()); wedged {
+					m.logf("e2e lane wedged (%s); restarting lane", reason)
 					p.StopGracefully(60 * time.Second)
 				}
 			}
@@ -623,27 +623,6 @@ func composeDown(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("docker compose down failed: %w\n%s", err, resultOutputTail(res, 8000))
 	}
 	return nil
-}
-
-func statsStale(cfg Config, path, tsField string, maxAge time.Duration) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	var obj map[string]any
-	if jsonErr := jsonUnmarshal(data, &obj); jsonErr != nil {
-		return false
-	}
-	ts, _ := obj[tsField].(string)
-	if ts == "" {
-		return false
-	}
-	t := parseLooseTime(ts)
-	return !t.IsZero() && time.Since(t) > maxAge
-}
-
-func jsonUnmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
 }
 
 func mergeSnapshots(a, b ComponentSnapshot) ComponentSnapshot {
