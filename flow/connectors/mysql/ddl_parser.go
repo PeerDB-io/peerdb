@@ -718,6 +718,8 @@ func (p *ddlParser) parseColumnList(spec *ddlAlterSpec) error {
 				benign = true
 			case "PERIOD":
 				benign = ddlWordIs(p.peek(1), "FOR")
+			case "VECTOR":
+				benign = p.looksLikeMariaVectorIndexAdd()
 			}
 			if benign {
 				if err := p.skipListElement(); err != nil {

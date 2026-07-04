@@ -117,6 +117,7 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "ADD VECTOR KEY vk (emb)", maria: true},
 		{alter: "ADD VECTOR v (emb)", maria: true},
 		{alter: "ADD VECTOR RAW(N6)", maria: true},
+		{alter: "ADD (VECTOR INDEX COLLATION (emb) )", maria: true},
 		// ambiguity #3/#5: PERIOD/VECTOR after bare ADD are column names unless
 		// they start a period or vector-index form.
 		{alter: "ADD period date", want: ddlAltAdd(ddlAltCol("period", "date"))},
