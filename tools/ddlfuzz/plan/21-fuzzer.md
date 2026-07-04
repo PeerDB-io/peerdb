@@ -350,14 +350,24 @@ type proc struct {
   watchdog timer of `-oracle-batch-timeout` (default 10 s ≈ 1000×10 ms worst case). On timeout:
   SIGKILL, treat as crash.
 - **Crash/timeout bisection**: when `ParseBatch` errors (EOF, timeout, exit), respawn and
-  re-submit the in-flight batch in halves recursively (each half a fresh `ParseBatch`):
+  re-submit the in-flight batch in halves recursively (each half a fresh `ParseBatch`), under a
+  total-resubmission budget of `4×bitLen(batch)+8` per bisection (~48 at batch 1000: isolating
+  one deterministic crasher costs ≈2×log2(batch) resubmissions, two independent ones ≈4×log2;
+  the budget exists to bound state-dependent thrash — worst case ≈8 min when every resubmit is
+  a 10 s timeout):
   - a half that completes → its digests are used normally;
   - recurse into the failing half until a single case crashes/hangs the oracle → finding with
     class `oracle_crash` / `oracle_timeout` (these are findings regardless of verdict — a parse
     oracle must never die);
-  - guard: if both halves pass in isolation (state-dependent crash), file the *whole batch* as
-    one `oracle_crash` finding with the batch stored under `repro.sql` (newline-`\x00`-separated,
-    plus `meta.json.batch=true`) and move on. Cap bisection at 2×log2(batch) resubmissions.
+  - guard: if a failing (sub-)batch's halves both pass in isolation (state-dependent crash),
+    file that batch as one `oracle_crash` finding, shape `state-dependent batch`, batch stored
+    under `repro.sql` (newline-`\x00`-separated, plus `meta.json.batch=true`) and move on.
+    Random batches carry no stable per-bug feature, so these deliberately dedup to one sig per
+    engine × masked mode × class; recurrences bump `times_seen`.
+  - budget exhausted → file the still-failing sub-batch the same way under its own shape
+    `bisect budget exhausted` (so it never masquerades as state-dependent) and log to stderr.
+  - `execs_total` counts each resubmitted case once: with its completed sub-batch, +1 per
+    isolated crasher, +len(batch) for a budget-exhausted batch that never completed.
 - **Coverage polling**: after every `pollEveryBatches` completed batches, `GetCoverage`; hand the
   bitmap + `covWindow` to `internal/sancov` (step 10). Adaptive cadence as in the struct comment.
 - **Backpressure**: engine channel capacity `4×N` batches; producers block.
@@ -573,7 +583,8 @@ Canonical descriptor = the JSON serialization (sorted keys, no whitespace) of:
   `connmysql.`-package function on the stack (function name only).
 - `timeout`: `"head=" + first word of the statement uppercased` (or `""`).
 - `oracle_crash` / `oracle_timeout`: `"head=" + first word` (crash detail lives in the oracle
-  log, not the descriptor — exit signals aren't stable).
+  log, not the descriptor — exit signals aren't stable); the bisection's batch-level findings
+  use `state-dependent batch` / `bisect budget exhausted` instead (step 3).
 
 `<sig>` = first 12 hex chars of `sha256(descriptor)`. Stability: engine and masked mode are part
 of intent; identifiers, byte offsets, addresses, and incidental statement text are normalized

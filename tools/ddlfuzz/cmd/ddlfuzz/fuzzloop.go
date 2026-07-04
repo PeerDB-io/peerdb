@@ -383,7 +383,7 @@ func (p *oracleProc) run(ctx context.Context, ch chan []run.Case) error {
 			if err := p.ensureClient(ctx); err != nil {
 				return err
 			}
-			p.processBatch(ctx, batch, 0)
+			p.processBatch(ctx, batch)
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -434,65 +434,86 @@ func (p *oracleProc) restartClient(ctx context.Context) error {
 	return p.ensureClient(ctx)
 }
 
-// processBatch runs one batch through parser + oracle. On oracle failure the
-// batch is bisected recursively to isolate the crashing/hanging input (plan 21
-// step 3); depth caps the resubmissions.
-func (p *oracleProc) processBatch(ctx context.Context, batch []run.Case, depth int) {
+// submitBatch runs one batch through parser + oracle. On oracle success it
+// records parser/oracle divergences and coverage candidates. On oracle failure
+// it restarts the oracle client and returns the parse error for bisection.
+func (p *oracleProc) submitBatch(ctx context.Context, batch []run.Case) error {
 	if len(batch) == 0 || ctx.Err() != nil {
-		return
+		return errBisectStop
 	}
 	results := p.worker.RunBatch(batch)
 	digests, _, err := p.client.ParseBatch(ctx, batch)
-	if err == nil && len(digests) == len(batch) {
-		for i, c := range batch {
-			div := compare.Diff(c, results[i].Sig, results[i].Err, results[i].Panic, digests[i])
-			if div != nil {
-				p.loop.recordFinding(findings.FindingFromDivergence(c, div, oracle.RawDigestJSON(digests[i])))
+	if err == nil {
+		if len(digests) != len(batch) {
+			err = fmt.Errorf("digest count %d != %d", len(digests), len(batch))
+		} else {
+			for i, c := range batch {
+				div := compare.Diff(c, results[i].Sig, results[i].Err, results[i].Panic, digests[i])
+				if div != nil {
+					p.loop.recordFinding(findings.FindingFromDivergence(c, div, oracle.RawDigestJSON(digests[i])))
+				}
 			}
+			p.covWindow = append(p.covWindow, batch...)
+			p.loop.execsTotal.Add(uint64(len(batch)))
+			return nil
 		}
-		p.covWindow = append(p.covWindow, batch...)
-		p.loop.execsTotal.Add(uint64(len(batch)))
-		return
 	}
 	if ctx.Err() != nil {
-		return
+		return errBisectStop
 	}
 	if restartErr := p.restartClient(ctx); restartErr != nil || p.client == nil {
+		if restartErr != nil {
+			return fmt.Errorf("%w: %v", errBisectStop, restartErr)
+		}
+		return errBisectStop
+	}
+	return err
+}
+
+// processBatch runs one batch through parser + oracle. On oracle failure the
+// batch is bisected to isolate crashing/hanging input or classify the batch as
+// state-dependent.
+func (p *oracleProc) processBatch(ctx context.Context, batch []run.Case) {
+	if len(batch) == 0 || ctx.Err() != nil {
 		return
 	}
-	class := "oracle_crash"
-	if errors.Is(err, context.DeadlineExceeded) {
-		class = "oracle_timeout"
-	}
-	if len(batch) == 1 {
-		c := batch[0]
-		p.loop.recordFinding(findings.Finding{
-			Class:     class,
-			Engine:    p.engineName,
-			SQLMode:   c.SQLMode,
-			Lane:      "fast",
-			Statement: c.SQL,
-			Meta: map[string]any{
-				"shape":  "head=" + compare.HeadWord(c.SQL),
-				"origin": run.OriginName(c.Origin),
-				"error":  errText(err),
-			},
-		})
-		p.loop.execsTotal.Add(1)
+	err := p.submitBatch(ctx, batch)
+	if err == nil || errors.Is(err, errBisectStop) {
 		return
 	}
-	if depth >= 2*bitLen(len(batch)) {
-		p.recordBatchFinding(class, batch, err)
-		return
+	b := &bisector{
+		submit:       p.submitBatch,
+		recordSingle: p.recordSingleCrash,
+		recordBatch:  p.recordBatchFinding,
+		budget:       bisectBudget(len(batch)),
 	}
-	mid := len(batch) / 2
-	p.processBatch(ctx, batch[:mid], depth+1)
-	p.processBatch(ctx, batch[mid:], depth+1)
+	b.bisect(ctx, batch, err)
+}
+
+func (p *oracleProc) recordSingleCrash(c run.Case, err error) {
+	p.loop.recordFinding(findings.Finding{
+		Class:     crashClass(err),
+		Engine:    p.engineName,
+		SQLMode:   c.SQLMode,
+		Lane:      "fast",
+		Statement: c.SQL,
+		Meta: map[string]any{
+			"shape":  "head=" + compare.HeadWord(c.SQL),
+			"origin": run.OriginName(c.Origin),
+			"error":  errText(err),
+		},
+	})
+	p.loop.execsTotal.Add(1)
 }
 
 // recordBatchFinding files a state-dependent oracle crash that no single input
-// reproduces: the whole batch is the repro, NUL-line separated per plan 21.
-func (p *oracleProc) recordBatchFinding(class string, batch []run.Case, err error) {
+// reproduces, or a loud fallback when the bisection budget is exhausted. The
+// batch repro is NUL-line separated per plan 21.
+func (p *oracleProc) recordBatchFinding(batch []run.Case, err error, shape string) {
+	if shape == shapeBudgetExhausted {
+		fmt.Fprintf(os.Stderr, "fuzz: bisect budget exhausted engine=%s batch=%d: %v\n", p.engineName, len(batch), err)
+		p.loop.execsTotal.Add(uint64(len(batch)))
+	}
 	var repro []byte
 	for i, c := range batch {
 		if i > 0 {
@@ -501,16 +522,17 @@ func (p *oracleProc) recordBatchFinding(class string, batch []run.Case, err erro
 		repro = append(repro, c.SQL...)
 	}
 	p.loop.recordFinding(findings.Finding{
-		Class:     class,
+		Class:     crashClass(err),
 		Engine:    p.engineName,
 		SQLMode:   batch[0].SQLMode,
 		Lane:      "fast",
 		Statement: repro,
 		Meta: map[string]any{
-			"shape":  "state-dependent batch",
-			"batch":  true,
-			"origin": run.OriginName(batch[0].Origin),
-			"error":  errText(err),
+			"shape":     shape,
+			"batch":     true,
+			"batch_len": len(batch),
+			"origin":    run.OriginName(batch[0].Origin),
+			"error":     errText(err),
 		},
 	})
 }
