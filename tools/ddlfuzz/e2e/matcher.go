@@ -17,9 +17,10 @@ import (
 type expectKind string
 
 const (
-	expectMarker  expectKind = "marker"
-	expectDDL     expectKind = "ddl"
-	expectControl expectKind = "control"
+	expectMarker    expectKind = "marker"
+	expectDDL       expectKind = "ddl"
+	expectControl   expectKind = "control"
+	expectUncertain expectKind = "uncertain"
 )
 
 type caseExpect struct {
@@ -35,6 +36,7 @@ type caseExpect struct {
 	AfterTables     map[string]bool
 	Source          string
 	Queue           *queueItem
+	DriverError     string
 }
 
 type expectQueue struct {
@@ -85,23 +87,27 @@ func (q *expectQueue) PopWait(ctx context.Context, timeout time.Duration) (caseE
 	return exp, nil
 }
 
-// TryPop removes and returns the head without waiting; ok=false when empty.
-func (q *expectQueue) TryPop() (caseExpect, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if len(q.items) == 0 {
-		return caseExpect{}, false
-	}
-	exp := q.items[0]
-	copy(q.items, q.items[1:])
-	q.items = q.items[:len(q.items)-1]
-	return exp, true
-}
-
 func (q *expectQueue) Len() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return len(q.items)
+}
+
+func (q *expectQueue) snapshotLocked() []caseExpect {
+	items := make([]caseExpect, len(q.items))
+	copy(items, q.items)
+	return items
+}
+
+func (q *expectQueue) popPrefixLocked(n int) []caseExpect {
+	if n <= 0 {
+		return nil
+	}
+	popped := make([]caseExpect, n)
+	copy(popped, q.items[:n])
+	copy(q.items, q.items[n:])
+	q.items = q.items[:len(q.items)-n]
+	return popped
 }
 
 // markerCaseID reports whether query is one of our per-case marker DROPs
@@ -190,52 +196,222 @@ func (m *matcher) run(ctx context.Context, stream *replication.BinlogStreamer) {
 		if q == nil {
 			continue
 		}
-		exp, err := q.PopWait(ctx, 30*time.Second)
-		if err != nil {
+		if err := m.processEvent(ctx, q, ev, qe); err != nil {
 			m.reportHarness(fmt.Errorf("schema %s: %w", schema, err))
 			return
 		}
-		exp, aligned := m.alignExpect(q, qe, exp)
 		m.updatePending()
-		if !aligned {
-			// A marker/control event was missing upstream — some servers do not binlog
-			// a DROP TABLE IF EXISTS of a never-created marker table — leaving the stream
-			// and this worker's FIFO one entry apart. Skip this event and let the next
-			// marker re-anchor, rather than treating a benign desync as a fatal error.
-			continue
-		}
-		m.handleQueryEvent(ctx, ev, qe, exp)
 	}
 }
 
-// alignExpect resynchronizes the per-worker FIFO with the binlog stream after a
-// dropped marker/control event shifts them apart. It advances past stale
-// expectations until the kinds line up (markers/controls match their text; a DDL
-// expectation pairs with any non-marker, non-control event), instead of crashing
-// the lane.
-// aligned=false means this event's expectation is not enqueued yet; the caller
-// skips the event and re-anchors on a later marker.
-func (m *matcher) alignExpect(q *expectQueue, qe *replication.QueryEvent, exp caseExpect) (caseExpect, bool) {
-	query := string(qe.Query)
-	_, gotIsMarker := markerCaseID(query)
-	for range 512 {
-		switch exp.Kind {
-		case expectMarker, expectControl:
-			if controlQueryMatches(query, exp.Submitted) {
-				return exp, true
-			}
-		case expectDDL:
-			if !gotIsMarker && !e2echeck.IsHarnessControlQuery(query) {
-				return exp, true
-			}
-		}
-		next, ok := q.TryPop()
-		if !ok {
-			return caseExpect{}, false
-		}
-		exp = next
+// processEvent aligns one QueryEvent against the worker's FIFO and dispatches
+// the outcome. A returned error means the stream/FIFO invariant is broken
+// (harness error); benign anomalies resolve into stats or findings instead.
+func (m *matcher) processEvent(ctx context.Context, q *expectQueue, ev *replication.BinlogEvent, qe *replication.QueryEvent) error {
+	out, err := m.alignEvent(ctx, q, qe)
+	if err != nil {
+		return err
 	}
-	return caseExpect{}, false
+	m.resolveAlignOutcome(ev, qe, out)
+	if out.matched && out.exp.Kind != expectUncertain {
+		m.handleQueryEvent(ctx, ev, qe, out.exp)
+	}
+	return nil
+}
+
+type alignDecisionKind int
+
+const (
+	alignDecisionMatch alignDecisionKind = iota
+	alignDecisionExtra
+	alignDecisionInconclusive
+	alignDecisionError
+)
+
+type alignDecision struct {
+	kind  alignDecisionKind
+	index int
+	err   string
+}
+
+type alignOutcome struct {
+	matched bool
+	exp     caseExpect
+	skipped []caseExpect
+	extra   bool
+}
+
+func decideAlign(query string, items []caseExpect, isMariaDB bool) alignDecision {
+	if _, isMarker := markerCaseID(query); isMarker {
+		for i, item := range items {
+			if item.Kind == expectMarker && controlQueryMatches(query, item.Submitted) {
+				return alignDecision{kind: alignDecisionMatch, index: i}
+			}
+		}
+		return alignDecision{kind: alignDecisionError, err: "marker event without matching expectation"}
+	}
+
+	boundarySeen := false
+	for i, item := range items {
+		switch item.Kind {
+		case expectUncertain:
+			if e2echeck.EquivalentQueryText(item.Submitted, query, isMariaDB) {
+				return alignDecision{kind: alignDecisionMatch, index: i}
+			}
+		case expectControl:
+			if controlQueryMatches(query, item.Submitted) {
+				return alignDecision{kind: alignDecisionMatch, index: i}
+			}
+		case expectMarker:
+			boundarySeen = true
+		case expectDDL:
+			if e2echeck.EquivalentQueryText(item.Submitted, query, isMariaDB) ||
+				(!e2echeck.IsHarnessControlQuery(query) && !boundarySeen) {
+				return alignDecision{kind: alignDecisionMatch, index: i}
+			}
+		}
+	}
+	if boundarySeen {
+		return alignDecision{kind: alignDecisionExtra}
+	}
+	return alignDecision{kind: alignDecisionInconclusive}
+}
+
+func (m *matcher) alignEvent(ctx context.Context, q *expectQueue, qe *replication.QueryEvent) (alignOutcome, error) {
+	deadline := time.Now().Add(30 * time.Second)
+	stop := context.AfterFunc(ctx, func() {
+		q.cond.Broadcast()
+	})
+	defer stop()
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for {
+		items := q.snapshotLocked()
+		decision := decideAlign(string(qe.Query), items, m.ec.IsMariaDB)
+		switch decision.kind {
+		case alignDecisionMatch:
+			popped := q.popPrefixLocked(decision.index + 1)
+			return alignOutcome{
+				matched: true,
+				exp:     popped[len(popped)-1],
+				skipped: popped[:len(popped)-1],
+			}, nil
+		case alignDecisionExtra:
+			return alignOutcome{extra: true}, nil
+		case alignDecisionError:
+			return alignOutcome{}, fmt.Errorf("%s: %q", decision.err, string(qe.Query))
+		case alignDecisionInconclusive:
+			if err := ctx.Err(); err != nil {
+				return alignOutcome{}, err
+			}
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return alignOutcome{}, fmt.Errorf("timed out waiting for matcher expectation")
+			}
+			timer := time.AfterFunc(remaining, func() {
+				q.cond.Broadcast()
+			})
+			q.cond.Wait()
+			timer.Stop()
+		}
+	}
+}
+
+func (m *matcher) resolveAlignOutcome(ev *replication.BinlogEvent, qe *replication.QueryEvent, out alignOutcome) {
+	for _, exp := range out.skipped {
+		m.resolveSkipped(exp)
+	}
+	if out.extra {
+		m.handleUnexpectedEvent(ev, qe)
+		return
+	}
+	if out.matched && out.exp.Kind == expectUncertain {
+		m.handleExecRejectApplied(ev, qe, out.exp)
+	}
+}
+
+func (m *matcher) resolveSkipped(exp caseExpect) {
+	switch exp.Kind {
+	case expectUncertain:
+		m.stats.IncUncertainNoEvent(m.ec.Name)
+	case expectMarker, expectControl:
+		m.stats.IncSkippedControls(m.ec.Name)
+	case expectDDL:
+		actualDelta := diffSnapshots(exp.Before, exp.After)
+		actualDelta.Renamed = inferRenames(exp.BeforeTables, exp.AfterTables)
+		if actualDelta.Empty() {
+			m.stats.IncNoopDDLs(m.ec.Name)
+			if exp.Queue != nil {
+				_ = completeQueueItem(m.stateDir, *exp.Queue, queueResult{
+					Sig:     exp.Queue.Sig,
+					Result:  "exec-reject",
+					Details: "no binlog event (no-op statement)",
+				})
+				m.stats.IncQueueDone(m.ec.Name)
+			}
+			return
+		}
+		recordE2EFinding(m.stateDir, m.stats, findingInput{
+			Class:       "e2e-missing-event",
+			Engine:      m.ec,
+			Statement:   []byte(exp.Submitted),
+			SQLMode:     exp.SQLModeRelevant,
+			SQLModeName: exp.SQLModeName,
+			Delta:       actualDelta,
+			Before:      exp.Before,
+			After:       exp.After,
+			Submitted:   exp.Submitted,
+			Meta:        map[string]any{"source": exp.Source},
+		})
+		m.stats.IncMissingEvent(m.ec.Name)
+		if exp.Queue != nil {
+			_ = completeQueueItem(m.stateDir, *exp.Queue, queueResult{
+				Sig:     exp.Queue.Sig,
+				Result:  "still-diverges",
+				Details: "schema changed but no binlog event",
+			})
+		}
+	}
+}
+
+func (m *matcher) handleExecRejectApplied(ev *replication.BinlogEvent, qe *replication.QueryEvent, exp caseExpect) {
+	actualDelta := diffSnapshots(exp.Before, exp.After)
+	actualDelta.Renamed = inferRenames(exp.BeforeTables, exp.AfterTables)
+	recordE2EFinding(m.stateDir, m.stats, findingInput{
+		Class:       "e2e-exec-reject-applied",
+		Engine:      m.ec,
+		Statement:   []byte(exp.Submitted),
+		SQLMode:     exp.SQLModeRelevant,
+		SQLModeName: exp.SQLModeName,
+		Delta:       actualDelta,
+		Before:      exp.Before,
+		After:       exp.After,
+		RawEvent:    slices.Clone(ev.RawData),
+		StatusVars:  slices.Clone(qe.StatusVars),
+		Submitted:   exp.Submitted,
+		BinlogText:  string(qe.Query),
+		Meta: map[string]any{
+			"driver_error": exp.DriverError,
+			"source":       exp.Source,
+		},
+	})
+	m.stats.IncExecRejectApplied(m.ec.Name)
+}
+
+func (m *matcher) handleUnexpectedEvent(ev *replication.BinlogEvent, qe *replication.QueryEvent) {
+	recordE2EFinding(m.stateDir, m.stats, findingInput{
+		Class:      "e2e-unexpected-event",
+		Engine:     m.ec,
+		Statement:  slices.Clone(qe.Query),
+		RawEvent:   slices.Clone(ev.RawData),
+		StatusVars: slices.Clone(qe.StatusVars),
+		BinlogText: string(qe.Query),
+		Meta: map[string]any{
+			"schema": string(qe.Schema),
+		},
+	})
+	m.stats.IncUnexpectedEvent(m.ec.Name)
 }
 
 func (m *matcher) handleQueryEvent(ctx context.Context, ev *replication.BinlogEvent, qe *replication.QueryEvent, exp caseExpect) {

@@ -25,6 +25,12 @@ type engineStats struct {
 	MatchedDDLs        uint64            `json:"matched_ddls"`
 	Markers            uint64            `json:"markers"`
 	Controls           uint64            `json:"controls"`
+	UnexpectedEvents   uint64            `json:"unexpected_events"`
+	MissingEvents      uint64            `json:"missing_events"`
+	ExecRejectApplied  uint64            `json:"exec_reject_applied"`
+	SkippedControls    uint64            `json:"skipped_controls"`
+	NoopDDLs           uint64            `json:"noop_ddls"`
+	UncertainNoEvent   uint64            `json:"uncertain_no_event"`
 	PaletteHits        map[string]uint64 `json:"palette_hits,omitempty"`
 	GeneratorPanic     bool              `json:"generator_panic,omitempty"`
 }
@@ -77,6 +83,46 @@ func (s *Stats) IncControl(engine string) {
 	es := s.engines[engine]
 	es.Controls++
 	es.MatcherLastEventAt = time.Now().Unix()
+}
+
+func (s *Stats) IncUnexpectedEvent(engine string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	es := s.engines[engine]
+	es.UnexpectedEvents++
+	es.MatcherLastEventAt = time.Now().Unix()
+}
+
+func (s *Stats) IncMissingEvent(engine string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.engines[engine].MissingEvents++
+}
+
+func (s *Stats) IncExecRejectApplied(engine string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	es := s.engines[engine]
+	es.ExecRejectApplied++
+	es.MatcherLastEventAt = time.Now().Unix()
+}
+
+func (s *Stats) IncSkippedControls(engine string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.engines[engine].SkippedControls++
+}
+
+func (s *Stats) IncNoopDDLs(engine string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.engines[engine].NoopDDLs++
+}
+
+func (s *Stats) IncUncertainNoEvent(engine string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.engines[engine].UncertainNoEvent++
 }
 
 func (s *Stats) IncReset(engine string) {

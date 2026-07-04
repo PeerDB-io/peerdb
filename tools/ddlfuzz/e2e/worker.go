@@ -158,6 +158,22 @@ func (ws *workerState) runOne(ctx context.Context, seq uint64, item *queueItem) 
 
 	stmt, source := ws.statement(seq, before, item, modeEntry)
 	if _, err := ws.conn.Execute(stmt); err != nil {
+		afterTables, _ := readTables(ws.conn, ws.schema)
+		after, _ := readSnapshot(ws.conn, ws.schema, fixtureTable)
+		q.Push(caseExpect{
+			Kind:            expectUncertain,
+			WorkerID:        ws.id,
+			CaseID:          caseID,
+			Submitted:       stmt,
+			SQLModeName:     readback,
+			SQLModeRelevant: relevant,
+			Before:          before,
+			BeforeTables:    beforeTables,
+			After:           after,
+			AfterTables:     afterTables,
+			Source:          source,
+			DriverError:     err.Error(),
+		})
 		ws.rt.stats.IncCases(ws.rt.ec.Name)
 		ws.rt.stats.IncExecReject(ws.rt.ec.Name)
 		_ = ws.rt.sides.AppendExecReject(execRejectRecord{

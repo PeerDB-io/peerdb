@@ -271,8 +271,9 @@ section conflicts with this list, this list wins.
   `panic`, `timeout`, `oracle_crash`, `oracle_timeout`} and 30's e2e set (`e2e-statusvar-walk`,
   `e2e-sqlmode-mismatch`, `e2e-plumbing-sig`, `e2e-panic`, `e2e-query-rewrite`,
   `e2e-parse-error-live-accept`, `e2e-missed-column-effect`, `e2e-col-attr`,
-  `e2e-position-missed`) plus `oracle-reject-live-accept`. Closed set; 20's descriptor `class`
-  field accepts exactly these.
+  `e2e-position-missed`, and the alignment-anomaly classes `e2e-missing-event`,
+  `e2e-unexpected-event`, `e2e-exec-reject-applied` — 30 §4) plus `oracle-reject-live-accept`.
+  Closed set; 20's descriptor `class` field accepts exactly these.
 - **D5 — `replay` exit codes (40-C5 vs 20).** 0 = reconciled/fixed; 10 = still diverges (the JSON
   carries `class`, including `panic`/`timeout`); 11 = finding malformed/unreadable or oracle
   won't start; 1 = internal error. Panics/hangs are divergences (10), not 11. JSON stdout shape

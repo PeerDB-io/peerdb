@@ -109,6 +109,10 @@ func Reproduce(in Input) (Result, error)
     functions. All reconciliations (PRI-implied NOT NULL via `After` column_key, MariaDB json alias,
     decimal default, AFTER-last no-shift) must be preserved **verbatim** — move the code, don't
     reimplement.
+  - alignment anomalies (`e2e-missing-event`/`e2e-unexpected-event`/`e2e-exec-reject-applied`,
+    30 §4): not offline-reproducible — they assert the presence/absence of a live binlog event;
+    `Reproduce` rejects them (unsupported class), so disposition is by ledger/skip-list, not
+    replay.
 - **Move** `applyPredicted`, `compareSemantics`, `compareColumnAttrs`, `compareSetMap`,
   `compareBoolSet`, snapshot/delta types into `internal/e2echeck`; `e2e/checks.go` calls them from
   there so the live lane and offline repro are provably identical.
@@ -129,7 +133,8 @@ func Reproduce(in Input) (Result, error)
 ### 4. Fix-agent prompt (`supervisor/prompt.tmpl`)
 
 Add an e2e branch to the root-cause tree (step b). Keep step (a) `replay {SIG}` as-is — it now
-reproduces e2e findings too. e2e disposition buckets:
+reproduces e2e findings too (except the alignment-anomaly classes above, which replay cannot
+decide). e2e disposition buckets:
 - **Parser bug** (`e2e-missed-column-effect`, `e2e-col-attr`, `e2e-position-missed`): our parser's
   extracted effect ≠ the server's executed effect (from `info_schema_delta`/snapshots in meta). Fix
   in `flow/connectors/mysql/`, add regression test, seed. (The `missed-column-effect` "benign but

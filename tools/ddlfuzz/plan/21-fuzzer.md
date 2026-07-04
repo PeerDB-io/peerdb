@@ -645,7 +645,9 @@ fast lane:  sig_mismatch     our accepted signature ≠ oracle-derived signature
             oracle_timeout   oracle batch/case exceeded batch-timeout
 e2e lane:   e2e-statusvar-walk, e2e-sqlmode-mismatch, e2e-plumbing-sig, e2e-panic,
             e2e-query-rewrite, e2e-parse-error-live-accept, e2e-missed-column-effect,
-            e2e-col-attr, e2e-position-missed      (defined in 30-e2e-lane.md §6-§7)
+            e2e-col-attr, e2e-position-missed,
+            e2e-missing-event, e2e-unexpected-event, e2e-exec-reject-applied
+                                                   (defined in 30-e2e-lane.md §4, §6-§7)
 cross:      oracle-reject-live-accept              (filed by `replay --from`, below)
 ```
 
