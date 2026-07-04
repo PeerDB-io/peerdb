@@ -176,6 +176,26 @@ func sqlModeNamesRelevant(s string) uint64 {
 	return out & RelevantSQLModeMask
 }
 
+// SQLModeNames renders the relevant bits of mode as a canonical
+// comma-separated sql_mode value ("" for zero).
+func SQLModeNames(mode uint64) string {
+	mode &= RelevantSQLModeMask
+	var names []string
+	if mode&SQLModeANSIQuotes != 0 {
+		names = append(names, "ANSI_QUOTES")
+	}
+	if mode&SQLModeOracle != 0 {
+		names = append(names, "ORACLE")
+	}
+	if mode&SQLModeMSSQL != 0 {
+		names = append(names, "MSSQL")
+	}
+	if mode&SQLModeNoBackslashEscapes != 0 {
+		names = append(names, "NO_BACKSLASH_ESCAPES")
+	}
+	return strings.Join(names, ",")
+}
+
 func splitTopLevelComma(s string, mode uint64) []string {
 	var parts []string
 	start := 0

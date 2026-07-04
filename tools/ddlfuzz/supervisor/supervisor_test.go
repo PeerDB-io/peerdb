@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 )
 
 func testConfig(t *testing.T) Config {
@@ -81,6 +83,57 @@ func TestReplayAllFailure(t *testing.T) {
 			t.Fatalf("error = %v", err)
 		}
 	})
+}
+
+func TestEnqueueE2EConfirmationWritesSessionSQLMode(t *testing.T) {
+	tests := []struct {
+		name string
+		meta FindingMeta
+		want string
+	}{
+		{
+			name: "e2e lane empty name stays empty",
+			meta: FindingMeta{Engine: "mysql", Lane: "e2e", SQLMode: e2echeck.SQLModeANSIQuotes},
+			want: "",
+		},
+		{
+			name: "fast lane falls back to bits",
+			meta: FindingMeta{Engine: "mysql", Lane: "fast", SQLMode: e2echeck.SQLModeANSIQuotes},
+			want: "ANSI_QUOTES",
+		},
+		{
+			name: "e2e lane name is verbatim",
+			meta: FindingMeta{Engine: "mariadb", Lane: "e2e", SQLModeName: "NO_BACKSLASH_ESCAPES", SQLMode: e2echeck.SQLModeANSIQuotes},
+			want: "NO_BACKSLASH_ESCAPES",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			sig := "abc123def456"
+			findingPath := filepath.Join(cfg.StateDir, "findings", sig)
+			mustWrite(t, filepath.Join(findingPath, "repro.sql"), "ALTER TABLE fixture ADD COLUMN n1 int\n")
+			tc.meta.Sig = sig
+			finding := Finding{Sig: sig, Path: findingPath, Meta: tc.meta}
+			if err := enqueueE2EConfirmation(cfg, finding); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(cfg.StateDir, "e2e-queue", "pending", sig+".json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(data, &msg); err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := msg["session_sql_mode"].(string); !ok || got != tc.want {
+				t.Fatalf("session_sql_mode = %#v, want %q", msg["session_sql_mode"], tc.want)
+			}
+			if got := msg["sql_mode_name"]; got != tc.meta.SQLModeName {
+				t.Fatalf("sql_mode_name = %#v, want %q", got, tc.meta.SQLModeName)
+			}
+		})
+	}
 }
 
 func TestBudgetArithmetic(t *testing.T) {

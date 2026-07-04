@@ -27,6 +27,7 @@ type engineRuntime struct {
 	queueChan chan queueItem
 	corpus    *corpus.Store
 	issued    atomic.Uint64
+	queueSeq  atomic.Uint64
 }
 
 type workerState struct {
@@ -85,7 +86,7 @@ func (rt *engineRuntime) runWorker(ctx context.Context, id int, done chan<- stru
 		case <-ctx.Done():
 			return
 		case item := <-rt.queueChan:
-			ws.runOne(ctx, 0, &item)
+			ws.runOne(ctx, rt.queueSeq.Add(1), &item)
 			continue
 		default:
 		}
@@ -116,10 +117,10 @@ func (ws *workerState) runOne(ctx context.Context, seq uint64, item *queueItem) 
 	if ctx.Err() != nil {
 		return
 	}
-	if seq == 0 {
-		seq = uint64(time.Now().UnixNano())
-	}
 	caseID := fmt.Sprintf("%s_%d_%d", ws.rt.runNonce, ws.id, seq)
+	if item != nil {
+		caseID = fmt.Sprintf("%s_%d_q%d", ws.rt.runNonce, ws.id, seq)
+	}
 	q := ws.rt.queues[ws.schema]
 	if _, err := ws.conn.Execute("SET SESSION sql_mode = ''"); err != nil {
 		ws.rt.reportHarness(fmt.Errorf("worker %d reset marker sql_mode %s: %w", ws.id, caseID, err))
@@ -199,7 +200,9 @@ func (ws *workerState) runOne(ctx context.Context, seq uint64, item *queueItem) 
 	}
 	q.Push(exp)
 	ws.rt.stats.IncCases(ws.rt.ec.Name)
-	ws.rt.stats.HitPalette(ws.rt.ec.Name, modeEntry)
+	if item == nil {
+		ws.rt.stats.HitPalette(ws.rt.ec.Name, modeEntry)
+	}
 	ws.casesSinceReset++
 
 	ws.updateCurrentTable(beforeTables, afterTables)
@@ -212,8 +215,8 @@ func (ws *workerState) runOne(ctx context.Context, seq uint64, item *queueItem) 
 }
 
 func (ws *workerState) paletteEntry(seq uint64, item *queueItem) string {
-	if item != nil && item.SQLModeName != "" {
-		return item.SQLModeName
+	if item != nil {
+		return item.sessionMode()
 	}
 	palette := sqlModePalette(ws.rt.ec.IsMariaDB)
 	if len(palette) == 0 {

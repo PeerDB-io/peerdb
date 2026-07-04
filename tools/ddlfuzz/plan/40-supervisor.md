@@ -85,7 +85,8 @@ arrays); the Go module already exists and component 20 is Go; one binary removes
   report; it does not depend on exact field names beyond `updated_at`.
 - C11. Confirmation queue (paths/lifecycle per 30-e2e-lane.md §8, authoritative — D6): supervisor
   drops `state/e2e-queue/pending/<sig>.json`
-  (`{"sig","engine","sql_mode","sql_mode_name","statement"}`) after each parser fix; the lane
+  (`{"sig","engine","sql_mode","sql_mode_name","session_sql_mode","statement"}`) after each
+  parser fix; the lane
   claims via rename to `processing/`, replays through live binlog, writes
   `state/e2e-queue/done/<sig>.json` (`{"sig","result":"confirmed-fixed"|"still-diverges"|"exec-reject","details"}`).
   A `still-diverges` result is emitted by 30 as a NEW e2e-lane finding (normal path); `exec-reject`

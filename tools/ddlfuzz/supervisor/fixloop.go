@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 )
 
 type FindingMeta struct {
@@ -1458,12 +1460,17 @@ func enqueueE2EConfirmation(cfg Config, finding Finding) error {
 	if err != nil {
 		return err
 	}
+	sessionMode := finding.Meta.SQLModeName
+	if sessionMode == "" && finding.Meta.Lane != "e2e" {
+		sessionMode = e2echeck.SQLModeNames(finding.Meta.SQLMode)
+	}
 	msg := map[string]any{
-		"sig":           finding.Sig,
-		"engine":        finding.Meta.Engine,
-		"sql_mode":      finding.Meta.SQLMode,
-		"sql_mode_name": finding.Meta.SQLModeName,
-		"statement":     string(repro),
+		"sig":              finding.Sig,
+		"engine":           finding.Meta.Engine,
+		"sql_mode":         finding.Meta.SQLMode,
+		"sql_mode_name":    finding.Meta.SQLModeName,
+		"session_sql_mode": sessionMode,
+		"statement":        string(repro),
 	}
 	return atomicWriteJSON(filepath.Join(cfg.StateDir, "e2e-queue", "pending", finding.Sig+".json"), msg, 0o644)
 }

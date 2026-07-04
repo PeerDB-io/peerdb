@@ -307,8 +307,10 @@ and ignored. Readback also stores the canonical string for findings meta.
 ### 4. Case protocol & binlog correlation
 
 Case IDs: `<runNonce>_<seq>` where runNonce = 8 hex chars of process-start unix nanos, seq
-monotonic per worker. Uniqueness across restarts matters only for log readability — the matcher
-never reads pre-restart binlog (position captured fresh at startup).
+monotonic per worker. Queue confirmations (§8) draw from a separate counter with a `q`-prefixed
+seq (`…_q<n>`) — they never consume or fake a fuzz seq. Uniqueness across restarts matters only
+for log readability — the matcher never reads pre-restart binlog (position captured fresh at
+startup).
 
 Worker executes, per case n, on its single connection (serially):
 
@@ -484,10 +486,15 @@ executions, keep the smallest statement that still reproduces the same class+des
 ### 8. Side channels
 
 - **Confirmation queue** (supervisor → e2e): supervisor drops
-  `state/e2e-queue/pending/<sig>.json` `{sig, engine, sql_mode, sql_mode_name, statement}` after
-  the fix agent claims a fix. A queue poller (one goroutine) claims via rename to
-  `processing/<sig>.json` (rename is atomic; at-least-once on crash), runs the statement through
-  a full live case on worker 1's engine-matching lane (bypassing the generator profile), writes
+  `state/e2e-queue/pending/<sig>.json`
+  `{sig, engine, sql_mode, sql_mode_name, session_sql_mode, statement}` after the fix agent
+  claims a fix. `session_sql_mode` is the authoritative session mode for the replay: e2e
+  findings' recorded readback verbatim (empty string = empty session mode), fast-lane findings'
+  relevant-bit names derived from meta `sql_mode`. Items predating the field fall back to
+  `sql_mode_name`, then names derived from `sql_mode` — never the fuzz palette. A queue poller
+  (one goroutine) claims via rename to `processing/<sig>.json` (rename is atomic; at-least-once
+  on crash), runs the statement through a full live case on worker 1's engine-matching lane
+  (bypassing the generator profile; session mode set from the item as above), writes
   `done/<sig>.json` `{sig, result: "confirmed-fixed"|"still-diverges"|"exec-reject", details}`.
   `exec-reject` means live can't validate (statement not executable against the fixture) —
   supervisor falls back to fast-lane verification only.

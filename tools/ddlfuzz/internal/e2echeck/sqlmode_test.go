@@ -62,3 +62,34 @@ func TestExpectedEventSQLModeRelevant(t *testing.T) {
 		})
 	}
 }
+
+func TestSQLModeNames(t *testing.T) {
+	tests := []struct {
+		name string
+		mode uint64
+		want string
+	}{
+		{name: "zero", mode: 0, want: ""},
+		{name: "ansi quotes", mode: SQLModeANSIQuotes, want: "ANSI_QUOTES"},
+		{name: "oracle", mode: SQLModeOracle, want: "ORACLE"},
+		{name: "mssql", mode: SQLModeMSSQL, want: "MSSQL"},
+		{name: "no backslash escapes", mode: SQLModeNoBackslashEscapes, want: "NO_BACKSLASH_ESCAPES"},
+		{
+			name: "canonical order",
+			mode: SQLModeNoBackslashEscapes | SQLModeMSSQL | SQLModeANSIQuotes | SQLModeOracle,
+			want: "ANSI_QUOTES,ORACLE,MSSQL,NO_BACKSLASH_ESCAPES",
+		},
+		{name: "irrelevant bits masked", mode: SQLModeANSIQuotes | (1 << 63), want: "ANSI_QUOTES"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SQLModeNames(tc.mode)
+			if got != tc.want {
+				t.Fatalf("SQLModeNames(%d) = %q, want %q", tc.mode, got, tc.want)
+			}
+			if roundTrip := sqlModeNamesRelevant(got); roundTrip != tc.mode&RelevantSQLModeMask {
+				t.Fatalf("sqlModeNamesRelevant(SQLModeNames(%d)) = %d, want %d", tc.mode, roundTrip, tc.mode&RelevantSQLModeMask)
+			}
+		})
+	}
+}

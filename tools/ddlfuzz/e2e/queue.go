@@ -9,14 +9,17 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 )
 
 type queueItem struct {
-	Sig         string `json:"sig"`
-	Engine      string `json:"engine"`
-	SQLMode     uint64 `json:"sql_mode"`
-	SQLModeName string `json:"sql_mode_name"`
-	Statement   string `json:"statement"`
+	Sig            string  `json:"sig"`
+	Engine         string  `json:"engine"`
+	SQLMode        uint64  `json:"sql_mode"`
+	SQLModeName    string  `json:"sql_mode_name"`
+	SessionSQLMode *string `json:"session_sql_mode,omitempty"`
+	Statement      string  `json:"statement"`
 
 	path string
 }
@@ -25,6 +28,19 @@ type queueResult struct {
 	Sig     string `json:"sig"`
 	Result  string `json:"result"`
 	Details string `json:"details,omitempty"`
+}
+
+func (item *queueItem) sessionMode() string {
+	if item == nil {
+		return ""
+	}
+	if item.SessionSQLMode != nil {
+		return *item.SessionSQLMode
+	}
+	if item.SQLModeName != "" {
+		return item.SQLModeName
+	}
+	return e2echeck.SQLModeNames(item.SQLMode)
 }
 
 func ensureStateLayout(stateDir string) error {
