@@ -1,37 +1,37 @@
 # ddlfuzz
 
-Differential DDL fuzzer (our parser vs C++ MySQL/MariaDB oracles) plus a supervisor
-(`ddlsuper`) that runs a long campaign, files findings, and drives codex fixes. The supervisor
-is the **sole git authority** on `parser-wip` while it runs.
+Differential DDL fuzzer (our parser vs the C++ MySQL/MariaDB oracles) plus a supervisor
+(`ddlsuper`) that runs a long campaign, files findings, and drives codex fixes. While a campaign
+runs, the supervisor is the sole git authority on `parser-wip`.
 
 ## Landing changes into a live campaign — `ddlsuper merge-staged`
 
-Never commit, rebase, or `reset` the main checkout directly while a campaign runs, and never leave
-new files under `tools/ddlfuzz/` there: a fix attempt's rollback runs `git reset --hard` +
-`DeleteNewUntracked` and will wipe them. Develop elsewhere and land through `merge-staged`, which
-coordinates with the fix loop at a quiescent point (never races it).
+While a campaign runs, develop in a worktree and land through `merge-staged`, which coordinates
+with the fix loop at a quiescent point. Keep the work in worktrees: the main checkout belongs to
+the fix loop, whose rollback (`git reset --hard` + `DeleteNewUntracked`) treats anything committed
+or created there as transient.
 
 Workflow:
-1. Develop on a feature branch in a worktree under `tools/ddlfuzz/worktrees/<name>/` (gitignored,
-   so rollback and the drift check ignore it).
-2. Roll feature branch(es) up onto `ddlfuzz-staged` in the `tools/ddlfuzz/staged/` worktree using
-   normal merges. All conflict resolution happens here.
-3. From `tools/ddlfuzz`, run `./build/ddlsuper merge-staged`. With a campaign running it does not
-   touch the campaign tree itself — it merges the current campaign head into `ddlfuzz-staged`
-   (normal merge, CLI side), then hands off via the merge slot and waits; the **supervisor** (fix
-   loop, at a quiescent point) is what runs `git merge --ff-only ddlfuzz-staged` onto the campaign
-   tree, then the full gate + golden + `replay --all`, rolling back to `last_good_commit` on any
-   failure (fix in staged, retry). With no supervisor running, `merge-staged` acquires the lock and
-   does all of that itself, inline.
+1. Develop on a feature branch in a worktree under `tools/ddlfuzz/worktrees/<name>/` — gitignored,
+   so rollback and the drift check leave it alone.
+2. Roll feature branch(es) up onto `ddlfuzz-staged` in the `tools/ddlfuzz/staged/` worktree with
+   normal merges. Resolve all conflicts here.
+3. From `tools/ddlfuzz`, run `./build/ddlsuper merge-staged`. With a campaign running it merges the
+   current campaign head into `ddlfuzz-staged` (normal merge, CLI side), hands off via the merge
+   slot, and waits; the supervisor (fix loop, at a quiescent point) runs `git merge --ff-only
+   ddlfuzz-staged` onto the campaign tree, then the full gate + golden + `replay --all`, and keeps
+   the merge once all pass. On any failure the campaign tree returns to `last_good_commit`, so you
+   fix in staged and retry. With no supervisor running, `merge-staged` takes the lock and runs all
+   of this itself, inline.
 
-**Run `merge-staged` in a background shell.** It blocks until the fix loop hits a safe point — worst
-case one full in-flight attempt (~1–2h; `--ack-timeout` default 2h) — then pays a full gate. Don't
-tie up a foreground shell waiting; background it and read the printed result when it returns. Exit
-codes: `0` merged · `2` conflict/not-ff/stale · `3` gate/golden/stale-oracle (rolled back) ·
-`4` replay regression (rolled back) · `6` slot busy · `7` canceled. `ddlsuper merge-cancel
-[--keep-hold]` cancels from another shell; `ddlsuper status` shows the merge slot.
+**Run `merge-staged` in a background shell.** It waits for the fix loop to reach a safe point — up
+to one full in-flight attempt (~1–2h; `--ack-timeout` default 2h) — then pays a full gate, so
+background it and read the printed result when it returns. Exit codes: `0` merged · `2`
+conflict/not-ff/stale · `3` gate/golden/stale-oracle (rolled back) · `4` replay regression (rolled
+back) · `6` slot busy · `7` canceled. Cancel from another shell with `ddlsuper merge-cancel
+[--keep-hold]`; `ddlsuper status` shows the merge slot.
 
-Oracle changes: rebuild in staged (`oracle/*/build.sh`, which writes the manifest) so the manifest
-hash matches — merge servicing verifies it before copying binaries and re-runs golden.
+For oracle changes, rebuild in staged (`oracle/*/build.sh`, which writes the manifest) so the hash
+matches — merge servicing verifies the manifest before copying binaries and re-runs golden.
 
 Full protocol and state layout: `plan/43-merge-staged.md`.
