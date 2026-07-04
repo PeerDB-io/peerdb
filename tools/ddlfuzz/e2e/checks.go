@@ -207,10 +207,9 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 		})
 	} else {
 		for _, sf := range e2echeck.CompareSemantics(e2echeck.SemanticInput{
-			Before:                     exp.Before,
-			After:                      exp.After,
-			Actual:                     actualDelta,
-			CaseInsensitiveTableRename: ec.IsMariaDB,
+			Before: exp.Before,
+			After:  exp.After,
+			Actual: actualDelta,
 		}, parsed) {
 			findingCount += recordE2EFinding(stateDir, stats, findingInput{
 				Class:       sf.Class,

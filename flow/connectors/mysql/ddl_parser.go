@@ -167,21 +167,16 @@ func (p *ddlParser) expectIdentToken(what string) (ddlToken, error) {
 	return ddlToken{}, fmt.Errorf("expected %s at byte %d", what, t.pos)
 }
 
-func (p *ddlParser) normalizeTableIdent(t ddlToken) string {
-	if p.lx.isMariaDB {
-		return strings.ToLower(t.text)
-	}
-	return t.text
-}
-
-func (p *ddlParser) parseTableIdentWith(normalize func(ddlToken) string) (string, string, error) {
+// parseTableIdent parses ident, ident.ident, or .ident (any quoting; after '.'
+// even all-digit words are identifiers). Schema is empty when unqualified.
+func (p *ddlParser) parseTableIdent() (string, string, error) {
 	if p.peekPunct(0, '.') {
 		p.next()
 		table, err := p.expectIdentToken("table name after '.'")
 		if err != nil {
 			return "", "", err
 		}
-		return "", normalize(table), nil
+		return "", table.text, nil
 	}
 	first, err := p.expectIdentToken("table name")
 	if err != nil {
@@ -193,19 +188,9 @@ func (p *ddlParser) parseTableIdentWith(normalize func(ddlToken) string) (string
 		if err != nil {
 			return "", "", err
 		}
-		return normalize(first), normalize(table), nil
+		return first.text, table.text, nil
 	}
-	return "", normalize(first), nil
-}
-
-// parseTableIdent parses ident, ident.ident, or .ident (any quoting; after '.'
-// even all-digit words are identifiers). Schema is empty when unqualified.
-func (p *ddlParser) parseTableIdent() (string, string, error) {
-	return p.parseTableIdentWith(p.normalizeTableIdent)
-}
-
-func (p *ddlParser) parseAlterTableRenameIdent() (string, string, error) {
-	return p.parseTableIdentWith(func(t ddlToken) string { return t.text })
+	return "", first.text, nil
 }
 
 // skipLockWait consumes MariaDB's WAIT n | NOWAIT lock timeout clause.
@@ -640,7 +625,7 @@ func (p *ddlParser) parseAlterTableRenameTarget() (string, string, error) {
 	if ddlWordIs(p.peek(0), "TO") || ddlWordIs(p.peek(0), "AS") || p.peekPunct(0, '=') {
 		p.next()
 	}
-	return p.parseAlterTableRenameIdent()
+	return p.parseTableIdent()
 }
 
 func (p *ddlParser) consumeAlterTableRenameTail() error {
