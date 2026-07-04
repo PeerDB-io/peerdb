@@ -144,10 +144,14 @@ func runCommand(cmd string, cfg config, args []string) int {
 	var from string
 	var expectAccept bool
 	var replayAll bool
+	goldenJobs := runtime.GOMAXPROCS(0)
 	if cmd == "replay" {
 		fs.StringVar(&from, "from", "", "JSONL input for oracle cross-check replay")
 		fs.BoolVar(&expectAccept, "expect-accept", false, "expect replay --from inputs to be accepted by the oracle")
 		fs.BoolVar(&replayAll, "all", false, "replay all findings")
+	}
+	if cmd == "golden" {
+		fs.IntVar(&goldenJobs, "jobs", goldenJobs, "golden worker-pool size (parallel cases); default GOMAXPROCS; 1 = sequential")
 	}
 	fs.Usage = func() {
 		commandUsage(os.Stderr, fs, cmd)
@@ -165,7 +169,7 @@ func runCommand(cmd string, cfg config, args []string) int {
 			fmt.Fprintf(os.Stderr, "golden deferred: %v\n", err)
 			return 1
 		}
-		summary, err := golden.Run(ctx, golden.DefaultConfig(cfg.stateDir, cfg.seedsDir, cfg.mysqlOracle, cfg.mariaOracle, cfg.oracleBatchTimeout, cfg.caseDeadline), os.Stdout)
+		summary, err := golden.Run(ctx, golden.DefaultConfig(cfg.stateDir, cfg.seedsDir, cfg.mysqlOracle, cfg.mariaOracle, cfg.oracleBatchTimeout, cfg.caseDeadline, goldenJobs), os.Stdout)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "golden: %v\n", err)
 			return 1
