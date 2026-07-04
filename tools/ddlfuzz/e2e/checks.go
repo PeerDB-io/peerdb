@@ -334,6 +334,11 @@ func recordE2EFinding(stateDir string, stats *Stats, in findingInput) int {
 		}
 		meta[k] = v
 	}
+	if _, ok := meta["shape"]; !ok {
+		if shape := e2echeck.ShapeFor(in.Class, meta); shape != "" {
+			meta["shape"] = shape
+		}
+	}
 
 	stmt := slices.Clone(in.Statement)
 	if min, ok := tryMinimize(stmt, in.SQLMode, in.Engine.Name); ok && len(min) > 0 {

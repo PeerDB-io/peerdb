@@ -216,60 +216,202 @@ apply to new discoveries only; nothing rewrites existing state. Optional one-tim
 manual): remove the 12 stmt_count sigs from `parked.list` or leave them — either way the bugs
 resurface under fine sigs and get attempted.
 
-### Implementation sketch
+## IMPLEMENTATION SPEC — BINDING (v1)
 
-- `internal/compare` (`compare.go`):
-  - `FirstDifference`: on `stmt_count`, render both sides' kind sequences (`stmtKinds(a)`,
-    capped 5); on `spec_count`, counts + spec-kind sequences (capped 6); on `parse_*`, append
-    masked reason; sanitize `col_kind`/`col_params` payloads to single tokens.
-  - Keep descriptor `v:1`; add nothing to `Descriptor`.
-- `internal/findings` (`findings.go`):
-  - `Record`: open-rediscovery path updates only `times_seen`+`last_seen_at` (skip the
-    `our_sig`/`our_error`/Meta merge unless repro is (re)written); fixed→open path archives
-    `repro.sql`→`repro.prev<N>.sql` (ring of 3), increments `reopened_count`, then writes new
-    repro + full meta refresh.
-- `e2e/checks.go` + `internal/e2echeck` (with plan 50): populate `Finding.Meta["shape"]` from the
-  failing check's dimension.
-- `supervisor/fixloop.go`:
-  - `writeFindingMeta` → raw-map read-modify-write (status, fixed_by only).
-  - `GroupInfoForMeta`: group shape = dimension prefix of `NormalizeShape(shape)`.
-- `supervisor/park.go`:
-  - `ApplyFlapDetector`: reopen trigger reads `reopened_count` (now real) and requires a
-    reproducing replay (exit 10; exit 11 ⇒ no count); group `parked:true` no longer feeds
-    `parked.list`/per-sig escalations for arrivals — emit `escalations/run-flap-<group>.md` once.
-  - `SelectFinding` already skips `g.Parked` groups — unchanged.
-- `supervisor/prompt.tmpl`: seed path becomes `seeds/{SIG}-<sha8>.sql`; note the archive files.
+This is the concrete, file-by-file spec the implementer builds. It layers on the current base
+(HEAD `6d98bc46` on `53cb5d04`): `compare.OracleSig` already mirrors the parser's ALTER/rename
+split and `supervisor.touchedParserOrOracle` re-runs golden on parser/oracle path changes — both
+must be preserved untouched. Descriptor stays `V:1`; only shape *strings* change and only for the
+lossy dimensions, so healthy `col_kind`/`col_params`/`table_qual`/`we_error` sigs do NOT re-bucket.
 
-Contained to `internal/compare`, `internal/findings`, `e2e`/`internal/e2echeck`, `supervisor` —
-matching the context doc's containment requirement; fast-lane comparison outcomes (diverge or
-reconcile) are untouched, only the shape *string* of a divergence changes.
+### 1. `internal/compare/compare.go` — bounded shape enrichment + identifier-leak fix (A + defect 3)
+
+Change `FirstDifference` return values ONLY for the lossy dimensions; all other branches
+(`stmt_kind`, `table_qual`, `position`, `spec_kind`, `col_name`, `col_count`, `col_notnull`,
+`rename_pairs`, `col_params`) return exactly as today.
+
+- **`stmt_count`** → `stmt_count(<oursKinds>≠<theirsKinds>)`, each side = `+`-joined statement-kind
+  sequence over the parsed `[]sigStmt` (`.kind` ∈ {`alter`,`rename`}), capped at 5 entries with a
+  trailing `…` when longer. Add helper `func stmtKinds(ss []sigStmt) string`. Example:
+  `stmt_count(alter+rename≠alter)`.
+- **`spec_count`** → `spec_count(<na>,<nb>;<oursSpecKinds>≠<theirsSpecKinds>)` where `na`/`nb` are
+  the two specs lengths and each spec-kind side is the `+`-joined `.kind` sequence for THAT alter's
+  specs (alphabet {`col`,`chg`,`ren`,`drop`}), capped at 6 with `…`. Add helper
+  `func specKinds(specs []sigSpec) string`. Example: `spec_count(2,1;col+drop≠col)`.
+- **`parse_our_sig` / `parse_oracle_sig`** (the two `Canonicalize` error branches in `Diff`, lines
+  ~117-124): append the masked parse reason — `"parse_our_sig(" + NormalizeError(err.Error()) + ")"`
+  and likewise for oracle. These live in `Diff`, not `FirstDifference`; edit both branches there.
+- **`col_kind` identifier leak (defect 3)**: wrap the kind tokens through a new
+  `func sanitizeKind(s string) string` that truncates at the first of ` `, `=`, `,`, `;`, `(` (i.e.
+  keeps only the bare type token) and, if the result is empty, returns `"?"`. Apply it to BOTH the
+  `col_kind(%s≠%s)` payloads. This closes the observed
+  `col_kind(uint32, B=uint32≠uint32; col B=uint32)` leak. `col_params` already prints only ints — no
+  identifiers — but assert that in a test rather than changing it.
+
+Identifier-free guarantee: `stmtKinds`/`specKinds`/`sanitizeKind` emit only closed-vocabulary
+tokens; column/table names never enter. No change to `Descriptor`, `DescriptorBytes`,
+`DescriptorSig`, `MakeDescriptor`, `Canonicalize`, `OracleSig`, or the parser helpers.
+
+**Cardinality (worst case per bug):** stmt-kind sequences over {alter,rename} capped 5 ⇒ ≤ (2^5+…)
+bounded set; spec-kind over {col,chg,ren,drop} capped 6 ⇒ bounded; realistically ONE pair per root
+cause. × ≤20 engine·mode slots ⇒ ≤ ~200 sigs absolute worst case per bug, tens realistic. Backstop:
+existing 200-open-findings rate limit. Identifier variety cannot add sigs (proved by fuzz test).
+
+### 2. `internal/findings/findings.go` — occurrence-preserving Record + meta round-trip (C)
+
+In `Record`, replace the current unconditional meta merge (lines ~96-130) with occurrence-aware
+logic. Define `repro` "rewritten this call" = `!existed || (existed && status=="fixed")`.
+
+- **New / fixed→open (repro rewritten):**
+  - `!existed`: write `repro.sql`, set `discovered_at`, `status="open"`, `minimized=false` (as today).
+  - `existed && status=="fixed"` (**archive-on-reopen**): before overwriting, ring-archive the
+    current `repro.sql` → `repro.prev1.sql` (shifting `prev1→prev2→prev3`, drop `prev3`; ring of 3)
+    via a new `func archiveRepro(dir string) error`; then write the new `repro.sql`, set
+    `status="open"`, increment `reopened_count` (int, via `intFromAny`), set
+    `last_seen_at`. Also refresh `our_sig`/`our_error`/`oracle_digest` and merge `f.Meta` — the
+    atomic pairing rule (repro + its meta move together) is satisfied because repro was rewritten.
+- **Open rediscovery (repro NOT rewritten — `existed && status not in {fixed}`):** update ONLY
+  `times_seen` and `last_seen_at`. Do NOT touch `our_sig`/`our_error`/`oracle_digest`/`shape` and
+  do NOT merge `f.Meta`. This removes the internally-stale repro/meta pathology and the ~800k
+  pointless rewrites per hot sig. (`status` stays whatever it was: open/ledgered/parked.)
+- Always-updated invariants (both paths): `sig`, `engine`, `sql_mode`, `lane`, `class`,
+  `descriptor_v`, `descriptor`, `times_seen`. `shape` is set on the repro-rewritten path only.
+- **Raw-map meta round-trip (defect 2, findings side):** `Record` already reads `meta` as
+  `map[string]any` and writes it back — it does not prune. Keep that. The `f.Meta` merge skip-list
+  stays `{sig, times_seen, descriptor}`; ADD nothing that would drop `reopened_count`/`last_seen_at`.
+
+Add `last_seen_at` (RFC3339 UTC) alongside `discovered_at` on every call.
+
+### 3. `internal/e2echeck` + `e2e/checks.go` — e2e dimension shape (A, e2e slice)
+
+Give every e2e class a bounded, identifier-free shape so they stop collapsing to `unspecified`.
+
+- Add `func ShapeFor(class string, meta map[string]any) string` to `internal/e2echeck` (non-tagged
+  file so `findings`/tests can use it without the ddlfuzz tag). Mapping, dimension-only:
+  - `e2e-statusvar-walk`→`status-vars`; `e2e-sqlmode-mismatch`→`sql-mode`;
+    `e2e-query-rewrite`→`query-rewrite`; `e2e-plumbing-sig`→`plumbing-sig`;
+    `e2e-panic`→`parser-panic`; `e2e-parse-error-live-accept`→`parse-error-live-accept`;
+    `e2e-position-missed`→`position-missed`.
+  - `e2e-col-attr`→`col-attr(<attribute>)` reading the bounded `meta["attribute"]` ∈
+    {rename_column_type, qkind, nullability, numeric_precision, numeric_scale}; `col-attr(?)` if absent.
+  - `e2e-missed-column-effect`→`missed-effect(<effect>)` where effect ∈ {added, dropped, changed,
+    benign} derived from which bounded key is present (`added_*`→added, `dropped_*`→dropped,
+    `changed_unexpected`→changed, `benign_classification`→benign); `missed-effect(?)` otherwise.
+  - default/unknown class → `""` (findings then falls back to its existing logic).
+  Only closed vocabularies; never `column`/type strings/ordinals.
+- In `e2e/checks.go` `recordE2EFinding`, before building the `findings.Finding`, if
+  `meta["shape"]` is unset compute `s := e2echeck.ShapeFor(in.Class, meta)` and set
+  `meta["shape"] = s` when `s != ""`. (findings.`shapeFromFinding` already honors a set
+  `Meta["shape"]`.) Do not alter the required-meta list or capture fields.
+
+### 4. `supervisor/fixloop.go` — meta round-trip + group-key coarsening (defect 2 + B/group)
+
+- **`writeFindingMeta` raw-map round-trip (defect 2):** stop marshaling the typed `FindingMeta`.
+  New behavior: read the existing `meta.json` into `map[string]any`, apply the caller's mutated
+  fields, write back — so unknown keys (`times_seen`, `descriptor`, `origin`, `seed`,
+  `submitted_text` and the other plan-50 e2e capture keys) survive supervisor status flips. Concrete
+  approach: add `func writeFindingMetaFields(path string, fields map[string]any) error` that
+  read-modify-writes the raw map, and route the supervisor's status/fixed_by updates through it.
+  The call sites that today do `f.Meta.Status = X; writeFindingMeta(f.MetaPath, f.Meta)` become
+  `writeFindingMetaFields(f.MetaPath, map[string]any{"status": X})` (and `{"status":X,"fixed_by":Y}`
+  in `applySuccessfulStatuses`). Keep `loadFindingMeta`/`FindingMeta` for reads. Update
+  `ParkSignature`/`confirmFixed`/`applySuccessfulStatuses` accordingly. If the raw file is missing,
+  fall back to writing the typed struct (bootstrap case).
+- **`GroupInfoForMeta` dimension-prefix key (B/group):** compute the group shape as the dimension
+  prefix of `NormalizeShape(shape)` — text before the first `(`, trimmed. Add
+  `func dimensionPrefix(s string) string`. So `stmt_count(alter+rename≠alter)` and
+  `stmt_count(alter+alter≠alter)` both map to group shape `stmt_count`; `col-attr(nullability)`→
+  `col-attr`. This keeps sibling grouping + flap observation at family granularity while sigs are
+  per-bug. Apply the prefix in the branch where `meta.Shape` is set; the empty-shape fallback path
+  is unchanged.
+
+### 5. `supervisor/park.go` + `disk.go` — reopened_count wiring, reproduce-gated flap, soft freeze (defect 1 + B slices)
+
+- **`reopened_count` field (defect 1):** rename `FindingMeta.RediscoveredCount`/`GroupedFinding.
+  RediscoveredCount` → `ReopenedCount` with json tag `reopened_count` (the currently-dead
+  `rediscovered_count` path is removed; the real key is now written by findings.Record §2). Update
+  all references (`ScanFindings`, `ApplyFlapScanAndPark`, the test).
+- **Reproduce-gated reopen counting (B slice i):** the flap trip must require the candidate to
+  actually reproduce. `ApplyFlapDetector` stays a pure function but its `GroupedFinding` gains a
+  bool `Reproduces`. Trip condition becomes: `open && g.FixCount >= 2 && (!previouslyKnown ||
+  f.ReopenedCount > 0) && f.Reproduces` ⇒ set `g.Parked = true`. In `ApplyFlapScanAndPark`, compute
+  `Reproduces` by running `RunReplay` ONLY for candidate sigs (open, in a group with `FixCount>=2`,
+  and either new-to-group or `ReopenedCount>0`) and treating `ExitCode==10` as reproduces;
+  `ExitCode==11`/`1`/error ⇒ does not count (no trip). This keeps replay cost bounded to genuine
+  candidates. confirm-fixed already runs before the flap scan in `RunFixLoop`, so reconciled
+  re-opens are marked `fixed` and never reach here.
+- **Soft selection-freeze (B slice ii):** `ApplyFlapDetector` no longer returns a hard park list;
+  it only sets `g.Parked=true` (the freeze) and returns the set of newly-frozen group keys.
+  `ApplyFlapScanAndPark` then, for each newly-frozen group, writes ONE
+  `escalations/run-flap-<groupKey>.md` (via `writeRunEscalation`) instead of per-sig escalations,
+  and does NOT append member sigs to `parked.list`, does NOT set member meta `status="parked"`.
+  Arrivals keep being recorded (`times_seen` counts) and metas stay `open`. `SelectFinding` already
+  skips `g.Parked` groups (unchanged) so frozen groups are excluded from selection — that IS the
+  freeze. Hard parking (`parked.list` + per-sig escalation via `ParkSignature`) remains ONLY for the
+  budget-exhaustion path in `FixOnce` — leave `ParkSignature` and those call sites intact.
+- Remove the now-unused hard-park plumbing that `ApplyFlapScanAndPark` used for flap (the
+  `toPark`→`ParkSignature(..., flap=true, "flapping group")` loop). Budget-exhaustion parking is
+  separate and stays.
+
+### 6. `supervisor/prompt.tmpl` — content-hash seed naming (C item 3)
+
+Change the seed instructions so a second fix for the same sig ADDS a seed instead of clobbering:
+seed path becomes `tools/ddlfuzz/seeds/{SIG}-<sha8>.sql` (+ matching `.meta.json`), where `<sha8>`
+is the first 8 hex of sha256 of the exact repro bytes. Note the `repro.prev<N>.sql` archives exist
+and may be cited. No loader change is required: `seed.LoadDir` reads only `seeds/seeds.jsonl` (which
+`seed.Extract` regenerates from the parser test files, so the appended regression test case is what
+actually enforces the fix); the committed `seeds/<sig>*.sql`/`.meta.json` files are standalone
+regression artifacts. Content-hash naming simply stops a second fix for the same sig from
+overwriting the first fix's committed `.sql` — a prompt-only change; do NOT touch `seed.go`.
+
+### Interactions / migration
+
+- **No descriptor bump.** Only stmt_count/spec_count/parse_*/e2e shapes re-bucket; healthy sigs are
+  byte-identical ⇒ their on-disk dirs and `groups.json`/`parked.list` entries stay valid. Old parked
+  sigs remain suppressed under their old identities; the underlying bugs resurface as fresh fine
+  sigs with new attempt budget (the intended "unpark by re-bucketing" of the 10 zero-attempt bugs).
+  Old `groups.json` keys go inert. No state rewrite.
+- **minimize:** `FastLanePredicate` preserves descriptor equality; finer shapes make shrinking
+  stricter (can't cross count-families) — correct, no change needed.
+- **plan 50 (e2e replay):** §3 gives e2e findings real shapes; §4 meta round-trip is what lets
+  plan-50 capture fields survive supervisor status flips (previously pruned). For the flap
+  reproduce-gate, an e2e sig whose replay can't be evaluated (`exit 11`) simply doesn't count.
+- **plan 51 (confirm-fixed):** runs before the flap scan (unchanged ordering in `RunFixLoop`); §5's
+  gate only sees genuinely-reproducing re-opens.
+- **base OracleSig/touchedParserOrOracle:** untouched; golden must stay `irreconcilable:0`.
 
 ### Test plan
 
-Unit (all in-package, no live system):
-- `compare`: table for enriched `FirstDifference` — kind sequences, caps, identifier-free
-  guarantee (fuzz identifiers through both sides, assert shape unchanged); golden `DescriptorSig`
-  values for *unchanged* shapes (`col_kind`, `table_qual`, `we_error`) proving no accidental
-  re-bucketing; regression test for the `col_kind(… B=…)` leak.
-- `findings`: rediscovery of open sig leaves repro+our_sig+digest untouched, bumps
-  times_seen/last_seen_at; fixed→open archives to `repro.prev1.sql`, bumps `reopened_count`,
-  rewrites meta consistently (assert `our_sig` matches the new statement's divergence); archive
-  ring caps at 3.
-- `supervisor`: `writeFindingMeta` round-trips unknown keys (fixture meta with `times_seen`,
-  `submitted_text`); dimension-prefix group key (`stmt_count(alter+rename≠alter)` ≡ `stmt_count`
-  group); `ApplyFlapDetector` scenarios — (a) 2 fixes + reproducing new sig ⇒ group frozen, no
-  parked.list append, arrivals still recorded; (b) reopen with replay exit 0 (confirm-fixed path)
-  ⇒ no flap count; (c) reopen with exit 10 twice ⇒ counts; (d) zero-attempt arrival in frozen
-  group is skipped by `SelectFinding` but not parked.
-- Rebuild the observed pathology as a fixture: two synthetic root causes that today share a
-  `stmt_count` sig — assert they now get distinct sigs, distinct seeds, and that fixing one does
-  not re-open the other.
+Unit (in-package, no live system):
+- `compare`: table-driven enriched `FirstDifference` — stmt_count/spec_count kind sequences + caps;
+  identifier-free guarantee (feed varying quoted identifiers into both sides, assert shape byte-
+  identical); `parse_*` masked-reason branch; `col_kind` leak regression (a payload that previously
+  leaked `B=` now yields a bare-token `col_kind`); assert `col_params` carries no identifiers.
+  Preserve `TestDescriptorStability`; add golden `DescriptorSig` assertions that `col_kind`,
+  `table_qual`, `we_error` sigs are UNCHANGED vs current values (compute-and-pin) to prove no
+  accidental re-bucketing.
+- `findings`: open-sig rediscovery leaves `repro.sql`+`our_sig`+`oracle_digest`+`shape` untouched
+  and bumps `times_seen`/`last_seen_at`; fixed→open archives to `repro.prev1.sql`, bumps
+  `reopened_count`, and rewrites repro+meta together (assert consistency); archive ring caps at 3
+  (prev4 never appears); raw meta keys (e.g. `submitted_text`) survive a rediscovery.
+- `e2echeck`: `ShapeFor` table over all classes incl. the bounded `col-attr(<attr>)` /
+  `missed-effect(<effect>)` vocabularies and the `?`/`""` fallbacks; identifier-free.
+- `supervisor`: `writeFindingMetaFields` round-trips unknown keys (fixture meta with `times_seen`,
+  `submitted_text`, `descriptor`); `GroupInfoForMeta` dimension-prefix (`stmt_count(...)` ≡
+  `stmt_count`, `col-attr(nullability)` ≡ `col-attr`); update/extend `TestFlapDetector` for the new
+  semantics — (a) 2 fixes + reproducing new sig ⇒ group frozen, EMPTY hard-park list, arrivals not
+  in parked.list; (b) reopen not reproducing ⇒ no freeze; (c) `ReopenedCount≥1` + reproduces in a
+  fix_count≥2 group ⇒ freeze; (d) frozen-group open arrival is skipped by `SelectFinding` but its
+  meta stays `open`.
+- Pathology fixture: two synthetic canonical-sig pairs that today both yield `stmt_count` — assert
+  they now produce DISTINCT `DescriptorSig`s (distinct identity ⇒ distinct seed names, independent
+  budgets), so fixing one cannot re-open the other.
 
-Integration (scratch state dir, never the live campaign): `ddlfuzz replay` on a fixture finding
-with an enriched shape (exit 10, correct class/shape in JSON); one `ddlsuper fix-once` smoke
-verifying the freeze file and prompt seed naming; preflight replay across a state dir containing
-old-format (v:1 coarse-shape) findings to prove migration inertness.
+Golden / integration: `./build/ddlfuzz golden` MUST stay `irreconcilable:0` (behavior-preserving —
+only shape strings of divergences change, and golden seeds are reconciling cases). `ddlfuzz replay`
+on a scratch fixture finding returns the enriched shape in JSON with the right exit code.
 
-Acceptance: the standard gate (`go build/vet/test` untagged + `-tags ddlfuzz`, flow gate) green;
-after merge, watch one supervisor cycle: no park-on-arrival events, `groups.json` shows
-dimension-prefix keys, and newly recorded stmt_count findings carry enriched shapes.
+Acceptance: standard gate green — untagged `go build ./... && go test ./...`; `-tags ddlfuzz`
+build+vet+test across `./internal/... ./e2e/... ./supervisor/...`; `flow` `-tags ddlfuzz` build;
+`./build/ddlfuzz golden` == `irreconcilable:0`. Post-merge, one supervisor cycle shows no
+park-on-arrival, dimension-prefix group keys, and enriched stmt_count/e2e shapes on new findings.

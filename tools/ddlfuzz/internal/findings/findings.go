@@ -94,36 +94,46 @@ func Record(stateDir string, f Finding) (sig string, isNew bool, err error) {
 	}
 
 	timesSeen := intFromAny(meta["times_seen"]) + 1
+	now := time.Now().UTC().Format(time.RFC3339)
+	status, _ := meta["status"].(string)
+	rewriteRepro := !existed || status == "fixed"
 	if !existed {
 		if err := writeAtomic(filepath.Join(dir, "repro.sql"), f.Statement, 0o644); err != nil {
 			return "", false, err
 		}
-		meta["discovered_at"] = time.Now().UTC().Format(time.RFC3339)
+		meta["discovered_at"] = now
 		meta["status"] = "open"
 		meta["minimized"] = false
-	} else if status, _ := meta["status"].(string); status == "fixed" {
+	} else if status == "fixed" {
+		if err := archiveRepro(dir); err != nil {
+			return "", false, err
+		}
 		if err := writeAtomic(filepath.Join(dir, "repro.sql"), f.Statement, 0o644); err != nil {
 			return "", false, err
 		}
 		meta["status"] = "open"
+		meta["reopened_count"] = intFromAny(meta["reopened_count"]) + 1
 	}
 
 	meta["sig"] = sig
 	meta["engine"] = f.Engine
 	meta["sql_mode"] = f.SQLMode
 	meta["lane"] = f.Lane
-	meta["our_sig"] = f.OurSig
-	meta["our_error"] = f.OurError
 	meta["class"] = f.Class
-	meta["shape"] = shape
 	meta["descriptor_v"] = 1
 	meta["times_seen"] = timesSeen
+	meta["last_seen_at"] = now
 	meta["descriptor"] = json.RawMessage(compare.DescriptorBytes(desc))
-	for k, v := range f.Meta {
-		if k == "sig" || k == "times_seen" || k == "descriptor" {
-			continue
+	if rewriteRepro {
+		meta["our_sig"] = f.OurSig
+		meta["our_error"] = f.OurError
+		meta["shape"] = shape
+		for k, v := range f.Meta {
+			if k == "sig" || k == "times_seen" || k == "descriptor" {
+				continue
+			}
+			meta[k] = v
 		}
-		meta[k] = v
 	}
 	if _, ok := meta["status"]; !ok {
 		meta["status"] = "open"
@@ -143,6 +153,24 @@ func Record(stateDir string, f Finding) (sig string, isNew bool, err error) {
 		}
 	}
 	return sig, !existed, nil
+}
+
+func archiveRepro(dir string) error {
+	repro := filepath.Join(dir, "repro.sql")
+	if _, err := os.Stat(repro); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	_ = os.Remove(filepath.Join(dir, "repro.prev3.sql"))
+	for i := 2; i >= 1; i-- {
+		oldPath := filepath.Join(dir, fmt.Sprintf("repro.prev%d.sql", i))
+		newPath := filepath.Join(dir, fmt.Sprintf("repro.prev%d.sql", i+1))
+		if err := os.Rename(oldPath, newPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return os.Rename(repro, filepath.Join(dir, "repro.prev1.sql"))
 }
 
 func shapeFromFinding(f Finding) string {

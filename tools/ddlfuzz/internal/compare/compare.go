@@ -130,11 +130,11 @@ func Diff(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo,
 	}
 	ourCanon, err := Canonicalize(ourSig, SideOur)
 	if err != nil {
-		return &Divergence{Class: "sig_mismatch", Shape: "parse_our_sig", OurSig: ourSig, OracleSig: oracleSig}
+		return &Divergence{Class: "sig_mismatch", Shape: "parse_our_sig(" + NormalizeError(err.Error()) + ")", OurSig: ourSig, OracleSig: oracleSig}
 	}
 	oracleCanon, err := Canonicalize(oracleSig, SideOracle)
 	if err != nil {
-		return &Divergence{Class: "sig_mismatch", Shape: "parse_oracle_sig", OurSig: ourSig, OracleSig: oracleSig}
+		return &Divergence{Class: "sig_mismatch", Shape: "parse_oracle_sig(" + NormalizeError(err.Error()) + ")", OurSig: ourSig, OracleSig: oracleSig}
 	}
 	if ourCanon == oracleCanon {
 		return nil
@@ -345,7 +345,7 @@ func FirstDifference(ours, theirs string) string {
 		return "signature"
 	}
 	if len(a) != len(b) {
-		return "stmt_count"
+		return fmt.Sprintf("stmt_count(%s≠%s)", stmtKinds(a), stmtKinds(b))
 	}
 	for i := range a {
 		if a[i].kind != b[i].kind {
@@ -356,7 +356,7 @@ func FirstDifference(ours, theirs string) string {
 				return "table_qual"
 			}
 			if len(a[i].specs) != len(b[i].specs) {
-				return "spec_count"
+				return fmt.Sprintf("spec_count(%d,%d;%s≠%s)", len(a[i].specs), len(b[i].specs), specKinds(a[i].specs), specKinds(b[i].specs))
 			}
 			if a[i].pos != b[i].pos {
 				return "position"
@@ -381,7 +381,7 @@ func FirstDifference(ours, theirs string) string {
 						return "col_name"
 					}
 					if ac.kind != bc.kind {
-						return fmt.Sprintf("col_kind(%s≠%s)", ac.kind, bc.kind)
+						return fmt.Sprintf("col_kind(%s≠%s)", sanitizeKind(ac.kind), sanitizeKind(bc.kind))
 					}
 					if ac.prec != bc.prec || ac.scale != bc.scale {
 						return fmt.Sprintf("col_params(%d,%d≠%d,%d)", ac.prec, ac.scale, bc.prec, bc.scale)
@@ -396,6 +396,52 @@ func FirstDifference(ours, theirs string) string {
 		}
 	}
 	return "signature"
+}
+
+func stmtKinds(ss []sigStmt) string {
+	const capKinds = 5
+	kinds := make([]string, 0, min(len(ss), capKinds)+1)
+	for i, st := range ss {
+		if i >= capKinds {
+			kinds = append(kinds, "…")
+			break
+		}
+		switch st.kind {
+		case "alter", "rename":
+			kinds = append(kinds, st.kind)
+		default:
+			kinds = append(kinds, "?")
+		}
+	}
+	return strings.Join(kinds, "+")
+}
+
+func specKinds(specs []sigSpec) string {
+	const capKinds = 6
+	kinds := make([]string, 0, min(len(specs), capKinds)+1)
+	for i, sp := range specs {
+		if i >= capKinds {
+			kinds = append(kinds, "…")
+			break
+		}
+		switch sp.kind {
+		case "col", "chg", "ren", "drop":
+			kinds = append(kinds, sp.kind)
+		default:
+			kinds = append(kinds, "?")
+		}
+	}
+	return strings.Join(kinds, "+")
+}
+
+func sanitizeKind(s string) string {
+	if idx := strings.IndexAny(s, " =,;("); idx >= 0 {
+		s = s[:idx]
+	}
+	if s == "" {
+		return "?"
+	}
+	return s
 }
 
 // SplitTopLevel splits b on sep at paren depth 0, honoring string/quoted-ident

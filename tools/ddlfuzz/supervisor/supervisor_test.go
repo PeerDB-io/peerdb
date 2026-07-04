@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,6 +45,15 @@ func TestGroupKeyNormalization(t *testing.T) {
 	c := FindingMeta{Class: "panic", OurError: a.OurError}
 	if GroupInfoForMeta(c).Key == ga.Key {
 		t.Fatalf("different classes should not collapse to the same group key")
+	}
+	stmtA := GroupInfoForMeta(FindingMeta{Class: "sig_mismatch", Shape: "stmt_count(alter+rename≠alter)"})
+	stmtB := GroupInfoForMeta(FindingMeta{Class: "sig_mismatch", Shape: "stmt_count(alter+alter≠alter)"})
+	if stmtA.Shape != "stmt_count" || stmtB.Shape != "stmt_count" || stmtA.Key != stmtB.Key {
+		t.Fatalf("stmt_count dimension prefix mismatch: %#v %#v", stmtA, stmtB)
+	}
+	colAttr := GroupInfoForMeta(FindingMeta{Class: "e2e-col-attr", Shape: "col-attr(nullability)"})
+	if colAttr.Shape != "col-attr" {
+		t.Fatalf("col-attr dimension prefix=%q", colAttr.Shape)
 	}
 }
 
@@ -316,20 +326,88 @@ func TestAttemptRecordRoundTrip(t *testing.T) {
 }
 
 func TestFlapDetector(t *testing.T) {
-	groups := map[string]*GroupRecord{
-		"group1": {Sigs: []string{"aaa", "bbb"}, FixCount: 2, LastFixTS: "2026-07-03T00:00:00Z"},
+	t.Run("reproducing new sig freezes group", func(t *testing.T) {
+		groups := map[string]*GroupRecord{
+			"group1": {Sigs: []string{"aaa", "bbb"}, FixCount: 2, LastFixTS: "2026-07-03T00:00:00Z"},
+		}
+		frozen := ApplyFlapDetector(groups, []GroupedFinding{
+			{Sig: "aaa", GroupKey: "group1", Status: "fixed"},
+			{Sig: "bbb", GroupKey: "group1", Status: "fixed"},
+			{Sig: "ccc", GroupKey: "group1", Status: "open", Reproduces: true},
+		})
+		if !groups["group1"].Parked {
+			t.Fatalf("group was not marked parked")
+		}
+		if len(frozen) != 1 || frozen[0] != "group1" {
+			t.Fatalf("frozen groups mismatch: %v", frozen)
+		}
+	})
+	t.Run("reopen not reproducing does not freeze", func(t *testing.T) {
+		groups := map[string]*GroupRecord{"group1": {Sigs: []string{"aaa"}, FixCount: 2}}
+		frozen := ApplyFlapDetector(groups, []GroupedFinding{
+			{Sig: "aaa", GroupKey: "group1", Status: "open", ReopenedCount: 1, Reproduces: false},
+		})
+		if groups["group1"].Parked || len(frozen) != 0 {
+			t.Fatalf("non-reproducing reopen froze group: parked=%v frozen=%v", groups["group1"].Parked, frozen)
+		}
+	})
+	t.Run("reproducing reopen freezes", func(t *testing.T) {
+		groups := map[string]*GroupRecord{"group1": {Sigs: []string{"aaa"}, FixCount: 2}}
+		frozen := ApplyFlapDetector(groups, []GroupedFinding{
+			{Sig: "aaa", GroupKey: "group1", Status: "open", ReopenedCount: 1, Reproduces: true},
+		})
+		if !groups["group1"].Parked || len(frozen) != 1 {
+			t.Fatalf("reproducing reopen did not freeze: parked=%v frozen=%v", groups["group1"].Parked, frozen)
+		}
+	})
+}
+
+func TestWriteFindingMetaFieldsRoundTrip(t *testing.T) {
+	cfg := testConfig(t)
+	path := filepath.Join(cfg.StateDir, "findings", "aaaaaaaaaaaa", "meta.json")
+	mustWrite(t, path, `{"sig":"aaaaaaaaaaaa","status":"open","times_seen":7,"submitted_text":"ALTER TABLE secret ADD c INT","descriptor":{"v":1}}`)
+	if err := writeFindingMetaFields(path, map[string]any{"status": "fixed", "fixed_by": "bbbbbbbbbbbb"}); err != nil {
+		t.Fatal(err)
 	}
-	findings := []GroupedFinding{
-		{Sig: "aaa", GroupKey: "group1", Status: "fixed"},
-		{Sig: "bbb", GroupKey: "group1", Status: "fixed"},
-		{Sig: "ccc", GroupKey: "group1", Status: "open", RediscoveredCount: 1},
+	var meta map[string]any
+	if err := json.Unmarshal(mustRead(t, path), &meta); err != nil {
+		t.Fatal(err)
 	}
-	toPark := ApplyFlapDetector(groups, findings)
+	if meta["status"] != "fixed" || meta["fixed_by"] != "bbbbbbbbbbbb" || int(meta["times_seen"].(float64)) != 7 || meta["submitted_text"] == nil || meta["descriptor"] == nil {
+		t.Fatalf("raw meta fields not preserved: %#v", meta)
+	}
+}
+
+func TestApplyFlapScanSoftFreeze(t *testing.T) {
+	cfg := testConfig(t)
+	writeReplayStub(t, cfg, 10)
+	sig := "cccccccccccc"
+	writeMetaFixture(t, cfg, sig, "open")
+	finding := mustFinding(t, cfg, sig)
+	finding.Group = GroupInfo{Key: "group1", Class: "sig_mismatch", Shape: "stmt_count"}
+	groups := map[string]*GroupRecord{"group1": {Sigs: []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb"}, FixCount: 2}}
+
+	if err := ApplyFlapScanAndPark(cfg, groups, []Finding{finding}); err != nil {
+		t.Fatal(err)
+	}
 	if !groups["group1"].Parked {
-		t.Fatalf("group was not marked parked")
+		t.Fatalf("group was not frozen")
 	}
-	if len(toPark) != 1 || toPark[0] != "ccc" {
-		t.Fatalf("park list mismatch: %v", toPark)
+	parked, err := LoadParkedList(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parked) != 0 {
+		t.Fatalf("soft freeze wrote hard parked list: %v", parked)
+	}
+	if got := mustMeta(t, finding.MetaPath); got.Status != "open" {
+		t.Fatalf("soft freeze changed member status to %q", got.Status)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.StateDir, "escalations", "run-flap-group1.md")); err != nil {
+		t.Fatalf("run-level escalation missing: %v", err)
+	}
+	if _, _, ok := SelectFinding(cfg, []Finding{finding}, parked, groups); ok {
+		t.Fatalf("SelectFinding selected from frozen group")
 	}
 }
 
@@ -390,6 +468,15 @@ func mustWrite(t *testing.T, path, data string) {
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func writeMetaFixture(t *testing.T, cfg Config, sig, status string) {

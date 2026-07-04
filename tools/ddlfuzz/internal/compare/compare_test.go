@@ -2,6 +2,7 @@ package compare
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/digest"
@@ -189,6 +190,83 @@ func TestDiffReconciliationRules(t *testing.T) {
 	}
 }
 
+func TestFirstDifferenceEnrichedShapes(t *testing.T) {
+	tests := []struct {
+		name   string
+		ours   string
+		theirs string
+		want   string
+	}{
+		{
+			name:   "stmt count kind sequence",
+			ours:   "alter t{col a=int32} | rename t>u",
+			theirs: "alter t{col a=int32}",
+			want:   "stmt_count(alter+rename≠alter)",
+		},
+		{
+			name:   "stmt count capped",
+			ours:   "alter t{col a=int32} | rename t>u | alter u{drop a} | rename u>v | alter v{col b=int32} | rename v>w",
+			theirs: "alter t{col a=int32}",
+			want:   "stmt_count(alter+rename+alter+rename+alter+…≠alter)",
+		},
+		{
+			name:   "spec count kind sequence",
+			ours:   "alter t{col a=int32; ren b>c; drop d}",
+			theirs: "alter t{col a=int32; drop d}",
+			want:   "spec_count(3,2;col+ren+drop≠col+drop)",
+		},
+		{
+			name:   "spec count capped",
+			ours:   "alter t{col a=int32; col b=int32; col c=int32; col d=int32; col e=int32; col f=int32; col g=int32}",
+			theirs: "alter t{col a=int32}",
+			want:   "spec_count(7,1;col+col+col+col+col+col+…≠col)",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FirstDifference(tc.ours, tc.theirs); got != tc.want {
+				t.Fatalf("FirstDifference()=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFirstDifferenceIdentifierFreeShapes(t *testing.T) {
+	a := FirstDifference("alter `db one`.`tab one`{col `secret_a`=int32} | rename `tab one`>`tab two`", "alter `other`.`x`{col `secret_b`=int32}")
+	b := FirstDifference("alter `db two`.`tab three`{col `leak_me`=int32} | rename `tab three`>`tab four`", "alter `more`.`y`{col `another`=int32}")
+	if a != b {
+		t.Fatalf("identifier-only changes altered shape: %q vs %q", a, b)
+	}
+	if strings.Contains(a, "secret") || strings.Contains(a, "tab") || strings.Contains(a, "db") {
+		t.Fatalf("shape leaks identifier text: %q", a)
+	}
+}
+
+func TestDiffParseShapesIncludeMaskedReason(t *testing.T) {
+	base := run.Case{SQL: []byte("ALTER TABLE t ADD c INT"), Engine: run.EngineMySQL}
+	our := Diff(base, "bogus secret_table", nil, nil, acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "int"}}}))
+	if our == nil || our.Shape != `parse_our_sig(unknown statement signature "?")` {
+		t.Fatalf("parse_our_sig shape = %#v", our)
+	}
+	oracle := Diff(base, "alter t{}", nil, nil, &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{Kind: "rename_table"}}})
+	if oracle == nil || oracle.Shape != `parse_oracle_sig(unknown statement signature "?")` {
+		t.Fatalf("parse_oracle_sig shape = %#v", oracle)
+	}
+}
+
+func TestColumnShapePayloadsDoNotLeakIdentifiers(t *testing.T) {
+	if got := sanitizeKind("uint32, B=uint32; col B=uint32"); got != "uint32" {
+		t.Fatalf("sanitizeKind leak regression got %q", got)
+	}
+	got := FirstDifference("alter t{col a=numeric(10,2)}", "alter t{col a=numeric(11,3)}")
+	if got != "col_params(10,2≠11,3)" {
+		t.Fatalf("col_params shape=%q", got)
+	}
+	if strings.Contains(got, " a") || strings.Contains(got, " b") || strings.Contains(got, "=a") || strings.Contains(got, "=b") {
+		t.Fatalf("col_params leaked identifier text: %q", got)
+	}
+}
+
 func TestContainsSkippedVersionComment(t *testing.T) {
 	tests := []struct {
 		sql    string
@@ -236,6 +314,37 @@ func TestDescriptorStability(t *testing.T) {
 	b.SQLMode = SQLModeNoBackslashEscapes
 	if DescriptorSig(a) == DescriptorSig(b) {
 		t.Fatalf("masked mode should affect descriptor")
+	}
+}
+
+func TestDescriptorSigPinnedUnaffectedShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		desc Descriptor
+		want string
+	}{
+		{"col_kind", Descriptor{V: 1, Engine: "mysql", Class: "sig_mismatch", Lane: "fast", Shape: "col_kind(int32≠string)"}, "1458dcc640e4"},
+		{"table_qual", Descriptor{V: 1, Engine: "mysql", Class: "sig_mismatch", Lane: "fast", Shape: "table_qual"}, "b71499ab904f"},
+		{"we_error", Descriptor{V: 1, Engine: "mysql", SQLMode: SQLModeANSIQuotes, Class: "we_error", Lane: "fast", Shape: `parse "?" at byte ?`}, "5182d84c4d34"},
+	}
+	for _, tc := range tests {
+		if got := DescriptorSig(tc.desc); got != tc.want {
+			t.Fatalf("%s DescriptorSig=%s, want %s", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestStmtCountPathologyDistinctDescriptorSigs(t *testing.T) {
+	base := Descriptor{V: 1, Engine: "mysql", Class: "sig_mismatch", Lane: "fast"}
+	a := base
+	a.Shape = FirstDifference("alter t{col a=int32} | rename t>u", "alter t{col a=int32}")
+	b := base
+	b.Shape = FirstDifference("alter t{col a=int32} | alter u{drop b}", "alter t{col a=int32}")
+	if a.Shape == b.Shape {
+		t.Fatalf("pathology shapes still collapse: %q", a.Shape)
+	}
+	if DescriptorSig(a) == DescriptorSig(b) {
+		t.Fatalf("descriptor sigs collapsed for %q and %q", a.Shape, b.Shape)
 	}
 }
 

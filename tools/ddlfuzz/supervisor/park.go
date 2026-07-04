@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,10 +20,11 @@ type GroupRecord struct {
 }
 
 type GroupedFinding struct {
-	Sig               string
-	GroupKey          string
-	Status            string
-	RediscoveredCount int
+	Sig           string
+	GroupKey      string
+	Status        string
+	ReopenedCount int
+	Reproduces    bool
 }
 
 func LoadParkedList(cfg Config) (map[string]bool, error) {
@@ -104,7 +106,7 @@ func RecordGroupFix(cfg Config, groupKey, sig string) {
 }
 
 func ApplyFlapDetector(groups map[string]*GroupRecord, findings []GroupedFinding) []string {
-	openByGroup := make(map[string][]string)
+	frozen := make(map[string]bool)
 	for _, f := range findings {
 		g := groups[f.GroupKey]
 		if g == nil {
@@ -117,40 +119,73 @@ func ApplyFlapDetector(groups map[string]*GroupRecord, findings []GroupedFinding
 			sort.Strings(g.Sigs)
 		}
 		open := f.Status == "" || f.Status == "open"
-		if open {
-			openByGroup[f.GroupKey] = append(openByGroup[f.GroupKey], f.Sig)
-		}
-		if open && g.FixCount >= 2 && (!previouslyKnown || f.RediscoveredCount > 0) {
+		if open && g.FixCount >= 2 && (!previouslyKnown || f.ReopenedCount > 0) && f.Reproduces {
+			wasParked := g.Parked
 			g.Parked = true
+			if !wasParked {
+				frozen[f.GroupKey] = true
+			}
 		}
 	}
-	var park []string
-	for groupKey, sigs := range openByGroup {
-		if groups[groupKey] != nil && groups[groupKey].Parked {
-			park = append(park, sigs...)
-		}
+	out := make([]string, 0, len(frozen))
+	for groupKey := range frozen {
+		out = append(out, groupKey)
 	}
-	sort.Strings(park)
-	return park
+	sort.Strings(out)
+	return out
+}
+
+func flapCandidate(groups map[string]*GroupRecord, f Finding) bool {
+	g := groups[f.Group.Key]
+	if g == nil || g.FixCount < 2 {
+		return false
+	}
+	open := f.Meta.Status == "" || f.Meta.Status == "open"
+	if !open {
+		return false
+	}
+	return !containsString(g.Sigs, f.Sig) || f.Meta.ReopenedCount > 0
+}
+
+func replayReproduces(cfg Config, sig string) bool {
+	res, err := RunReplay(context.Background(), cfg, sig)
+	return res.ExitCode == 10 && (err == nil || err != context.Canceled)
+}
+
+func runFlapEscalationName(groupKey string) string {
+	groupKey = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '-' || r == '_':
+			return r
+		default:
+			return '-'
+		}
+	}, groupKey)
+	return "run-flap-" + groupKey + ".md"
 }
 
 func ApplyFlapScanAndPark(cfg Config, groups map[string]*GroupRecord, findings []Finding) error {
 	grouped := make([]GroupedFinding, 0, len(findings))
-	bySig := make(map[string]Finding)
 	for _, f := range findings {
-		grouped = append(grouped, GroupedFinding{Sig: f.Sig, GroupKey: f.Group.Key, Status: f.Meta.Status, RediscoveredCount: f.Meta.RediscoveredCount})
-		bySig[f.Sig] = f
+		reproduces := false
+		if flapCandidate(groups, f) {
+			reproduces = replayReproduces(cfg, f.Sig)
+		}
+		grouped = append(grouped, GroupedFinding{Sig: f.Sig, GroupKey: f.Group.Key, Status: f.Meta.Status, ReopenedCount: f.Meta.ReopenedCount, Reproduces: reproduces})
 	}
-	toPark := ApplyFlapDetector(groups, grouped)
+	newlyFrozen := ApplyFlapDetector(groups, grouped)
 	if err := SaveGroups(cfg, groups); err != nil {
 		return err
 	}
-	for _, sig := range toPark {
-		f := bySig[sig]
-		if f.Sig == "" {
-			continue
-		}
-		if err := ParkSignature(cfg, f, true, "flapping group"); err != nil {
+	for _, groupKey := range newlyFrozen {
+		detail := fmt.Sprintf("group %s frozen after a reproducing open/reopened finding in a group with at least two fixes", groupKey)
+		if err := writeRunEscalation(cfg, runFlapEscalationName(groupKey), detail); err != nil {
 			return err
 		}
 	}
@@ -168,7 +203,7 @@ func ParkSignature(cfg Config, finding Finding, flap bool, reason string) error 
 		return err
 	}
 	finding.Meta.Status = "parked"
-	if err := writeFindingMeta(finding.MetaPath, finding.Meta); err != nil {
+	if err := writeFindingMetaFields(finding.MetaPath, map[string]any{"status": "parked"}); err != nil {
 		return err
 	}
 	groups, _ := LoadGroups(cfg)

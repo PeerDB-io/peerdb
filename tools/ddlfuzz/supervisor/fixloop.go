@@ -20,21 +20,21 @@ import (
 )
 
 type FindingMeta struct {
-	Sig               string          `json:"sig"`
-	Engine            string          `json:"engine"`
-	SQLMode           uint64          `json:"sql_mode"`
-	SQLModeName       string          `json:"sql_mode_name,omitempty"`
-	Lane              string          `json:"lane"`
-	OurSig            string          `json:"our_sig"`
-	OurError          string          `json:"our_error"`
-	OracleDigest      json.RawMessage `json:"oracle_digest"`
-	Status            string          `json:"status"`
-	DiscoveredAt      string          `json:"discovered_at"`
-	Minimized         bool            `json:"minimized,omitempty"`
-	Class             string          `json:"class,omitempty"`
-	Shape             string          `json:"shape,omitempty"`
-	RediscoveredCount int             `json:"rediscovered_count,omitempty"`
-	FixedBy           string          `json:"fixed_by,omitempty"`
+	Sig           string          `json:"sig"`
+	Engine        string          `json:"engine"`
+	SQLMode       uint64          `json:"sql_mode"`
+	SQLModeName   string          `json:"sql_mode_name,omitempty"`
+	Lane          string          `json:"lane"`
+	OurSig        string          `json:"our_sig"`
+	OurError      string          `json:"our_error"`
+	OracleDigest  json.RawMessage `json:"oracle_digest"`
+	Status        string          `json:"status"`
+	DiscoveredAt  string          `json:"discovered_at"`
+	Minimized     bool            `json:"minimized,omitempty"`
+	Class         string          `json:"class,omitempty"`
+	Shape         string          `json:"shape,omitempty"`
+	ReopenedCount int             `json:"reopened_count,omitempty"`
+	FixedBy       string          `json:"fixed_by,omitempty"`
 }
 
 type Finding struct {
@@ -165,6 +165,34 @@ func writeFindingMeta(path string, meta FindingMeta) error {
 	return atomicWriteJSON(path, meta, 0o644)
 }
 
+func writeFindingMetaFields(path string, fields map[string]any) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		var meta FindingMeta
+		b, marshalErr := json.Marshal(fields)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if unmarshalErr := json.Unmarshal(b, &meta); unmarshalErr != nil {
+			return unmarshalErr
+		}
+		return writeFindingMeta(path, meta)
+	}
+	if err != nil {
+		return err
+	}
+	raw := map[string]any{}
+	if len(strings.TrimSpace(string(data))) != 0 {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+	}
+	for k, v := range fields {
+		raw[k] = v
+	}
+	return atomicWriteJSON(path, raw, 0o644)
+}
+
 func GroupInfoForMeta(meta FindingMeta) GroupInfo {
 	class := strings.TrimSpace(meta.Class)
 	if class == "" {
@@ -188,9 +216,17 @@ func GroupInfoForMeta(meta FindingMeta) GroupInfo {
 			shape = NormalizeShape(firstDiffLine(meta.OurSig, oracleSignature(meta.OracleDigest)))
 		}
 	} else {
-		shape = NormalizeShape(shape)
+		shape = dimensionPrefix(NormalizeShape(shape))
 	}
 	return GroupInfo{Key: GroupKey(class, shape), Class: class, Shape: shape}
+}
+
+func dimensionPrefix(s string) string {
+	s = strings.TrimSpace(s)
+	if idx := strings.IndexByte(s, '('); idx >= 0 {
+		s = s[:idx]
+	}
+	return strings.TrimSpace(s)
 }
 
 func NormalizeShape(s string) string {
@@ -1009,7 +1045,7 @@ func confirmFixed(ctx context.Context, cfg Config, f Finding, logf func(string, 
 		return false
 	}
 	f.Meta.Status = "fixed"
-	if err := writeFindingMeta(f.MetaPath, f.Meta); err != nil {
+	if err := writeFindingMetaFields(f.MetaPath, map[string]any{"status": "fixed"}); err != nil {
 		if logf != nil {
 			logf("confirm-fixed meta update for %s failed: %v", f.Sig, err)
 		}
@@ -1080,7 +1116,7 @@ func applySuccessfulStatuses(ctx context.Context, cfg Config, primarySig, outcom
 	for _, f := range findings {
 		if f.Sig == primarySig {
 			f.Meta.Status = outcome
-			if err := writeFindingMeta(f.MetaPath, f.Meta); err != nil {
+			if err := writeFindingMetaFields(f.MetaPath, map[string]any{"status": outcome}); err != nil {
 				return err
 			}
 			continue
@@ -1092,7 +1128,7 @@ func applySuccessfulStatuses(ctx context.Context, cfg Config, primarySig, outcom
 		if err == nil && res.ExitCode == 0 {
 			f.Meta.Status = "fixed"
 			f.Meta.FixedBy = primarySig
-			if err := writeFindingMeta(f.MetaPath, f.Meta); err != nil {
+			if err := writeFindingMetaFields(f.MetaPath, map[string]any{"status": "fixed", "fixed_by": primarySig}); err != nil {
 				return err
 			}
 		}

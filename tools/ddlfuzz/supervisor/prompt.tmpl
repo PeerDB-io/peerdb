@@ -61,8 +61,11 @@ PROTOCOL — follow strictly, in order:
        - Append a regression case to the appropriate existing test file
          (flow/connectors/mysql/ddl_parser_*_test.go or ddl_lexer_test.go — match the file whose
          suite covers the construct; follow existing table-test style).
-       - Add the repro as a committed corpus seed: tools/ddlfuzz/seeds/{SIG}.sql (exact repro
-         bytes) + tools/ddlfuzz/seeds/{SIG}.meta.json  ({"sql_mode":<u64>,"engine":"mysql"|"mariadb"}).
+       - Add the repro as a committed corpus seed: tools/ddlfuzz/seeds/{SIG}-<sha8>.sql (exact repro
+         bytes; <sha8> is the first 8 hex chars of sha256 of those exact bytes) +
+         tools/ddlfuzz/seeds/{SIG}-<sha8>.meta.json  ({"sql_mode":<u64>,"engine":"mysql"|"mariadb"}).
+         Existing tools/ddlfuzz/state/findings/{SIG}/repro.prev<N>.sql archives may be cited when
+         they explain a reopened signature, but the seed must use the current repro bytes.
     2. ORACLE-HARNESS BUG (our C++ oracle digest/driver wrong, parser fine) →
        - Fix under tools/ddlfuzz/oracle/ only. Rebuild: tools/ddlfuzz/oracle/mysql/build.sh and/or
          tools/ddlfuzz/oracle/mariadb/build.sh. Then re-run golden validation (MANDATORY):
