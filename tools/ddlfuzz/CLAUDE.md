@@ -16,10 +16,13 @@ Workflow:
    so rollback and the drift check ignore it).
 2. Roll feature branch(es) up onto `ddlfuzz-staged` in the `tools/ddlfuzz/staged/` worktree using
    normal merges. All conflict resolution happens here.
-3. From `tools/ddlfuzz`, run `./build/ddlsuper merge-staged`. It `--ff-only` merges `ddlfuzz-staged`
-   into the campaign tree, runs the full gate + golden + `replay --all`, and on any failure rolls
-   the campaign tree back to `last_good_commit` (fix in staged, retry). With no supervisor running
-   it does the same inline.
+3. From `tools/ddlfuzz`, run `./build/ddlsuper merge-staged`. With a campaign running it does not
+   touch the campaign tree itself — it merges the current campaign head into `ddlfuzz-staged`
+   (normal merge, CLI side), then hands off via the merge slot and waits; the **supervisor** (fix
+   loop, at a quiescent point) is what runs `git merge --ff-only ddlfuzz-staged` onto the campaign
+   tree, then the full gate + golden + `replay --all`, rolling back to `last_good_commit` on any
+   failure (fix in staged, retry). With no supervisor running, `merge-staged` acquires the lock and
+   does all of that itself, inline.
 
 **Run `merge-staged` in a background shell.** It blocks until the fix loop hits a safe point — worst
 case one full in-flight attempt (~1–2h; `--ack-timeout` default 2h) — then pays a full gate. Don't
