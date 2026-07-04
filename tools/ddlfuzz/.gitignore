@@ -1,4 +1,5 @@
-build/
+build/*
+!build/build.sh
 state/
 staged/
 worktrees/

@@ -57,22 +57,51 @@ func (s *Store) init() error {
 		`PRAGMA journal_mode = WAL`,
 		`PRAGMA synchronous = NORMAL`,
 		`CREATE TABLE IF NOT EXISTS corpus (
-			id INTEGER PRIMARY KEY,
-			engine TEXT NOT NULL,
-			hash TEXT NOT NULL,
-			sql_mode TEXT NOT NULL,
-			origin TEXT,
-			added_at TEXT NOT NULL,
-			sql BLOB NOT NULL,
-			UNIQUE(engine, hash)
-		)`,
+				id INTEGER PRIMARY KEY,
+				engine TEXT NOT NULL,
+				hash TEXT NOT NULL,
+				sql_mode TEXT NOT NULL,
+				origin TEXT,
+				signal TEXT NOT NULL DEFAULT 'noise',
+				added_at TEXT NOT NULL,
+				sql BLOB NOT NULL,
+				UNIQUE(engine, hash)
+			)`,
 		`CREATE INDEX IF NOT EXISTS corpus_engine_id ON corpus(engine, id)`,
 	} {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return fmt.Errorf("corpus init %q: %w", stmt, err)
 		}
 	}
+	if err := s.ensureSignalColumn(); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *Store) ensureSignalColumn() error {
+	rows, err := s.db.Query(`PRAGMA table_info(corpus)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "signal" {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`ALTER TABLE corpus ADD COLUMN signal TEXT NOT NULL DEFAULT 'noise'`)
+	return err
 }
 
 func (s *Store) Close() error {
@@ -90,6 +119,10 @@ func Hash(sql []byte, sqlMode uint64) string {
 }
 
 func (s *Store) Add(c run.Case) (bool, error) {
+	return s.AddSignal(c, c.Signal)
+}
+
+func (s *Store) AddSignal(c run.Case, signal uint8) (bool, error) {
 	engine := run.EngineName(c.Engine)
 	hash := Hash(c.SQL, c.SQLMode)
 	s.mu.Lock()
@@ -114,12 +147,13 @@ func (s *Store) Add(c run.Case) (bool, error) {
 	}
 
 	res, err := s.db.Exec(
-		`INSERT OR IGNORE INTO corpus(engine, hash, sql_mode, origin, added_at, sql)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO corpus(engine, hash, sql_mode, origin, signal, added_at, sql)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		engine,
 		hash,
 		strconv.FormatUint(c.SQLMode, 10),
 		run.OriginName(c.Origin),
+		run.SignalName(signal),
 		time.Now().UTC().Format(time.RFC3339),
 		c.SQL,
 	)
@@ -185,7 +219,7 @@ func (s *Store) Count(engine string) int {
 func (s *Store) AllCases(engine string) ([]run.Case, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.db.Query(`SELECT sql, sql_mode, origin FROM corpus WHERE engine = ? ORDER BY id`, engine)
+	rows, err := s.db.Query(`SELECT sql, sql_mode, origin, signal FROM corpus WHERE engine = ? ORDER BY id`, engine)
 	if err != nil {
 		return nil, err
 	}
@@ -197,17 +231,25 @@ func (s *Store) AllCases(engine string) ([]run.Case, error) {
 	var out []run.Case
 	for rows.Next() {
 		var c run.Case
-		var mode, origin string
-		if err := rows.Scan(&c.SQL, &mode, &origin); err != nil {
+		var mode, origin, signal string
+		if err := rows.Scan(&c.SQL, &mode, &origin, &signal); err != nil {
 			return nil, err
 		}
 		c.SQLMode, _ = strconv.ParseUint(mode, 10, 64)
 		c.Engine = engineID
 		c.Origin = originID(origin)
 		c.BaseTier = run.BaseTierOld
+		c.Signal = run.SignalID(signal)
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) StampExistingNoise() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE corpus SET signal = 'noise' WHERE signal IS NULL OR signal = ''`)
+	return err
 }
 
 func originID(origin string) uint8 {

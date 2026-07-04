@@ -22,12 +22,19 @@ type Case struct {
 	Origin   uint8
 	Seed     uint64
 	BaseTier uint8
+	Signal   uint8
 }
 
 const (
 	BaseTierFreshGen uint8 = iota
 	BaseTierRecent
 	BaseTierOld
+)
+
+const (
+	SignalNoise uint8 = iota
+	SignalBehavior
+	SignalOracleEdge
 )
 
 func EngineName(engine uint8) string {
@@ -66,5 +73,27 @@ func OriginName(origin uint8) string {
 		return "replay"
 	default:
 		return fmt.Sprintf("origin-%d", origin)
+	}
+}
+
+func SignalName(signal uint8) string {
+	switch signal {
+	case SignalBehavior:
+		return "behavior"
+	case SignalOracleEdge:
+		return "oracle-edge"
+	default:
+		return "noise"
+	}
+}
+
+func SignalID(signal string) uint8 {
+	switch signal {
+	case "behavior":
+		return SignalBehavior
+	case "oracle-edge":
+		return SignalOracleEdge
+	default:
+		return SignalNoise
 	}
 }

@@ -21,3 +21,27 @@ func TestDictionaryFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestDictionaryCampaignEntries(t *testing.T) {
+	for _, engine := range []string{"mysql", "mariadb"} {
+		have := map[string]struct{}{}
+		for _, tok := range Tokens(engine) {
+			have[tok] = struct{}{}
+			if tok == "peerdb_ddlfuzz_nodb" {
+				t.Fatalf("%s dictionary emits sentinel", engine)
+			}
+		}
+		for _, want := range []string{"/*", "*/", "/*!", "/*!99999", "-- ", "#", "'", "`", "\"", ";", "REMOVE PARTITIONING", "WAIT 3", "NOWAIT", "IF NOT EXISTS"} {
+			if _, ok := have[want]; !ok {
+				t.Fatalf("%s missing %q", engine, want)
+			}
+		}
+	}
+	maria := map[string]struct{}{}
+	for _, tok := range Tokens("mariadb") {
+		maria[tok] = struct{}{}
+	}
+	if _, ok := maria["/*M!"]; !ok {
+		t.Fatal("mariadb missing /*M!")
+	}
+}

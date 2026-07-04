@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/corpus"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/golden"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/minimize"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/replay"
@@ -126,7 +127,7 @@ func main() {
 
 	cmd := args[0]
 	switch cmd {
-	case "fuzz", "golden", "replay", "minimize":
+	case "fuzz", "golden", "replay", "minimize", "corpus-migrate":
 		os.Exit(runCommand(cmd, cfg, args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", cmd)
@@ -209,13 +210,20 @@ func runCommand(cmd string, cfg config, args []string) int {
 			return 2
 		}
 		return runMinimize(cfg, rest[0])
+	case "corpus-migrate":
+		rest := fs.Args()
+		if len(rest) != 0 {
+			fs.Usage()
+			return 2
+		}
+		return runCorpusMigrate(cfg)
 	default:
 		return 2
 	}
 }
 
 func usage(w io.Writer, fs *flag.FlagSet) {
-	fmt.Fprintln(w, "Usage: ddlfuzz [flags] fuzz|golden|replay|minimize [args]")
+	fmt.Fprintln(w, "Usage: ddlfuzz [flags] fuzz|golden|replay|minimize|corpus-migrate [args]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags:")
 	fs.PrintDefaults()
@@ -260,6 +268,20 @@ func runMinimize(cfg config, sig string) int {
 		}
 	}
 	fmt.Fprintf(os.Stdout, `{"sig":%q,"before":%d,"after":%d}`+"\n", sig, len(sql), len(out))
+	return 0
+}
+
+func runCorpusMigrate(cfg config) int {
+	store, err := corpus.Open(filepath.Join(cfg.stateDir, "corpus.db"), cfg.corpusBudget)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "corpus-migrate: %v\n", err)
+		return 1
+	}
+	defer store.Close()
+	if err := store.StampExistingNoise(); err != nil {
+		fmt.Fprintf(os.Stderr, "corpus-migrate: %v\n", err)
+		return 1
+	}
 	return 0
 }
 

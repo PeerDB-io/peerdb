@@ -6,18 +6,34 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/compare"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/dict"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/run"
 )
 
+const sentinelDB = "peerdb_ddlfuzz_nodb"
+
 func Mutate(r *rand.Rand, c run.Case) run.Case {
+	return MutateWithSplice(r, c, nil)
+}
+
+func MutateWithSplice(r *rand.Rand, c run.Case, mate *run.Case) run.Case {
 	if r == nil {
 		r = rand.New(rand.NewPCG(3, 4))
 	}
 	out := c
 	sql := append([]byte(nil), c.SQL...)
+	arms := 8
+	if mate == nil {
+		arms = 7
+	}
 	for i, n := 0, 1+r.IntN(3); i < n; i++ {
-		switch r.IntN(5) {
+		prev := sql
+		op := r.IntN(arms)
+		if mate == nil && op >= 5 {
+			op++ // splice arm needs a mate; keep the remaining arms uniform
+		}
+		switch op {
 		case 0:
 			sql = deleteToken(r, sql)
 		case 1:
@@ -25,13 +41,17 @@ func Mutate(r *rand.Rand, c run.Case) run.Case {
 		case 2:
 			sql = dictionarySub(r, sql, run.EngineName(c.Engine))
 		case 3:
+			sql = dictionaryInsert(r, sql, run.EngineName(c.Engine))
+		case 4:
 			sql = quoteFlip(r, sql)
+		case 5:
+			sql = Crossover(r, sql, mate.SQL)
+		case 6:
+			out.SQLMode = flipSQLMode(r, out.SQLMode)
 		default:
 			sql = byteOp(r, sql)
 		}
-		if !utf8.Valid(sql) {
-			sql = bytes.ToValidUTF8(sql, nil)
-		}
+		sql = validOrPrevious(prev, sql)
 	}
 	out.SQL = sql
 	out.Origin = run.OriginMut
@@ -112,6 +132,25 @@ func dictionarySub(r *rand.Rand, sql []byte, engine string) []byte {
 	return bytes.Replace(sql, tok, repl, 1)
 }
 
+func dictionaryInsert(r *rand.Rand, sql []byte, engine string) []byte {
+	d := dict.Tokens(engine)
+	if len(d) == 0 {
+		return sql
+	}
+	pos := tokenBoundary(r, sql)
+	insert := []byte(d[r.IntN(len(d))])
+	out := append([]byte{}, sql[:pos]...)
+	if pos > 0 && len(out) > 0 && !isSpace(out[len(out)-1]) {
+		out = append(out, ' ')
+	}
+	out = append(out, insert...)
+	if pos < len(sql) && len(insert) > 0 && !isSpace(sql[pos]) {
+		out = append(out, ' ')
+	}
+	out = append(out, sql[pos:]...)
+	return out
+}
+
 func quoteFlip(r *rand.Rand, sql []byte) []byte {
 	wrappers := [][2]string{{"/*!", " */"}, {"/*M!", " */"}, {"`", "`"}, {"\"", "\""}, {"-- ", "\n"}, {"#", "\n"}}
 	w := wrappers[r.IntN(len(wrappers))]
@@ -136,13 +175,52 @@ func byteOp(r *rand.Rand, sql []byte) []byte {
 	return out
 }
 
-func Crossover(a, b []byte) []byte {
-	ai := bytes.IndexByte(a, ' ')
-	bi := bytes.IndexByte(b, ' ')
-	if ai < 0 || bi < 0 {
+func Crossover(r *rand.Rand, a, b []byte) []byte {
+	if r == nil {
+		r = rand.New(rand.NewPCG(7, 8))
+	}
+	ai := tokenBoundary(r, a)
+	bi := tokenBoundary(r, b)
+	if ai <= 0 || bi >= len(b) {
 		return append([]byte{}, a...)
 	}
 	return append(append([]byte{}, a[:ai]...), b[bi:]...)
+}
+
+func flipSQLMode(r *rand.Rand, mode uint64) uint64 {
+	bits := []uint64{
+		compare.SQLModeANSIQuotes,
+		compare.SQLModeOracle,
+		compare.SQLModeMSSQL,
+		compare.SQLModeNoBackslashEscapes,
+	}
+	return mode ^ bits[r.IntN(len(bits))]
+}
+
+func tokenBoundary(r *rand.Rand, sql []byte) int {
+	toks := Tokens(sql)
+	if len(toks) == 0 {
+		if len(sql) == 0 {
+			return 0
+		}
+		return r.IntN(len(sql) + 1)
+	}
+	tok := toks[r.IntN(len(toks))]
+	idx := bytes.Index(sql, tok)
+	if idx < 0 {
+		return r.IntN(len(sql) + 1)
+	}
+	if r.IntN(2) == 0 {
+		return idx
+	}
+	return idx + len(tok)
+}
+
+func validOrPrevious(prev, sql []byte) []byte {
+	if !utf8.Valid(sql) || bytes.Contains(sql, []byte(sentinelDB)) {
+		return prev
+	}
+	return sql
 }
 
 func isDelim(c byte) bool {

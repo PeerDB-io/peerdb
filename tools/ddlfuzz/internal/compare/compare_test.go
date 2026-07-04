@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/digest"
+	ddllexec "github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/exec"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/run"
 )
 
@@ -350,6 +351,44 @@ func TestDescriptorStability(t *testing.T) {
 	b.SQLMode = SQLModeNoBackslashEscapes
 	if DescriptorSig(a) == DescriptorSig(b) {
 		t.Fatalf("masked mode should affect descriptor")
+	}
+}
+
+func TestBehaviorRawHashDiscriminates(t *testing.T) {
+	a := run.Case{SQL: []byte("ALTER TABLE t ADD c INT"), Engine: run.EngineMySQL, SQLMode: SQLModeANSIQuotes}
+	da := acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "int"}}})
+	if BehaviorRawHash(a, "alter t{col c=int32}", nil, nil, da) != BehaviorRawHash(a, "alter t{col c=int32}", nil, nil, da) {
+		t.Fatal("raw hash unstable for identical inputs")
+	}
+	if BehaviorRawHash(a, "alter t{col c=int32}", nil, nil, da) == BehaviorRawHash(a, "alter t{col d=int32}", nil, nil, da) {
+		t.Fatal("raw hash ignores our sig")
+	}
+	if BehaviorRawHash(a, "", nil, nil, da) == BehaviorRawHash(a, "", nil, nil, &digest.Digest{Verdict: "reject", Error: "x"}) {
+		t.Fatal("raw hash ignores verdict")
+	}
+}
+
+func TestBehaviorKeyShapes(t *testing.T) {
+	a := run.Case{SQL: []byte("ALTER TABLE secret ADD c INT"), Engine: run.EngineMySQL, SQLMode: SQLModeANSIQuotes | 1<<63}
+	b := run.Case{SQL: []byte("ALTER TABLE other ADD d INT"), Engine: run.EngineMySQL, SQLMode: SQLModeANSIQuotes}
+	da := acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{Name: "secret_col", TypeStr: "int"}}})
+	db := acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{Name: "other_col", TypeStr: "int"}}})
+	ka := BehaviorKey(a, "alter secret{col secret_col=int32}", nil, nil, da)
+	kb := BehaviorKey(b, "alter other{col other_col=int32}", nil, nil, db)
+	if ka != kb {
+		t.Fatalf("identifier-only behavior changed key:\n%q\n%q", ka, kb)
+	}
+	if strings.Contains(ka, "secret") || strings.Contains(ka, "other") {
+		t.Fatalf("behavior key leaks identifiers: %q", ka)
+	}
+
+	rej := BehaviorKey(a, "", errors.New(`parse "abc" at byte 9`), nil, &digest.Digest{Verdict: "reject", Error: `syntax near "def"`})
+	if !strings.Contains(rej, "reject") || strings.Contains(rej, "abc") || strings.Contains(rej, "def") {
+		t.Fatalf("reject/error key not shaped: %q", rej)
+	}
+	pan := BehaviorKey(a, "", nil, &ddllexec.PanicInfo{Value: "boom"}, da)
+	if !strings.Contains(pan, "boom") {
+		t.Fatalf("panic key missing panic shape: %q", pan)
 	}
 }
 

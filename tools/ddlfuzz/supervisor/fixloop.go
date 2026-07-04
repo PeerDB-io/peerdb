@@ -1427,7 +1427,7 @@ func applySuccessfulStatuses(ctx context.Context, cfg Config, primarySig, outcom
 
 func rebuildAndHotRestart(ctx context.Context, cfg Config, skipFuzzer bool, restarter *FuzzerManager) error {
 	newBin := filepath.Join(cfg.BuildDir, "ddlfuzz.new")
-	res, err := RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, "go", "build", "-o", newBin, "./cmd/ddlfuzz")
+	res, err := RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, "go", "build", "-cover", "-coverpkg=github.com/PeerDB-io/peerdb/flow/connectors/mysql", "-o", newBin, "./cmd/ddlfuzz")
 	if err != nil || res.ExitCode != 0 {
 		if err == nil {
 			err = fmt.Errorf("exit code %d", res.ExitCode)

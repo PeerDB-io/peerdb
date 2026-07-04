@@ -3,10 +3,12 @@ package compare
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"regexp"
 	"sort"
 	"strconv"
@@ -153,6 +155,161 @@ func Diff(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo,
 		OurSig:    ourSig,
 		OracleSig: oracleSig,
 	}
+}
+
+func BehaviorKey(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo, d *digest.Digest) string {
+	serverVerdict := "nil"
+	digestShape := ""
+	if d != nil {
+		serverVerdict = d.Verdict
+		switch d.Verdict {
+		case "accept":
+			sig, skip := OracleSigForEngine(d, c.Engine)
+			if skip {
+				digestShape = "skip"
+			} else if canon, err := Canonicalize(sig, SideOracle); err == nil {
+				digestShape = sigShape(canon)
+			} else {
+				digestShape = "parse_oracle_sig(" + NormalizeError(err.Error()) + ")"
+			}
+		case "reject":
+			digestShape = NormalizeError(d.Error)
+		default:
+			digestShape = NormalizeError(d.Verdict + " " + d.Error)
+		}
+	}
+	ourShape := ""
+	if ourSig != "" {
+		if canon, err := Canonicalize(ourSig, SideOur); err == nil {
+			ourShape = sigShape(canon)
+		} else {
+			ourShape = "parse_our_sig(" + NormalizeError(err.Error()) + ")"
+		}
+	}
+	errShape := ""
+	if ourErr != nil {
+		errShape = NormalizeError(ourErr.Error())
+	}
+	panicShape := ""
+	if ourPanic != nil {
+		panicShape = NormalizePanic(ourPanic.Value, ourPanic.Stack)
+		if ourPanic.Timeout {
+			panicShape = "timeout"
+		}
+	}
+	return strings.Join([]string{
+		run.EngineName(c.Engine),
+		strconv.FormatUint(MaskSQLMode(c.SQLMode), 10),
+		serverVerdict,
+		digestShape,
+		ourShape,
+		errShape,
+		panicShape,
+	}, "\x00")
+}
+
+var behaviorRawSeed = maphash.MakeSeed()
+
+// BehaviorRawHash is a first-level discriminator over BehaviorKey's raw
+// inputs: equal inputs imply an equal shaped key, so a hit in a raw seen-set
+// skips the Canonicalize/sigShape work. A 64-bit collision (~1e-6 at a few
+// million keys) costs one missed retention, nothing else.
+func BehaviorRawHash(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo, d *digest.Digest) uint64 {
+	var h maphash.Hash
+	h.SetSeed(behaviorRawSeed)
+	var mode [8]byte
+	binary.LittleEndian.PutUint64(mode[:], MaskSQLMode(c.SQLMode))
+	_, _ = h.Write(mode[:])
+	_ = h.WriteByte(c.Engine)
+	if d != nil {
+		_ = h.WriteByte(1)
+		_, _ = h.WriteString(d.Verdict)
+		_ = h.WriteByte(0)
+		_, _ = h.WriteString(d.Error)
+		_ = h.WriteByte(0)
+		if d.Verdict == "accept" {
+			sig, skip := OracleSigForEngine(d, c.Engine)
+			_, _ = h.WriteString(sig)
+			if skip {
+				_ = h.WriteByte(1)
+			}
+		}
+	}
+	_ = h.WriteByte(0)
+	_, _ = h.WriteString(ourSig)
+	_ = h.WriteByte(0)
+	if ourErr != nil {
+		_, _ = h.WriteString(ourErr.Error())
+	}
+	_ = h.WriteByte(0)
+	if ourPanic != nil {
+		_, _ = h.WriteString(ourPanic.Value)
+		_, _ = h.Write(ourPanic.Stack)
+		if ourPanic.Timeout {
+			_ = h.WriteByte(1)
+		}
+	}
+	return h.Sum64()
+}
+
+// sigShape strips identifiers from a canonical signature, keeping structure:
+// statement kinds, spec kinds/order, column type/precision/nullability,
+// schema-qualification arity.
+func sigShape(canon string) string {
+	stmts, err := parseSignature(canon)
+	if err != nil {
+		return "sig_shape_unparsed"
+	}
+	for si := range stmts {
+		stmts[si].qual = shapeQual(stmts[si].qual)
+		for pi := range stmts[si].pairs {
+			stmts[si].pairs[pi].old = shapeName(stmts[si].pairs[pi].old)
+			stmts[si].pairs[pi].new = shapeName(stmts[si].pairs[pi].new)
+		}
+		for spi := range stmts[si].specs {
+			sp := &stmts[si].specs[spi]
+			if sp.old != "" {
+				sp.old = "?"
+			}
+			if sp.new != "" {
+				sp.new = "?"
+			}
+			for ci := range sp.cols {
+				if sp.cols[ci].name != "" {
+					sp.cols[ci].name = "?"
+				}
+			}
+		}
+	}
+	return renderSignature(stmts)
+}
+
+func shapeName(n sigName) sigName {
+	if n.schema != "" {
+		n.schema = "?"
+	}
+	if n.table != "" {
+		n.table = "?"
+	}
+	return n
+}
+
+func shapeQual(q string) string {
+	if q == "" {
+		return ""
+	}
+	inIdent := false
+	for i := 0; i < len(q); i++ {
+		switch q[i] {
+		case '`':
+			inIdent = !inIdent
+		case '.':
+			if !inIdent {
+				return "?.?"
+			}
+		}
+	}
+	return "?"
 }
 
 // Version IDs of the pinned oracle servers, MySQL-style MMmmdd encoding.
