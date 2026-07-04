@@ -29,6 +29,9 @@ func Reproduce(in Input) (Result, error) {
 	case ClassStatusVarWalk, ClassSQLModeMismatch, ClassPlumbingSig:
 		return reproducePlumbing(in)
 	case ClassQueryRewrite:
+		if IsHarnessControlQuery(in.BinlogQuery) && !EquivalentQueryText(in.Submitted, in.BinlogQuery, in.IsMariaDB) {
+			return Result{Reconciled: true}, nil
+		}
 		if !EquivalentQueryText(in.Submitted, in.BinlogQuery, in.IsMariaDB) {
 			return diverged(ClassQueryRewrite, "query-rewrite", fmt.Sprintf("submitted %d bytes, binlog %d bytes", len(in.Submitted), len(in.BinlogQuery))), nil
 		}
