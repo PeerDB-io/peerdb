@@ -317,7 +317,7 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 	}
 	p.skipLockWait()
 	stmt := &ddlAlterTable{Schema: schema, Table: table}
-	rename := &ddlRenameTable{}
+	var rename *ddlRenamePair
 	for {
 		t := p.peek(0)
 		if t.kind == tokEOF || (t.kind == tokPunct && t.text == ";") {
@@ -333,8 +333,8 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 		if spec != nil {
 			stmt.Specs = append(stmt.Specs, *spec)
 		}
-		if pair != nil && !ddlRenamePairIsNoop(*pair) {
-			rename.Pairs = append(rename.Pairs, *pair)
+		if pair != nil {
+			rename = pair
 		}
 		t = p.peek(0)
 		switch {
@@ -350,15 +350,16 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 	}
 }
 
-func ddlAlterTableStatements(alter *ddlAlterTable, rename *ddlRenameTable) []ddlStatement {
-	if len(rename.Pairs) == 0 {
+func ddlAlterTableStatements(alter *ddlAlterTable, rename *ddlRenamePair) []ddlStatement {
+	if rename == nil || ddlRenamePairIsNoop(*rename) {
 		return []ddlStatement{alter}
 	}
+	renameStmt := &ddlRenameTable{Pairs: []ddlRenamePair{*rename}}
 	out := make([]ddlStatement, 0, 2)
 	if len(alter.Specs) > 0 {
 		out = append(out, alter)
 	}
-	out = append(out, rename)
+	out = append(out, renameStmt)
 	return out
 }
 

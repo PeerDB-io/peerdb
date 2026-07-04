@@ -422,6 +422,25 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 	require.True(t, ok, "expected *ddlRenameTable, got %T", stmts[1])
 	require.Equal(t, []ddlRenamePair{{OldTable: "t", NewTable: "t2"}}, rename.Pairs)
 
+	stmts, err = parseQueryEvent(
+		[]byte("ALTER TABLE orders ADD COLUMN json_col JSON VISIBLE, "+
+			"MODIFY COLUMN `a` VARCHAR(32) DEFAULT NULL, DROP COLUMN c, "+
+			"RENAME TO `世界_col`, RENAME TO new_col"),
+		sqlModeANSIQuotes, false)
+	require.NoError(t, err)
+	require.Len(t, stmts, 2)
+	alter, ok = stmts[0].(*ddlAlterTable)
+	require.True(t, ok, "expected *ddlAlterTable, got %T", stmts[0])
+	require.Equal(t, "orders", alter.Table)
+	require.Equal(t, []ddlAlterSpec{
+		ddlAltAddSpec(ddlAltCol("json_col", "json")),
+		ddlAltAddSpec(ddlAltCol("a", "varchar(32)")),
+		{OldColumnName: "c"},
+	}, alter.Specs)
+	rename, ok = stmts[1].(*ddlRenameTable)
+	require.True(t, ok, "expected *ddlRenameTable, got %T", stmts[1])
+	require.Equal(t, []ddlRenamePair{{OldTable: "orders", NewTable: "new_col"}}, rename.Pairs)
+
 	// RENAME TABLES is valid on MySQL too.
 	stmts, err = parseQueryEvent([]byte("RENAME TABLES a TO b, c TO d"), 0, false)
 	require.NoError(t, err)
