@@ -33,6 +33,7 @@ type MergeServiceDeps struct {
 	contains      func(context.Context, Config, string, string) error
 	ffMerge       func(context.Context, Config) error
 	resetHard     func(context.Context, Config, string) error
+	untracked     func(context.Context, Config) (pathSet, error)
 	deleteNew     func(Config, pathSet, pathSet) error
 	touchedPaths  func(context.Context, Config, string) ([]string, error)
 	gate          func(context.Context, Config) error
@@ -54,6 +55,7 @@ func defaultMergeServiceDeps() MergeServiceDeps {
 		contains:   gitContains,
 		ffMerge:    gitMergeStagedFFOnly,
 		resetHard:  GitResetHard,
+		untracked:  GitUntrackedSet,
 		deleteNew: func(cfg Config, before, after pathSet) error {
 			_, err := DeleteNewUntracked(cfg, before, after)
 			return err
@@ -91,7 +93,10 @@ func (s *MergeService) serviceClaimed(ctx context.Context, req MergeRequest) Mer
 	if err != nil {
 		return s.result(req.ID, mergeResultGitDrift, "", err.Error())
 	}
-	before, _ := GitUntrackedSet(ctx, s.cfg)
+	before, err := s.deps.untracked(ctx, s.cfg)
+	if err != nil {
+		return s.result(req.ID, mergeResultInternal, "", "untracked snapshot: "+err.Error())
+	}
 	if err := s.deps.gitReady(ctx, s.cfg, lastGood); err != nil {
 		return s.result(req.ID, mergeResultGitDrift, "", err.Error())
 	}
@@ -158,8 +163,11 @@ func (s *MergeService) serviceClaimed(ctx context.Context, req MergeRequest) Mer
 	// The merge is committed-good from this point: last_good_commit has
 	// advanced, so crash recovery must no longer reset to the old head.
 	_ = os.Remove(filepath.Join(s.cfg.StateDir, "merge-inflight.json"))
-	currentUntracked, _ := GitUntrackedSet(ctx, s.cfg)
-	_ = writeUntrackedBaseline(s.cfg, currentUntracked)
+	if currentUntracked, err := s.deps.untracked(ctx, s.cfg); err == nil {
+		_ = writeUntrackedBaseline(s.cfg, currentUntracked)
+	} else if s.logf != nil {
+		s.logf("untracked baseline refresh after merge %s failed: %v", req.ID, err)
+	}
 	_ = appendMergeRecord(s.cfg, MergeRecord{
 		ID:           req.ID,
 		PrevHead:     lastGood,
@@ -193,7 +201,7 @@ func (s *MergeService) rollback(ctx context.Context, lastGood string, before pat
 		}
 		return
 	}
-	after, err := GitUntrackedSet(rctx, s.cfg)
+	after, err := s.deps.untracked(rctx, s.cfg)
 	if err == nil && before != nil {
 		_ = s.deps.deleteNew(s.cfg, before, after)
 	}

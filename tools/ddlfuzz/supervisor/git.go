@@ -240,7 +240,21 @@ func PlanUntrackedDeletion(before, after pathSet, allowedRoots, excludedPrefixes
 }
 
 func DeleteNewUntracked(cfg Config, before, after pathSet) (UntrackedDeletionPlan, error) {
-	plan := PlanUntrackedDeletion(before, after,
+	baseline, err := loadUntrackedBaseline(cfg)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return UntrackedDeletionPlan{}, fmt.Errorf("untracked baseline unreadable, skipping deletion: %w", err)
+		}
+		baseline = nil
+	}
+	protected := make(pathSet, len(before)+len(baseline))
+	for p := range before {
+		protected[p] = struct{}{}
+	}
+	for p := range baseline {
+		protected[p] = struct{}{}
+	}
+	plan := PlanUntrackedDeletion(protected, after,
 		[]string{"flow/", "tools/ddlfuzz/"},
 		[]string{"tools/ddlfuzz/state/", "tools/ddlfuzz/build/", "tools/ddlfuzz/worktrees/", "tools/ddlfuzz/staged/"},
 	)

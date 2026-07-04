@@ -520,6 +520,56 @@ func TestUntrackedDeletionPolicy(t *testing.T) {
 	}
 }
 
+func TestDeleteNewUntrackedConsultsBaseline(t *testing.T) {
+	cfg := testConfig(t)
+	mustWrite(t, filepath.Join(cfg.StateDir, "untracked.baseline"), "flow/pre.txt\n")
+	mustWrite(t, filepath.Join(cfg.Root, "flow", "pre.txt"), "pre\n")
+	mustWrite(t, filepath.Join(cfg.Root, "flow", "new.txt"), "new\n")
+
+	plan, err := DeleteNewUntracked(cfg, pathSet{}, pathSet{"flow/pre.txt": {}, "flow/new.txt": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Root, "flow", "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("new file still exists or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Root, "flow", "pre.txt")); err != nil {
+		t.Fatalf("baseline file was deleted: %v", err)
+	}
+	if got := strings.Join(plan.ToDelete, ","); got != "flow/new.txt" {
+		t.Fatalf("ToDelete=%v, want [flow/new.txt]", plan.ToDelete)
+	}
+}
+
+func TestDeleteNewUntrackedBaselineMissing(t *testing.T) {
+	cfg := testConfig(t)
+	mustWrite(t, filepath.Join(cfg.Root, "flow", "new.txt"), "new\n")
+
+	_, err := DeleteNewUntracked(cfg, pathSet{}, pathSet{"flow/new.txt": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Root, "flow", "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("new file still exists or stat failed: %v", err)
+	}
+}
+
+func TestDeleteNewUntrackedBaselineUnreadable(t *testing.T) {
+	cfg := testConfig(t)
+	if err := os.MkdirAll(filepath.Join(cfg.StateDir, "untracked.baseline"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(cfg.Root, "flow", "new.txt"), "new\n")
+
+	_, err := DeleteNewUntracked(cfg, pathSet{}, pathSet{"flow/new.txt": {}})
+	if err == nil {
+		t.Fatalf("expected unreadable baseline error")
+	}
+	if _, statErr := os.Stat(filepath.Join(cfg.Root, "flow", "new.txt")); statErr != nil {
+		t.Fatalf("new file deleted or stat failed: %v", statErr)
+	}
+}
+
 func TestPreflightDriftClassification(t *testing.T) {
 	cfg := testConfig(t)
 	commits := []Commit{{SHA: "aaa111", Subject: "attempt"}, {SHA: "bbb222", Subject: "manual"}}

@@ -160,6 +160,7 @@ func TestMergeServiceDecisionTable(t *testing.T) {
 		svc.deps.contains = func(context.Context, Config, string, string) error { return nil }
 		svc.deps.ffMerge = func(context.Context, Config) error { return nil }
 		svc.deps.resetHard = func(context.Context, Config, string) error { resetCalls++; return nil }
+		svc.deps.untracked = func(context.Context, Config) (pathSet, error) { return pathSet{}, nil }
 		svc.deps.deleteNew = func(Config, pathSet, pathSet) error { return nil }
 		svc.deps.touchedPaths = func(context.Context, Config, string) ([]string, error) {
 			return []string{"flow/connectors/mysql/ddl_parser.go"}, nil
@@ -190,6 +191,25 @@ func TestMergeServiceDecisionTable(t *testing.T) {
 		got := svc.serviceClaimed(context.Background(), req)
 		if got.Result != mergeResultGitDrift {
 			t.Fatalf("result=%#v", got)
+		}
+	})
+	t.Run("untracked snapshot fails", func(t *testing.T) {
+		svc, req, resetCalls, _ := base(t)
+		ffCalls := 0
+		svc.deps.untracked = func(context.Context, Config) (pathSet, error) { return nil, errors.New("status failed") }
+		svc.deps.ffMerge = func(context.Context, Config) error { ffCalls++; return nil }
+		got := svc.serviceClaimed(context.Background(), req)
+		if got.Result != mergeResultInternal || !strings.Contains(got.Detail, "untracked snapshot: status failed") {
+			t.Fatalf("result=%#v", got)
+		}
+		if *resetCalls != 0 {
+			t.Fatalf("reset calls=%d, want 0", *resetCalls)
+		}
+		if ffCalls != 0 {
+			t.Fatalf("ff calls=%d, want 0", ffCalls)
+		}
+		if _, err := os.Stat(filepath.Join(svc.cfg.StateDir, "merge-inflight.json")); !os.IsNotExist(err) {
+			t.Fatalf("journal exists or stat failed: %v", err)
 		}
 	})
 	t.Run("stale request", func(t *testing.T) {
@@ -261,6 +281,38 @@ func TestMergeServiceDecisionTable(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(svc.cfg.StateDir, "merge-inflight.json")); !os.IsNotExist(err) {
 			t.Fatalf("journal not cleared: %v", err)
+		}
+	})
+	t.Run("baseline refresh keeps old baseline on snapshot failure", func(t *testing.T) {
+		svc, req, _, _ := base(t)
+		mustWrite(t, filepath.Join(svc.cfg.StateDir, "untracked.baseline"), "flow/pre.txt\n")
+		calls := 0
+		svc.deps.untracked = func(context.Context, Config) (pathSet, error) {
+			calls++
+			if calls == 1 {
+				return pathSet{}, nil
+			}
+			return nil, errors.New("refresh failed")
+		}
+		got := svc.serviceClaimed(context.Background(), req)
+		if got.Result != mergeResultMerged {
+			t.Fatalf("result=%#v", got)
+		}
+		if data := string(mustRead(t, filepath.Join(svc.cfg.StateDir, "untracked.baseline"))); data != "flow/pre.txt\n" {
+			t.Fatalf("baseline=%q, want preserved content", data)
+		}
+	})
+	t.Run("baseline refresh writes current untracked on success", func(t *testing.T) {
+		svc, req, _, _ := base(t)
+		svc.deps.untracked = func(context.Context, Config) (pathSet, error) {
+			return pathSet{"flow/marker.txt": {}}, nil
+		}
+		got := svc.serviceClaimed(context.Background(), req)
+		if got.Result != mergeResultMerged {
+			t.Fatalf("result=%#v", got)
+		}
+		if data := string(mustRead(t, filepath.Join(svc.cfg.StateDir, "untracked.baseline"))); data != "flow/marker.txt\n" {
+			t.Fatalf("baseline=%q, want flow/marker.txt", data)
 		}
 	})
 }

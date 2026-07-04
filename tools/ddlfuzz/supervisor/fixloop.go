@@ -796,7 +796,11 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 		_ = writeRunEscalation(cfg, "run-git-drift.md", err.Error())
 		return err
 	}
-	beforeUntracked, _ := GitUntrackedSet(ctx, cfg)
+	beforeUntracked, err := GitUntrackedSet(ctx, cfg)
+	if err != nil {
+		_ = writeRunEscalation(cfg, "run-git-drift.md", "untracked snapshot before attempt: "+err.Error())
+		return fmt.Errorf("untracked snapshot before attempt for %s: %w", sig, err)
+	}
 	started := time.Now()
 	streamPath := filepath.Join(cfg.StateDir, "attempts", fmt.Sprintf("%s.attempt%d.stream.jsonl", sig, attemptN))
 	lastPath := filepath.Join(cfg.StateDir, "attempts", fmt.Sprintf("%s.attempt%d.last.txt", sig, attemptN))
