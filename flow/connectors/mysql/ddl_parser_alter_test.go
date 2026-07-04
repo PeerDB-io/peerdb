@@ -429,14 +429,25 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 	require.Len(t, stmts, 1)
 	rename, ok = stmts[0].(*ddlRenameTable)
 	require.True(t, ok, "expected *ddlRenameTable, got %T", stmts[0])
-	require.Equal(t, []ddlRenamePair{{OldTable: "fixture", NewTable: "bP"}}, rename.Pairs)
+	require.Equal(t, []ddlRenamePair{{OldTable: "fixture", NewTable: "bp"}}, rename.Pairs)
 
 	stmts, err = parseQueryEvent([]byte("RENAME TABLE fixture TO FAST"), 0, true)
 	require.NoError(t, err)
 	require.Len(t, stmts, 1)
 	rename, ok = stmts[0].(*ddlRenameTable)
 	require.True(t, ok, "expected *ddlRenameTable, got %T", stmts[0])
-	require.Equal(t, []ddlRenamePair{{OldTable: "fixture", NewTable: "FAST"}}, rename.Pairs)
+	require.Equal(t, []ddlRenamePair{{OldTable: "fixture", NewTable: "fast"}}, rename.Pairs)
+
+	stmts, err = parseQueryEvent(
+		[]byte("/*!RENAME TABLE `)ydb`.`mytable` TO SLAVE_POS, `mydb`.`_mytable_new` TO `mydb`.`mytable` */"), 0, true)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	rename, ok = stmts[0].(*ddlRenameTable)
+	require.True(t, ok, "expected *ddlRenameTable, got %T", stmts[0])
+	require.Equal(t, []ddlRenamePair{
+		{OldSchema: ")ydb", OldTable: "mytable", NewTable: "slave_pos"},
+		{OldSchema: "mydb", OldTable: "_mytable_new", NewSchema: "mydb", NewTable: "mytable"},
+	}, rename.Pairs)
 
 	stmts, err = parseQueryEvent([]byte("ALTER TABLE t ADD COLUMN c INT, RENAME TO t2"), 0, false)
 	require.NoError(t, err)

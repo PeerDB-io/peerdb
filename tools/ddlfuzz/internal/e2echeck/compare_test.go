@@ -20,6 +20,21 @@ func TestCompareSemanticsRenameTableIgnoresColumnSnapshotDelta(t *testing.T) {
 	}
 }
 
+func TestCompareSemanticsRenameTableCaseInsensitiveWhenRequested(t *testing.T) {
+	parsed := ParsedStmts{Stmts: []ParsedStmt{{
+		Kind:  "rename_table",
+		Pairs: []ParsedPair{{OldTable: "fixture", NewTable: "fast"}},
+	}}}
+	actual := Delta{Renamed: []RenameSummary{{Old: "fixture", New: "FAST"}}}
+
+	if got := CompareSemantics(SemanticInput{Actual: actual}, parsed); len(got) != 1 {
+		t.Fatalf("case-sensitive rename findings = %v, want one", got)
+	}
+	if got := CompareSemantics(SemanticInput{Actual: actual, CaseInsensitiveTableRename: true}, parsed); len(got) != 0 {
+		t.Fatalf("case-insensitive rename findings = %v, want none", got)
+	}
+}
+
 func TestCompareSemanticsIgnoresRecordedColumnKeyOnlyChange(t *testing.T) {
 	before := ColRow{Name: "c", Ordinal: 1, ColumnType: "int", IsNullable: "YES"}
 	after := before

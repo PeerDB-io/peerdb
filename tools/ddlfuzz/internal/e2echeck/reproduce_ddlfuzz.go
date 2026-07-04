@@ -116,9 +116,10 @@ func reproduceSemantics(in Input) (Result, error) {
 		return diverged(ClassParseErrorLiveAccept, "parse-error-live-accept", err.Error()), nil
 	}
 	findings := CompareSemantics(SemanticInput{
-		Before: in.Before,
-		After:  in.After,
-		Actual: in.Delta,
+		Before:                     in.Before,
+		After:                      in.After,
+		Actual:                     in.Delta,
+		CaseInsensitiveTableRename: in.IsMariaDB,
 	}, parsed)
 	return resultFromFindings(findings), nil
 }

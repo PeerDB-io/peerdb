@@ -6,9 +6,10 @@ import (
 )
 
 type SemanticInput struct {
-	Before Snapshot
-	After  Snapshot
-	Actual Delta
+	Before                     Snapshot
+	After                      Snapshot
+	Actual                     Delta
+	CaseInsensitiveTableRename bool
 }
 
 type SemanticFinding struct {
@@ -118,7 +119,7 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 
 	if len(pred.TablePairs) > 0 {
 		for _, pair := range pred.TablePairs {
-			if !containsRename(actual.Renamed, pair.OldTable, pair.NewTable) {
+			if !containsRename(actual.Renamed, pair.OldTable, pair.NewTable, in.CaseInsensitiveTableRename) {
 				out = append(out, SemanticFinding{
 					Class: ClassMissedColumnEffect,
 					Meta: map[string]any{
@@ -330,9 +331,12 @@ func compareBoolSet(pred map[string]bool, actual map[string]bool) (missing, unex
 	return missing, unexpected
 }
 
-func containsRename(items []RenameSummary, oldName, newName string) bool {
+func containsRename(items []RenameSummary, oldName, newName string, caseInsensitive bool) bool {
 	for _, item := range items {
 		if item.Old == oldName && item.New == newName {
+			return true
+		}
+		if caseInsensitive && strings.EqualFold(item.Old, oldName) && strings.EqualFold(item.New, newName) {
 			return true
 		}
 	}

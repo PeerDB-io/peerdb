@@ -735,8 +735,13 @@ type sigCol struct {
 }
 
 type sigPair struct {
-	old string
-	new string
+	old sigName
+	new sigName
+}
+
+type sigName struct {
+	schema string
+	table  string
 }
 
 func parseSignature(sig string) ([]sigStmt, error) {
@@ -846,11 +851,11 @@ func parseRename(part string) (sigStmt, error) {
 		if !ok {
 			return sigStmt{}, fmt.Errorf("bad rename pair %q", p)
 		}
-		old, ok := parseSigIdent(strings.TrimSpace(oldRaw))
+		old, ok := parseSigName(strings.TrimSpace(oldRaw))
 		if !ok {
 			return sigStmt{}, fmt.Errorf("bad rename old identifier %q", p)
 		}
-		newName, ok := parseSigIdent(strings.TrimSpace(newRaw))
+		newName, ok := parseSigName(strings.TrimSpace(newRaw))
 		if !ok {
 			return sigStmt{}, fmt.Errorf("bad rename new identifier %q", p)
 		}
@@ -1054,6 +1059,25 @@ func parseSigIdent(s string) (string, bool) {
 	return s, true
 }
 
+func parseSigName(s string) (sigName, bool) {
+	if schemaRaw, tableRaw, ok := cutSignatureSep(s, '.'); ok {
+		schema, ok := parseSigIdent(strings.TrimSpace(schemaRaw))
+		if !ok {
+			return sigName{}, false
+		}
+		table, ok := parseSigIdent(strings.TrimSpace(tableRaw))
+		if !ok {
+			return sigName{}, false
+		}
+		return sigName{schema: schema, table: table}, true
+	}
+	table, ok := parseSigIdent(s)
+	if !ok {
+		return sigName{}, false
+	}
+	return sigName{table: table}, true
+}
+
 func parseQuotedSigIdent(s string) (string, int, bool) {
 	if !strings.HasPrefix(s, "`") {
 		return "", 0, false
@@ -1103,7 +1127,7 @@ func renderSignature(stmts []sigStmt) string {
 		case "rename":
 			pairs := make([]string, 0, len(st.pairs))
 			for _, p := range st.pairs {
-				pairs = append(pairs, sigIdent(p.old)+">"+sigIdent(p.new))
+				pairs = append(pairs, sigQual(p.old.schema, p.old.table)+">"+sigQual(p.new.schema, p.new.table))
 			}
 			parts = append(parts, "rename "+strings.Join(pairs, ", "))
 		}

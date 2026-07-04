@@ -1,0 +1,1 @@
+/*!RENAME TABLE `)ydb`.`mytable` TO SLAVE_POS, `mydb`.`_mytable_new` TO `mydb`.`mytable` */

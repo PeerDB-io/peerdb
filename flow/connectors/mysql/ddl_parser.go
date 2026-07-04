@@ -148,40 +148,48 @@ func (p *ddlParser) consumeWords(kws ...string) bool {
 }
 
 func (p *ddlParser) expectIdent(what string) (string, error) {
+	t, err := p.expectIdentToken(what)
+	if err != nil {
+		return "", err
+	}
+	return t.text, nil
+}
+
+func (p *ddlParser) expectIdentToken(what string) (ddlToken, error) {
 	t := p.peek(0)
 	if t.kind == tokWord || t.kind == tokQuotedIdent {
 		p.next()
-		return t.text, nil
+		return t, nil
 	}
 	if t.kind == tokErr {
-		return "", p.lexErr
+		return ddlToken{}, p.lexErr
 	}
-	return "", fmt.Errorf("expected %s at byte %d", what, t.pos)
+	return ddlToken{}, fmt.Errorf("expected %s at byte %d", what, t.pos)
 }
 
-func (p *ddlParser) normalizeTableIdent(name string) string {
+func (p *ddlParser) normalizeTableIdent(t ddlToken) string {
 	if p.lx.isMariaDB {
-		return strings.ToLower(name)
+		return strings.ToLower(t.text)
 	}
-	return name
+	return t.text
 }
 
-func (p *ddlParser) parseTableIdentWith(normalize func(string) string) (string, string, error) {
+func (p *ddlParser) parseTableIdentWith(normalize func(ddlToken) string) (string, string, error) {
 	if p.peekPunct(0, '.') {
 		p.next()
-		table, err := p.expectIdent("table name after '.'")
+		table, err := p.expectIdentToken("table name after '.'")
 		if err != nil {
 			return "", "", err
 		}
 		return "", normalize(table), nil
 	}
-	first, err := p.expectIdent("table name")
+	first, err := p.expectIdentToken("table name")
 	if err != nil {
 		return "", "", err
 	}
 	if p.peekPunct(0, '.') {
 		p.next()
-		table, err := p.expectIdent("table name after '.'")
+		table, err := p.expectIdentToken("table name after '.'")
 		if err != nil {
 			return "", "", err
 		}
@@ -197,7 +205,7 @@ func (p *ddlParser) parseTableIdent() (string, string, error) {
 }
 
 func (p *ddlParser) parseAlterTableRenameIdent() (string, string, error) {
-	return p.parseTableIdentWith(func(name string) string { return name })
+	return p.parseTableIdentWith(func(t ddlToken) string { return t.text })
 }
 
 // skipLockWait consumes MariaDB's WAIT n | NOWAIT lock timeout clause.
@@ -1434,7 +1442,7 @@ func (p *ddlParser) parseRenameTable() (*ddlRenameTable, error) {
 			}
 			return nil, fmt.Errorf("expected TO in RENAME TABLE at byte %d", t.pos)
 		}
-		newSchema, newTable, err := p.parseAlterTableRenameIdent()
+		newSchema, newTable, err := p.parseTableIdent()
 		if err != nil {
 			return nil, err
 		}

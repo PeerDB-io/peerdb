@@ -135,6 +135,29 @@ func TestDiffReconciliationRules(t *testing.T) {
 			}}},
 		},
 		{
+			name:   "qualified rename with escaped schema",
+			our:    "rename `)ydb`.mytable>slave_pos, mydb._mytable_new>mydb.mytable",
+			engine: run.EngineMariaDB,
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "rename_table",
+				Pairs: []digest.Pair{
+					{OldSchema: ")ydb", OldTable: "mytable", NewTable: "slave_pos"},
+					{OldSchema: "mydb", OldTable: "_mytable_new", NewSchema: "mydb", NewTable: "mytable"},
+				},
+			}}},
+		},
+		{
+			name: "quoted dotted rename target differs from schema-qualified target",
+			our:  "rename `a.b`>c",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
+				Kind: "rename_table",
+				Pairs: []digest.Pair{
+					{OldSchema: "a", OldTable: "b", NewTable: "c"},
+				},
+			}}},
+			want: "sig_mismatch",
+		},
+		{
 			name: "alter table rename to same name is a noop",
 			our:  "alter t{}",
 			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{
