@@ -347,8 +347,10 @@ func TestDDLAlterHeadModifiers(t *testing.T) {
 
 func TestDDLAlterRenameTableForms(t *testing.T) {
 	for _, tc := range []struct {
-		query string
-		want  ddlRenamePair
+		query   string
+		sqlMode uint64
+		maria   bool
+		want    ddlRenamePair
 	}{
 		{
 			query: "ALTER TABLE t RENAME TO t2",
@@ -370,9 +372,19 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 			query: "ALTER TABLE t RENAME period",
 			want:  ddlRenamePair{OldTable: "t", NewTable: "period"},
 		},
+		{
+			query: "ALTER TABLE t RENAME REMOVE REMOVE PARTITIONING",
+			want:  ddlRenamePair{OldTable: "t", NewTable: "REMOVE"},
+		},
+		{
+			query:   "ALTER TABLE t RENAME CLOB",
+			sqlMode: sqlModeOracle,
+			maria:   true,
+			want:    ddlRenamePair{OldTable: "t", NewTable: "CLOB"},
+		},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
-			stmts, err := parseQueryEvent([]byte(tc.query), 0, false)
+			stmts, err := parseQueryEvent([]byte(tc.query), tc.sqlMode, tc.maria)
 			require.NoError(t, err)
 			require.Len(t, stmts, 1)
 			rename, ok := stmts[0].(*ddlRenameTable)

@@ -166,16 +166,14 @@ func (p *ddlParser) normalizeTableIdent(name string) string {
 	return name
 }
 
-// parseTableIdent parses ident, ident.ident, or .ident (any quoting; after '.'
-// even all-digit words are identifiers). Schema is empty when unqualified.
-func (p *ddlParser) parseTableIdent() (string, string, error) {
+func (p *ddlParser) parseTableIdentWith(normalize func(string) string) (string, string, error) {
 	if p.peekPunct(0, '.') {
 		p.next()
 		table, err := p.expectIdent("table name after '.'")
 		if err != nil {
 			return "", "", err
 		}
-		return "", p.normalizeTableIdent(table), nil
+		return "", normalize(table), nil
 	}
 	first, err := p.expectIdent("table name")
 	if err != nil {
@@ -187,9 +185,19 @@ func (p *ddlParser) parseTableIdent() (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		return p.normalizeTableIdent(first), p.normalizeTableIdent(table), nil
+		return normalize(first), normalize(table), nil
 	}
-	return "", p.normalizeTableIdent(first), nil
+	return "", normalize(first), nil
+}
+
+// parseTableIdent parses ident, ident.ident, or .ident (any quoting; after '.'
+// even all-digit words are identifiers). Schema is empty when unqualified.
+func (p *ddlParser) parseTableIdent() (string, string, error) {
+	return p.parseTableIdentWith(p.normalizeTableIdent)
+}
+
+func (p *ddlParser) parseAlterTableRenameIdent() (string, string, error) {
+	return p.parseTableIdentWith(func(name string) string { return name })
 }
 
 // skipLockWait consumes MariaDB's WAIT n | NOWAIT lock timeout clause.
@@ -335,6 +343,9 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 		}
 		if pair != nil {
 			rename = pair
+			if err := p.consumeAlterTableRenameTail(); err != nil {
+				return nil, err
+			}
 		}
 		t = p.peek(0)
 		switch {
@@ -617,7 +628,20 @@ func (p *ddlParser) parseAlterTableRenameTarget() (string, string, error) {
 	if ddlWordIs(p.peek(0), "TO") || ddlWordIs(p.peek(0), "AS") || p.peekPunct(0, '=') {
 		p.next()
 	}
-	return p.parseTableIdent()
+	return p.parseAlterTableRenameIdent()
+}
+
+func (p *ddlParser) consumeAlterTableRenameTail() error {
+	switch {
+	case ddlWordIs(p.peek(0), "REMOVE") && ddlWordIs(p.peek(1), "PARTITIONING"):
+		p.next()
+		p.next()
+		return nil
+	case ddlWordIs(p.peek(0), "PARTITION") && ddlWordIs(p.peek(1), "BY"):
+		return p.skipSpecRemainder()
+	default:
+		return nil
+	}
 }
 
 // skipSpecRemainder consumes the rest of the current alter spec — until a ',' or
