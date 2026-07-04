@@ -1,5 +1,3 @@
-//go:build ddlfuzz
-
 package replay
 
 import (

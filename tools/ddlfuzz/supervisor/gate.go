@@ -35,9 +35,8 @@ func gateSteps(cfg Config) []GateStep {
 		{Name: "flow go vet mysql", Dir: flow, Timeout: 5 * time.Minute, Args: []string{"go", "vet", "./connectors/mysql/"}},
 		{Name: "flow mysql ddl tests", Dir: flow, Timeout: 10 * time.Minute, Args: []string{"go", "test", "./connectors/mysql/", "-run", "TestDDL|TestProcessRenameTableQueryMetric|TestClassifyOnlineSchemaMigrationTool", "-count=1"}},
 		{Name: "flow golangci-lint mysql", Dir: flow, Timeout: 10 * time.Minute, Args: []string{"golangci-lint", "run", "./connectors/mysql/..."}},
-		{Name: "flow ddlfuzz tag build", Dir: flow, Timeout: 10 * time.Minute, Args: []string{"go", "build", "-tags", "ddlfuzz", "./..."}},
 		{Name: "ddlfuzz go test", Dir: cfg.DDLDir, Timeout: 15 * time.Minute, Args: []string{"go", "test", "./..."}},
-		{Name: "ddlfuzz tag build", Dir: cfg.DDLDir, Timeout: 10 * time.Minute, Args: []string{"go", "build", "-tags", "ddlfuzz", "./..."}},
+		{Name: "ddlfuzz go build", Dir: cfg.DDLDir, Timeout: 10 * time.Minute, Args: []string{"go", "build", "./..."}},
 	}
 }
 

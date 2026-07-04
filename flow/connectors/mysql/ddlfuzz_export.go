@@ -1,5 +1,3 @@
-//go:build ddlfuzz
-
 package connmysql
 
 import (
@@ -196,7 +194,7 @@ func fuzzDDLStmtsToE2E(stmts []ddlStatement) e2eStmts {
 		case *ddlRenameTable:
 			es := e2eStmt{Kind: "rename_table"}
 			for _, p := range st.Pairs {
-				es.Pairs = append(es.Pairs, e2ePair{p.OldSchema, p.OldTable, p.NewSchema, p.NewTable})
+				es.Pairs = append(es.Pairs, e2ePair(p))
 			}
 			out.Stmts = append(out.Stmts, es)
 		}

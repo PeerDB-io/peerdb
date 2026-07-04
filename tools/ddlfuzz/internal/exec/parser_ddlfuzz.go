@@ -1,5 +1,3 @@
-//go:build ddlfuzz
-
 package exec
 
 import connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"

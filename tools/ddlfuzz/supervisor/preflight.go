@@ -138,14 +138,14 @@ func RunPreflight(ctx context.Context, cfg *Config, logf func(string, ...any)) e
 		if err := os.MkdirAll(cfg.BuildDir, 0o755); err != nil {
 			return err
 		}
-		res, err := RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, "go", "build", "-tags", "ddlfuzz", "-o", cfg.DDLfuzzBin, "./cmd/ddlfuzz")
+		res, err := RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, "go", "build", "-o", cfg.DDLfuzzBin, "./cmd/ddlfuzz")
 		if err != nil || res.ExitCode != 0 {
 			if err == nil {
 				err = fmt.Errorf("exit code %d", res.ExitCode)
 			}
 			return fmt.Errorf("go build ddlfuzz failed: %w\n%s", err, resultOutputTail(res, 8000))
 		}
-		res, err = RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, "go", "build", "-tags", "ddlfuzz", "-o", cfg.E2EBin, "./cmd/ddlfuzz-e2e")
+		res, err = RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, "go", "build", "-o", cfg.E2EBin, "./cmd/ddlfuzz-e2e")
 		if err != nil || res.ExitCode != 0 {
 			if err == nil {
 				err = fmt.Errorf("exit code %d", res.ExitCode)

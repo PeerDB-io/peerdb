@@ -1,5 +1,3 @@
-//go:build ddlfuzz
-
 package main
 
 import (

@@ -1,5 +1,3 @@
-//go:build ddlfuzz
-
 package e2echeck
 
 import (

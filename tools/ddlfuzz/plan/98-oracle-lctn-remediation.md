@@ -231,6 +231,16 @@ anchor's expected sig MUST contain an uppercase letter — that is the anchor's 
   against the rebuilt oracle).
 - `uv run oracle/mariadb/smoke.py` and the mysql smoke.
 
+### 9. Remove the `ddlfuzz` build tag (added post-plan)
+
+Separation was never the tag's doing — deps are isolated by the tools/ddlfuzz module split and
+the campaign by the branch. The tag's only real effect was the `!ddlfuzz` stubs, which made it
+possible to build a `ddlfuzz` binary whose parser errors on every input (99-gaps D8; bit the
+step-8 golden verification here). Untag the shim + e2e lane + e2echeck/exec, delete the stubs,
+drop the two tag-build gate steps and every `-tags ddlfuzz` in supervisor/prompt/scripts.
+Bonus: lint and `go test ./...` now cover the shim and the e2e package by default (both were
+previously exercised only under the tag, i.e. never by the gate).
+
 ### Commits
 
 Small commits on this branch, no co-author trailer:
