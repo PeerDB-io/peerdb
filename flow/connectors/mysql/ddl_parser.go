@@ -1242,6 +1242,13 @@ func (p *ddlParser) parseColumnAttributeWord(st *ddlColumnState, spec *ddlAlterS
 		return p.skipColumnAttributeValue()
 	case ddlWordIs(t, "REFERENCES"):
 		return p.skipColumnReference()
+	case ddlWordIs(t, "COLUMN_FORMAT") || ddlWordIs(t, "STORAGE"):
+		p.next()
+		if v := p.peek(0); v.kind == tokWord || v.kind == tokString || v.kind == tokQuotedIdent {
+			p.next()
+		} else if v.kind == tokErr {
+			return p.lexErr
+		}
 	case ddlWordIs(t, "NOT") && ddlWordIs(p.peek(1), "NULL"):
 		st.notNull = true
 		p.next()

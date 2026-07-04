@@ -141,6 +141,10 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 				NewColumns: []ddlColumnDef{{Name: "new_c", TypeStr: "tinyint(1)", Precision: 1, Scale: -1}},
 			}},
 		},
+		{
+			alter: "ADD COLUMN c VARCHAR(255) STORAGE DEFAULT AFTER b",
+			want:  []ddlAlterSpec{ddlAltPos(ddlAltAddSpec(ddlAltCol("c", "varchar(255)")))},
+		},
 		// ambiguity #6/#7: any non-branch word after DROP is a column drop
 		{alter: "DROP period", want: ddlAltDrop("period")},
 		{alter: "DROP vector", want: ddlAltDrop("vector")},
