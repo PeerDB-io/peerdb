@@ -159,6 +159,13 @@ func (p *ddlParser) expectIdent(what string) (string, error) {
 	return "", fmt.Errorf("expected %s at byte %d", what, t.pos)
 }
 
+func (p *ddlParser) normalizeTableIdent(name string) string {
+	if p.lx.isMariaDB {
+		return strings.ToLower(name)
+	}
+	return name
+}
+
 // parseTableIdent parses ident, ident.ident, or .ident (any quoting; after '.'
 // even all-digit words are identifiers). Schema is empty when unqualified.
 func (p *ddlParser) parseTableIdent() (string, string, error) {
@@ -168,7 +175,7 @@ func (p *ddlParser) parseTableIdent() (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		return "", table, nil
+		return "", p.normalizeTableIdent(table), nil
 	}
 	first, err := p.expectIdent("table name")
 	if err != nil {
@@ -180,9 +187,9 @@ func (p *ddlParser) parseTableIdent() (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		return first, table, nil
+		return p.normalizeTableIdent(first), p.normalizeTableIdent(table), nil
 	}
-	return "", first, nil
+	return "", p.normalizeTableIdent(first), nil
 }
 
 // skipLockWait consumes MariaDB's WAIT n | NOWAIT lock timeout clause.

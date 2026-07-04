@@ -458,7 +458,7 @@ func TestDDLAlterRenameTableForms(t *testing.T) {
 	require.Len(t, stmts, 1)
 	rename = stmts[0].(*ddlRenameTable)
 	require.Equal(t, []ddlRenamePair{
-		{OldTable: "ROLLUP", NewSchema: "mydb", NewTable: "_mytable_old"},
+		{OldTable: "rollup", NewSchema: "mydb", NewTable: "_mytable_old"},
 		{OldSchema: "mydb", OldTable: "_mytable_new", NewSchema: "mydb", NewTable: "mytable"},
 	}, rename.Pairs)
 
