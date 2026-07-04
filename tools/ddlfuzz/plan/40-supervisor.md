@@ -78,7 +78,7 @@ arrays); the Go module already exists and component 20 is Go; one binary removes
 - C9. Compose stack: `docker compose -f tools/ddlfuzz/e2e/compose.yml up -d --wait` / `down`.
   Supervisor owns up/down; 30 owns what's inside.
 - C10. Lane process: `build/ddlfuzz-e2e --state tools/ddlfuzz/state` (built via
-  `go build -tags ddlfuzz -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e` from `tools/ddlfuzz/` — path per
+  `go build -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e` from `tools/ddlfuzz/` — path per
   00-overview Reconciliation decision D6); runs until SIGTERM (clean exit ≤ 60s); writes
   `state/e2e-stats.json` (D6; 30's per-engine schema) every 10s. The supervisor treats it as an
   opaque heartbeat: it reads `updated_at` for staleness and sums per-engine counters for the
@@ -217,8 +217,8 @@ report, exit 0. INT/TERM to the supervisor triggers the same path immediately.
 
 Disk watchdog (state volume free space via statfs + `docker system df`): `<10GiB` ⇒ compose down +
 kill lane (e2e is the big consumer), `escalations/run-disk-low.md`, continue fast lane; re-enable
-e2e if free rises back above 20GiB. `<3GiB` ⇒ additionally gzip attempt transcripts older than 6h
-and pause fix-agent launches until >5GiB. Never delete corpus/findings/coverage.
+e2e if free rises back above 20GiB. `<3GiB` ⇒ pause fix-agent launches until >5GiB. Never delete
+corpus/findings/coverage; attempt-transcript gzip is descoped.
 
 ### Startup sequence (inside `ddlsuper run`; all preflight is here — synchronous, before any
 supervision, while the human is still at the keyboard)
@@ -234,7 +234,7 @@ exit 2 — the run never begins. `rm -f state/BLOCKED` on entry.
 3. Tools present: `codex`, `docker` (+ `docker info` succeeds), `jq`, `golangci-lint`, `go` on
    PATH. Resolve and cache `go env GOCACHE GOMODCACHE` for the codex `--add-dir` flags.
 4. Disk: ≥ 40 GiB free on the state volume.
-5. Builds: `go build -o build/ddlfuzz ./cmd/ddlfuzz` and `go build -tags ddlfuzz -o
+5. Builds: `go build -o build/ddlfuzz ./cmd/ddlfuzz` and `go build -o
    build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e` (from `tools/ddlfuzz/`); oracle binaries: if
    `build/oracle-{mysql,mariadb}`
    missing, run the respective `oracle/*/build.sh`.
@@ -326,7 +326,7 @@ go build ./...                                                                  
 go vet ./connectors/mysql/                                                      # 5m
 go test ./connectors/mysql/ -run 'TestDDL|TestProcessRenameTableQueryMetric|TestClassifyOnlineSchemaMigrationTool' -count=1   # 10m
 golangci-lint run ./connectors/mysql/...                                        # 10m
-go build -tags ddlfuzz ./...                                                    # 10m
+go build ./...                                                                  # 10m
 cd /Users/ilia/Code/peerdb/tools/ddlfuzz
 go test ./...                                                                   # 15m
 ```
@@ -370,6 +370,8 @@ Diagnosis extraction: `jq -r 'select(.type=="item.completed" and .item.type=="ag
 over the attempt stream-jsonl (codex `--json` events), last 40 lines kept.
 
 ### Fix-agent prompt template (`tools/ddlfuzz/supervisor/prompt.tmpl`, complete text)
+
+Ratification: the shipped `supervisor/prompt.tmpl` is authoritative over the embedded copy below.
 
 Placeholders `{NAME}` are substituted by `ddlsuper` with plain string replacement. `{SIBLINGS}` is
 "none" or a bulleted list of `sig — class/shape — repro path`. `{PRIOR_ATTEMPTS_SUMMARY}` is "none"
@@ -442,7 +444,7 @@ PROTOCOL — follow strictly, in order:
       cd flow && go build ./... && go vet ./connectors/mysql/ \
         && go test ./connectors/mysql/ -run 'TestDDL|TestProcessRenameTableQueryMetric|TestClassifyOnlineSchemaMigrationTool' -count=1 \
         && golangci-lint run ./connectors/mysql/... \
-        && go build -tags ddlfuzz ./...
+        && go build ./...
       cd ../tools/ddlfuzz && go test ./...
     And: tools/ddlfuzz/build/ddlfuzz replay {SIG} must now exit 0 (buckets 1/2). For bucket 3 it
     may still exit 10 — the ledger entry is the resolution.

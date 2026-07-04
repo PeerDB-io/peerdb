@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/compare"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/corpus"
 )
 
@@ -347,11 +346,4 @@ func identBoundary(s []byte, idx int) bool {
 	}
 	_, size := utf8.DecodeRune(s[idx:])
 	return size == 0
-}
-
-func splitTopLevelFallback(b []byte, sep byte) [][]byte {
-	defer func() {
-		_ = recover()
-	}()
-	return compare.SplitTopLevel(b, sep)
 }

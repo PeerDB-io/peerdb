@@ -522,22 +522,6 @@ func readFinding(stateDir, sig string) (map[string]any, []byte, error) {
 	return meta, sql, nil
 }
 
-func statusOf(stateDir, sig string) string {
-	b, err := os.ReadFile(filepath.Join(stateDir, "findings", sig, "meta.json"))
-	if err != nil {
-		return "malformed"
-	}
-	var meta map[string]any
-	if err := json.Unmarshal(b, &meta); err != nil {
-		return "malformed"
-	}
-	s, _ := meta["status"].(string)
-	if s == "" {
-		s = "open"
-	}
-	return s
-}
-
 func ErrMissingOracle(path string) error {
 	return fmt.Errorf("oracle binary not found: %s", path)
 }

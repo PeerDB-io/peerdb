@@ -139,22 +139,6 @@ func setupEngineSchemas(ctx context.Context, ec engineConfig, workers int) error
 	return nil
 }
 
-func resetFixture(conn *client.Conn, isMariaDB bool, currentTable string) error {
-	if currentTable == "" {
-		currentTable = fixtureTable
-	}
-	if _, err := conn.Execute("DROP TABLE IF EXISTS " + quoteIdent(currentTable)); err != nil {
-		return err
-	}
-	if currentTable != fixtureTable {
-		if _, err := conn.Execute("DROP TABLE IF EXISTS " + quoteIdent(fixtureTable)); err != nil {
-			return err
-		}
-	}
-	_, err := conn.Execute(fixtureCreateSQL(isMariaDB))
-	return err
-}
-
 func shouldReset(after snapshot, currentTable string, casesSinceReset int) resetDecision {
 	if currentTable != fixtureTable {
 		return resetDecision{Needed: true, Why: "table-renamed"}
@@ -242,9 +226,4 @@ func fallbackFreshName(seq uint64, s snapshot) string {
 		}
 	}
 	return name
-}
-
-func isFixtureRename(stmt string) bool {
-	up := strings.ToUpper(strings.TrimSpace(stmt))
-	return strings.HasPrefix(up, "RENAME TABLE")
 }

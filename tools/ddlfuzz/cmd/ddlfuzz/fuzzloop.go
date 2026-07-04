@@ -208,7 +208,10 @@ func runFuzzLoop(ctx context.Context, cfg config) int {
 		fmt.Fprintf(os.Stderr, "fuzz: corpus reload: %v\n", err)
 		return 1
 	}
-	seeds, _ := seed.LoadDir(cfg.seedsDir)
+	seeds, err := seed.LoadDir(cfg.seedsDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fuzz: seed load: %v\n", err)
+	}
 	loop.loadSeedBases(seeds)
 	loop.openFindings = countOpenFindings(cfg.stateDir)
 

@@ -484,11 +484,9 @@ func captureBinlogPosition(ec engineConfig) (gomysql.Position, error) {
 	}
 	defer conn.Close()
 
-	queries := []string{"SHOW BINARY LOG STATUS"}
+	queries := []string{"SHOW BINARY LOG STATUS", "SHOW MASTER STATUS"}
 	if ec.IsMariaDB {
 		queries = []string{"SHOW BINLOG STATUS", "SHOW MASTER STATUS"}
-	} else {
-		queries = []string{"SHOW BINARY LOG STATUS", "SHOW MASTER STATUS"}
 	}
 	var lastErr error
 	for _, query := range queries {

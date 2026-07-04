@@ -17,7 +17,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/corpus"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/golden"
-	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/minimize"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/replay"
 )
 
@@ -28,7 +27,6 @@ type config struct {
 	oracleProcsPerEngine int
 	oracleBatchTimeout   time.Duration
 	batch                int
-	execWorkers          int
 	genWorkers           int
 	caseDeadline         time.Duration
 	memCeiling           int64
@@ -37,7 +35,6 @@ type config struct {
 	engineBias           float64
 	mutRatio             float64
 	statsInterval        time.Duration
-	minimizeBudget       time.Duration
 	maxOpenFindings      int
 	duration             time.Duration
 	corpusBudget         int64
@@ -45,10 +42,6 @@ type config struct {
 }
 
 func defaultConfig() config {
-	execWorkers := runtime.GOMAXPROCS(0) - 2
-	if execWorkers < 1 {
-		execWorkers = 1
-	}
 	baseDir := defaultBaseDir()
 	return config{
 		stateDir:             filepath.Join(baseDir, "state"),
@@ -57,7 +50,6 @@ func defaultConfig() config {
 		oracleProcsPerEngine: 5,
 		oracleBatchTimeout:   10 * time.Second,
 		batch:                1000,
-		execWorkers:          execWorkers,
 		genWorkers:           2,
 		caseDeadline:         100 * time.Millisecond,
 		memCeiling:           4 << 30,
@@ -65,7 +57,6 @@ func defaultConfig() config {
 		engineBias:           0.5,
 		mutRatio:             0.6,
 		statsInterval:        5 * time.Second,
-		minimizeBudget:       30 * time.Second,
 		maxOpenFindings:      200,
 		corpusBudget:         40 << 30,
 		retainPerPoll:        256,
@@ -86,7 +77,6 @@ func addCommonFlags(fs *flag.FlagSet, cfg *config) {
 	fs.IntVar(&cfg.oracleProcsPerEngine, "oracle-procs-per-engine", cfg.oracleProcsPerEngine, "oracle processes per engine")
 	fs.DurationVar(&cfg.oracleBatchTimeout, "oracle-batch-timeout", cfg.oracleBatchTimeout, "oracle batch timeout")
 	fs.IntVar(&cfg.batch, "batch", cfg.batch, "cases per oracle batch")
-	fs.IntVar(&cfg.execWorkers, "exec-workers", cfg.execWorkers, "parser execution workers")
 	fs.IntVar(&cfg.genWorkers, "gen-workers", cfg.genWorkers, "generator workers")
 	fs.DurationVar(&cfg.caseDeadline, "case-deadline", cfg.caseDeadline, "per-case parser deadline")
 	fs.Int64Var(&cfg.memCeiling, "mem-ceiling", cfg.memCeiling, "memory ceiling in bytes")
@@ -95,7 +85,6 @@ func addCommonFlags(fs *flag.FlagSet, cfg *config) {
 	fs.Float64Var(&cfg.engineBias, "engine-bias", cfg.engineBias, "probability of choosing MySQL")
 	fs.Float64Var(&cfg.mutRatio, "mut-ratio", cfg.mutRatio, "mutation ratio")
 	fs.DurationVar(&cfg.statsInterval, "stats-interval", cfg.statsInterval, "stderr stats interval")
-	fs.DurationVar(&cfg.minimizeBudget, "minimize-budget", cfg.minimizeBudget, "minimization time budget")
 	fs.IntVar(&cfg.maxOpenFindings, "max-open-findings", cfg.maxOpenFindings, "maximum open findings to record")
 	fs.DurationVar(&cfg.duration, "duration", cfg.duration, "fuzzing duration; 0 runs until signal")
 	fs.Int64Var(&cfg.corpusBudget, "corpus-budget", cfg.corpusBudget, "corpus SQLite disk budget in bytes; 0 = unlimited")
@@ -127,7 +116,7 @@ func main() {
 
 	cmd := args[0]
 	switch cmd {
-	case "fuzz", "golden", "replay", "minimize", "corpus-migrate":
+	case "fuzz", "golden", "replay", "corpus-migrate":
 		os.Exit(runCommand(cmd, cfg, args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", cmd)
@@ -203,13 +192,6 @@ func runCommand(cmd string, cfg config, args []string) int {
 			sig = rest[0]
 		}
 		return replay.Run(ctx, rcfg, sig, os.Stdout)
-	case "minimize":
-		rest := fs.Args()
-		if len(rest) != 1 {
-			fs.Usage()
-			return 2
-		}
-		return runMinimize(cfg, rest[0])
 	case "corpus-migrate":
 		rest := fs.Args()
 		if len(rest) != 0 {
@@ -223,7 +205,7 @@ func runCommand(cmd string, cfg config, args []string) int {
 }
 
 func usage(w io.Writer, fs *flag.FlagSet) {
-	fmt.Fprintln(w, "Usage: ddlfuzz [flags] fuzz|golden|replay|minimize|corpus-migrate [args]")
+	fmt.Fprintln(w, "Usage: ddlfuzz [flags] fuzz|golden|replay|corpus-migrate [args]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags:")
 	fs.PrintDefaults()
@@ -252,25 +234,6 @@ func runFuzz(ctx context.Context, cfg config) int {
 	return runFuzzLoop(ctx, cfg)
 }
 
-func runMinimize(cfg config, sig string) int {
-	dir := filepath.Join(cfg.stateDir, "findings", sig)
-	sql, err := os.ReadFile(filepath.Join(dir, "repro.sql"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "minimize: %v\n", err)
-		return 11
-	}
-	minimize.Budget = cfg.minimizeBudget
-	out := minimize.Minimize(sql, 0, "", minimize.FastLanePredicate(sig))
-	if len(out) < len(sql) {
-		if err := os.WriteFile(filepath.Join(dir, "repro.sql"), out, 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "minimize: %v\n", err)
-			return 1
-		}
-	}
-	fmt.Fprintf(os.Stdout, `{"sig":%q,"before":%d,"after":%d}`+"\n", sig, len(sql), len(out))
-	return 0
-}
-
 func runCorpusMigrate(cfg config) int {
 	store, err := corpus.Open(filepath.Join(cfg.stateDir, "corpus.db"), cfg.corpusBudget)
 	if err != nil {
@@ -284,6 +247,7 @@ func runCorpusMigrate(cfg config) int {
 	}
 	return 0
 }
+
 
 func loadOrInitSeed(cfg config) (uint64, error) {
 	if cfg.seed != 0 {

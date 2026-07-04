@@ -56,12 +56,11 @@ func (rt *engineRuntime) nextSeq() (uint64, bool) {
 	return seq, true
 }
 
-func (rt *engineRuntime) runWorker(ctx context.Context, id int, done chan<- struct{}) {
+func (rt *engineRuntime) runWorker(ctx context.Context, id int) {
 	defer func() {
 		if r := recover(); r != nil {
 			rt.reportHarness(fmt.Errorf("worker %d panic: %v", id, r))
 		}
-		done <- struct{}{}
 	}()
 
 	schema := schemaName(id)

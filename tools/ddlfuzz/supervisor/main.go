@@ -542,9 +542,6 @@ func runDiskWatchdog(ctx context.Context, cfg Config, e *E2EManager, logf func(s
 			} else if free > 20*GiB {
 				e.SetDisabled(false)
 			}
-			if free < 3*GiB {
-				gzipOldAttempts(cfg, 6*time.Hour)
-			}
 		}
 	}
 }
@@ -587,19 +584,6 @@ func runOracleCrossCheck(ctx context.Context, cfg Config, logf func(string, ...a
 				logf("oracle cross-check failed: %v (kept %s)\n%s", err, rotated, resultOutputTail(res, 4000))
 			}
 		}
-	}
-}
-
-func gzipOldAttempts(cfg Config, olderThan time.Duration) {
-	// Transcript compression is intentionally best-effort; never delete state.
-	files, _ := filepath.Glob(filepath.Join(cfg.StateDir, "attempts", "*.stream.jsonl"))
-	cutoff := time.Now().Add(-olderThan)
-	for _, path := range files {
-		info, err := os.Stat(path)
-		if err != nil || info.ModTime().After(cutoff) {
-			continue
-		}
-		_, _ = RunTimeout(context.Background(), cfg.StateDir, time.Minute, nil, "gzip", "-f", path)
 	}
 }
 

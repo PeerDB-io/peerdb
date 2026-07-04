@@ -86,12 +86,11 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 			corpus:    corpusStore,
 		}
 		queueChans[ec.Name] = rt.queueChan
-		done := make(chan struct{}, cfg.Workers)
 		for i := 1; i <= cfg.Workers; i++ {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				rt.runWorker(ctx, id, done)
+				rt.runWorker(ctx, id)
 			}(i)
 		}
 	}

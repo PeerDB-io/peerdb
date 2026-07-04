@@ -112,9 +112,6 @@ func pollQueue(ctx context.Context, stateDir string, engineChans map[string]chan
 					_ = os.Rename(item.path, filepath.Join(stateDir, "e2e-queue", "pending", filepath.Base(item.path)))
 				}
 			}
-			for engine := range engineChans {
-				stats.SetPending(engine, stats.Snapshot()[engine].MatcherPending)
-			}
 		}
 	}
 }

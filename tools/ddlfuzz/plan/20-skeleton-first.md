@@ -44,8 +44,9 @@ replace github.com/PeerDB-io/peerdb/flow => ../../flow
 ```
 
 Run `go mod tidy` once after the shim exists (step 2) so the flow module's transitive deps resolve
-through its `go.sum`. Do **not** add TiDB or heavy deps here; stdlib + `flow` only (add
-`golang.org/x/sync` later only if `internal/run` needs errgroup).
+through its `go.sum`. Do **not** add TiDB or heavy deps here; stdlib + `flow` plus sanctioned
+go-mysql and modernc.org/sqlite deps only (add `golang.org/x/sync` later only if `internal/run`
+needs errgroup).
 
 ### 2. `tools/ddlfuzz/.gitignore`
 
@@ -371,7 +372,7 @@ func Record(stateDir string, f Finding) (sig string, isNew bool, err error) {
 }
 ```
 
-**`internal/minimize/minimize.go`** — consumed by 30:
+**`internal/minimize/minimize.go`** — descoped; package removed:
 
 ```go
 package minimize

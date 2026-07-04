@@ -62,7 +62,7 @@ func (c *Conn) ParseBatch(cases []run.Case) ([][]byte, error) {
 		}
 		n := int(binary.LittleEndian.Uint32(body[:4]))
 		body = body[4:]
-		if n < 0 || len(body) < n {
+		if len(body) < n {
 			return nil, io.ErrUnexpectedEOF
 		}
 		out = append(out, body[:n])
@@ -84,7 +84,7 @@ func (c *Conn) GetCoverage() ([]byte, error) {
 	}
 	n := int(binary.LittleEndian.Uint32(body[:4]))
 	body = body[4:]
-	if n < 0 || len(body) < n {
+	if len(body) < n {
 		return nil, io.ErrUnexpectedEOF
 	}
 	return body[:n], nil
@@ -100,7 +100,7 @@ func (c *Conn) Hello() (HelloInfo, error) {
 	}
 	n := int(binary.LittleEndian.Uint32(body[:4]))
 	body = body[4:]
-	if n < 0 || len(body) < n {
+	if len(body) < n {
 		return HelloInfo{}, io.ErrUnexpectedEOF
 	}
 	var hi HelloInfo

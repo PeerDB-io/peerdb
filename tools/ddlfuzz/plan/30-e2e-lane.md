@@ -100,7 +100,8 @@ Everything here lives in `/Users/ilia/Code/peerdb/tools/ddlfuzz/e2e/` plus one t
     writing the 00 `findings/<sig>/{repro.sql,meta.json}` layout with 20's canonical descriptor
     (stable, identifier-insensitive). `Finding` carries class, engine, sql_mode, statement bytes,
     our_sig/our_error, and an opaque `Meta map[string]any` merged into meta.json.
-  - `internal/minimize`: fast-lane minimizer callable in-process:
+  - `internal/minimize`: fast-lane minimizer callable in-process (descoped; findings record
+    `minimized:false`):
     `func Minimize(stmt []byte, sqlMode uint64, engine string, reproduces func([]byte) bool) []byte`.
   - `ddlfuzz replay` subcommand accepting `--from <jsonl> --expect-accept` (oracle cross-check;
     consumed indirectly via supervisor cron — see Cross-checks).
@@ -487,9 +488,8 @@ All findings go through `internal/findings.Record` (20's descriptor → `<sig>`)
 
 `repro.sql` = the submitted statement bytes.
 
-**Minimization**: first try the fast lane — call `internal/minimize.Minimize` with
-`reproduces := func(b []byte) bool { fast-lane check via oracle+shim diverges the same way }`
-(20 exposes this predicate for a single case). If the divergence is e2e-only (oracle and our
+**Minimization**: fast-lane minimization via `internal/minimize` is descoped; findings record
+`minimized:false`. If the divergence is e2e-only (oracle and our
 parse agree; the disagreement is with the live server), fall back to replay-based bisection:
 ddmin over the ALTER spec list (split on top-level commas via a paren/quote-aware splitter —
 reuse 20's tokenizer helper if exported, else a local 30-line splitter), re-executing each
@@ -531,7 +531,8 @@ executions, keep the smallest statement that still reproduces the same class+des
   be throttled hard and still exhaust its purpose. Measure in smoke and record actuals in
   `report.md`.
 - **Backlog throttling**: matcher-pending count per engine (sum of FIFO depths). Workers pause
-  while pending > 256, resume < 64. Keeps binlog lag bounded and memory flat.
+  while pending > 256, resume ≤ 256; low-water hysteresis is descoped. Keeps binlog lag bounded
+  and memory flat.
 - **Stats** `state/e2e-stats.json`, rewritten atomically (tmp+rename) every 10s:
 
   ```jsonc
@@ -699,9 +700,7 @@ Module context: everything in `tools/ddlfuzz` (module `github.com/PeerDB-io/peer
   rejects file feeds profile tightening; no design change needed.
 - **tmpfs memory pressure** (two servers + binlogs in RAM) — binlog on tmpfs grows with query
   text only (~100B/case → ~5GB/72h/engine worst case). Mitigation: `binlog_expire_logs_seconds=86400`
-  plus a 6-hourly `FLUSH BINARY LOGS` + `PURGE BINARY LOGS BEFORE NOW() - INTERVAL 12 HOUR`
-  issued by the stats ticker (matcher lag is bounded to seconds by throttling, so purging
-  >12h-old logs is safe).
+  (24h expiry). The 6-hourly `FLUSH BINARY LOGS` + `PURGE` loop is descoped.
 
 ## Effort
 

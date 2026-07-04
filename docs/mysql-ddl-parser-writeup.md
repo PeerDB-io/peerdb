@@ -106,8 +106,8 @@ unexpected token inside actionable ⇒ error ⇒ reported. LL(2) ambiguity point
 `ADD period date` is a MySQL column vs `ADD PERIOD FOR`/`ADD PERIOD IF` benign; `ADD VECTOR(v)` is a
 MariaDB vector-index add (INDEX/KEY optional there) vs a MySQL column; `SYSTEM`+`VERSIONING`; explicit
 `COLUMN` or `IF [NOT] EXISTS` commits to the column branch *before* those checks. Bare `RENAME <word>` in a
-spec list is a table rename, consumed and dropped (`ALTER ... RENAME TO` parity: the TiDB path never acted
-on it either). MariaDB WAIT n|NOWAIT after table names and per RENAME pair.
+spec list is a table rename and emits a `ddlRenameTable` statement, same as `ALTER ... RENAME TO`.
+MariaDB WAIT n|NOWAIT after table names and per RENAME pair.
 
 Type normalization: canonical lowercase base + `"(params as written)"` + `" unsigned"` (zerofill implies
 unsigned; SERIAL ⇒ bigint unsigned + NotNull; BOOL/BOOLEAN ⇒ synthetic `tinyint(1)`). Synonym map

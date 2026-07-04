@@ -15,7 +15,6 @@ import (
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/e2echeck"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/findings"
-	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/minimize"
 	"github.com/go-mysql-org/go-mysql/replication"
 )
 
@@ -340,10 +339,6 @@ func recordE2EFinding(stateDir string, stats *Stats, in findingInput) int {
 	}
 
 	stmt := slices.Clone(in.Statement)
-	if min, ok := tryMinimize(stmt, in.SQLMode, in.Engine.Name); ok && len(min) > 0 {
-		stmt = min
-		meta["minimized"] = !bytes.Equal(min, in.Statement)
-	}
 
 	f := findings.Finding{
 		Class:     in.Class,
@@ -391,18 +386,6 @@ func callFindingsRecord(stateDir string, f findings.Finding) (sig string, isNew 
 		}
 	}()
 	return findings.Record(stateDir, f)
-}
-
-func tryMinimize(stmt []byte, sqlMode uint64, engine string) (out []byte, ok bool) {
-	defer func() {
-		if recover() != nil {
-			out, ok = nil, false
-		}
-	}()
-	out = minimize.Minimize(stmt, sqlMode, engine, func(candidate []byte) bool {
-		return bytes.Equal(candidate, stmt)
-	})
-	return out, true
 }
 
 func fallbackRecordFinding(stateDir string, f findings.Finding) (string, error) {

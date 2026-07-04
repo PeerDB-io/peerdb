@@ -3,9 +3,7 @@ package seed
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"go/ast"
-	"go/constant"
 	"go/parser"
 	"go/token"
 	"os"
@@ -380,10 +378,6 @@ func evalString(expr ast.Expr) (string, bool) {
 	case *ast.ParenExpr:
 		return evalString(e.X)
 	default:
-		v := constant.MakeFromLiteral(fmt.Sprint(expr), token.STRING, 0)
-		if v.Kind() == constant.String {
-			return constant.StringVal(v), true
-		}
 		return "", false
 	}
 }
