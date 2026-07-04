@@ -11,6 +11,7 @@ import (
 func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, version uint32) (types.QValueKind, error) {
 	// https://mariadb.com/docs/server/reference/data-types/date-and-time-data-types/timestamp#tab-current-1
 	ct, _ = strings.CutSuffix(ct, " /* mariadb-5.3 */")
+	ct = trimMariaDBCompressedColumnType(ct)
 	ct, _ = strings.CutSuffix(ct, " zerofill")
 	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
 	ct, param, _ := strings.Cut(ct, "(")
@@ -73,4 +74,13 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 	default:
 		return types.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
 	}
+}
+
+func trimMariaDBCompressedColumnType(ct string) string {
+	const marker = " /*M!100301 COMPRESSED"
+	upper := strings.ToUpper(ct)
+	if i := strings.Index(upper, marker); i >= 0 && strings.HasSuffix(upper, "*/") {
+		return strings.TrimSpace(ct[:i])
+	}
+	return ct
 }

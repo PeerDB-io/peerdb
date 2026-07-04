@@ -302,3 +302,21 @@ func TestDDLTypesAttributeSkipping(t *testing.T) {
 		{typ: "INT NOT NULL ENABLE", want: ddlTypesCol("int", -1, -1, true), maria: true},
 	})
 }
+
+func TestDDLTypesMariaDBCompressedInfoSchemaSuffix(t *testing.T) {
+	for _, tc := range []struct {
+		columnType string
+		want       string
+	}{
+		{columnType: "blob /*M!100301 COMPRESSED*/", want: "bytes"},
+		{columnType: "text /*M!100301 COMPRESSED=zlib*/", want: "string"},
+		{columnType: "varchar(100) /*M!100301 COMPRESSED*/", want: "string"},
+		{columnType: "tinytext /*M!100301 COMPRESSED=zlib*/", want: "string"},
+	} {
+		t.Run(tc.columnType, func(t *testing.T) {
+			got, err := QkindFromMysqlColumnType(tc.columnType, true, 0)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, string(got))
+		})
+	}
+}
