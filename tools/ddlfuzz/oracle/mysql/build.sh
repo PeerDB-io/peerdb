@@ -87,3 +87,12 @@ LD_CMD="${LD_CMD/$GUNIT_LIB/$TEST_UTILS_OBJ}"
 
 (cd "$BUILD" && eval "$LD_CMD")
 echo "built $OUT"
+# go run keeps builder and verifier on one hash implementation, and
+# DDLFUZZ_ROOT pins hashing to THIS checkout — ddlsuper's root discovery would
+# otherwise resolve the staged worktree to the main repo.
+REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
+if command -v go >/dev/null 2>&1; then
+  (cd "$ROOT" && DDLFUZZ_ROOT="$REPO_ROOT" go run ./supervisor oracle-manifest --engine mysql --out "$ROOT/build/oracle-mysql.manifest.json")
+else
+  echo "warning: go missing; skipping oracle manifest" >&2
+fi

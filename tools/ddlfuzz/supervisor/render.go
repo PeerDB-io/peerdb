@@ -73,6 +73,10 @@ func renderHeader(s StatusSnapshot, color bool, width int) []string {
 	if s.Run.Blocked {
 		rows = append(rows, [2]string{"blocked", s.Run.BlockedReason})
 	}
+	if s.Run.RestartRequired {
+		rows = append(rows, [2]string{"restart", "required at " + shortSHA(s.Run.RestartHead)})
+	}
+	rows = append(rows, [2]string{"merge slot", s.Merge.Line})
 	lines = append(lines, labelGrid(rows, 3, width, color)...)
 	return lines
 }
@@ -443,14 +447,6 @@ func signedOrNA(m map[string]int64, key string) string {
 		return "n/a"
 	}
 	return signed(m[key])
-}
-
-func sampleMapTotal(m map[string]int64) int64 {
-	var n int64
-	for _, v := range m {
-		n += v
-	}
-	return n
 }
 
 func valOrNA(n int) string {

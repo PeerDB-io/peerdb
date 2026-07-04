@@ -36,7 +36,7 @@ func LoadParkedList(cfg Config) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		sig := strings.TrimSpace(sc.Text())
@@ -63,7 +63,7 @@ func appendParked(cfg Config, sig string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := fmt.Fprintln(f, sig); err != nil {
 		return err
 	}

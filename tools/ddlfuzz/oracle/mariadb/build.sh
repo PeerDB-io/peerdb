@@ -67,3 +67,13 @@ ninja -C "$BUILD/mariadb-build" -j6 mysqlserver GenError
   -L/opt/homebrew/lib -lpcre2-8
 
 echo "built $BUILD/oracle-mariadb"
+# go run keeps builder and verifier on one hash implementation, and
+# DDLFUZZ_ROOT pins hashing to THIS checkout — ddlsuper's root discovery would
+# otherwise resolve the staged worktree to the main repo.
+DDLDIR="$(cd "$HERE/../.." && pwd)"
+REPO_ROOT="$(cd "$DDLDIR/../.." && pwd)"
+if command -v go >/dev/null 2>&1; then
+  (cd "$DDLDIR" && DDLFUZZ_ROOT="$REPO_ROOT" go run ./supervisor oracle-manifest --engine mariadb --out "$BUILD/oracle-mariadb.manifest.json")
+else
+  echo "warning: go missing; skipping oracle manifest" >&2
+fi

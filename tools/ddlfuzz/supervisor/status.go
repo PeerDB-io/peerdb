@@ -15,27 +15,35 @@ import (
 )
 
 type StatusSnapshot struct {
-	Now      time.Time      `json:"now"`
-	Run      RunStatus      `json:"run"`
-	Fast     FastLaneStatus `json:"fast"`
-	E2E      E2ELaneStatus  `json:"e2e"`
-	Findings FindingsStatus `json:"findings"`
-	FixAgent FixAgentStatus `json:"fix_agent"`
-	Events   []EventLine    `json:"events"`
+	Now      time.Time       `json:"now"`
+	Run      RunStatus       `json:"run"`
+	Merge    MergeSlotStatus `json:"merge"`
+	Fast     FastLaneStatus  `json:"fast"`
+	E2E      E2ELaneStatus   `json:"e2e"`
+	Findings FindingsStatus  `json:"findings"`
+	FixAgent FixAgentStatus  `json:"fix_agent"`
+	Events   []EventLine     `json:"events"`
 }
 
 type RunStatus struct {
-	PID           int         `json:"pid"`
-	Alive         bool        `json:"alive"`
-	StartedAt     time.Time   `json:"started_at"`
-	Deadline      time.Time   `json:"deadline"`
-	RunHours      float64     `json:"run_hours"`
-	FixModel      string      `json:"fix_model"`
-	Blocked       bool        `json:"blocked"`
-	BlockedReason string      `json:"blocked_reason,omitempty"`
-	LastSeenAge   string      `json:"last_seen_age,omitempty"`
-	Spend         SpendRecord `json:"spend"`
-	DiskFreeBytes int64       `json:"disk_free_bytes"`
+	PID             int         `json:"pid"`
+	Alive           bool        `json:"alive"`
+	StartedAt       time.Time   `json:"started_at"`
+	Deadline        time.Time   `json:"deadline"`
+	RunHours        float64     `json:"run_hours"`
+	FixModel        string      `json:"fix_model"`
+	Blocked         bool        `json:"blocked"`
+	BlockedReason   string      `json:"blocked_reason,omitempty"`
+	LastSeenAge     string      `json:"last_seen_age,omitempty"`
+	Spend           SpendRecord `json:"spend"`
+	DiskFreeBytes   int64       `json:"disk_free_bytes"`
+	RestartRequired bool        `json:"restart_required"`
+	RestartHead     string      `json:"restart_head,omitempty"`
+}
+
+type MergeSlotStatus struct {
+	State string `json:"state"`
+	Line  string `json:"line"`
 }
 
 type FastLaneStatus struct {
@@ -140,6 +148,10 @@ func CollectStatus(cfg Config) StatusSnapshot {
 	return StatusSnapshot{
 		Now: now,
 		Run: run,
+		Merge: MergeSlotStatus{
+			State: mergeSlotState(cfg),
+			Line:  NewMergeSlot(cfg).SnapshotLine(now),
+		},
 		Fast: FastLaneStatus{
 			Stats: fast, StatsAge: fastAge, StatsStale: fastStale,
 			ExecsRate1m:   rateValue(samples, func(s SampleRecord) int64 { return s.Fuzz.ExecsTotal }, time.Minute, now),
@@ -195,12 +207,30 @@ func collectRunStatus(cfg Config, now time.Time, spend SpendRecord, free int64) 
 		run.Blocked = true
 		run.BlockedReason = firstLine(string(data))
 	}
+	if marker, _, ok := resumeMarker(cfg); ok {
+		run.RestartRequired = true
+		run.RestartHead = marker.ValidatedHead
+	}
 	if !run.Alive {
 		if info, err := os.Stat(filepath.Join(cfg.StateDir, "supervisor.log")); err == nil {
 			run.LastSeenAge = fmtAgo(now.Sub(info.ModTime()))
 		}
 	}
 	return run
+}
+
+func mergeSlotState(cfg Config) string {
+	slot := NewMergeSlot(cfg)
+	if req, err := slot.ReadRequest(); err == nil {
+		return req.Phase
+	}
+	if _, err := slot.ReadClaimed(); err == nil {
+		return "claimed"
+	}
+	if _, err := slot.ReadResult(); err == nil {
+		return "result"
+	}
+	return "idle"
 }
 
 func WriteRunState(cfg Config) error {
@@ -385,7 +415,7 @@ func lastAgentMessage(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return ""
@@ -441,7 +471,7 @@ func tailFile(path string, max int64) []byte {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil || info.Size() == 0 {
 		return nil

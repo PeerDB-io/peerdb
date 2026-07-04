@@ -193,6 +193,7 @@ func (c Config) ensureStateDirs() error {
 		filepath.Join(c.StateDir, "e2e-queue", "pending"),
 		filepath.Join(c.StateDir, "e2e-queue", "processing"),
 		filepath.Join(c.StateDir, "e2e-queue", "done"),
+		filepath.Join(c.StateDir, "merge"),
 		c.BuildDir,
 	}
 	for _, dir := range dirs {
@@ -216,7 +217,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return err
@@ -253,4 +254,15 @@ func relTo(base, path string) string {
 		return path
 	}
 	return filepath.ToSlash(rel)
+}
+
+func shortSHA(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 12 {
+		return s[:12]
+	}
+	if s == "" {
+		return "n/a"
+	}
+	return s
 }

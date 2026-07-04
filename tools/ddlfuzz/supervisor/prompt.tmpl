@@ -115,8 +115,7 @@ GUARDRAILS (violations are detected and your commit is reverted):
   live database and will hang or fail. Bound ad-hoc test runs with -timeout 60s (the repro may hang).
 - Never touch: tools/ddlfuzz/state/parked.list, state/stats.json, state/e2e/**, other findings'
   directories, anything under .github/, or anything outside /Users/ilia/Code/peerdb.
-- Never touch these unrelated in-flight files: docs/mysql-clickhouse-charset-e2e.md,
-  docs/temporal-history.md, flow/e2e/clickhouse_mysql_charset_test.go.
+- Never touch: tools/ddlfuzz/worktrees/ or tools/ddlfuzz/staged/.
 - Never delete or weaken an existing test/assertion to make the gate pass. Never ledger away a
   real parser bug: bucket 3 requires the citation to genuinely establish the server behavior.
 - No git operations besides add/commit on the current branch: no push, no rebase, no branch

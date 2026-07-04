@@ -119,18 +119,6 @@ func (s pathSet) sorted() []string {
 	return out
 }
 
-func (s pathSet) equal(other pathSet) bool {
-	if len(s) != len(other) {
-		return false
-	}
-	for p := range s {
-		if _, ok := other[p]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
 func GitResetHard(ctx context.Context, cfg Config, sha string) error {
 	res, err := runGit(ctx, cfg, 2*time.Minute, "reset", "--hard", sha)
 	if err != nil {
@@ -254,7 +242,7 @@ func PlanUntrackedDeletion(before, after pathSet, allowedRoots, excludedPrefixes
 func DeleteNewUntracked(cfg Config, before, after pathSet) (UntrackedDeletionPlan, error) {
 	plan := PlanUntrackedDeletion(before, after,
 		[]string{"flow/", "tools/ddlfuzz/"},
-		[]string{"tools/ddlfuzz/state/", "tools/ddlfuzz/build/"},
+		[]string{"tools/ddlfuzz/state/", "tools/ddlfuzz/build/", "tools/ddlfuzz/worktrees/", "tools/ddlfuzz/staged/"},
 	)
 	var errs []string
 	for _, rel := range plan.ToDelete {

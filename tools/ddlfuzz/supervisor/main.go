@@ -56,6 +56,30 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case "merge-staged":
+		if err := mergeStagedCommand(cfg, os.Args[2:]); err != nil {
+			if err.Error() != "" {
+				fmt.Fprintln(os.Stderr, err)
+			}
+			os.Exit(exitCodeForError(err, 1))
+		}
+	case "merge-cancel":
+		if err := mergeCancelCommand(cfg, os.Args[2:]); err != nil {
+			if err.Error() != "" {
+				fmt.Fprintln(os.Stderr, err)
+			}
+			os.Exit(exitCodeForError(err, 1))
+		}
+	case "oracle-manifest":
+		if err := oracleManifestCommand(cfg, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "selfcheck":
+		if err := selfcheckCommand(cfg, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
 		usage(os.Stderr)
 		os.Exit(2)
@@ -63,7 +87,7 @@ func main() {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "Usage: ddlsuper run|hello|gate|fix-once|status|watch")
+	_, _ = fmt.Fprintln(w, "Usage: ddlsuper run|hello|gate|fix-once|status|watch|merge-staged|merge-cancel|oracle-manifest|selfcheck")
 }
 
 func helloCommand(_ Config, args []string) error {
@@ -117,13 +141,16 @@ func runCommand(cfg Config) error {
 		return err
 	}
 	defer closeLog()
-	lock, err := AcquireSupervisorLock(cfg)
+	lock, err := acquireSupervisorLockRetry(cfg, 15*time.Second)
 	if err != nil {
 		WriteBlocked(cfg, err)
 		return err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	if err := WriteRunState(cfg); err != nil {
+		return err
+	}
+	if err := initRunStart(&cfg); err != nil {
 		return err
 	}
 
@@ -136,17 +163,23 @@ func runCommand(cfg Config) error {
 		WriteBlocked(cfg, err)
 		return err
 	}
+	if err := WriteRunState(cfg); err != nil {
+		return err
+	}
 	_ = os.Remove(filepath.Join(cfg.StateDir, "current-attempt.json"))
 	fmt.Printf("preflight OK - supervising until deadline (%.2fh); Ctrl-C = graceful shutdown; status: build/ddlsuper status. Tip: run inside tmux.\n", cfg.RunHours)
 	logger("preflight OK - supervising until %s", cfg.Deadline.Format(time.RFC3339))
 
 	fuzzer := NewFuzzerManager(cfg, logger)
 	e2e := NewE2EManager(cfg, logger)
+	resumeMergeSvc := NewMergeService(cfg, fuzzer, e2e, logger)
+	resumeMergeSvc.shutdown = cancel
+	_ = serviceMergeSlot(deadlineCtx, cfg, resumeMergeSvc, logger)
 	var wg sync.WaitGroup
 	wg.Add(6)
 	go func() { defer wg.Done(); fuzzer.Run(deadlineCtx) }()
 	go func() { defer wg.Done(); e2e.Run(deadlineCtx) }()
-	go func() { defer wg.Done(); RunFixLoop(deadlineCtx, cfg, fuzzer, e2e, logger) }()
+	go func() { defer wg.Done(); RunFixLoop(deadlineCtx, cfg, fuzzer, e2e, logger, cancel) }()
 	go func() { defer wg.Done(); runReportTickers(deadlineCtx, cfg, fuzzer, e2e, logger) }()
 	go func() { defer wg.Done(); runDiskWatchdog(deadlineCtx, cfg, e2e, logger) }()
 	go func() { defer wg.Done(); runOracleCrossCheck(deadlineCtx, cfg, logger) }()
@@ -154,10 +187,38 @@ func runCommand(cfg Config) error {
 	logger("shutdown requested: %v", deadlineCtx.Err())
 	fuzzer.Stop()
 	e2e.Stop()
+	if execRestartPending.Load() {
+		wg.Wait()
+		logger("exec handoff to rebuilt ddlsuper")
+		closeLog()
+		_ = lock.Close()
+		err := execSelfRestart(cfg)
+		// exec only returns on failure; the merge stands and the marker
+		// survives, so the next manual run fast-resumes.
+		fmt.Fprintf(os.Stderr, "self-restart exec failed: %v; restart manually (state/selfrestart.json preserved)\n", err)
+		return err
+	}
 	_ = composeDown(context.Background(), cfg)
 	_ = WriteReport(cfg, "final", mergeSnapshots(fuzzer.Snapshot(), e2e.Snapshot()))
 	wg.Wait()
 	return nil
+}
+
+// acquireSupervisorLockRetry tolerates the momentary lock windows around a
+// self-restart: the exec'd process reacquiring can collide with a merge-staged
+// CLI's liveness probe (which acquires and releases the flock to test it).
+func acquireSupervisorLockRetry(cfg Config, patience time.Duration) (*SupervisorLock, error) {
+	deadline := time.Now().Add(patience)
+	for {
+		lock, err := AcquireSupervisorLock(cfg)
+		if err == nil {
+			return lock, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, err
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func newSupervisorLogger(cfg Config) (func(string, ...any), func(), error) {
@@ -174,7 +235,7 @@ func newSupervisorLogger(cfg Config) (func(string, ...any), func(), error) {
 		line := fmt.Sprintf(format, args...)
 		mu.Lock()
 		defer mu.Unlock()
-		fmt.Fprintf(f, "%s %s\n", time.Now().UTC().Format(time.RFC3339), line)
+		_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().UTC().Format(time.RFC3339), line)
 	}
 	return logf, func() { _ = f.Close() }, nil
 }

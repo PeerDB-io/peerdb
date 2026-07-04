@@ -72,6 +72,12 @@ func RunPreflight(ctx context.Context, cfg *Config, logf func(string, ...any)) e
 	}
 
 	_ = os.Remove(filepath.Join(cfg.StateDir, "BLOCKED"))
+	if _, err := RecoverMergeInflight(ctx, *cfg); err != nil {
+		return fmt.Errorf("merge crash recovery: %w", err)
+	}
+	if resumed, err := resumePreflight(ctx, cfg, logf); resumed || err != nil {
+		return err
+	}
 
 	if err := step("repo state", func() error {
 		branch, err := GitBranch(ctx, *cfg)

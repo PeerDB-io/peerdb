@@ -76,7 +76,7 @@ func AppendSample(cfg Config, rec SampleRecord) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := json.Marshal(rec)
 	if err != nil {
 		return err
@@ -93,7 +93,7 @@ func ReadSamplesTail(cfg Config, maxBytes int64) []SampleRecord {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil || info.Size() == 0 {
 		return nil
@@ -107,7 +107,8 @@ func ReadSamplesTail(cfg Config, maxBytes int64) []SampleRecord {
 	}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	if start > 0 && sc.Scan() {
+	if start > 0 {
+		_ = sc.Scan()
 	}
 	var out []SampleRecord
 	for sc.Scan() {

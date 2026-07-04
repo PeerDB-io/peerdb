@@ -495,6 +495,8 @@ func TestUntrackedDeletionPolicy(t *testing.T) {
 		"tools/ddlfuzz/scratch.txt":           {},
 		"tools/ddlfuzz/state/findings/x":      {},
 		"tools/ddlfuzz/build/ddlfuzz.new":     {},
+		"tools/ddlfuzz/worktrees/feature/x":   {},
+		"tools/ddlfuzz/staged/tmp":            {},
 		"docs/outside.md":                     {},
 		"../escape":                           {},
 		"/tmp/absolute":                       {},
@@ -503,7 +505,7 @@ func TestUntrackedDeletionPolicy(t *testing.T) {
 		"tools/ddlfuzz/oracle/mysql/tmp.cc":   {},
 		"tools/ddlfuzz/build/../supervisor/x": {},
 	}
-	plan := PlanUntrackedDeletion(before, after, []string{"flow/", "tools/ddlfuzz/"}, []string{"tools/ddlfuzz/state/", "tools/ddlfuzz/build/"})
+	plan := PlanUntrackedDeletion(before, after, []string{"flow/", "tools/ddlfuzz/"}, []string{"tools/ddlfuzz/state/", "tools/ddlfuzz/build/", "tools/ddlfuzz/worktrees/", "tools/ddlfuzz/staged/"})
 	gotDelete := strings.Join(plan.ToDelete, ",")
 	for _, want := range []string{"flow/connectors/mysql/tmp_test.go", "tools/ddlfuzz/oracle/mysql/tmp.cc", "tools/ddlfuzz/scratch.txt"} {
 		if !strings.Contains(gotDelete, want) {
@@ -511,7 +513,7 @@ func TestUntrackedDeletionPolicy(t *testing.T) {
 		}
 	}
 	gotKept := strings.Join(plan.Kept, ",")
-	for _, want := range []string{"tools/ddlfuzz/state/findings/x", "tools/ddlfuzz/build/ddlfuzz.new", "docs/outside.md", "../escape", "/tmp/absolute", ".git/hooks/post-commit", "tools/ddlfuzz/state/../sneaky.txt", "tools/ddlfuzz/build/../supervisor/x"} {
+	for _, want := range []string{"tools/ddlfuzz/state/findings/x", "tools/ddlfuzz/build/ddlfuzz.new", "tools/ddlfuzz/worktrees/feature/x", "tools/ddlfuzz/staged/tmp", "docs/outside.md", "../escape", "/tmp/absolute", ".git/hooks/post-commit", "tools/ddlfuzz/state/../sneaky.txt", "tools/ddlfuzz/build/../supervisor/x"} {
 		if !strings.Contains(gotKept, want) {
 			t.Fatalf("expected %s to be kept; got %v", want, plan.Kept)
 		}

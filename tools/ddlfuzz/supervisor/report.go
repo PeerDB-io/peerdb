@@ -82,6 +82,18 @@ func RenderReport(cfg Config, status string, comps ComponentSnapshot) (string, e
 	fmt.Fprintf(&b, "attempts total %d, fixed %d, ledgered %d, failed %d, timeouts %d; current attempt none; spend: input %d cached %d output %d, wall-hours %.2f, cap %d\n",
 		attemptCounts["total"], attemptCounts["fixed"], attemptCounts["ledgered"], attemptCounts["failed"], attemptCounts["timeout"],
 		spend.Tokens.Input, spend.Tokens.CachedInput, spend.Tokens.Output, float64(spend.AttemptSeconds)/3600.0, cfg.MaxTokens)
+	b.WriteString("## Merges\n")
+	if marker, _, ok := resumeMarker(cfg); ok {
+		fmt.Fprintf(&b, "RESTART_REQUIRED at %s\n", marker.ValidatedHead)
+	}
+	merges := LoadMergeRecords(cfg, 10)
+	if len(merges) == 0 {
+		b.WriteString("none\n")
+	} else {
+		for _, merge := range merges {
+			fmt.Fprintf(&b, "- %s %s -> %s restart=%t roots=%s\n", merge.TS.UTC().Format(time.RFC3339), shortSHA(merge.PrevHead), shortSHA(merge.NewHead), merge.Restart, strings.Join(merge.TouchedRoots, ","))
+		}
+	}
 	b.WriteString("## Components\n")
 	fmt.Fprintf(&b, "fuzzer up %t/restarts %d, e2e up %t/restarts %d, disk free %s, degraded %t\n", comps.FuzzerUp, comps.FuzzerRestarts, comps.E2EUp, comps.E2ERestarts, formatGiB(comps.DiskFreeBytes), comps.Degraded)
 	b.WriteString("## Coverage history (state/coverage/history/edges.csv: ts,go,mysql,mariadb - appended hourly)\n")
@@ -133,7 +145,7 @@ func AppendCoverageHistory(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	w := csv.NewWriter(f)
 	if newFile {
 		_ = w.Write([]string{"ts", "go", "mysql", "mariadb"})
@@ -306,7 +318,7 @@ func readEdgesCSV(cfg Config) []map[string]int64 {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	r := csv.NewReader(f)
 	records, err := r.ReadAll()
 	if err != nil || len(records) <= 1 {
@@ -332,7 +344,7 @@ func renderCoverageHistory(cfg Config) []string {
 	if err != nil {
 		return []string{"history unavailable"}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var lines []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {

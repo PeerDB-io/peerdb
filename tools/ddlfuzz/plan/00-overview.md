@@ -201,7 +201,13 @@ state/
   seed, inflight.jsonl                   # fuzzer PRNG seed + in-flight batch journal (20)
   groups.json, last_good_commit, untracked.baseline, BLOCKED, spend.json,
   supervisor.{log,pid}                   # supervisor state (40)
+  merge/{request,ack,claimed,result}.json # merge-staged single-slot handoff (43)
+  merges.jsonl, merge-inflight.json       # accepted merge log + crash-recovery journal (43)
+  run-start, selfrestart.json, RESTART_REQUIRED # run deadline + supervisor handoff markers (43)
 ```
+
+Oracle build manifests live beside binaries as `build/oracle-*.manifest.json` and record the
+source hash used to validate staged oracle handoff (43).
 
 `<sig>` = first 12 hex chars of sha256 over the canonical divergence descriptor (component 20
 defines the descriptor; requirement: stable under re-discovery, insensitive to incidental
@@ -217,6 +223,7 @@ identifier spellings).
 | `21-fuzzer.md` | Go differential driver | `ddlfuzz` binary: fuzz/golden/replay/minimize; generator, mutators, oracle-SanCov corpus, comparison + reconciliation, dedup, findings; oracle process pool | oracle binaries, export shim, state dir |
 | `30-e2e-lane.md` | Live-binlog slow lane | e2e findings (lane:"e2e"), plumbing + semantic validation | containers, flow module, state dir |
 | `40-supervisor.md` | 72h unattended run loop | supervisor process, fix-agent (headless `codex exec`) cycle, gate, parking/escalation, restarts, report | everything above |
+| `43-merge-staged.md` | Safe staged merge coordination | `ddlsuper merge-staged`, merge slot protocol, staged oracle handoff, supervisor self-restart | supervisor, git worktrees, oracle manifests |
 
 ## Cross-component requirements
 

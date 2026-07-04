@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -292,7 +291,7 @@ func LoadAttemptRecords(path string) ([]AttemptRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var records []AttemptRecord
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
@@ -317,7 +316,7 @@ func AppendAttemptRecord(path string, rec AttemptRecord) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := json.Marshal(rec)
 	if err != nil {
 		return err
@@ -362,7 +361,7 @@ func ParseCodexJSONL(streamPath, lastMessagePath string) (CodexParseResult, erro
 		if err != nil {
 			return parsed, err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		sc := bufio.NewScanner(f)
 		// Codex --json emits one JSON object per line; agent messages and embedded
 		// command output routinely exceed bufio.Scanner's 64 KiB default, which would
@@ -629,14 +628,20 @@ func parseLooseTime(s string) time.Time {
 	return time.Time{}
 }
 
-func RunFixLoop(ctx context.Context, cfg Config, restarter *FuzzerManager, e2e *E2EManager, logf func(string, ...any)) {
+func RunFixLoop(ctx context.Context, cfg Config, restarter *FuzzerManager, e2e *E2EManager, logf func(string, ...any), shutdown func()) {
 	ticker := time.NewTicker(cfg.FindingEvery)
 	defer ticker.Stop()
+	mergeSvc := NewMergeService(cfg, restarter, e2e, logf)
+	mergeSvc.shutdown = shutdown
 	for {
 		select {
 		case <-ctx.Done():
+			drainMergeSlot(cfg, logf)
 			return
 		case <-ticker.C:
+			if serviceMergeSlot(ctx, cfg, mergeSvc, logf) {
+				continue
+			}
 			if time.Until(cfg.Deadline) <= 3*time.Hour {
 				continue
 			}
@@ -675,6 +680,72 @@ func RunFixLoop(ctx context.Context, cfg Config, restarter *FuzzerManager, e2e *
 			if err := FixOnce(ctx, cfg, primary.Sig, false, restarter, e2e, siblings, logf); err != nil {
 				logf("fix attempt for %s failed: %v", primary.Sig, err)
 			}
+			_ = serviceMergeSlot(ctx, cfg, mergeSvc, logf)
+		}
+	}
+}
+
+func serviceMergeSlot(ctx context.Context, cfg Config, svc *MergeService, logf func(string, ...any)) bool {
+	slot := NewMergeSlot(cfg)
+	if expired, err := slot.ExpireUnclaimed(6*time.Hour, pidAlive); err != nil {
+		if logf != nil {
+			logf("merge slot expiry failed: %v", err)
+		}
+	} else if expired && logf != nil {
+		logf("expired stale merge request")
+	}
+	if _, err := slot.CleanupResult(24*time.Hour, pidAlive); err != nil && logf != nil {
+		logf("merge result cleanup failed: %v", err)
+	}
+	req, err := slot.ReadRequest()
+	if err != nil {
+		return false
+	}
+	switch req.Phase {
+	case mergePhaseHold:
+		ack, ackErr := slot.ReadAck()
+		if ackErr != nil || ack.ID != req.ID {
+			head, headErr := GitHead(ctx, cfg)
+			if headErr != nil {
+				if logf != nil {
+					logf("merge ack head failed: %v", headErr)
+				}
+				return true
+			}
+			if err := slot.WriteAck(MergeAck{ID: req.ID, AckedHead: head}); err != nil && logf != nil {
+				logf("merge ack write failed: %v", err)
+			}
+		}
+		return true
+	case mergePhaseSubmitted:
+		claimed, err := slot.Claim()
+		if err != nil {
+			return true
+		}
+		if logf != nil {
+			logf("servicing merge request %s", claimed.ID)
+		}
+		result := svc.ServiceClaimed(ctx, claimed)
+		_ = os.Remove(slot.claimedPath())
+		if logf != nil {
+			logf("merge request %s result=%s", claimed.ID, result.Result)
+		}
+		return true
+	default:
+		return true
+	}
+}
+
+func drainMergeSlot(cfg Config, logf func(string, ...any)) {
+	if execRestartPending.Load() {
+		return
+	}
+	slot := NewMergeSlot(cfg)
+	if req, err := slot.ReadRequest(); err == nil {
+		_ = os.Remove(slot.requestPath())
+		_ = slot.WriteResult(MergeResult{ID: req.ID, Result: mergeResultShuttingDown, Detail: "supervisor shutting down", SupervisorRestart: mergeSupervisorRestartNone})
+		if logf != nil {
+			logf("merge request %s drained on shutdown", req.ID)
 		}
 	}
 }
@@ -747,7 +818,7 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 	if err := writeCurrentAttempt(cfg, finding, attemptN, "agent", started); err != nil && logf != nil {
 		logf("current attempt write failed: %v", err)
 	}
-	defer os.Remove(filepath.Join(cfg.StateDir, "current-attempt.json"))
+	defer func() { _ = os.Remove(filepath.Join(cfg.StateDir, "current-attempt.json")) }()
 	codexExit, timedOut, err := runCodexAttempt(ctx, cfg, prompt, streamPath, lastPath, stderrPath)
 	ended := time.Now()
 	if err := writeCurrentAttempt(cfg, finding, attemptN, "validate", started); err != nil && logf != nil {
@@ -927,12 +998,12 @@ func runCodexAttempt(ctx context.Context, cfg Config, prompt, streamPath, lastPa
 	if err != nil {
 		return -1, false, err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	stderr, err := os.Create(stderrPath)
 	if err != nil {
 		return -1, false, err
 	}
-	defer stderr.Close()
+	defer func() { _ = stderr.Close() }()
 	args := codexArgs(cfg, "workspace-write", lastPath)
 	p, err := StartWithStdin(cfg.Root, strings.NewReader(prompt), stream, stderr, "codex", args...)
 	if err != nil {
@@ -1245,7 +1316,7 @@ func ledgerHasCitation(cfg Config, sig string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		var obj map[string]any
@@ -1414,12 +1485,4 @@ func AddSpend(cfg Config, tokens TokenUsage, wall time.Duration) error {
 	spend.Attempts++
 	spend.AttemptSeconds += int64(wall.Seconds())
 	return atomicWriteJSON(filepath.Join(cfg.StateDir, "spend.json"), spend, 0o644)
-}
-
-func copyFile(dst string, src io.Reader) error {
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, src); err != nil {
-		return err
-	}
-	return atomicWriteFile(dst, buf.Bytes(), 0o644)
 }
