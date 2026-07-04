@@ -23,6 +23,8 @@ type Ctx struct {
 	V         Vocab
 
 	tableSuffix string
+	freshUsed   map[string]bool
+	colSet      map[string]bool
 }
 
 // Vocab is the fixture vocabulary the constrained (e2e) profile draws from.
@@ -202,7 +204,6 @@ func genRename(c *Ctx) string {
 
 func genAlterSpec(c *Ctx, p Profile) string {
 	col := quoteMaybe(c, pickString(c.R, c.V.Columns))
-	fresh := quoteMaybe(c, pickString(c.R, c.V.FreshNames))
 	typ := pickString(c.R, c.V.Types)
 	switch c.R.IntN(12) {
 	case 0, 1, 2:
@@ -212,17 +213,18 @@ func genAlterSpec(c *Ctx, p Profile) string {
 		} else if c.R.IntN(12) == 0 {
 			pos = " FIRST"
 		}
-		return "ADD COLUMN " + fresh + " " + typ + genAttrsSimple(c) + pos
+		return "ADD COLUMN " + quoteMaybe(c, c.freshIdent()) + " " + typ + genAttrsSimple(c, typ) + pos
 	case 3:
-		return "ADD (" + fresh + " " + typ + ", " + quoteMaybe(c, pickString(c.R, c.V.FreshNames)) + " " + pickString(c.R, c.V.Types) + ")"
+		typ2 := pickString(c.R, c.V.Types)
+		return "ADD (" + quoteMaybe(c, c.freshIdent()) + " " + typ + ", " + quoteMaybe(c, c.freshIdent()) + " " + typ2 + ")"
 	case 4, 5:
-		return "MODIFY COLUMN " + col + " " + typ + genAttrsSimple(c)
+		return "MODIFY COLUMN " + col + " " + typ + genAttrsSimple(c, typ)
 	case 6, 7:
-		return "CHANGE COLUMN " + col + " " + fresh + " " + typ + genAttrsSimple(c)
+		return "CHANGE COLUMN " + col + " " + quoteMaybe(c, c.freshIdent()) + " " + typ + genAttrsSimple(c, typ)
 	case 8:
 		return "DROP COLUMN " + col
 	case 9:
-		return "RENAME COLUMN " + col + " TO " + fresh
+		return "RENAME COLUMN " + col + " TO " + quoteMaybe(c, c.freshIdent())
 	case 10:
 		if p.NoConvertCharset {
 			return "ADD INDEX idx_" + bareIdentifier(col) + " (" + col + ")"
@@ -263,9 +265,56 @@ func genAttrs(c *Ctx) string {
 	return b.String()
 }
 
-func genAttrsSimple(c *Ctx) string {
-	attrs := []string{"", " NOT NULL", " NULL", " DEFAULT NULL", " DEFAULT 'x,y'", " COMMENT 'ddlfuzz'", " INVISIBLE", " VISIBLE"}
+func (c *Ctx) freshIdent() string {
+	if c.colSet == nil {
+		c.colSet = make(map[string]bool, len(c.V.Columns))
+		for _, col := range c.V.Columns {
+			c.colSet[col] = true
+		}
+		c.freshUsed = map[string]bool{}
+	}
+	candidates := make([]string, 0, len(c.V.FreshNames))
+	for _, name := range c.V.FreshNames {
+		if !c.colSet[name] && !c.freshUsed[name] {
+			candidates = append(candidates, name)
+		}
+	}
+	var name string
+	if len(candidates) > 0 {
+		name = pickString(c.R, candidates)
+	} else {
+		for {
+			name = fmt.Sprintf("nf%d_%d", len(c.freshUsed)+1, c.R.Uint64N(1_000_000))
+			if !c.colSet[name] && !c.freshUsed[name] {
+				break
+			}
+		}
+	}
+	c.freshUsed[name] = true
+	return name
+}
+
+func genAttrsSimple(c *Ctx, typ string) string {
+	attrs := []string{"", " NOT NULL", " NULL", " DEFAULT NULL", " COMMENT 'ddlfuzz'", " INVISIBLE"}
+	if !c.IsMariaDB {
+		attrs = append(attrs, " VISIBLE")
+	}
+	typ = strings.ToLower(typ)
+	if hasAnyPrefix(typ, "varchar", "char", "varbinary", "binary") {
+		attrs = append(attrs, " DEFAULT 'x,y'")
+	} else if hasAnyPrefix(typ, "int", "bigint", "tinyint", "decimal", "double", "bit") {
+		attrs = append(attrs, " DEFAULT 1")
+	}
 	return pickString(c.R, attrs)
+}
+
+func hasAnyPrefix(s string, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func quoteMaybe(c *Ctx, ident string) string {

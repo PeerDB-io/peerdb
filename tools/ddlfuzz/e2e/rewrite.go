@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"fmt"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -38,8 +39,28 @@ func rewriteCorpusStatement(stmt []byte, isMariaDB bool, live snapshot) (string,
 	}
 	shapeBefore := shapeSignature(parsed, false)
 	rewritten := string(stmt)
-	for _, table := range parsedTables(parsed) {
+	oldTables := parsedOldTables(parsed)
+	for _, pair := range parsedRenamePairs(parsed) {
+		if pair.OldTable != "" && pair.OldTable == pair.NewTable {
+			return "", false
+		}
+	}
+	newTables := parsedNewTables(parsed)
+	newTableSet := make(map[string]bool, len(newTables))
+	for _, table := range newTables {
+		newTableSet[table] = true
+	}
+	for _, table := range sortedKeys(oldTables) {
+		if newTableSet[table] {
+			continue
+		}
 		rewritten = replaceIdentOccurrences(rewritten, table, fixtureTable)
+	}
+	newTableIdx := 0
+	for _, table := range newTables {
+		next := fmt.Sprintf("fixture_r_c%d", newTableIdx)
+		newTableIdx++
+		rewritten = replaceIdentOccurrences(rewritten, table, next)
 	}
 	cols := canonicalColumns(live)
 	oldMap := make(map[string]string)
@@ -54,14 +75,12 @@ func rewriteCorpusStatement(stmt []byte, isMariaDB bool, live snapshot) (string,
 	for old, next := range oldMap {
 		rewritten = replaceIdentOccurrences(rewritten, old, next)
 	}
-	freshIdx := 0
+	alloc := newFreshAlloc(live)
 	for _, name := range parsedNewColumns(parsed) {
 		if name == "" || oldMap[name] != "" {
 			continue
 		}
-		next := FreshNames[freshIdx%len(FreshNames)]
-		freshIdx++
-		rewritten = replaceIdentOccurrences(rewritten, name, next)
+		rewritten = replaceIdentOccurrences(rewritten, name, alloc.next())
 	}
 	verified, err, panicked := safeParseForE2E([]byte(rewritten), 0, isMariaDB)
 	if err != nil || panicked != nil || len(verified.Stmts) == 0 {
@@ -82,7 +101,47 @@ func hasActionable(p parsedStmts) bool {
 	return false
 }
 
-func parsedTables(p parsedStmts) []string {
+type freshAlloc struct {
+	live map[string]bool
+	free []string
+	used map[string]bool
+	seq  int
+}
+
+func newFreshAlloc(live snapshot) *freshAlloc {
+	liveSet := make(map[string]bool, len(live))
+	for name := range live {
+		liveSet[name] = true
+	}
+	a := &freshAlloc{live: liveSet, used: map[string]bool{}}
+	for _, name := range FreshNames {
+		if !liveSet[name] {
+			a.free = append(a.free, name)
+		}
+	}
+	return a
+}
+
+func (a *freshAlloc) next() string {
+	for len(a.free) > 0 {
+		name := a.free[0]
+		a.free = a.free[1:]
+		if !a.live[name] && !a.used[name] {
+			a.used[name] = true
+			return name
+		}
+	}
+	for {
+		a.seq++
+		name := fmt.Sprintf("nf%d_r%d", a.seq, a.seq)
+		if !a.live[name] && !a.used[name] {
+			a.used[name] = true
+			return name
+		}
+	}
+}
+
+func parsedOldTables(p parsedStmts) map[string]bool {
 	set := map[string]bool{}
 	for _, stmt := range p.Stmts {
 		switch stmt.Kind {
@@ -101,7 +160,32 @@ func parsedTables(p parsedStmts) []string {
 			}
 		}
 	}
+	return set
+}
+
+func parsedNewTables(p parsedStmts) []string {
+	set := map[string]bool{}
+	for _, stmt := range p.Stmts {
+		if stmt.Kind != "rename_table" {
+			continue
+		}
+		for _, pair := range stmt.Pairs {
+			if pair.NewTable != "" {
+				set[pair.NewTable] = true
+			}
+		}
+	}
 	return sortedKeys(set)
+}
+
+func parsedRenamePairs(p parsedStmts) []parsedPair {
+	var pairs []parsedPair
+	for _, stmt := range p.Stmts {
+		if stmt.Kind == "rename_table" {
+			pairs = append(pairs, stmt.Pairs...)
+		}
+	}
+	return pairs
 }
 
 func parsedOldColumns(p parsedStmts) []string {

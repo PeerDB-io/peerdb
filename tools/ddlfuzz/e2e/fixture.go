@@ -213,7 +213,11 @@ func simpleFallbackDDL(seq uint64, s snapshot) string {
 	}
 	var suffix string
 	if seq%3 == 0 {
-		suffix = " AFTER " + quoteIdent("first")
+		if _, ok := s["first"]; ok {
+			suffix = " AFTER " + quoteIdent("first")
+		} else if cols := columnsByOrdinal(s); len(cols) > 0 {
+			suffix = " AFTER " + quoteIdent(cols[0])
+		}
 	}
 	return "ALTER TABLE " + quoteIdent(fixtureTable) + " ADD COLUMN " + quoteIdent(name) + " int" + suffix
 }
@@ -221,7 +225,7 @@ func simpleFallbackDDL(seq uint64, s snapshot) string {
 func simpleFallbackDDLForMode(seq uint64, s snapshot, modeEntry string) string {
 	up := strings.ToUpper(modeEntry)
 	if strings.Contains(up, "ORACLE") || strings.Contains(up, "MSSQL") {
-		return "ALTER TABLE fixture ADD COLUMN " + fallbackFreshName(seq, s) + " int"
+		return "ALTER TABLE fixture ADD COLUMN " + ansiQuoteIdent(fallbackFreshName(seq, s)) + " int"
 	}
 	return simpleFallbackDDL(seq, s)
 }

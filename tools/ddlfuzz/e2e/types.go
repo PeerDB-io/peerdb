@@ -161,6 +161,10 @@ func quoteIdent(s string) string {
 	return "`" + strings.ReplaceAll(s, "`", "``") + "`"
 }
 
+func ansiQuoteIdent(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
 func quoteLiteral(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
