@@ -1,4 +1,4 @@
-# 98 — oracle lctn remediation + fix-agent guardrails
+# 12 — oracle lctn remediation + fix-agent guardrails
 
 Case study: `feb2407a` (fix for `cd05d5a63830`). The MariaDB oracle boots with macOS-autosized
 `lower_case_table_names=2` (`mysqld.cc:4505-4526`: case-insensitive datadir fs → lctn=2), so its
