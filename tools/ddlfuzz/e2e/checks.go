@@ -53,6 +53,7 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 	actualDelta := diffSnapshots(exp.Before, exp.After)
 	actualDelta.Renamed = inferRenames(exp.BeforeTables, exp.AfterTables)
 	findingCount := 0
+	expectedRelevant := e2echeck.ExpectedEventSQLModeRelevant(exp.Submitted, exp.SQLModeRelevant, ec.IsMariaDB)
 
 	mode, ok := safeSQLModeFromStatusVars(statusVars)
 	if !ok {
@@ -71,11 +72,11 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 			BinlogText:  string(query),
 			Meta: map[string]any{
 				"status_vars_hex":   hex.EncodeToString(statusVars),
-				"expected_relevant": exp.SQLModeRelevant,
+				"expected_relevant": expectedRelevant,
 			},
 		})
 	}
-	if ok && mode&relevantMask != exp.SQLModeRelevant {
+	if ok && mode&relevantMask != expectedRelevant {
 		findingCount += recordE2EFinding(stateDir, stats, findingInput{
 			Class:       "e2e-sqlmode-mismatch",
 			Engine:      ec,
@@ -90,7 +91,7 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 			Submitted:   exp.Submitted,
 			BinlogText:  string(query),
 			Meta: map[string]any{
-				"expected_relevant": exp.SQLModeRelevant,
+				"expected_relevant": expectedRelevant,
 				"actual_relevant":   mode & relevantMask,
 			},
 		})
@@ -118,7 +119,7 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 	}
 
 	liveSig, liveErr, livePanic := safeDDLSignature(query, mode, ec.IsMariaDB)
-	subSig, subErr, subPanic := safeDDLSignature([]byte(exp.Submitted), exp.SQLModeRelevant, ec.IsMariaDB)
+	subSig, subErr, subPanic := safeDDLSignature([]byte(exp.Submitted), expectedRelevant, ec.IsMariaDB)
 	if livePanic != nil || subPanic != nil {
 		findingCount += recordE2EFinding(stateDir, stats, findingInput{
 			Class:       "e2e-panic",
@@ -161,7 +162,7 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 				"submitted_error":   errString(subErr),
 				"live_sig":          liveSig,
 				"live_error":        errString(liveErr),
-				"expected_relevant": exp.SQLModeRelevant,
+				"expected_relevant": expectedRelevant,
 				"actual_relevant":   mode & relevantMask,
 			},
 		})

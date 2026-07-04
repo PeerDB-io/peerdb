@@ -16,8 +16,10 @@ func TestReproduceByClass(t *testing.T) {
 	}
 	validStatus := statusVarsHex(0)
 	ansiStatus := statusVarsHex(SQLModeANSIQuotes)
+	ansiNBEStatus := statusVarsHex(SQLModeANSIQuotes | SQLModeNoBackslashEscapes)
 	expectedZero := uint64(0)
 	expectedANSI := SQLModeANSIQuotes
+	expectedNBE := SQLModeNoBackslashEscapes
 
 	tests := []struct {
 		name      string
@@ -61,6 +63,18 @@ func TestReproduceByClass(t *testing.T) {
 					ansiStatus)
 				in.SQLMode = SQLModeANSIQuotes
 				in.ExpectedRelevant = &expectedANSI
+				return in
+			}(),
+		},
+		{
+			name: "sqlmode mismatch reconciled for mariadb set statement sql_mode",
+			in: func() Input {
+				stmt := "SET STATEMENT sql_mode=CONCAT(@@sql_mode, ',ANSI_QUOTES'), max_statement_time=60 FOR ALTER TABLE fixture ADD COLUMN n1 INT"
+				in := baseInput(ClassSQLModeMismatch, stmt, stmt, ansiNBEStatus)
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				in.SQLMode = SQLModeANSIQuotes | SQLModeNoBackslashEscapes
+				in.ExpectedRelevant = &expectedNBE
 				return in
 			}(),
 		},
