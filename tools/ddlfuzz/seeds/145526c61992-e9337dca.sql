@@ -1,0 +1,1 @@
+ALTER TABLE db.`1234` ADD COLUMN IF NOT EXISTS c2 `VECTOR`(8) COMMENT 'has */ marker' COMMENT 'ddlfuzz'

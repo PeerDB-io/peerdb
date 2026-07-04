@@ -968,7 +968,7 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 		p.next()
 	}
 	t := p.peek(0)
-	if t.kind != tokWord {
+	if t.kind != tokWord && t.kind != tokQuotedIdent {
 		if t.kind == tokErr {
 			return p.lexErr
 		}

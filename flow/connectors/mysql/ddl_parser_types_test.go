@@ -231,6 +231,9 @@ func TestDDLTypesMariaDBUDTsAndOracle(t *testing.T) {
 		{typ: "UUID", want: ddlTypesCol("uuid", -1, -1, false), maria: true, noQkind: true},
 		{typ: "INET4", want: ddlTypesCol("inet4", -1, -1, false), maria: true, noQkind: true},
 		{typ: "INET6", want: ddlTypesCol("inet6", -1, -1, false), maria: true, noQkind: true},
+		{typ: "`VECTOR`(8)", want: ddlTypesCol("vector(8)", -1, -1, false), maria: true},
+		{typ: `"VECTOR"(2)`, want: ddlTypesCol("vector(2)", -1, -1, false), maria: true, sqlMode: sqlModeANSIQuotes},
+		{typ: "[VECTOR](5)", want: ddlTypesCol("vector(5)", -1, -1, false), maria: true, sqlMode: sqlModeMSSQL},
 		// any identifier in type position is a candidate plugin UDT, lowercased
 		{typ: "PriceType", want: ddlTypesCol("pricetype", -1, -1, false), maria: true, noQkind: true},
 		// schema-qualified type names resolve through mariadb_schema
