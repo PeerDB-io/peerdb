@@ -34,47 +34,66 @@ func applyPredicted(before Snapshot, parsed ParsedStmts) predicted {
 		Renamed:     make(map[string]string),
 		RenameAttrs: make(map[string]ColRow),
 	}
+	current := make(map[string]bool, len(before))
+	for name := range before {
+		current[name] = true
+	}
 	for _, stmt := range parsed.Stmts {
 		switch stmt.Kind {
 		case "alter_table":
 			for _, spec := range stmt.Specs {
-				if spec.HasPosition {
-					p.HasPosition = true
+				if spec.IfExists && !current[spec.OldName] {
+					continue
 				}
+				effect := false
 				switch spec.Op {
 				case "add":
 					for _, col := range spec.Cols {
+						effect = true
 						if _, existed := before[col.Name]; existed {
 							p.Changed[col.Name] = col
 						} else {
 							p.Added[col.Name] = col
 						}
+						current[col.Name] = true
 					}
 				case "change":
 					if len(spec.Cols) == 0 {
 						continue
 					}
+					effect = true
 					col := spec.Cols[0]
 					if col.Name == spec.OldName {
 						p.Changed[col.Name] = col
+						current[col.Name] = true
 					} else {
 						if _, existed := before[spec.OldName]; existed {
 							p.Dropped[spec.OldName] = true
 						}
+						delete(current, spec.OldName)
 						p.produceColumn(before, col.Name, col)
+						current[col.Name] = true
 					}
 				case "rename_col":
 					if spec.OldName == spec.NewName {
 						continue
 					}
+					effect = true
 					p.Dropped[spec.OldName] = true
+					delete(current, spec.OldName)
 					p.produceColumn(before, spec.NewName, ParsedCol{Name: spec.NewName})
+					current[spec.NewName] = true
 					p.Renamed[spec.OldName] = spec.NewName
 					if old, ok := before[spec.OldName]; ok {
 						p.RenameAttrs[spec.NewName] = old
 					}
 				case "drop":
+					effect = true
 					p.Dropped[spec.OldName] = true
+					delete(current, spec.OldName)
+				}
+				if effect && spec.HasPosition {
+					p.HasPosition = true
 				}
 			}
 		case "rename_table":

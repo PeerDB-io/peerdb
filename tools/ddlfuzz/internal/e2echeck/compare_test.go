@@ -145,6 +145,61 @@ func TestCompareSemanticsChangeFromMissingOldNameProducesNewColumn(t *testing.T)
 	}
 }
 
+func TestCompareSemanticsIfExistsMissingOldNameIsNoop(t *testing.T) {
+	before := Snapshot{
+		"id": {Name: "id", Ordinal: 1, ColumnType: "bigint(20) unsigned", IsNullable: "NO", ColumnKey: "PRI"},
+	}
+	parsed := ParsedStmts{Stmts: []ParsedStmt{{
+		Kind: "alter_table",
+		Specs: []ParsedSpec{
+			{
+				Op:       "change",
+				OldName:  "fixture",
+				Cols:     []ParsedCol{{Name: "n3", TypeStr: "binary(8)", Precision: -1, Scale: -1}},
+				IfExists: true,
+			},
+			{Op: "drop", OldName: "missing", IfExists: true},
+			{Op: "rename_col", OldName: "absent", NewName: "n4", IfExists: true},
+		},
+	}}}
+
+	got := CompareSemantics(SemanticInput{
+		Before: before,
+		After:  before,
+		Actual: Delta{},
+	}, parsed)
+	if len(got) != 0 {
+		t.Fatalf("conditional no-op findings = %v, want none", got)
+	}
+}
+
+func TestCompareSemanticsIfExistsPresentOldNameApplies(t *testing.T) {
+	before := Snapshot{
+		"id": {Name: "id", Ordinal: 1, ColumnType: "bigint(20)", IsNullable: "NO", ColumnKey: "PRI"},
+	}
+	after := Snapshot{
+		"n2": {Name: "n2", Ordinal: 1, ColumnType: "bigint(20) unsigned", IsNullable: "NO", ColumnKey: "PRI"},
+	}
+	parsed := ParsedStmts{Stmts: []ParsedStmt{{
+		Kind: "alter_table",
+		Specs: []ParsedSpec{{
+			Op:       "change",
+			OldName:  "id",
+			Cols:     []ParsedCol{{Name: "n2", TypeStr: "bigint unsigned", NotNull: true, Precision: -1, Scale: -1}},
+			IfExists: true,
+		}},
+	}}}
+
+	got := CompareSemantics(SemanticInput{
+		Before: before,
+		After:  after,
+		Actual: DiffSnapshots(before, after),
+	}, parsed)
+	if len(got) != 0 {
+		t.Fatalf("conditional existing-column findings = %v, want none", got)
+	}
+}
+
 func TestCompareSemanticsSameNameRenameIsNoop(t *testing.T) {
 	col := ColRow{Name: "n6", Ordinal: 34, ColumnType: "timestamp(6)", IsNullable: "YES"}
 	parsed := ParsedStmts{Stmts: []ParsedStmt{{

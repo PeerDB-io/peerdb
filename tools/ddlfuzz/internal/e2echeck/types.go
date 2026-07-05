@@ -69,6 +69,7 @@ type ParsedSpec struct {
 	NewName     string      `json:"new_name,omitempty"`
 	Cols        []ParsedCol `json:"cols,omitempty"`
 	HasPosition bool        `json:"has_position"`
+	IfExists    bool        `json:"if_exists,omitempty"`
 }
 
 type ParsedCol struct {

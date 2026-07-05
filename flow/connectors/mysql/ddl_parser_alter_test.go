@@ -39,14 +39,36 @@ func ddlAltChange(oldName string, col ddlColumnDef) ddlAlterSpec {
 	return ddlAlterSpec{OldColumnName: oldName, NewColumns: []ddlColumnDef{col}, ChangeColumn: true}
 }
 
+func ddlAltChangeIfExists(oldName string, col ddlColumnDef) ddlAlterSpec {
+	return ddlAlterSpec{
+		OldColumnName:  oldName,
+		NewColumns:     []ddlColumnDef{col},
+		ChangeColumn:   true,
+		ChangeIfExists: true,
+	}
+}
+
 func ddlAltModifyIfExists(cols ...ddlColumnDef) []ddlAlterSpec {
 	return []ddlAlterSpec{{NewColumns: cols, ModifyIfExists: true}}
 }
 
 func ddlAltDrop(name string) []ddlAlterSpec { return []ddlAlterSpec{{OldColumnName: name}} }
 
+func ddlAltDropIfExists(name string) []ddlAlterSpec {
+	return []ddlAlterSpec{{OldColumnName: name, DropIfExists: true}}
+}
+
 func ddlAltRename(oldName, newName string) ddlAlterSpec {
 	return ddlAlterSpec{OldColumnName: oldName, NewColumnName: newName, RenameColumn: true}
+}
+
+func ddlAltRenameIfExists(oldName, newName string) ddlAlterSpec {
+	return ddlAlterSpec{
+		OldColumnName:  oldName,
+		NewColumnName:  newName,
+		RenameColumn:   true,
+		RenameIfExists: true,
+	}
 }
 
 func ddlAltPos(spec ddlAlterSpec) ddlAlterSpec {
@@ -98,7 +120,7 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "RENAME KEY kx TO ky"},
 		{alter: "RENAME INDEX IF EXISTS ix TO iy", maria: true},
 		{alter: "RENAME COLUMN a TO b", want: []ddlAlterSpec{ddlAltRename("a", "b")}},
-		{alter: "RENAME COLUMN IF EXISTS a TO b", maria: true, want: []ddlAlterSpec{ddlAltRename("a", "b")}},
+		{alter: "RENAME COLUMN IF EXISTS a TO b", maria: true, want: []ddlAlterSpec{ddlAltRenameIfExists("a", "b")}},
 		// CONVERT TO / FORCE / ORDER BY / key toggles (#26-29, #12-13)
 		{alter: "CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"},
 		{alter: "CONVERT TO CHARACTER SET DEFAULT"},
@@ -155,7 +177,7 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "ADD IF NOT EXISTS period date", maria: true, want: ddlAltAddIfNotExists(ddlAltCol("period", "date"))},
 		// column-relevant items land with types, typmods and positions intact
 		{alter: "DROP COLUMN c", want: ddlAltDrop("c")},
-		{alter: "DROP COLUMN IF EXISTS c RESTRICT", maria: true, want: ddlAltDrop("c")},
+		{alter: "DROP COLUMN IF EXISTS c RESTRICT", maria: true, want: ddlAltDropIfExists("c")},
 		{
 			alter: "MODIFY COLUMN c DECIMAL(10,2) NOT NULL",
 			want:  ddlAltAdd(ddlColumnDef{Name: "c", TypeStr: "decimal(10,2)", Precision: 10, Scale: 2, NotNull: true}),
@@ -192,10 +214,10 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		},
 		{alter: "MODIFY IF EXISTS c INT", maria: true, want: ddlAltModifyIfExists(ddlAltCol("c", "int"))},
 		{alter: "MODIFY COLUMN IF EXISTS c INT", maria: true, want: ddlAltModifyIfExists(ddlAltCol("c", "int"))},
-		{alter: "DROP IF EXISTS c", maria: true, want: ddlAltDrop("c")},
+		{alter: "DROP IF EXISTS c", maria: true, want: ddlAltDropIfExists("c")},
 		{
 			alter: "CHANGE IF EXISTS a b INT", maria: true,
-			want: []ddlAlterSpec{ddlAltChange("a", ddlAltCol("b", "int"))},
+			want: []ddlAlterSpec{ddlAltChangeIfExists("a", ddlAltCol("b", "int"))},
 		},
 		// ADD (...) mixing columns with index/constraint/period elements keeps only the columns
 		{
