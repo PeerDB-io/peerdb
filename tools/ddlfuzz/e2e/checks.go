@@ -115,8 +115,13 @@ func checkLiveDDL(ctx context.Context, ec engineConfig, stateDir string, stats *
 		})
 	}
 
+	binlogTextForSig := string(query)
+	submittedTextForSig := exp.Submitted
+	if e2echeck.EquivalentQueryText(exp.Submitted, binlogTextForSig, ec.IsMariaDB) {
+		submittedTextForSig = binlogTextForSig
+	}
 	liveSig, liveErr, livePanic := safeDDLSignature(query, mode, ec.IsMariaDB)
-	subSig, subErr, subPanic := safeDDLSignature([]byte(exp.Submitted), expectedRelevant, ec.IsMariaDB)
+	subSig, subErr, subPanic := safeDDLSignature([]byte(submittedTextForSig), expectedRelevant, ec.IsMariaDB)
 	if livePanic != nil || subPanic != nil {
 		findingCount += recordE2EFinding(stateDir, stats, findingInput{
 			Class:       "e2e-panic",

@@ -96,6 +96,13 @@ func TestReproduceByClass(t *testing.T) {
 				validStatus),
 		},
 		{
+			name: "plumbing sig mysql skipped version comment reconciled",
+			in: baseInput(ClassPlumbingSig,
+				"/*!/*!ALTER TABLE fixture ADD n1 INT /*!99999 , ADD n2 INT */ */",
+				"/*!/*!ALTER TABLE fixture ADD n1 INT /* 99999 , ADD n2 INT */ */",
+				validStatus),
+		},
+		{
 			name: "plumbing sig stale ddl before reset control reconciled",
 			in: baseInput(ClassPlumbingSig,
 				"/*!100000 SET STATEMENT max_statement_time=60 FOR ALTER TABLE fixture DROP COLUMN id */",

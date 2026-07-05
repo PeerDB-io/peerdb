@@ -81,6 +81,18 @@ func TestEquivalentQueryText(t *testing.T) {
 			want:      false,
 		},
 		{
+			name:      "mysql skipped version comment plainified",
+			submitted: "ALTER TABLE fixture ADD n1 INT /*!99999NOT NULL*/",
+			binlog:    "ALTER TABLE fixture ADD n1 INT /* 99999NOT NULL*/",
+			want:      true,
+		},
+		{
+			name:      "mysql skipped comment inside executable comment plainified",
+			submitted: "/*!/*!ALTER TABLE fixture ADD n1 INT /*!99999 NOT NULL*/ */",
+			binlog:    "/*!/*!ALTER TABLE fixture ADD n1 INT /* 99999 NOT NULL*/ */",
+			want:      true,
+		},
+		{
 			name:      "quoted comment text is not normalized",
 			submitted: "ALTER TABLE t ADD COLUMN c VARCHAR(64) DEFAULT '/*!!11050 x*/'",
 			binlog:    "ALTER TABLE t ADD COLUMN c VARCHAR(64) DEFAULT '/*  11050 x*/'",
