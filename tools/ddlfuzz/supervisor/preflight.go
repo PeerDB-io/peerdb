@@ -333,6 +333,12 @@ func residueCommitSet(cfg Config) (map[string]bool, []string, error) {
 		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".jsonl") {
 			continue
 		}
+		// Per-attempt codex stream logs (<sig>.attemptN.stream.jsonl) also end
+		// in .jsonl but are not attempt records; only <sig>.jsonl is. Scanning
+		// them makes LoadAttemptRecords fail and blocks drift resolution.
+		if strings.HasSuffix(ent.Name(), ".stream.jsonl") {
+			continue
+		}
 		path := filepath.Join(attemptsDir, ent.Name())
 		records, err := LoadAttemptRecords(path)
 		if err != nil {
