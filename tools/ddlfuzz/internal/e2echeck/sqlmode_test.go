@@ -53,6 +53,13 @@ func TestExpectedEventSQLModeRelevant(t *testing.T) {
 			want:      SQLModeANSIQuotes,
 		},
 		{
+			name:      "concat national charset literal",
+			sql:       "SET STATEMENT sql_mode=CONCAT(@@sql_mode,N',ANSI_QUOTES') FOR ALTER TABLE fixture ADD n1 INT",
+			session:   0,
+			isMariaDB: true,
+			want:      SQLModeANSIQuotes,
+		},
+		{
 			name:      "unsupported expression falls back to session mode",
 			sql:       "SET STATEMENT sql_mode=REPLACE(@@sql_mode, 'ANSI_QUOTES', '') FOR ALTER TABLE fixture ADD COLUMN n1 INT",
 			session:   SQLModeNoBackslashEscapes | SQLModeANSIQuotes,
