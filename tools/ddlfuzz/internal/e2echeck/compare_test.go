@@ -20,6 +20,44 @@ func TestCompareSemanticsRenameTableIgnoresColumnSnapshotDelta(t *testing.T) {
 	}
 }
 
+func TestCompareSemanticsAlterRenameTableIgnoresMovedColumnSnapshot(t *testing.T) {
+	before := Snapshot{
+		"id": {Name: "id", Ordinal: 1, ColumnType: "bigint(20)", IsNullable: "NO", ColumnKey: "PRI"},
+		"c":  {Name: "c", Ordinal: 2, ColumnType: "int(11)", IsNullable: "YES"},
+	}
+	parsed := ParsedStmts{Stmts: []ParsedStmt{
+		{
+			Kind:  "alter_table",
+			Table: "fixture",
+			Specs: []ParsedSpec{{
+				Op:      "change",
+				OldName: "id",
+				Cols: []ParsedCol{{
+					Name: "n1", TypeStr: "varchar(12)", Precision: -1, Scale: -1,
+				}},
+				HasPosition: true,
+			}},
+		},
+		{
+			Kind:  "rename_table",
+			Pairs: []ParsedPair{{OldTable: "fixture", NewTable: "fixture_r"}},
+		},
+	}}
+	actual := Delta{
+		Dropped: []ColRow{before["id"], before["c"]},
+		Renamed: []RenameSummary{{Old: "fixture", New: "fixture_r"}},
+	}
+
+	got := CompareSemantics(SemanticInput{
+		Before: before,
+		After:  Snapshot{},
+		Actual: actual,
+	}, parsed)
+	if len(got) != 0 {
+		t.Fatalf("alter rename findings = %v, want none", got)
+	}
+}
+
 func TestCompareSemanticsRenameTableIsCaseSensitive(t *testing.T) {
 	parsed := ParsedStmts{Stmts: []ParsedStmt{{
 		Kind:  "rename_table",

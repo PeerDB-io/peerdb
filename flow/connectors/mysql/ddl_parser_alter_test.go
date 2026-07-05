@@ -27,7 +27,15 @@ func ddlAltAddSpec(cols ...ddlColumnDef) ddlAlterSpec { return ddlAlterSpec{NewC
 
 func ddlAltAdd(cols ...ddlColumnDef) []ddlAlterSpec { return []ddlAlterSpec{ddlAltAddSpec(cols...)} }
 
+func ddlAltModifyIfExists(cols ...ddlColumnDef) []ddlAlterSpec {
+	return []ddlAlterSpec{{NewColumns: cols, ModifyIfExists: true}}
+}
+
 func ddlAltDrop(name string) []ddlAlterSpec { return []ddlAlterSpec{{OldColumnName: name}} }
+
+func ddlAltRename(oldName, newName string) ddlAlterSpec {
+	return ddlAlterSpec{OldColumnName: oldName, NewColumnName: newName, RenameColumn: true}
+}
 
 func ddlAltPos(spec ddlAlterSpec) ddlAlterSpec {
 	spec.HasPosition = true
@@ -77,11 +85,14 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "RENAME INDEX ix TO iy"},
 		{alter: "RENAME KEY kx TO ky"},
 		{alter: "RENAME INDEX IF EXISTS ix TO iy", maria: true},
-		{alter: "RENAME COLUMN a TO b", want: []ddlAlterSpec{{OldColumnName: "a", NewColumnName: "b"}}},
-		{alter: "RENAME COLUMN IF EXISTS a TO b", maria: true, want: []ddlAlterSpec{{OldColumnName: "a", NewColumnName: "b"}}},
+		{alter: "RENAME COLUMN a TO b", want: []ddlAlterSpec{ddlAltRename("a", "b")}},
+		{alter: "RENAME COLUMN IF EXISTS a TO b", maria: true, want: []ddlAlterSpec{ddlAltRename("a", "b")}},
 		// CONVERT TO / FORCE / ORDER BY / key toggles (#26-29, #12-13)
 		{alter: "CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"},
 		{alter: "CONVERT TO CHARACTER SET DEFAULT"},
+		{alter: "CHECK PARTITION p0, MODIFY  , SECONDARY_LOAD"},
+		{alter: "REBUILD PARTITION p0, MODIFY # DECIMAL DECIMAL WITH (10,2) " +
+			"GENERATED ALWAYS AS (NOW()) VIRTUAL DEFAULT 'x' COMMENT $$mysql9$$ FIRST"},
 		{alter: "FORCE"},
 		{alter: "ORDER BY a, b"},
 		{alter: "ORDER BY after, modify"},
@@ -163,8 +174,8 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		},
 		// MariaDB per-spec IF [NOT] EXISTS on the column-relevant items
 		{alter: "ADD COLUMN IF NOT EXISTS (a INT, b INT)", maria: true, want: ddlAltAdd(ddlAltCol("a", "int"), ddlAltCol("b", "int"))},
-		{alter: "MODIFY IF EXISTS c INT", maria: true, want: ddlAltAdd(ddlAltCol("c", "int"))},
-		{alter: "MODIFY COLUMN IF EXISTS c INT", maria: true, want: ddlAltAdd(ddlAltCol("c", "int"))},
+		{alter: "MODIFY IF EXISTS c INT", maria: true, want: ddlAltModifyIfExists(ddlAltCol("c", "int"))},
+		{alter: "MODIFY COLUMN IF EXISTS c INT", maria: true, want: ddlAltModifyIfExists(ddlAltCol("c", "int"))},
 		{alter: "DROP IF EXISTS c", maria: true, want: ddlAltDrop("c")},
 		{
 			alter: "CHANGE IF EXISTS a b INT", maria: true,
@@ -212,12 +223,23 @@ func TestDDLAlterMixedSpecOrdering(t *testing.T) {
 		{
 			alter: "DROP a, ADD b INT, RENAME COLUMN c TO d",
 			want: []ddlAlterSpec{
-				{OldColumnName: "a"}, ddlAltAddSpec(ddlAltCol("b", "int")), {OldColumnName: "c", NewColumnName: "d"},
+				{OldColumnName: "a"}, ddlAltAddSpec(ddlAltCol("b", "int")), ddlAltRename("c", "d"),
 			},
 		},
 		{
+			alter: "CHANGE `conversion` c2 VECTOR (.5) AFTER a, ALTER COLUMN `system` SET INVISIBLE",
+			want: []ddlAlterSpec{{
+				OldColumnName: "conversion", NewColumns: []ddlColumnDef{ddlAltCol("c2", "vector")}, HasPosition: true,
+			}},
+		},
+		{
 			alter: "ADD COLUMN n6 inet6 NOT NULL, RENAME COLUMN n6 TO vector2", maria: true,
-			want: []ddlAlterSpec{ddlAltAddSpec(ddlAltColNN("n6", "inet6")), {OldColumnName: "n6", NewColumnName: "vector2"}},
+			want: []ddlAlterSpec{ddlAltAddSpec(ddlAltColNN("n6", "inet6")), ddlAltRename("n6", "vector2")},
+		},
+		{
+			alter: "ADD (`n1` MIDDLEINT, n2 BINARY, INDEX (after)), ADD COLUMN IF NOT EXISTS `n1` LINESTRING",
+			maria: true,
+			want:  []ddlAlterSpec{ddlAltAddSpec(ddlAltCol("n1", "mediumint"), ddlAltCol("n2", "binary"))},
 		},
 		{
 			alter: "ADD c ENUM('a,b','c)d'), DROP f",
@@ -288,6 +310,38 @@ func TestDDLAlterMixedSpecOrdering(t *testing.T) {
 			require.Equal(t, tc.want, ddlAlterSpecsOf(t, "ALTER TABLE t "+tc.alter, tc.maria))
 		})
 	}
+}
+
+func TestDDLAlterRenameColumnToEmptyIdentifier(t *testing.T) {
+	sql := "ALTER TABLE db.orders RENAME COLUMN old_col TO \"\", " +
+		"RENAME COLUMN \"system\" TO \"select\", DROP b RESTRICT, " +
+		"MODIFY COLUMN \"system\" VARCHAR(32) DEFAULT 'quote''s', ADD after_col YEAR FIRST"
+	stmts, err := parseQueryEvent(
+		[]byte(sql),
+		sqlModeANSIQuotes,
+		false,
+	)
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	alter, ok := stmts[0].(*ddlAlterTable)
+	require.True(t, ok, "expected *ddlAlterTable, got %T", stmts[0])
+	require.Equal(t, "db", alter.Schema)
+	require.Equal(t, "orders", alter.Table)
+	require.Equal(t, []ddlAlterSpec{
+		ddlAltRename("old_col", ""),
+		ddlAltRename("system", "select"),
+		{OldColumnName: "b"},
+		ddlAltAddSpec(ddlAltCol("system", "varchar(32)")),
+		ddlAltPos(ddlAltAddSpec(ddlAltCol("after_col", "year"))),
+	}, alter.Specs)
+
+	got, err := FuzzDDLSignature(
+		[]byte(sql),
+		sqlModeANSIQuotes,
+		false,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "alter db.orders{ren old_col>``; ren system>select; drop b; col system=string; col after_col=int16 @pos}", got)
 }
 
 func TestDDLAlterSpecNameReuseImpliesPositionShift(t *testing.T) {

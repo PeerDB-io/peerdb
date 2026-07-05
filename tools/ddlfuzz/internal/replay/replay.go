@@ -224,7 +224,8 @@ func runReplayBatch(ctx context.Context, cfg Config, engine string, indexes []in
 		}
 		for i := start; i < end; i++ {
 			idx := indexes[i]
-			all[idx].result, all[idx].code = replayFastResult(all[idx].sig, all[idx].engine, all[idx].mode, all[idx].c, parserResults[i], ds[i], raw[i])
+			batchIdx := i - start
+			all[idx].result, all[idx].code = replayFastResult(all[idx].sig, all[idx].engine, all[idx].mode, all[idx].c, parserResults[i], ds[batchIdx], raw[batchIdx])
 			all[idx].done = true
 		}
 	}

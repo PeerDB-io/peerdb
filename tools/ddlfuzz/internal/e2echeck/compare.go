@@ -117,8 +117,11 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 	actualChanged := changesToSet(actual.Changed)
 
 	if len(pred.TablePairs) > 0 {
+		matchedTableRename := false
 		for _, pair := range pred.TablePairs {
-			if !containsRename(actual.Renamed, pair.OldTable, pair.NewTable) {
+			if containsRename(actual.Renamed, pair.OldTable, pair.NewTable) {
+				matchedTableRename = true
+			} else {
 				out = append(out, SemanticFinding{
 					Class: ClassMissedColumnEffect,
 					Meta: map[string]any{
@@ -127,6 +130,9 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 					},
 				})
 			}
+		}
+		if matchedTableRename && columnSnapshotMovedByRename(in.Before, in.After, actual) {
+			return out
 		}
 		if len(pred.Added) == 0 && len(pred.Dropped) == 0 && len(pred.Changed) == 0 && len(pred.Renamed) == 0 {
 			return out
@@ -264,6 +270,21 @@ func changesToSet(changes []ColumnChange) map[string]bool {
 		out[ch.Name] = true
 	}
 	return out
+}
+
+func columnSnapshotMovedByRename(before, after Snapshot, actual Delta) bool {
+	if len(before) == 0 || len(after) != 0 || len(actual.Added) != 0 || len(actual.Changed) != 0 {
+		return false
+	}
+	if len(actual.Dropped) != len(before) {
+		return false
+	}
+	for _, row := range actual.Dropped {
+		if _, ok := before[row.Name]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func changeByName(changes []ColumnChange, name string) (ColumnChange, bool) {
