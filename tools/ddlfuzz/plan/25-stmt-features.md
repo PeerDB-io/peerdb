@@ -126,7 +126,7 @@ committed in the main checkout; land via merge-staged.
 ## Constraints (binding)
 
 - `internal/gen`, `e2e/`, oracle drivers, wire protocol untouched. Go-only diff in
-  `internal/compare`, `internal/fuzzcmd`, `internal/corpus` (distill window flags).
+  `internal/compare`, `cmd/ddlfuzz`, `internal/corpus` (distill window flags).
 - stats.json additive (D12); corpus.db schema unchanged — `feature` column semantics
   (opaque grouping text) preserved; old rows readable and groupable.
 - Feature hashes stay FNV-1a with the standard basis — process-stable, bitmap persists.

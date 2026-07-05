@@ -868,6 +868,26 @@ func TestReportRenderingFromFixtures(t *testing.T) {
 	}
 }
 
+func TestAppendCoverageHistoryWritesZeroGoColumn(t *testing.T) {
+	cfg := testConfig(t)
+	mustWrite(t, filepath.Join(cfg.StateDir, "stats.json"), `{"ts":"2026-07-03T12:00:00Z","edges":{"mysql":20,"mariadb":30}}`)
+	if err := AppendCoverageHistory(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(cfg.StateDir, "coverage", "history", "edges.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), "ts,go,mysql,mariadb\n2026-07-03T12:00:00Z,0,20,30\n"; got != want {
+		t.Fatalf("coverage history mismatch:\ngot  %q\nwant %q", got, want)
+	}
+
+	delta := lastEdgeDelta(cfg, map[string]int64{"mysql": 23, "mariadb": 35})
+	if delta["mysql"] != 3 || delta["mariadb"] != 5 {
+		t.Fatalf("delta = %v, want mysql=3 mariadb=5", delta)
+	}
+}
+
 func TestCodexJSONLParsingFromFixture(t *testing.T) {
 	dir := t.TempDir()
 	stream := filepath.Join(dir, "stream.jsonl")

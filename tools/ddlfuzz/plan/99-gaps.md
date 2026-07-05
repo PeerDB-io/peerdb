@@ -40,9 +40,9 @@ is at the end. Item IDs are stable across audits, so the numbering is not contig
 - **R5 (MED).** `compare.go:513,524` embed counts/kind-lists in `stmt_count(...)`/
   `spec_count(...)` shapes (plan says bare dimension names; `col_kind`/`col_params` at :549,:552
   embed values likewise) → one bug fans out to many sigs and can consume the 200
-  `max-open-findings` cap (`internal/fuzzcmd/main.go:60`), after which genuinely new findings
+  `max-open-findings` cap (`cmd/ddlfuzz/main.go:60`), after which genuinely new findings
   are suppressed. The cap check also runs before `findings.Record`
-  (`internal/fuzzcmd/fuzzloop.go:801-807`), so at cap even `times_seen` stops updating.
+  (`cmd/ddlfuzz/fuzzloop.go:801-807`), so at cap even `times_seen` stops updating.
 - **R6 (MED).** Live/offline check duplication: `safeSQLModeFromStatusVars`/`safeDDLSignature`/
   `safeParseForE2E` exist in both `e2e/checks.go:251-287` and
   `internal/e2echeck/reproduce_ddlfuzz.go:160-197`, with divergent panic handling — plan 50 §2
@@ -89,7 +89,7 @@ is at the end. Item IDs are stable across audits, so the numbering is not contig
   coarser than plan 21's ~150 enumerated constructs (`plan/21-fuzzer.md:1098` — e.g. partition
   management ops, `ON UPDATE CURRENT_TIMESTAMP`, `ZEROFILL`, `INT1/2/3`, NATIONAL CHAR,
   `UNION=(...)`) and coverage is not reported at runtime (no consumer of `gen.Checklist`; the
-  stats writer `internal/fuzzcmd/fuzzloop.go:833-868` has no checklist metric), so 00 §Exit's
+  stats writer `cmd/ddlfuzz/fuzzloop.go:833-868` has no checklist metric), so 00 §Exit's
   construct-checklist metric is unreportable; benign heads are a subset of plan 21's list
   (`gen/tables.go:270-279` — no UPDATE/DELETE/GRANT/XA/TRUNCATE/FLUSH). Byte-safety +
   sentinel-db constraints are respected and fuzz-tested.
@@ -152,8 +152,8 @@ Low likelihood or low blast radius; none with verdict-integrity impact.
   once at :91); items orphaned mid-run (worker exit at the `--cases` target, `worker.go:93-96`;
   the matcher panic path files `e2e-panic` but never calls `completeQueueItem`,
   `matcher.go:418-440`) wait for the next process restart.
-- **G4.** `Case.Seed` is drawn after generation (`internal/fuzzcmd/fuzzloop.go:406,416`) — not
-  PCG state — and there is no `replay --seed` (`internal/fuzzcmd/main.go:136-140`), so
+- **G4.** `Case.Seed` is drawn after generation (`cmd/ddlfuzz/fuzzloop.go:406,416`) — not
+  PCG state — and there is no `replay --seed` (`cmd/ddlfuzz/main.go:136-140`), so
   meta.json `seed` can't regenerate a case; repro.sql is the reproduction contract and makes it
   mostly moot. A run-level seed is persisted (`-seed`, `main.go:83,252-271`; `run_seed` in
   stats) but doesn't enable per-case regeneration.
@@ -164,7 +164,7 @@ Low likelihood or low blast radius; none with verdict-integrity impact.
   `ParseBatch` pre-allocates from the unvalidated count (:56-58, checked only afterward at
   :71-73) — a corrupted frame becomes a huge-alloc panic instead of treat-as-crash; harmless
   for a local same-repo child process, with no verdict corruption. `internal/run` holds only
-  the Case type + enums while orchestration lives in `internal/fuzzcmd/fuzzloop.go` (contra
+  the Case type + enums while orchestration lives in `cmd/ddlfuzz/fuzzloop.go` (contra
   layout intent).
 - `e2e/fixture.go:217-229` `fallbackFreshName` latent infinite loop (palette name and the single
   deterministic alternate both taken → recomputes the same name).
@@ -174,11 +174,11 @@ Low likelihood or low blast radius; none with verdict-integrity impact.
   databases).
 - `e2e/health.sh:5-11` awk false-passes on compose <2.21 single-line JSON output.
 - Stats drift: `execs_per_sec` in stats.json is a since-start average
-  (`internal/fuzzcmd/fuzzloop.go:825-831,840`; only the stderr line is an interval rate, :279);
+  (`cmd/ddlfuzz/fuzzloop.go:825-831,840`; only the stderr line is an interval rate, :279);
   `suppressed` conflates cap-suppressed with ledger/parked re-seen (:803,:820,:857).
 - `findings.Record` re-reads `parked.list` + full `ledger.jsonl` and rewrites meta on every
   occurrence (`findings.go:75,197-261,89-149`) under `recordMu`
-  (`internal/fuzzcmd/fuzzloop.go:799-800`) — serializes oracle-proc completion on hot sigs;
+  (`cmd/ddlfuzz/fuzzloop.go:799-800`) — serializes oracle-proc completion on hot sigs;
   plan said in-memory + 60s/SIGHUP re-read.
 - `golden` spawns a fresh oracle process per seed×engine (`golden.go:140` →
   `oracle.SingleDigest`, `oracle.go:128-133`; parallel worker pool) and aborts the whole run on
@@ -186,7 +186,7 @@ Low likelihood or low blast radius; none with verdict-integrity impact.
 - `sancov.Merge` (`sancov/sancov.go:47-49`) builds `[]uint64` over an 8-byte-misaligned base
   (the counters slice starts at offset +5 into the read buffer, `wire.go:77-91`) — works on
   arm64/amd64, technically invalid unsafe.
-- `replay <sig>` arg joined into paths unvalidated (`internal/fuzzcmd/main.go:191-194`,
+- `replay <sig>` arg joined into paths unvalidated (`cmd/ddlfuzz/main.go:191-194`,
   `replay.go:508-510`) — `../` escapes the findings dir (local CLI, minor).
 
 ## Verified clean (audited, no defect)

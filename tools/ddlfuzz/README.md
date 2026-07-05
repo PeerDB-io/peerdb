@@ -47,7 +47,10 @@ The pieces:
 ## Usage
 
 ```
-./build/build.sh               # fuzzer binaries; oracle/*/build.sh for oracles
+go build -o build/ddlfuzz ./cmd/ddlfuzz
+go build -o build/ddlfuzz-e2e ./cmd/ddlfuzz-e2e
+go build -o build/ddlsuper ./supervisor
+oracle/mysql/build.sh          # oracles (slow; links server source); same for mariadb
 ./build/ddlsuper run           # full campaign (run in tmux)
 ./build/ddlsuper status        # campaign digest
 ./build/ddlfuzz golden         # committed seeds vs both oracles; must exit 0

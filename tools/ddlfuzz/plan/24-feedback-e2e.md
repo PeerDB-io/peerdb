@@ -89,8 +89,7 @@ oracles: copy the server build trees (`build/mysql-build`, `build/mariadb-build`
 mtime-preserving so ninja stays incremental — the servers no-op, only driver.cc recompiles
 and relinks) from the main checkout into the worktree's `build/`, rebuild via
 `oracle/*/build.sh` (writes the manifest), re-run golden. Landing still rebuilds in
-`staged/` so the manifest hash matches (merge-staged contract). The `go` cover signal
-(`edges.go` still 0) is owned by `worktrees/fix-writecounters` — out of scope.
+`staged/` so the manifest hash matches (merge-staged contract).
 
 ### I.4 Corpus hygiene v2
 

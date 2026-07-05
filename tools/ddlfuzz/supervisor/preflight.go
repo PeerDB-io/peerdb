@@ -144,7 +144,7 @@ func RunPreflight(ctx context.Context, cfg *Config, logf func(string, ...any)) e
 		if err := os.MkdirAll(cfg.BuildDir, 0o755); err != nil {
 			return err
 		}
-		res, err := RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, "go", ddlfuzzCoverBuildArgs(cfg.DDLfuzzBin)...)
+		res, err := RunTimeout(ctx, cfg.DDLDir, 10*time.Minute, nil, "go", "build", "-o", cfg.DDLfuzzBin, "./cmd/ddlfuzz")
 		if err != nil || res.ExitCode != 0 {
 			if err == nil {
 				err = fmt.Errorf("exit code %d", res.ExitCode)

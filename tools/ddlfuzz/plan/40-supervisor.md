@@ -62,7 +62,7 @@ arrays); the Go module already exists and component 20 is Go; one binary removes
    "execs_total": 123456789,
    "execs_per_sec": 41000,
    "corpus_count": {"mysql": 8000, "mariadb": 7000},
-   "edges": {"go": 4100, "mysql": 91000, "mariadb": 87000},   // monotone (OR-accumulated bitmaps)
+   "edges": {"mysql": 91000, "mariadb": 87000},   // monotone (OR-accumulated bitmaps)
    "oracle_restarts": {"mysql": 2, "mariadb": 0},
    "findings_emitted_total": 17}
   ```
@@ -492,7 +492,7 @@ Hourly heartbeat rewrites `state/report.md` in full:
 ```markdown
 # ddlfuzz run report        started: <ts>   deadline: <ts>   now: <ts>   status: running|degraded|final
 ## Fast lane   (from state/stats.json; stale>5min flagged)
-execs/s, execs_total, corpus counts, edges {go,mysql,mariadb}, edges Δ last hour, oracle restarts
+execs/s, execs_total, corpus counts, edges {mysql,mariadb}, edges Δ last hour, oracle restarts
 ## E2E lane    (from state/e2e-stats.json)
 cases/min, matcher lag, confirm queue depth, confirmed ok/fail totals
 ## Findings
@@ -503,7 +503,7 @@ totals (input/cached/output) + attempt wall-hours — from state/spend.json (cod
 usage per turn.completed event but no dollar cost; cap = DDLFUZZ_MAX_TOKENS if set)
 ## Components
 fuzzer up/restarts, e2e up/restarts, disk free, breaker states
-## Coverage history (state/coverage/history/edges.csv: ts,go,mysql,mariadb — appended hourly)
+## Coverage history (state/coverage/history/edges.csv: ts,go,mysql,mariadb — appended hourly; go is 0)
 last 12h edge deltas per bitmap
 ```
 

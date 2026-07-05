@@ -175,7 +175,6 @@ the case is skipped entirely (unreachable-by-invariant, no-panic check only) iff
 state/
   corpus.db                              # retained inputs in SQLite (sql, engine, sql_mode, origin)
   coverage/{mysql,mariadb}.sancov        # OR-accumulated oracle bitmaps (sole retention signal)
-                                         # (optional coverage/go.covdata/ only if -cover build used)
   findings/<sig>/repro.sql               # repro input bytes
   findings/<sig>/meta.json               # {sig, engine, sql_mode, lane:"fast"|"e2e", our_sig,
                                          #  our_error, oracle_digest, status:"open"|"fixed"|

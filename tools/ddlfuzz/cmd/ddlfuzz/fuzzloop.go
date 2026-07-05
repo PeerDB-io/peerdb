@@ -1,7 +1,6 @@
-package fuzzcmd
+package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -11,7 +10,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
-	"runtime/coverage"
 	"sort"
 	"strconv"
 	"sync"
@@ -84,7 +82,6 @@ type fuzzLoop struct {
 	retainedBySignal map[string]map[string]uint64
 	retainedLens     []int
 	retainedTotal    uint64
-	goCov            goCoverage
 
 	// Stats-window baselines: writeStats derives execs_per_sec_window and
 	// retained_per_min from the delta since its previous call, so a regression
@@ -104,13 +101,6 @@ type fuzzLoop struct {
 	// never contends on statsMu or the engine mutexes.
 	lastStatsMu sync.Mutex
 	lastStats   map[string]any
-}
-
-type goCoverage struct {
-	bits     []byte
-	edges    int
-	disabled bool
-	logged   bool
 }
 
 type oracleProc struct {
@@ -363,9 +353,6 @@ loopFor:
 			loop.writeStatsLight(rate)
 			last, lastTotal = now, cur
 		case <-heartbeat.C:
-			// Go coverage of our own parser is a stats-only signal; retention
-			// rides the per-case oracle edge counts.
-			loop.pollGoCoverage()
 			loop.writeStats(loop.rate(start))
 			loop.saveCoverage()
 		}
@@ -851,39 +838,6 @@ func (p *oracleProc) mergeCoverage(ctx context.Context) {
 	es.mu.Unlock()
 }
 
-func (l *fuzzLoop) pollGoCoverage() bool {
-	l.statsMu.Lock()
-	defer l.statsMu.Unlock()
-	if l.goCov.disabled {
-		return false
-	}
-	var buf bytes.Buffer
-	if err := coverage.WriteCounters(&buf); err != nil {
-		l.goCov.disabled = true
-		if !l.goCov.logged {
-			fmt.Fprintf(os.Stderr, "fuzz: go coverage disabled: %v\n", err)
-			l.goCov.logged = true
-		}
-		return false
-	}
-	counters := buf.Bytes()
-	if len(counters) == 0 {
-		return false
-	}
-	if len(l.goCov.bits) < len(counters) {
-		l.goCov.bits = append(l.goCov.bits, make([]byte, len(counters)-len(l.goCov.bits))...)
-	}
-	grew := false
-	for i, v := range counters {
-		if v != 0 && l.goCov.bits[i] == 0 {
-			l.goCov.bits[i] = v
-			l.goCov.edges++
-			grew = true
-		}
-	}
-	return grew
-}
-
 func (l *fuzzLoop) recordFinding(f findings.Finding) {
 	l.recordMu.Lock()
 	defer l.recordMu.Unlock()
@@ -942,7 +896,6 @@ func (l *fuzzLoop) writeStats(rate float64) {
 			"mariadb": l.store.Count("mariadb"),
 		},
 		"edges": map[string]int{
-			"go":      l.goCov.edges,
 			"mysql":   l.edgeCount("mysql"),
 			"mariadb": l.edgeCount("mariadb"),
 		},

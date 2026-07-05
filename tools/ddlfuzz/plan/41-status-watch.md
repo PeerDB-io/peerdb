@@ -58,7 +58,7 @@ ddlsuper watch  [--interval 3s] [--no-color] # repaint loop, default 3s, min 1s
    ```jsonc
    {"ts":"<RFC3339>",
     "fuzz":{"execs_total":0,"suppressed":0,"corpus":{"mysql":0,"mariadb":0},
-            "edges":{"go":0,"mysql":0,"mariadb":0},"restarts":{"mysql":0,"mariadb":0}},
+            "edges":{"mysql":0,"mariadb":0},"restarts":{"mysql":0,"mariadb":0}},
     "findings":{"open":0,"fixed":0,"ledgered":0,"parked":0},
     "e2e":{"cases":{"mysql":0,"mariadb":0},"exec_rejects":{"mysql":0,"mariadb":0}},
     "queue":{"pending":0,"processing":0,"done":0},

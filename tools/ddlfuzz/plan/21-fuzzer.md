@@ -27,12 +27,9 @@ below still describes the heavier mechanism, this scope note governs:
 
 - **Coverage-driven retention is oracle-SanCov-only.** The oracle inline-8bit bitmaps are cleanly
   attributable (small poll windows, per-engine OR-accumulation) and are the sole corpus-growth
-  signal. The Go-side `runtime/coverage` covcounters machinery (parsing the ULEB payload, epoch
-  snapshots, on-growth re-attribution) is **dropped from the run path** — its value was
-  monitoring, and the oracle bitmap already steers generation into unexplored grammar. Step 10's
-  Go-coverage subsection is retained only as an *optional* post-hoc report (build the binary with
-  `-cover`, dump one cumulative profile at shutdown for a human to eyeball); nothing in the loop
-  depends on it. `edges.go` in `stats.json` may be reported as 0/absent.
+  signal. Go parser coverage is **dropped from the run path** — its value was monitoring, and the
+  oracle bitmap already steers generation into unexplored grammar. Nothing in the loop depends on
+  it. `stats.json` reports only oracle edge counts.
 - **No periodic corpus distillation during the run.** Retain-on-new-oracle-edge, dedup by content
   hash, and a single optional distillation pass at graceful shutdown (to produce committable
   seeds) — no 30-minute minimization cron. Corpus growth is bounded by the finite grammar, not by
@@ -53,8 +50,7 @@ Consumed (per overview contracts — do not restate, conform):
 - `state/` directory layout, `ledger.jsonl`, `parked.list`.
 
 Provided:
-- `ddlfuzz` binary at `tools/ddlfuzz/build/ddlfuzz` (optionally built with `-cover` for the
-  post-hoc Go-coverage report only, see step 10; the run path does not need it).
+- `ddlfuzz` binary at `tools/ddlfuzz/build/ddlfuzz`.
 - Findings written to `state/findings/<sig>/{repro.sql,meta.json}` per contract.
 - Corpus + coverage files per the state-dir contract.
 - Exit-code contract for `replay`/`golden` (used by 40): section "replay".
@@ -748,15 +744,14 @@ oracle SanCov index not already covered by the kept set (re-poll a fresh oracle 
 candidate; a few minutes for a corpus of thousands). Skippable — findings and per-fix seeds are
 the durable artifacts; distillation only tidies the corpus for the exit-criteria report.
 
-**Optional Go-coverage report (post-hoc, off the run path):** for a human-facing sanity check on
-how much of `ddl_lexer.go`/`ddl_parser.go` the campaign exercised, the binary *may* be built with
-`go build -cover -covermode=atomic
--coverpkg=github.com/PeerDB-io/peerdb/flow/connectors/mysql,github.com/PeerDB-io/peerdb/tools/ddlfuzz/cmd/ddlfuzz`
-(atomic mode is required by `runtime/coverage.WriteCounters`; `cmd/ddlfuzz` must be in coverpkg
-so the instrumented main gets the coverage init hook) and
-dump a single cumulative profile via `runtime/coverage.WriteCountersDir` at shutdown, rendered
-with `go tool covdata`. This is a report, not a retention input; the run never reads it back, and
-`edges.go` in `stats.json` is 0/absent when the binary is built without `-cover`.
+**Optional Go-coverage report (post-hoc, off the run path):** if a human-facing
+sanity check of `ddl_lexer.go`/`ddl_parser.go` coverage is needed, run a
+separate audit build or test outside the campaign. The campaign binary stays
+uninstrumented: `-covermode=atomic` puts an atomic add on a shared counter into
+every lexer/parser basic block, and counter cache-line contention across
+parallel parser workers cost a measured ~11x in parse throughput. This is a report,
+not a retention input; the run never reads it back, and `stats.json` reports
+only oracle edge counts.
 
 ### Step 11 — orchestrator, stats, state flush (`internal/run`)
 
@@ -770,7 +765,7 @@ with `go tool covdata`. This is a report, not a retention input; the run never r
   `restarts=my:X,ma:Y uptime=Th`. `execs/s` is EWMA over the interval.
 - **`state/stats.json`** written atomically every **30 s** — schema per 40's C6 (Reconciliation
   decision D12): `{ts (RFC3339), execs_total, execs_per_sec, corpus_count:{mysql,mariadb},
-  edges:{go,mysql,mariadb}, oracle_restarts:{mysql,mariadb}, findings_emitted_total}` plus
+  edges:{mysql,mariadb}, oracle_restarts:{mysql,mariadb}, findings_emitted_total}` plus
   additive extras `run_seed`, `class_counts`, `suppressed`. This is the machine-readable
   heartbeat 40 polls (staleness >5 min ⇒ 40 treats the fuzzer as wedged).
 - **State flush cadence**: `{mysql,mariadb}.sancov` every 30 s and on shutdown; corpus files

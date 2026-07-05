@@ -96,7 +96,7 @@ func RenderReport(cfg Config, status string, comps ComponentSnapshot) (string, e
 	}
 	b.WriteString("## Components\n")
 	fmt.Fprintf(&b, "fuzzer up %t/restarts %d, e2e up %t/restarts %d, disk free %s, degraded %t\n", comps.FuzzerUp, comps.FuzzerRestarts, comps.E2EUp, comps.E2ERestarts, formatGiB(comps.DiskFreeBytes), comps.Degraded)
-	b.WriteString("## Coverage history (state/coverage/history/edges.csv: ts,go,mysql,mariadb - appended hourly)\n")
+	b.WriteString("## Coverage history (state/coverage/history/edges.csv: ts,go,mysql,mariadb - appended hourly; go is 0)\n")
 	for _, line := range renderCoverageHistory(cfg) {
 		fmt.Fprintf(&b, "%s\n", line)
 	}
@@ -154,7 +154,7 @@ func AppendCoverageHistory(cfg Config) error {
 	if fast.TS != "" {
 		ts = fast.TS
 	}
-	if err := w.Write([]string{ts, strconv.FormatInt(fast.Edges["go"], 10), strconv.FormatInt(fast.Edges["mysql"], 10), strconv.FormatInt(fast.Edges["mariadb"], 10)}); err != nil {
+	if err := w.Write([]string{ts, "0", strconv.FormatInt(fast.Edges["mysql"], 10), strconv.FormatInt(fast.Edges["mariadb"], 10)}); err != nil {
 		return err
 	}
 	w.Flush()
@@ -175,6 +175,7 @@ func readFastStats(cfg Config) FastStats {
 	if fast.Edges == nil {
 		fast.Edges = map[string]int64{}
 	}
+	delete(fast.Edges, "go")
 	if fast.OracleRestarts == nil {
 		fast.OracleRestarts = map[string]int64{}
 	}
@@ -300,13 +301,13 @@ func collectCounters(prefix string, v any, out map[string]int64) {
 }
 
 func lastEdgeDelta(cfg Config, current map[string]int64) map[string]int64 {
-	out := map[string]int64{"go": 0, "mysql": 0, "mariadb": 0}
+	out := map[string]int64{"mysql": 0, "mariadb": 0}
 	rows := readEdgesCSV(cfg)
 	if len(rows) == 0 {
 		return out
 	}
 	prev := rows[len(rows)-1]
-	for _, key := range []string{"go", "mysql", "mariadb"} {
+	for _, key := range []string{"mysql", "mariadb"} {
 		out[key] = current[key] - prev[key]
 	}
 	return out
@@ -330,7 +331,6 @@ func readEdgesCSV(cfg Config) []map[string]int64 {
 			continue
 		}
 		row := make(map[string]int64)
-		row["go"], _ = strconv.ParseInt(rec[1], 10, 64)
 		row["mysql"], _ = strconv.ParseInt(rec[2], 10, 64)
 		row["mariadb"], _ = strconv.ParseInt(rec[3], 10, 64)
 		rows = append(rows, row)

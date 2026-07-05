@@ -1,4 +1,4 @@
-package fuzzcmd
+package main
 
 import (
 	"bytes"

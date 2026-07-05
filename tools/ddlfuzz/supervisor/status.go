@@ -511,11 +511,11 @@ func sampleDeltas(samples []SampleRecord, extract func(SampleRecord) map[string]
 	if len(series) < 2 {
 		return nil
 	}
-	out := map[string]int64{"go": 0, "mysql": 0, "mariadb": 0}
+	out := map[string]int64{"mysql": 0, "mariadb": 0}
 	prev := extract(series[0])
 	for _, rec := range series[1:] {
 		cur := extract(rec)
-		for _, key := range []string{"go", "mysql", "mariadb"} {
+		for _, key := range []string{"mysql", "mariadb"} {
 			if cur[key] > prev[key] {
 				out[key] += cur[key] - prev[key]
 			}

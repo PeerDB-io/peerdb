@@ -82,13 +82,15 @@ valid statements — the P2/P3/P4/P7 boundary class — instead of deeper junk. 
 Budget inside the mutation lane (`-mut-ratio` semantics unchanged): grammatical-tier bases 95%,
 noise-tier 5%.
 
-### 4. Instrument the target
+### 4. Target coverage
 
-Build the fuzzer binary with `-cover` (supervisor build path + `build/` script); snapshot
-`runtime/coverage` counters per window, diff newly-nonzero positions as an opaque vector — no
-symbolization, no new deps. Retention as §1-secondary. If the binary lacks instrumentation,
-disable the signal and log once. A few hundred edges that saturate fast — but they're edges of
-the code we ship, and the inputs opening the last of them are the mutation bases we want.
+Do not build the campaign fuzzer with Go parser coverage. The default run is
+oracle-SanCov-only: oracle edge counts are the corpus-retention signal, and Go
+parser coverage is reserved for one-off audit builds outside the hot fuzz loop.
+The attempted Go parser coverage path put atomic counters into the lexer/parser
+hot path and made the campaign CPU-bound on coverage bookkeeping rather than on
+useful parser/oracle work — a measured ~11x parse-throughput cost from
+shared-counter cache-line contention across parallel parser workers.
 
 ### 5. Stats (additive, D12)
 
@@ -107,8 +109,8 @@ supervisor build-flag change. Gate after every step: `gofmt -l . && go build ./.
   Test: pool composition respects tier budgets on a fixture DB.
 - **C — mutation.** Splice arm, tuple-flip op, dict entries + dict-insert op. Byte-safety fuzz
   test per op (existing invariant: re-validate or drop).
-- **D — oracle-edge selection + go cover.** Accepted-only window retention; `-cover` build flag
-  (`preflight.go` build lines + `build/`), window snapshot, flag-guarded.
+- **D — oracle-edge selection.** Accepted-only window retention; no Go coverage
+  instrumentation in the default campaign build.
 - **E — verify + land.** Full gate; e2e lane untouched (`GenerateConstrained` unchanged — no gen
   changes at all in this plan); `replay --all` green; roll onto `ddlfuzz-staged`, `ddlsuper
   merge-staged` (backgrounded); watch the first post-land hour of `retained_by_signal` and
