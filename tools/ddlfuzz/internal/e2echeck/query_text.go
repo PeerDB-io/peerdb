@@ -230,8 +230,10 @@ func plainifySkippedCommentMarker(s string, out []byte, i int) []byte {
 		return out
 	case body+1 < len(s) && s[body] == 'M' && s[body+1] == '!':
 		out = ensureQueryTextCopy(s, out)
-		out[body] = ' '
 		out[body+1] = ' '
+		if body+2 < len(s) && s[body+2] == '!' {
+			out[body+2] = ' '
+		}
 		return out
 	case s[body] == '!':
 		out = ensureQueryTextCopy(s, out)

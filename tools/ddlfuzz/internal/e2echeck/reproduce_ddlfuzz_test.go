@@ -197,6 +197,18 @@ func TestReproduceByClass(t *testing.T) {
 			}(),
 		},
 		{
+			name: "mariadb skipped mariadb comment marker rewrite reconciled",
+			in: func() Input {
+				in := baseInput(ClassQueryRewrite,
+					"/*M!/*!ALTER TABLE fixture RENAME TO r /*M!130101 , DROP CHECK c */ */",
+					"/*M!/*!ALTER TABLE fixture RENAME TO r /*M 130101 , DROP CHECK c */ */",
+					validStatus)
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				return in
+			}(),
+		},
+		{
 			name: "mariadb skipped nested comment rewrite reconciled",
 			in: func() Input {
 				in := baseInput(ClassQueryRewrite,

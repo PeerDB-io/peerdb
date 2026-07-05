@@ -62,6 +62,20 @@ func TestEquivalentQueryText(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "mariadb skipped mariadb comment marker plainified",
+			submitted: "/*M!/*!ALTER TABLE fixture RENAME TO r /*M!130101 , DROP CHECK c */ */",
+			binlog:    "/*M!/*!ALTER TABLE fixture RENAME TO r /*M 130101 , DROP CHECK c */ */",
+			maria:     true,
+			want:      true,
+		},
+		{
+			name:      "mariadb skipped reversed mariadb comment marker plainified",
+			submitted: "ALTER TABLE fixture ADD n1 INT /*M!!130101 NOT NULL*/",
+			binlog:    "ALTER TABLE fixture ADD n1 INT /*M  130101 NOT NULL*/",
+			maria:     true,
+			want:      true,
+		},
+		{
 			name:      "mariadb live version boundary skipped comment plainified",
 			submitted: "/*M!/*!ALTER TABLE fixture ADD n1 INT /*!130100 NOT NULL*/ */",
 			binlog:    "/*M!/*!ALTER TABLE fixture ADD n1 INT /* 130100 NOT NULL*/ */",
