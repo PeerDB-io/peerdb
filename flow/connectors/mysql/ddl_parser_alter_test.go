@@ -272,6 +272,16 @@ func TestDDLAlterMixedSpecOrdering(t *testing.T) {
 			want:  []ddlAlterSpec{ddlAltAddSpec(ddlAltCol("c", "timestamp(6)")), {OldColumnName: "d"}},
 		},
 		{
+			alter: "ADD COLUMN `table` BIT UNIQUE KEY FIRST, " +
+				"ADD CONSTRAINT `sym` FOREIGN KEY fk (period) REFERENCES `parent`(period) MATCH FULL " +
+				"ON DELETE CASCADE ON UPDATE SET NULL, CHANGE COLUMN after c2 DEC( 3.14159)",
+			maria: true,
+			want: []ddlAlterSpec{
+				ddlAltPos(ddlAltAddSpec(ddlAltCol("table", "bit"))),
+				ddlAltChange("after", ddlColumnDef{Name: "c2", TypeStr: "decimal(3)", Precision: 3, Scale: -1}),
+			},
+		},
+		{
 			alter: "ADD COLUMN c INT, PARTITION BY RANGE (c) (PARTITION p0 VALUES LESS THAN (10), PARTITION p1 VALUES LESS THAN MAXVALUE)",
 			want:  ddlAltAdd(ddlAltCol("c", "int")),
 		},

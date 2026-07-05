@@ -991,7 +991,14 @@ func (p *ddlParser) parseColumnDef(name string, spec *ddlAlterSpec, insideParens
 }
 
 func digitsToInt(s string) int {
-	v, err := strconv.Atoi(s)
+	i := 0
+	for i < len(s) && isDDLDigitByte(s[i]) {
+		i++
+	}
+	if i == 0 {
+		return -1
+	}
+	v, err := strconv.Atoi(s[:i])
 	if err != nil || v < 0 {
 		return -1
 	}
@@ -1005,7 +1012,17 @@ func ddlNormalizeDecimalType(st *ddlColumnState) {
 	if !st.written || st.synthetic || len(st.params) == 0 {
 		return
 	}
-	if digitsToInt(st.params[0]) == 0 {
+	precision := digitsToInt(st.params[0])
+	if precision < 0 {
+		return
+	}
+	st.params[0] = strconv.Itoa(precision)
+	if len(st.params) >= 2 {
+		if scale := digitsToInt(st.params[1]); scale >= 0 {
+			st.params[1] = strconv.Itoa(scale)
+		}
+	}
+	if precision == 0 {
 		st.base = "decimal"
 		st.params = []string{"10", "0"}
 	}
