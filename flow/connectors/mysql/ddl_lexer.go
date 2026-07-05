@@ -5,11 +5,13 @@ import (
 	"strings"
 )
 
-// sql_mode bits that change lexing, extracted per-event from binlog status vars.
+// sql_mode bits that change lexing or DDL type interpretation, extracted
+// per-event from binlog status vars.
 // Bit positions agree between MySQL and MariaDB for all bits < 32; the layouts in
 // mysql-server sql/system_variables.h and mariadb-server sql/sql_class.h are
 // authoritative (the doc table in libbinlogevents statement_events.h is stale).
 const (
+	sqlModeRealAsFloat        uint64 = 1 << 0
 	sqlModeANSIQuotes         uint64 = 1 << 2
 	sqlModeOracle             uint64 = 1 << 9  // MariaDB only
 	sqlModeMSSQL              uint64 = 1 << 10 // MariaDB only

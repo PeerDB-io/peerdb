@@ -110,8 +110,12 @@ func plainifyMariaDBSkippedComments(s string) string {
 			i++
 			continue
 		}
-		end := strings.Index(s[i+2:], "*/")
 		out = plainifyMariaDBSkippedCommentMarker(s, out, i)
+		if mariaExecutableCommentBodyMayRewriteSkippedComments(s, i) {
+			i += 2
+			continue
+		}
+		end := strings.Index(s[i+2:], "*/")
 		if end < 0 {
 			break
 		}
@@ -121,6 +125,19 @@ func plainifyMariaDBSkippedComments(s string) string {
 		return s
 	}
 	return string(out)
+}
+
+func mariaExecutableCommentBodyMayRewriteSkippedComments(s string, i int) bool {
+	switch {
+	case i+3 < len(s) && s[i+2] == 'M' && s[i+3] == '!':
+		return true
+	case i+3 < len(s) && s[i+2] == '!' && s[i+3] == '!' && mariaSkippedVersionLen(s, i+4) == 0:
+		return true
+	case i+2 < len(s) && s[i+2] == '!' && mariaSkippedVersionLen(s, i+3) == 0:
+		return true
+	default:
+		return false
+	}
 }
 
 func plainifyMariaDBSkippedCommentMarker(s string, out []byte, i int) []byte {

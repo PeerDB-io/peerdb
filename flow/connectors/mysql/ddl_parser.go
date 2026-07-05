@@ -1104,7 +1104,13 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 		if ddlWordIs(p.peek(0), "PRECISION") {
 			p.next()
 		}
-	case "real", "float8":
+	case "real":
+		if p.lx.sqlMode&sqlModeRealAsFloat != 0 {
+			st.base = "float"
+		} else {
+			st.base = "double"
+		}
+	case "float8":
 		st.base = "double"
 	case "float", "float4":
 		st.base = "float"

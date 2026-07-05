@@ -109,6 +109,7 @@ func TestDDLTypesDecimalAndFloat(t *testing.T) {
 		{typ: "DOUBLE PRECISION", want: ddlTypesCol("double", -1, -1, false)},
 		{typ: "DOUBLE PRECISION(10,2)", want: ddlTypesCol("double(10,2)", -1, -1, false)},
 		{typ: "REAL", want: ddlTypesCol("double", -1, -1, false)},
+		{typ: "REAL FIRST", want: ddlTypesCol("float", -1, -1, false), sqlMode: sqlModeRealAsFloat, hasPos: true},
 		{typ: "FLOAT8", want: ddlTypesCol("double", -1, -1, false)},
 	})
 }
