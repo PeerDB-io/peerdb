@@ -94,7 +94,7 @@ func LoadConfig() (Config, error) {
 		ReportEvery:     time.Hour,
 		SampleEvery:     5 * time.Second,
 		DiskEvery:       10 * time.Minute,
-		FindingEvery:    30 * time.Second,
+		FindingEvery:    3 * time.Second,
 		CoverageEvery:   time.Hour,
 		CrossCheckEvery: 6 * time.Hour,
 	}
