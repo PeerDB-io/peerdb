@@ -16,6 +16,8 @@ absorb known cosmetic engine differences. During a campaign, each finding is
 handed to a headless coding agent that fixes it unattended, with the supervisor
 independently verifying every fix.
 
+![ddlsuper status — the live two-lane campaign dashboard: fast/e2e lane metrics, findings, the fix agent, and recent events](ddlsuper-status.png)
+
 ## How It Works
 
 The pieces:
@@ -53,6 +55,7 @@ go build -o build/ddlsuper ./supervisor
 oracle/mysql/build.sh          # oracles (slow; links server source); same for mariadb
 ./build/ddlsuper run           # full campaign (run in tmux)
 ./build/ddlsuper status        # campaign digest
+./build/ddlsuper watch         # watch the live status
 ./build/ddlfuzz golden         # committed seeds vs both oracles; must exit 0
 ./build/ddlfuzz replay <sig>   # 0 = reconciled, 10 = still diverges
 ./build/ddlsuper merge-staged  # land staged changes into a live campaign
