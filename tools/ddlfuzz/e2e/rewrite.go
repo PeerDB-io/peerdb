@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/corpus"
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/gen"
 )
 
 func pickCorpusRewrite(store *corpus.Store, ec engineConfig, rng *rand.Rand, live snapshot) (string, bool) {
@@ -74,12 +75,16 @@ func rewriteCorpusStatement(stmt []byte, isMariaDB bool, live snapshot) (string,
 	for old, next := range oldMap {
 		rewritten = replaceIdentOccurrences(rewritten, old, next)
 	}
-	alloc := newFreshAlloc(live)
+	liveNames := make([]string, 0, len(live))
+	for name := range live {
+		liveNames = append(liveNames, name)
+	}
+	alloc := gen.NewFreshPool(FreshNames, liveNames)
 	for _, name := range parsedNewColumns(parsed) {
 		if name == "" || oldMap[name] != "" {
 			continue
 		}
-		rewritten = replaceIdentOccurrences(rewritten, name, alloc.next())
+		rewritten = replaceIdentOccurrences(rewritten, name, alloc.Next(nil))
 	}
 	verified, err, panicked := safeParseForE2E([]byte(rewritten), 0, isMariaDB)
 	if err != nil || panicked != nil || len(verified.Stmts) == 0 {
@@ -98,46 +103,6 @@ func hasActionable(p parsedStmts) bool {
 		}
 	}
 	return false
-}
-
-type freshAlloc struct {
-	live map[string]bool
-	free []string
-	used map[string]bool
-	seq  int
-}
-
-func newFreshAlloc(live snapshot) *freshAlloc {
-	liveSet := make(map[string]bool, len(live))
-	for name := range live {
-		liveSet[name] = true
-	}
-	a := &freshAlloc{live: liveSet, used: map[string]bool{}}
-	for _, name := range FreshNames {
-		if !liveSet[name] {
-			a.free = append(a.free, name)
-		}
-	}
-	return a
-}
-
-func (a *freshAlloc) next() string {
-	for len(a.free) > 0 {
-		name := a.free[0]
-		a.free = a.free[1:]
-		if !a.live[name] && !a.used[name] {
-			a.used[name] = true
-			return name
-		}
-	}
-	for {
-		a.seq++
-		name := fmt.Sprintf("nf%d_r%d", a.seq, a.seq)
-		if !a.live[name] && !a.used[name] {
-			a.used[name] = true
-			return name
-		}
-	}
 }
 
 func parsedOldTables(p parsedStmts) map[string]bool {

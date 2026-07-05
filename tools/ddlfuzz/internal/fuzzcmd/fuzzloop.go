@@ -3,14 +3,17 @@ package fuzzcmd
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/bits"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime/coverage"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,8 +35,14 @@ const (
 	recentRingSize    = 8192
 	basePoolByteCap   = 256 << 20
 	maxBaseEvictTries = 64
-	behaviorKeyCap    = 1_000_000
-	rawBehaviorKeyCap = 4_000_000
+
+	covMergeInterval = 30 * time.Second
+
+	// Behavior features live in a fixed per-engine bit space, so novelty tapers
+	// by construction and saturation is a stat, not a failure mode.
+	behaviorMapBits  = 20
+	behaviorMapSize  = 1 << behaviorMapBits
+	behaviorMapWords = behaviorMapSize / 64
 )
 
 // fuzzLoop is the differential fast lane: generated/mutated cases go through
@@ -45,19 +54,18 @@ const (
 // MB oracle bitmap) run under this lock, not the global statsMu, so the two
 // engines merge in parallel and stats reads never block a merge.
 type engineState struct {
-	mu             sync.Mutex
-	accum          *sancov.Accumulator
-	bases          []run.Case
-	baseKeys       map[string]struct{}
-	basesBytes     int64
-	recent         [recentRingSize]run.Case
-	recentPos      int
-	recentN        int
-	recentKeys     map[string]int
-	retainedByTier [3]uint64
-	behaviorSeen   map[string]struct{}
-	rawSeen        map[uint64]struct{}
-	seenSetFull    uint64
+	mu              sync.Mutex
+	accum           *sancov.Accumulator
+	bases           []run.Case
+	baseKeys        map[string]struct{}
+	basesBytes      int64
+	recent          [recentRingSize]run.Case
+	recentPos       int
+	recentN         int
+	recentKeys      map[string]int
+	retainedByTier  [3]uint64
+	behaviorBits    [behaviorMapWords]uint64
+	behaviorBitsSet int
 }
 
 type fuzzLoop struct {
@@ -74,7 +82,15 @@ type fuzzLoop struct {
 	oracleRestarts   map[string]uint64
 	retainedBySignal map[string]map[string]uint64
 	retainedLens     []int
+	retainedTotal    uint64
 	goCov            goCoverage
+
+	// Stats-window baselines: writeStats derives execs_per_sec_window and
+	// retained_per_min from the delta since its previous call, so a regression
+	// isn't hidden by the lifetime execs_per_sec average.
+	windowStart    time.Time
+	windowExecs    uint64
+	windowRetained uint64
 
 	execsTotal atomic.Uint64
 	recordMu   sync.Mutex
@@ -89,19 +105,18 @@ type goCoverage struct {
 }
 
 type oracleProc struct {
-	loop        *fuzzLoop
-	engine      uint8
-	engineName  string
-	binPath     string
-	id          int
-	client      *oracle.Client
-	worker      *ddllexec.Worker
-	covWindow   []run.Case
-	batches     int
-	pollEvery   int
-	emptyPolls  int
-	logPath     string
-	spawnErrors int
+	loop         *fuzzLoop
+	engine       uint8
+	engineName   string
+	binPath      string
+	id           int
+	client       *oracle.Client
+	worker       *ddllexec.Worker
+	featBuf      []uint64
+	edgeCases    []run.Case
+	lastCovMerge time.Time
+	logPath      string
+	spawnErrors  int
 }
 
 func (es *engineState) appendBaseLocked(c run.Case, rng *rand.Rand) {
@@ -168,6 +183,60 @@ func baseKey(c run.Case) string {
 	return string(c.SQL) + "\x00" + fmt.Sprint(c.SQLMode)
 }
 
+// Behavior bitmaps share the sancov accumulator lifecycle: load at startup
+// and save atomically on the heartbeat. Feature hashes are process-stable,
+// so a reloaded bitmap keeps its meaning and avoids replaying old retentions.
+func behaviorBitsPath(stateDir, engine string) string {
+	return filepath.Join(stateDir, "coverage", engine+".behavior")
+}
+
+func (es *engineState) loadBehaviorBits(path string) error {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(b) != behaviorMapWords*8 {
+		// map size changed: the bit indexes no longer line up, start fresh
+		return nil
+	}
+	for w := range es.behaviorBits {
+		v := binary.LittleEndian.Uint64(b[w*8:])
+		es.behaviorBits[w] = v
+		es.behaviorBitsSet += bits.OnesCount64(v)
+	}
+	return nil
+}
+
+func (es *engineState) saveBehaviorBits(path string) error {
+	buf := make([]byte, behaviorMapWords*8)
+	es.mu.Lock()
+	for w, v := range es.behaviorBits {
+		binary.LittleEndian.PutUint64(buf[w*8:], v)
+	}
+	es.mu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(buf); err != nil {
+		tmp.Close()
+		_ = os.Remove(name)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Rename(name, path)
+}
+
 func runFuzzLoop(ctx context.Context, cfg config) int {
 	if err := os.MkdirAll(cfg.stateDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "fuzz: %v\n", err)
@@ -202,7 +271,12 @@ func runFuzzLoop(ctx context.Context, cfg config) int {
 			fmt.Fprintf(os.Stderr, "fuzz: coverage: %v\n", err)
 			return 1
 		}
-		loop.engines[engine] = &engineState{accum: acc, baseKeys: map[string]struct{}{}, recentKeys: map[string]int{}, behaviorSeen: map[string]struct{}{}, rawSeen: map[uint64]struct{}{}}
+		es := &engineState{accum: acc, baseKeys: map[string]struct{}{}, recentKeys: map[string]int{}}
+		if err := es.loadBehaviorBits(behaviorBitsPath(cfg.stateDir, engine)); err != nil {
+			fmt.Fprintf(os.Stderr, "fuzz: behavior bits: %v\n", err)
+			return 1
+		}
+		loop.engines[engine] = es
 	}
 	if err := loop.loadCorpusBases(); err != nil {
 		fmt.Fprintf(os.Stderr, "fuzz: corpus reload: %v\n", err)
@@ -236,7 +310,6 @@ func runFuzzLoop(ctx context.Context, cfg config) int {
 				binPath:    cfg.oracleBin(engine),
 				id:         i,
 				worker:     ddllexec.NewWorker(i, cfg.caseDeadline, nil),
-				pollEvery:  1,
 				logPath:    filepath.Join(cfg.stateDir, "log", fmt.Sprintf("oracle-%s-%d.log", run.EngineName(engine), i)),
 			}
 			wg.Add(1)
@@ -280,6 +353,9 @@ loopFor:
 			loop.printStatsLine(rate, start)
 			last, lastTotal = now, cur
 		case <-heartbeat.C:
+			// Go coverage of our own parser is a stats-only signal; retention
+			// rides the per-case oracle edge counts.
+			loop.pollGoCoverage()
 			loop.writeStats(loop.rate(start))
 			loop.saveCoverage()
 		}
@@ -496,10 +572,9 @@ func (p *oracleProc) run(ctx context.Context, ch chan []run.Case) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			p.batches++
-			if p.batches >= p.pollEvery {
-				p.batches = 0
-				p.pollCoverage(ctx)
+			if time.Since(p.lastCovMerge) >= covMergeInterval {
+				p.lastCovMerge = time.Now()
+				p.mergeCoverage(ctx)
 			}
 		}
 	}
@@ -551,23 +626,23 @@ func (p *oracleProc) submitBatch(ctx context.Context, batch []run.Case) error {
 		return errBisectStop
 	}
 	results := p.worker.RunBatch(batch)
-	digests, _, err := p.client.ParseBatch(ctx, batch)
+	digests, _, edges, err := p.client.ParseBatch(ctx, batch)
 	if err == nil {
-		if len(digests) != len(batch) {
-			err = fmt.Errorf("digest count %d != %d", len(digests), len(batch))
+		if len(digests) != len(batch) || len(edges) != len(batch) {
+			err = fmt.Errorf("digest count %d/%d != %d", len(digests), len(edges), len(batch))
 		} else {
+			p.edgeCases = p.edgeCases[:0]
 			for i, c := range batch {
 				div := compare.Diff(c, results[i].Sig, results[i].Err, results[i].Panic, digests[i])
 				if div != nil {
 					p.loop.recordFinding(findings.FindingFromDivergence(c, div, oracle.RawDigestJSON(digests[i])))
 				}
-				p.loop.retainBehavior(c, results[i].Sig, results[i].Err, results[i].Panic, digests[i])
-				// Accepted cases only: a rejected case that opens new code is
-				// retained via its behavior key (new error class), not here.
-				if digests[i] != nil && digests[i].Verdict == "accept" {
-					p.covWindow = append(p.covWindow, c)
+				p.featBuf = p.loop.retainBehavior(p.featBuf, c, results[i].Sig, results[i].Err, results[i].Panic, digests[i])
+				if edges[i] > 0 {
+					p.edgeCases = append(p.edgeCases, c)
 				}
 			}
+			p.retainEdgeCases(p.edgeCases)
 			p.loop.execsTotal.Add(uint64(len(batch)))
 			return nil
 		}
@@ -620,41 +695,38 @@ func (p *oracleProc) recordSingleCrash(c run.Case, err error) {
 	p.loop.execsTotal.Add(1)
 }
 
-func (l *fuzzLoop) retainBehavior(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo, d *digest.Digest) {
+// featBuf is caller-owned scratch, returned for reuse.
+func (l *fuzzLoop) retainBehavior(featBuf []uint64, c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo, d *digest.Digest) []uint64 {
+	feats := compare.BehaviorFeatures(c, ourSig, ourErr, ourPanic, d, featBuf[:0])
 	es := l.engines[run.EngineName(c.Engine)]
-	raw := compare.BehaviorRawHash(c, ourSig, ourErr, ourPanic, d)
+	fresh := false
 	es.mu.Lock()
-	if _, ok := es.rawSeen[raw]; ok {
-		es.mu.Unlock()
-		return
-	}
-	if es.rawSeen != nil && len(es.rawSeen) < rawBehaviorKeyCap {
-		es.rawSeen[raw] = struct{}{}
+	for _, feat := range feats {
+		idx := feat & (behaviorMapSize - 1)
+		word, mask := idx>>6, uint64(1)<<(idx&63)
+		if es.behaviorBits[word]&mask == 0 {
+			es.behaviorBits[word] |= mask
+			es.behaviorBitsSet++
+			fresh = true
+		}
 	}
 	es.mu.Unlock()
-	key := compare.BehaviorKey(c, ourSig, ourErr, ourPanic, d)
-	es.mu.Lock()
-	if _, ok := es.behaviorSeen[key]; ok {
-		es.mu.Unlock()
-		return
+	if !fresh {
+		return feats
 	}
-	if len(es.behaviorSeen) >= behaviorKeyCap {
-		es.seenSetFull++
-		es.mu.Unlock()
-		return
-	}
-	es.behaviorSeen[key] = struct{}{}
-	es.mu.Unlock()
 	signal := run.SignalBehavior
 	if d != nil && d.Verdict == "reject" && ourErr != nil {
 		signal = run.SignalNoise
 	}
-	l.retainCase(c, signal)
+	// feats[0] is the structural class; stamping it lets budget eviction
+	// dedupe behavior-tier rows per feature.
+	l.retainCase(c, signal, strconv.FormatUint(feats[0], 10))
+	return feats
 }
 
-func (l *fuzzLoop) retainCase(c run.Case, signal uint8) bool {
+func (l *fuzzLoop) retainCase(c run.Case, signal uint8, feature string) bool {
 	c.Signal = signal
-	ok, err := l.store.AddSignal(c, signal)
+	ok, err := l.store.AddSignalFeature(c, signal, feature)
 	if err != nil || !ok {
 		return false
 	}
@@ -668,6 +740,7 @@ func (l *fuzzLoop) retainCase(c run.Case, signal uint8) bool {
 	}
 	l.retainedBySignal[engine][run.SignalName(signal)]++
 	l.retainedLens = append(l.retainedLens, len(c.SQL))
+	l.retainedTotal++
 	l.statsMu.Unlock()
 	es := l.engines[run.EngineName(c.Engine)]
 	es.mu.Lock()
@@ -715,51 +788,44 @@ func (p *oracleProc) recordBatchFinding(batch []run.Case, err error, shape strin
 	})
 }
 
-func (p *oracleProc) pollCoverage(ctx context.Context) {
-	if p.client == nil || len(p.covWindow) == 0 {
+// retainEdgeCases keeps a bounded smallest-first sample of cases with fresh
+// oracle edges; a pathological batch cannot flood the corpus, and small inputs
+// mutate better.
+func (p *oracleProc) retainEdgeCases(cases []run.Case) {
+	if len(cases) == 0 {
+		return
+	}
+	max := p.loop.cfg.retainPerBatch
+	if max == 0 || max > 64 {
+		max = 64
+	}
+	if len(cases) > max {
+		sort.SliceStable(cases, func(i, j int) bool {
+			return len(cases[i].SQL) < len(cases[j].SQL)
+		})
+		cases = cases[:max]
+	}
+	for _, c := range cases {
+		p.loop.retainCase(c, run.SignalOracleEdge, "")
+	}
+}
+
+// mergeCoverage folds the oracle's cumulative virgin map into the persistent
+// accumulator; this feeds the edge stats and the state/coverage heartbeat
+// save, nothing else.
+func (p *oracleProc) mergeCoverage(ctx context.Context) {
+	if p.client == nil {
 		return
 	}
 	counters, err := p.client.Coverage(ctx)
 	if err != nil {
 		_ = p.restartClient(ctx)
-		p.covWindow = p.covWindow[:0]
 		return
 	}
 	es := p.loop.engines[p.engineName]
 	es.mu.Lock()
-	grew, _ := es.accum.Merge(counters)
+	es.accum.Merge(counters)
 	es.mu.Unlock()
-	goGrew := p.loop.pollGoCoverage()
-	if grew || goGrew {
-		// Attribution is window-level guesswork, so keep a bounded sample
-		// instead of the whole window (late-run windows reach pollEvery=32
-		// batches; unbounded retention is what blows up the corpus). Prefer
-		// the smallest inputs — they mutate better.
-		window := p.covWindow
-		max := p.loop.cfg.retainPerPoll
-		if max == 0 || max > 64 {
-			max = 64
-		}
-		if max > 0 && len(window) > max {
-			window = append([]run.Case(nil), window...)
-			sort.SliceStable(window, func(i, j int) bool {
-				return len(window[i].SQL) < len(window[j].SQL)
-			})
-			window = window[:max]
-		}
-		for _, c := range window {
-			p.loop.retainCase(c, run.SignalOracleEdge)
-		}
-		p.emptyPolls = 0
-		p.pollEvery = 1
-	} else {
-		p.emptyPolls++
-		if p.emptyPolls >= 16 && p.pollEvery < 32 {
-			p.pollEvery *= 2
-			p.emptyPolls = 0
-		}
-	}
-	p.covWindow = p.covWindow[:0]
 }
 
 func (l *fuzzLoop) pollGoCoverage() bool {
@@ -831,13 +897,23 @@ func (l *fuzzLoop) rate(start time.Time) float64 {
 }
 
 func (l *fuzzLoop) writeStats(rate float64) {
+	now := time.Now()
+	execs := l.execsTotal.Load()
 	l.statsMu.Lock()
 	medianLen := medianInt(l.retainedLens)
 	l.retainedLens = nil
+	var windowRate, retainedPerMin float64
+	if secs := now.Sub(l.windowStart).Seconds(); !l.windowStart.IsZero() && secs > 0 {
+		windowRate = float64(execs-l.windowExecs) / secs
+		retainedPerMin = float64(l.retainedTotal-l.windowRetained) / (secs / 60)
+	}
+	l.windowStart, l.windowExecs, l.windowRetained = now, execs, l.retainedTotal
 	stats := map[string]any{
-		"ts":            time.Now().UTC().Format(time.RFC3339),
-		"execs_total":   l.execsTotal.Load(),
-		"execs_per_sec": rate,
+		"ts":                   now.UTC().Format(time.RFC3339),
+		"execs_total":          execs,
+		"execs_per_sec":        rate,
+		"execs_per_sec_window": windowRate,
+		"retained_per_min":     retainedPerMin,
 		"corpus_count": map[string]int{
 			"mysql":   l.store.Count("mysql"),
 			"mariadb": l.store.Count("mariadb"),
@@ -861,8 +937,7 @@ func (l *fuzzLoop) writeStats(rate float64) {
 	}
 	stats["retained_by_tier"] = l.retainedByTierStats()
 	stats["retained_by_signal"] = copyNestedCounts(l.retainedBySignal)
-	stats["behavior_keys"] = l.behaviorKeyStats()
-	stats["seen_set_full"] = l.seenSetFullStats()
+	stats["behavior_bits"] = l.behaviorBitsStats()
 	stats["bases_bytes"] = l.basesBytesStats()
 	l.statsMu.Unlock()
 	_ = writeStatsJSON(l.cfg.stateDir, stats)
@@ -894,24 +969,17 @@ func (l *fuzzLoop) basesBytesStats() map[string]int64 {
 	return out
 }
 
-func (l *fuzzLoop) behaviorKeyStats() map[string]int {
-	out := map[string]int{}
+func (l *fuzzLoop) behaviorBitsStats() map[string]map[string]any {
+	out := map[string]map[string]any{}
 	for _, engine := range []string{"mysql", "mariadb"} {
 		es := l.engines[engine]
 		es.mu.Lock()
-		out[engine] = len(es.behaviorSeen)
+		set := es.behaviorBitsSet
 		es.mu.Unlock()
-	}
-	return out
-}
-
-func (l *fuzzLoop) seenSetFullStats() map[string]uint64 {
-	out := map[string]uint64{}
-	for _, engine := range []string{"mysql", "mariadb"} {
-		es := l.engines[engine]
-		es.mu.Lock()
-		out[engine] = es.seenSetFull
-		es.mu.Unlock()
+		out[engine] = map[string]any{
+			"set":        set,
+			"saturation": float64(set) / behaviorMapSize,
+		}
 	}
 	return out
 }
@@ -943,6 +1011,9 @@ func (l *fuzzLoop) saveCoverage() {
 		es.mu.Unlock()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "fuzz: save coverage: %v\n", err)
+		}
+		if err := es.saveBehaviorBits(behaviorBitsPath(l.cfg.stateDir, engine)); err != nil {
+			fmt.Fprintf(os.Stderr, "fuzz: save behavior bits: %v\n", err)
 		}
 	}
 }

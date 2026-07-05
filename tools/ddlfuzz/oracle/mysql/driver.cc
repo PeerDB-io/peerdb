@@ -33,6 +33,7 @@ using ddlproto::GET_COVERAGE;
 using ddlproto::HELLO;
 using ddlproto::PARSE_BATCH;
 using ddlproto::Reader;
+using ddlproto::drain_region;
 using ddlproto::json_escape;
 using ddlproto::put_u32;
 using ddlproto::read_frame;
@@ -48,6 +49,26 @@ struct CovRegion {
 static constexpr size_t kMaxCoverageBytes = 64 * 1024 * 1024;
 static CovRegion g_cov_regions[4096];
 static size_t g_cov_region_count;
+// Virgin twin of each counter region (see ddlproto::drain_region). Allocated
+// lazily so it works no matter which message arrives first.
+static std::vector<std::vector<uint8_t>> g_virgin_regions;
+
+static uint32_t drain_new_edges() {
+  if (g_virgin_regions.size() != g_cov_region_count) {
+    g_virgin_regions.resize(g_cov_region_count);
+    for (size_t i = 0; i < g_cov_region_count; ++i) {
+      g_virgin_regions[i].assign(
+          static_cast<size_t>(g_cov_regions[i].stop - g_cov_regions[i].start),
+          0);
+    }
+  }
+  uint32_t fresh = 0;
+  for (size_t i = 0; i < g_cov_region_count; ++i) {
+    fresh += drain_region(g_cov_regions[i].start, g_cov_regions[i].stop,
+                          g_virgin_regions[i].data());
+  }
+  return fresh;
+}
 
 extern "C" void __sanitizer_cov_8bit_counters_init(uint8_t *start,
                                                     uint8_t *stop) {
@@ -465,6 +486,10 @@ static std::string parse_event(THD *thd, uint64_t sql_mode, const char *stmt,
 }
 
 static void append_coverage(std::string &resp) {
+  // Fold any counters fired since the last case (startup, frame handling)
+  // into the virgin map, which is now the cumulative coverage snapshot —
+  // per-case draining leaves the live counters ~empty between cases.
+  drain_new_edges();
   size_t total = 0;
   for (size_t i = 0; i < g_cov_region_count; ++i) {
     const size_t len =
@@ -478,7 +503,7 @@ static void append_coverage(std::string &resp) {
     const size_t len =
         static_cast<size_t>(g_cov_regions[i].stop - g_cov_regions[i].start);
     if (len > kMaxCoverageBytes - written) break;
-    resp.append(reinterpret_cast<const char *>(g_cov_regions[i].start),
+    resp.append(reinterpret_cast<const char *>(g_virgin_regions[i].data()),
                 len);
     written += len;
   }
@@ -591,7 +616,7 @@ int main(int, char **argv) {
 
     if (msg == HELLO) {
       const std::string hello =
-          "{\"engine\":\"mysql\",\"server_version\":\"9.7.0\",\"protocol\":1}";
+          "{\"engine\":\"mysql\",\"server_version\":\"9.7.0\",\"protocol\":2}";
       put_u32(resp, static_cast<uint32_t>(hello.size()));
       resp += hello;
     } else if (msg == GET_COVERAGE) {
@@ -609,6 +634,7 @@ int main(int, char **argv) {
         }
         const std::string digest =
             parse_event(thd, mode, reinterpret_cast<const char *>(sp), slen);
+        put_u32(resp, drain_new_edges());
         put_u32(resp, static_cast<uint32_t>(digest.size()));
         resp += digest;
       }

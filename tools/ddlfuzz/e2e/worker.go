@@ -155,7 +155,7 @@ func (ws *workerState) runOne(ctx context.Context, seq uint64, item *queueItem) 
 		return
 	}
 
-	stmt, source := ws.statement(seq, before, item, modeEntry)
+	stmt, source := ws.statement(seq, before, item, modeEntry, relevant)
 	if _, err := ws.conn.Execute(stmt); err != nil {
 		afterTables, _ := readTables(ws.conn, ws.schema)
 		after, _ := readSnapshot(ws.conn, ws.schema, fixtureTable)
@@ -257,7 +257,7 @@ func (ws *workerState) sqlModeReadback() (string, error) {
 	return strings.Clone(mode), nil
 }
 
-func (ws *workerState) statement(seq uint64, before snapshot, item *queueItem, modeEntry string) (string, string) {
+func (ws *workerState) statement(seq uint64, before snapshot, item *queueItem, modeEntry string, relevant uint64) (string, string) {
 	if item != nil {
 		return item.Statement, "queue"
 	}
@@ -266,7 +266,7 @@ func (ws *workerState) statement(seq uint64, before snapshot, item *queueItem, m
 	}
 	choice := ws.rng.IntN(100)
 	if choice < 70 {
-		stmt, panicked := ws.generateConstrained(before)
+		stmt, panicked := ws.generateConstrained(before, relevant)
 		if panicked {
 			ws.rt.stats.MarkGeneratorPanic(ws.rt.ec.Name)
 			return simpleFallbackDDLForMode(seq, before, modeEntry), "gen"
@@ -285,7 +285,7 @@ func (ws *workerState) statement(seq uint64, before snapshot, item *queueItem, m
 	return generatedRenameSQL(seq), "gen"
 }
 
-func (ws *workerState) generateConstrained(before snapshot) (stmt string, panicked bool) {
+func (ws *workerState) generateConstrained(before snapshot, relevant uint64) (stmt string, panicked bool) {
 	defer func() {
 		if recover() != nil {
 			panicked = true
@@ -305,6 +305,7 @@ func (ws *workerState) generateConstrained(before snapshot) (stmt string, panick
 		NoConvertCharset:  true,
 		RenameTableWeight: 0.05,
 		MaxSpecs:          3,
+		Mode:              relevant,
 	}
 	return gen.GenerateConstrained(ws.rng, v, p), false
 }

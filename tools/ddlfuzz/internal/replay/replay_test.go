@@ -192,9 +192,9 @@ func (f *fakeBatcher) Start(context.Context, string) error {
 	return nil
 }
 
-func (f *fakeBatcher) ParseBatch(_ context.Context, cases []run.Case) ([]*digest.Digest, [][]byte, error) {
+func (f *fakeBatcher) ParseBatch(_ context.Context, cases []run.Case) ([]*digest.Digest, [][]byte, []uint32, error) {
 	if f.err != nil {
-		return nil, nil, f.err
+		return nil, nil, nil, f.err
 	}
 	digests := f.digests
 	if len(digests) == 0 {
@@ -208,7 +208,7 @@ func (f *fakeBatcher) ParseBatch(_ context.Context, cases []run.Case) ([]*digest
 		b, _ := json.Marshal(d)
 		raw[i] = b
 	}
-	return digests, raw, nil
+	return digests, raw, make([]uint32, len(digests)), nil
 }
 
 func (f *fakeBatcher) Close() error {

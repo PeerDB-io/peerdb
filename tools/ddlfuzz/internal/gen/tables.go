@@ -14,6 +14,7 @@ type entry struct {
 	MySQLOnly  bool
 	ModeReq    uint64
 	ModeForbid uint64
+	CE         bool // constrained-eligible: exec-safe against the live e2e fixture
 	Emit       func(*Ctx) string
 }
 
@@ -52,6 +53,23 @@ func entryOK(c *Ctx, e entry) bool {
 	if e.MariaOnly && !c.IsMariaDB || e.MySQLOnly && c.IsMariaDB {
 		return false
 	}
+	if c.constrained() {
+		if !e.CE {
+			return false
+		}
+		if c.P.NoAlterRenameTo && e.ID == "spec.rename_table" {
+			return false
+		}
+		if c.P.NoConvertCharset && e.ID == "spec.convert_charset" {
+			return false
+		}
+		// MySQL 9 removed ALTER IGNORE; exec-safe only against MariaDB. The
+		// fast lane keeps emitting it on both engines (parse rejects are
+		// signal there), so this is a constrained gate, not MariaOnly.
+		if e.ID == "head.alter_ignore" && !c.IsMariaDB {
+			return false
+		}
+	}
 	return c.Mode&e.ModeReq == e.ModeReq && c.Mode&e.ModeForbid == 0
 }
 
@@ -64,231 +82,266 @@ func allEntries() []entry {
 }
 
 var alterHeads = []entry{
-	{"head.alter_table", 20, false, false, 0, 0, func(*Ctx) string { return "ALTER TABLE" }},
-	{"head.alter_online", 2, true, false, 0, 0, func(*Ctx) string { return "ALTER ONLINE TABLE" }},
-	{"head.alter_ignore", 2, false, false, 0, 0, func(*Ctx) string { return "ALTER IGNORE TABLE" }},
-	{"head.alter_online_ignore", 1, true, false, 0, 0, func(*Ctx) string { return "ALTER ONLINE IGNORE TABLE" }},
-	{"head.if_exists", 2, true, false, 0, 0, func(*Ctx) string { return "ALTER TABLE IF EXISTS" }},
-	{"head.wait_nowait", 1, true, false, 0, 0, func(c *Ctx) string {
+	{"head.alter_table", 20, false, false, 0, 0, true, func(*Ctx) string { return "ALTER TABLE" }},
+	{"head.alter_online", 2, true, false, 0, 0, true, func(*Ctx) string { return "ALTER ONLINE TABLE" }},
+	{"head.alter_ignore", 2, false, false, 0, 0, true, func(*Ctx) string { return "ALTER IGNORE TABLE" }},
+	{"head.alter_online_ignore", 1, true, false, 0, 0, false, func(*Ctx) string { return "ALTER ONLINE IGNORE TABLE" }},
+	{"head.if_exists", 2, true, false, 0, 0, true, func(*Ctx) string { return "ALTER TABLE IF EXISTS" }},
+	{"head.wait_nowait", 1, true, false, 0, 0, true, func(c *Ctx) string {
 		c.tableSuffix = " " + pickString(c.R, []string{"WAIT 5", "NOWAIT"})
 		return "ALTER TABLE"
 	}},
-	{"head.schema_qualified", 2, false, false, 0, 0, func(c *Ctx) string {
+	{"head.schema_qualified", 2, false, false, 0, 0, false, func(c *Ctx) string {
 		c.V.Table = "db." + pickString(c.R, []string{"t", "1234", "orders"})
 		return "ALTER TABLE"
 	}},
 }
 
 var alterSpecs = []entry{
-	{"spec.add_column", 18, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.add_column", 18, false, false, 0, 0, true, func(c *Ctx) string {
 		pos := pickString(c.R, []string{"", " FIRST", " AFTER " + quoteMaybe(c, pickString(c.R, c.V.Columns))})
-		return "ADD " + maybe(c, "COLUMN ") + quoteMaybe(c, pickString(c.R, c.V.FreshNames)) + " " + genType(c) + genAttrs(c) + pos
+		typ := genType(c)
+		return "ADD " + maybe(c, "COLUMN ") + quoteMaybe(c, c.freshIdent()) + " " + typ + genAttrs(c, typ) + pos
 	}},
-	{"spec.add_column_if_not_exists", 4, true, false, 0, 0, func(c *Ctx) string {
-		return "ADD COLUMN IF NOT EXISTS " + quoteMaybe(c, pickString(c.R, c.V.FreshNames)) + " " + genType(c) + genAttrs(c)
+	{"spec.add_column_if_not_exists", 4, true, false, 0, 0, true, func(c *Ctx) string {
+		typ := genType(c)
+		return "ADD COLUMN IF NOT EXISTS " + quoteMaybe(c, c.freshIdent()) + " " + typ + genAttrs(c, typ)
 	}},
-	{"spec.add_column_list", 6, false, false, 0, 0, func(c *Ctx) string {
-		return "ADD (" + quoteMaybe(c, pickString(c.R, c.V.FreshNames)) + " " + genType(c) + ", " + quoteMaybe(c, pickString(c.R, c.V.FreshNames)) + " " + genType(c) + ", INDEX (" + quoteMaybe(c, pickString(c.R, c.V.Columns)) + "))"
+	{"spec.add_column_list", 6, false, false, 0, 0, true, func(c *Ctx) string {
+		return "ADD (" + quoteMaybe(c, c.freshIdent()) + " " + genType(c) + ", " + quoteMaybe(c, c.freshIdent()) + " " + genType(c) + ", INDEX (" + quoteMaybe(c, pickString(c.R, c.V.Columns)) + "))"
 	}},
-	{"spec.modify_column", 10, false, false, 0, 0, func(c *Ctx) string {
-		return "MODIFY " + maybe(c, "COLUMN ") + maybeMaria(c, "IF EXISTS ") + quoteMaybe(c, pickString(c.R, c.V.Columns)) + " " + genType(c) + genAttrs(c) + position(c)
+	{"spec.modify_column", 10, false, false, 0, 0, true, func(c *Ctx) string {
+		typ := genType(c)
+		return "MODIFY " + maybe(c, "COLUMN ") + maybeMaria(c, "IF EXISTS ") + quoteMaybe(c, pickString(c.R, c.V.Columns)) + " " + typ + genAttrs(c, typ) + position(c)
 	}},
-	{"spec.change_column", 10, false, false, 0, 0, func(c *Ctx) string {
-		return "CHANGE " + maybe(c, "COLUMN ") + maybeMaria(c, "IF EXISTS ") + quoteMaybe(c, pickString(c.R, c.V.Columns)) + " " + quoteMaybe(c, pickString(c.R, c.V.FreshNames)) + " " + genType(c) + genAttrs(c) + position(c)
+	{"spec.change_column", 10, false, false, 0, 0, true, func(c *Ctx) string {
+		typ := genType(c)
+		return "CHANGE " + maybe(c, "COLUMN ") + maybeMaria(c, "IF EXISTS ") + quoteMaybe(c, pickString(c.R, c.V.Columns)) + " " + quoteMaybe(c, c.freshIdent()) + " " + typ + genAttrs(c, typ) + position(c)
 	}},
-	{"spec.drop_column", 6, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.drop_column", 6, false, false, 0, 0, true, func(c *Ctx) string {
 		return "DROP " + maybe(c, "COLUMN ") + maybeMaria(c, "IF EXISTS ") + quoteMaybe(c, pickString(c.R, c.V.Columns)) + pickString(c.R, []string{"", " RESTRICT", " CASCADE"})
 	}},
-	{"spec.rename_column", 4, false, false, 0, 0, func(c *Ctx) string {
-		return "RENAME COLUMN " + maybeMaria(c, "IF EXISTS ") + quoteMaybe(c, pickString(c.R, c.V.Columns)) + " TO " + quoteMaybe(c, pickString(c.R, c.V.FreshNames))
+	{"spec.rename_column", 4, false, false, 0, 0, true, func(c *Ctx) string {
+		return "RENAME COLUMN " + maybeMaria(c, "IF EXISTS ") + quoteMaybe(c, pickString(c.R, c.V.Columns)) + " TO " + quoteMaybe(c, c.freshIdent())
 	}},
-	{"spec.add_index", 7, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.add_index", 7, false, false, 0, 0, true, func(c *Ctx) string {
 		return "ADD " + pickString(c.R, []string{"INDEX", "KEY"}) + " " + maybeMaria(c, "IF NOT EXISTS ") + quoteMaybe(c, "idx_"+bareIdentifier(pickString(c.R, c.V.Columns))) + " " + pickString(c.R, []string{"", "BTREE ", "HASH "}) + "(" + quoteMaybe(c, pickString(c.R, c.V.Columns)) + ")" + indexOption(c)
 	}},
-	{"spec.add_fulltext_spatial", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.add_fulltext_spatial", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return "ADD " + pickString(c.R, []string{"FULLTEXT", "SPATIAL"}) + " " + pickString(c.R, []string{"INDEX", "KEY"}) + " ft (" + quoteMaybe(c, pickString(c.R, c.V.Columns)) + ")"
 	}},
-	{"spec.add_vector_index", 2, true, false, 0, 0, func(c *Ctx) string {
+	{"spec.add_vector_index", 2, true, false, 0, 0, false, func(c *Ctx) string {
 		return "ADD VECTOR INDEX vi (" + quoteMaybe(c, pickString(c.R, c.V.Columns)) + ")"
 	}},
-	{"spec.add_primary", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.add_primary", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return "ADD " + maybeConstraint(c) + "PRIMARY KEY (" + quoteMaybe(c, pickString(c.R, c.V.Columns)) + ")"
 	}},
-	{"spec.add_unique", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.add_unique", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return "ADD " + maybeConstraint(c) + "UNIQUE KEY uk (" + quoteMaybe(c, pickString(c.R, c.V.Columns)) + ")"
 	}},
-	{"spec.add_foreign_key", 5, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.add_foreign_key", 5, false, false, 0, 0, false, func(c *Ctx) string {
 		col := quoteMaybe(c, pickString(c.R, c.V.Columns))
 		return "ADD " + maybeConstraint(c) + "FOREIGN KEY fk (" + col + ") REFERENCES " + quoteMaybe(c, "parent") + "(" + col + ") MATCH FULL ON DELETE CASCADE ON UPDATE SET NULL"
 	}},
-	{"spec.add_check", 5, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.add_check", 5, false, false, 0, 0, true, func(c *Ctx) string {
+		if c.constrained() {
+			// genExpr, the fixed CONSTRAINT name, and ENFORCED (a maria
+			// parse reject) are all exec-hostile; emit only the safe form.
+			return "ADD CHECK (" + quoteMaybe(c, pickString(c.R, c.V.Columns)) + " IS NOT NULL)"
+		}
 		return "ADD " + maybeConstraint(c) + "CHECK (" + genExpr(c, 0) + ") " + pickString(c.R, []string{"", "ENFORCED", "NOT ENFORCED"})
 	}},
-	{"spec.add_period", 3, true, false, 0, 0, func(c *Ctx) string {
+	{"spec.add_period", 3, true, false, 0, 0, false, func(c *Ctx) string {
 		return "ADD PERIOD FOR " + pickString(c.R, []string{"SYSTEM_TIME", "p"}) + " (s,e)"
 	}},
-	{"spec.system_versioning", 2, true, false, 0, 0, func(c *Ctx) string {
+	{"spec.system_versioning", 2, true, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"ADD SYSTEM VERSIONING", "DROP SYSTEM VERSIONING"})
 	}},
-	{"spec.alter_default", 6, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.alter_default", 6, false, false, 0, 0, false, func(c *Ctx) string {
 		return "ALTER COLUMN " + quoteMaybe(c, pickString(c.R, c.V.Columns)) + " " + pickString(c.R, []string{"SET DEFAULT " + literal(c), "SET DEFAULT (" + genExpr(c, 0) + ")", "DROP DEFAULT"})
 	}},
-	{"spec.alter_visibility", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.alter_visibility", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return "ALTER COLUMN " + quoteMaybe(c, pickString(c.R, c.V.Columns)) + " SET " + pickString(c.R, []string{"VISIBLE", "INVISIBLE"})
 	}},
-	{"spec.alter_index_visibility", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.alter_index_visibility", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return "ALTER INDEX idx " + pickString(c.R, []string{"VISIBLE", "INVISIBLE", "NOT IGNORED", "IGNORED"})
 	}},
-	{"spec.alter_check", 2, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.alter_check", 2, false, false, 0, 0, false, func(c *Ctx) string {
 		return "ALTER " + pickString(c.R, []string{"CHECK", "CONSTRAINT"}) + " chk " + pickString(c.R, []string{"ENFORCED", "NOT ENFORCED"})
 	}},
-	{"spec.drop_constraint", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.drop_constraint", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return "DROP " + pickString(c.R, []string{"CHECK chk", "CONSTRAINT chk", "CONSTRAINT IF EXISTS chk"})
 	}},
-	{"spec.drop_index", 4, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.drop_index", 4, false, false, 0, 0, false, func(c *Ctx) string {
 		return "DROP " + pickString(c.R, []string{"INDEX idx", "KEY idx", "PRIMARY KEY", "FOREIGN KEY fk", "FOREIGN KEY IF EXISTS fk"})
 	}},
-	{"spec.keys_toggle", 2, false, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{"DISABLE KEYS", "ENABLE KEYS"}) }},
-	{"spec.rename_table", 3, false, false, 0, 0, func(c *Ctx) string {
-		return "RENAME " + pickString(c.R, []string{"TO ", "AS ", "= "}) + quoteMaybe(c, pickString(c.R, c.V.FreshNames))
+	{"spec.keys_toggle", 2, false, false, 0, 0, true, func(c *Ctx) string { return pickString(c.R, []string{"DISABLE KEYS", "ENABLE KEYS"}) }},
+	{"spec.rename_table", 3, false, false, 0, 0, true, func(c *Ctx) string {
+		return "RENAME " + pickString(c.R, []string{"TO ", "AS ", "= "}) + quoteMaybe(c, c.freshIdent())
 	}},
-	{"spec.rename_index", 2, false, false, 0, 0, func(*Ctx) string { return "RENAME INDEX old_idx TO new_idx" }},
-	{"spec.order_by", 2, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.rename_index", 2, false, false, 0, 0, false, func(*Ctx) string { return "RENAME INDEX old_idx TO new_idx" }},
+	{"spec.order_by", 2, false, false, 0, 0, true, func(c *Ctx) string {
 		return "ORDER BY " + quoteMaybe(c, pickString(c.R, c.V.Columns)) + ", " + quoteMaybe(c, pickString(c.R, c.V.Columns))
 	}},
-	{"spec.convert_charset", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.convert_charset", 3, false, false, 0, 0, true, func(c *Ctx) string {
 		return pickString(c.R, []string{"CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", "CONVERT TO CHARACTER SET DEFAULT"})
 	}},
-	{"spec.default_charset", 2, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.default_charset", 2, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"DEFAULT CHARACTER SET = utf8mb4", "CHARACTER SET utf8mb4", "DEFAULT COLLATE = utf8mb4_bin"})
 	}},
-	{"spec.tablespace", 2, false, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{"DISCARD TABLESPACE", "IMPORT TABLESPACE"}) }},
-	{"spec.algorithm", 2, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.tablespace", 2, false, false, 0, 0, false, func(c *Ctx) string { return pickString(c.R, []string{"DISCARD TABLESPACE", "IMPORT TABLESPACE"}) }},
+	{"spec.algorithm", 2, false, false, 0, 0, true, func(c *Ctx) string {
 		return "ALGORITHM=" + pickString(c.R, []string{"DEFAULT", "INSTANT", "INPLACE", "NOCOPY", "COPY"})
 	}},
-	{"spec.lock", 2, false, false, 0, 0, func(c *Ctx) string {
+	{"spec.lock", 2, false, false, 0, 0, true, func(c *Ctx) string {
 		return "LOCK=" + pickString(c.R, []string{"DEFAULT", "NONE", "SHARED", "EXCLUSIVE"})
 	}},
-	{"spec.force", 1, false, false, 0, 0, func(*Ctx) string { return "FORCE" }},
-	{"spec.validation", 1, false, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{"WITH VALIDATION", "WITHOUT VALIDATION"}) }},
-	{"spec.secondary_load", 1, false, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{"SECONDARY_LOAD", "SECONDARY_UNLOAD"}) }},
-	{"spec.table_options", 5, false, false, 0, 0, func(c *Ctx) string { return tableOptions(c) }},
-	{"spec.partition_options", 5, false, false, 0, 0, func(c *Ctx) string { return partitionOp(c) }},
+	{"spec.force", 1, false, false, 0, 0, true, func(*Ctx) string { return "FORCE" }},
+	{"spec.validation", 1, false, false, 0, 0, false, func(c *Ctx) string { return pickString(c.R, []string{"WITH VALIDATION", "WITHOUT VALIDATION"}) }},
+	{"spec.secondary_load", 1, false, false, 0, 0, false, func(c *Ctx) string { return pickString(c.R, []string{"SECONDARY_LOAD", "SECONDARY_UNLOAD"}) }},
+	{"spec.table_options", 5, false, false, 0, 0, true, func(c *Ctx) string { return tableOptions(c) }},
+	{"spec.partition_options", 5, false, false, 0, 0, false, func(c *Ctx) string { return partitionOp(c) }},
 }
 
 var typeEntries = []entry{
-	{"type.integer", 8, false, false, 0, 0, func(c *Ctx) string {
+	{"type.integer", 8, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"TINYINT", "SMALLINT", "MEDIUMINT", "MIDDLEINT", "INT", "INTEGER", "INT4", "BIGINT", "INT8"}) + pickString(c.R, []string{"", " UNSIGNED", "(11)"})
 	}},
-	{"type.fixed", 5, false, false, 0, 0, func(c *Ctx) string {
+	{"type.fixed", 5, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"DECIMAL", "NUMERIC", "DEC", "FIXED"}) + pickString(c.R, []string{"", "(10)", "(10,2)", " UNSIGNED"})
 	}},
-	{"type.float", 4, false, false, 0, 0, func(c *Ctx) string {
+	{"type.float", 4, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"FLOAT", "FLOAT4", "FLOAT8", "REAL", "DOUBLE", "DOUBLE PRECISION", "FLOAT(10,2)"})
 	}},
-	{"type.bit_bool", 3, false, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{"BIT", "BIT(8)", "BOOL", "BOOLEAN"}) }},
-	{"type.serial", 2, false, false, 0, 0, func(*Ctx) string { return "SERIAL" }},
-	{"type.datetime", 4, false, false, 0, 0, func(c *Ctx) string {
+	{"type.bit_bool", 3, false, false, 0, 0, false, func(c *Ctx) string { return pickString(c.R, []string{"BIT", "BIT(8)", "BOOL", "BOOLEAN"}) }},
+	{"type.serial", 2, false, false, 0, 0, false, func(*Ctx) string { return "SERIAL" }},
+	{"type.datetime", 4, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"DATE", "TIME", "TIME(6)", "DATETIME", "DATETIME(6)", "TIMESTAMP", "TIMESTAMP(6)", "YEAR", "YEAR(4)"})
 	}},
-	{"type.char_text", 8, false, false, 0, 0, func(c *Ctx) string {
+	{"type.char_text", 8, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"CHAR", "CHAR(8)", "VARCHAR(32)", "CHARACTER", "CHARACTER VARYING(12)", "VARCHARACTER(12)", "NCHAR(8)", "NVARCHAR(8)", "LONG VARCHAR", "CHAR BYTE", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT"})
 	}},
-	{"type.binary_blob", 4, false, false, 0, 0, func(c *Ctx) string {
+	{"type.binary_blob", 4, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"BINARY", "BINARY(8)", "VARBINARY(16)", "TINYBLOB", "BLOB", "BLOB(64)", "MEDIUMBLOB", "LONGBLOB"})
 	}},
-	{"type.enum_set", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"type.enum_set", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"ENUM('a','b,c','quote''s','*/','FOR')", "SET('x','y,z','-- inside')"})
 	}},
-	{"type.json", 3, false, false, 0, 0, func(*Ctx) string { return "JSON" }},
-	{"type.spatial", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"type.json", 3, false, false, 0, 0, false, func(*Ctx) string { return "JSON" }},
+	{"type.spatial", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"GEOMETRY", "POINT", "LINESTRING", "POLYGON", "MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON", "GEOMETRYCOLLECTION"})
 	}},
-	{"type.vector", 3, false, false, 0, 0, func(c *Ctx) string { return fmt.Sprintf("VECTOR(%d)", 1+c.R.IntN(16)) }},
-	{"type.mariadb_udt", 3, true, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{"UUID", "INET4", "INET6"}) }},
-	{"type.oracle", 3, true, false, ModeOracle, 0, func(c *Ctx) string {
+	{"type.vector", 3, false, false, 0, 0, false, func(c *Ctx) string { return fmt.Sprintf("VECTOR(%d)", 1+c.R.IntN(16)) }},
+	{"type.mariadb_udt", 3, true, false, 0, 0, false, func(c *Ctx) string { return pickString(c.R, []string{"UUID", "INET4", "INET6"}) }},
+	{"type.oracle", 3, true, false, ModeOracle, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"NUMBER", "NUMBER(10)", "NUMBER(10,2)", "VARCHAR2(30)", "RAW(16)", "CLOB"})
 	}},
 }
 
 var columnAttrs = []entry{
-	{"attr.nullability", 7, false, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{"NOT NULL", "NULL", "NOT NULL ENABLE"}) }},
-	{"attr.default", 7, false, false, 0, 0, func(c *Ctx) string {
+	{"attr.nullability", 7, false, false, 0, 0, true, func(c *Ctx) string {
+		if c.constrained() {
+			return pickString(c.R, []string{"NOT NULL", "NULL"})
+		}
+		return pickString(c.R, []string{"NOT NULL", "NULL", "NOT NULL ENABLE"})
+	}},
+	{"attr.default", 7, false, false, 0, 0, true, func(c *Ctx) string {
+		if c.constrained() {
+			forms := []string{"DEFAULT NULL"}
+			typ := strings.ToLower(c.attrType)
+			if hasAnyPrefix(typ, "varchar", "char", "varbinary", "binary") {
+				forms = append(forms, "DEFAULT 'x,y'")
+			} else if hasAnyPrefix(typ, "int", "bigint", "tinyint", "decimal", "double", "bit") {
+				forms = append(forms, "DEFAULT 1")
+			}
+			return pickString(c.R, forms)
+		}
 		return pickString(c.R, []string{"DEFAULT " + literal(c), "DEFAULT (" + genExpr(c, 0) + ")", "DEFAULT CURRENT_TIMESTAMP", "DEFAULT CURRENT_TIMESTAMP(6)"})
 	}},
-	{"attr.auto_key", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"attr.auto_key", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"AUTO_INCREMENT", "UNIQUE", "UNIQUE KEY", "PRIMARY KEY", "KEY"})
 	}},
-	{"attr.comment", 5, false, false, 0, 0, func(c *Ctx) string {
+	{"attr.comment", 5, false, false, 0, 0, true, func(c *Ctx) string {
+		if c.constrained() {
+			return "COMMENT 'ddlfuzz'"
+		}
 		forms := []string{"'ddlfuzz'", "'comma,value'", "'has */ marker'", "'-- line'"}
 		if !c.IsMariaDB {
 			forms = append(forms, "$$mysql9$$")
 		}
 		return "COMMENT " + pickString(c.R, forms)
 	}},
-	{"attr.charset_collate", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"attr.charset_collate", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"COLLATE utf8mb4_bin", "CHARACTER SET utf8mb4", "CHARSET utf8mb4"})
 	}},
-	{"attr.column_format_storage", 2, false, false, 0, 0, func(c *Ctx) string {
+	{"attr.column_format_storage", 2, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"COLUMN_FORMAT FIXED", "COLUMN_FORMAT DYNAMIC", "COLUMN_FORMAT DEFAULT", "STORAGE DISK", "STORAGE MEMORY"})
 	}},
-	{"attr.engine_attribute", 2, false, false, 0, 0, func(c *Ctx) string {
+	{"attr.engine_attribute", 2, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"ENGINE_ATTRIBUTE='{\"k\":1}'", "SECONDARY_ENGINE_ATTRIBUTE='{\"k\":2}'"})
 	}},
-	{"attr.visibility", 3, false, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{"VISIBLE", "INVISIBLE"}) }},
-	{"attr.generated", 4, false, false, 0, 0, func(c *Ctx) string {
+	{"attr.visibility", 3, false, false, 0, 0, true, func(c *Ctx) string {
+		if c.constrained() && c.IsMariaDB {
+			return "INVISIBLE"
+		}
+		return pickString(c.R, []string{"VISIBLE", "INVISIBLE"})
+	}},
+	{"attr.generated", 4, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"GENERATED ALWAYS AS (" + genExpr(c, 0) + ") VIRTUAL", "GENERATED ALWAYS AS (" + genExpr(c, 0) + ") STORED", "AS (" + genExpr(c, 0) + ")", "GENERATED ALWAYS AS (" + genExpr(c, 0) + ") PERSISTENT"})
 	}},
-	{"attr.check", 4, false, false, 0, 0, func(c *Ctx) string {
+	{"attr.check", 4, false, false, 0, 0, false, func(c *Ctx) string {
 		return "CHECK (" + genExpr(c, 0) + ") " + pickString(c.R, []string{"", "NOT ENFORCED"})
 	}},
-	{"attr.references", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"attr.references", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return "REFERENCES other(" + quoteMaybe(c, pickString(c.R, c.V.Columns)) + ") MATCH FULL ON DELETE CASCADE ON UPDATE RESTRICT"
 	}},
-	{"attr.serial_default", 2, false, false, 0, 0, func(*Ctx) string { return "SERIAL DEFAULT VALUE" }},
-	{"attr.compressed", 2, true, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{"COMPRESSED", "COMPRESSED=zlib"}) }},
-	{"attr.ref_system_id", 1, true, false, 0, 0, func(c *Ctx) string { return fmt.Sprintf("REF_SYSTEM_ID=%d", c.R.IntN(10)) }},
-	{"attr.system_versioning", 1, true, false, 0, 0, func(c *Ctx) string {
+	{"attr.serial_default", 2, false, false, 0, 0, false, func(*Ctx) string { return "SERIAL DEFAULT VALUE" }},
+	{"attr.compressed", 2, true, false, 0, 0, false, func(c *Ctx) string { return pickString(c.R, []string{"COMPRESSED", "COMPRESSED=zlib"}) }},
+	{"attr.ref_system_id", 1, true, false, 0, 0, false, func(c *Ctx) string { return fmt.Sprintf("REF_SYSTEM_ID=%d", c.R.IntN(10)) }},
+	{"attr.system_versioning", 1, true, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"WITH SYSTEM VERSIONING", "WITHOUT SYSTEM VERSIONING"})
 	}},
 }
 
 var renameForms = []entry{
-	{"rename.table", 8, false, false, 0, 0, func(c *Ctx) string {
+	{"rename.table", 8, false, false, 0, 0, true, func(c *Ctx) string {
 		return "RENAME TABLE " + quoteMaybe(c, c.V.Table) + " TO " + quoteMaybe(c, pickString(c.R, c.V.FreshNames))
 	}},
-	{"rename.tables", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"rename.tables", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return "RENAME TABLES " + quoteMaybe(c, c.V.Table) + " TO " + quoteMaybe(c, pickString(c.R, c.V.FreshNames))
 	}},
-	{"rename.multi_pair", 4, false, false, 0, 0, func(c *Ctx) string { return "RENAME TABLE a TO b, c TO d" }},
-	{"rename.schema_qualified", 3, false, false, 0, 0, func(c *Ctx) string { return "RENAME TABLE db.a TO db.b" }},
-	{"rename.wait_nowait", 2, true, false, 0, 0, func(c *Ctx) string {
+	{"rename.multi_pair", 4, false, false, 0, 0, false, func(c *Ctx) string { return "RENAME TABLE a TO b, c TO d" }},
+	{"rename.schema_qualified", 3, false, false, 0, 0, false, func(c *Ctx) string { return "RENAME TABLE db.a TO db.b" }},
+	{"rename.wait_nowait", 2, true, false, 0, 0, false, func(c *Ctx) string {
 		return "RENAME TABLE a " + pickString(c.R, []string{"WAIT 5", "NOWAIT"}) + " TO b, c NOWAIT TO d"
 	}},
 }
 
 var benignHeads = []entry{
-	{"benign.create", 4, false, false, 0, 0, func(c *Ctx) string {
+	{"benign.create", 4, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"CREATE TABLE x (c INT)", "CREATE INDEX i ON t(c)", "CREATE VIEW v AS SELECT 1", "CREATE PROCEDURE p() SELECT 1", "CREATE FUNCTION f() RETURNS INT RETURN 1", "CREATE TRIGGER tr BEFORE INSERT ON t FOR EACH ROW SET @a=1", "CREATE EVENT ev ON SCHEDULE EVERY 1 DAY DO SELECT 1", "CREATE SEQUENCE s"})
 	}},
-	{"benign.drop", 3, false, false, 0, 0, func(c *Ctx) string {
+	{"benign.drop", 3, false, false, 0, 0, false, func(c *Ctx) string {
 		return pickString(c.R, []string{"DROP TABLE IF EXISTS x", "DROP INDEX i ON t", "DROP VIEW IF EXISTS v", "DROP PROCEDURE IF EXISTS p", "DROP FUNCTION IF EXISTS f", "DROP TRIGGER IF EXISTS tr", "DROP EVENT IF EXISTS ev", "DROP SEQUENCE IF EXISTS s"})
 	}},
-	{"benign.insert", 2, false, false, 0, 0, func(*Ctx) string { return "INSERT INTO t(c) VALUES (1)" }},
-	{"benign.set_statement", 2, true, false, 0, 0, func(c *Ctx) string { return genSetStatement(c, "ALTER TABLE t ADD c INT") }},
+	{"benign.insert", 2, false, false, 0, 0, false, func(*Ctx) string { return "INSERT INTO t(c) VALUES (1)" }},
+	{"benign.set_statement", 2, true, false, 0, 0, false, func(c *Ctx) string { return genSetStatement(c, "ALTER TABLE t ADD c INT") }},
 }
 
 var lexEntries = []entry{
-	{"lex.identifiers", 1, false, false, 0, 0, func(c *Ctx) string {
+	{"lex.identifiers", 1, false, false, 0, 0, false, func(c *Ctx) string {
 		return quoteMaybe(c, pickString(c.R, []string{"first", "after", "period", "system", "vector", "column", "table", "select", "db.1234", "1ea10", "tëst", "世界"}))
 	}},
-	{"lex.comments", 1, false, false, 0, 0, func(c *Ctx) string { return pickString(c.R, commentForms(c)) }},
-	{"lex.strings", 1, false, false, 0, 0, func(c *Ctx) string { return literal(c) }},
-	{"lex.whitespace", 1, false, false, 0, 0, func(c *Ctx) string { return pickString(c.R, []string{" ", "\t", "\n", "\r", "\v", "\f"}) }},
-	{"lex.nul_semicolon_chain", 1, false, false, 0, 0, func(*Ctx) string { return ";\x00;" }},
+	{"lex.comments", 1, false, false, 0, 0, false, func(c *Ctx) string { return pickString(c.R, commentForms(c)) }},
+	{"lex.strings", 1, false, false, 0, 0, false, func(c *Ctx) string { return literal(c) }},
+	{"lex.whitespace", 1, false, false, 0, 0, false, func(c *Ctx) string { return pickString(c.R, []string{" ", "\t", "\n", "\r", "\v", "\f"}) }},
+	{"lex.nul_semicolon_chain", 1, false, false, 0, 0, false, func(*Ctx) string { return ";\x00;" }},
 }
 
 func genType(c *Ctx) string {
+	if c.constrained() {
+		return pickString(c.R, c.V.Types)
+	}
 	if e, ok := pick(c, typeEntries); ok {
 		return e.Emit(c)
 	}
@@ -322,6 +375,9 @@ func buildDefaultTypes(isMariaDB bool) []string {
 }
 
 func tableOptions(c *Ctx) string {
+	if c.constrained() {
+		return "ENGINE=InnoDB"
+	}
 	opts := []string{
 		"ENGINE=InnoDB",
 		"AUTO_INCREMENT=42",
@@ -350,7 +406,14 @@ func partitionOp(c *Ctx) string {
 }
 
 func indexOption(c *Ctx) string {
-	return pickString(c.R, []string{"", " KEY_BLOCK_SIZE=4", " COMMENT 'idx,comment'", " VISIBLE", " INVISIBLE", " WITH PARSER ngram", " ALGORITHM=DEFAULT", " LOCK=NONE"})
+	opts := []string{"", " KEY_BLOCK_SIZE=4", " COMMENT 'idx,comment'", " ALGORITHM=DEFAULT", " LOCK=NONE"}
+	if !c.constrained() {
+		opts = append(opts, " WITH PARSER ngram")
+	}
+	if !c.constrained() || !c.IsMariaDB {
+		opts = append(opts, " VISIBLE", " INVISIBLE")
+	}
+	return pickString(c.R, opts)
 }
 
 func position(c *Ctx) string {

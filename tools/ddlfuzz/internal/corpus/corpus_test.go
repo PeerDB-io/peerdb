@@ -22,7 +22,9 @@ func TestBudgetRefusesWhenFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if ok, err := s.Add(mkCase(1, 10)); err != nil || !ok {
+	// A behavior row with no known feature is unevictable, so the over-budget
+	// Add has nothing to free and must count a real skip.
+	if ok, err := s.AddSignal(mkCase(1, 10), run.SignalBehavior); err != nil || !ok {
 		t.Fatalf("initial add: ok=%v err=%v", ok, err)
 	}
 	s.Budget = s.Bytes()
@@ -38,6 +40,9 @@ func TestBudgetRefusesWhenFull(t *testing.T) {
 	}
 	if s.SkippedFull() != 1 {
 		t.Fatalf("SkippedFull after dup = %d, want 1", s.SkippedFull())
+	}
+	if got := s.Count("mysql"); got != 1 {
+		t.Fatalf("Count = %d, want 1 (refusal must not evict)", got)
 	}
 }
 

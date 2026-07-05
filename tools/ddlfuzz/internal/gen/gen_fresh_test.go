@@ -68,7 +68,7 @@ func TestGenerateConstrainedAddTupleUsesDistinctFreshNames(t *testing.T) {
 	}
 	p := Profile{HeadsAlterOnly: true, NoAlterRenameTo: true, NoConvertCharset: true, MaxSpecs: 8}
 	r := rand.New(rand.NewPCG(11, 12))
-	addTuple := regexp.MustCompile(`ADD \((` + identPattern + `) int, (` + identPattern + `) int\)`)
+	addTuple := regexp.MustCompile(`ADD \((` + identPattern + `) int, (` + identPattern + `) int, INDEX \(`)
 	found := 0
 	for range 5000 {
 		sql := GenerateConstrained(r, v, p)
@@ -122,7 +122,7 @@ func TestGenerateConstrainedFreshPositionsAvoidSnapshotColumns(t *testing.T) {
 	}
 }
 
-func TestGenAttrsSimpleTypeAwareDefaults(t *testing.T) {
+func TestGenAttrsConstrainedTypeAwareDefaults(t *testing.T) {
 	stringTypes := []string{"varchar(32)", "char(4)", "varbinary(16)", "binary(8)"}
 	numericTypes := []string{"int", "bigint", "tinyint(1)", "decimal(10,2)", "double", "bit(8)"}
 	baseOnlyTypes := []string{"text", "blob", "json", "enum('a','b')", "date", "datetime(3)", "timestamp(6) NULL", "time", "year"}
@@ -135,10 +135,10 @@ func TestGenAttrsSimpleTypeAwareDefaults(t *testing.T) {
 			if isMaria {
 				base = baseMariaDB
 			}
-			c := &Ctx{R: rand.New(rand.NewPCG(31, uint64(map[bool]uint64{false: 32, true: 33}[isMaria]))), IsMariaDB: isMaria}
+			c := &Ctx{R: rand.New(rand.NewPCG(31, uint64(map[bool]uint64{false: 32, true: 33}[isMaria]))), IsMariaDB: isMaria, P: &Profile{}}
 			for _, typ := range append(append(slices.Clone(stringTypes), numericTypes...), baseOnlyTypes...) {
 				for range 1000 {
-					attr := genAttrsSimple(c, typ)
+					attr := genAttrs(c, typ)
 					if isMaria && attr == " VISIBLE" {
 						t.Fatalf("MariaDB attr for %q = VISIBLE", typ)
 					}

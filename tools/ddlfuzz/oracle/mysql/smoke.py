@@ -359,7 +359,7 @@ class Oracle:
         assert len(counters) == n
         return counters
 
-    def parse(self, cases: list[tuple[int, bytes]]) -> list[bytes]:
+    def parse(self, cases: list[tuple[int, bytes]]) -> tuple[list[bytes], list[int]]:
         payload = struct.pack("<I", len(cases))
         for mode, sql in cases:
             payload += struct.pack("<QI", mode, len(sql)) + sql
@@ -369,13 +369,15 @@ class Oracle:
         off += 4
         assert count == len(cases)
         out = []
+        edges = []
         for _ in range(count):
-            n = struct.unpack_from("<I", raw, off)[0]
-            off += 4
+            new_edges, n = struct.unpack_from("<II", raw, off)
+            off += 8
+            edges.append(new_edges)
             out.append(raw[off : off + n])
             off += n
         assert off == len(raw)
-        return out
+        return out, edges
 
 
 def popcount(data: bytes) -> int:
@@ -422,12 +424,13 @@ def main() -> int:
         assert oracle.hello() == {
             "engine": "mysql",
             "server_version": "9.7.0",
-            "protocol": 1,
+            "protocol": 2,
         }
 
         cases = [(0, sql.encode()) for sql in EXPECTED]
         cases.append((0, b"ALTER TABLE t ADD"))
-        raw = oracle.parse(cases)
+        raw, edges = oracle.parse(cases)
+        assert edges[0] > 0, edges
         for sql, digest in zip(EXPECTED, raw[:-1], strict=True):
             assert_digest(sql, digest)
         garbage = json.loads(raw[-1])
@@ -445,11 +448,15 @@ def main() -> int:
         assert popcount(cov3) > popcount(cov2)
 
         batch100 = [(0, VARIED[i % len(VARIED)].encode()) for i in range(100)]
-        first = oracle.parse(batch100)
-        second = oracle.parse(batch100)
+        first, _ = oracle.parse(batch100)
+        second, second_edges = oracle.parse(batch100)
         assert first == second
+        # per-case attribution: a repeat of the same batch opens ~nothing new.
+        # A tiny residue is real second-execution coverage (state primed by the
+        # first run flips a branch), not attribution slop.
+        assert sum(second_edges) <= 4, second_edges
 
-        hygiene = oracle.parse(
+        hygiene, _ = oracle.parse(
             [
                 (0, b"ALTER TABLE t ADD c INT"),
                 (0, b"ALTER TABLE t ADD"),
@@ -463,7 +470,7 @@ def main() -> int:
         before = rss_kb(oracle.proc.pid)
         trivial = [(0, b"ALTER TABLE t ADD c INT")] * 5000
         for _ in range(200):
-            replies = oracle.parse(trivial)
+            replies, _ = oracle.parse(trivial)
             assert replies[0] == replies[-1]
         time.sleep(0.2)
         after = rss_kb(oracle.proc.pid)
@@ -480,7 +487,7 @@ def main() -> int:
                 for i in range(1000)
             ]
             for _ in range(4):
-                replies = oracle.parse(sp_batch)
+                replies, _ = oracle.parse(sp_batch)
                 assert json.loads(replies[0])["verdict"] == "accept", replies[0]
             sp_after = footprint_kb(oracle.proc.pid)
             assert sp_after - sp_before < 32 * 1024, (sp_before, sp_after)

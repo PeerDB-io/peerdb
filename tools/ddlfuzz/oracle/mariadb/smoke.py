@@ -101,7 +101,7 @@ class Oracle:
         assert 4 + n == len(payload)
         return data
 
-    def parse_batch(self, cases: list[tuple[int, str]]) -> list[str]:
+    def parse_batch(self, cases: list[tuple[int, str]]) -> tuple[list[str], list[int]]:
         payload = bytearray()
         payload += struct.pack("<I", len(cases))
         for mode, sql in cases:
@@ -114,14 +114,16 @@ class Oracle:
         (count,) = struct.unpack_from("<I", resp, off)
         off += 4
         out: list[str] = []
+        edges: list[int] = []
         for _ in range(count):
-            (n,) = struct.unpack_from("<I", resp, off)
-            off += 4
+            (new_edges, n) = struct.unpack_from("<II", resp, off)
+            off += 8
+            edges.append(new_edges)
             out.append(resp[off : off + n].decode())
             off += n
         assert count == len(cases)
         assert off == len(resp)
-        return out
+        return out, edges
 
 
 CASES: list[tuple[int, str, str | tuple[str, str]]] = [
@@ -216,20 +218,25 @@ def run_smoke(soak: int | None) -> None:
     oracle = Oracle()
     try:
         hello = oracle.hello()
-        assert hello == '{"engine":"mariadb","server_version":"13.1.0","protocol":1}', hello
+        assert hello == '{"engine":"mariadb","server_version":"13.1.0","protocol":2}', hello
 
         batch = [(mode, sql) for mode, sql, _ in CASES]
-        first = oracle.parse_batch(batch)
+        first, first_edges = oracle.parse_batch(batch)
         for actual, (_, sql, expected) in zip(first, CASES, strict=True):
             assert_json_equal(actual, expected, sql)
+        assert first_edges[0] > 0, first_edges
 
         cov1 = oracle.coverage()
         # deduped single __sancov_cntrs region (~379 KB), not per-TU copies
         assert len(cov1) > 100_000, len(cov1)
         assert any(cov1), "coverage bitmap is all zero"
 
-        second = oracle.parse_batch(batch)
+        second, second_edges = oracle.parse_batch(batch)
         assert first == second, "batch output is not deterministic"
+        # per-case attribution: a repeat of the same batch opens ~nothing new.
+        # A tiny residue is real second-execution coverage (state primed by the
+        # first run flips a branch), not attribution slop.
+        assert sum(second_edges) <= 4, second_edges
 
         oracle.parse_batch([(0, "ALTER TABLE t ADD c INT")])
         cov2 = oracle.coverage()

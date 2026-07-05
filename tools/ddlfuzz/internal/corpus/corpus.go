@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,9 +28,10 @@ const (
 // both engines) call Add and Count.
 //
 // Budget (bytes, 0 = unlimited) caps the SQLite corpus file set
-// (corpus.db plus SQLite auxiliary files). Over budget, Add refuses new entries
-// (retention is a growth heuristic, not correctness -- coverage accumulation
-// and findings are unaffected).
+// (corpus.db plus SQLite auxiliary files). Over budget, Add evicts noise-tier
+// rows first, then largest-per-feature duplicates; it refuses the new entry
+// only when eviction cannot free enough (retention is a growth heuristic, not
+// correctness -- coverage accumulation and findings are unaffected).
 type Store struct {
 	Path   string
 	Budget int64
@@ -38,7 +40,18 @@ type Store struct {
 	mu     sync.Mutex
 	full   uint64
 	writes uint64
+	// freedCredit is logical bytes deleted by eviction: SQLite reuses their
+	// pages before growing the file, so they offset the on-disk size until
+	// inserts consume them.
+	freedCredit  int64
+	evictedRows  uint64
+	evictedBytes uint64
 }
+
+// FeatureKeyFunc maps a stored corpus row to its coarse behavior feature.
+// internal/compare owns the implementation; corpus takes it as a parameter so
+// the dependency points outward.
+type FeatureKeyFunc func(engine uint8, sqlMode uint64, sqlText []byte) uint64
 
 func Open(path string, budget int64) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -70,6 +83,7 @@ func (s *Store) init() error {
 				sql_mode TEXT NOT NULL,
 				origin TEXT,
 				signal TEXT NOT NULL DEFAULT 'noise',
+				feature TEXT,
 				added_at TEXT NOT NULL,
 				sql BLOB NOT NULL,
 				UNIQUE(engine, hash)
@@ -80,13 +94,16 @@ func (s *Store) init() error {
 			return fmt.Errorf("corpus init %q: %w", stmt, err)
 		}
 	}
-	if err := s.ensureSignalColumn(); err != nil {
+	if err := s.ensureColumn("signal", `ALTER TABLE corpus ADD COLUMN signal TEXT NOT NULL DEFAULT 'noise'`); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("feature", `ALTER TABLE corpus ADD COLUMN feature TEXT`); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Store) ensureSignalColumn() error {
+func (s *Store) ensureColumn(column, addDDL string) error {
 	rows, err := s.db.Query(`PRAGMA table_info(corpus)`)
 	if err != nil {
 		return err
@@ -100,14 +117,14 @@ func (s *Store) ensureSignalColumn() error {
 		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
 			return err
 		}
-		if name == "signal" {
+		if name == column {
 			return rows.Err()
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`ALTER TABLE corpus ADD COLUMN signal TEXT NOT NULL DEFAULT 'noise'`)
+	_, err = s.db.Exec(addDDL)
 	return err
 }
 
@@ -130,6 +147,13 @@ func (s *Store) Add(c run.Case) (bool, error) {
 }
 
 func (s *Store) AddSignal(c run.Case, signal uint8) (bool, error) {
+	return s.AddSignalFeature(c, signal, "")
+}
+
+// AddSignalFeature stamps the row's coarse behavior feature (decimal text of
+// the uint64 key) so the budget-eviction duplicate tier can partition rows;
+// "" leaves the column NULL, which eviction treats as never-a-duplicate.
+func (s *Store) AddSignalFeature(c run.Case, signal uint8, feature string) (bool, error) {
 	engine := run.EngineName(c.Engine)
 	hash := Hash(c.SQL, c.SQLMode)
 	s.mu.Lock()
@@ -147,20 +171,31 @@ func (s *Store) AddSignal(c run.Case, signal uint8) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if bytes+int64(len(c.SQL)) > s.Budget {
-			s.full++
-			return false, nil
+		if over := bytes - s.freedCredit + int64(len(c.SQL)) - s.Budget; over > 0 {
+			freedEnough, err := s.evictLocked(over)
+			if err != nil {
+				return false, err
+			}
+			if !freedEnough {
+				s.full++
+				return false, nil
+			}
 		}
 	}
 
+	var featureVal any
+	if feature != "" {
+		featureVal = feature
+	}
 	res, err := s.db.Exec(
-		`INSERT OR IGNORE INTO corpus(engine, hash, sql_mode, origin, signal, added_at, sql)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO corpus(engine, hash, sql_mode, origin, signal, feature, added_at, sql)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		engine,
 		hash,
 		strconv.FormatUint(c.SQLMode, 10),
 		run.OriginName(c.Origin),
 		run.SignalName(signal),
+		featureVal,
 		time.Now().UTC().Format(time.RFC3339),
 		c.SQL,
 	)
@@ -172,6 +207,9 @@ func (s *Store) AddSignal(c run.Case, signal uint8) (bool, error) {
 		return true, nil
 	}
 	if rows > 0 {
+		if s.freedCredit > 0 {
+			s.freedCredit = max(0, s.freedCredit-int64(len(c.SQL)))
+		}
 		s.maybeCheckpointLocked()
 	}
 	return rows > 0, nil
@@ -187,6 +225,84 @@ func (s *Store) maybeCheckpointLocked() {
 		return
 	}
 	_, _ = s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+}
+
+// Eviction candidate order: the whole noise tier goes first, largest rows
+// first; then rows that duplicate a smaller retained row's
+// feature. Rows with an unknown feature are never duplicates. Selection
+// completes before any delete, so an unsatisfiable need evicts nothing and
+// the Add is refused instead.
+const (
+	evictNoiseQuery = `SELECT id, length(sql) FROM corpus WHERE signal = 'noise' ORDER BY length(sql) DESC, id`
+	evictDupQuery   = `SELECT id, len FROM (
+			SELECT id, length(sql) AS len,
+			       row_number() OVER (PARTITION BY engine, feature ORDER BY length(sql), id) AS rn
+			FROM corpus WHERE feature IS NOT NULL AND signal != 'noise'
+		) WHERE rn > 1 ORDER BY len DESC, id`
+)
+
+func (s *Store) evictLocked(need int64) (bool, error) {
+	var ids []int64
+	var freed int64
+	for _, query := range []string{evictNoiseQuery, evictDupQuery} {
+		if freed >= need {
+			break
+		}
+		var err error
+		ids, freed, err = s.evictCandidatesLocked(query, ids, need, freed)
+		if err != nil {
+			return false, err
+		}
+	}
+	if freed < need {
+		return false, nil
+	}
+	if err := s.deleteIDsLocked(ids); err != nil {
+		return false, err
+	}
+	s.freedCredit += freed
+	s.evictedRows += uint64(len(ids))
+	s.evictedBytes += uint64(freed)
+	return true, nil
+}
+
+func (s *Store) evictCandidatesLocked(query string, ids []int64, need, freed int64) ([]int64, int64, error) {
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return ids, freed, err
+	}
+	defer rows.Close()
+	for freed < need && rows.Next() {
+		var id, size int64
+		if err := rows.Scan(&id, &size); err != nil {
+			return ids, freed, err
+		}
+		ids = append(ids, id)
+		freed += size
+	}
+	return ids, freed, rows.Err()
+}
+
+func (s *Store) deleteIDsLocked(ids []int64) error {
+	for start := 0; start < len(ids); start += 256 {
+		batch := ids[start:min(start+256, len(ids))]
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			args[i] = id
+		}
+		placeholders := strings.Repeat(",?", len(batch))[1:]
+		if _, err := s.db.Exec(`DELETE FROM corpus WHERE id IN (`+placeholders+`)`, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Evicted reports rows and logical bytes removed by budget eviction.
+func (s *Store) Evicted() (rows, bytes uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.evictedRows, s.evictedBytes
 }
 
 func (s *Store) existsLocked(engine, hash string) (bool, error) {
@@ -271,6 +387,96 @@ func (s *Store) StampExistingNoise() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.db.Exec(`UPDATE corpus SET signal = 'noise' WHERE signal IS NULL OR signal = ''`)
+	return err
+}
+
+type DistillStats struct {
+	Scanned    int   `json:"scanned"`
+	Kept       int   `json:"kept"`
+	Deleted    int   `json:"deleted"`
+	Skipped    int   `json:"skipped"` // unparseable engine/sql_mode text; row left in place
+	BytesFreed int64 `json:"bytes_freed"`
+}
+
+// DistillNoise rewrites the noise tier: per (engine, feature) the smallest
+// row survives (ties: lowest id) and the rest are deleted.
+// Survivors get their feature stamped, recording the distill key alongside
+// the AddSignalFeature stamps on new arrivals. Behavior tiers are untouched.
+// Call Vacuum afterwards to shrink the file.
+func (s *Store) DistillNoise(fn FeatureKeyFunc) (DistillStats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	type rowMeta struct {
+		id   int64
+		size int64
+		key  string
+	}
+	var stats DistillStats
+	var metas []rowMeta
+	best := map[string]int{}
+
+	rows, err := s.db.Query(`SELECT id, engine, sql_mode, sql FROM corpus WHERE signal = 'noise' ORDER BY id`)
+	if err != nil {
+		return stats, err
+	}
+	for rows.Next() {
+		var id int64
+		var engineText, modeText string
+		var sqlBytes []byte
+		if err := rows.Scan(&id, &engineText, &modeText, &sqlBytes); err != nil {
+			rows.Close()
+			return stats, err
+		}
+		stats.Scanned++
+		mode, modeErr := strconv.ParseUint(modeText, 10, 64)
+		engine, engineErr := run.EngineID(engineText)
+		if modeErr != nil || engineErr != nil {
+			stats.Skipped++
+			continue
+		}
+		key := engineText + "\x00" + strconv.FormatUint(fn(engine, mode, sqlBytes), 10)
+		metas = append(metas, rowMeta{id: id, size: int64(len(sqlBytes)), key: key})
+		if i, ok := best[key]; !ok || metas[i].size > int64(len(sqlBytes)) {
+			best[key] = len(metas) - 1
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return stats, err
+	}
+	rows.Close()
+
+	keepers := make(map[int64]string, len(best))
+	for key, i := range best {
+		keepers[metas[i].id] = key[strings.IndexByte(key, 0)+1:]
+	}
+	var doomed []int64
+	for _, m := range metas {
+		if _, ok := keepers[m.id]; ok {
+			continue
+		}
+		doomed = append(doomed, m.id)
+		stats.BytesFreed += m.size
+	}
+	if err := s.deleteIDsLocked(doomed); err != nil {
+		return stats, err
+	}
+	stats.Deleted = len(doomed)
+	stats.Kept = len(keepers)
+	for id, feature := range keepers {
+		if _, err := s.db.Exec(`UPDATE corpus SET feature = ? WHERE id = ?`, feature, id); err != nil {
+			return stats, err
+		}
+	}
+	return stats, nil
+}
+
+// Vacuum rebuilds the database file so distill deletions actually shrink it.
+func (s *Store) Vacuum() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`VACUUM`)
 	return err
 }
 
