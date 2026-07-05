@@ -164,11 +164,28 @@ func renderFixAgent(s StatusSnapshot, color bool, width int) []string {
 	if a := s.FixAgent.Attempt; a != nil {
 		rows = append(rows, [2]string{"working on", fmt.Sprintf("%s (%s|%s, %s) · phase %s", a.Sig, a.Class, a.Shape, a.Engine, a.Phase)})
 	}
+	labelW := visibleWidth("last msg")
+	if w := visibleWidth("totals"); w > labelW {
+		labelW = w
+	}
+	for _, r := range rows {
+		if w := visibleWidth(r[0]); w > labelW {
+			labelW = w
+		}
+	}
 	msg := s.FixAgent.LastMessage
 	if msg == "" {
 		msg = "n/a"
 	}
-	rows = append(rows, [2]string{"last msg", msg})
+	vw := width - labelW - 4
+	if vw < 1 {
+		vw = 1
+	}
+	if rs := []rune(msg); len(rs) <= vw {
+		rows = append(rows, [2]string{"last msg", msg}, [2]string{"", ""})
+	} else {
+		rows = append(rows, [2]string{"last msg", string(rs[:vw])}, [2]string{"", string(rs[vw:])})
+	}
 	t := s.FixAgent.Totals
 	rows = append(rows, [2]string{"totals", fmt.Sprintf("%d att · %d fixed · %d ledg · %d fail · %d timeout · %.1f wall-h", t["total"], t["fixed"], t["ledgered"], t["failed"], t["timeout"], float64(s.FixAgent.Spend.AttemptSeconds)/3600)})
 	lines = append(lines, labelGrid(rows, 1, width, color)...)

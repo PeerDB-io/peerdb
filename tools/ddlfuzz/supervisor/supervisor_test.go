@@ -1046,6 +1046,62 @@ func TestCurrentAttemptStale(t *testing.T) {
 	}
 }
 
+func TestFixAgentLastMsgTwoLine(t *testing.T) {
+	width := 60
+	labelW := visibleWidth("last msg")
+	vw := width - labelW - 4
+
+	long := strings.Repeat("A", vw) + strings.Repeat("B", vw*2)
+	lines := renderFixAgent(StatusSnapshot{FixAgent: FixAgentStatus{LastMessage: long, Totals: map[string]int{}}}, false, width)
+	var msgIdx int
+	for i, l := range lines {
+		if strings.Contains(l, "last msg") {
+			msgIdx = i
+			break
+		}
+	}
+	if msgIdx == 0 {
+		t.Fatalf("no last msg row:\n%s", strings.Join(lines, "\n"))
+	}
+	first := lines[msgIdx]
+	cont := lines[msgIdx+1]
+	if strings.Contains(cont, "last msg") || strings.Contains(cont, "totals") {
+		t.Fatalf("expected blank-labeled continuation row, got %q", cont)
+	}
+	if visibleWidth(first) != width || strings.HasSuffix(first, "…") {
+		t.Fatalf("first row should fill width without ellipsis: %q (w=%d)", first, visibleWidth(first))
+	}
+	if visibleWidth(cont) > width || !strings.HasSuffix(cont, "…") {
+		t.Fatalf("continuation should be width-capped and ellipsized: %q", cont)
+	}
+
+	assertBlankSecondRow := func(name, msg, want string) {
+		lines := renderFixAgent(StatusSnapshot{FixAgent: FixAgentStatus{LastMessage: msg, Totals: map[string]int{}}}, false, width)
+		idx := -1
+		for i, l := range lines {
+			if strings.Contains(l, "last msg") {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			t.Fatalf("%s: no last msg row:\n%s", name, strings.Join(lines, "\n"))
+		}
+		if !strings.Contains(lines[idx], want) {
+			t.Fatalf("%s: last msg row missing %q: %q", name, want, lines[idx])
+		}
+		second := lines[idx+1]
+		if strings.Contains(second, "last msg") || strings.Contains(second, "totals") {
+			t.Fatalf("%s: expected blank second row, got %q", name, second)
+		}
+		if strings.TrimSpace(stripANSI(second)) != "" {
+			t.Fatalf("%s: second row should be blank, got %q", name, second)
+		}
+	}
+	assertBlankSecondRow("short", "all good", "all good")
+	assertBlankSecondRow("empty", "", "n/a")
+}
+
 func TestMetricTableAlignment(t *testing.T) {
 	rows := metricTable([]string{"METRIC", "NOW", "Δ1m"}, [][]string{{paint(true, sgrGreen, "execs/s"), "10", "2"}, {"very-long-metric-name", "1000", "30"}}, 80, true)
 	if visibleWidth(paint(true, sgrRed, "abc")) != 3 {
