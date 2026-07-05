@@ -938,6 +938,16 @@ func ddlNumericParamsApply(base string) bool {
 	}
 }
 
+func ddlSpatialType(base string) bool {
+	switch base {
+	case "geometry", "point", "linestring", "polygon", "multipoint",
+		"multilinestring", "multipolygon", "geometrycollection", "geomcollection":
+		return true
+	default:
+		return false
+	}
+}
+
 // parseColumnDef parses "<type> <attributes...>" for the named column, appending
 // the result to spec.NewColumns. insideParens is true within the ADD (...) form,
 // where an unconsumed ')' ends the definition.
@@ -1193,7 +1203,7 @@ func (p *ddlParser) parseDataType(st *ddlColumnState) error {
 			return err
 		}
 	}
-	if p.peekPunct(0, '(') && !st.synthetic {
+	if p.peekPunct(0, '(') && !st.synthetic && !ddlSpatialType(st.base) {
 		paramsWritten := true
 		if st.base == "enum" || st.base == "set" {
 			raw, err := p.captureParenContents()

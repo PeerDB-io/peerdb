@@ -192,6 +192,12 @@ func TestDDLTypesEnumSetTemporalSpatial(t *testing.T) {
 		{typ: "MULTILINESTRING", want: ddlTypesCol("multilinestring", -1, -1, false)},
 		{typ: "MULTIPOLYGON", want: ddlTypesCol("multipolygon", -1, -1, false)},
 		{typ: "GEOMETRYCOLLECTION", want: ddlTypesCol("geometrycollection", -1, -1, false)},
+		{
+			typ:    "GEOMETRYCOLLECTION (.5) UNIQUE NOT NULL ENABLE AFTER first",
+			want:   ddlTypesCol("geometrycollection", -1, -1, true),
+			maria:  true,
+			hasPos: true,
+		},
 		{typ: "GEOMCOLLECTION", want: ddlTypesCol("geomcollection", -1, -1, false)},
 		{typ: "VECTOR", want: ddlTypesCol("vector", -1, -1, false)},
 		{typ: "VECTOR(4)", want: ddlTypesCol("vector(4)", -1, -1, false)},
