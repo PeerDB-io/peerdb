@@ -369,7 +369,7 @@ func TestInitRunStart(t *testing.T) {
 	if !resumed.StartedAt.Equal(stale) {
 		t.Fatalf("resume did not adopt persisted run-start: %v", resumed.StartedAt)
 	}
-	if want := stale.Add(72 * time.Hour); !resumed.Deadline.Equal(want) {
+	if want := computeDeadline(stale, resumed.RunHours, os.Getenv("DDLFUZZ_HOURS") != ""); !resumed.Deadline.Equal(want) {
 		t.Fatalf("resume deadline=%v want=%v", resumed.Deadline, want)
 	}
 	if got, err := loadRunStart(resumed); err != nil || !got.Equal(stale) {
