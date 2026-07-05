@@ -606,9 +606,13 @@ var (
 	// Greedy body: the fragment is verbatim input, so mask through the LAST
 	// `' at line N` closer rather than the first balanced quote.
 	nearFragmentRE = regexp.MustCompile(`near '(?s:.*)' at line \d+`)
-	quotedRE       = regexp.MustCompile(`"(?s:[^"]*)"`)
-	singleQuotedRE = regexp.MustCompile(`(^|[^0-9A-Za-z_])'(?s:[^']*)'`)
-	backtickedRE   = regexp.MustCompile("`(?s:[^`]*)`")
+	// Span bodies skip backslash escapes (Go %q-formatted fragments escape
+	// embedded quotes — a bare [^"]* would stop at the escaped quote and leak
+	// the raw tail) and accept end-of-string as closer, so an unterminated
+	// span masks through the end. Over-mask, never under-mask.
+	quotedRE       = regexp.MustCompile(`"(?s:(?:\\.|[^"\\])*)("|$)`)
+	singleQuotedRE = regexp.MustCompile(`(^|[^0-9A-Za-z_])'(?s:(?:\\.|[^'\\])*)('|$)`)
+	backtickedRE   = regexp.MustCompile("`(?s:(?:\\\\.|[^`\\\\])*)(`|$)")
 	digitRunRE     = regexp.MustCompile(`\d+`)
 	wsRE           = regexp.MustCompile(`\s+`)
 	hexAddrRE      = regexp.MustCompile(`0x[0-9a-fA-F]+`)

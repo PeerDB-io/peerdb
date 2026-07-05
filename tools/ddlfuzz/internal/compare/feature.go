@@ -246,16 +246,24 @@ func (f *featureHasher) maskedError(s string) {
 				end = strings.LastIndex(s[i+1:], "' at line ")
 			}
 			if end < 0 {
-				end = strings.IndexByte(s[i+1:], c)
+				// Skip backslash escapes: Go %q-formatted fragments escape
+				// embedded quotes, and a bare IndexByte would take the first
+				// escaped quote as a false closer, leaking the raw tail.
+				end = indexUnescaped(s[i+1:], c)
 			}
-			if end >= 0 {
+			if end < 0 {
+				// Unterminated span: mask through end of string.
 				f.byte(c)
 				f.byte('?')
 				f.byte(c)
-				prev = c
-				i += end + 2
-				continue
+				break
 			}
+			f.byte(c)
+			f.byte('?')
+			f.byte(c)
+			prev = c
+			i += end + 2
+			continue
 		}
 		switch {
 		case c >= '0' && c <= '9':
@@ -277,6 +285,20 @@ func (f *featureHasher) maskedError(s string) {
 		}
 	}
 	f.byte(0xFF)
+}
+
+// indexUnescaped returns the index of the first c in s not preceded by a
+// backslash, or -1.
+func indexUnescaped(s string, c byte) int {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case c:
+			return i
+		}
+	}
+	return -1
 }
 
 func isWordByte(c byte) bool {

@@ -79,6 +79,21 @@ var realServerErrorTable = []struct {
 		in:   `Unknown column 'nf3_7' in 't1'`,
 		want: `Unknown column '?' in '?'`,
 	},
+	{
+		name: "go %q fragment with escaped inner quotes",
+		in:   `ALTER TABLE parse failed: unknown data type " GEOMETR'YCOLLECTION FIRST, RENAME COLUMN vector TO \"世界_col\"; ALTER TABLE db.1234\" ADD KEY idx (x" at byte 64`,
+		want: `ALTER TABLE parse failed: unknown data type "?" at byte ?`,
+	},
+	{
+		name: "go %q fragment with escaped inner quotes, different content",
+		in:   `ALTER TABLE parse failed: unknown data type "PERCENT_RANK \"other\" CHANGE ` + "` IO_THREAD" + `" at byte 358`,
+		want: `ALTER TABLE parse failed: unknown data type "?" at byte ?`,
+	},
+	{
+		name: "unterminated quoted span masks to end",
+		in:   `unknown data type "GEOMETRY ( FIRST, ALTER INDEX FOLLOWING`,
+		want: `unknown data type "?"`,
+	},
 }
 
 // Same error class, differing only in input-derived content (identifiers,
