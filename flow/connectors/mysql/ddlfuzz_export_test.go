@@ -89,6 +89,34 @@ func TestDDLFuzzParseForE2EAlterTableRename(t *testing.T) {
 	}
 }
 
+func TestDDLFuzzParseForE2EModifyIfExistsIsConditionalChange(t *testing.T) {
+	query := []byte("ALTER TABLE fixture MODIFY IF EXISTS `n1` INT UNSIGNED DEFAULT CURRENT_TIMESTAMP(6) NOT NULL")
+	sig, err := FuzzDDLSignature(query, sqlModeNoBackslashEscapes, true)
+	if err != nil {
+		t.Fatalf("FuzzDDLSignature error: %v", err)
+	}
+	if sig != "alter fixture{col n1=uint32 nn}" {
+		t.Fatalf("FuzzDDLSignature=%q", sig)
+	}
+
+	data, err := FuzzParseForE2E(query, sqlModeNoBackslashEscapes, true)
+	if err != nil {
+		t.Fatalf("FuzzParseForE2E error: %v", err)
+	}
+	var got e2eStmts
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal e2e stmts: %v", err)
+	}
+	if len(got.Stmts) != 1 || len(got.Stmts[0].Specs) != 1 {
+		t.Fatalf("expected one alter spec: %s", data)
+	}
+	spec := got.Stmts[0].Specs[0]
+	if spec.Op != "change" || spec.OldName != "n1" || len(spec.Cols) != 1 ||
+		spec.Cols[0].Name != "n1" || spec.Cols[0].TypeStr != "int unsigned" || !spec.Cols[0].NotNull {
+		t.Fatalf("unexpected e2e spec: %#v", spec)
+	}
+}
+
 func TestDDLFuzzSignatureEscapesDelimiterIdentifiers(t *testing.T) {
 	got, err := FuzzDDLSignature(
 		[]byte("ALTER TABLE `mt5_managers` ADD COLUMN (`(` INT UNSIGNED NOT NULL DEFAULT 0,`B` INT UNSIGNED NOT NULL DEFAULT 0)"),

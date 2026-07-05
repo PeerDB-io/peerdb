@@ -27,6 +27,10 @@ func ddlAltAddSpec(cols ...ddlColumnDef) ddlAlterSpec { return ddlAlterSpec{NewC
 
 func ddlAltAdd(cols ...ddlColumnDef) []ddlAlterSpec { return []ddlAlterSpec{ddlAltAddSpec(cols...)} }
 
+func ddlAltModifyIfExists(cols ...ddlColumnDef) []ddlAlterSpec {
+	return []ddlAlterSpec{{NewColumns: cols, ModifyIfExists: true}}
+}
+
 func ddlAltDrop(name string) []ddlAlterSpec { return []ddlAlterSpec{{OldColumnName: name}} }
 
 func ddlAltRename(oldName, newName string) ddlAlterSpec {
@@ -170,8 +174,8 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		},
 		// MariaDB per-spec IF [NOT] EXISTS on the column-relevant items
 		{alter: "ADD COLUMN IF NOT EXISTS (a INT, b INT)", maria: true, want: ddlAltAdd(ddlAltCol("a", "int"), ddlAltCol("b", "int"))},
-		{alter: "MODIFY IF EXISTS c INT", maria: true, want: ddlAltAdd(ddlAltCol("c", "int"))},
-		{alter: "MODIFY COLUMN IF EXISTS c INT", maria: true, want: ddlAltAdd(ddlAltCol("c", "int"))},
+		{alter: "MODIFY IF EXISTS c INT", maria: true, want: ddlAltModifyIfExists(ddlAltCol("c", "int"))},
+		{alter: "MODIFY COLUMN IF EXISTS c INT", maria: true, want: ddlAltModifyIfExists(ddlAltCol("c", "int"))},
 		{alter: "DROP IF EXISTS c", maria: true, want: ddlAltDrop("c")},
 		{
 			alter: "CHANGE IF EXISTS a b INT", maria: true,

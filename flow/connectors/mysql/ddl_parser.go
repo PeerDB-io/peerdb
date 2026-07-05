@@ -23,6 +23,7 @@ type ddlAlterSpec struct {
 	NewColumnName  string         // RENAME COLUMN new name
 	NewColumns     []ddlColumnDef // ADD (single or parenthesized multi), MODIFY, CHANGE
 	AddIfNotExists bool
+	ModifyIfExists bool
 	RenameColumn   bool // true for RENAME COLUMN, including renames to an empty identifier
 	HasPosition    bool // a FIRST/AFTER placement was written on this spec
 }
@@ -647,7 +648,7 @@ func (p *ddlParser) parseDropSpec() (*ddlAlterSpec, bool, error) {
 
 func (p *ddlParser) parseModifySpec() (*ddlAlterSpec, error) {
 	p.consumeWords("COLUMN")
-	p.consumeWords("IF", "EXISTS")
+	sawIfExists := p.consumeWords("IF", "EXISTS")
 	if t := p.peek(0); t.kind == tokPunct && t.text == "," {
 		return nil, nil
 	}
@@ -655,7 +656,7 @@ func (p *ddlParser) parseModifySpec() (*ddlAlterSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	spec := &ddlAlterSpec{}
+	spec := &ddlAlterSpec{ModifyIfExists: sawIfExists}
 	if err := p.parseColumnDef(name, spec, false); err != nil {
 		return nil, err
 	}

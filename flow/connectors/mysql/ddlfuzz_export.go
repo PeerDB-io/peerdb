@@ -173,9 +173,13 @@ func fuzzDDLStmtsToE2E(stmts []ddlStatement) e2eStmts {
 					spec.Op = "rename_col"
 					spec.OldName = sp.OldColumnName
 					spec.NewName = sp.NewColumnName
-				case len(sp.NewColumns) > 0 && sp.OldColumnName != "":
+				case len(sp.NewColumns) > 0 && (sp.OldColumnName != "" || sp.ModifyIfExists):
 					spec.Op = "change"
-					spec.OldName = sp.OldColumnName
+					if sp.OldColumnName != "" {
+						spec.OldName = sp.OldColumnName
+					} else {
+						spec.OldName = sp.NewColumns[0].Name
+					}
 					for _, c := range sp.NewColumns {
 						spec.Cols = append(spec.Cols, fuzzDDLColToE2E(c))
 					}
