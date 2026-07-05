@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 )
 
 func main() {
+	go http.ListenAndServe("localhost:6062", nil)
 	if len(os.Args) < 2 {
 		usage(os.Stderr)
 		os.Exit(2)

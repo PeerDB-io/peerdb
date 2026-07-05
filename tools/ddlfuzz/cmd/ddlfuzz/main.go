@@ -6,8 +6,14 @@
 // harness itself contributes no meaningful coverage counters.
 package main
 
-import "github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/fuzzcmd"
+import (
+	"net/http"
+	_ "net/http/pprof"
+
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/fuzzcmd"
+)
 
 func main() {
+	go http.ListenAndServe("localhost:6060", nil)
 	fuzzcmd.Main()
 }

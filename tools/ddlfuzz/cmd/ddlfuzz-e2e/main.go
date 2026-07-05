@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"sort"
 	"strings"
@@ -12,6 +14,7 @@ import (
 )
 
 func main() {
+	go http.ListenAndServe("localhost:6061", nil)
 	cfg := e2e.DefaultConfig()
 	var engines string
 	flag.StringVar(&cfg.StateDir, "state", cfg.StateDir, "state directory")

@@ -54,7 +54,7 @@ func defaultConfig() config {
 		batch:                1000,
 		genWorkers:           2,
 		caseDeadline:         100 * time.Millisecond,
-		memCeiling:           4 << 30,
+		memCeiling:           16 << 30,
 		seedsDir:             filepath.Join(baseDir, "seeds"),
 		engineBias:           0.5,
 		mutRatio:             0.6,
