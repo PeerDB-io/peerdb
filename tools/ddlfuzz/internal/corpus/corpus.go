@@ -406,7 +406,21 @@ type DistillStats struct {
 func (s *Store) DistillNoise(fn FeatureKeyFunc) (DistillStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.distillRowsLocked(fn, `SELECT id, engine, sql_mode, sql FROM corpus WHERE signal = 'noise' ORDER BY id`)
+}
 
+// DistillBehaviorWindow rewrites behavior-tier rows added in [since, until).
+// It is a one-off cleanup path for known flood windows; normal behavior rows
+// outside the window and all other tiers are untouched.
+func (s *Store) DistillBehaviorWindow(fn FeatureKeyFunc, since, until time.Time) (DistillStats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.distillRowsLocked(fn,
+		`SELECT id, engine, sql_mode, sql FROM corpus WHERE signal = 'behavior' AND added_at >= ? AND added_at < ? ORDER BY id`,
+		since.UTC().Format(time.RFC3339), until.UTC().Format(time.RFC3339))
+}
+
+func (s *Store) distillRowsLocked(fn FeatureKeyFunc, query string, args ...any) (DistillStats, error) {
 	type rowMeta struct {
 		id   int64
 		size int64
@@ -416,7 +430,7 @@ func (s *Store) DistillNoise(fn FeatureKeyFunc) (DistillStats, error) {
 	var metas []rowMeta
 	best := map[string]int{}
 
-	rows, err := s.db.Query(`SELECT id, engine, sql_mode, sql FROM corpus WHERE signal = 'noise' ORDER BY id`)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return stats, err
 	}

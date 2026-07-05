@@ -3,6 +3,7 @@ package compare
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"testing"
 
@@ -32,7 +33,7 @@ func feats(t *testing.T, c run.Case, sig string, err error, p *ddllexec.PanicInf
 func TestBehaviorFeaturesPinned(t *testing.T) {
 	d := acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "int"}}})
 	got := BehaviorFeatures(featCase, "alter t{col c=int32}", nil, nil, d, nil)
-	want := []uint64{0x6dd40fecc232f8fb, 0x70fa83f5f803d19a}
+	want := []uint64{0xc1b1e7949f89ce67, 0xcf279a43ecf665e3, 0x70fa83f5f803d19a}
 	if !slices.Equal(got, want) {
 		t.Fatalf("BehaviorFeatures pinned values drifted: got %#x, want %#x (bitmap-invalidating change?)", got, want)
 	}
@@ -154,6 +155,80 @@ func TestBehaviorFeaturesStructuralSensitivity(t *testing.T) {
 	}
 }
 
+// shapeFeatures runs one side alone and returns its stmt and bigram feature
+// sets, so parity is asserted side-vs-side rather than through shared-set
+// dedup counting.
+func shapeFeatures(t *testing.T, sig string, d *digest.Digest) (stmts, bigrams map[uint64]struct{}) {
+	t.Helper()
+	feats, kinds := BehaviorFeaturesKinded(featCase, sig, nil, nil, d, nil, []FeatureKind{})
+	stmts, bigrams = map[uint64]struct{}{}, map[uint64]struct{}{}
+	for i, kind := range kinds {
+		switch kind {
+		case FeatureKindStmt:
+			stmts[feats[i]] = struct{}{}
+		case FeatureKindBigram:
+			bigrams[feats[i]] = struct{}{}
+		}
+	}
+	return stmts, bigrams
+}
+
+func TestBehaviorFeaturesStatementShapeParity(t *testing.T) {
+	cases := []struct {
+		name         string
+		d            *digest.Digest
+		sig          string
+		stmts, grams int
+	}{
+		{
+			name: "multi_statement",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{
+				{Kind: "alter_table", Schema: "db", Table: "t", Specs: []digest.Spec{
+					{Op: "add", HasPosition: true, Cols: []digest.Col{{Name: "a", TypeStr: "int"}}},
+					{Op: "drop", OldName: "b"},
+				}},
+				{Kind: "rename_table", Pairs: []digest.Pair{{OldSchema: "db", OldTable: "t", NewSchema: "db", NewTable: "u"}}},
+			}},
+			sig:   "alter db.t{col a=int32 @pos; drop b} | rename db.t>db.u",
+			stmts: 2, grams: 1,
+		},
+		{
+			// A non-noop ALTER rename splits into alter + trailing rename in
+			// the sig; digestShape must mirror the split.
+			name: "alter_rename_split",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{
+				{Kind: "alter_table", Table: "t", NewTable: "u", Specs: []digest.Spec{{Op: "drop", OldName: "b"}}},
+			}},
+			sig:   "alter t{drop b} | rename t>u",
+			stmts: 2, grams: 1,
+		},
+		{
+			// Rename-only alter: the spec-less alter is dropped on both sides.
+			name: "alter_rename_only",
+			d: &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{
+				{Kind: "alter_table", Schema: "db", Table: "t", NewSchema: "db", NewTable: "u"},
+			}},
+			sig:   "rename db.t>db.u",
+			stmts: 1, grams: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dStmts, dGrams := shapeFeatures(t, "", tc.d)
+			sStmts, sGrams := shapeFeatures(t, tc.sig, nil)
+			if !maps.Equal(dStmts, sStmts) {
+				t.Fatalf("statement shapes diverge: digest=%v sig=%v", dStmts, sStmts)
+			}
+			if !maps.Equal(dGrams, sGrams) {
+				t.Fatalf("bigrams diverge: digest=%v sig=%v", dGrams, sGrams)
+			}
+			if len(dStmts) != tc.stmts || len(dGrams) != tc.grams {
+				t.Fatalf("got %d shapes / %d bigrams, want %d / %d", len(dStmts), len(dGrams), tc.stmts, tc.grams)
+			}
+		})
+	}
+}
+
 func TestBehaviorFeaturesModeMasked(t *testing.T) {
 	unmasked := featCase
 	unmasked.SQLMode = featCase.SQLMode | 1<<63
@@ -212,20 +287,23 @@ func TestBehaviorFeaturesFamilyIsSeparateFeature(t *testing.T) {
 	intD := acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "int"}}})
 	textD := acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "text"}}})
 	// int/int32 spell the same family on both sides (digits drop); text/string
-	// are one family per side.
+	// are one family per side. Both cases also have one statement-shape feature.
 	intF := BehaviorFeatures(featCase, "alter t{col c=int32}", nil, nil, intD, nil)
 	textF := BehaviorFeatures(featCase, "alter t{col c=string}", nil, nil, textD, nil)
-	if len(intF) != 2 || len(textF) != 3 {
-		t.Fatalf("want structural+family features (2 and 3), got %d and %d", len(intF), len(textF))
+	if len(intF) != 3 || len(textF) != 4 {
+		t.Fatalf("want chain+stmt+family features (3 and 4), got %d and %d", len(intF), len(textF))
 	}
 	if intF[0] != textF[0] {
-		t.Fatalf("structural feature should ignore type family: %#x != %#x", intF[0], textF[0])
+		t.Fatalf("chain feature should ignore type family: %#x != %#x", intF[0], textF[0])
 	}
-	if intF[1] == textF[1] || intF[1] == textF[2] {
+	if intF[1] != textF[1] {
+		t.Fatalf("statement shape should ignore type family: %#x != %#x", intF[1], textF[1])
+	}
+	if intF[2] == textF[2] || intF[2] == textF[3] {
 		t.Fatal("family features collapsed across families")
 	}
 	if n := len(BehaviorFeatures(featCase, "alter t{col c=int32, d=int32}", nil, nil,
-		acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "int"}, {Name: "d", TypeStr: "int(11)"}}}), nil)); n != 2 {
+		acceptAlter(digest.Spec{Op: "add", Cols: []digest.Col{{Name: "c", TypeStr: "int"}, {Name: "d", TypeStr: "int(11)"}}}), nil)); n != 3 {
 		t.Fatalf("duplicate families not deduped: %d features", n)
 	}
 }

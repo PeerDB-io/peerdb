@@ -66,6 +66,7 @@ type engineState struct {
 	retainedByTier  [3]uint64
 	behaviorBits    [behaviorMapWords]uint64
 	behaviorBitsSet int
+	freshBitsByKind [4]uint64
 }
 
 type fuzzLoop struct {
@@ -697,16 +698,18 @@ func (p *oracleProc) recordSingleCrash(c run.Case, err error) {
 
 // featBuf is caller-owned scratch, returned for reuse.
 func (l *fuzzLoop) retainBehavior(featBuf []uint64, c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo, d *digest.Digest) []uint64 {
-	feats := compare.BehaviorFeatures(c, ourSig, ourErr, ourPanic, d, featBuf[:0])
+	var kindBuf [64]compare.FeatureKind
+	feats, kinds := compare.BehaviorFeaturesKinded(c, ourSig, ourErr, ourPanic, d, featBuf[:0], kindBuf[:0])
 	es := l.engines[run.EngineName(c.Engine)]
 	fresh := false
 	es.mu.Lock()
-	for _, feat := range feats {
+	for i, feat := range feats {
 		idx := feat & (behaviorMapSize - 1)
 		word, mask := idx>>6, uint64(1)<<(idx&63)
 		if es.behaviorBits[word]&mask == 0 {
 			es.behaviorBits[word] |= mask
 			es.behaviorBitsSet++
+			es.freshBitsByKind[featureKindIndex(kinds[i])]++
 			fresh = true
 		}
 	}
@@ -718,10 +721,21 @@ func (l *fuzzLoop) retainBehavior(featBuf []uint64, c run.Case, ourSig string, o
 	if d != nil && d.Verdict == "reject" && ourErr != nil {
 		signal = run.SignalNoise
 	}
-	// feats[0] is the structural class; stamping it lets budget eviction
-	// dedupe behavior-tier rows per feature.
-	l.retainCase(c, signal, strconv.FormatUint(feats[0], 10))
+	l.retainCase(c, signal, strconv.FormatUint(compare.CaseKey(feats), 10))
 	return feats
+}
+
+func featureKindIndex(k compare.FeatureKind) int {
+	switch k {
+	case compare.FeatureKindStmt:
+		return 1
+	case compare.FeatureKindBigram:
+		return 2
+	case compare.FeatureKindFamily:
+		return 3
+	default:
+		return 0
+	}
 }
 
 func (l *fuzzLoop) retainCase(c run.Case, signal uint8, feature string) bool {
@@ -938,6 +952,7 @@ func (l *fuzzLoop) writeStats(rate float64) {
 	stats["retained_by_tier"] = l.retainedByTierStats()
 	stats["retained_by_signal"] = copyNestedCounts(l.retainedBySignal)
 	stats["behavior_bits"] = l.behaviorBitsStats()
+	stats["fresh_bits_by_kind"] = l.freshBitsByKindStats()
 	stats["bases_bytes"] = l.basesBytesStats()
 	l.statsMu.Unlock()
 	_ = writeStatsJSON(l.cfg.stateDir, stats)
@@ -979,6 +994,23 @@ func (l *fuzzLoop) behaviorBitsStats() map[string]map[string]any {
 		out[engine] = map[string]any{
 			"set":        set,
 			"saturation": float64(set) / behaviorMapSize,
+		}
+	}
+	return out
+}
+
+func (l *fuzzLoop) freshBitsByKindStats() map[string]map[string]uint64 {
+	out := map[string]map[string]uint64{}
+	for _, engine := range []string{"mysql", "mariadb"} {
+		es := l.engines[engine]
+		es.mu.Lock()
+		counts := es.freshBitsByKind
+		es.mu.Unlock()
+		out[engine] = map[string]uint64{
+			"chain":  counts[0],
+			"stmt":   counts[1],
+			"bigram": counts[2],
+			"family": counts[3],
 		}
 	}
 	return out

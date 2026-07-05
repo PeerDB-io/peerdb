@@ -39,6 +39,8 @@ type config struct {
 	duration             time.Duration
 	corpusBudget         int64
 	retainPerBatch       int
+	behaviorSince        string
+	behaviorUntil        string
 }
 
 func defaultConfig() config {
@@ -140,6 +142,10 @@ func runCommand(cmd string, cfg config, args []string) int {
 	}
 	if cmd == "golden" {
 		fs.IntVar(&goldenJobs, "jobs", goldenJobs, "golden worker-pool size (parallel cases); default GOMAXPROCS; 1 = sequential")
+	}
+	if cmd == "corpus-distill" {
+		fs.StringVar(&cfg.behaviorSince, "behavior-since", cfg.behaviorSince, "RFC3339 start time for one-off behavior-tier distill window")
+		fs.StringVar(&cfg.behaviorUntil, "behavior-until", cfg.behaviorUntil, "RFC3339 end time for one-off behavior-tier distill window")
 	}
 	fs.Usage = func() {
 		commandUsage(os.Stderr, fs, cmd)

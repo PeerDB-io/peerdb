@@ -12,17 +12,11 @@ import (
 // appending them to buf; callers mask each down to a virgin bitmap index and
 // retain iff any bit is new.
 //
-// Feature 0 is the structural class: engine, masked sql_mode, oracle verdict,
-// masked error class, and a flat accept shape per side — statement-kind list
-// (capped), statement-count bucket, qualification/position/rename-to flags,
-// pair-count bucket, and spec-kind counts bucketed {0,1,2,3+}. It drops
-// everything near-injective over inputs: identifiers, type params, digits,
-// spec order, exact counts. Column type families are deliberately *not* part
-// of the structural tuple — family sets are combinatorial (measured on the
-// live corpus: 13.5K flat classes vs 66K with family sets) — instead each
-// distinct family in the case emits its own (engine, mode, family) feature,
-// so a never-seen type family still retains without multiplying the
-// structural space.
+// Feature 0 is the chain residue: engine, masked sql_mode, oracle verdict,
+// masked error class, parser error/panic class, and each side's statement-count
+// bucket. Per-statement shapes, kind bigrams, and type families each emit
+// independent features from bounded spaces, so no feature hashes a
+// cross-statement product.
 //
 // The oracle side is read straight off the structured digest; the parser side
 // scans the signature string with the same backtick-aware splitters the
@@ -30,7 +24,26 @@ import (
 // standard basis, not maphash: features index a bitmap that persists across
 // restarts, so they must be stable across processes.
 func BehaviorFeatures(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo, d *digest.Digest, buf []uint64) []uint64 {
+	feats, _ := BehaviorFeaturesKinded(c, ourSig, ourErr, ourPanic, d, buf, nil)
+	return feats
+}
+
+type FeatureKind byte
+
+const (
+	FeatureKindChain  FeatureKind = 'C'
+	FeatureKindStmt   FeatureKind = 'S'
+	FeatureKindBigram FeatureKind = 'B'
+	FeatureKindFamily FeatureKind = 'F'
+)
+
+// BehaviorFeaturesKinded is BehaviorFeatures plus an optional parallel kind
+// slice for stats callers. Passing nil keeps the hot path allocation-free.
+func BehaviorFeaturesKinded(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo, d *digest.Digest, buf []uint64, kinds []FeatureKind) ([]uint64, []FeatureKind) {
 	var fams famSet
+	var shapes shapeSet
+	var bigrams bigramSet
+	var digestStmts, sigStmts int
 	f := featureHasher{sum: fnvOffset64}
 	f.byte(c.Engine)
 	f.u64(MaskSQLMode(c.SQLMode))
@@ -39,7 +52,7 @@ func BehaviorFeatures(c run.Case, ourSig string, ourErr error, ourPanic *ddllexe
 		f.byte(0)
 	case d.Verdict == "accept":
 		f.byte(1)
-		f.digestShape(d, &fams)
+		digestStmts = digestShape(d, &shapes, &bigrams, &fams)
 	case d.Verdict == "reject":
 		f.byte(2)
 		f.oracleErrorClass(d.Error)
@@ -48,12 +61,14 @@ func BehaviorFeatures(c run.Case, ourSig string, ourErr error, ourPanic *ddllexe
 		f.str(d.Verdict)
 		f.oracleErrorClass(d.Error)
 	}
+	f.byte(bucket4(digestStmts))
 	if ourSig != "" {
 		f.byte(1)
-		f.sigShape(ourSig, &fams)
+		sigStmts = sigShape(ourSig, &shapes, &bigrams, &fams)
 	} else {
 		f.byte(0)
 	}
+	f.byte(bucket4(sigStmts))
 	if ourErr != nil {
 		f.byte(1)
 		f.maskedError(ourErr.Error())
@@ -71,8 +86,46 @@ func BehaviorFeatures(c run.Case, ourSig string, ourErr error, ourPanic *ddllexe
 		f.str(NormalizePanic(ourPanic.Value, ourPanic.Stack))
 	}
 	buf = append(buf, f.sum)
+	if kinds != nil {
+		kinds = append(kinds, FeatureKindChain)
+	}
 
 	base := featureHasher{sum: fnvOffset64}
+	base.byte(c.Engine)
+	base.u64(MaskSQLMode(c.SQLMode))
+	base.byte('S')
+	for i := range shapes.n {
+		g := base
+		g.u64(shapes.h[i])
+		buf = append(buf, g.sum)
+		if kinds != nil {
+			kinds = append(kinds, FeatureKindStmt)
+		}
+	}
+	if shapes.overflow {
+		g := base
+		g.str("overflow")
+		buf = append(buf, g.sum)
+		if kinds != nil {
+			kinds = append(kinds, FeatureKindStmt)
+		}
+	}
+
+	base = featureHasher{sum: fnvOffset64}
+	base.byte(c.Engine)
+	base.u64(MaskSQLMode(c.SQLMode))
+	base.byte('B')
+	for i := range bigrams.n {
+		g := base
+		g.byte(bigrams.a[i])
+		g.byte(bigrams.b[i])
+		buf = append(buf, g.sum)
+		if kinds != nil {
+			kinds = append(kinds, FeatureKindBigram)
+		}
+	}
+
+	base = featureHasher{sum: fnvOffset64}
 	base.byte(c.Engine)
 	base.u64(MaskSQLMode(c.SQLMode))
 	base.byte('F')
@@ -80,33 +133,51 @@ func BehaviorFeatures(c run.Case, ourSig string, ourErr error, ourPanic *ddllexe
 		g := base
 		g.u64(fams.h[i])
 		buf = append(buf, g.sum)
+		if kinds != nil {
+			kinds = append(kinds, FeatureKindFamily)
+		}
 	}
 	if fams.overflow {
 		g := base
 		g.str("overflow")
 		buf = append(buf, g.sum)
+		if kinds != nil {
+			kinds = append(kinds, FeatureKindFamily)
+		}
 	}
-	return buf
+	return buf, kinds
 }
 
-// BehaviorFeature is the structural class alone (BehaviorFeatures feature 0)
-// for callers that need one grouping key per case, e.g. corpus-distill.
+// CaseKey folds an emitted behavior feature sequence into one stable grouping
+// key for corpus stamps and distill.
+func CaseKey(feats []uint64) uint64 {
+	f := featureHasher{sum: fnvOffset64}
+	for _, feat := range feats {
+		f.u64(feat)
+	}
+	return f.sum
+}
+
+// BehaviorFeature is the full behavior feature fold for callers that need one
+// grouping key per case, e.g. corpus-distill.
 func BehaviorFeature(c run.Case, ourSig string, ourErr error, ourPanic *ddllexec.PanicInfo, d *digest.Digest) uint64 {
-	var buf [1 + maxFamilies + 1]uint64
-	return BehaviorFeatures(c, ourSig, ourErr, ourPanic, d, buf[:0])[0]
+	var buf [1 + maxShapes + 1 + maxBigrams + maxFamilies + 1]uint64
+	return CaseKey(BehaviorFeatures(c, ourSig, ourErr, ourPanic, d, buf[:0]))
 }
 
 const (
 	fnvOffset64 = 14695981039346656037
 	fnvPrime64  = 1099511628211
 
-	// Statements past the cap still count toward the length bucket but add no
-	// kind letters, so statement-list combinatorics stay bounded.
-	maxCoarseStmts = 4
-
 	// famSet overflow bound; a case touching more type families than this
 	// gets one shared overflow feature for the rest.
 	maxFamilies = 12
+
+	// shapeSet overflow bound; statement-shape novelty above this per case
+	// collapses to one shared overflow feature.
+	maxShapes = 16
+
+	maxBigrams = 16
 )
 
 type featureHasher struct{ sum uint64 }
@@ -212,169 +283,259 @@ func isWordByte(c byte) bool {
 	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
-// flatShape is one side's accept shape, flattened across statements. Spec
-// counts index: col (add/modify), chg, ren, drop, unknown.
-type flatShape struct {
-	kinds    [maxCoarseStmts]byte
-	n        int
-	qual     bool
-	pos      bool
-	renameTo bool
-	pairs    int
-	counts   [5]int
+// stmtShape is one statement's accept shape. Spec counts index: col
+// (add/modify), chg, ren, drop, unknown.
+type stmtShape struct {
+	kind   byte
+	qual   bool
+	pos    bool
+	pairs  int
+	counts [5]int
 }
 
-func (fs *flatShape) addKind(k byte) {
-	if fs.n < maxCoarseStmts {
-		fs.kinds[fs.n] = k
-	}
-	fs.n++
-}
-
-func (f *featureHasher) flat(fs *flatShape) {
-	for i := 0; i < min(fs.n, maxCoarseStmts); i++ {
-		f.byte(fs.kinds[i])
-	}
-	f.byte(bucket4(fs.n))
-	f.bool(fs.qual)
-	f.bool(fs.pos)
-	f.bool(fs.renameTo)
-	f.byte(bucket4(fs.pairs))
-	for _, c := range fs.counts {
+func (s stmtShape) hash() uint64 {
+	f := featureHasher{sum: fnvOffset64}
+	f.byte(s.kind)
+	f.bool(s.qual)
+	f.bool(s.pos)
+	f.byte(bucket4(s.pairs))
+	for _, c := range s.counts {
 		f.byte(bucket4(c))
 	}
+	return f.sum
 }
 
-func (f *featureHasher) digestShape(d *digest.Digest, fams *famSet) {
+func digestShape(d *digest.Digest, shapes *shapeSet, bigrams *bigramSet, fams *famSet) int {
 	stmts := d.Stmts
 	if len(stmts) > 1 && stmts[0].Kind == "other" {
 		// Mirror OracleSig's skip: multi-statement input starting with a
 		// non-DDL statement is never signature-compared.
-		f.byte('s')
-		return
+		shapes.add(stmtShape{kind: 's'}.hash())
+		return 1
 	}
-	var fs flatShape
+	var prev byte
+	n := 0
+	emit := func(sh stmtShape) {
+		if prev != 0 {
+			bigrams.add(prev, sh.kind)
+		}
+		prev = sh.kind
+		shapes.add(sh.hash())
+		n++
+	}
 	for _, st := range stmts {
 		if st.Kind == "other" {
 			break
 		}
 		switch st.Kind {
 		case "alter_table":
-			fs.addKind('a')
-			fs.qual = fs.qual || st.Schema != ""
-			fs.renameTo = fs.renameTo || (st.NewTable != "" && (st.NewSchema != st.Schema || st.NewTable != st.Table))
-			for _, sp := range st.Specs {
-				fs.pos = fs.pos || sp.HasPosition
-				switch sp.Op {
-				case "add", "modify":
-					fs.counts[0]++
-				case "change":
-					fs.counts[1]++
-				case "rename_col":
-					fs.counts[2]++
-				case "drop":
-					fs.counts[3]++
-				default:
-					fs.counts[4]++
+			// Mirror OracleSig's rename normalization: a non-noop rename
+			// splits off as a trailing standalone rename statement, and an
+			// alter left with no other specs is dropped — agreeing sides
+			// collapse to the same shapes.
+			renamed := st.NewTable != "" && (st.NewSchema != st.Schema || st.NewTable != st.Table)
+			if !renamed || len(st.Specs) > 0 {
+				sh := stmtShape{kind: 'a', qual: st.Schema != ""}
+				for _, sp := range st.Specs {
+					sh.pos = sh.pos || sp.HasPosition
+					switch sp.Op {
+					case "add", "modify":
+						sh.counts[0]++
+					case "change":
+						sh.counts[1]++
+					case "rename_col":
+						sh.counts[2]++
+					case "drop":
+						sh.counts[3]++
+					default:
+						sh.counts[4]++
+					}
+					for _, col := range sp.Cols {
+						fams.add(famHash(col.TypeStr))
+					}
 				}
-				for _, col := range sp.Cols {
-					fams.add(famHash(col.TypeStr))
-				}
+				emit(sh)
+			}
+			if renamed {
+				emit(stmtShape{kind: 'r', pairs: 1, qual: st.Schema != "" || st.NewSchema != ""})
 			}
 		case "rename_table":
-			fs.addKind('r')
-			fs.pairs += len(st.Pairs)
+			sh := stmtShape{kind: 'r', pairs: len(st.Pairs)}
 			for _, p := range st.Pairs {
-				fs.qual = fs.qual || p.OldSchema != "" || p.NewSchema != ""
+				sh.qual = sh.qual || p.OldSchema != "" || p.NewSchema != ""
 			}
+			emit(sh)
+		default:
+			emit(stmtShape{kind: '?'})
 		}
 	}
-	f.flat(&fs)
+	return n
 }
 
 // sigShape coarsens a signature string. Malformed pieces fall into a '?'
 // statement kind instead of an error — a sig our own renderer wouldn't
 // produce is itself a behavior worth one bit.
-func (f *featureHasher) sigShape(sig string, fams *famSet) {
-	var fs flatShape
-	for _, part := range splitStatements(strings.TrimSpace(sig)) {
+func sigShape(sig string, shapes *shapeSet, bigrams *bigramSet, fams *famSet) int {
+	var prev byte
+	n := 0
+	forEachFeatureStmt(strings.TrimSpace(sig), func(part string) {
 		if part == "" {
-			continue
+			return
 		}
+		var sh stmtShape
 		switch {
 		case strings.HasPrefix(part, "alter "):
-			alterSigShape(&fs, fams, part[len("alter "):])
+			sh = alterSigShape(fams, part[len("alter "):])
 		case strings.HasPrefix(part, "rename "):
-			fs.addKind('r')
-			pairs := splitSignatureTopLevel(strings.TrimSpace(part[len("rename "):]), ',')
-			fs.pairs += len(pairs)
-			for _, p := range pairs {
+			sh.kind = 'r'
+			forEachFeatureTopLevel(strings.TrimSpace(part[len("rename "):]), ',', func(p string) {
+				sh.pairs++
 				if _, _, ok := cutSignatureSep(p, '.'); ok {
-					fs.qual = true
+					sh.qual = true
 				}
-			}
+			})
 		default:
-			fs.addKind('?')
+			sh.kind = '?'
 		}
-	}
-	f.flat(&fs)
+		if prev != 0 {
+			bigrams.add(prev, sh.kind)
+		}
+		prev = sh.kind
+		shapes.add(sh.hash())
+		n++
+	})
+	return n
 }
 
-func alterSigShape(fs *flatShape, fams *famSet, body string) {
+func alterSigShape(fams *famSet, body string) stmtShape {
+	sh := stmtShape{kind: 'a'}
 	open, close := alterBraceIndexes(body)
 	if open < 0 || close < open {
-		fs.addKind('?')
-		return
+		return stmtShape{kind: '?'}
 	}
-	fs.addKind('a')
 	if _, _, ok := cutSignatureSep(body[:open], '.'); ok {
-		fs.qual = true
+		sh.qual = true
 	}
 	if strings.TrimSpace(body[close+1:]) == "@pos" {
-		fs.pos = true
+		sh.pos = true
 	}
 	inside := body[open+1 : close]
 	if strings.TrimSpace(inside) == "" {
-		return
+		return sh
 	}
-	for _, raw := range splitSignatureTopLevel(inside, ';') {
+	forEachFeatureTopLevel(inside, ';', func(raw string) {
 		sp := strings.TrimSpace(raw)
 		if strings.HasSuffix(sp, " @pos") {
-			fs.pos = true
+			sh.pos = true
 			sp = strings.TrimSuffix(sp, " @pos")
 		}
 		switch {
 		case strings.HasPrefix(sp, "col "):
-			fs.counts[0]++
+			sh.counts[0]++
 			colFamilies(fams, sp[len("col "):])
 		case strings.HasPrefix(sp, "chg "):
-			fs.counts[1]++
+			sh.counts[1]++
 			colFamilies(fams, sp[len("chg "):])
 		case strings.HasPrefix(sp, "ren "):
-			fs.counts[2]++
+			sh.counts[2]++
 		case strings.HasPrefix(sp, "drop "):
-			fs.counts[3]++
+			sh.counts[3]++
 		default:
-			fs.counts[4]++
+			sh.counts[4]++
 		}
-	}
+	})
+	return sh
 }
 
 // colFamilies extracts the type family of each `name=kind[(p,s)][ nn]` column
 // in a col/chg spec body. For chg the leading old-name token has no top-level
 // '=', so the first cut still lands on the column's kind.
 func colFamilies(fams *famSet, cols string) {
-	for _, raw := range splitSignatureTopLevel(cols, ',') {
+	forEachFeatureTopLevel(cols, ',', func(raw string) {
 		_, rest, ok := cutSignatureSep(raw, '=')
 		if !ok {
-			continue
+			return
 		}
 		rest = strings.TrimSpace(rest)
 		if idx := strings.IndexAny(rest, "( "); idx >= 0 {
 			rest = rest[:idx]
 		}
 		fams.add(famHash(rest))
+	})
+}
+
+func forEachFeatureStmt(sig string, fn func(string)) {
+	depth := 0
+	start := 0
+	inIdent := false
+	for i := 0; i < len(sig); i++ {
+		if inIdent {
+			if sig[i] == '`' {
+				if i+1 < len(sig) && sig[i+1] == '`' {
+					i++
+					continue
+				}
+				inIdent = false
+			}
+			continue
+		}
+		switch sig[i] {
+		case '`':
+			if !sigQuoteStarts(sig, i) {
+				continue
+			}
+			inIdent = true
+		case '{':
+			depth++
+		case '}':
+			if depth > 0 {
+				depth--
+			}
+		case '|':
+			if depth == 0 && i > 0 && i+1 < len(sig) && sig[i-1] == ' ' && sig[i+1] == ' ' {
+				fn(strings.TrimSpace(sig[start : i-1]))
+				start = i + 2
+			}
+		}
 	}
+	fn(strings.TrimSpace(sig[start:]))
+}
+
+func forEachFeatureTopLevel(s string, sep byte, fn func(string)) {
+	start := 0
+	depth := 0
+	inIdent := false
+	for i := 0; i < len(s); i++ {
+		if inIdent {
+			if s[i] == '`' {
+				if i+1 < len(s) && s[i+1] == '`' {
+					i++
+					continue
+				}
+				inIdent = false
+			}
+			continue
+		}
+		switch s[i] {
+		case '`':
+			if !sigQuoteStarts(s, i) {
+				continue
+			}
+			inIdent = true
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if s[i] == sep && depth == 0 {
+				fn(strings.TrimSpace(s[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	fn(strings.TrimSpace(s[start:]))
 }
 
 func bucket4(n int) byte {
@@ -382,6 +543,47 @@ func bucket4(n int) byte {
 		return 3
 	}
 	return byte(n)
+}
+
+// shapeSet is a small dedup set of per-statement shape hashes in first-seen
+// order; each member becomes its own feature.
+type shapeSet struct {
+	h        [maxShapes]uint64
+	n        int
+	overflow bool
+}
+
+func (s *shapeSet) add(h uint64) {
+	for i := range s.n {
+		if s.h[i] == h {
+			return
+		}
+	}
+	if s.n == maxShapes {
+		s.overflow = true
+		return
+	}
+	s.h[s.n] = h
+	s.n++
+}
+
+type bigramSet struct {
+	a [maxBigrams]byte
+	b [maxBigrams]byte
+	n int
+}
+
+func (s *bigramSet) add(a, b byte) {
+	for i := range s.n {
+		if s.a[i] == a && s.b[i] == b {
+			return
+		}
+	}
+	if s.n == maxBigrams {
+		return
+	}
+	s.a[s.n], s.b[s.n] = a, b
+	s.n++
 }
 
 // famSet is a small dedup set of type-family hashes in first-seen order;

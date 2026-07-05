@@ -14,10 +14,10 @@ import (
 )
 
 // distillFeatureKey re-parses a stored row with the in-process parser and
-// reduces the outcome to its coarse behavior feature. Offline there is no
-// oracle digest, so only the our-side BehaviorFeature fields contribute;
-// BehaviorFeature is process-stable, so stamped features from different
-// distill runs stay comparable.
+// reduces the outcome to its behavior feature fold. Offline there is no oracle
+// digest, so only the our-side feature set contributes; the fold is
+// process-stable, so stamped features from different distill runs stay
+// comparable.
 func distillFeatureKey(caseDeadline time.Duration) corpus.FeatureKeyFunc {
 	worker := ddllexec.NewWorker(0, caseDeadline, nil)
 	return func(engine uint8, sqlMode uint64, sqlText []byte) uint64 {
@@ -28,13 +28,37 @@ func distillFeatureKey(caseDeadline time.Duration) corpus.FeatureKeyFunc {
 }
 
 func runCorpusDistill(cfg config) int {
+	if (cfg.behaviorSince == "") != (cfg.behaviorUntil == "") {
+		fmt.Fprintln(os.Stderr, "corpus-distill: -behavior-since and -behavior-until must be passed together")
+		return 2
+	}
 	store, err := corpus.Open(filepath.Join(cfg.stateDir, "corpus.db"), 0)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "corpus-distill: %v\n", err)
 		return 1
 	}
 	defer store.Close()
-	stats, err := store.DistillNoise(distillFeatureKey(cfg.caseDeadline))
+	keyFn := distillFeatureKey(cfg.caseDeadline)
+	var stats corpus.DistillStats
+	if cfg.behaviorSince != "" {
+		since, err := time.Parse(time.RFC3339, cfg.behaviorSince)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "corpus-distill: behavior-since: %v\n", err)
+			return 2
+		}
+		until, err := time.Parse(time.RFC3339, cfg.behaviorUntil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "corpus-distill: behavior-until: %v\n", err)
+			return 2
+		}
+		if !since.Before(until) {
+			fmt.Fprintln(os.Stderr, "corpus-distill: behavior-since must be before behavior-until")
+			return 2
+		}
+		stats, err = store.DistillBehaviorWindow(keyFn, since, until)
+	} else {
+		stats, err = store.DistillNoise(keyFn)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "corpus-distill: %v\n", err)
 		return 1

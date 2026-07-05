@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/compare"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/corpus"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/digest"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/run"
@@ -108,30 +109,34 @@ func TestRetainBehaviorVirginBitmap(t *testing.T) {
 	c := run.Case{SQL: []byte("ALTER TABLE t ADD c INT"), Engine: run.EngineMySQL}
 	feats := loop.retainBehavior(nil, c, "alter t{col c=int32}", nil, nil, accept("c", "int"))
 	es := loop.engines["mysql"]
-	if es.behaviorBitsSet != 2 || store.Count("mysql") != 1 {
-		t.Fatalf("first class: bits=%d corpus=%d, want 2/1", es.behaviorBitsSet, store.Count("mysql"))
+	if es.behaviorBitsSet != 3 || store.Count("mysql") != 1 {
+		t.Fatalf("first class: bits=%d corpus=%d, want 3/1", es.behaviorBitsSet, store.Count("mysql"))
 	}
-	if got := storedFeature(t, store, c); got != strconv.FormatUint(feats[0], 10) {
-		t.Fatalf("retained row feature = %q, want structural feature %d", got, feats[0])
+	if got := storedFeature(t, store, c); got != strconv.FormatUint(compare.CaseKey(feats), 10) {
+		t.Fatalf("retained row feature = %q, want feature fold %d", got, compare.CaseKey(feats))
 	}
 	c2 := run.Case{SQL: []byte("ALTER TABLE u ADD d INT"), Engine: run.EngineMySQL}
 	loop.retainBehavior(nil, c2, "alter u{col d=int32}", nil, nil, accept("d", "int"))
-	if es.behaviorBitsSet != 2 || store.Count("mysql") != 1 {
-		t.Fatalf("identifier variation: bits=%d corpus=%d, want 2/1", es.behaviorBitsSet, store.Count("mysql"))
+	if es.behaviorBitsSet != 3 || store.Count("mysql") != 1 {
+		t.Fatalf("identifier variation: bits=%d corpus=%d, want 3/1", es.behaviorBitsSet, store.Count("mysql"))
 	}
 	c3 := run.Case{SQL: []byte("ALTER TABLE t ADD c TEXT"), Engine: run.EngineMySQL}
 	loop.retainBehavior(nil, c3, "alter t{col c=string}", nil, nil, accept("c", "text"))
-	if es.behaviorBitsSet != 4 || store.Count("mysql") != 2 {
-		t.Fatalf("family variation: bits=%d corpus=%d, want 4/2", es.behaviorBitsSet, store.Count("mysql"))
+	if es.behaviorBitsSet != 5 || store.Count("mysql") != 2 {
+		t.Fatalf("family variation: bits=%d corpus=%d, want 5/2", es.behaviorBitsSet, store.Count("mysql"))
 	}
 	c4 := run.Case{SQL: []byte("ALTER TABLE t DROP c"), Engine: run.EngineMySQL}
 	d4 := &digest.Digest{Verdict: "accept", Stmts: []digest.Stmt{{Kind: "alter_table", Table: "t", Specs: []digest.Spec{{Op: "drop", OldName: "c"}}}}}
 	loop.retainBehavior(nil, c4, "alter t{drop c}", nil, nil, d4)
-	if es.behaviorBitsSet != 5 || store.Count("mysql") != 3 {
-		t.Fatalf("structural variation: bits=%d corpus=%d, want 5/3", es.behaviorBitsSet, store.Count("mysql"))
+	if es.behaviorBitsSet != 6 || store.Count("mysql") != 3 {
+		t.Fatalf("structural variation: bits=%d corpus=%d, want 6/3", es.behaviorBitsSet, store.Count("mysql"))
 	}
 	if loop.retainedTotal != 3 {
 		t.Fatalf("retainedTotal=%d, want 3", loop.retainedTotal)
+	}
+	wantFresh := [4]uint64{1, 2, 0, 3}
+	if es.freshBitsByKind != wantFresh {
+		t.Fatalf("freshBitsByKind=%v, want %v", es.freshBitsByKind, wantFresh)
 	}
 }
 
