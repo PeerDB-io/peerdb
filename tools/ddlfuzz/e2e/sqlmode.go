@@ -51,6 +51,20 @@ func sqlModePalette(isMariaDB bool) []string {
 	return mysqlSQLModes
 }
 
+func incompatibleSQLModeToken(engine, mode string) string {
+	if !strings.EqualFold(engine, EngineMySQL) {
+		return ""
+	}
+	for _, raw := range strings.Split(mode, ",") {
+		name := strings.ToUpper(strings.TrimSpace(raw))
+		switch name {
+		case "ORACLE", "MSSQL":
+			return name
+		}
+	}
+	return ""
+}
+
 func relevantFromReadback(readback string) uint64 {
 	var out uint64
 	for _, raw := range strings.Split(readback, ",") {

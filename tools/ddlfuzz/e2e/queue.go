@@ -77,6 +77,12 @@ func requeueStaleProcessing(stateDir string, olderThan time.Duration) error {
 		if err != nil {
 			continue
 		}
+		if item, err := readQueuedItem(src, ent.Name()); err == nil {
+			if result, reject := incompatibleQueueItemResult(item); reject {
+				_ = completeQueueItem(stateDir, item, result)
+				continue
+			}
+		}
 		if info.ModTime().After(cutoff) {
 			continue
 		}
@@ -141,23 +147,57 @@ func claimQueueItems(stateDir string) ([]queueItem, error) {
 			_ = os.Rename(dst, src)
 			continue
 		}
-		var item queueItem
-		if err := json.Unmarshal(data, &item); err != nil {
-			_ = completeQueueItem(stateDir, queueItem{Sig: strings.TrimSuffix(ent.Name(), ".json"), path: dst}, queueResult{
+		item, err := parseQueueItem(data, ent.Name(), dst)
+		if err != nil {
+			invalid := queueItem{Sig: strings.TrimSuffix(ent.Name(), ".json"), path: dst}
+			_ = completeQueueItem(stateDir, invalid, queueResult{
 				Sig:     strings.TrimSuffix(ent.Name(), ".json"),
 				Result:  "exec-reject",
 				Details: "invalid queue json: " + err.Error(),
 			})
 			continue
 		}
-		if item.Sig == "" {
-			item.Sig = strings.TrimSuffix(ent.Name(), ".json")
+		if result, reject := incompatibleQueueItemResult(item); reject {
+			if err := completeQueueItem(stateDir, item, result); err != nil {
+				_ = os.Rename(dst, src)
+			}
+			continue
 		}
-		item.Engine = strings.ToLower(item.Engine)
-		item.path = dst
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+func readQueuedItem(path, name string) (queueItem, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return queueItem{}, err
+	}
+	return parseQueueItem(data, name, path)
+}
+
+func parseQueueItem(data []byte, name, path string) (queueItem, error) {
+	var item queueItem
+	if err := json.Unmarshal(data, &item); err != nil {
+		return queueItem{}, err
+	}
+	if item.Sig == "" {
+		item.Sig = strings.TrimSuffix(name, ".json")
+	}
+	item.path = path
+	item.Engine = strings.ToLower(strings.TrimSpace(item.Engine))
+	return item, nil
+}
+
+func incompatibleQueueItemResult(item queueItem) (queueResult, bool) {
+	if token := incompatibleSQLModeToken(item.Engine, item.sessionMode()); token != "" {
+		return queueResult{
+			Sig:     item.Sig,
+			Result:  "exec-reject",
+			Details: fmt.Sprintf("%s-incompatible session sql_mode %q contains %s", item.Engine, item.sessionMode(), token),
+		}, true
+	}
+	return queueResult{}, false
 }
 
 func completeQueueItem(stateDir string, item queueItem, result queueResult) error {

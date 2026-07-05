@@ -25,3 +25,30 @@ func TestRelevantModeBitsMatchGen(t *testing.T) {
 		}
 	}
 }
+
+func TestIncompatibleSQLModeToken(t *testing.T) {
+	cases := []struct {
+		engine string
+		mode   string
+		want   string
+	}{
+		{EngineMySQL, "", ""},
+		{EngineMySQL, "ANSI_QUOTES", ""},
+		{EngineMySQL, "ANSI_QUOTES,NO_BACKSLASH_ESCAPES", ""},
+		{EngineMySQL, "ANSI", ""},
+		{EngineMySQL, "ORACLE", "ORACLE"},
+		{EngineMySQL, "ORACLE,NO_BACKSLASH_ESCAPES", "ORACLE"},
+		{EngineMySQL, "MSSQL", "MSSQL"},
+		{EngineMySQL, "MSSQL,NO_BACKSLASH_ESCAPES", "MSSQL"},
+		{EngineMySQL, "NO_BACKSLASH_ESCAPES,MSSQL", "MSSQL"},
+		{EngineMySQL, " oracle , ansi_quotes ", "ORACLE"},
+		{"MySQL", "ORACLE", "ORACLE"},
+		{EngineMariaDB, "ORACLE", ""},
+		{EngineMariaDB, "MSSQL,NO_BACKSLASH_ESCAPES", ""},
+	}
+	for _, tc := range cases {
+		if got := incompatibleSQLModeToken(tc.engine, tc.mode); got != tc.want {
+			t.Errorf("incompatibleSQLModeToken(%q, %q) = %q, want %q", tc.engine, tc.mode, got, tc.want)
+		}
+	}
+}

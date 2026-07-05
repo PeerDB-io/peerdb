@@ -134,6 +134,10 @@ func (ws *workerState) runOne(ctx context.Context, seq uint64, item *queueItem) 
 
 	modeEntry := ws.paletteEntry(seq, item)
 	if _, err := ws.conn.Execute("SET SESSION sql_mode = " + quoteLiteral(modeEntry)); err != nil {
+		if item != nil {
+			ws.rejectQueuedItem(*item, modeEntry, fmt.Sprintf("set sql_mode %q: %v", modeEntry, err))
+			return
+		}
 		ws.rt.reportHarness(fmt.Errorf("worker %d set sql_mode %q: %w", ws.id, modeEntry, err))
 		return
 	}
@@ -239,6 +243,20 @@ func (ws *workerState) paletteEntry(seq uint64, item *queueItem) string {
 	}
 	idx := int((seq - 1) % uint64(len(palette)))
 	return palette[idx]
+}
+
+func (ws *workerState) rejectQueuedItem(item queueItem, modeEntry, details string) {
+	ws.rt.stats.IncCases(ws.rt.ec.Name)
+	ws.rt.stats.IncExecReject(ws.rt.ec.Name)
+	ws.rt.stats.IncQueueDone(ws.rt.ec.Name)
+	_ = ws.rt.sides.AppendExecReject(execRejectRecord{
+		Engine:      ws.rt.ec.Name,
+		Source:      "queue",
+		Statement:   item.Statement,
+		SQLModeName: modeEntry,
+		Error:       details,
+	})
+	_ = completeQueueItem(ws.rt.stateDir, item, queueResult{Sig: item.Sig, Result: "exec-reject", Details: details})
 }
 
 func (ws *workerState) sqlModeReadback() (string, error) {
