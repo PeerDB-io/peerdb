@@ -63,3 +63,5 @@ oracle/mysql/build.sh          # oracles (slow; links server source); same for m
 
 Design docs are in `plan/` (start with `plan/00-overview.md`); they are the
 binding contracts. Operator notes for live campaigns are in `CLAUDE.md`.
+
+**[Fable Explainer](https://pastila.clickhouse.com/?0004ce3a/c415c43bc5c4b9d90f25f3d9872233ec.html#hsdgQCE8kwTNNr0zqOoPoA==GCM)**
