@@ -161,6 +161,8 @@ func renderFixAgent(s StatusSnapshot, color bool, width int) []string {
 	}
 	lines := []string{paneRule("FIX AGENT", right, width, color)}
 	var rows [][2]string
+	t := s.FixAgent.Totals
+	rows = append(rows, [2]string{"totals", fmt.Sprintf("%d att · %d fixed · %d ledg · %d fail · %d timeout · %.1f wall-h", t["total"], t["fixed"], t["ledgered"], t["failed"], t["timeout"], float64(s.FixAgent.Spend.AttemptSeconds)/3600)})
 	if a := s.FixAgent.Attempt; a != nil {
 		rows = append(rows, [2]string{"working on", fmt.Sprintf("%s (%s|%s, %s) · phase %s", a.Sig, a.Class, a.Shape, a.Engine, a.Phase)})
 	}
@@ -186,8 +188,6 @@ func renderFixAgent(s StatusSnapshot, color bool, width int) []string {
 	} else {
 		rows = append(rows, [2]string{"last msg", string(rs[:vw])}, [2]string{"", string(rs[vw:])})
 	}
-	t := s.FixAgent.Totals
-	rows = append(rows, [2]string{"totals", fmt.Sprintf("%d att · %d fixed · %d ledg · %d fail · %d timeout · %.1f wall-h", t["total"], t["fixed"], t["ledgered"], t["failed"], t["timeout"], float64(s.FixAgent.Spend.AttemptSeconds)/3600)})
 	lines = append(lines, labelGrid(rows, 1, width, color)...)
 	return lines
 }

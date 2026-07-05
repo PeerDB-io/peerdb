@@ -399,7 +399,7 @@ func collectFixAgent(cfg Config, now time.Time, run RunStatus, spend SpendRecord
 
 func writeCurrentAttempt(cfg Config, finding Finding, attemptN int, phase string, started time.Time) error {
 	cur := CurrentAttempt{
-		Sig: finding.Sig, Attempt: attemptN, MaxAttempts: 3, GroupKey: finding.Group.Key, Class: finding.Group.Class, Shape: finding.Group.Shape, Engine: finding.Meta.Engine,
+		Sig: finding.Sig, Attempt: attemptN, MaxAttempts: 5, GroupKey: finding.Group.Key, Class: finding.Group.Class, Shape: finding.Group.Shape, Engine: finding.Meta.Engine,
 		Phase: phase, StartedAt: started.UTC(), AttemptDeadline: started.Add(cfg.AttemptTO).UTC(),
 		Transcript: filepath.ToSlash(filepath.Join("attempts", finding.Sig+".attempt"+strconv.Itoa(attemptN)+".stream.jsonl")),
 	}
