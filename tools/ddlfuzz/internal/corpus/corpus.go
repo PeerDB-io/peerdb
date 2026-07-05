@@ -22,6 +22,12 @@ import (
 const (
 	walSizeLimit            = 256 * 1024 * 1024
 	checkpointWriteInterval = 256
+	// mmapSize caps memory-mapped read I/O; file-backed and evictable, so it is
+	// a limit, not a reservation. Keeps hot index pages shared across the fuzz,
+	// e2e, and replay processes instead of pread-ing them per connection.
+	// modernc sqlite clamps it to SQLITE_MAX_MMAP_SIZE (~2GiB); asking for more
+	// picks up any future raise of that cap.
+	mmapSize = 4 * 1024 * 1024 * 1024
 )
 
 // Store is safe for concurrent use: multiple oracle-proc goroutines (across
@@ -76,6 +82,7 @@ func (s *Store) init() error {
 		`PRAGMA journal_mode = WAL`,
 		`PRAGMA synchronous = NORMAL`,
 		`PRAGMA journal_size_limit = ` + strconv.Itoa(walSizeLimit),
+		`PRAGMA mmap_size = ` + strconv.Itoa(mmapSize),
 		`CREATE TABLE IF NOT EXISTS corpus (
 				id INTEGER PRIMARY KEY,
 				engine TEXT NOT NULL,
@@ -514,8 +521,14 @@ func (s *Store) RandomSQL(engine string, rng *rand.Rand) ([]byte, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Split subqueries: combined min(id),max(id) with an engine predicate
+	// defeats SQLite's min/max optimization and range-scans the engine's whole
+	// index (~50ms on a 2GB corpus); split, each is a single index seek.
 	var minID, maxID sql.NullInt64
-	if err := s.db.QueryRow(`SELECT min(id), max(id) FROM corpus WHERE engine = ?`, engine).Scan(&minID, &maxID); err != nil {
+	if err := s.db.QueryRow(
+		`SELECT (SELECT min(id) FROM corpus WHERE engine = ?), (SELECT max(id) FROM corpus WHERE engine = ?)`,
+		engine, engine,
+	).Scan(&minID, &maxID); err != nil {
 		return nil, false, err
 	}
 	if !minID.Valid || !maxID.Valid {
