@@ -204,44 +204,42 @@ size_t find_ci(std::string_view haystack, std::string_view needle,
   return kNpos;
 }
 
-bool is_ascii_space(char c) {
-  return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
-         c == '\v';
+bool is_word_char(char c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+         (c >= '0' && c <= '9') || c == '_';
 }
 
-// Collapse each run of ASCII whitespace to a single space so the fixed-space
-// needles below match regardless of how much whitespace the mutator emits
-// between tokens (e.g. "PARTITION BY  SYSTEM_TIME").
-std::string collapse_ws(std::string_view s) {
-  std::string out;
-  out.reserve(s.size());
-  bool prev_ws = false;
-  for (char c : s) {
-    if (is_ascii_space(c)) {
-      if (!prev_ws)
-        out.push_back(' ');
-      prev_ws = true;
-    } else {
-      out.push_back(c);
-      prev_ws = false;
-    }
+// Find `needle` as a whole word (ASCII word boundaries on both sides),
+// case-insensitively, at or after `start`. Returns the index just past the
+// match, or kNpos.
+size_t find_word_end_ci(std::string_view haystack, std::string_view needle,
+                        size_t start) {
+  for (size_t i = find_ci(haystack, needle, start); i != kNpos;
+       i = find_ci(haystack, needle, i + 1)) {
+    size_t end = i + needle.size();
+    bool left = i == 0 || !is_word_char(haystack[i - 1]);
+    bool right = end >= haystack.size() || !is_word_char(haystack[end]);
+    if (left && right)
+      return end;
   }
-  return out;
+  return kNpos;
 }
 
-bool is_system_time_interval_like(std::string_view raw) {
-  std::string stmt = collapse_ws(raw);
-  constexpr std::string_view partition = "partition by system_time";
-  constexpr std::string_view interval = "interval";
-  constexpr std::string_view like = "like";
-
-  size_t pos = find_ci(stmt, partition);
-  if (pos == kNpos)
-    return false;
-  pos = find_ci(stmt, interval, pos + partition.size());
-  if (pos == kNpos)
-    return false;
-  return find_ci(stmt, like, pos + interval.size()) != kNpos;
+// The crash family is `PARTITION BY SYSTEM_TIME INTERVAL <expr…LIKE…> <unit>`.
+// Match each keyword as a whole word in order with arbitrary text in between,
+// so the mutator can't evade the guard by padding the gaps with whitespace or
+// executable comments (e.g. `PARTITION /*M!130100 BY SYSTEM_TIME`).
+bool is_system_time_interval_like(std::string_view stmt) {
+  static constexpr std::string_view tokens[] = {"partition", "by",
+                                                 "system_time", "interval",
+                                                 "like"};
+  size_t pos = 0;
+  for (std::string_view tok : tokens) {
+    pos = find_word_end_ci(stmt, tok, pos);
+    if (pos == kNpos)
+      return false;
+  }
+  return true;
 }
 
 std::string error_string(const char *fallback) {

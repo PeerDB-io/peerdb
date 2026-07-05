@@ -269,16 +269,24 @@ def run_smoke(soak: int | None) -> None:
         for actual, sql in zip(storm, [STORM_PRE_SQL, STORM_KILL_SQL], strict=True):
             assert_json_equal(actual, ("reject_prefix", "4127: "), sql)
 
-        # The guard must tolerate multi-whitespace between tokens: the mutator
-        # emits "PARTITION BY  SYSTEM_TIME" (double space), which a fixed
-        # single-space needle misses -> statement reaches the parser -> crash.
-        ws_storm, _ = oracle.parse_batch(
-            [(mode, sql.replace(" SYSTEM_TIME ", "  SYSTEM_TIME  "))
-             for mode, sql in [(STORM_PRE_MODE, STORM_PRE_SQL),
-                               (STORM_KILL_MODE, STORM_KILL_SQL)]]
+        # The guard matches keywords as whole words with arbitrary text
+        # between them, so it must survive the mutator padding the gaps with
+        # multi-whitespace ("PARTITION BY  SYSTEM_TIME") or an executable
+        # comment ("PARTITION /*M!130100 BY SYSTEM_TIME") -- both forms reached
+        # the parser and crashed the oracle before this guard.
+        evasions = (
+            lambda s: s.replace(" SYSTEM_TIME ", "  SYSTEM_TIME  "),
+            lambda s: s.replace("PARTITION BY", "PARTITION /*M!130100 BY"),
         )
-        for actual, sql in zip(ws_storm, [STORM_PRE_SQL, STORM_KILL_SQL], strict=True):
-            assert_json_equal(actual, ("reject_prefix", "4127: "), sql)
+        for evade in evasions:
+            ev_storm, _ = oracle.parse_batch(
+                [(mode, evade(sql))
+                 for mode, sql in [(STORM_PRE_MODE, STORM_PRE_SQL),
+                                   (STORM_KILL_MODE, STORM_KILL_SQL)]]
+            )
+            for actual, sql in zip(ev_storm, [STORM_PRE_SQL, STORM_KILL_SQL],
+                                   strict=True):
+                assert_json_equal(actual, ("reject_prefix", "4127: "), sql)
 
         oracle.parse_batch([(0, "ALTER TABLE t ADD c INT")])
         cov2 = oracle.coverage()
