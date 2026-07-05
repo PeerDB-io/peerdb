@@ -6,3 +6,6 @@ worktrees/
 # stray command binaries from `go build ./cmd/...` without -o build/
 /ddlfuzz
 /ddlfuzz-e2e
+# python bytecode from running oracle smoke.py (dirties staged, blocks merge-staged)
+__pycache__/
+*.pyc
