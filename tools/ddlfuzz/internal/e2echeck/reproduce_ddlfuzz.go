@@ -55,17 +55,9 @@ func reproducePlumbing(in Input) (Result, error) {
 	if !ok {
 		return diverged(ClassStatusVarWalk, "status-vars", "sql_mode status var not decoded"), nil
 	}
-	submittedMode := in.SQLMode & RelevantSQLModeMask
-	if in.ExpectedRelevant != nil {
-		submittedMode = *in.ExpectedRelevant & RelevantSQLModeMask
-	}
-	submittedMode = ExpectedEventSQLModeRelevant(in.Submitted, submittedMode, in.IsMariaDB)
+	submittedMode := expectedEventSQLMode(in)
 	if in.Class == ClassSQLModeMismatch {
-		expected := in.SQLMode & RelevantSQLModeMask
-		if in.ExpectedRelevant != nil {
-			expected = *in.ExpectedRelevant & RelevantSQLModeMask
-		}
-		expected = ExpectedEventSQLModeRelevant(in.Submitted, expected, in.IsMariaDB)
+		expected := expectedEventSQLMode(in)
 		// actual is recomputed from the status vars so a walker fix
 		// reconciles here; the divergence-time value is not reused.
 		if actual := mode & RelevantSQLModeMask; actual != expected {
@@ -90,6 +82,16 @@ func reproducePlumbing(in Input) (Result, error) {
 		return diverged(ClassPlumbingSig, "plumbing-sig", fmt.Sprintf("live_sig=%q live_err=%v submitted_sig=%q submitted_err=%v", liveSig, liveErr, subSig, subErr)), nil
 	}
 	return Result{Reconciled: true}, nil
+}
+
+func expectedEventSQLMode(in Input) uint64 {
+	sessionMode := in.SQLMode & RelevantSQLModeMask
+	if in.SQLModeName != "" {
+		sessionMode = sqlModeNamesRelevant(in.SQLModeName)
+	} else if in.ExpectedRelevant != nil {
+		sessionMode = *in.ExpectedRelevant & RelevantSQLModeMask
+	}
+	return ExpectedEventSQLModeRelevant(in.Submitted, sessionMode, in.IsMariaDB)
 }
 
 func reproducePanic(in Input) (Result, error) {

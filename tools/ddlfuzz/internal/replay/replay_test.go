@@ -183,6 +183,37 @@ func TestRunAllBatchErrorFallsBackToReplayOne(t *testing.T) {
 	}
 }
 
+func TestRunAllOpenOracleCrashFallbackCountsOpen(t *testing.T) {
+	stateDir := t.TempDir()
+	writeReplayFindingWithClass(t, stateDir, "aaaaaaaaaaaa", "mysql", "open", "oracle_crash", "head=ALTER", "ALTER TABLE t ADD COLUMN n1 INT")
+
+	oldBatcher := newBatcher
+	oldSingle := singleDigest
+	defer func() {
+		newBatcher = oldBatcher
+		singleDigest = oldSingle
+	}()
+	newBatcher = func(engine, bin string, timeout time.Duration) digestBatcher {
+		return &fakeBatcher{err: errors.New("batch failed")}
+	}
+	singleDigest = func(context.Context, string, string, time.Duration, run.Case, string) (*digest.Digest, []byte, error) {
+		return nil, nil, errors.New("EOF")
+	}
+
+	var out bytes.Buffer
+	code := RunAll(context.Background(), Config{StateDir: stateDir, CaseDeadline: time.Second}, &out)
+	if code != ExitOK {
+		t.Fatalf("RunAll exit = %d, want %d; out=%s", code, ExitOK, out.String())
+	}
+	var summary Summary
+	if err := json.Unmarshal(out.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v", err)
+	}
+	if summary.Checked != 1 || summary.Open != 1 || len(summary.Malformed) != 0 {
+		t.Fatalf("summary = %+v", summary)
+	}
+}
+
 type fakeBatcher struct {
 	digests []*digest.Digest
 	err     error
@@ -228,6 +259,10 @@ func acceptMismatchDigest() *digest.Digest {
 }
 
 func writeReplayFinding(t *testing.T, stateDir, sig, engine, status, sql string) {
+	writeReplayFindingWithClass(t, stateDir, sig, engine, status, "", "", sql)
+}
+
+func writeReplayFindingWithClass(t *testing.T, stateDir, sig, engine, status, class, shape, sql string) {
 	t.Helper()
 	dir := filepath.Join(stateDir, "findings", sig)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -241,6 +276,12 @@ func writeReplayFinding(t *testing.T, stateDir, sig, engine, status, sql string)
 		"engine":   engine,
 		"sql_mode": 0,
 		"status":   status,
+	}
+	if class != "" {
+		meta["class"] = class
+	}
+	if shape != "" {
+		meta["shape"] = shape
 	}
 	b, err := json.Marshal(meta)
 	if err != nil {

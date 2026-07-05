@@ -13,9 +13,9 @@ func TestExpectedEventSQLModeRelevant(t *testing.T) {
 		{
 			name:      "plain statement keeps session mode",
 			sql:       "ALTER TABLE fixture ADD COLUMN n1 INT",
-			session:   SQLModeNoBackslashEscapes,
+			session:   SQLModeRealAsFloat | SQLModeNoBackslashEscapes,
 			isMariaDB: true,
-			want:      SQLModeNoBackslashEscapes,
+			want:      SQLModeRealAsFloat | SQLModeNoBackslashEscapes,
 		},
 		{
 			name:      "mysql ignores set statement adjustment",
@@ -70,14 +70,15 @@ func TestSQLModeNames(t *testing.T) {
 		want string
 	}{
 		{name: "zero", mode: 0, want: ""},
+		{name: "real as float", mode: SQLModeRealAsFloat, want: "REAL_AS_FLOAT"},
 		{name: "ansi quotes", mode: SQLModeANSIQuotes, want: "ANSI_QUOTES"},
 		{name: "oracle", mode: SQLModeOracle, want: "ORACLE"},
 		{name: "mssql", mode: SQLModeMSSQL, want: "MSSQL"},
 		{name: "no backslash escapes", mode: SQLModeNoBackslashEscapes, want: "NO_BACKSLASH_ESCAPES"},
 		{
 			name: "canonical order",
-			mode: SQLModeNoBackslashEscapes | SQLModeMSSQL | SQLModeANSIQuotes | SQLModeOracle,
-			want: "ANSI_QUOTES,ORACLE,MSSQL,NO_BACKSLASH_ESCAPES",
+			mode: SQLModeNoBackslashEscapes | SQLModeMSSQL | SQLModeANSIQuotes | SQLModeOracle | SQLModeRealAsFloat,
+			want: "REAL_AS_FLOAT,ANSI_QUOTES,ORACLE,MSSQL,NO_BACKSLASH_ESCAPES",
 		},
 		{name: "irrelevant bits masked", mode: SQLModeANSIQuotes | (1 << 63), want: "ANSI_QUOTES"},
 	}

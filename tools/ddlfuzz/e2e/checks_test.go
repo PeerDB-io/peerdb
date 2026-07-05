@@ -130,7 +130,7 @@ func TestSQLModeRelevantFromReadback(t *testing.T) {
 	tests := map[string]uint64{
 		"":            0,
 		"ANSI_QUOTES": sqlModeANSIQuotes,
-		"REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES": sqlModeANSIQuotes,
+		"REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES": sqlModeRealAsFloat | sqlModeANSIQuotes,
 		"ANSI_QUOTES,NO_BACKSLASH_ESCAPES":          sqlModeANSIQuotes | sqlModeNoBackslashEscapes,
 		"ORACLE,MSSQL,NO_BACKSLASH_ESCAPES":         sqlModeOracle | sqlModeMSSQL | sqlModeNoBackslashEscapes,
 	}
