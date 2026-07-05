@@ -96,6 +96,14 @@ type fuzzLoop struct {
 	execsTotal atomic.Uint64
 	recordMu   sync.Mutex
 	seedValue  uint64
+
+	// lastStats caches the map built by the last full writeStats so the cheap
+	// 5 s light write can reuse its expensive fields (corpus_count, corpus_bytes,
+	// edges, window/retained metrics) without re-querying the corpus DB or
+	// re-taking the engine locks. Guarded by its own mutex so the light write
+	// never contends on statsMu or the engine mutexes.
+	lastStatsMu sync.Mutex
+	lastStats   map[string]any
 }
 
 type goCoverage struct {
@@ -352,6 +360,7 @@ loopFor:
 			cur := loop.execsTotal.Load()
 			rate := float64(cur-lastTotal) / now.Sub(last).Seconds()
 			loop.printStatsLine(rate, start)
+			loop.writeStatsLight(rate)
 			last, lastTotal = now, cur
 		case <-heartbeat.C:
 			// Go coverage of our own parser is a stats-only signal; retention
@@ -955,6 +964,32 @@ func (l *fuzzLoop) writeStats(rate float64) {
 	stats["fresh_bits_by_kind"] = l.freshBitsByKindStats()
 	stats["bases_bytes"] = l.basesBytesStats()
 	l.statsMu.Unlock()
+	l.lastStatsMu.Lock()
+	l.lastStats = stats
+	l.lastStatsMu.Unlock()
+	_ = writeStatsJSON(l.cfg.stateDir, stats)
+}
+
+// writeStatsLight refreshes stats.json on the statsTicker cadence without any
+// corpus-DB query, engine-lock, or window reset. It clones the map cached by
+// the last full writeStats and overwrites only the fields that are both fresh
+// and cheap (a wall-clock read plus the execsTotal atomic); every expensive
+// field is reused as-is from the cache. Skips the write until the cache is
+// primed by the initial writeStats(0).
+func (l *fuzzLoop) writeStatsLight(rate float64) {
+	l.lastStatsMu.Lock()
+	cached := l.lastStats
+	l.lastStatsMu.Unlock()
+	if cached == nil {
+		return
+	}
+	stats := make(map[string]any, len(cached))
+	for k, v := range cached {
+		stats[k] = v
+	}
+	stats["ts"] = time.Now().UTC().Format(time.RFC3339)
+	stats["execs_total"] = l.execsTotal.Load()
+	stats["execs_per_sec"] = rate
 	_ = writeStatsJSON(l.cfg.stateDir, stats)
 }
 
