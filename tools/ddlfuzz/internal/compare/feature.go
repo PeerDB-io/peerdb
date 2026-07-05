@@ -42,11 +42,11 @@ func BehaviorFeatures(c run.Case, ourSig string, ourErr error, ourPanic *ddllexe
 		f.digestShape(d, &fams)
 	case d.Verdict == "reject":
 		f.byte(2)
-		f.maskedError(d.Error)
+		f.oracleErrorClass(d.Error)
 	default:
 		f.byte(3)
 		f.str(d.Verdict)
-		f.maskedError(d.Error)
+		f.oracleErrorClass(d.Error)
 	}
 	if ourSig != "" {
 		f.byte(1)
@@ -135,6 +135,26 @@ func (f *featureHasher) str(s string) {
 		f.byte(s[i])
 	}
 	f.byte(0xFF)
+}
+
+// oracleErrorClass hashes the errno prefix of a driver-formatted oracle error
+// ("1064: ...") and nothing else. Several server error families echo raw
+// input into the message unquoted (Undeclared variable, Undefined CONDITION,
+// Incorrect routine name, ...), so any text mask stays input-unique — the
+// errno is the only bounded field. No errno prefix falls back to the masked
+// text.
+func (f *featureHasher) oracleErrorClass(s string) {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i > 0 && i < len(s) && s[i] == ':' {
+		f.byte(1)
+		f.str(s[:i])
+		return
+	}
+	f.byte(0)
+	f.maskedError(s)
 }
 
 // maskedError is the streaming twin of NormalizeError: quoted spans, digit
