@@ -132,6 +132,7 @@ func runCase(ctx context.Context, cfg Config, s seed.Seed, engine string) (Row, 
 	engineID, _ := run.EngineID(engine)
 	c := run.Case{SQL: []byte(s.SQL), SQLMode: s.SQLMode, Engine: engineID, Origin: run.OriginGolden}
 	parser := ddllexec.NewWorker(0, cfg.CaseDeadline, nil)
+	defer parser.Close()
 	res := parser.RunBatch([]run.Case{c})[0]
 	bin := cfg.MySQLOracle
 	if engine == "mariadb" {

@@ -190,7 +190,9 @@ func runReplayBatch(ctx context.Context, cfg Config, engine string, indexes []in
 	for i, idx := range indexes {
 		cases[i] = all[idx].c
 	}
-	parserResults := ddllexec.NewWorker(0, cfg.CaseDeadline, nil).RunBatch(cases)
+	parserWorker := ddllexec.NewWorker(0, cfg.CaseDeadline, nil)
+	parserResults := parserWorker.RunBatch(cases)
+	parserWorker.Close()
 	bin := cfg.MySQLOracle
 	if engine == "mariadb" {
 		bin = cfg.MariaDBOracle
@@ -256,7 +258,9 @@ func replayOne(ctx context.Context, cfg Config, sig string) (Result, int) {
 	}
 	engineID, _ := run.EngineID(engine)
 	c := run.Case{SQL: sql, SQLMode: mode, Engine: engineID, Origin: run.OriginReplay}
-	res := ddllexec.NewWorker(0, cfg.CaseDeadline, nil).RunBatch([]run.Case{c})[0]
+	parserWorker := ddllexec.NewWorker(0, cfg.CaseDeadline, nil)
+	res := parserWorker.RunBatch([]run.Case{c})[0]
+	parserWorker.Close()
 	bin := cfg.MySQLOracle
 	if engine == "mariadb" {
 		bin = cfg.MariaDBOracle
