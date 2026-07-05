@@ -53,6 +53,13 @@ func TestExpectedEventSQLModeRelevant(t *testing.T) {
 			want:      SQLModeANSIQuotes,
 		},
 		{
+			name:      "concat executable comment comma separator",
+			sql:       "SET STATEMENT sql_mode=CONCAT(@@sql_mode/*!50001 , */',ANSI_QUOTES') FOR ALTER TABLE fixture ADD n1 INT",
+			session:   0,
+			isMariaDB: true,
+			want:      SQLModeANSIQuotes,
+		},
+		{
 			name:      "concat national charset literal",
 			sql:       "SET STATEMENT sql_mode=CONCAT(@@sql_mode,N',ANSI_QUOTES') FOR ALTER TABLE fixture ADD n1 INT",
 			session:   0,

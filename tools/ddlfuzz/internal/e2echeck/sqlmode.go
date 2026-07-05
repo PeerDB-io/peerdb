@@ -69,6 +69,10 @@ func setStatementPrefix(sql string, mode uint64) (string, bool) {
 }
 
 func setStatementSQLMode(prefix string, sessionRelevant uint64, isMariaDB bool) (uint64, bool) {
+	prefix, ok := normalizeSQLModeEvalText(prefix, sessionRelevant, isMariaDB)
+	if !ok {
+		return 0, false
+	}
 	mode := sessionRelevant & RelevantSQLModeMask
 	changed := false
 	for _, part := range splitTopLevelComma(prefix, sessionRelevant) {
@@ -84,6 +88,45 @@ func setStatementSQLMode(prefix string, sessionRelevant uint64, isMariaDB bool) 
 		changed = true
 	}
 	return mode, changed
+}
+
+func normalizeSQLModeEvalText(s string, mode uint64, isMariaDB bool) (string, bool) {
+	var out strings.Builder
+	for pos := 0; pos < len(s); {
+		c := s[pos]
+		switch {
+		case c == '\'' || c == '"' || c == '`':
+			next, ok := skipSQLQuoted(s, pos, c, mode)
+			if !ok {
+				return "", false
+			}
+			out.WriteString(s[pos:next])
+			pos = next
+		case c == '#':
+			out.WriteByte(' ')
+			pos = skipLineComment(s, pos+1)
+		case c == '-' && pos+2 < len(s) && s[pos+1] == '-' && isSQLSpaceOrControl(s[pos+2]):
+			out.WriteByte(' ')
+			pos = skipLineComment(s, pos+2)
+		case c == '/' && pos+1 < len(s) && s[pos+1] == '*':
+			action, body := classifyExecutableCommentForQueryText(s, pos, isMariaDB)
+			closeRel := strings.Index(s[body:], "*/")
+			if closeRel < 0 {
+				return "", false
+			}
+			close := body + closeRel
+			out.WriteByte(' ')
+			if action == queryTextCommentExecutable {
+				out.WriteString(s[body:close])
+				out.WriteByte(' ')
+			}
+			pos = close + 2
+		default:
+			out.WriteByte(c)
+			pos++
+		}
+	}
+	return out.String(), true
 }
 
 func splitSetAssignment(part string, mode uint64) (string, string, bool) {
