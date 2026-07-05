@@ -18,6 +18,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const (
+	walSizeLimit            = 256 * 1024 * 1024
+	checkpointWriteInterval = 256
+)
+
 // Store is safe for concurrent use: multiple oracle-proc goroutines (across
 // both engines) call Add and Count.
 //
@@ -29,9 +34,10 @@ type Store struct {
 	Path   string
 	Budget int64
 
-	db   *sql.DB
-	mu   sync.Mutex
-	full uint64
+	db     *sql.DB
+	mu     sync.Mutex
+	full   uint64
+	writes uint64
 }
 
 func Open(path string, budget int64) (*Store, error) {
@@ -56,7 +62,7 @@ func (s *Store) init() error {
 		`PRAGMA busy_timeout = 5000`,
 		`PRAGMA journal_mode = WAL`,
 		`PRAGMA synchronous = NORMAL`,
-		`PRAGMA journal_size_limit = 268435456`, // 256 MB
+		`PRAGMA journal_size_limit = ` + strconv.Itoa(walSizeLimit),
 		`CREATE TABLE IF NOT EXISTS corpus (
 				id INTEGER PRIMARY KEY,
 				engine TEXT NOT NULL,
@@ -165,7 +171,22 @@ func (s *Store) AddSignal(c run.Case, signal uint8) (bool, error) {
 	if err != nil {
 		return true, nil
 	}
+	if rows > 0 {
+		s.maybeCheckpointLocked()
+	}
 	return rows > 0, nil
+}
+
+func (s *Store) maybeCheckpointLocked() {
+	s.writes++
+	if s.writes%checkpointWriteInterval != 0 {
+		return
+	}
+	info, err := os.Stat(s.Path + "-wal")
+	if err != nil || info.Size() < walSizeLimit {
+		return
+	}
+	_, _ = s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 }
 
 func (s *Store) existsLocked(engine, hash string) (bool, error) {
