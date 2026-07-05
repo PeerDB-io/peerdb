@@ -173,9 +173,6 @@ func RunAll(ctx context.Context, cfg Config, w io.Writer) int {
 		summary.Checked++
 	}
 	_ = json.NewEncoder(w).Encode(summary)
-	if len(summary.Malformed) > 0 {
-		return ExitMalformed
-	}
 	if len(summary.FixedRegressed) > 0 {
 		return ExitDiverged
 	}

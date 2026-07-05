@@ -78,13 +78,24 @@ func TestReproduceByClass(t *testing.T) {
 			}(),
 		},
 		{
+			name: "sqlmode mismatch reconciled for executable comment mode atom",
+			in: func() Input {
+				stmt := "SET STATEMENT\nsql_mode=CONCAT(/*! @@sql_mode */,_utf8mb4',ANSI_QUOTES') FOR ALTER TABLE fixture ADD COLUMN n1 INT"
+				in := baseInput(ClassSQLModeMismatch, stmt, stmt, ansiStatus)
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				in.SQLMode = SQLModeANSIQuotes
+				in.ExpectedRelevant = &expectedZero
+				return in
+			}(),
+		},
+		{
 			name: "plumbing sig diverges",
 			in: func() Input {
 				in := baseInput(ClassPlumbingSig,
-					`ALTER TABLE "t" ADD COLUMN "n1" INT`,
-					`ALTER TABLE "t" ADD COLUMN "n1" INT`,
-					ansiStatus)
-				in.SQLMode = 0
+					"ALTER TABLE t ADD COLUMN n1 INT",
+					"ALTER TABLE t ADD COLUMN n1 BIGINT",
+					validStatus)
 				return in
 			}(),
 			wantClass: ClassPlumbingSig,
@@ -105,6 +116,18 @@ func TestReproduceByClass(t *testing.T) {
 					realANSIStatus)
 				in.SQLMode = SQLModeRealAsFloat | SQLModeANSIQuotes
 				in.SQLModeName = "REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES"
+				in.ExpectedRelevant = &expectedANSI
+				return in
+			}(),
+		},
+		{
+			name: "plumbing sig real as float mode reconciled",
+			in: func() Input {
+				stmt := "ALTER TABLE `fixture` RENAME COLUMN IF EXISTS `id` TO `n3`, CHANGE COLUMN IF EXISTS `c_dec` `n5` REAL FIRST, ADD `n6` CHARACTER INVISIBLE"
+				in := baseInput(ClassPlumbingSig, stmt, stmt, statusVarsHex(262159))
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				in.SQLMode = 262159
 				in.ExpectedRelevant = &expectedANSI
 				return in
 			}(),

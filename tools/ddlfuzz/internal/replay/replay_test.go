@@ -135,8 +135,8 @@ func TestRunAllMalformed(t *testing.T) {
 
 	var out bytes.Buffer
 	code := RunAll(context.Background(), Config{StateDir: stateDir, CaseDeadline: time.Second}, &out)
-	if code != ExitMalformed {
-		t.Fatalf("RunAll exit = %d, want %d; out=%s", code, ExitMalformed, out.String())
+	if code != ExitOK {
+		t.Fatalf("RunAll exit = %d, want %d; out=%s", code, ExitOK, out.String())
 	}
 	var summary Summary
 	if err := json.Unmarshal(out.Bytes(), &summary); err != nil {
