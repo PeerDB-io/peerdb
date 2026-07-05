@@ -1310,9 +1310,10 @@ func (p *ddlParser) parseTypeParams() ([]string, error) {
 }
 
 // parseColumnAttributes consumes everything after the data type until the end of
-// the spec (',' or ';' at paren depth 0, an unconsumed ')' when insideParens, or
-// end of input), extracting NOT NULL, FIRST/AFTER placement, UNSIGNED/ZEROFILL
-// and charset-driven binary remaps; every other attribute is skipped.
+// the spec (',' or ';' at paren depth 0, an unconsumed ')' when insideParens,
+// a table-level partitioning tail, or end of input), extracting NOT NULL,
+// FIRST/AFTER placement, UNSIGNED/ZEROFILL and charset-driven binary remaps;
+// every other attribute is skipped.
 func (p *ddlParser) parseColumnAttributes(st *ddlColumnState, spec *ddlAlterSpec, insideParens bool) error {
 	for {
 		t := p.peek(0)
@@ -1341,6 +1342,9 @@ func (p *ddlParser) parseColumnAttributes(st *ddlColumnState, spec *ddlAlterSpec
 				p.next()
 			}
 		case tokWord:
+			if !insideParens && ddlColumnAttributeStartsAlterTail(t, p.peek(1)) {
+				return nil
+			}
 			if err := p.parseColumnAttributeWord(st, spec, t); err != nil {
 				return err
 			}
@@ -1348,6 +1352,11 @@ func (p *ddlParser) parseColumnAttributes(st *ddlColumnState, spec *ddlAlterSpec
 			p.next()
 		}
 	}
+}
+
+func ddlColumnAttributeStartsAlterTail(t, next ddlToken) bool {
+	return (ddlWordIs(t, "PARTITION") && ddlWordIs(next, "BY")) ||
+		(ddlWordIs(t, "REMOVE") && ddlWordIs(next, "PARTITIONING"))
 }
 
 func (p *ddlParser) parseColumnAttributeWord(st *ddlColumnState, spec *ddlAlterSpec, t ddlToken) error {

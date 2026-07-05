@@ -311,6 +311,16 @@ func TestDDLAlterMixedSpecOrdering(t *testing.T) {
 			alter: "ADD COLUMN c INT, PARTITION BY RANGE (c) (PARTITION p0 VALUES LESS THAN (10), PARTITION p1 VALUES LESS THAN MAXVALUE)",
 			want:  ddlAltAdd(ddlAltCol("c", "int")),
 		},
+		{
+			alter: "MODIFY `key` INT COMMENT 'comma,value' COMMENT '-- line' NOT NULL FIRST, " +
+				"RENAME COLUMN `世界` TO `世界_col`, CHANGE `key` `parameters` INTEGER " +
+				"ENGINE_ATTRIBUTE='{\"k\":1}' PARTITION BY KEY ()",
+			want: []ddlAlterSpec{
+				ddlAltPos(ddlAltAddSpec(ddlAltColNN("key", "int"))),
+				ddlAltRename("世界", "世界_col"),
+				ddlAltChange("key", ddlAltCol("parameters", "int")),
+			},
+		},
 		// MariaDB engine-defined ident=value column options
 		{
 			alter: "ADD c9 INT NOT NULL COMMENT 'x' foo=bar baz=2, DROP d", maria: true,
