@@ -202,6 +202,7 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		// quoted reserved words are always plain column names
 		{alter: "ADD `key` INT", want: ddlAltAdd(ddlAltCol("key", "int"))},
 		{alter: "DROP `index`", want: ddlAltDrop("index")},
+		{alter: "ADD .a LONGTEXT COMPRESSED CHARSET utf8mb4", maria: true, want: ddlAltAdd(ddlAltCol("a", "longtext"))},
 		{
 			alter: "ADD COLUMN (`(` INT UNSIGNED NOT NULL DEFAULT 0, `B` INT UNSIGNED NOT NULL DEFAULT 0)",
 			want:  ddlAltAdd(ddlAltColNN("(", "int unsigned"), ddlAltColNN("B", "int unsigned")),

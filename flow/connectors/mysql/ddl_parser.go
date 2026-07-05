@@ -174,6 +174,41 @@ func (p *ddlParser) expectIdentToken(what string) (ddlToken, error) {
 	return ddlToken{}, fmt.Errorf("expected %s at byte %d", what, t.pos)
 }
 
+func (p *ddlParser) expectColumnIdent(what string) (string, error) {
+	if !p.lx.isMariaDB {
+		return p.expectIdent(what)
+	}
+	if p.peekPunct(0, '.') {
+		p.next()
+		t, err := p.expectIdentToken(what + " after '.'")
+		if err != nil {
+			return "", err
+		}
+		return t.text, nil
+	}
+	first, err := p.expectIdentToken(what)
+	if err != nil {
+		return "", err
+	}
+	if !p.peekPunct(0, '.') {
+		return first.text, nil
+	}
+	p.next()
+	second, err := p.expectIdentToken(what + " after '.'")
+	if err != nil {
+		return "", err
+	}
+	if !p.peekPunct(0, '.') {
+		return second.text, nil
+	}
+	p.next()
+	third, err := p.expectIdentToken(what + " after second '.'")
+	if err != nil {
+		return "", err
+	}
+	return third.text, nil
+}
+
 // parseTableIdent parses ident, ident.ident, or .ident (any quoting; after '.'
 // even all-digit words are identifiers). Schema is empty when unqualified.
 func (p *ddlParser) parseTableIdent() (string, string, error) {
@@ -535,7 +570,7 @@ func (p *ddlParser) parseAddSpec() (*ddlAlterSpec, error) {
 			}
 		}
 	}
-	name, err := p.expectIdent("column name")
+	name, err := p.expectColumnIdent("column name")
 	if err != nil {
 		return nil, err
 	}
@@ -592,7 +627,7 @@ func (p *ddlParser) parseDropSpec() (*ddlAlterSpec, bool, error) {
 		}
 	}
 	// any other word after DROP is a column name (DROP first, DROP algorithm, ...)
-	name, err := p.expectIdent("column name")
+	name, err := p.expectColumnIdent("column name")
 	if err != nil {
 		return nil, false, err
 	}
@@ -606,7 +641,7 @@ func (p *ddlParser) parseModifySpec() (*ddlAlterSpec, error) {
 	if t := p.peek(0); t.kind == tokPunct && t.text == "," {
 		return nil, nil
 	}
-	name, err := p.expectIdent("column name")
+	name, err := p.expectColumnIdent("column name")
 	if err != nil {
 		return nil, err
 	}
@@ -620,11 +655,11 @@ func (p *ddlParser) parseModifySpec() (*ddlAlterSpec, error) {
 func (p *ddlParser) parseChangeSpec() (*ddlAlterSpec, error) {
 	p.consumeWords("COLUMN")
 	sawIfExists := p.consumeWords("IF", "EXISTS")
-	oldName, err := p.expectIdent("column name")
+	oldName, err := p.expectColumnIdent("column name")
 	if err != nil {
 		return nil, err
 	}
-	newName, err := p.expectIdent("new column name")
+	newName, err := p.expectColumnIdent("new column name")
 	if err != nil {
 		return nil, err
 	}
@@ -789,14 +824,31 @@ func (p *ddlParser) parseColumnList(spec *ddlAlterSpec) error {
 					return err
 				}
 			} else {
-				p.next()
-				if err := p.parseColumnDef(t.text, spec, true); err != nil {
+				name, err := p.expectColumnIdent("column name")
+				if err != nil {
+					return err
+				}
+				if err := p.parseColumnDef(name, spec, true); err != nil {
 					return err
 				}
 			}
 		case tokQuotedIdent:
-			p.next()
-			if err := p.parseColumnDef(t.text, spec, true); err != nil {
+			name, err := p.expectColumnIdent("column name")
+			if err != nil {
+				return err
+			}
+			if err := p.parseColumnDef(name, spec, true); err != nil {
+				return err
+			}
+		case tokPunct:
+			if !p.lx.isMariaDB || t.text != "." {
+				return fmt.Errorf("unexpected token in column list at byte %d", t.pos)
+			}
+			name, err := p.expectColumnIdent("column name")
+			if err != nil {
+				return err
+			}
+			if err := p.parseColumnDef(name, spec, true); err != nil {
 				return err
 			}
 		default:
