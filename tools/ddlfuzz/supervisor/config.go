@@ -57,6 +57,7 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	hoursExplicit := os.Getenv("DDLFUZZ_HOURS") != ""
 	attemptTO, err := envDuration("DDLFUZZ_ATTEMPT_TIMEOUT", 45*time.Minute)
 	if err != nil {
 		return Config{}, err
@@ -90,7 +91,7 @@ func LoadConfig() (Config, error) {
 		RunHours:        hours,
 		LintCache:       filepath.Join(home, "Library", "Caches", "golangci-lint"),
 		StartedAt:       now,
-		Deadline:        now.Add(time.Duration(hours * float64(time.Hour))),
+		Deadline:        computeDeadline(now, hours, hoursExplicit),
 		ReportEvery:     time.Hour,
 		SampleEvery:     5 * time.Second,
 		DiskEvery:       10 * time.Minute,
@@ -99,6 +100,26 @@ func LoadConfig() (Config, error) {
 		CrossCheckEvery: 6 * time.Hour,
 	}
 	return cfg, nil
+}
+
+// computeDeadline returns the campaign deadline. Unless DDLFUZZ_HOURS is explicitly set,
+// a temporary hard pin overrides the default 72h: while now is before the Jul-6 target,
+// the deadline snaps to it.
+func computeDeadline(now time.Time, hours float64, hoursExplicit bool) time.Time {
+	if !hoursExplicit {
+		if cutoff := jul6Cutoff(); now.Before(cutoff) {
+			return cutoff
+		}
+	}
+	return now.Add(time.Duration(hours * float64(time.Hour)))
+}
+
+func jul6Cutoff() time.Time {
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		loc = time.FixedZone("PDT", -7*3600)
+	}
+	return time.Date(2026, 7, 6, 7, 0, 0, 0, loc)
 }
 
 func discoverRoot() (string, error) {
