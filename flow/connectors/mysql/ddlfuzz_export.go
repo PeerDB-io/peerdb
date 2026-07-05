@@ -155,14 +155,76 @@ func fuzzDDLColToE2E(c ddlColumnDef) e2eCol {
 	return e2eCol{Name: c.Name, TypeStr: c.TypeStr, NotNull: c.NotNull, Precision: c.Precision, Scale: c.Scale}
 }
 
+func fuzzDDLE2ESpecs(specs []ddlAlterSpec) []ddlAlterSpec {
+	knownColumns := make(map[string]struct{})
+	out := make([]ddlAlterSpec, 0, len(specs))
+	for _, spec := range specs {
+		filtered, ok := fuzzDDLE2EFilterConditionalAdd(spec, knownColumns)
+		if !ok {
+			continue
+		}
+		fuzzDDLE2EApplySpecColumnNames(knownColumns, filtered)
+		out = append(out, filtered)
+	}
+	return out
+}
+
+func fuzzDDLE2EFilterConditionalAdd(spec ddlAlterSpec, knownColumns map[string]struct{}) (ddlAlterSpec, bool) {
+	if !spec.AddIfNotExists {
+		return spec, true
+	}
+	spec.AddIfNotExists = false
+	cols := make([]ddlColumnDef, 0, len(spec.NewColumns))
+	for _, col := range spec.NewColumns {
+		if _, ok := knownColumns[fuzzDDLE2EColumnNameKey(col.Name)]; ok {
+			continue
+		}
+		cols = append(cols, col)
+	}
+	spec.NewColumns = cols
+	if len(spec.NewColumns) == 0 && spec.OldColumnName == "" && !spec.RenameColumn {
+		return ddlAlterSpec{}, false
+	}
+	return spec, true
+}
+
+func fuzzDDLE2EApplySpecColumnNames(knownColumns map[string]struct{}, spec ddlAlterSpec) {
+	var removes, adds []string
+	switch {
+	case spec.RenameColumn:
+		removes = append(removes, spec.OldColumnName)
+		adds = append(adds, spec.NewColumnName)
+	case len(spec.NewColumns) > 0:
+		if spec.ChangeColumn && len(spec.NewColumns) == 1 && spec.OldColumnName != spec.NewColumns[0].Name {
+			removes = append(removes, spec.OldColumnName)
+		}
+		for _, col := range spec.NewColumns {
+			adds = append(adds, col.Name)
+		}
+	case spec.OldColumnName != "":
+		removes = append(removes, spec.OldColumnName)
+	}
+	for _, name := range removes {
+		delete(knownColumns, fuzzDDLE2EColumnNameKey(name))
+	}
+	for _, name := range adds {
+		knownColumns[fuzzDDLE2EColumnNameKey(name)] = struct{}{}
+	}
+}
+
+func fuzzDDLE2EColumnNameKey(name string) string {
+	return strings.ToLower(name)
+}
+
 func fuzzDDLStmtsToE2E(stmts []ddlStatement) e2eStmts {
 	out := e2eStmts{Stmts: []e2eStmt{}}
 	for _, s := range stmts {
 		switch st := s.(type) {
 		case *ddlAlterTable:
 			es := e2eStmt{Kind: "alter_table", Schema: st.Schema, Table: st.Table, Specs: []e2eSpec{}}
-			implicitPositionShift := ddlAlterSpecsHaveImplicitPositionShift(st.Specs)
-			for i, sp := range st.Specs {
+			specs := fuzzDDLE2ESpecs(st.Specs)
+			implicitPositionShift := ddlAlterSpecsHaveImplicitPositionShift(specs)
+			for i, sp := range specs {
 				var spec e2eSpec
 				spec.HasPosition = sp.HasPosition
 				if implicitPositionShift && i == 0 {
