@@ -894,6 +894,46 @@ func TestCodexJSONLParsingFromFixture(t *testing.T) {
 	}
 }
 
+func TestCodexJSONLParsingSkipsMalformedLines(t *testing.T) {
+	dir := t.TempDir()
+	stream := filepath.Join(dir, "stream.jsonl")
+	mustWrite(t, stream, strings.Join([]string{
+		`{"type":"turn.completed","item":{"type":"agent_message","text":"before"}}`,
+		`{"type":"turn.completed","item":{"type":"agent_message","text":"truncated"}`,
+		`{"type":"turn.completed","item":{"type":"agent_message","text":"after"}}`,
+	}, "\n")+"\n")
+
+	parsed, err := ParseCodexJSONL(stream, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.LastAgentText != "after" {
+		t.Fatalf("last agent text = %q", parsed.LastAgentText)
+	}
+	if got := len(parsed.AgentMessages); got != 2 {
+		t.Fatalf("agent message count = %d, messages=%#v", got, parsed.AgentMessages)
+	}
+}
+
+func TestLastAgentMessageFromLargeTruncatedTail(t *testing.T) {
+	dir := t.TempDir()
+	stream := filepath.Join(dir, "stream.jsonl")
+	var lines []string
+	lines = append(lines, strings.Repeat("x", 300<<10))
+	for i := 0; i < 59; i++ {
+		lines = append(lines, fmt.Sprintf(`{"type":"turn.completed","item":{"type":"agent_message","text":"agent line %02d"}}`, i))
+	}
+	mustWrite(t, stream, strings.Join(lines, "\n")+"\n")
+
+	data := tailFile(stream, 256<<10)
+	if len(data) == 0 || !strings.HasPrefix(string(data), `{"type":"turn.completed"`) {
+		t.Fatalf("tail did not realign to a JSONL record: %.80q", string(data))
+	}
+	if got := lastAgentMessage(stream); got != "agent line 58" {
+		t.Fatalf("lastAgentMessage = %q", got)
+	}
+}
+
 func TestRatePositiveDeltaSum(t *testing.T) {
 	base := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
 	samples := []SampleRecord{{TS: base, Fuzz: SampleFuzz{ExecsTotal: 0}}, {TS: base.Add(30 * time.Second), Fuzz: SampleFuzz{ExecsTotal: 300}}, {TS: base.Add(time.Minute), Fuzz: SampleFuzz{ExecsTotal: 600}}}

@@ -376,7 +376,7 @@ func ParseCodexJSONL(streamPath, lastMessagePath string) (CodexParseResult, erro
 			}
 			var evt map[string]any
 			if err := json.Unmarshal(line, &evt); err != nil {
-				return parsed, err
+				continue
 			}
 			if parsed.ThreadID == "" {
 				parsed.ThreadID = findStringKey(evt, "thread_id", "id")

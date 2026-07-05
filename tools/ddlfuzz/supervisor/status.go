@@ -480,10 +480,24 @@ func tailFile(path string, max int64) []byte {
 		max = info.Size()
 	}
 	start := info.Size() - max
+	dropLeadingPartial := false
+	if start > 0 {
+		var prev [1]byte
+		if _, err := f.ReadAt(prev[:], start-1); err == nil && prev[0] != '\n' {
+			dropLeadingPartial = true
+		}
+	}
 	if _, err := f.Seek(start, 0); err != nil {
 		return nil
 	}
 	data, _ := io.ReadAll(f)
+	if dropLeadingPartial {
+		i := bytes.IndexByte(data, '\n')
+		if i < 0 {
+			return nil
+		}
+		data = data[i+1:]
+	}
 	return data
 }
 
