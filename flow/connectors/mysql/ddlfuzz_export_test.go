@@ -117,6 +117,29 @@ func TestDDLFuzzParseForE2EModifyIfExistsIsConditionalChange(t *testing.T) {
 	}
 }
 
+func TestDDLFuzzParseForE2ESuppressesDuplicateConditionalAdd(t *testing.T) {
+	query := []byte("ALTER TABLE fixture ADD (n1 MIDDLEINT, n2 BINARY, INDEX (after)), ADD COLUMN IF NOT EXISTS n1 LINESTRING")
+	sig, err := FuzzDDLSignature(query, 0, true)
+	if err != nil {
+		t.Fatalf("FuzzDDLSignature error: %v", err)
+	}
+	if sig != "alter fixture{col n1=int32, n2=bytes; col n1=geometry}" {
+		t.Fatalf("FuzzDDLSignature=%q", sig)
+	}
+
+	data, err := FuzzParseForE2E(query, 0, true)
+	if err != nil {
+		t.Fatalf("FuzzParseForE2E error: %v", err)
+	}
+	var got e2eStmts
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal e2e stmts: %v", err)
+	}
+	if len(got.Stmts) != 1 || len(got.Stmts[0].Specs) != 1 || len(got.Stmts[0].Specs[0].Cols) != 2 {
+		t.Fatalf("expected duplicate conditional add to be suppressed: %s", data)
+	}
+}
+
 func TestDDLFuzzSignatureEscapesDelimiterIdentifiers(t *testing.T) {
 	got, err := FuzzDDLSignature(
 		[]byte("ALTER TABLE `mt5_managers` ADD COLUMN (`(` INT UNSIGNED NOT NULL DEFAULT 0,`B` INT UNSIGNED NOT NULL DEFAULT 0)"),

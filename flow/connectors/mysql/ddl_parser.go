@@ -322,7 +322,6 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 	}
 	p.skipLockWait()
 	stmt := &ddlAlterTable{Schema: schema, Table: table}
-	knownColumns := make(map[string]struct{})
 	var rename *ddlRenamePair
 	partitionListMayContinue := false
 	for {
@@ -339,10 +338,6 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 		}
 		partitionListMayContinue = nextPartitionListMayContinue
 		if spec != nil {
-			spec = ddlFilterAddIfNotExists(spec, knownColumns)
-		}
-		if spec != nil {
-			ddlApplyAlterSpecColumnNames(knownColumns, spec)
 			stmt.Specs = append(stmt.Specs, *spec)
 		}
 		if pair != nil {
@@ -382,53 +377,6 @@ func ddlAlterTableStatements(alter *ddlAlterTable, rename *ddlRenamePair) []ddlS
 
 func ddlRenamePairIsNoop(pair ddlRenamePair) bool {
 	return pair.OldSchema == pair.NewSchema && pair.OldTable == pair.NewTable
-}
-
-func ddlFilterAddIfNotExists(spec *ddlAlterSpec, knownColumns map[string]struct{}) *ddlAlterSpec {
-	if !spec.AddIfNotExists {
-		return spec
-	}
-	spec.AddIfNotExists = false
-	cols := spec.NewColumns[:0]
-	for _, col := range spec.NewColumns {
-		if _, ok := knownColumns[ddlColumnNameKey(col.Name)]; ok {
-			continue
-		}
-		cols = append(cols, col)
-	}
-	spec.NewColumns = cols
-	if len(spec.NewColumns) == 0 && spec.OldColumnName == "" && !spec.RenameColumn {
-		return nil
-	}
-	return spec
-}
-
-func ddlApplyAlterSpecColumnNames(knownColumns map[string]struct{}, spec *ddlAlterSpec) {
-	var removes, adds []string
-	switch {
-	case spec.RenameColumn:
-		removes = append(removes, spec.OldColumnName)
-		adds = append(adds, spec.NewColumnName)
-	case len(spec.NewColumns) > 0:
-		if spec.ChangeColumn && len(spec.NewColumns) == 1 && spec.OldColumnName != spec.NewColumns[0].Name {
-			removes = append(removes, spec.OldColumnName)
-		}
-		for _, col := range spec.NewColumns {
-			adds = append(adds, col.Name)
-		}
-	case spec.OldColumnName != "":
-		removes = append(removes, spec.OldColumnName)
-	}
-	for _, name := range removes {
-		delete(knownColumns, ddlColumnNameKey(name))
-	}
-	for _, name := range adds {
-		knownColumns[ddlColumnNameKey(name)] = struct{}{}
-	}
-}
-
-func ddlColumnNameKey(name string) string {
-	return strings.ToLower(name)
 }
 
 func ddlAlterSpecsHaveImplicitPositionShift(specs []ddlAlterSpec) bool {

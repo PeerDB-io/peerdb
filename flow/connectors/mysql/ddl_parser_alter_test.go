@@ -27,6 +27,14 @@ func ddlAltAddSpec(cols ...ddlColumnDef) ddlAlterSpec { return ddlAlterSpec{NewC
 
 func ddlAltAdd(cols ...ddlColumnDef) []ddlAlterSpec { return []ddlAlterSpec{ddlAltAddSpec(cols...)} }
 
+func ddlAltAddIfNotExistsSpec(cols ...ddlColumnDef) ddlAlterSpec {
+	return ddlAlterSpec{NewColumns: cols, AddIfNotExists: true}
+}
+
+func ddlAltAddIfNotExists(cols ...ddlColumnDef) []ddlAlterSpec {
+	return []ddlAlterSpec{ddlAltAddIfNotExistsSpec(cols...)}
+}
+
 func ddlAltChange(oldName string, col ddlColumnDef) ddlAlterSpec {
 	return ddlAlterSpec{OldColumnName: oldName, NewColumns: []ddlColumnDef{col}, ChangeColumn: true}
 }
@@ -143,7 +151,7 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "ADD vector VECTOR(4)", want: ddlAltAdd(ddlAltCol("vector", "vector(4)"))},
 		// ambiguity #4 note (safety doc): explicit COLUMN / IF NOT EXISTS commits to the column branch
 		{alter: "ADD COLUMN period date", maria: true, want: ddlAltAdd(ddlAltCol("period", "date"))},
-		{alter: "ADD IF NOT EXISTS period date", maria: true, want: ddlAltAdd(ddlAltCol("period", "date"))},
+		{alter: "ADD IF NOT EXISTS period date", maria: true, want: ddlAltAddIfNotExists(ddlAltCol("period", "date"))},
 		// column-relevant items land with types, typmods and positions intact
 		{alter: "DROP COLUMN c", want: ddlAltDrop("c")},
 		{alter: "DROP COLUMN IF EXISTS c RESTRICT", maria: true, want: ddlAltDrop("c")},
@@ -176,7 +184,11 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 			want:  ddlAltAdd(ddlAltColNN("(", "int unsigned"), ddlAltColNN("B", "int unsigned")),
 		},
 		// MariaDB per-spec IF [NOT] EXISTS on the column-relevant items
-		{alter: "ADD COLUMN IF NOT EXISTS (a INT, b INT)", maria: true, want: ddlAltAdd(ddlAltCol("a", "int"), ddlAltCol("b", "int"))},
+		{
+			alter: "ADD COLUMN IF NOT EXISTS (a INT, b INT)",
+			maria: true,
+			want:  ddlAltAddIfNotExists(ddlAltCol("a", "int"), ddlAltCol("b", "int")),
+		},
 		{alter: "MODIFY IF EXISTS c INT", maria: true, want: ddlAltModifyIfExists(ddlAltCol("c", "int"))},
 		{alter: "MODIFY COLUMN IF EXISTS c INT", maria: true, want: ddlAltModifyIfExists(ddlAltCol("c", "int"))},
 		{alter: "DROP IF EXISTS c", maria: true, want: ddlAltDrop("c")},
@@ -248,7 +260,20 @@ func TestDDLAlterMixedSpecOrdering(t *testing.T) {
 		{
 			alter: "ADD (`n1` MIDDLEINT, n2 BINARY, INDEX (after)), ADD COLUMN IF NOT EXISTS `n1` LINESTRING",
 			maria: true,
-			want:  []ddlAlterSpec{ddlAltAddSpec(ddlAltCol("n1", "mediumint"), ddlAltCol("n2", "binary"))},
+			want: []ddlAlterSpec{
+				ddlAltAddSpec(ddlAltCol("n1", "mediumint"), ddlAltCol("n2", "binary")),
+				ddlAltAddIfNotExistsSpec(ddlAltCol("n1", "linestring")),
+			},
+		},
+		{
+			alter: "ADD (`世界_col` INET6, `table` FLOAT4, INDEX (after)), " +
+				"ADD COLUMN IF NOT EXISTS `table` BIT(8) NOT NULL ENABLE COLLATE utf8mb4_bin " +
+				"DEFAULT CURRENT_TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+			maria: true,
+			want: []ddlAlterSpec{
+				ddlAltAddSpec(ddlAltCol("世界_col", "inet6"), ddlAltCol("table", "float")),
+				ddlAltAddIfNotExistsSpec(ddlAltColNN("table", "bit(8)")),
+			},
 		},
 		{
 			alter: "ADD c ENUM('a,b','c)d'), DROP f",
