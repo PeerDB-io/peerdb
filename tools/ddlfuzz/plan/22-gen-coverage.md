@@ -82,8 +82,10 @@ resetting the mutation lane exactly while the corpus grows fastest.
 - **Load the full corpus** into `es.bases` at startup (26 MB is trivial; base-pick is O(1)).
   No smallest-N tier: retention already prefers smallest-in-window (`fuzzloop.go:430`), and a
   global smallest sample double-dips that bias into degenerate near-duplicate fragments.
-- **Recency tier**: ring buffer of the most recent K=8192 retentions per engine; `nextCase`
-  picks the mutation base from the ring with p=0.5, else uniform over the full pool. Pool
+- **Recency tier**: ring buffer of the most recent K=8192 retentions per engine; producers
+  pick the mutation base from the ring with p=0.5, else uniform over the full pool (sampled
+  through bounded per-batch snapshot pools — `fillSnapshot` — so the per-case hot path takes
+  no lock). Pool
   composition stops being an accidental throughput-allocation knob — fresh frontier inputs get
   half the mutation budget regardless of how much stale corpus is loaded.
 - **Byte cap** per engine (~256 MB), reservoir-evicting from the uniform tier only — bounds
@@ -111,7 +113,8 @@ valid UTF-8 sequences from a curated set; sentinel `peerdb_ddlfuzz_nodb` never e
 - `func ChooseMode(r *rand.Rand, isMariaDB bool) uint64`: ~50% mode 0, ~30% singles, ~20%
   byte-safe pairs; ORACLE/MSSQL and their pairs only when maria (R11).
 - `Generate(r *rand.Rand, isMariaDB bool, mode uint64) string`; update the caller
-  (`cmd/ddlfuzz/fuzzloop.go` `nextCase`: `mode := gen.ChooseMode(…)` then generate under it);
+  (`cmd/ddlfuzz/fuzzloop.go` `nextCaseFromSnapshot`: `mode := gen.ChooseMode(…)` then generate
+  under it);
   delete `chooseMode` from `cmd/ddlfuzz/main.go`. `GenerateConstrained` wraps a Ctx with
   `Mode=0` (e2e semantics unchanged).
 
@@ -160,8 +163,9 @@ after; drop the decoration on violation.
   `es.bases`. Per-engine byte cap 256 MB: over-cap at load or on retention append → evict
   uniform-random `es.bases` entries (swap-delete), never ring entries.
 - `engineState` gains a fixed 8192-slot recency ring; the retention path (currently
-  `fuzzloop.go:442`) pushes new retentions to ring + bases. `nextCase`: with p=0.5 pick the
-  mutation base from the ring (when non-empty), else uniform over `es.bases`; stamp `BaseTier`.
+  `fuzzloop.go:442`) pushes new retentions to ring + bases. Producers
+  (`pickMutationBaseFromSnapshot`): with p=0.5 pick the mutation base from the ring (when
+  non-empty), else uniform over `es.bases`; stamp `BaseTier`.
 - stats.json additive fields: `retained_by_tier` counters + `bases_bytes`.
 - `internal/seed.LoadDir`: also load per-fix `<sig>.sql`+`<sig>.meta.json` pairs (D5).
 

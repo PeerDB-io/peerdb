@@ -34,6 +34,10 @@ const (
 	basePoolByteCap   = 256 << 20
 	maxBaseEvictTries = 64
 
+	mutationSnapshotRecentCap = 512
+	mutationSnapshotOldCap    = 512
+	mutationSnapshotNoiseCap  = 128
+
 	covMergeInterval = 30 * time.Second
 
 	// Behavior features live in a fixed per-engine bit space, so novelty tapers
@@ -101,6 +105,18 @@ type fuzzLoop struct {
 	// never contends on statsMu or the engine mutexes.
 	lastStatsMu sync.Mutex
 	lastStats   map[string]any
+}
+
+// mutationBaseSnapshot holds bounded per-batch candidate pools sampled from
+// engineState, so producers pick mutation bases without touching es.mu in the
+// per-case hot path. Pools carry case headers only — the SQL bytes stay shared,
+// which is safe because mutators copy them before editing and eviction never
+// frees them.
+type mutationBaseSnapshot struct {
+	recent         []run.Case
+	oldSignal      []run.Case
+	oldNoise       []run.Case
+	oppositeSignal []run.Case
 }
 
 type oracleProc struct {
@@ -449,14 +465,16 @@ func sampleNoiseBases(rng *rand.Rand, cases []run.Case, byteCap int64) []run.Cas
 
 func (l *fuzzLoop) produce(ctx context.Context, workerID int, channels map[uint8]chan []run.Case) {
 	rng := rand.New(rand.NewPCG(l.seedValue, uint64(workerID)))
+	var snap mutationBaseSnapshot
 	for ctx.Err() == nil {
 		engine := run.EngineMySQL
 		if rng.Float64() >= l.cfg.engineBias {
 			engine = run.EngineMariaDB
 		}
+		l.fillSnapshot(rng, engine, &snap)
 		batch := make([]run.Case, 0, l.cfg.batch)
 		for len(batch) < l.cfg.batch {
-			batch = append(batch, l.nextCase(rng, engine))
+			batch = append(batch, l.nextCaseFromSnapshot(rng, engine, &snap))
 		}
 		select {
 		case <-ctx.Done():
@@ -466,8 +484,78 @@ func (l *fuzzLoop) produce(ctx context.Context, workerID int, channels map[uint8
 	}
 }
 
-func (l *fuzzLoop) nextCase(rng *rand.Rand, engine uint8) run.Case {
-	base, mate, baseTier, haveBase := l.pickMutationBase(rng, engine)
+// fillSnapshot refreshes the caller-owned pools under one lock acquisition per
+// engine, so producers pay 2 lock ops per batch instead of ~2 per case.
+func (l *fuzzLoop) fillSnapshot(rng *rand.Rand, engine uint8, snap *mutationBaseSnapshot) {
+	snap.recent = resetSnapshotPool(snap.recent, mutationSnapshotRecentCap)
+	snap.oldSignal = resetSnapshotPool(snap.oldSignal, mutationSnapshotOldCap)
+	snap.oldNoise = resetSnapshotPool(snap.oldNoise, mutationSnapshotNoiseCap)
+	snap.oppositeSignal = resetSnapshotPool(snap.oppositeSignal, mutationSnapshotOldCap)
+
+	es := l.engines[run.EngineName(engine)]
+	es.mu.Lock()
+	snap.recent = sampleRecentSnapshot(rng, snap.recent, es)
+	snap.oldSignal = sampleBaseSnapshot(rng, snap.oldSignal, es.bases, mutationSnapshotOldCap, false)
+	snap.oldNoise = sampleBaseSnapshot(rng, snap.oldNoise, es.bases, mutationSnapshotNoiseCap, true)
+	es.mu.Unlock()
+
+	other := run.EngineMariaDB
+	if engine == run.EngineMariaDB {
+		other = run.EngineMySQL
+	}
+	oes := l.engines[run.EngineName(other)]
+	oes.mu.Lock()
+	snap.oppositeSignal = sampleBaseSnapshot(rng, snap.oppositeSignal, oes.bases, mutationSnapshotOldCap, false)
+	oes.mu.Unlock()
+}
+
+func resetSnapshotPool(pool []run.Case, capHint int) []run.Case {
+	if cap(pool) < capHint {
+		return make([]run.Case, 0, capHint)
+	}
+	return pool[:0]
+}
+
+func sampleRecentSnapshot(rng *rand.Rand, dst []run.Case, es *engineState) []run.Case {
+	if es.recentN <= mutationSnapshotRecentCap {
+		return append(dst, es.recent[:es.recentN]...)
+	}
+	for len(dst) < mutationSnapshotRecentCap {
+		dst = append(dst, es.recent[rng.IntN(es.recentN)])
+	}
+	return dst
+}
+
+func sampleBaseSnapshot(rng *rand.Rand, dst []run.Case, bases []run.Case, capHint int, wantNoise bool) []run.Case {
+	if len(bases) == 0 {
+		return dst
+	}
+	if len(bases) <= capHint {
+		for _, c := range bases {
+			if (c.Signal == run.SignalNoise) == wantNoise {
+				dst = append(dst, c)
+			}
+		}
+		return dst
+	}
+	attempts := capHint * 4
+	if attempts < maxBaseEvictTries {
+		attempts = maxBaseEvictTries
+	}
+	for range attempts {
+		c := bases[rng.IntN(len(bases))]
+		if (c.Signal == run.SignalNoise) == wantNoise {
+			dst = append(dst, c)
+			if len(dst) == capHint {
+				break
+			}
+		}
+	}
+	return dst
+}
+
+func (l *fuzzLoop) nextCaseFromSnapshot(rng *rand.Rand, engine uint8, snap *mutationBaseSnapshot) run.Case {
+	base, mate, baseTier, haveBase := l.pickMutationBaseFromSnapshot(rng, snap)
 	if haveBase {
 		base.Engine = engine
 		if mate != nil {
@@ -492,63 +580,53 @@ func (l *fuzzLoop) nextCase(rng *rand.Rand, engine uint8) run.Case {
 	}
 }
 
-func (l *fuzzLoop) pickMutationBase(rng *rand.Rand, engine uint8) (run.Case, *run.Case, uint8, bool) {
-	es := l.engines[run.EngineName(engine)]
-	es.mu.Lock()
-	var base, mate run.Case
-	haveBase := false
-	baseTier := run.BaseTierOld
-	if len(es.bases) > 0 && rng.Float64() < l.cfg.mutRatio {
-		if es.recentN > 0 && rng.IntN(2) == 0 {
-			base = es.recent[rng.IntN(es.recentN)]
-			baseTier = run.BaseTierRecent
-		} else {
-			base = pickSignalBase(rng, es.bases, rng.IntN(20) == 0)
-			baseTier = run.BaseTierOld
-		}
-		haveBase = true
-		if len(es.bases) > 1 {
-			mate = pickSignalBase(rng, es.bases, false)
-		}
+func (l *fuzzLoop) pickMutationBaseFromSnapshot(rng *rand.Rand, snap *mutationBaseSnapshot) (run.Case, *run.Case, uint8, bool) {
+	if rng.Float64() >= l.cfg.mutRatio {
+		return run.Case{}, nil, 0, false
 	}
-	es.mu.Unlock()
-	if haveBase {
-		if rng.IntN(10) == 0 {
-			if flipped, ok := l.pickOppositeBase(rng, engine); ok {
-				base = flipped
-			}
-		}
-		if len(mate.SQL) != 0 {
-			return base, &mate, baseTier, true
-		}
-		return base, nil, baseTier, true
+	base, baseTier, ok := pickBaseFromSnapshot(rng, snap)
+	if !ok {
+		return run.Case{}, nil, 0, false
 	}
-	return run.Case{}, nil, 0, false
+	var mate run.Case
+	if len(snap.oldSignal) > 1 {
+		mate = snap.oldSignal[rng.IntN(len(snap.oldSignal))]
+	}
+	if len(snap.oppositeSignal) > 0 && rng.IntN(10) == 0 {
+		base = snap.oppositeSignal[rng.IntN(len(snap.oppositeSignal))]
+	}
+	if len(mate.SQL) != 0 {
+		return base, &mate, baseTier, true
+	}
+	return base, nil, baseTier, true
 }
 
-func (l *fuzzLoop) pickOppositeBase(rng *rand.Rand, engine uint8) (run.Case, bool) {
-	other := run.EngineMariaDB
-	if engine == run.EngineMariaDB {
-		other = run.EngineMySQL
+func pickBaseFromSnapshot(rng *rand.Rand, snap *mutationBaseSnapshot) (run.Case, uint8, bool) {
+	if len(snap.recent) > 0 && rng.IntN(2) == 0 {
+		return snap.recent[rng.IntN(len(snap.recent))], run.BaseTierRecent, true
 	}
-	es := l.engines[run.EngineName(other)]
-	es.mu.Lock()
-	defer es.mu.Unlock()
-	if len(es.bases) == 0 {
-		return run.Case{}, false
+	if c, ok := pickOldBaseFromSnapshot(rng, snap); ok {
+		return c, run.BaseTierOld, true
 	}
-	return pickSignalBase(rng, es.bases, false), true
+	if len(snap.recent) > 0 {
+		return snap.recent[rng.IntN(len(snap.recent))], run.BaseTierRecent, true
+	}
+	return run.Case{}, 0, false
 }
 
-func pickSignalBase(rng *rand.Rand, bases []run.Case, wantNoise bool) run.Case {
-	for range maxBaseEvictTries {
-		c := bases[rng.IntN(len(bases))]
-		isNoise := c.Signal == run.SignalNoise
-		if isNoise == wantNoise {
-			return c
-		}
+func pickOldBaseFromSnapshot(rng *rand.Rand, snap *mutationBaseSnapshot) (run.Case, bool) {
+	preferNoise := rng.IntN(20) == 0
+	first, second := snap.oldSignal, snap.oldNoise
+	if preferNoise {
+		first, second = snap.oldNoise, snap.oldSignal
 	}
-	return bases[rng.IntN(len(bases))]
+	if len(first) > 0 {
+		return first[rng.IntN(len(first))], true
+	}
+	if len(second) > 0 {
+		return second[rng.IntN(len(second))], true
+	}
+	return run.Case{}, false
 }
 
 func (p *oracleProc) run(ctx context.Context, ch chan []run.Case) error {

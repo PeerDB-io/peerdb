@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/compare"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/corpus"
@@ -14,6 +16,130 @@ import (
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/run"
 	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/sancov"
 )
+
+func TestMutationBaseSnapshotPopulation(t *testing.T) {
+	loop := &fuzzLoop{
+		engines: map[string]*engineState{
+			"mysql":   {baseKeys: map[string]struct{}{}, recentKeys: map[string]int{}},
+			"mariadb": {baseKeys: map[string]struct{}{}, recentKeys: map[string]int{}},
+		},
+	}
+	mysql := loop.engines["mysql"]
+	for i := range 3 {
+		mysql.pushRecentLocked(run.Case{SQL: []byte("recent" + strconv.Itoa(i)), Engine: run.EngineMySQL, Signal: run.SignalBehavior})
+	}
+	for i := range 4 {
+		mysql.bases = append(mysql.bases, run.Case{SQL: []byte("signal" + strconv.Itoa(i)), Engine: run.EngineMySQL, Signal: run.SignalBehavior})
+	}
+	for i := range 2 {
+		mysql.bases = append(mysql.bases, run.Case{SQL: []byte("noise" + strconv.Itoa(i)), Engine: run.EngineMySQL, Signal: run.SignalNoise})
+	}
+	maria := loop.engines["mariadb"]
+	for i := range 2 {
+		maria.bases = append(maria.bases, run.Case{SQL: []byte("opposite" + strconv.Itoa(i)), Engine: run.EngineMariaDB, Signal: run.SignalOracleEdge})
+	}
+	maria.bases = append(maria.bases, run.Case{SQL: []byte("opposite-noise"), Engine: run.EngineMariaDB, Signal: run.SignalNoise})
+
+	var snap mutationBaseSnapshot
+	loop.fillSnapshot(rand.New(rand.NewPCG(9, 10)), run.EngineMySQL, &snap)
+	if len(snap.recent) != 3 || len(snap.oldSignal) != 4 || len(snap.oldNoise) != 2 || len(snap.oppositeSignal) != 2 {
+		t.Fatalf("snapshot lens recent/signal/noise/opposite=%d/%d/%d/%d, want 3/4/2/2",
+			len(snap.recent), len(snap.oldSignal), len(snap.oldNoise), len(snap.oppositeSignal))
+	}
+	for _, c := range snap.oldSignal {
+		if c.Signal == run.SignalNoise {
+			t.Fatalf("oldSignal contains noise case %q", c.SQL)
+		}
+	}
+	for _, c := range snap.oldNoise {
+		if c.Signal != run.SignalNoise {
+			t.Fatalf("oldNoise contains signal case %q", c.SQL)
+		}
+	}
+	for _, c := range snap.oppositeSignal {
+		if c.Engine != run.EngineMariaDB || c.Signal == run.SignalNoise {
+			t.Fatalf("oppositeSignal contains wrong case engine=%d signal=%d", c.Engine, c.Signal)
+		}
+	}
+
+	noiseOnly := &mutationBaseSnapshot{oldNoise: []run.Case{{SQL: []byte("noise-only"), Signal: run.SignalNoise}}}
+	if c, ok := pickOldBaseFromSnapshot(rand.New(rand.NewPCG(1, 2)), noiseOnly); !ok || c.Signal != run.SignalNoise {
+		t.Fatalf("old pick did not fall back to noise-only pool: ok=%v signal=%d", ok, c.Signal)
+	}
+	recentOnly := &mutationBaseSnapshot{recent: []run.Case{{SQL: []byte("recent-only"), Signal: run.SignalBehavior}}}
+	if c, tier, ok := pickBaseFromSnapshot(rand.New(rand.NewPCG(3, 4)), recentOnly); !ok || tier != run.BaseTierRecent || !bytes.Equal(c.SQL, []byte("recent-only")) {
+		t.Fatalf("base pick did not fall back to recent-only pool: ok=%v tier=%d sql=%q", ok, tier, c.SQL)
+	}
+}
+
+func TestNextCaseFromSnapshotDoesNotLockEngines(t *testing.T) {
+	loop := &fuzzLoop{
+		cfg: config{mutRatio: 1},
+		engines: map[string]*engineState{
+			"mysql":   {baseKeys: map[string]struct{}{}, recentKeys: map[string]int{}},
+			"mariadb": {baseKeys: map[string]struct{}{}, recentKeys: map[string]int{}},
+		},
+	}
+	snap := &mutationBaseSnapshot{
+		oldSignal:      []run.Case{{SQL: []byte("ALTER TABLE t ADD c INT"), Engine: run.EngineMySQL, Signal: run.SignalBehavior}},
+		oppositeSignal: []run.Case{{SQL: []byte("ALTER TABLE u ADD d INT"), Engine: run.EngineMariaDB, Signal: run.SignalBehavior}},
+	}
+	loop.engines["mysql"].mu.Lock()
+	loop.engines["mariadb"].mu.Lock()
+	defer loop.engines["mariadb"].mu.Unlock()
+	defer loop.engines["mysql"].mu.Unlock()
+
+	done := make(chan run.Case, 1)
+	go func() {
+		done <- loop.nextCaseFromSnapshot(rand.New(rand.NewPCG(5, 6)), run.EngineMySQL, snap)
+	}()
+	select {
+	case c := <-done:
+		if c.Origin != run.OriginMut || c.Engine != run.EngineMySQL {
+			t.Fatalf("nextCaseFromSnapshot returned origin=%d engine=%d, want mut/mysql", c.Origin, c.Engine)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("nextCaseFromSnapshot blocked while engine mutexes were held")
+	}
+}
+
+func TestPickMutationBaseFromSnapshotDistribution(t *testing.T) {
+	loop := &fuzzLoop{cfg: config{mutRatio: 1}}
+	snap := &mutationBaseSnapshot{
+		recent:    []run.Case{{SQL: []byte("recent"), Signal: run.SignalBehavior}},
+		oldSignal: []run.Case{{SQL: []byte("signal-a"), Signal: run.SignalBehavior}, {SQL: []byte("signal-b"), Signal: run.SignalOracleEdge}},
+		oldNoise:  []run.Case{{SQL: []byte("noise"), Signal: run.SignalNoise}},
+	}
+	rng := rand.New(rand.NewPCG(7, 8))
+	const draws = 20000
+	var recent, old, noise int
+	for range draws {
+		base, _, tier, ok := loop.pickMutationBaseFromSnapshot(rng, snap)
+		if !ok {
+			t.Fatal("pickMutationBaseFromSnapshot unexpectedly returned no base")
+		}
+		switch tier {
+		case run.BaseTierRecent:
+			recent++
+		case run.BaseTierOld:
+			old++
+			if base.Signal == run.SignalNoise {
+				noise++
+			}
+		default:
+			t.Fatalf("unexpected base tier %d", tier)
+		}
+	}
+	if recent < 9000 || recent > 11000 {
+		t.Fatalf("recent picks=%d/%d, want roughly half", recent, draws)
+	}
+	if old < 9000 || old > 11000 {
+		t.Fatalf("old picks=%d/%d, want roughly half", old, draws)
+	}
+	if noise < old*3/100 || noise > old*7/100 {
+		t.Fatalf("noise old-picks=%d/%d, want roughly 1/20", noise, old)
+	}
+}
 
 // storedFeature reads the feature column straight off the corpus file (the
 // sqlite driver is registered by the corpus import).
