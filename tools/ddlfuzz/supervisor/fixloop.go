@@ -582,7 +582,7 @@ func SelectFinding(cfg Config, findings []Finding, parked map[string]bool, group
 			continue
 		}
 		attempts, _ := LoadAttemptRecords(filepath.Join(cfg.StateDir, "attempts", f.Sig+".jsonl"))
-		if BudgetExhausted(attempts, 3, 150*time.Minute) {
+		if BudgetExhausted(attempts, 5, 150*time.Minute) {
 			continue
 		}
 		byGroup[f.Group.Key] = append(byGroup[f.Group.Key], f)
@@ -782,7 +782,7 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 			return err
 		}
 	}
-	if BudgetExhausted(records, 3, 150*time.Minute) {
+	if BudgetExhausted(records, 5, 150*time.Minute) {
 		return parkBudgetExhausted(cfg, finding, logf)
 	}
 
@@ -876,7 +876,7 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 		rec := AttemptRecord{Attempt: attemptN, Sig: sig, StartedAt: started, EndedAt: ended, Outcome: outcome, Detail: detail, Tokens: tokens, ThreadID: threadID, Transcript: relTo(cfg.StateDir, streamPath), LastMessage: relTo(cfg.StateDir, lastPath), Diff: relTo(cfg.StateDir, diffPath)}
 		_ = AppendAttemptRecord(attemptLog, rec)
 		records = append(records, rec)
-		if BudgetExhausted(records, 3, 150*time.Minute) {
+		if BudgetExhausted(records, 5, 150*time.Minute) {
 			return parkBudgetExhausted(cfg, finding, logf)
 		}
 		return nil
@@ -990,7 +990,7 @@ func FixOnce(ctx context.Context, cfg Config, sig string, skipFuzzer bool, resta
 	if outcome == "test_weakened" {
 		return parkTestWeakened(cfg, finding, logf)
 	}
-	if outcome != "fixed" && outcome != "ledgered" && BudgetExhausted(records, 3, 150*time.Minute) {
+	if outcome != "fixed" && outcome != "ledgered" && BudgetExhausted(records, 5, 150*time.Minute) {
 		return parkBudgetExhausted(cfg, finding, logf)
 	}
 	return nil

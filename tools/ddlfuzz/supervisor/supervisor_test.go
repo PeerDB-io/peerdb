@@ -762,7 +762,7 @@ func TestAttemptRecordRoundTrip(t *testing.T) {
 func TestFlapDetector(t *testing.T) {
 	t.Run("reproducing new sig freezes group", func(t *testing.T) {
 		groups := map[string]*GroupRecord{
-			"group1": {Sigs: []string{"aaa", "bbb"}, FixCount: 2, LastFixTS: "2026-07-03T00:00:00Z"},
+			"group1": {Sigs: []string{"aaa", "bbb"}, FixCount: 4, LastFixTS: "2026-07-03T00:00:00Z"},
 		}
 		frozen := ApplyFlapDetector(groups, []GroupedFinding{
 			{Sig: "aaa", GroupKey: "group1", Status: "fixed"},
@@ -777,7 +777,7 @@ func TestFlapDetector(t *testing.T) {
 		}
 	})
 	t.Run("reopen not reproducing does not freeze", func(t *testing.T) {
-		groups := map[string]*GroupRecord{"group1": {Sigs: []string{"aaa"}, FixCount: 2}}
+		groups := map[string]*GroupRecord{"group1": {Sigs: []string{"aaa"}, FixCount: 4}}
 		frozen := ApplyFlapDetector(groups, []GroupedFinding{
 			{Sig: "aaa", GroupKey: "group1", Status: "open", ReopenedCount: 1, Reproduces: false},
 		})
@@ -786,7 +786,7 @@ func TestFlapDetector(t *testing.T) {
 		}
 	})
 	t.Run("reproducing reopen freezes", func(t *testing.T) {
-		groups := map[string]*GroupRecord{"group1": {Sigs: []string{"aaa"}, FixCount: 2}}
+		groups := map[string]*GroupRecord{"group1": {Sigs: []string{"aaa"}, FixCount: 4}}
 		frozen := ApplyFlapDetector(groups, []GroupedFinding{
 			{Sig: "aaa", GroupKey: "group1", Status: "open", ReopenedCount: 1, Reproduces: true},
 		})
@@ -819,7 +819,7 @@ func TestApplyFlapScanSoftFreeze(t *testing.T) {
 	writeMetaFixture(t, cfg, sig, "open")
 	finding := mustFinding(t, cfg, sig)
 	finding.Group = GroupInfo{Key: "group1", Class: "sig_mismatch", Shape: "stmt_count"}
-	groups := map[string]*GroupRecord{"group1": {Sigs: []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb"}, FixCount: 2}}
+	groups := map[string]*GroupRecord{"group1": {Sigs: []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb"}, FixCount: 4}}
 
 	if err := ApplyFlapScanAndPark(cfg, groups, []Finding{finding}); err != nil {
 		t.Fatal(err)
@@ -1026,7 +1026,7 @@ func TestGroupRows(t *testing.T) {
 		}
 	}
 	groupA := GroupInfoForMeta(FindingMeta{Class: "classA", Shape: "shapeA"}).Key
-	if err := SaveGroups(cfg, map[string]*GroupRecord{groupA: &GroupRecord{Parked: true, FixCount: 2}}); err != nil {
+	if err := SaveGroups(cfg, map[string]*GroupRecord{groupA: &GroupRecord{Parked: true, FixCount: 4}}); err != nil {
 		t.Fatal(err)
 	}
 	rows, more := BuildGroupRows(cfg, now, 10)

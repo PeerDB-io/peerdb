@@ -119,7 +119,7 @@ func ApplyFlapDetector(groups map[string]*GroupRecord, findings []GroupedFinding
 			sort.Strings(g.Sigs)
 		}
 		open := f.Status == "" || f.Status == "open"
-		if open && g.FixCount >= 2 && (!previouslyKnown || f.ReopenedCount > 0) && f.Reproduces {
+		if open && g.FixCount >= 4 && (!previouslyKnown || f.ReopenedCount > 0) && f.Reproduces {
 			wasParked := g.Parked
 			g.Parked = true
 			if !wasParked {
@@ -137,7 +137,7 @@ func ApplyFlapDetector(groups map[string]*GroupRecord, findings []GroupedFinding
 
 func flapCandidate(groups map[string]*GroupRecord, f Finding) bool {
 	g := groups[f.Group.Key]
-	if g == nil || g.FixCount < 2 {
+	if g == nil || g.FixCount < 4 {
 		return false
 	}
 	open := f.Meta.Status == "" || f.Meta.Status == "open"
