@@ -1032,7 +1032,7 @@ func runCodexAttempt(ctx context.Context, cfg Config, prompt, streamPath, lastPa
 
 func codexArgs(cfg Config, sandbox, lastPath string) []string {
 	args := []string{"exec", "-C", cfg.Root}
-	if cfg.CodexBypass && sandbox == "workspace-write" {
+	if sandbox == "workspace-write" {
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 	} else {
 		args = append(args,

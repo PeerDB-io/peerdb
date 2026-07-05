@@ -31,7 +31,6 @@ type Config struct {
 	MaxTokens       int64
 	AttemptTO       time.Duration
 	RunHours        float64
-	CodexBypass     bool
 	GoCache         string
 	GoModCache      string
 	LintCache       string
@@ -89,7 +88,6 @@ func LoadConfig() (Config, error) {
 		MaxTokens:       maxTokens,
 		AttemptTO:       attemptTO,
 		RunHours:        hours,
-		CodexBypass:     os.Getenv("DDLFUZZ_CODEX_BYPASS") == "1",
 		LintCache:       filepath.Join(home, "Library", "Caches", "golangci-lint"),
 		StartedAt:       now,
 		Deadline:        now.Add(time.Duration(hours * float64(time.Hour))),

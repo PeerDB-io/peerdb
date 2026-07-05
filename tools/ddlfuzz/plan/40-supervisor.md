@@ -641,14 +641,12 @@ supervisor links to it if 20 exposes it in stats — otherwise noted "see compon
 - **codex CLI flag drift** (flags verified against 0.142.5; codex updates frequently): preflight
   step 7 smoke-tests the exact invocation shape at t=0; any mid-run invocation failure is just a
   failed attempt (record + continue). Pin: do not run `codex update` during the run.
-- **Sandbox friction**: workspace-write may deny writes the toolchain needs beyond the enumerated
-  `--add-dir` caches (e.g. a linter cache in an unexpected path). Acceptance check 6 exercises the
-  full gate from inside the sandbox; if an unattended run still hits denials, the defined fallback
-  knob is `DDLFUZZ_CODEX_BYPASS=1` ⇒ swap `-s workspace-write ... --add-dir ...` for
-  `--dangerously-bypass-approvals-and-sandbox` (reverting to post-hoc-only guardrail enforcement,
-  same as the supervisor's validation layer assumes anyway). Denial symptoms are visible in the
-  attempt transcript (`command_execution` items with permission errors) — the escalation file
-  surfaces them.
+- **Sandbox friction**: the fix agent commits its own work, which requires writing
+  `.git/index.lock`; the `-s workspace-write` seatbelt denies writes under `.git` (EPERM), and it
+  can also deny toolchain writes beyond the enumerated `--add-dir` caches. So the fix agent always
+  runs `--dangerously-bypass-approvals-and-sandbox` (no sandbox, full permissions; guardrails are
+  enforced post-hoc by the supervisor's validation layer, as it assumes anyway). Only the
+  read-only preflight auth smoke test still runs sandboxed.
 - **Weaker spend enforcement than planned**: codex has no per-run dollar/turn budget flag and
   reports no cost, so per-attempt bounds are wall-clock (45 min pgroup kill) only, with token
   telemetry and an optional run-wide token cap (`DDLFUZZ_MAX_TOKENS`). A runaway-but-productive
