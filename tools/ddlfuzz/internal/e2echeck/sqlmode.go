@@ -13,7 +13,7 @@ func ExpectedEventSQLModeRelevant(submitted string, sessionRelevant uint64, isMa
 	if !ok {
 		return sessionRelevant
 	}
-	mode, ok := setStatementSQLMode(prefix, sessionRelevant)
+	mode, ok := setStatementSQLMode(prefix, sessionRelevant, isMariaDB)
 	if !ok {
 		return sessionRelevant
 	}
@@ -68,7 +68,7 @@ func setStatementPrefix(sql string, mode uint64) (string, bool) {
 	return "", false
 }
 
-func setStatementSQLMode(prefix string, sessionRelevant uint64) (uint64, bool) {
+func setStatementSQLMode(prefix string, sessionRelevant uint64, isMariaDB bool) (uint64, bool) {
 	mode := sessionRelevant & RelevantSQLModeMask
 	changed := false
 	for _, part := range splitTopLevelComma(prefix, sessionRelevant) {
@@ -76,7 +76,7 @@ func setStatementSQLMode(prefix string, sessionRelevant uint64) (uint64, bool) {
 		if !ok || !strings.EqualFold(strings.TrimSpace(name), "sql_mode") {
 			continue
 		}
-		next, ok := evalSQLModeExpr(expr, mode, sessionRelevant)
+		next, ok := evalSQLModeExpr(expr, mode, sessionRelevant, isMariaDB)
 		if !ok {
 			return 0, false
 		}
@@ -118,7 +118,7 @@ func splitSetAssignment(part string, mode uint64) (string, string, bool) {
 	return "", "", false
 }
 
-func evalSQLModeExpr(expr string, current, sessionRelevant uint64) (uint64, bool) {
+func evalSQLModeExpr(expr string, current, sessionRelevant uint64, isMariaDB bool) (uint64, bool) {
 	expr = strings.TrimSpace(expr)
 	if s, ok := decodeSQLStringLiteral(expr, sessionRelevant); ok {
 		return sqlModeNamesRelevant(s), true
@@ -135,6 +135,9 @@ func evalSQLModeExpr(expr string, current, sessionRelevant uint64) (uint64, bool
 	used := false
 	for _, arg := range splitTopLevelComma(expr[open+1:close], sessionRelevant) {
 		arg = strings.TrimSpace(arg)
+		if body, ok := unwrapExecutableSQLComment(arg, isMariaDB); ok {
+			arg = strings.TrimSpace(body)
+		}
 		switch {
 		case strings.EqualFold(arg, "@@sql_mode"), strings.EqualFold(arg, "@@session.sql_mode"):
 			mode |= current & RelevantSQLModeMask
@@ -149,6 +152,26 @@ func evalSQLModeExpr(expr string, current, sessionRelevant uint64) (uint64, bool
 		}
 	}
 	return mode & RelevantSQLModeMask, used
+}
+
+func unwrapExecutableSQLComment(s string, isMariaDB bool) (string, bool) {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "/*") {
+		return "", false
+	}
+	action, body := classifyExecutableCommentForQueryText(s, 0, isMariaDB)
+	if action != queryTextCommentExecutable {
+		return "", false
+	}
+	closeRel := strings.Index(s[body:], "*/")
+	if closeRel < 0 {
+		return "", false
+	}
+	close := body + closeRel
+	if strings.TrimSpace(s[close+2:]) != "" {
+		return "", false
+	}
+	return s[body:close], true
 }
 
 func hasSQLFuncPrefix(expr, name string) bool {
@@ -235,6 +258,12 @@ func splitTopLevelComma(s string, mode uint64) []string {
 
 func decodeSQLStringLiteral(s string, mode uint64) (string, bool) {
 	s = strings.TrimSpace(s)
+	if len(s) >= 2 && s[0] == '_' && isSQLWordStart(s[1]) {
+		end := scanSQLWord(s, 1)
+		if end < len(s) && (s[end] == '\'' || s[end] == '"') {
+			s = s[end:]
+		}
+	}
 	if len(s) < 2 {
 		return "", false
 	}

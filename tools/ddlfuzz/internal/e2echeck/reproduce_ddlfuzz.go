@@ -55,11 +55,6 @@ func reproducePlumbing(in Input) (Result, error) {
 	if !ok {
 		return diverged(ClassStatusVarWalk, "status-vars", "sql_mode status var not decoded"), nil
 	}
-	submittedMode := in.SQLMode & RelevantSQLModeMask
-	if in.ExpectedRelevant != nil {
-		submittedMode = *in.ExpectedRelevant & RelevantSQLModeMask
-	}
-	submittedMode = ExpectedEventSQLModeRelevant(in.Submitted, submittedMode, in.IsMariaDB)
 	if in.Class == ClassSQLModeMismatch {
 		expected := in.SQLMode & RelevantSQLModeMask
 		if in.ExpectedRelevant != nil {
@@ -82,7 +77,7 @@ func reproducePlumbing(in Input) (Result, error) {
 		submittedForSig = in.BinlogQuery
 	}
 	liveSig, liveErr, livePanic := safeDDLSignature([]byte(in.BinlogQuery), mode, in.IsMariaDB)
-	subSig, subErr, subPanic := safeDDLSignature([]byte(submittedForSig), submittedMode, in.IsMariaDB)
+	subSig, subErr, subPanic := safeDDLSignature([]byte(submittedForSig), mode, in.IsMariaDB)
 	if livePanic != nil || subPanic != nil {
 		return diverged(ClassPanic, "parser-panic", fmt.Sprintf("live=%v submitted=%v", livePanic, subPanic)), nil
 	}
