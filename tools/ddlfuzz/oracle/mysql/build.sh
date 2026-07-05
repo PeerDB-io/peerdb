@@ -7,6 +7,17 @@ BUILD="$ROOT/build/mysql-build"
 OUT="$ROOT/build/oracle-mysql"
 BISON="$(brew --prefix bison)/bin/bison"
 SSL="$(brew --prefix openssl@3)"
+REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
+
+CCACHE=()
+CCACHE_CC=""
+if ccache --version >/dev/null 2>&1; then
+  export CCACHE_BASEDIR="$REPO_ROOT" CCACHE_NOHASHDIR=1
+  CCACHE=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+  CCACHE_CC="ccache"
+else
+  echo "note: ccache not runnable; building without compile cache" >&2
+fi
 
 mkdir -p "$BUILD"
 
@@ -16,6 +27,7 @@ cmake -G Ninja -S "$SRC" -B "$BUILD" \
   -DWITH_SHARED_UNITTEST_LIBRARY=OFF \
   -DWITH_SSL="$SSL" \
   -DBISON_EXECUTABLE="$BISON" \
+  ${CCACHE[@]+"${CCACHE[@]}"} \
   -DCMAKE_C_FLAGS="-fsanitize-coverage=inline-8bit-counters" \
   -DCMAKE_CXX_FLAGS="-fsanitize-coverage=inline-8bit-counters -include type_traits"
 
@@ -62,7 +74,7 @@ print(shlex.join(result))
 PY
 )"
 
-eval "$CC_CMD"
+eval "${CCACHE_CC:+$CCACHE_CC }$CC_CMD"
 
 export DRV_O OUT
 REF_OBJ="unittest/gunit/CMakeFiles/create_field-t.dir/create_field-t.cc.o"
@@ -89,8 +101,7 @@ LD_CMD="${LD_CMD/$GUNIT_LIB/$TEST_UTILS_OBJ}"
 echo "built $OUT"
 # go run keeps builder and verifier on one hash implementation, and
 # DDLFUZZ_ROOT pins hashing to THIS checkout — ddlsuper's root discovery would
-# otherwise resolve the staged worktree to the main repo.
-REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
+# otherwise resolve the staged worktree to the main repo. REPO_ROOT is set above.
 if command -v go >/dev/null 2>&1; then
   (cd "$ROOT" && DDLFUZZ_ROOT="$REPO_ROOT" go run ./supervisor oracle-manifest --engine mysql --out "$ROOT/build/oracle-mysql.manifest.json")
 else

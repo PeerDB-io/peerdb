@@ -5,6 +5,15 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 BUILD=$(cd "$HERE/../../build" && pwd)
 SRC_RO=$HOME/Code/mariadb-server
 COMMIT=c3ec2dc368a8c7165cdbea58208eb828e76ebc57
+REPO_ROOT=$(cd "$HERE/../../../.." && pwd)
+
+CCACHE=()
+if ccache --version >/dev/null 2>&1; then
+  export CCACHE_BASEDIR="$REPO_ROOT" CCACHE_NOHASHDIR=1
+  CCACHE=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+else
+  echo "note: ccache not runnable; building without compile cache" >&2
+fi
 
 if [ ! -x "$BUILD/hostdeps/bin/bison" ]; then
   mkdir -p "$BUILD/hostdeps/src"
@@ -46,6 +55,7 @@ if [ ! -f "$BUILD/mariadb-build/build.ninja" ]; then
     -DPLUGIN_SPIDER=NO -DPLUGIN_SPHINX=NO -DPLUGIN_CONNECT=NO \
     -DPLUGIN_COLUMNSTORE=NO -DPLUGIN_S3=NO -DPLUGIN_OQGRAPH=NO \
     -DPLUGIN_FEDERATED=NO -DPLUGIN_FEDERATEDX=NO \
+    ${CCACHE[@]+"${CCACHE[@]}"} \
     -DCMAKE_C_FLAGS="-fsanitize-coverage=inline-8bit-counters" \
     -DCMAKE_CXX_FLAGS="-fsanitize-coverage=inline-8bit-counters"
 fi
