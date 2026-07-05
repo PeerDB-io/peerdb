@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	sqlModeRealAsFloat        = e2echeck.SQLModeRealAsFloat
 	sqlModeANSIQuotes         = e2echeck.SQLModeANSIQuotes
 	sqlModeOracle             = e2echeck.SQLModeOracle
 	sqlModeMSSQL              = e2echeck.SQLModeMSSQL
@@ -15,6 +16,7 @@ const (
 )
 
 var relevantBits = map[string]uint64{
+	"REAL_AS_FLOAT":        sqlModeRealAsFloat,
 	"ANSI_QUOTES":          sqlModeANSIQuotes,
 	"ORACLE":               sqlModeOracle,
 	"MSSQL":                sqlModeMSSQL,

@@ -14,6 +14,7 @@ func TestReproduceByClass(t *testing.T) {
 	}
 	validStatus := statusVarsHex(0)
 	ansiStatus := statusVarsHex(SQLModeANSIQuotes)
+	realANSIStatus := statusVarsHex(SQLModeRealAsFloat | SQLModeANSIQuotes)
 	ansiNBEStatus := statusVarsHex(SQLModeANSIQuotes | SQLModeNoBackslashEscapes)
 	expectedZero := uint64(0)
 	expectedANSI := SQLModeANSIQuotes
@@ -94,6 +95,19 @@ func TestReproduceByClass(t *testing.T) {
 				"ALTER TABLE t ADD COLUMN n1 INT",
 				"ALTER TABLE t ADD COLUMN n1 INT",
 				validStatus),
+		},
+		{
+			name: "plumbing sig real as float readback reconciles stale expected relevant",
+			in: func() Input {
+				in := baseInput(ClassPlumbingSig,
+					"ALTER TABLE `fixture` ADD COLUMN n1 REAL FIRST",
+					"ALTER TABLE `fixture` ADD COLUMN n1 REAL FIRST",
+					realANSIStatus)
+				in.SQLMode = SQLModeRealAsFloat | SQLModeANSIQuotes
+				in.SQLModeName = "REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES"
+				in.ExpectedRelevant = &expectedANSI
+				return in
+			}(),
 		},
 		{
 			name: "plumbing sig mysql skipped version comment reconciled",

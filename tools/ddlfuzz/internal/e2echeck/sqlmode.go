@@ -163,6 +163,8 @@ func sqlModeNamesRelevant(s string) uint64 {
 	var out uint64
 	for _, raw := range strings.Split(s, ",") {
 		switch strings.ToUpper(strings.TrimSpace(raw)) {
+		case "REAL_AS_FLOAT":
+			out |= SQLModeRealAsFloat
 		case "ANSI_QUOTES":
 			out |= SQLModeANSIQuotes
 		case "ORACLE":
@@ -181,6 +183,9 @@ func sqlModeNamesRelevant(s string) uint64 {
 func SQLModeNames(mode uint64) string {
 	mode &= RelevantSQLModeMask
 	var names []string
+	if mode&SQLModeRealAsFloat != 0 {
+		names = append(names, "REAL_AS_FLOAT")
+	}
 	if mode&SQLModeANSIQuotes != 0 {
 		names = append(names, "ANSI_QUOTES")
 	}

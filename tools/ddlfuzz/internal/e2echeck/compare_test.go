@@ -257,6 +257,63 @@ func TestDiffSnapshotsIgnoresColumnKey(t *testing.T) {
 	}
 }
 
+func TestCompareSemanticsAddPrimaryKeyImpliedNotNullTolerated(t *testing.T) {
+	before := Snapshot{
+		"id":     {Name: "id", Ordinal: 1, ColumnType: "bigint(20)", IsNullable: "NO", ColumnKey: "PRI"},
+		"period": {Name: "period", Ordinal: 2, ColumnType: "int(11)", IsNullable: "YES", NumPrec: compareInt64Ptr(10), NumScale: compareInt64Ptr(0)},
+	}
+	after := Snapshot{
+		"period": {Name: "period", Ordinal: 1, ColumnType: "int(11)", IsNullable: "NO", ColumnKey: "PRI", NumPrec: compareInt64Ptr(10), NumScale: compareInt64Ptr(0)},
+		"n1":     {Name: "n1", Ordinal: 2, ColumnType: "blob", IsNullable: "YES"},
+	}
+	parsed := ParsedStmts{Stmts: []ParsedStmt{{
+		Kind:  "alter_table",
+		Table: "fixture",
+		Specs: []ParsedSpec{
+			{Op: "add", Cols: []ParsedCol{{Name: "n1", TypeStr: "blob", Precision: -1, Scale: -1}}},
+			{Op: "drop", OldName: "id"},
+		},
+	}}}
+
+	got := CompareSemantics(SemanticInput{
+		Before: before,
+		After:  after,
+		Actual: DiffSnapshots(before, after),
+	}, parsed)
+	if len(got) != 0 {
+		t.Fatalf("pk-implied not-null findings = %v, want none", got)
+	}
+}
+
+func TestCompareSemanticsUnexpectedNullabilityChangeWithoutPKStillFires(t *testing.T) {
+	before := Snapshot{
+		"period": {Name: "period", Ordinal: 1, ColumnType: "int(11)", IsNullable: "YES"},
+	}
+	after := Snapshot{
+		"period": {Name: "period", Ordinal: 1, ColumnType: "int(11)", IsNullable: "NO"},
+		"n1":     {Name: "n1", Ordinal: 2, ColumnType: "blob", IsNullable: "YES"},
+	}
+	parsed := ParsedStmts{Stmts: []ParsedStmt{{
+		Kind:  "alter_table",
+		Table: "fixture",
+		Specs: []ParsedSpec{
+			{Op: "add", Cols: []ParsedCol{{Name: "n1", TypeStr: "blob", Precision: -1, Scale: -1}}},
+		},
+	}}}
+
+	got := CompareSemantics(SemanticInput{
+		Before: before,
+		After:  after,
+		Actual: DiffSnapshots(before, after),
+	}, parsed)
+	if len(got) != 1 {
+		t.Fatalf("non-pk nullability findings = %v, want one changed_unexpected", got)
+	}
+	if got[0].Meta["changed_unexpected"] != "period" {
+		t.Fatalf("finding meta = %v, want changed_unexpected=period", got[0].Meta)
+	}
+}
+
 func compareInt64Ptr(v int64) *int64 {
 	return &v
 }

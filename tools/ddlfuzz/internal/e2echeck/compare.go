@@ -174,7 +174,7 @@ func CompareSemantics(in SemanticInput, parsed ParsedStmts) []SemanticFinding {
 	}
 	for name := range actualChanged {
 		if _, ok := pred.Changed[name]; !ok && !pred.Dropped[name] {
-			if ch, ok := changeByName(actual.Changed, name); ok && (ordinalOnlyChange(ch) || columnKeyOnlyChange(ch)) {
+			if ch, ok := changeByName(actual.Changed, name); ok && (ordinalOnlyChange(ch) || columnKeyOnlyChange(ch) || pkImpliedNotNullChange(ch)) {
 				continue
 			}
 			out = append(out, SemanticFinding{
@@ -328,6 +328,22 @@ func columnKeyOnlyChange(ch ColumnChange) bool {
 	before := ch.Before
 	after := ch.After
 	before.ColumnKey = after.ColumnKey
+	return colRowsEqual(before, after)
+}
+
+// Both engines silently make the columns of a new PRIMARY KEY NOT NULL, so a
+// benign ADD PRIMARY KEY spec flips an untouched column's key and nullability.
+func pkImpliedNotNullChange(ch ColumnChange) bool {
+	before := ch.Before
+	after := ch.After
+	if after.ColumnKey != "PRI" || before.ColumnKey == "PRI" {
+		return false
+	}
+	before.ColumnKey = after.ColumnKey
+	before.Ordinal = after.Ordinal
+	if strings.EqualFold(before.IsNullable, "YES") && strings.EqualFold(after.IsNullable, "NO") {
+		before.IsNullable = after.IsNullable
+	}
 	return colRowsEqual(before, after)
 }
 

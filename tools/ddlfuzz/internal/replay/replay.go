@@ -267,9 +267,39 @@ func replayOne(ctx context.Context, cfg Config, sig string) (Result, int) {
 	}
 	d, raw, err := singleDigest(ctx, engine, bin, cfg.Timeout, c, cfg.StateDir)
 	if err != nil {
+		if out, ok := knownOracleFailureResult(sig, engine, mode, meta, c, res); ok {
+			return out, ExitDiverged
+		}
 		return Result{Sig: sig, Engine: engine, SQLMode: mode, Class: "malformed", Shape: err.Error()}, ExitMalformed
 	}
 	return replayFastResult(sig, engine, mode, c, res, d, raw)
+}
+
+func knownOracleFailureResult(
+	sig, engine string, mode uint64, meta map[string]any, c run.Case, res ddllexec.Result,
+) (Result, bool) {
+	class, _ := meta["class"].(string)
+	if class != "oracle_crash" && class != "oracle_timeout" {
+		return Result{}, false
+	}
+	shape := stringFromMeta(meta, "shape")
+	if shape == "" {
+		shape = "head=" + compare.HeadWord(c.SQL)
+	}
+	out := Result{
+		Sig:          sig,
+		Engine:       engine,
+		SQLMode:      mode,
+		OurSig:       res.Sig,
+		OracleDigest: json.RawMessage("null"),
+		Reconciled:   false,
+		Class:        class,
+		Shape:        shape,
+	}
+	if res.Err != nil {
+		out.OurError = res.Err.Error()
+	}
+	return out, true
 }
 
 func replayE2EOne(sig, engine string, mode uint64, meta map[string]any) (Result, int) {
@@ -445,6 +475,7 @@ func e2eInputFromMeta(meta map[string]any) (e2echeck.Input, error) {
 		Engine:        engine,
 		IsMariaDB:     engine == "mariadb",
 		SQLMode:       mode,
+		SQLModeName:   stringFromMeta(meta, "sql_mode_name"),
 		Submitted:     submitted,
 		BinlogQuery:   binlogQuery,
 		StatusVarsHex: statusVarsHex,

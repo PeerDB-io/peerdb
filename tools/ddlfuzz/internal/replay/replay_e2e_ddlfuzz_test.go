@@ -59,6 +59,54 @@ func TestReplayE2EFindingOffline(t *testing.T) {
 	}
 }
 
+func TestReplayE2EPlumbingUsesSQLModeName(t *testing.T) {
+	stateDir := t.TempDir()
+	sig := "cccccccccccc"
+	stmt := "ALTER TABLE `fixture` ADD COLUMN n1 REAL FIRST"
+	mode := e2echeck.SQLModeRealAsFloat | e2echeck.SQLModeANSIQuotes
+	dir := filepath.Join(stateDir, "findings", sig)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "repro.sql"), []byte(stmt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	meta := map[string]any{
+		"sig":                 sig,
+		"lane":                "e2e",
+		"class":               "e2e-plumbing-sig",
+		"engine":              "mysql",
+		"sql_mode":            mode,
+		"sql_mode_name":       "REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES",
+		"submitted_text":      stmt,
+		"binlog_query":        stmt,
+		"binlog_text_differs": false,
+		"status_vars_hex":     replayStatusVarsHex(mode),
+		"expected_relevant":   e2echeck.SQLModeANSIQuotes,
+		"info_schema_delta":   e2echeck.Delta{},
+		"before_snapshot":     e2echeck.Snapshot{},
+		"after_snapshot":      e2echeck.Snapshot{},
+		"our_sig":             "alter fixture{col n1=float32 @pos}",
+		"our_error":           "",
+		"server_image":        "mysql:9.7.0",
+		"status":              "open",
+		"discovered_at":       "2026-07-03T00:00:00Z",
+		"minimized":           false,
+	}
+	b, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "meta.json"), append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if code := Run(context.Background(), Config{StateDir: stateDir, CaseDeadline: time.Second}, sig, &out); code != ExitOK {
+		t.Fatalf("replay exit = %d, want %d; out=%s", code, ExitOK, out.String())
+	}
+}
+
 func TestRunAllE2EFindingOffline(t *testing.T) {
 	stateDir := t.TempDir()
 	before := e2echeck.Snapshot{

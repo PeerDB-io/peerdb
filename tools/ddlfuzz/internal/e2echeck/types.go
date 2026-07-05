@@ -18,11 +18,12 @@ const (
 )
 
 const (
+	SQLModeRealAsFloat        uint64 = 1 << 0
 	SQLModeANSIQuotes         uint64 = 1 << 2
 	SQLModeOracle             uint64 = 1 << 9
 	SQLModeMSSQL              uint64 = 1 << 10
 	SQLModeNoBackslashEscapes uint64 = 1 << 20
-	RelevantSQLModeMask              = SQLModeANSIQuotes | SQLModeOracle | SQLModeMSSQL | SQLModeNoBackslashEscapes
+	RelevantSQLModeMask              = SQLModeRealAsFloat | SQLModeANSIQuotes | SQLModeOracle | SQLModeMSSQL | SQLModeNoBackslashEscapes
 )
 
 // Input is reconstructed from e2e finding meta and never needs a live database.
@@ -30,6 +31,7 @@ type Input struct {
 	Engine        string
 	IsMariaDB     bool
 	SQLMode       uint64
+	SQLModeName   string
 	Submitted     string
 	BinlogQuery   string
 	StatusVarsHex string
