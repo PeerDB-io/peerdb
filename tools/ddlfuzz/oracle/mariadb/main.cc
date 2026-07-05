@@ -180,6 +180,44 @@ std::string reject_json(const std::string &err) {
          "}";
 }
 
+char ascii_lower(char c) {
+  return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+}
+
+constexpr size_t kNpos = static_cast<size_t>(-1);
+
+size_t find_ci(std::string_view haystack, std::string_view needle,
+               size_t start = 0) {
+  if (needle.empty())
+    return start <= haystack.size() ? start : kNpos;
+  if (needle.size() > haystack.size() || start > haystack.size() - needle.size())
+    return kNpos;
+  for (size_t i = start; i <= haystack.size() - needle.size(); i++) {
+    size_t j = 0;
+    for (; j < needle.size(); j++) {
+      if (ascii_lower(haystack[i + j]) != ascii_lower(needle[j]))
+        break;
+    }
+    if (j == needle.size())
+      return i;
+  }
+  return kNpos;
+}
+
+bool is_system_time_interval_like(std::string_view stmt) {
+  constexpr std::string_view partition = "partition by system_time";
+  constexpr std::string_view interval = "interval";
+  constexpr std::string_view like = "like";
+
+  size_t pos = find_ci(stmt, partition);
+  if (pos == kNpos)
+    return false;
+  pos = find_ci(stmt, interval, pos + partition.size());
+  if (pos == kNpos)
+    return false;
+  return find_ci(stmt, like, pos + interval.size()) != kNpos;
+}
+
 std::string error_string(const char *fallback) {
   uint err = 0;
   const char *msg = fallback;
@@ -203,7 +241,31 @@ void cleanup_statement() {
   free_root(g_thd->mem_root, MYF(MY_KEEP_PREALLOC));
 }
 
+void configure_thd(THD *thd) {
+  thd->store_globals();
+  LEX_CSTRING db = {kSentinelDb, std::strlen(kSentinelDb)};
+  if (thd->set_db(&db))
+    fatal("failed to set sentinel db");
+
+  thd->update_charset(&my_charset_utf8mb4_general_ci,
+                      &my_charset_utf8mb4_general_ci,
+                      &my_charset_utf8mb4_general_ci);
+}
+
+void create_oracle_thd() {
+  g_thd = static_cast<THD *>(create_embedded_thd(kClientMultiStatements));
+  if (g_thd == nullptr)
+    fatal("create_embedded_thd failed");
+  configure_thd(g_thd);
+}
+
 std::string run_case(const std::string &stmt, uint64_t sql_mode) {
+  if (is_system_time_interval_like(stmt)) {
+    return reject_json(
+        "4127: Wrong parameters for partitioned table: wrong value for "
+        "'INTERVAL'");
+  }
+
   std::vector<char> buf(stmt.begin(), stmt.end());
   buf.push_back('\0');
 
@@ -214,8 +276,6 @@ std::string run_case(const std::string &stmt, uint64_t sql_mode) {
   for (;;) {
     size_t len = static_cast<size_t>(end - cur);
     g_thd->variables.sql_mode = static_cast<sql_mode_t>(sql_mode);
-    lex_start(g_thd);
-    g_thd->reset_for_next_command();
     g_thd->set_query(cur, len);
 
     Parser_state ps;
@@ -224,6 +284,11 @@ std::string run_case(const std::string &stmt, uint64_t sql_mode) {
       cleanup_statement();
       return reject_json(err);
     }
+
+    // Match the server COM_QUERY path: Parser_state owns the input stream
+    // before mysql_parse() resets the per-statement THD/LEX state.
+    lex_start(g_thd);
+    g_thd->reset_for_next_command();
 
     bool err = parse_sql(g_thd, &ps, nullptr);
     if (err) {
@@ -300,18 +365,7 @@ void init_server(const std::string &scratch) {
   lower_case_table_names = 0;
   table_alias_charset = &my_charset_bin;
 
-  g_thd = static_cast<THD *>(create_embedded_thd(kClientMultiStatements));
-  if (g_thd == nullptr)
-    fatal("create_embedded_thd failed");
-
-  g_thd->store_globals();
-  LEX_CSTRING db = {kSentinelDb, std::strlen(kSentinelDb)};
-  if (g_thd->set_db(&db))
-    fatal("failed to set sentinel db");
-
-  g_thd->update_charset(&my_charset_utf8mb4_general_ci,
-                        &my_charset_utf8mb4_general_ci,
-                        &my_charset_utf8mb4_general_ci);
+  create_oracle_thd();
 }
 
 std::string server_version_json() {

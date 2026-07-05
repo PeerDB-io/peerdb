@@ -193,6 +193,31 @@ CASES: list[tuple[int, str, str | tuple[str, str]]] = [
     (0, "SET STATEMENT nonexistent_var=1 FOR ALTER TABLE t ADD c INT", ("reject_prefix", "1193: ")),
 ]
 
+STORM_PRE_MODE = 1050116
+STORM_KILL_MODE = 1049092
+STORM_PRE_SQL = (
+    "/*!/*M!/*!/*M!/*M!ALTER  TABLE t PARTITION BY SYSTEM_TIME INTERVAL  "
+    "LOCALTIMESTAMP LIKE ROWNUM SQL_TSI_DAY YEAR_MONTH YEAR_MONTH "
+    "MICROSECONDCOLdMN_CHECKX EVERY   SUBPARTITION IN SIMPLE TO  "
+    "MASTER_SSL_KEY ENGINES   ADD COLUMN `selec DIAGNOSTICS t` DEC(,2) "
+    "AFTER ONLY, CHANGE COLUMN c \"c2\" LOW_PRIORITY AFTER `c`, ADD "
+    "\"table\" SOUNDS BYTE COLLATE utf8mb4_bin COMMENT 'has */ marker' "
+    "\"double string\" FIRST, DROP VAR_POP COLUMN `system` `system` "
+    "CASCADE fk (b) REFERENCES parent(b) MATCH FULL ON DELETE CASCADE ON  "
+    "SET ; RENAME TABLE a TO b, c TO d; ALTER ONLINE TABLE `\u4e16\u754c`  "
+    "COLUMN IF NOT EXISTS c2 TINYBLOB NO_WRITE_TO_BINLOG NULL"
+)
+STORM_KILL_SQL = (
+    "/*!/*M!/*!/*M!/*M!ALTER  TABLE t PARTITION BY SYSTEM_TIME INTERVAL  "
+    "LOCALTIMESTAMP LIKE ROWNUM SQL_TSI_DAY AST(X'CAFE' AS DATETIME) ts "
+    "STORAGE DISK AUTO_INCREMENT=42, MODIFY COLUMN period VARCHAR(32) AS AS "
+    "(CONCAT((old_col), MAX_UPDATES_PER_HOUR IO_THREAD N`doubled '' quote' "
+    "AND _utf8mb4'comma,value */ FOR')) DEFAULT CURRENT_TIMESTAMP(6) "
+    "DEFAULT (!CURRENT_TIMESTAMP) NOT NULL ENABLE AFTER period, DROP TINYINT "
+    "PARTITION p0, REMOVE PARTITIONING, ALTER COLUMN COLUMN `after`  SET "
+    "DEFAULT 'comma,value', RENAME = after_col"
+)
+
 
 def assert_json_equal(actual: str, expected: str | tuple[str, str], sql: str) -> None:
     if isinstance(expected, tuple):
@@ -237,6 +262,12 @@ def run_smoke(soak: int | None) -> None:
         # A tiny residue is real second-execution coverage (state primed by the
         # first run flips a branch), not attribution slop.
         assert sum(second_edges) <= 4, second_edges
+
+        storm, _ = oracle.parse_batch(
+            [(STORM_PRE_MODE, STORM_PRE_SQL), (STORM_KILL_MODE, STORM_KILL_SQL)]
+        )
+        for actual, sql in zip(storm, [STORM_PRE_SQL, STORM_KILL_SQL], strict=True):
+            assert_json_equal(actual, ("reject_prefix", "4127: "), sql)
 
         oracle.parse_batch([(0, "ALTER TABLE t ADD c INT")])
         cov2 = oracle.coverage()
