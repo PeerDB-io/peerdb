@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -59,9 +60,11 @@ type engineState struct {
 	mu              sync.Mutex
 	accum           *sancov.Accumulator
 	bases           []run.Case
+	baseKeyList     []string // parallel to bases: precomputed baseKey per entry
 	baseKeys        map[string]struct{}
 	basesBytes      int64
 	recent          [recentRingSize]run.Case
+	recentRingKeys  [recentRingSize]string // parallel to recent: precomputed baseKey per slot
 	recentPos       int
 	recentN         int
 	recentKeys      map[string]int
@@ -140,6 +143,7 @@ func (es *engineState) appendBaseLocked(c run.Case, rng *rand.Rand) {
 		return
 	}
 	es.bases = append(es.bases, c)
+	es.baseKeyList = append(es.baseKeyList, k)
 	es.baseKeys[k] = struct{}{}
 	es.basesBytes += int64(len(c.SQL))
 	es.evictBasesLocked(rng)
@@ -153,14 +157,14 @@ func (es *engineState) evictBasesLocked(rng *rand.Rand) {
 		idx := -1
 		for i := 0; i < maxBaseEvictTries; i++ {
 			cand := rng.IntN(len(es.bases))
-			if es.recentKeys[baseKey(es.bases[cand])] == 0 {
+			if es.recentKeys[es.baseKeyList[cand]] == 0 {
 				idx = cand
 				break
 			}
 		}
 		if idx < 0 {
-			for i, c := range es.bases {
-				if es.recentKeys[baseKey(c)] == 0 {
+			for i := range es.bases {
+				if es.recentKeys[es.baseKeyList[i]] == 0 {
 					idx = i
 					break
 				}
@@ -169,18 +173,19 @@ func (es *engineState) evictBasesLocked(rng *rand.Rand) {
 		if idx < 0 {
 			return
 		}
-		delete(es.baseKeys, baseKey(es.bases[idx]))
+		delete(es.baseKeys, es.baseKeyList[idx])
 		es.basesBytes -= int64(len(es.bases[idx].SQL))
 		last := len(es.bases) - 1
 		es.bases[idx] = es.bases[last]
 		es.bases = es.bases[:last]
+		es.baseKeyList[idx] = es.baseKeyList[last]
+		es.baseKeyList = es.baseKeyList[:last]
 	}
 }
 
 func (es *engineState) pushRecentLocked(c run.Case) {
 	if es.recentN == len(es.recent) {
-		old := es.recent[es.recentPos]
-		k := baseKey(old)
+		k := es.recentRingKeys[es.recentPos]
 		if es.recentKeys[k] <= 1 {
 			delete(es.recentKeys, k)
 		} else {
@@ -189,13 +194,22 @@ func (es *engineState) pushRecentLocked(c run.Case) {
 	} else {
 		es.recentN++
 	}
+	k := baseKey(c)
 	es.recent[es.recentPos] = c
-	es.recentKeys[baseKey(c)]++
+	es.recentRingKeys[es.recentPos] = k
+	es.recentKeys[k]++
 	es.recentPos = (es.recentPos + 1) % len(es.recent)
 }
 
 func baseKey(c run.Case) string {
-	return string(c.SQL) + "\x00" + fmt.Sprint(c.SQLMode)
+	var mode [20]byte
+	m := strconv.AppendUint(mode[:0], c.SQLMode, 10)
+	var b strings.Builder
+	b.Grow(len(c.SQL) + 1 + len(m))
+	b.Write(c.SQL)
+	b.WriteByte(0)
+	b.Write(m)
+	return b.String()
 }
 
 // Behavior bitmaps share the sancov accumulator lifecycle: load at startup
@@ -701,7 +715,7 @@ func (p *oracleProc) submitBatch(ctx context.Context, batch []run.Case) error {
 		return errBisectStop
 	}
 	results := p.worker.RunBatch(batch)
-	digests, _, edges, err := p.client.ParseBatch(ctx, batch)
+	digests, edges, err := p.client.ParseBatchDigests(ctx, batch)
 	if err == nil {
 		if len(digests) != len(batch) || len(edges) != len(batch) {
 			err = fmt.Errorf("digest count %d/%d != %d", len(digests), len(edges), len(batch))

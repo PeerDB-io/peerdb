@@ -81,10 +81,59 @@ func (c *Client) Start(ctx context.Context, logPath string) error {
 }
 
 // ParseBatch returns, per case, the decoded digest, its raw bytes, and the
-// count of virgin oracle sancov edges the case opened.
+// count of virgin oracle sancov edges the case opened. The raw slices are
+// copies (sub-slices of one batch-lifetime buffer) that stay valid after the
+// next call; hot paths that only need digests should use ParseBatchDigests.
 func (c *Client) ParseBatch(ctx context.Context, cases []run.Case) ([]*digest.Digest, [][]byte, []uint32, error) {
+	raw, edges, err := c.parseBatchRaw(ctx, cases)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	total := 0
+	for _, b := range raw {
+		total += len(b)
+	}
+	flat := make([]byte, 0, total)
+	out := make([]*digest.Digest, 0, len(raw))
+	copies := make([][]byte, 0, len(raw))
+	for _, b := range raw {
+		start := len(flat)
+		flat = append(flat, b...)
+		cp := flat[start:len(flat):len(flat)]
+		d, err := digest.Decode(cp)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("bad digest %q: %w", string(cp), err)
+		}
+		out = append(out, d)
+		copies = append(copies, cp)
+	}
+	return out, copies, edges, nil
+}
+
+// ParseBatchDigests is ParseBatch without the raw-bytes copies: digests are
+// decoded straight out of the connection's reused read buffer (json.Unmarshal
+// does not retain its input), skipping one allocation+copy per case.
+func (c *Client) ParseBatchDigests(ctx context.Context, cases []run.Case) ([]*digest.Digest, []uint32, error) {
+	raw, edges, err := c.parseBatchRaw(ctx, cases)
+	if err != nil {
+		return nil, nil, err
+	}
+	out := make([]*digest.Digest, 0, len(raw))
+	for _, b := range raw {
+		d, err := digest.Decode(b)
+		if err != nil {
+			return nil, nil, fmt.Errorf("bad digest %q: %w", string(b), err)
+		}
+		out = append(out, d)
+	}
+	return out, edges, nil
+}
+
+// parseBatchRaw returns slices into the connection's read buffer, valid only
+// until the next round trip on this client.
+func (c *Client) parseBatchRaw(ctx context.Context, cases []run.Case) ([][]byte, []uint32, error) {
 	if c.conn == nil {
-		return nil, nil, nil, errors.New("oracle client not started")
+		return nil, nil, errors.New("oracle client not started")
 	}
 	type batchReply struct {
 		raw   [][]byte
@@ -95,20 +144,9 @@ func (c *Client) ParseBatch(ctx context.Context, cases []run.Case) ([]*digest.Di
 		return batchReply{raw: raw, edges: edges}, err
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	out := make([]*digest.Digest, 0, len(reply.raw))
-	copies := make([][]byte, 0, len(reply.raw))
-	for _, b := range reply.raw {
-		cp := append([]byte(nil), b...)
-		d, err := digest.Decode(cp)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("bad digest %q: %w", string(cp), err)
-		}
-		out = append(out, d)
-		copies = append(copies, cp)
-	}
-	return out, copies, reply.edges, nil
+	return reply.raw, reply.edges, nil
 }
 
 func (c *Client) Coverage(ctx context.Context) ([]byte, error) {

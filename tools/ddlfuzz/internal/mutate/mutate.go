@@ -22,7 +22,9 @@ func MutateWithSplice(r *rand.Rand, c run.Case, mate *run.Case) run.Case {
 		r = rand.New(rand.NewPCG(3, 4))
 	}
 	out := c
-	sql := append([]byte(nil), c.SQL...)
+	// No defensive copy: every arm below is copy-on-write, so c.SQL is never
+	// mutated in place; out.SQL may alias c.SQL when no arm rewrites it.
+	sql := c.SQL
 	arms := 8
 	if mate == nil {
 		arms = 7
@@ -59,7 +61,10 @@ func MutateWithSplice(r *rand.Rand, c run.Case, mate *run.Case) run.Case {
 }
 
 func Tokens(sql []byte) [][]byte {
-	var toks [][]byte
+	// Presized for typical SQL token density (~1 token per 4 bytes) so the
+	// append loop almost never regrows; delimiter-heavy inputs regrow at most
+	// twice instead of ~log2(n) times from nil.
+	toks := make([][]byte, 0, len(sql)/4+8)
 	start := -1
 	var quote byte
 	for i := 0; i < len(sql); i++ {
@@ -118,7 +123,11 @@ func duplicateToken(r *rand.Rand, sql []byte) []byte {
 		return sql
 	}
 	tok := toks[r.IntN(len(toks))]
-	return bytes.Replace(sql, tok, append(append([]byte{}, tok...), append([]byte(" "), tok...)...), 1)
+	dup := make([]byte, 0, 2*len(tok)+1)
+	dup = append(dup, tok...)
+	dup = append(dup, ' ')
+	dup = append(dup, tok...)
+	return bytes.Replace(sql, tok, dup, 1)
 }
 
 func dictionarySub(r *rand.Rand, sql []byte, engine string) []byte {
@@ -138,8 +147,9 @@ func dictionaryInsert(r *rand.Rand, sql []byte, engine string) []byte {
 		return sql
 	}
 	pos := tokenBoundary(r, sql)
-	insert := []byte(d[r.IntN(len(d))])
-	out := append([]byte{}, sql[:pos]...)
+	insert := d[r.IntN(len(d))]
+	out := make([]byte, 0, len(sql)+len(insert)+2)
+	out = append(out, sql[:pos]...)
 	if pos > 0 && len(out) > 0 && !isSpace(out[len(out)-1]) {
 		out = append(out, ' ')
 	}
@@ -154,7 +164,10 @@ func dictionaryInsert(r *rand.Rand, sql []byte, engine string) []byte {
 func quoteFlip(r *rand.Rand, sql []byte) []byte {
 	wrappers := [][2]string{{"/*!", " */"}, {"/*M!", " */"}, {"`", "`"}, {"\"", "\""}, {"-- ", "\n"}, {"#", "\n"}}
 	w := wrappers[r.IntN(len(wrappers))]
-	return []byte(w[0] + string(sql) + w[1])
+	out := make([]byte, 0, len(w[0])+len(sql)+len(w[1]))
+	out = append(out, w[0]...)
+	out = append(out, sql...)
+	return append(out, w[1]...)
 }
 
 func byteOp(r *rand.Rand, sql []byte) []byte {
@@ -164,13 +177,19 @@ func byteOp(r *rand.Rand, sql []byte) []byte {
 		if len(sql) > 0 {
 			pos = r.IntN(len(sql) + 1)
 		}
-		return append(append(append([]byte{}, sql[:pos]...), printables[r.IntN(len(printables))]), sql[pos:]...)
+		out := make([]byte, 0, len(sql)+1)
+		out = append(out, sql[:pos]...)
+		out = append(out, printables[r.IntN(len(printables))])
+		return append(out, sql[pos:]...)
 	}
 	pos := r.IntN(len(sql))
 	if r.IntN(2) == 0 {
-		return append(append([]byte{}, sql[:pos]...), sql[pos+1:]...)
+		out := make([]byte, 0, len(sql)-1)
+		out = append(out, sql[:pos]...)
+		return append(out, sql[pos+1:]...)
 	}
-	out := append([]byte{}, sql...)
+	out := make([]byte, len(sql))
+	copy(out, sql)
 	out[pos] = printables[r.IntN(len(printables))]
 	return out
 }
@@ -184,7 +203,9 @@ func Crossover(r *rand.Rand, a, b []byte) []byte {
 	if ai <= 0 || bi >= len(b) {
 		return append([]byte{}, a...)
 	}
-	return append(append([]byte{}, a[:ai]...), b[bi:]...)
+	out := make([]byte, 0, ai+len(b)-bi)
+	out = append(out, a[:ai]...)
+	return append(out, b[bi:]...)
 }
 
 func flipSQLMode(r *rand.Rand, mode uint64) uint64 {
