@@ -65,6 +65,9 @@ func OracleSourceHash(cfg Config, engine string) (string, error) {
 				return walkErr
 			}
 			if d.IsDir() {
+				if d.Name() == "__pycache__" {
+					return fs.SkipDir
+				}
 				return nil
 			}
 			info, err := d.Info()
