@@ -133,7 +133,7 @@ func applyPersistedRunStart(cfg *Config) {
 		return
 	}
 	cfg.StartedAt = start
-	cfg.Deadline = start.Add(time.Duration(cfg.RunHours * float64(time.Hour)))
+	cfg.Deadline = computeDeadline(start, cfg.RunHours, os.Getenv("DDLFUZZ_HOURS") != "")
 }
 
 func resumeMarker(cfg Config) (SelfRestartMarker, string, bool) {
