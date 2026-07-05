@@ -197,6 +197,18 @@ func TestReproduceByClass(t *testing.T) {
 			}(),
 		},
 		{
+			name: "mariadb skipped nested comment rewrite reconciled",
+			in: func() Input {
+				in := baseInput(ClassQueryRewrite,
+					"/*M!/*!ALTER TABLE fixture /*!90699 before /*!130101 nested */ after */ */",
+					"/*M!/*!ALTER TABLE fixture /* 90699 before (*!130101 nested *) after */ */",
+					validStatus)
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				return in
+			}(),
+		},
+		{
 			name: "mysql reversed skipped comment rewrite still diverges",
 			in: baseInput(ClassQueryRewrite,
 				"ALTER TABLE fixture ADD n1 INT /*!!11050 NOT NULL*/",

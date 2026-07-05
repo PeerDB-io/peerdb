@@ -121,11 +121,7 @@ func plainifySkippedComments(s string, isMariaDB bool) string {
 		switch action {
 		case queryTextCommentSkipped:
 			out = plainifySkippedCommentMarker(s, out, i)
-			if end := strings.Index(s[i+2:], "*/"); end >= 0 {
-				i += 2 + end + 2
-			} else {
-				i = len(s)
-			}
+			out, i = plainifySkippedCommentBody(s, out, scanFrom)
 			continue
 		case queryTextCommentExecutable:
 			i = scanFrom
@@ -142,6 +138,33 @@ func plainifySkippedComments(s string, isMariaDB bool) string {
 		return s
 	}
 	return string(out)
+}
+
+func plainifySkippedCommentBody(s string, out []byte, pos int) ([]byte, int) {
+	for pos < len(s) {
+		switch s[pos] {
+		case '/':
+			if pos+1 < len(s) && s[pos+1] == '*' {
+				out = ensureQueryTextCopy(s, out)
+				out[pos] = '('
+				pos += 2
+				end := strings.Index(s[pos:], "*/")
+				if end < 0 {
+					return out, len(s)
+				}
+				slash := pos + end + 1
+				out[slash] = ')'
+				pos = slash + 1
+				continue
+			}
+		case '*':
+			if pos+1 < len(s) && s[pos+1] == '/' {
+				return out, pos + 2
+			}
+		}
+		pos++
+	}
+	return out, len(s)
 }
 
 type queryTextCommentAction int

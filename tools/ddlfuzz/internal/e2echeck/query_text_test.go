@@ -69,6 +69,19 @@ func TestEquivalentQueryText(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "mariadb skipped comment nested comment markers plainified",
+			submitted: "/*M!/*!ALTER TABLE fixture /*!90699 before /*!130101 nested */ after */ */",
+			binlog:    "/*M!/*!ALTER TABLE fixture /* 90699 before (*!130101 nested *) after */ */",
+			maria:     true,
+			want:      true,
+		},
+		{
+			name:      "mysql skipped comment nested comment markers plainified",
+			submitted: "ALTER TABLE fixture ADD n1 INT /*!99999 before /* nested */ after */",
+			binlog:    "ALTER TABLE fixture ADD n1 INT /* 99999 before (* nested *) after */",
+			want:      true,
+		},
+		{
 			name:      "mariadb skipped comment inside ordinary comment is not normalized",
 			submitted: "ALTER TABLE fixture ADD n1 INT /* plain /*!130101 NOT NULL*/",
 			binlog:    "ALTER TABLE fixture ADD n1 INT /* plain /* 130101 NOT NULL*/",
