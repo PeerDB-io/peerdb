@@ -454,9 +454,9 @@ func (p *ddlParser) parseAlterSpec(tableSchema, table string, partitionListMayCo
 	case ddlWordIs(t, "ORDER") && ddlWordIs(p.peek(1), "BY"):
 		p.next()
 		p.next()
-		return nil, nil, false, p.skipAlterOrderList()
+		return nil, nil, false, p.skipAlterStatementRemainder()
 	case ddlAlterSpecStartsPartitionNameList(t, p.peek(1)):
-		return nil, nil, true, p.skipSpecRemainder()
+		return nil, nil, false, p.skipAlterStatementRemainder()
 	default:
 		return nil, nil, false, p.skipSpecRemainder()
 	}
@@ -711,7 +711,7 @@ func (p *ddlParser) skipSpecRemainder() error {
 	}
 }
 
-func (p *ddlParser) skipAlterOrderList() error {
+func (p *ddlParser) skipAlterStatementRemainder() error {
 	for {
 		t := p.peek(0)
 		switch {
@@ -721,6 +721,10 @@ func (p *ddlParser) skipAlterOrderList() error {
 			return nil
 		case t.kind == tokPunct && t.text == ";":
 			return nil
+		case t.kind == tokPunct && t.text == "(":
+			if err := p.skipBalanced(); err != nil {
+				return err
+			}
 		case t.kind == tokPunct && t.text == ")":
 			return fmt.Errorf("unbalanced ')' at byte %d", t.pos)
 		default:

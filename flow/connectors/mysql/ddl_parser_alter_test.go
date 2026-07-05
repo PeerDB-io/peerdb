@@ -103,6 +103,7 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"},
 		{alter: "CONVERT TO CHARACTER SET DEFAULT"},
 		{alter: "CHECK PARTITION p0, MODIFY  , SECONDARY_LOAD"},
+		{alter: "CHECK PARTITION REPLICA, MODIFY CHANGED", maria: true},
 		{alter: "REBUILD PARTITION p0, MODIFY # DECIMAL DECIMAL WITH (10,2) " +
 			"GENERATED ALWAYS AS (NOW()) VIRTUAL DEFAULT 'x' COMMENT $$mysql9$$ FIRST"},
 		{alter: "FORCE"},
