@@ -204,7 +204,33 @@ size_t find_ci(std::string_view haystack, std::string_view needle,
   return kNpos;
 }
 
-bool is_system_time_interval_like(std::string_view stmt) {
+bool is_ascii_space(char c) {
+  return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
+         c == '\v';
+}
+
+// Collapse each run of ASCII whitespace to a single space so the fixed-space
+// needles below match regardless of how much whitespace the mutator emits
+// between tokens (e.g. "PARTITION BY  SYSTEM_TIME").
+std::string collapse_ws(std::string_view s) {
+  std::string out;
+  out.reserve(s.size());
+  bool prev_ws = false;
+  for (char c : s) {
+    if (is_ascii_space(c)) {
+      if (!prev_ws)
+        out.push_back(' ');
+      prev_ws = true;
+    } else {
+      out.push_back(c);
+      prev_ws = false;
+    }
+  }
+  return out;
+}
+
+bool is_system_time_interval_like(std::string_view raw) {
+  std::string stmt = collapse_ws(raw);
   constexpr std::string_view partition = "partition by system_time";
   constexpr std::string_view interval = "interval";
   constexpr std::string_view like = "like";

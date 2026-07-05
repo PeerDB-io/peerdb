@@ -269,6 +269,17 @@ def run_smoke(soak: int | None) -> None:
         for actual, sql in zip(storm, [STORM_PRE_SQL, STORM_KILL_SQL], strict=True):
             assert_json_equal(actual, ("reject_prefix", "4127: "), sql)
 
+        # The guard must tolerate multi-whitespace between tokens: the mutator
+        # emits "PARTITION BY  SYSTEM_TIME" (double space), which a fixed
+        # single-space needle misses -> statement reaches the parser -> crash.
+        ws_storm, _ = oracle.parse_batch(
+            [(mode, sql.replace(" SYSTEM_TIME ", "  SYSTEM_TIME  "))
+             for mode, sql in [(STORM_PRE_MODE, STORM_PRE_SQL),
+                               (STORM_KILL_MODE, STORM_KILL_SQL)]]
+        )
+        for actual, sql in zip(ws_storm, [STORM_PRE_SQL, STORM_KILL_SQL], strict=True):
+            assert_json_equal(actual, ("reject_prefix", "4127: "), sql)
+
         oracle.parse_batch([(0, "ALTER TABLE t ADD c INT")])
         cov2 = oracle.coverage()
         assert len(cov2) == len(cov1)
