@@ -229,3 +229,29 @@ func TestBehaviorFeaturesFamilyIsSeparateFeature(t *testing.T) {
 		t.Fatalf("duplicate families not deduped: %d features", n)
 	}
 }
+
+// Several server error families echo raw input into the message unquoted
+// (live probe: 3000/3000 distinct features from mutation junk), so reject
+// classes key on the errno prefix alone, never the message text.
+func TestOracleErrorClassErrnoOnly(t *testing.T) {
+	feat := func(msg string) uint64 {
+		return BehaviorFeature(featCase, "", nil, nil, &digest.Digest{Verdict: "reject", Error: msg})
+	}
+	echoA := feat(`1327: Undeclared variable: SWITCHES TABLE ADD (json_ol MONTH INTEGER FIXED`)
+	echoB := feat(`1327: Undeclared variable: completely different junk 'with quotes' and text`)
+	if echoA != echoB {
+		t.Fatal("same errno with echoed input text must collapse to one class")
+	}
+	if feat(`1327: Undeclared variable: x`) == feat(`1319: Undefined CONDITION: x`) {
+		t.Fatal("distinct errnos must stay distinct classes")
+	}
+	// No errno prefix falls back to masked text: quoted spans still collapse.
+	fbA := feat(`Duplicate column name 'aaa'`)
+	fbB := feat(`Duplicate column name 'bbb'`)
+	if fbA != fbB {
+		t.Fatal("fallback path must still mask quoted spans")
+	}
+	if fbA == feat(`Duplicate key name 'aaa'`) {
+		t.Fatal("fallback path must keep distinct templates distinct")
+	}
+}
