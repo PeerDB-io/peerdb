@@ -159,6 +159,7 @@ func TestDDLLexerCommentBoundaries(t *testing.T) {
 	}{
 		{name: "plain comment is quote unaware", query: "/* it's */ ALTER TABLE t ADD COLUMN c INT", benign: false},
 		{name: "comment ends at first close", query: "/* x /* y */ ALTER TABLE t ADD COLUMN c INT", benign: false},
+		{name: "nul inside block comment does not terminate query", query: "/* x\x00 y */ ALTER TABLE t ADD COLUMN c INT", benign: false},
 		{name: "nested comment tail is head garbage", query: "/* a /* b */ c */ ALTER TABLE t ADD COLUMN c INT", benign: true},
 		// line comments end at \n or NUL only; a bare \r stays inside
 		{name: "hash comment cr does not terminate", query: "# note\rALTER TABLE t ADD COLUMN c INT", benign: true},

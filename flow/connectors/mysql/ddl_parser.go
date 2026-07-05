@@ -12,7 +12,7 @@ type ddlStatement interface{ isDDLStatement() }
 
 type ddlColumnDef struct {
 	Name      string
-	TypeStr   string // normalized: lowercase canonical base [+ "(params)" if written] [+ " unsigned"]
+	TypeStr   string // normalized: lowercase canonical base [+ "(params)" if written] [+ " unsigned"] [+ " zerofill"]
 	Precision int    // first numeric type param as written; -1 if not written
 	Scale     int    // second numeric type param as written; -1 if not written
 	NotNull   bool
@@ -991,6 +991,9 @@ func (p *ddlParser) parseColumnDef(name string, spec *ddlAlterSpec, insideParens
 	}
 	if st.unsigned && st.base != "year" {
 		typeStr += " unsigned"
+	}
+	if st.zerofill {
+		typeStr += " zerofill"
 	}
 	spec.NewColumns = append(spec.NewColumns, ddlColumnDef{
 		Name:      name,

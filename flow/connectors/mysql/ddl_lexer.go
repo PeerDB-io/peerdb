@@ -232,10 +232,6 @@ func ddlVersionPrefix(s string, pos int, isMariaDB bool) (int, int) {
 func (lx *ddlLexer) skipPlainComment() {
 	rest := lx.s[lx.pos+2:]
 	end := strings.Index(rest, "*/")
-	if nul := strings.IndexByte(rest, 0); nul >= 0 && (end < 0 || nul < end) {
-		lx.pos += 2 + nul
-		return
-	}
 	if end < 0 {
 		lx.pos = len(lx.s)
 		return

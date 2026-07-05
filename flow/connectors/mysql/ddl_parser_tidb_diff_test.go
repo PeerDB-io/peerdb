@@ -36,7 +36,7 @@ func ddlDiffColSig(c ddlColumnDef) string {
 	var sb strings.Builder
 	sb.WriteString(c.Name)
 	sb.WriteByte('=')
-	kind, err := QkindFromMysqlColumnType(c.TypeStr, true, 0)
+	kind, err := QkindFromMysqlColumnType(fuzzDDLComparisonTypeStr(c.TypeStr), true, 0)
 	if err != nil {
 		sb.WriteString("ERR")
 	} else {
