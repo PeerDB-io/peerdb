@@ -85,6 +85,7 @@ func TestDDLTypesDecimalAndFloat(t *testing.T) {
 		{typ: "DECIMAL(10,2)", want: ddlTypesCol("decimal(10,2)", 10, 2, false)},
 		// whitespace between params does not survive into TypeStr
 		{typ: "DECIMAL(10, 2)", want: ddlTypesCol("decimal(10,2)", 10, 2, false)},
+		{typ: "DEC( 3.14159)", want: ddlTypesCol("decimal(3)", 3, -1, false)},
 		{typ: "DECIMAL(65,30) UNSIGNED", want: ddlTypesCol("decimal(65,30) unsigned", 65, 30, false)},
 		{typ: "DEC(8,3)", want: ddlTypesCol("decimal(8,3)", 8, 3, false)},
 		{typ: "FIXED", want: ddlTypesCol("decimal", -1, -1, false)},
@@ -192,6 +193,12 @@ func TestDDLTypesEnumSetTemporalSpatial(t *testing.T) {
 		{typ: "MULTILINESTRING", want: ddlTypesCol("multilinestring", -1, -1, false)},
 		{typ: "MULTIPOLYGON", want: ddlTypesCol("multipolygon", -1, -1, false)},
 		{typ: "GEOMETRYCOLLECTION", want: ddlTypesCol("geometrycollection", -1, -1, false)},
+		{
+			typ:    "GEOMETRYCOLLECTION (.5) UNIQUE NOT NULL ENABLE AFTER first",
+			want:   ddlTypesCol("geometrycollection", -1, -1, true),
+			maria:  true,
+			hasPos: true,
+		},
 		{typ: "GEOMCOLLECTION", want: ddlTypesCol("geomcollection", -1, -1, false)},
 		{typ: "VECTOR", want: ddlTypesCol("vector", -1, -1, false)},
 		{typ: "VECTOR(4)", want: ddlTypesCol("vector(4)", -1, -1, false)},
