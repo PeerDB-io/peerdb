@@ -27,6 +27,10 @@ func ddlAltAddSpec(cols ...ddlColumnDef) ddlAlterSpec { return ddlAlterSpec{NewC
 
 func ddlAltAdd(cols ...ddlColumnDef) []ddlAlterSpec { return []ddlAlterSpec{ddlAltAddSpec(cols...)} }
 
+func ddlAltChange(oldName string, col ddlColumnDef) ddlAlterSpec {
+	return ddlAlterSpec{OldColumnName: oldName, NewColumns: []ddlColumnDef{col}, ChangeColumn: true}
+}
+
 func ddlAltModifyIfExists(cols ...ddlColumnDef) []ddlAlterSpec {
 	return []ddlAlterSpec{{NewColumns: cols, ModifyIfExists: true}}
 }
@@ -149,10 +153,9 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		},
 		{
 			alter: "CHANGE COLUMN old_c new_c TINYINT(1) AFTER z",
-			want: []ddlAlterSpec{{
-				OldColumnName: "old_c", HasPosition: true,
-				NewColumns: []ddlColumnDef{{Name: "new_c", TypeStr: "tinyint(1)", Precision: 1, Scale: -1}},
-			}},
+			want: []ddlAlterSpec{
+				ddlAltPos(ddlAltChange("old_c", ddlColumnDef{Name: "new_c", TypeStr: "tinyint(1)", Precision: 1, Scale: -1})),
+			},
 		},
 		{
 			alter: "ADD COLUMN c VARCHAR(255) STORAGE DEFAULT AFTER b",
@@ -179,12 +182,20 @@ func TestDDLAlterSpecBuckets(t *testing.T) {
 		{alter: "DROP IF EXISTS c", maria: true, want: ddlAltDrop("c")},
 		{
 			alter: "CHANGE IF EXISTS a b INT", maria: true,
-			want: []ddlAlterSpec{{OldColumnName: "a", NewColumns: []ddlColumnDef{ddlAltCol("b", "int")}}},
+			want: []ddlAlterSpec{ddlAltChange("a", ddlAltCol("b", "int"))},
 		},
 		// ADD (...) mixing columns with index/constraint/period elements keeps only the columns
 		{
 			alter: "ADD (a INT, KEY (a), b TINYINT, FOREIGN KEY (b) REFERENCES x (id), CONSTRAINT ck CHECK (b > 0))",
 			want:  ddlAltAdd(ddlAltCol("a", "int"), ddlAltCol("b", "tinyint")),
+		},
+		{
+			alter: "ADD COLUMN (a INT, b INT) REMOVE PARTITIONING",
+			want:  ddlAltAdd(ddlAltCol("a", "int"), ddlAltCol("b", "int")),
+		},
+		{
+			alter: "RENAME COLUMN c TO d REMOVE PARTITIONING",
+			want:  []ddlAlterSpec{ddlAltRename("c", "d")},
 		},
 		{alter: "ADD (c INT, PERIOD FOR SYSTEM_TIME(rs, re))", maria: true, want: ddlAltAdd(ddlAltCol("c", "int"))},
 	} {
@@ -228,9 +239,7 @@ func TestDDLAlterMixedSpecOrdering(t *testing.T) {
 		},
 		{
 			alter: "CHANGE `conversion` c2 VECTOR (.5) AFTER a, ALTER COLUMN `system` SET INVISIBLE",
-			want: []ddlAlterSpec{{
-				OldColumnName: "conversion", NewColumns: []ddlColumnDef{ddlAltCol("c2", "vector")}, HasPosition: true,
-			}},
+			want:  []ddlAlterSpec{ddlAltPos(ddlAltChange("conversion", ddlAltCol("c2", "vector")))},
 		},
 		{
 			alter: "ADD COLUMN n6 inet6 NOT NULL, RENAME COLUMN n6 TO vector2", maria: true,
@@ -342,6 +351,26 @@ func TestDDLAlterRenameColumnToEmptyIdentifier(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, "alter db.orders{ren old_col>``; ren system>select; drop b; col system=string; col after_col=int16 @pos}", got)
+}
+
+func TestDDLAlterChangeFromEmptyIdentifier(t *testing.T) {
+	sql := "ALTER TABLE db.`1234` ALTER COLUMN NEVER DROP DEFAULT, LOCK=NONE, " +
+		"CHANGE COLUMN `` `table` TIMESTAMP(6), " +
+		"ADD CONSTRAINT sym FOREIGN KEY fk (`system`) REFERENCES parent(`system`) MATCH FULL ON DELETE CASCADE ON UPDATE SET NULL; " +
+		"RENAME TABLE db.a TO db.b; " +
+		"ALTER TABLE db.`1234` RENAME COLUMN first TO `1ea10`, DISABLE KEYS, ADD CONSTRAINT sym PRIMARY KEY (b)"
+	stmts, err := parseQueryEvent([]byte(sql), 1049088, false)
+	require.NoError(t, err)
+	require.Len(t, stmts, 3)
+	alter, ok := stmts[0].(*ddlAlterTable)
+	require.True(t, ok, "expected *ddlAlterTable, got %T", stmts[0])
+	require.Equal(t, []ddlAlterSpec{
+		ddlAltChange("", ddlAltCol("table", "timestamp(6)")),
+	}, alter.Specs)
+
+	got, err := FuzzDDLSignature([]byte(sql), 1049088, false)
+	require.NoError(t, err)
+	require.Equal(t, "alter db.1234{chg `` table=timestamp} | rename db.a>db.b | alter db.1234{ren first>1ea10}", got)
 }
 
 func TestDDLAlterSpecNameReuseImpliesPositionShift(t *testing.T) {
