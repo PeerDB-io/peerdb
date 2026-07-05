@@ -56,6 +56,7 @@ func (s *Store) init() error {
 		`PRAGMA busy_timeout = 5000`,
 		`PRAGMA journal_mode = WAL`,
 		`PRAGMA synchronous = NORMAL`,
+		`PRAGMA journal_size_limit = 268435456`, // 256 MB
 		`CREATE TABLE IF NOT EXISTS corpus (
 				id INTEGER PRIMARY KEY,
 				engine TEXT NOT NULL,
