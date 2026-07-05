@@ -55,6 +55,27 @@ func TestEquivalentQueryText(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "mariadb skipped comment inside executable comment plainified",
+			submitted: "/*M!/*!ALTER TABLE fixture ADD n1 INT /*!130101 NOT NULL*/ */",
+			binlog:    "/*M!/*!ALTER TABLE fixture ADD n1 INT /* 130101 NOT NULL*/ */",
+			maria:     true,
+			want:      true,
+		},
+		{
+			name:      "mariadb live version boundary skipped comment plainified",
+			submitted: "/*M!/*!ALTER TABLE fixture ADD n1 INT /*!130100 NOT NULL*/ */",
+			binlog:    "/*M!/*!ALTER TABLE fixture ADD n1 INT /* 130100 NOT NULL*/ */",
+			maria:     true,
+			want:      true,
+		},
+		{
+			name:      "mariadb skipped comment inside ordinary comment is not normalized",
+			submitted: "ALTER TABLE fixture ADD n1 INT /* plain /*!130101 NOT NULL*/",
+			binlog:    "ALTER TABLE fixture ADD n1 INT /* plain /* 130101 NOT NULL*/",
+			maria:     true,
+			want:      false,
+		},
+		{
 			name:      "mysql reversed comment is not normalized",
 			submitted: "ALTER TABLE fixture ADD n1 INT /*!!11050 NOT NULL*/",
 			binlog:    "ALTER TABLE fixture ADD n1 INT /*  11050 NOT NULL*/",
@@ -65,6 +86,18 @@ func TestEquivalentQueryText(t *testing.T) {
 			submitted: "ALTER TABLE fixture ADD n1 INT /*!80000NOT NULL*/",
 			binlog:    "ALTER TABLE fixture ADD n1 INT /* 80000NOT NULL*/",
 			want:      false,
+		},
+		{
+			name:      "mysql skipped version comment plainified",
+			submitted: "ALTER TABLE fixture ADD n1 INT /*!99999NOT NULL*/",
+			binlog:    "ALTER TABLE fixture ADD n1 INT /* 99999NOT NULL*/",
+			want:      true,
+		},
+		{
+			name:      "mysql skipped comment inside executable comment plainified",
+			submitted: "/*!/*!ALTER TABLE fixture ADD n1 INT /*!99999 NOT NULL*/ */",
+			binlog:    "/*!/*!ALTER TABLE fixture ADD n1 INT /* 99999 NOT NULL*/ */",
+			want:      true,
 		},
 		{
 			name:      "quoted comment text is not normalized",

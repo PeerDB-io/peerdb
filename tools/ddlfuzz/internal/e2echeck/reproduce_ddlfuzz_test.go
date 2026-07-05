@@ -96,6 +96,13 @@ func TestReproduceByClass(t *testing.T) {
 				validStatus),
 		},
 		{
+			name: "plumbing sig mysql skipped version comment reconciled",
+			in: baseInput(ClassPlumbingSig,
+				"/*!/*!ALTER TABLE fixture ADD n1 INT /*!99999 , ADD n2 INT */ */",
+				"/*!/*!ALTER TABLE fixture ADD n1 INT /* 99999 , ADD n2 INT */ */",
+				validStatus),
+		},
+		{
 			name: "plumbing sig stale ddl before reset control reconciled",
 			in: baseInput(ClassPlumbingSig,
 				"/*!100000 SET STATEMENT max_statement_time=60 FOR ALTER TABLE fixture DROP COLUMN id */",
@@ -171,6 +178,18 @@ func TestReproduceByClass(t *testing.T) {
 				in := baseInput(ClassQueryRewrite,
 					"ALTER TABLE fixture ADD n1 INT /*!80000NOT NULL*/",
 					"ALTER TABLE fixture ADD n1 INT /* 80000NOT NULL*/",
+					validStatus)
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				return in
+			}(),
+		},
+		{
+			name: "mariadb live version skipped comment rewrite reconciled",
+			in: func() Input {
+				in := baseInput(ClassQueryRewrite,
+					"/*M!/*!ALTER TABLE fixture ADD n1 INT /*!130100 NOT NULL*/ */",
+					"/*M!/*!ALTER TABLE fixture ADD n1 INT /* 130100 NOT NULL*/ */",
 					validStatus)
 				in.Engine = "mariadb"
 				in.IsMariaDB = true

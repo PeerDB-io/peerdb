@@ -77,8 +77,12 @@ func reproducePlumbing(in Input) (Result, error) {
 		return Result{Reconciled: true}, nil
 	}
 
+	submittedForSig := in.Submitted
+	if EquivalentQueryText(in.Submitted, in.BinlogQuery, in.IsMariaDB) {
+		submittedForSig = in.BinlogQuery
+	}
 	liveSig, liveErr, livePanic := safeDDLSignature([]byte(in.BinlogQuery), mode, in.IsMariaDB)
-	subSig, subErr, subPanic := safeDDLSignature([]byte(in.Submitted), submittedMode, in.IsMariaDB)
+	subSig, subErr, subPanic := safeDDLSignature([]byte(submittedForSig), submittedMode, in.IsMariaDB)
 	if livePanic != nil || subPanic != nil {
 		return diverged(ClassPanic, "parser-panic", fmt.Sprintf("live=%v submitted=%v", livePanic, subPanic)), nil
 	}
