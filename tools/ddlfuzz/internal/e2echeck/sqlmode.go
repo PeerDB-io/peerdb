@@ -9,7 +9,7 @@ func ExpectedEventSQLModeRelevant(submitted string, sessionRelevant uint64, isMa
 	if !isMariaDB {
 		return sessionRelevant
 	}
-	prefix, ok := setStatementPrefix(submitted, sessionRelevant)
+	prefix, ok := setStatementPrefix(submitted, sessionRelevant, isMariaDB)
 	if !ok {
 		return sessionRelevant
 	}
@@ -20,7 +20,12 @@ func ExpectedEventSQLModeRelevant(submitted string, sessionRelevant uint64, isMa
 	return mode & RelevantSQLModeMask
 }
 
-func setStatementPrefix(sql string, mode uint64) (string, bool) {
+func setStatementPrefix(sql string, mode uint64, isMariaDB bool) (string, bool) {
+	normalized, ok := normalizeSQLModeEvalText(sql, mode, isMariaDB)
+	if !ok {
+		return "", false
+	}
+	sql = normalized
 	pos := skipSQLSpace(sql, 0)
 	next, ok := consumeSQLWord(sql, pos, "SET")
 	if !ok {

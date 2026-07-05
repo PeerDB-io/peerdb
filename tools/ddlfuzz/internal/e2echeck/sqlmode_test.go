@@ -32,6 +32,13 @@ func TestExpectedEventSQLModeRelevant(t *testing.T) {
 			want:      SQLModeNoBackslashEscapes | SQLModeANSIQuotes,
 		},
 		{
+			name:      "mariadb executable comment statement keyword",
+			sql:       "SET /*!50001 STATEMENT\n*/ sql_mode=CONCAT(@@sql_mode,',ANSI_QUOTES') FOR ALTER TABLE fixture ADD n1 INT",
+			session:   0,
+			isMariaDB: true,
+			want:      SQLModeANSIQuotes,
+		},
+		{
 			name:      "for inside string is skipped",
 			sql:       "SET STATEMENT lc_messages='en FOR us', sql_mode=CONCAT(@@session.sql_mode, ',MSSQL') FOR ALTER TABLE fixture ADD COLUMN n1 INT",
 			session:   SQLModeNoBackslashEscapes,

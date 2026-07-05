@@ -78,6 +78,18 @@ func TestReproduceByClass(t *testing.T) {
 			}(),
 		},
 		{
+			name: "sqlmode mismatch reconciled for executable comment statement keyword",
+			in: func() Input {
+				stmt := "SET /*!50001 STATEMENT\n*/ sql_mode=CONCAT(@@sql_mode,',ANSI_QUOTES') FOR ALTER TABLE fixture ADD n1 INT"
+				in := baseInput(ClassSQLModeMismatch, stmt, stmt, ansiStatus)
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				in.SQLMode = SQLModeANSIQuotes
+				in.ExpectedRelevant = &expectedZero
+				return in
+			}(),
+		},
+		{
 			name: "sqlmode mismatch reconciled for executable comment mode atom",
 			in: func() Input {
 				stmt := "SET STATEMENT\nsql_mode=CONCAT(/*! @@sql_mode */,_utf8mb4',ANSI_QUOTES') FOR ALTER TABLE fixture ADD COLUMN n1 INT"
