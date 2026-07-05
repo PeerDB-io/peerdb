@@ -62,6 +62,13 @@ func TestEquivalentQueryText(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "mariadb live version boundary skipped comment plainified",
+			submitted: "/*M!/*!ALTER TABLE fixture ADD n1 INT /*!130100 NOT NULL*/ */",
+			binlog:    "/*M!/*!ALTER TABLE fixture ADD n1 INT /* 130100 NOT NULL*/ */",
+			maria:     true,
+			want:      true,
+		},
+		{
 			name:      "mariadb skipped comment inside ordinary comment is not normalized",
 			submitted: "ALTER TABLE fixture ADD n1 INT /* plain /*!130101 NOT NULL*/",
 			binlog:    "ALTER TABLE fixture ADD n1 INT /* plain /* 130101 NOT NULL*/",
