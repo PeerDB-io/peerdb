@@ -314,6 +314,52 @@ func TestCompareSemanticsUnexpectedNullabilityChangeWithoutPKStillFires(t *testi
 	}
 }
 
+func TestCompareSemanticsToleratesImplicitBinaryDefaultCharset(t *testing.T) {
+	parsed := ParsedStmts{Stmts: []ParsedStmt{{
+		Kind: "alter_table",
+		Specs: []ParsedSpec{{
+			Op: "add",
+			Cols: []ParsedCol{
+				{Name: "n1", TypeStr: "varchar(32)", Precision: -1, Scale: -1},
+				{Name: "n2", TypeStr: "text", Precision: -1, Scale: -1},
+			},
+		}},
+	}}}
+	after := Snapshot{
+		"n1": {Name: "n1", Ordinal: 1, ColumnType: "varbinary(32)", IsNullable: "YES"},
+		"n2": {Name: "n2", Ordinal: 2, ColumnType: "blob", IsNullable: "YES"},
+	}
+
+	got := CompareSemantics(SemanticInput{
+		After:  after,
+		Actual: DiffSnapshots(nil, after),
+	}, parsed)
+	if len(got) != 0 {
+		t.Fatalf("implicit binary charset findings = %v, want none", got)
+	}
+}
+
+func TestCompareSemanticsBinaryDefaultCharsetToleranceIsNarrow(t *testing.T) {
+	parsed := ParsedStmts{Stmts: []ParsedStmt{{
+		Kind: "alter_table",
+		Specs: []ParsedSpec{{
+			Op:   "add",
+			Cols: []ParsedCol{{Name: "n1", TypeStr: "varchar(32)", Precision: -1, Scale: -1}},
+		}},
+	}}}
+	after := Snapshot{
+		"n1": {Name: "n1", Ordinal: 1, ColumnType: "blob", IsNullable: "YES"},
+	}
+
+	got := CompareSemantics(SemanticInput{
+		After:  after,
+		Actual: DiffSnapshots(nil, after),
+	}, parsed)
+	if len(got) != 1 || got[0].Class != ClassColumnAttr {
+		t.Fatalf("narrow tolerance findings = %v, want one column attr finding", got)
+	}
+}
+
 func compareInt64Ptr(v int64) *int64 {
 	return &v
 }

@@ -236,7 +236,7 @@ func compareColumnAttrs(name string, col ParsedCol, row ColRow) []SemanticFindin
 	var out []SemanticFinding
 	wantKind := qkindString(col.TypeStr)
 	gotKind := qkindString(row.ColumnType)
-	if wantKind != gotKind {
+	if wantKind != gotKind && !implicitBinaryCharsetRemap(col.TypeStr, row.ColumnType) {
 		out = append(out, SemanticFinding{
 			Class: ClassColumnAttr,
 			Meta:  map[string]any{"column": name, "attribute": "qkind", "want": wantKind, "got": gotKind, "want_type": col.TypeStr, "got_type": row.ColumnType},
@@ -267,6 +267,38 @@ func compareColumnAttrs(name string, col ParsedCol, row ColRow) []SemanticFindin
 		}
 	}
 	return out
+}
+
+func implicitBinaryCharsetRemap(wantType, gotType string) bool {
+	wantBase, wantParam := columnTypeBaseParam(wantType)
+	gotBase, gotParam := columnTypeBaseParam(gotType)
+	switch wantBase {
+	case "char":
+		return gotBase == "binary" && (wantParam == gotParam || wantParam == "" && gotParam == "1")
+	case "varchar":
+		return gotBase == "varbinary" && wantParam == gotParam
+	case "tinytext":
+		return gotBase == "tinyblob"
+	case "text":
+		return gotBase == "blob" && (gotParam == "" || gotParam == "65535")
+	case "mediumtext":
+		return gotBase == "mediumblob"
+	case "longtext":
+		return gotBase == "longblob"
+	default:
+		return false
+	}
+}
+
+func columnTypeBaseParam(typ string) (string, string) {
+	typ = strings.ToLower(strings.TrimSpace(typ))
+	base, rest, ok := strings.Cut(typ, "(")
+	if !ok {
+		base, _, _ = strings.Cut(typ, " ")
+		return base, ""
+	}
+	param, _, _ := strings.Cut(rest, ")")
+	return strings.TrimSpace(base), strings.ReplaceAll(param, " ", "")
 }
 
 func nullableImpliedNotNull(row ColRow) bool {
