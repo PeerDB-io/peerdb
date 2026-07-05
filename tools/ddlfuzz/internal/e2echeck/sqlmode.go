@@ -263,6 +263,9 @@ func splitTopLevelComma(s string, mode uint64) []string {
 
 func decodeSQLStringLiteral(s string, mode uint64) (string, bool) {
 	s = strings.TrimSpace(s)
+	if len(s) >= 2 && (s[0] == 'N' || s[0] == 'n') && s[1] == '\'' {
+		s = s[1:]
+	}
 	if len(s) >= 2 && s[0] == '_' && isSQLWordStart(s[1]) {
 		end := scanSQLWord(s, 1)
 		if end < len(s) && (s[end] == '\'' || s[end] == '"') {

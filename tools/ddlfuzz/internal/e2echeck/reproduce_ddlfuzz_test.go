@@ -90,6 +90,18 @@ func TestReproduceByClass(t *testing.T) {
 			}(),
 		},
 		{
+			name: "sqlmode mismatch reconciled for national charset literal",
+			in: func() Input {
+				stmt := "SET STATEMENT sql_mode=CONCAT(@@sql_mode,N',ANSI_QUOTES') FOR ALTER TABLE fixture ADD n1 INT"
+				in := baseInput(ClassSQLModeMismatch, stmt, stmt, ansiStatus)
+				in.Engine = "mariadb"
+				in.IsMariaDB = true
+				in.SQLMode = SQLModeANSIQuotes
+				in.ExpectedRelevant = &expectedZero
+				return in
+			}(),
+		},
+		{
 			name: "plumbing sig diverges",
 			in: func() Input {
 				in := baseInput(ClassPlumbingSig,
