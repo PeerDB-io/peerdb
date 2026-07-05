@@ -116,6 +116,35 @@ func TestCompareSemanticsSameNameDropAddIsReplacement(t *testing.T) {
 	}
 }
 
+func TestCompareSemanticsChangeFromMissingOldNameProducesNewColumn(t *testing.T) {
+	afterCol := ColRow{
+		Name: "n8", Ordinal: 1, ColumnType: "decimal(10,0)", IsNullable: "YES",
+		NumPrec: compareInt64Ptr(10), NumScale: compareInt64Ptr(0),
+	}
+	parsed := ParsedStmts{Stmts: []ParsedStmt{{
+		Kind: "alter_table",
+		Specs: []ParsedSpec{
+			{
+				Op:      "change",
+				OldName: "fixture",
+				Cols: []ParsedCol{{
+					Name: "n8", TypeStr: "decimal(10)", Precision: 10, Scale: -1,
+				}},
+			},
+		},
+	}}}
+	actual := Delta{Added: []ColRow{afterCol}}
+
+	got := CompareSemantics(SemanticInput{
+		Before: Snapshot{},
+		After:  Snapshot{"n8": afterCol},
+		Actual: actual,
+	}, parsed)
+	if len(got) != 0 {
+		t.Fatalf("change from missing old-name findings = %v, want none", got)
+	}
+}
+
 func TestCompareSemanticsSameNameRenameIsNoop(t *testing.T) {
 	col := ColRow{Name: "n6", Ordinal: 34, ColumnType: "timestamp(6)", IsNullable: "YES"}
 	parsed := ParsedStmts{Stmts: []ParsedStmt{{

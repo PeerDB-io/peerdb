@@ -24,6 +24,7 @@ type ddlAlterSpec struct {
 	NewColumns     []ddlColumnDef // ADD (single or parenthesized multi), MODIFY, CHANGE
 	AddIfNotExists bool
 	ModifyIfExists bool
+	ChangeColumn   bool // true for CHANGE, including changes from an empty identifier
 	RenameColumn   bool // true for RENAME COLUMN, including renames to an empty identifier
 	HasPosition    bool // a FIRST/AFTER placement was written on this spec
 }
@@ -346,7 +347,9 @@ func (p *ddlParser) parseAlterTable() ([]ddlStatement, error) {
 		}
 		if pair != nil {
 			rename = pair
-			if err := p.consumeAlterTableRenameTail(); err != nil {
+		}
+		if spec != nil || pair != nil {
+			if err := p.consumeAlterTableSpecTail(); err != nil {
 				return nil, err
 			}
 		}
@@ -407,7 +410,7 @@ func ddlApplyAlterSpecColumnNames(knownColumns map[string]struct{}, spec *ddlAlt
 		removes = append(removes, spec.OldColumnName)
 		adds = append(adds, spec.NewColumnName)
 	case len(spec.NewColumns) > 0:
-		if spec.OldColumnName != "" && len(spec.NewColumns) == 1 && spec.OldColumnName != spec.NewColumns[0].Name {
+		if spec.ChangeColumn && len(spec.NewColumns) == 1 && spec.OldColumnName != spec.NewColumns[0].Name {
 			removes = append(removes, spec.OldColumnName)
 		}
 		for _, col := range spec.NewColumns {
@@ -438,7 +441,7 @@ func ddlAlterSpecsHaveImplicitPositionShift(specs []ddlAlterSpec) bool {
 			removes = append(removes, spec.OldColumnName)
 			adds = append(adds, spec.NewColumnName)
 		case len(spec.NewColumns) > 0:
-			if spec.OldColumnName != "" && len(spec.NewColumns) == 1 && spec.OldColumnName != spec.NewColumns[0].Name {
+			if spec.ChangeColumn && len(spec.NewColumns) == 1 && spec.OldColumnName != spec.NewColumns[0].Name {
 				removes = append(removes, spec.OldColumnName)
 			}
 			for _, col := range spec.NewColumns {
@@ -674,7 +677,7 @@ func (p *ddlParser) parseChangeSpec() (*ddlAlterSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	spec := &ddlAlterSpec{OldColumnName: oldName}
+	spec := &ddlAlterSpec{OldColumnName: oldName, ChangeColumn: true}
 	if err := p.parseColumnDef(newName, spec, false); err != nil {
 		return nil, err
 	}
@@ -721,7 +724,7 @@ func (p *ddlParser) parseAlterTableRenameTarget() (string, string, error) {
 	return p.parseTableIdent()
 }
 
-func (p *ddlParser) consumeAlterTableRenameTail() error {
+func (p *ddlParser) consumeAlterTableSpecTail() error {
 	switch {
 	case ddlWordIs(p.peek(0), "REMOVE") && ddlWordIs(p.peek(1), "PARTITIONING"):
 		p.next()

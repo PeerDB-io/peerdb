@@ -58,7 +58,9 @@ func applyPredicted(before Snapshot, parsed ParsedStmts) predicted {
 					if col.Name == spec.OldName {
 						p.Changed[col.Name] = col
 					} else {
-						p.Dropped[spec.OldName] = true
+						if _, existed := before[spec.OldName]; existed {
+							p.Dropped[spec.OldName] = true
+						}
 						p.produceColumn(before, col.Name, col)
 					}
 				case "rename_col":

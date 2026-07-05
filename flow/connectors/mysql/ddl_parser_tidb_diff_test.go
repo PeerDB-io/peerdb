@@ -57,7 +57,7 @@ func ddlDiffSpecSig(sp ddlAlterSpec) string {
 	case sp.RenameColumn:
 		sb.WriteString("ren " + sp.OldColumnName + ">" + sp.NewColumnName)
 	case len(sp.NewColumns) > 0:
-		if sp.OldColumnName != "" {
+		if sp.ChangeColumn {
 			sb.WriteString("chg " + sp.OldColumnName + " ")
 		} else {
 			sb.WriteString("col ")
@@ -152,6 +152,7 @@ func tidbSpecToDDL(sp *ast.AlterTableSpec) (ddlAlterSpec, bool) {
 	var out ddlAlterSpec
 	switch sp.Tp {
 	case ast.AlterTableAddColumns, ast.AlterTableModifyColumn, ast.AlterTableChangeColumn:
+		out.ChangeColumn = sp.Tp == ast.AlterTableChangeColumn
 		if sp.OldColumnName != nil {
 			out.OldColumnName = sp.OldColumnName.Name.O
 		}
