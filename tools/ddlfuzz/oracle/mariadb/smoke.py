@@ -271,12 +271,14 @@ def run_smoke(soak: int | None) -> None:
 
         # The guard matches keywords as whole words with arbitrary text
         # between them, so it must survive the mutator padding the gaps with
-        # multi-whitespace ("PARTITION BY  SYSTEM_TIME") or an executable
-        # comment ("PARTITION /*M!130100 BY SYSTEM_TIME") -- both forms reached
-        # the parser and crashed the oracle before this guard.
+        # multi-whitespace ("PARTITION BY  SYSTEM_TIME"), an executable comment
+        # ("PARTITION /*M!130100 BY SYSTEM_TIME"), or swapping the boolean
+        # predicate in the interval expr (LIKE -> REGEXP) -- all reached the
+        # parser and crashed the oracle before this guard.
         evasions = (
             lambda s: s.replace(" SYSTEM_TIME ", "  SYSTEM_TIME  "),
             lambda s: s.replace("PARTITION BY", "PARTITION /*M!130100 BY"),
+            lambda s: s.replace(" LIKE ", " REGEXP "),
         )
         for evade in evasions:
             ev_storm, _ = oracle.parse_batch(

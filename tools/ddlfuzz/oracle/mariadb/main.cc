@@ -225,21 +225,30 @@ size_t find_word_end_ci(std::string_view haystack, std::string_view needle,
   return kNpos;
 }
 
-// The crash family is `PARTITION BY SYSTEM_TIME INTERVAL <expr…LIKE…> <unit>`.
-// Match each keyword as a whole word in order with arbitrary text in between,
-// so the mutator can't evade the guard by padding the gaps with whitespace or
-// executable comments (e.g. `PARTITION /*M!130100 BY SYSTEM_TIME`).
+// The crash family is `PARTITION BY SYSTEM_TIME INTERVAL <boolean-expr> <unit>`
+// where the interval expression carries an unfixed comparison Item (LIKE,
+// REGEXP, …) that the parse-time interval eval dereferences. Match the leading
+// keywords as whole words in order with arbitrary text between them (so the
+// mutator can't evade via whitespace or executable comments, e.g.
+// `PARTITION /*M!130100 BY SYSTEM_TIME`), then require any of the boolean
+// predicate keywords after INTERVAL. The predicate set is kept to keywords
+// rare enough not to appear incidentally elsewhere in the statement (unlike
+// and/or/in), so we don't over-reject valid `INTERVAL <n> <unit>` clauses.
 bool is_system_time_interval_like(std::string_view stmt) {
-  static constexpr std::string_view tokens[] = {"partition", "by",
-                                                 "system_time", "interval",
-                                                 "like"};
+  static constexpr std::string_view prefix[] = {"partition", "by",
+                                                 "system_time", "interval"};
   size_t pos = 0;
-  for (std::string_view tok : tokens) {
+  for (std::string_view tok : prefix) {
     pos = find_word_end_ci(stmt, tok, pos);
     if (pos == kNpos)
       return false;
   }
-  return true;
+  static constexpr std::string_view predicates[] = {"like", "regexp", "rlike"};
+  for (std::string_view pred : predicates) {
+    if (find_word_end_ci(stmt, pred, pos) != kNpos)
+      return true;
+  }
+  return false;
 }
 
 std::string error_string(const char *fallback) {
