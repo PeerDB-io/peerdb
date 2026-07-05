@@ -165,16 +165,16 @@ func (f *fakeBatcher) Start(context.Context, string) error {
 	return nil
 }
 
-func (f *fakeBatcher) ParseBatch(context.Context, []run.Case) ([]*digest.Digest, [][]byte, error) {
+func (f *fakeBatcher) ParseBatch(context.Context, []run.Case) ([]*digest.Digest, [][]byte, []uint32, error) {
 	if f.err != nil {
-		return nil, nil, f.err
+		return nil, nil, nil, f.err
 	}
 	raw := make([][]byte, len(f.digests))
 	for i, d := range f.digests {
 		b, _ := json.Marshal(d)
 		raw[i] = b
 	}
-	return f.digests, raw, nil
+	return f.digests, raw, make([]uint32, len(f.digests)), nil
 }
 
 func (f *fakeBatcher) Close() error {

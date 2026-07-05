@@ -60,7 +60,7 @@ type Result struct {
 
 type digestBatcher interface {
 	Start(context.Context, string) error
-	ParseBatch(context.Context, []run.Case) ([]*digest.Digest, [][]byte, error)
+	ParseBatch(context.Context, []run.Case) ([]*digest.Digest, [][]byte, []uint32, error)
 	Close() error
 }
 
@@ -215,7 +215,7 @@ func runReplayBatch(ctx context.Context, cfg Config, engine string, indexes []in
 				continue
 			}
 		}
-		ds, raw, err := client.ParseBatch(ctx, cases[start:end])
+		ds, raw, _, err := client.ParseBatch(ctx, cases[start:end])
 		if err != nil || len(ds) != end-start || len(raw) != end-start {
 			_ = client.Close()
 			client = nil

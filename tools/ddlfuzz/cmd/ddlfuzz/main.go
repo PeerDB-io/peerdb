@@ -41,7 +41,7 @@ type config struct {
 	maxOpenFindings      int
 	duration             time.Duration
 	corpusBudget         int64
-	retainPerPoll        int
+	retainPerBatch       int
 }
 
 func defaultConfig() config {
@@ -68,7 +68,7 @@ func defaultConfig() config {
 		minimizeBudget:       30 * time.Second,
 		maxOpenFindings:      200,
 		corpusBudget:         40 << 30,
-		retainPerPoll:        256,
+		retainPerBatch:       256,
 	}
 }
 
@@ -99,7 +99,7 @@ func addCommonFlags(fs *flag.FlagSet, cfg *config) {
 	fs.IntVar(&cfg.maxOpenFindings, "max-open-findings", cfg.maxOpenFindings, "maximum open findings to record")
 	fs.DurationVar(&cfg.duration, "duration", cfg.duration, "fuzzing duration; 0 runs until signal")
 	fs.Int64Var(&cfg.corpusBudget, "corpus-budget", cfg.corpusBudget, "corpus SQLite disk budget in bytes; 0 = unlimited")
-	fs.IntVar(&cfg.retainPerPoll, "retain-per-poll", cfg.retainPerPoll, "max corpus inputs retained per coverage-growth poll; 0 = unlimited")
+	fs.IntVar(&cfg.retainPerBatch, "retain-per-batch", cfg.retainPerBatch, "max corpus inputs retained per batch on fresh oracle edges, smallest first")
 }
 
 func main() {
@@ -127,7 +127,7 @@ func main() {
 
 	cmd := args[0]
 	switch cmd {
-	case "fuzz", "golden", "replay", "minimize", "corpus-migrate":
+	case "fuzz", "golden", "replay", "minimize", "corpus-migrate", "corpus-distill":
 		os.Exit(runCommand(cmd, cfg, args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", cmd)
@@ -217,13 +217,20 @@ func runCommand(cmd string, cfg config, args []string) int {
 			return 2
 		}
 		return runCorpusMigrate(cfg)
+	case "corpus-distill":
+		rest := fs.Args()
+		if len(rest) != 0 {
+			fs.Usage()
+			return 2
+		}
+		return runCorpusDistill(cfg)
 	default:
 		return 2
 	}
 }
 
 func usage(w io.Writer, fs *flag.FlagSet) {
-	fmt.Fprintln(w, "Usage: ddlfuzz [flags] fuzz|golden|replay|minimize|corpus-migrate [args]")
+	fmt.Fprintln(w, "Usage: ddlfuzz [flags] fuzz|golden|replay|minimize|corpus-migrate|corpus-distill [args]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags:")
 	fs.PrintDefaults()

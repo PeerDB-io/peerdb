@@ -11,6 +11,8 @@
 
 #include "digest.hpp"
 
+#include "../proto/proto.hpp"
+
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -43,6 +45,25 @@ constexpr unsigned long kClientMultiStatements = 1UL << 16;
 
 THD *g_thd = nullptr;
 std::vector<std::pair<uint8_t *, uint8_t *>> g_regions;
+// Virgin twin of each counter region (see ddlproto::drain_region). Allocated
+// lazily so it works no matter which message arrives first.
+std::vector<std::vector<uint8_t>> g_virgin_regions;
+
+uint32_t drain_new_edges() {
+  if (g_virgin_regions.size() != g_regions.size()) {
+    g_virgin_regions.resize(g_regions.size());
+    for (size_t i = 0; i < g_regions.size(); i++) {
+      g_virgin_regions[i].assign(
+          static_cast<size_t>(g_regions[i].second - g_regions[i].first), 0);
+    }
+  }
+  uint32_t fresh = 0;
+  for (size_t i = 0; i < g_regions.size(); i++) {
+    fresh += ddlproto::drain_region(g_regions[i].first, g_regions[i].second,
+                                    g_virgin_regions[i].data());
+  }
+  return fresh;
+}
 
 [[noreturn]] void fatal(const std::string &msg) {
   std::fprintf(stderr, "oracle-mariadb: %s\n", msg.c_str());
@@ -299,7 +320,7 @@ std::string server_version_json() {
   if (dash != std::string::npos)
     version.resize(dash);
   return std::string("{\"engine\":\"mariadb\",\"server_version\":\"") +
-         version + "\",\"protocol\":1}";
+         version + "\",\"protocol\":2}";
 }
 
 void handle_hello(Reader &r) {
@@ -316,9 +337,13 @@ void handle_hello(Reader &r) {
 void handle_coverage(Reader &r) {
   if (!r.done())
     fatal("GET_COVERAGE request payload must be empty");
+  // Fold any counters fired since the last case (startup, frame handling)
+  // into the virgin map, which is now the cumulative coverage snapshot —
+  // per-case draining leaves the live counters ~empty between cases.
+  drain_new_edges();
   size_t total = 0;
-  for (const auto &region : g_regions)
-    total += static_cast<size_t>(region.second - region.first);
+  for (const auto &virgin : g_virgin_regions)
+    total += virgin.size();
   if (total > std::numeric_limits<uint32_t>::max())
     fatal("coverage bitmap too large");
 
@@ -326,21 +351,23 @@ void handle_coverage(Reader &r) {
   out.reserve(1 + 4 + total);
   out.push_back(static_cast<char>(kMsgGetCoverage));
   append_u32(out, static_cast<uint32_t>(total));
-  for (const auto &region : g_regions)
-    out.append(reinterpret_cast<const char *>(region.first),
-               static_cast<size_t>(region.second - region.first));
+  for (const auto &virgin : g_virgin_regions)
+    out.append(reinterpret_cast<const char *>(virgin.data()), virgin.size());
   write_frame(out);
 }
 
 void handle_parse_batch(Reader &r) {
   uint32_t count = r.u32();
   std::vector<std::string> digests;
+  std::vector<uint32_t> new_edges;
   digests.reserve(count);
+  new_edges.reserve(count);
   for (uint32_t i = 0; i < count; i++) {
     uint64_t mode = r.u64();
     uint32_t len = r.u32();
     std::string stmt = r.bytes(len);
     digests.push_back(run_case(stmt, mode));
+    new_edges.push_back(drain_new_edges());
   }
   if (!r.done())
     fatal("trailing bytes in PARSE_BATCH request");
@@ -348,9 +375,10 @@ void handle_parse_batch(Reader &r) {
   std::string out;
   out.push_back(static_cast<char>(kMsgParseBatch));
   append_u32(out, count);
-  for (const std::string &digest : digests) {
-    append_u32(out, static_cast<uint32_t>(digest.size()));
-    out += digest;
+  for (uint32_t i = 0; i < count; i++) {
+    append_u32(out, new_edges[i]);
+    append_u32(out, static_cast<uint32_t>(digests[i].size()));
+    out += digests[i];
   }
   write_frame(out);
 }

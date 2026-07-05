@@ -21,11 +21,14 @@ type Ctx struct {
 	IsMariaDB bool
 	Mode      uint64
 	V         Vocab
+	P         *Profile
 
 	tableSuffix string
-	freshUsed   map[string]bool
-	colSet      map[string]bool
+	attrType    string
+	fresh       *FreshPool
 }
+
+func (c *Ctx) constrained() bool { return c.P != nil }
 
 // Vocab is the fixture vocabulary the constrained (e2e) profile draws from.
 type Vocab struct {
@@ -43,6 +46,7 @@ type Profile struct {
 	NoConvertCharset  bool
 	RenameTableWeight float64
 	MaxSpecs          int
+	Mode              uint64
 }
 
 func ChooseMode(r *rand.Rand, isMariaDB bool) uint64 {
@@ -74,29 +78,8 @@ func GenerateConstrained(r *rand.Rand, v Vocab, p Profile) string {
 		r = rand.New(rand.NewPCG(1, 2))
 	}
 	v = normalizeVocab(v)
-	ctx := &Ctx{R: r, IsMariaDB: v.IsMariaDB, V: v}
-	maxSpecs := p.MaxSpecs
-	if maxSpecs <= 0 {
-		maxSpecs = 3
-	}
-	if maxSpecs > 8 {
-		maxSpecs = 8
-	}
-	if !p.HeadsAlterOnly && p.RenameTableWeight > 0 && r.Float64() < p.RenameTableWeight {
-		return genRename(ctx)
-	}
-	specN := 1 + r.IntN(maxSpecs)
-	specs := make([]string, 0, specN)
-	for i := 0; i < specN; i++ {
-		specs = append(specs, genAlterSpec(ctx, p))
-	}
-	head := "ALTER TABLE "
-	if v.IsMariaDB && r.IntN(20) == 0 {
-		head = "ALTER ONLINE TABLE "
-	} else if r.IntN(30) == 0 {
-		head = "ALTER IGNORE TABLE "
-	}
-	return head + quoteMaybe(ctx, v.Table) + " " + strings.Join(specs, ", ")
+	ctx := &Ctx{R: r, IsMariaDB: v.IsMariaDB, Mode: p.Mode, V: v, P: &p}
+	return genOne(ctx)
 }
 
 func Generate(r *rand.Rand, isMariaDB bool, mode uint64) string {
@@ -138,10 +121,18 @@ func genStatement(c *Ctx) string {
 			return e.Emit(c)
 		}
 	}
-	if c.R.IntN(100) < 8 {
+	return genOne(c)
+}
+
+func genOne(c *Ctx) string {
+	if c.constrained() {
+		if !c.P.HeadsAlterOnly && c.P.RenameTableWeight > 0 && c.R.Float64() < c.P.RenameTableWeight {
+			return genRename(c)
+		}
+	} else if c.R.IntN(100) < 8 {
 		return genRename(c)
 	}
-	specN := 1 + c.R.IntN(5)
+	specN := 1 + c.R.IntN(c.maxSpecs())
 	specs := make([]string, 0, specN)
 	for i := 0; i < specN; i++ {
 		if e, ok := pick(c, alterSpecs); ok {
@@ -156,6 +147,20 @@ func genStatement(c *Ctx) string {
 	suffix := c.tableSuffix
 	c.tableSuffix = ""
 	return head + " " + quoteMaybe(c, c.V.Table) + suffix + " " + strings.Join(specs, ", ")
+}
+
+func (c *Ctx) maxSpecs() int {
+	if !c.constrained() {
+		return 5
+	}
+	m := c.P.MaxSpecs
+	if m <= 0 {
+		m = 3
+	}
+	if m > 8 {
+		m = 8
+	}
+	return m
 }
 
 func normalizeVocab(v Vocab) Vocab {
@@ -202,55 +207,19 @@ func genRename(c *Ctx) string {
 	return fmt.Sprintf("RENAME TABLE %s TO %s", quoteMaybe(c, c.V.Table), quoteMaybe(c, dst))
 }
 
-func genAlterSpec(c *Ctx, p Profile) string {
-	col := quoteMaybe(c, pickString(c.R, c.V.Columns))
-	typ := pickString(c.R, c.V.Types)
-	switch c.R.IntN(12) {
-	case 0, 1, 2:
-		pos := ""
-		if c.R.IntN(4) == 0 {
-			pos = " AFTER " + quoteMaybe(c, pickString(c.R, c.V.Columns))
-		} else if c.R.IntN(12) == 0 {
-			pos = " FIRST"
+func genAttrs(c *Ctx, typ string) string {
+	if c.constrained() {
+		if c.R.IntN(7) == 0 {
+			return ""
 		}
-		return "ADD COLUMN " + quoteMaybe(c, c.freshIdent()) + " " + typ + genAttrsSimple(c, typ) + pos
-	case 3:
-		typ2 := pickString(c.R, c.V.Types)
-		return "ADD (" + quoteMaybe(c, c.freshIdent()) + " " + typ + ", " + quoteMaybe(c, c.freshIdent()) + " " + typ2 + ")"
-	case 4, 5:
-		return "MODIFY COLUMN " + col + " " + typ + genAttrsSimple(c, typ)
-	case 6, 7:
-		return "CHANGE COLUMN " + col + " " + quoteMaybe(c, c.freshIdent()) + " " + typ + genAttrsSimple(c, typ)
-	case 8:
-		return "DROP COLUMN " + col
-	case 9:
-		return "RENAME COLUMN " + col + " TO " + quoteMaybe(c, c.freshIdent())
-	case 10:
-		if p.NoConvertCharset {
-			return "ADD INDEX idx_" + bareIdentifier(col) + " (" + col + ")"
+		c.attrType = typ
+		attr := ""
+		if e, ok := pick(c, columnAttrs); ok {
+			attr = " " + e.Emit(c)
 		}
-		return pickString(c.R, []string{
-			"ADD INDEX idx_" + bareIdentifier(col) + " (" + col + ")",
-			"CONVERT TO CHARACTER SET utf8mb4",
-			"ALGORITHM=INPLACE",
-			"LOCK=NONE",
-			"FORCE",
-		})
-	default:
-		if p.NoAlterRenameTo {
-			return "ADD CHECK (" + col + " IS NOT NULL)"
-		}
-		return pickString(c.R, []string{
-			"RENAME TO " + quoteMaybe(c, pickString(c.R, c.V.FreshNames)),
-			"ENGINE=InnoDB",
-			"ORDER BY " + col,
-			"DISABLE KEYS",
-			"ENABLE KEYS",
-		})
+		c.attrType = ""
+		return attr
 	}
-}
-
-func genAttrs(c *Ctx) string {
 	n := c.R.IntN(5)
 	if n == 0 {
 		return ""
@@ -266,46 +235,10 @@ func genAttrs(c *Ctx) string {
 }
 
 func (c *Ctx) freshIdent() string {
-	if c.colSet == nil {
-		c.colSet = make(map[string]bool, len(c.V.Columns))
-		for _, col := range c.V.Columns {
-			c.colSet[col] = true
-		}
-		c.freshUsed = map[string]bool{}
+	if c.fresh == nil {
+		c.fresh = NewFreshPool(c.V.FreshNames, c.V.Columns)
 	}
-	candidates := make([]string, 0, len(c.V.FreshNames))
-	for _, name := range c.V.FreshNames {
-		if !c.colSet[name] && !c.freshUsed[name] {
-			candidates = append(candidates, name)
-		}
-	}
-	var name string
-	if len(candidates) > 0 {
-		name = pickString(c.R, candidates)
-	} else {
-		for {
-			name = fmt.Sprintf("nf%d_%d", len(c.freshUsed)+1, c.R.Uint64N(1_000_000))
-			if !c.colSet[name] && !c.freshUsed[name] {
-				break
-			}
-		}
-	}
-	c.freshUsed[name] = true
-	return name
-}
-
-func genAttrsSimple(c *Ctx, typ string) string {
-	attrs := []string{"", " NOT NULL", " NULL", " DEFAULT NULL", " COMMENT 'ddlfuzz'", " INVISIBLE"}
-	if !c.IsMariaDB {
-		attrs = append(attrs, " VISIBLE")
-	}
-	typ = strings.ToLower(typ)
-	if hasAnyPrefix(typ, "varchar", "char", "varbinary", "binary") {
-		attrs = append(attrs, " DEFAULT 'x,y'")
-	} else if hasAnyPrefix(typ, "int", "bigint", "tinyint", "decimal", "double", "bit") {
-		attrs = append(attrs, " DEFAULT 1")
-	}
-	return pickString(c.R, attrs)
+	return c.fresh.Next(c.R)
 }
 
 func hasAnyPrefix(s string, prefixes ...string) bool {

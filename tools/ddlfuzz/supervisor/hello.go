@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"syscall"
 	"time"
+
+	"github.com/PeerDB-io/peerdb/tools/ddlfuzz/internal/wire"
 )
 
 type helloResponse struct {
@@ -98,8 +100,8 @@ func HelloSmoke(ctx context.Context, oraclePath, engine string) error {
 			errc <- fmt.Errorf("parse hello json: %w", err)
 			return
 		}
-		if resp.Protocol != 1 {
-			errc <- fmt.Errorf("oracle protocol=%d, want 1", resp.Protocol)
+		if resp.Protocol != wire.ProtocolVersion {
+			errc <- fmt.Errorf("oracle protocol=%d, want %d", resp.Protocol, wire.ProtocolVersion)
 			return
 		}
 		if resp.Engine != engine {
