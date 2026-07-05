@@ -271,6 +271,53 @@ EXPECTED = {
         "verdict": "reject",
         "error_prefix": "1064: ",
     },
+    "CREATE EXTERNAL TABLE db.t ENGINE=InnoDB": {
+        "verdict": "reject",
+        "error_prefix": "6512: ",
+    },
+    "CREATE EXTERNAL TABLE db.t ENGINE=zzz_bogus": {
+        "verdict": "reject",
+        "error_prefix": "1286: ",
+    },
+    "ALTER TABLE t ADD c INT, ENGINE=InnoDB": {
+        "verdict": "accept",
+        "stmts": [
+            {
+                "kind": "alter_table",
+                "schema": "",
+                "table": "t",
+                "specs": [
+                    {
+                        "op": "add",
+                        "cols": [
+                            {
+                                "name": "c",
+                                "type_str": "int",
+                                "not_null": False,
+                                "params_written": None,
+                            }
+                        ],
+                        "has_position": False,
+                    }
+                ],
+            }
+        ],
+    },
+    "ALTER TABLE t ENGINE=MyISAM": {
+        "verdict": "accept",
+        "stmts": [
+            {
+                "kind": "alter_table",
+                "schema": "",
+                "table": "t",
+                "specs": [],
+            }
+        ],
+    },
+    "CREATE TABLE t (a INT) ENGINE=InnoDB": {
+        "verdict": "accept",
+        "stmts": [{"kind": "other"}],
+    },
 }
 
 

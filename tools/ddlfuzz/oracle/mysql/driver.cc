@@ -7,12 +7,14 @@
 #include <vector>
 
 #include "field_types.h"
+#include "mysql/plugin.h"
 #include "mysql/strings/m_ctype.h"
 #include "mysql_com.h"
 #include "sql-common/my_decimal.h"
 #include "sql/check_stack.h"
 #include "sql/create_field.h"
 #include "sql/handler.h"
+#include "sql/opt_costconstantcache.h"
 #include "sql/protocol_classic.h"
 #include "sql/sql_alter.h"
 #include "sql/sql_class.h"
@@ -40,6 +42,7 @@ using ddlproto::read_frame;
 using ddlproto::write_frame;
 
 int Fake_TABLE::highest_table_id = 5;
+
 
 struct CovRegion {
   uint8_t *start;
@@ -412,7 +415,9 @@ static void reclaim_after_event(THD *thd) {
 
 static std::string parse_event(THD *thd, uint64_t sql_mode, const char *stmt,
                                size_t len) {
-  thd->variables.sql_mode = sql_mode;
+  // Plan 13: stand-ins cover resolvable engine names; NES rejects only the
+  // remaining mutation-mangled names instead of substituting a null hton.
+  thd->variables.sql_mode = sql_mode | MODE_NO_ENGINE_SUBSTITUTION;
 
   std::string mut(stmt, len);
   char *p = mut.data();
@@ -532,27 +537,64 @@ extern bool initialize_minimal_chassis(SERVICE_TYPE_NO_CONST(registry) *
 // (ha_resolve_storage_engine_name already special-cases unit tests).
 static handlerton g_stand_in_hton{};
 static st_plugin_int g_stand_in_se_plugin{};
+static bool g_stand_in_registered = false;
+
+static plugin_ref default_stand_in_ref() {
+  if (!g_stand_in_registered) {
+    const uint slot = static_cast<uint>(num_hton2plugins());
+    g_stand_in_hton.slot = slot;
+    g_stand_in_hton.state = SHOW_OPTION_YES;
+    g_stand_in_hton.db_type = DB_TYPE_UNKNOWN;
+    g_stand_in_se_plugin.name = {STRING_WITH_LEN("ddlfuzz_stand_in")};
+    g_stand_in_se_plugin.state = PLUGIN_IS_READY;
+    g_stand_in_se_plugin.ref_count = 1;
+    g_stand_in_se_plugin.data = &g_stand_in_hton;
+    insert_hton2plugin(slot, &g_stand_in_se_plugin);
+    g_stand_in_registered = true;
+  }
+#ifdef NDEBUG
+  return &g_stand_in_se_plugin;
+#else
+  static st_plugin_int *ref_holder = &g_stand_in_se_plugin;
+  return &ref_holder;
+#endif
+}
+
+static st_mysql_storage_engine ddlfuzz_se_info = {
+    MYSQL_HANDLERTON_INTERFACE_VERSION};
+
+static int ddlfuzz_se_init(void *p) {
+  auto *h = static_cast<handlerton *>(p);
+  h->state = SHOW_OPTION_YES;
+  h->db_type = DB_TYPE_UNKNOWN;
+  h->flags = 0;
+  return 0;
+}
+
+#define DDLFUZZ_SE(NAME)                                                     \
+  {                                                                          \
+    MYSQL_STORAGE_ENGINE_PLUGIN, &ddlfuzz_se_info, NAME, "ddlfuzz",          \
+        "parse-only stand-in", PLUGIN_LICENSE_GPL, ddlfuzz_se_init, nullptr, \
+        nullptr, 0x0001, nullptr, nullptr, nullptr, 0                         \
+  }
+
+static st_mysql_plugin ddlfuzz_builtin_plugins[] = {
+    DDLFUZZ_SE("InnoDB"),
+    DDLFUZZ_SE("MyISAM"),
+    DDLFUZZ_SE("CSV"),
+    {0, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, 0,
+     nullptr, nullptr, nullptr, 0},
+};
+
+st_mysql_plugin *mysql_mandatory_plugins[] = {ddlfuzz_builtin_plugins, nullptr};
+st_mysql_plugin *mysql_optional_plugins[] = {nullptr};
 
 static void install_default_se_stand_in(THD *thd) {
   if (global_system_variables.table_plugin != nullptr &&
       global_system_variables.temp_table_plugin != nullptr) {
     return;
   }
-  const uint slot = static_cast<uint>(num_hton2plugins());
-  g_stand_in_hton.slot = slot;
-  g_stand_in_hton.state = SHOW_OPTION_YES;
-  g_stand_in_hton.db_type = DB_TYPE_UNKNOWN;
-  g_stand_in_se_plugin.name = {STRING_WITH_LEN("ddlfuzz_stand_in")};
-  g_stand_in_se_plugin.state = PLUGIN_IS_READY;
-  g_stand_in_se_plugin.ref_count = 1;
-  g_stand_in_se_plugin.data = &g_stand_in_hton;
-  insert_hton2plugin(slot, &g_stand_in_se_plugin);
-#ifdef NDEBUG
-  const plugin_ref ref = &g_stand_in_se_plugin;
-#else
-  static st_plugin_int *ref_holder = &g_stand_in_se_plugin;
-  const plugin_ref ref = &ref_holder;
-#endif
+  const plugin_ref ref = default_stand_in_ref();
   if (global_system_variables.table_plugin == nullptr)
     global_system_variables.table_plugin = ref;
   if (global_system_variables.temp_table_plugin == nullptr)
@@ -575,6 +617,29 @@ int main(int, char **argv) {
     return 2;
   }
   my_testing::setup_server_for_unit_tests();
+  int se_argc = 1;
+  char *se_argv[] = {const_cast<char *>("oracle-mysql"), nullptr};
+  mysql_mutex_init(PSI_NOT_INSTRUMENTED, &LOCK_global_system_variables,
+                   MY_MUTEX_INIT_FAST);
+  LOCK_global_system_variables.m_psi = nullptr;
+  mysql_rwlock_init(PSI_NOT_INSTRUMENTED, &LOCK_system_variables_hash);
+  mysql_mutex_destroy(&LOCK_plugin);
+  if (plugin_register_early_plugins(&se_argc, se_argv,
+                                    PLUGIN_INIT_SKIP_INITIALIZATION)) {
+    std::fprintf(stderr, "oracle-mysql: plugin internals init failed\n");
+    return 2;
+  }
+  LOCK_plugin.m_psi = nullptr;
+  LOCK_plugin_delete.m_psi = nullptr;
+  const plugin_ref default_ref = default_stand_in_ref();
+  global_system_variables.table_plugin = default_ref;
+  global_system_variables.temp_table_plugin = default_ref;
+  delete_optimizer_cost_module();
+  if (plugin_register_builtin_and_init_core_se(&se_argc, se_argv)) {
+    std::fprintf(stderr, "oracle-mysql: storage engine stand-in init failed\n");
+    return 2;
+  }
+  init_optimizer_cost_module(false);
   error_handler_hook = my_message_sql;
 
   auto *init = new my_testing::Server_initializer();
