@@ -112,8 +112,44 @@ func TestDDLFuzzParseForE2EModifyIfExistsIsConditionalChange(t *testing.T) {
 	}
 	spec := got.Stmts[0].Specs[0]
 	if spec.Op != "change" || spec.OldName != "n1" || len(spec.Cols) != 1 ||
-		spec.Cols[0].Name != "n1" || spec.Cols[0].TypeStr != "int unsigned" || !spec.Cols[0].NotNull {
+		spec.Cols[0].Name != "n1" || spec.Cols[0].TypeStr != "int unsigned" || !spec.Cols[0].NotNull ||
+		!spec.IfExists {
 		t.Fatalf("unexpected e2e spec: %#v", spec)
+	}
+}
+
+func TestDDLFuzzParseForE2EChangeIfExistsPreserved(t *testing.T) {
+	query := []byte("ALTER TABLE `fixture` CHANGE IF EXISTS `fixture` `n3` BINARY(8) FIRST, FORCE, CHANGE `id` `n2` SERIAL FIRST")
+	sig, err := FuzzDDLSignature(query, sqlModeNoBackslashEscapes, true)
+	if err != nil {
+		t.Fatalf("FuzzDDLSignature error: %v", err)
+	}
+	if sig != "alter fixture{chg fixture n3=bytes @pos; chg id n2=uint64 nn @pos}" {
+		t.Fatalf("FuzzDDLSignature=%q", sig)
+	}
+
+	data, err := FuzzParseForE2E(query, sqlModeNoBackslashEscapes, true)
+	if err != nil {
+		t.Fatalf("FuzzParseForE2E error: %v", err)
+	}
+	var got e2eStmts
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal e2e stmts: %v", err)
+	}
+	if len(got.Stmts) != 1 || len(got.Stmts[0].Specs) != 2 {
+		t.Fatalf("expected two alter specs: %s", data)
+	}
+	first := got.Stmts[0].Specs[0]
+	if first.Op != "change" || first.OldName != "fixture" || len(first.Cols) != 1 ||
+		first.Cols[0].Name != "n3" || first.Cols[0].TypeStr != "binary(8)" || !first.HasPosition ||
+		!first.IfExists {
+		t.Fatalf("unexpected first spec: %#v", first)
+	}
+	second := got.Stmts[0].Specs[1]
+	if second.Op != "change" || second.OldName != "id" || len(second.Cols) != 1 ||
+		second.Cols[0].Name != "n2" || second.Cols[0].TypeStr != "bigint unsigned" ||
+		!second.Cols[0].NotNull || !second.HasPosition || second.IfExists {
+		t.Fatalf("unexpected second spec: %#v", second)
 	}
 }
 

@@ -23,9 +23,12 @@ type ddlAlterSpec struct {
 	NewColumnName  string         // RENAME COLUMN new name
 	NewColumns     []ddlColumnDef // ADD (single or parenthesized multi), MODIFY, CHANGE
 	AddIfNotExists bool
+	DropIfExists   bool
 	ModifyIfExists bool
 	ChangeColumn   bool // true for CHANGE, including changes from an empty identifier
+	ChangeIfExists bool
 	RenameColumn   bool // true for RENAME COLUMN, including renames to an empty identifier
+	RenameIfExists bool
 	HasPosition    bool // a FIRST/AFTER placement was written on this spec
 }
 
@@ -594,7 +597,7 @@ func (p *ddlParser) parseDropSpec() (*ddlAlterSpec, bool, error) {
 		return nil, false, err
 	}
 	// RESTRICT | CASCADE (MariaDB)
-	return &ddlAlterSpec{OldColumnName: name}, false, p.skipSpecRemainder()
+	return &ddlAlterSpec{OldColumnName: name, DropIfExists: sawIfExists}, false, p.skipSpecRemainder()
 }
 
 func (p *ddlParser) parseModifySpec() (*ddlAlterSpec, error) {
@@ -616,7 +619,7 @@ func (p *ddlParser) parseModifySpec() (*ddlAlterSpec, error) {
 
 func (p *ddlParser) parseChangeSpec() (*ddlAlterSpec, error) {
 	p.consumeWords("COLUMN")
-	p.consumeWords("IF", "EXISTS")
+	sawIfExists := p.consumeWords("IF", "EXISTS")
 	oldName, err := p.expectIdent("column name")
 	if err != nil {
 		return nil, err
@@ -625,7 +628,7 @@ func (p *ddlParser) parseChangeSpec() (*ddlAlterSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	spec := &ddlAlterSpec{OldColumnName: oldName, ChangeColumn: true}
+	spec := &ddlAlterSpec{OldColumnName: oldName, ChangeColumn: true, ChangeIfExists: sawIfExists}
 	if err := p.parseColumnDef(newName, spec, false); err != nil {
 		return nil, err
 	}
@@ -637,7 +640,7 @@ func (p *ddlParser) parseRenameSpec(tableSchema, table string) (*ddlAlterSpec, *
 	switch {
 	case ddlWordIs(t, "COLUMN"):
 		p.next()
-		p.consumeWords("IF", "EXISTS")
+		sawIfExists := p.consumeWords("IF", "EXISTS")
 		oldName, err := p.expectIdent("column name")
 		if err != nil {
 			return nil, nil, err
@@ -653,7 +656,12 @@ func (p *ddlParser) parseRenameSpec(tableSchema, table string) (*ddlAlterSpec, *
 		if err != nil {
 			return nil, nil, err
 		}
-		return &ddlAlterSpec{OldColumnName: oldName, NewColumnName: newName, RenameColumn: true}, nil, nil
+		return &ddlAlterSpec{
+			OldColumnName:  oldName,
+			NewColumnName:  newName,
+			RenameColumn:   true,
+			RenameIfExists: sawIfExists,
+		}, nil, nil
 	case ddlWordIs(t, "INDEX") || ddlWordIs(t, "KEY"):
 		return nil, nil, p.skipSpecRemainder()
 	default:
@@ -1310,9 +1318,10 @@ func (p *ddlParser) parseTypeParams() ([]string, error) {
 }
 
 // parseColumnAttributes consumes everything after the data type until the end of
-// the spec (',' or ';' at paren depth 0, an unconsumed ')' when insideParens, or
-// end of input), extracting NOT NULL, FIRST/AFTER placement, UNSIGNED/ZEROFILL
-// and charset-driven binary remaps; every other attribute is skipped.
+// the spec (',' or ';' at paren depth 0, an unconsumed ')' when insideParens,
+// a table-level partitioning tail, or end of input), extracting NOT NULL,
+// FIRST/AFTER placement, UNSIGNED/ZEROFILL and charset-driven binary remaps;
+// every other attribute is skipped.
 func (p *ddlParser) parseColumnAttributes(st *ddlColumnState, spec *ddlAlterSpec, insideParens bool) error {
 	for {
 		t := p.peek(0)
@@ -1341,6 +1350,9 @@ func (p *ddlParser) parseColumnAttributes(st *ddlColumnState, spec *ddlAlterSpec
 				p.next()
 			}
 		case tokWord:
+			if !insideParens && ddlColumnAttributeStartsAlterTail(t, p.peek(1)) {
+				return nil
+			}
 			if err := p.parseColumnAttributeWord(st, spec, t); err != nil {
 				return err
 			}
@@ -1348,6 +1360,11 @@ func (p *ddlParser) parseColumnAttributes(st *ddlColumnState, spec *ddlAlterSpec
 			p.next()
 		}
 	}
+}
+
+func ddlColumnAttributeStartsAlterTail(t, next ddlToken) bool {
+	return (ddlWordIs(t, "PARTITION") && ddlWordIs(next, "BY")) ||
+		(ddlWordIs(t, "REMOVE") && ddlWordIs(next, "PARTITIONING"))
 }
 
 func (p *ddlParser) parseColumnAttributeWord(st *ddlColumnState, spec *ddlAlterSpec, t ddlToken) error {

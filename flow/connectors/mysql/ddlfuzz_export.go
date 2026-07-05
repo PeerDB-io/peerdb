@@ -133,6 +133,7 @@ type e2eSpec struct {
 	NewName     string   `json:"new_name,omitempty"`
 	Cols        []e2eCol `json:"cols,omitempty"`
 	HasPosition bool     `json:"has_position"`
+	IfExists    bool     `json:"if_exists,omitempty"`
 }
 type e2ePair struct {
 	OldSchema string `json:"old_schema"`
@@ -235,12 +236,15 @@ func fuzzDDLStmtsToE2E(stmts []ddlStatement) e2eStmts {
 					spec.Op = "rename_col"
 					spec.OldName = sp.OldColumnName
 					spec.NewName = sp.NewColumnName
+					spec.IfExists = sp.RenameIfExists
 				case len(sp.NewColumns) > 0 && (sp.ChangeColumn || sp.ModifyIfExists):
 					spec.Op = "change"
 					if sp.ChangeColumn {
 						spec.OldName = sp.OldColumnName
+						spec.IfExists = sp.ChangeIfExists
 					} else {
 						spec.OldName = sp.NewColumns[0].Name
+						spec.IfExists = sp.ModifyIfExists
 					}
 					for _, c := range sp.NewColumns {
 						spec.Cols = append(spec.Cols, fuzzDDLColToE2E(c))
@@ -253,6 +257,7 @@ func fuzzDDLStmtsToE2E(stmts []ddlStatement) e2eStmts {
 				default:
 					spec.Op = "drop"
 					spec.OldName = sp.OldColumnName
+					spec.IfExists = sp.DropIfExists
 				}
 				es.Specs = append(es.Specs, spec)
 			}

@@ -62,10 +62,37 @@ func TestEquivalentQueryText(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "mariadb skipped mariadb comment marker plainified",
+			submitted: "/*M!/*!ALTER TABLE fixture RENAME TO r /*M!130101 , DROP CHECK c */ */",
+			binlog:    "/*M!/*!ALTER TABLE fixture RENAME TO r /*M 130101 , DROP CHECK c */ */",
+			maria:     true,
+			want:      true,
+		},
+		{
+			name:      "mariadb skipped reversed mariadb comment marker plainified",
+			submitted: "ALTER TABLE fixture ADD n1 INT /*M!!130101 NOT NULL*/",
+			binlog:    "ALTER TABLE fixture ADD n1 INT /*M  130101 NOT NULL*/",
+			maria:     true,
+			want:      true,
+		},
+		{
 			name:      "mariadb live version boundary skipped comment plainified",
 			submitted: "/*M!/*!ALTER TABLE fixture ADD n1 INT /*!130100 NOT NULL*/ */",
 			binlog:    "/*M!/*!ALTER TABLE fixture ADD n1 INT /* 130100 NOT NULL*/ */",
 			maria:     true,
+			want:      true,
+		},
+		{
+			name:      "mariadb skipped comment nested comment markers plainified",
+			submitted: "/*M!/*!ALTER TABLE fixture /*!90699 before /*!130101 nested */ after */ */",
+			binlog:    "/*M!/*!ALTER TABLE fixture /* 90699 before (*!130101 nested *) after */ */",
+			maria:     true,
+			want:      true,
+		},
+		{
+			name:      "mysql skipped comment nested comment markers plainified",
+			submitted: "ALTER TABLE fixture ADD n1 INT /*!99999 before /* nested */ after */",
+			binlog:    "ALTER TABLE fixture ADD n1 INT /* 99999 before (* nested *) after */",
 			want:      true,
 		},
 		{

@@ -1,0 +1,1 @@
+ALTER TABLE db.`1234` MODIFY `key` INT COMMENT 'comma,value' COMMENT '-- line' NOT NULL FIRST, RENAME COLUMN `世界` TO `世界_col`, CHANGE `key` `parameters` INTEGER ENGINE_ATTRIBUTE='{"k":1}'  PARTITION BY KEY ()
