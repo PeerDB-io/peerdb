@@ -251,10 +251,6 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 			js json NOT NULL
 		)`, srcFullName)))
 
-	// Doubles are kept to small magnitudes: for some magnitudes Go's float formatting (used by
-	// the CDC decoder) emits scientific notation, e.g. "1.0000005e+06", where MySQL's text
-	// protocol emits plain decimal "1000000.5". That exponent-format divergence is a documented
-	// go-mysql limitation (the numeric value still round-trips), so it is out of scope here.
 	variants := []string{
 		`{"z": 1, "aa": 2}`,                         // key order: shorter key sorts after longer one
 		`{"b": 2, "a": 1}`,                          // key order: reversed on storage
@@ -308,14 +304,7 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 }
 
 // Test_MySQL_JSON_SnapshotCDCConsistency_NativeJSON is the native-JSON companion to
-// Test_MySQL_JSON_SnapshotCDCConsistency. With PEERDB_CLICKHOUSE_ENABLE_JSON the JSON column
-// lands in a ClickHouse JSON column rather than a String, so ClickHouse parses the text and
-// normalizes it on insert. That absorbs the one representation difference the snapshot and
-// CDC paths cannot make byte-identical themselves -- doubles whose text form differs by
-// magnitude (MySQL's "1000000.5" vs the CDC decoder's "1.0000005e+06") parse to the same
-// float and therefore read back identically here. Requires ClickHouse >= 25.3 for the
-// native JSON type (same assumption as Test_JSON); on older versions the column falls back
-// to String and this test would surface the divergence.
+// Test_MySQL_JSON_SnapshotCDCConsistency.
 func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency_NativeJSON() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
