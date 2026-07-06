@@ -14,11 +14,6 @@ import (
 func TestPostgresMutualTLSClientCertAuth(t *testing.T) {
 	t.Parallel()
 
-	if _, ok := internal.GetMutualTLSPostgresConfigFromEnv(); !ok {
-		t.Skip("mutual-TLS Postgres fixtures not configured; " +
-			"set PG_MTLS_CLIENT_CERT_PATH, PG_MTLS_CLIENT_KEY_PATH and PG_MTLS_ROOT_CA_PATH")
-	}
-
 	clientDN := func(t *testing.T, connector *PostgresConnector) pgtype.Text {
 		t.Helper()
 		var dn pgtype.Text
