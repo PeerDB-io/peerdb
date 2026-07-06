@@ -352,9 +352,9 @@ jobs:
         id: ch-version
         run: |
           if [ "${{ matrix.db-version.ch }}" = "lts" ]; then
-            echo "ch_version=v25.8.11.66-lts" >> $GITHUB_OUTPUT
+            echo "ch_version=v25.8.28.1-lts" >> $GITHUB_OUTPUT
           elif [ "${{ matrix.db-version.ch }}" = "stable" ]; then
-            echo "ch_version=v25.12.4.35-stable" >> $GITHUB_OUTPUT
+            echo "ch_version=v26.3.17.4-lts" >> $GITHUB_OUTPUT
           elif [ "${{ matrix.db-version.ch }}" = "latest" ]; then
             # note: latest tag does not always reflect the latest version (could be an update on an lts),
             # but that is okay as we are only using it to invalidate the cache.
