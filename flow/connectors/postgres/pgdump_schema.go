@@ -302,7 +302,7 @@ func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresCon
 		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
 	}
 
-	if hasRootCA {
+	if hasRootCA && !config.SkipCertVerification {
 		tmpFile, err := os.CreateTemp("", "peerdb-root-ca-*.pem")
 		if err != nil {
 			slog.WarnContext(ctx, "failed to create temp file for root CA, skipping sslrootcert", slog.Any("error", err))
