@@ -179,11 +179,17 @@ func (s *PostgresSource) GeneratePeer(t *testing.T) *protos.Peer {
 
 func GeneratePostgresPeer(t *testing.T) *protos.Peer {
 	t.Helper()
+
+	config := internal.GetMutualTLSPostgresConfigFromEnv()
+	if config == nil {
+		config = internal.GetAncillaryPostgresConfigFromEnv()
+	}
+
 	peer := &protos.Peer{
 		Name: "catalog",
 		Type: protos.DBType_POSTGRES,
 		Config: &protos.Peer_PostgresConfig{
-			PostgresConfig: internal.GetAncillaryPostgresConfigFromEnv(),
+			PostgresConfig: config,
 		},
 	}
 	CreatePeer(t, peer)

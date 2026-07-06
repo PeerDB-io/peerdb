@@ -24,7 +24,7 @@ func TestPostgresMutualTLSClientCertAuth(t *testing.T) {
 
 	t.Run("client certificate is presented and authenticated", func(t *testing.T) {
 		t.Parallel()
-		cfg, _ := internal.GetMutualTLSPostgresConfigFromEnv()
+		cfg := internal.GetMutualTLSPostgresConfigFromEnv()
 		connector, err := NewPostgresConnector(t.Context(), nil, cfg)
 		require.NoError(t, err)
 		defer connector.Close()
@@ -36,7 +36,7 @@ func TestPostgresMutualTLSClientCertAuth(t *testing.T) {
 
 	t.Run("without a client certificate no client identity is recorded", func(t *testing.T) {
 		t.Parallel()
-		cfg, _ := internal.GetMutualTLSPostgresConfigFromEnv()
+		cfg := internal.GetMutualTLSPostgresConfigFromEnv()
 		cfg.ClientTls = nil // Explicit client TLS configuration removal.
 		connector, err := NewPostgresConnector(t.Context(), nil, cfg)
 		require.NoError(t, err)

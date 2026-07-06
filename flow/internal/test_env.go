@@ -73,14 +73,14 @@ func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
 }
 
 // GetMutualTLSPostgresConfigFromEnv builds a Postgres config that authenticates with a client
-// certificate over TLS. Returns (nil, false) unless PG_MTLS_CLIENT_CERT_PATH,
+// certificate over TLS. Returns nil unless PG_MTLS_CLIENT_CERT_PATH,
 // PG_MTLS_CLIENT_KEY_PATH and PG_MTLS_ROOT_CA_PATH are all set.
-func GetMutualTLSPostgresConfigFromEnv() (*protos.PostgresConfig, bool) {
+func GetMutualTLSPostgresConfigFromEnv() *protos.PostgresConfig {
 	clientCert := loadRootCAFromEnv("PG_MTLS_CLIENT_CERT_PATH")
 	clientKey := loadRootCAFromEnv("PG_MTLS_CLIENT_KEY_PATH")
 	rootCA := loadRootCAFromEnv("PG_MTLS_ROOT_CA_PATH")
 	if clientCert == nil || clientKey == nil || rootCA == nil {
-		return nil, false
+		return nil
 	}
 	return &protos.PostgresConfig{
 		Host:       GetEnvString("PG_HOST", "localhost"),
@@ -94,7 +94,7 @@ func GetMutualTLSPostgresConfigFromEnv() (*protos.PostgresConfig, bool) {
 			Certificate: *clientCert,
 			PrivateKey:  *clientKey,
 		},
-	}, true
+	}
 }
 
 func GetSecondaryPostgresConfigFromEnv() *protos.PostgresConfig {
