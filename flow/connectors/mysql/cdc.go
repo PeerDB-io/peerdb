@@ -628,7 +628,7 @@ func (c *MySqlConnector) PullRecords(
 					}
 				case ddlKindRenameTable:
 					c.processRenameTableQuery(ctx, otelManager, req, renameStmt, string(ev.Schema))
-				case ddlKindCommit:
+				case ddlKindCommit, ddlKindRollback:
 					// Non-transactional engines (e.g. MyISAM) end a binlog group with a COMMIT/ROLLBACK
 					advanceCheckpoint(ev.GSet, event.Header.LogPos)
 					inTx = false

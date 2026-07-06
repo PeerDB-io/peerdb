@@ -194,7 +194,7 @@ func TestClassifyParsedStatementTxControl(t *testing.T) {
 		want  ddlKind
 	}{
 		{name: "commit", query: "COMMIT", want: ddlKindCommit},
-		{name: "rollback", query: "ROLLBACK", want: ddlKindCommit},
+		{name: "rollback", query: "ROLLBACK", want: ddlKindRollback},
 		{name: "begin", query: "BEGIN", want: ddlKindIgnored},
 		{name: "alter table add column", query: "ALTER TABLE t ADD COLUMN c INT", want: ddlKindAlterTable},
 		{name: "rename table", query: "RENAME TABLE a TO b", want: ddlKindRenameTable},
