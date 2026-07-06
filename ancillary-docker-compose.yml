@@ -48,9 +48,9 @@ services:
       - "${CI_CLICKHOUSE_NATIVE_PORT}:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse/
-      - ./clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
-      - ./clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
-      - ./clickhouse-cluster-config/node1/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node1/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
     ulimits:
       nofile:
         soft: 262144
@@ -71,7 +71,7 @@ services:
     command: ["clickhouse", "keeper", "--config-file=/etc/clickhouse-keeper/keeper_config.xml"]
     volumes:
       - clickhouse_keeper_data:/var/lib/clickhouse/
-      - ./clickhouse-cluster-config/keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
     ulimits:
       nofile:
         soft: 262144
@@ -94,9 +94,9 @@ services:
       - "${CI_CLICKHOUSE_NATIVE_PORT_02}:9000"
     volumes:
       - clickhouse_02_data:/var/lib/clickhouse/
-      - ./clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
-      - ./clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
-      - ./clickhouse-cluster-config/node2/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node2/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
     depends_on:
       clickhouse-keeper:
         condition: service_healthy
