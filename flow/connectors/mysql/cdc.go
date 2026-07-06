@@ -813,6 +813,13 @@ func (c *MySqlConnector) PullRecords(
 					}
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return fmt.Errorf("mysql v0 replication protocol not supported")
+				case replication.PARTIAL_UPDATE_ROWS_EVENT:
+					// Emitted only when binlog_row_value_options=PARTIAL_JSON is enabled at runtime.
+					e := exceptions.NewMySQLUnsupportedBinlogRowValueOptionsError(string(ev.Table.Schema), string(ev.Table.Table))
+					c.logger.Error(e.Error())
+					return e
+				default:
+					return fmt.Errorf("unhandled mysql rows event type: %s", event.Header.EventType)
 				}
 			}
 			if event.Header.Timestamp > 0 {
