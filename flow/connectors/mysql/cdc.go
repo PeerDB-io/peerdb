@@ -578,6 +578,12 @@ func (c *MySqlConnector) PullRecords(
 				time.Now().UTC().Sub(time.UnixMicro(int64(commitTs))).Microseconds())
 		}
 	}
+	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
+		c.logger.Warn("unsupported rows event", slog.Any("type", event.Header.EventType))
+		otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.BinlogEventTypeKey, fmt.Sprintf("%s_%d", prefix, int(event.Header.EventType))),
+		)))
+	}
 
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
@@ -647,10 +653,7 @@ func (c *MySqlConnector) PullRecords(
 					slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)), slog.String("table", sourceTableName))
 				return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent), schemaName, tableName)
 			default:
-				c.logger.Warn("unknown generic event", slog.Any("type", event.Header.EventType))
-				otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-					attribute.Int(otel_metrics.BinlogEventTypeKey, int(event.Header.EventType)),
-				)))
+				recordUnsupportedEvent(ctx, event, "Generic")
 			}
 		case *replication.QueryEvent:
 			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
@@ -868,6 +871,8 @@ func (c *MySqlConnector) PullRecords(
 					}
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return fmt.Errorf("mysql v0 replication protocol not supported")
+				default:
+					recordUnsupportedEvent(ctx, event, "Rows")
 				}
 			}
 			if event.Header.Timestamp > 0 {
@@ -876,6 +881,8 @@ func (c *MySqlConnector) PullRecords(
 					int64(event.Header.Timestamp),
 				)
 			}
+		default:
+			recordUnsupportedEvent(ctx, event, "Untyped")
 		}
 
 		return nil
