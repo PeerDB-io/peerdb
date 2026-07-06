@@ -1004,6 +1004,8 @@ func (s APITestSuite) TestSchemaEndpoints() {
 	switch config := peerInfo.Peer.Config.(type) {
 	case *protos.Peer_PostgresConfig:
 		require.Equal(s.t, "********", config.PostgresConfig.Password)
+		require.Equal(s.t, "********", config.PostgresConfig.ClientTls.Certificate)
+		require.Equal(s.t, "********", config.PostgresConfig.ClientTls.PrivateKey)
 	case *protos.Peer_MysqlConfig:
 		require.Equal(s.t, "********", config.MysqlConfig.Password)
 	case *protos.Peer_MongoConfig:
