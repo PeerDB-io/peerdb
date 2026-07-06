@@ -1804,13 +1804,14 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id", 2)
 
-	cols := "id"
+	colExprs := []string{"id"}
 	for _, c := range []string{
 		"d_null_low", "d_null_high", "d_nn_low", "d_nn_high", "d_ok",
 		"dt_null_low", "dt_null_high", "dt_nn_low", "dt_nn_high", "dt_ok",
 	} {
-		cols += fmt.Sprintf(",ifNull(toString(%s),'') AS %s", c, c)
+		colExprs = append(colExprs, fmt.Sprintf("ifNull(toString(%s),'') AS %s", c, c))
 	}
+	cols := strings.Join(colExprs, ",")
 	rows, err := s.GetRows(dstTableName, cols)
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2, "expected snapshot + cdc rows")
