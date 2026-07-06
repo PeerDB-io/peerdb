@@ -1805,21 +1805,26 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id", 2)
 
-	cols := "id,d_null_low,d_null_high,d_nn_low,d_nn_high,d_ok," +
-		"dt_null_low,dt_null_high,dt_nn_low,dt_nn_high,dt_ok"
+	// Read the values back as strings via toString(). The clickhouse-go driver decodes
+	// DateTime64 into a Go time.Time through int64 nanoseconds, which overflows near the
+	// 2299 boundary (e.g. 2299-12-31 wraps to 1715-06-12), so scanning into time.Time would
+	// misrepresent the correctly-stored value. Comparing ClickHouse's own string rendering
+	// verifies exactly what is stored.
+	cols := "id"
+	for _, c := range []string{
+		"d_null_low", "d_null_high", "d_nn_low", "d_nn_high", "d_ok",
+		"dt_null_low", "dt_null_high", "dt_nn_low", "dt_nn_high", "dt_ok",
+	} {
+		cols += fmt.Sprintf(",ifNull(toString(%s),'') AS %s", c, c)
+	}
 	rows, err := s.GetRows(dstTableName, cols)
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2, "expected snapshot + cdc rows")
 
-	assertDate := func(qv types.QValue, expect string) {
-		tv, ok := qv.Value().(time.Time)
-		require.Truef(s.t, ok, "expected time.Time, got %T", qv.Value())
-		require.Equal(s.t, expect, tv.UTC().Format("2006-01-02"))
-	}
-	assertDateTime := func(qv types.QValue, expect string) {
-		tv, ok := qv.Value().(time.Time)
-		require.Truef(s.t, ok, "expected time.Time, got %T", qv.Value())
-		require.Equal(s.t, expect, tv.UTC().Format("2006-01-02 15:04:05.999999"))
+	assertStr := func(qv types.QValue, expect string) {
+		sv, ok := qv.Value().(string)
+		require.Truef(s.t, ok, "expected string, got %T", qv.Value())
+		require.Equal(s.t, expect, sv)
 	}
 
 	// Out-of-range values are clamped to the nearest ClickHouse boundary (date clamped,
@@ -1827,17 +1832,17 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 	// Both the snapshot (id=1) and CDC (id=2) rows must agree.
 	for _, row := range rows.Records {
 		// DATE (Date32): clamps to the boundary day.
-		assertDate(row[1], "1900-01-01") // d_null_low
-		assertDate(row[2], "2299-12-31") // d_null_high
-		assertDate(row[3], "1900-01-01") // d_nn_low
-		assertDate(row[4], "2299-12-31") // d_nn_high
-		assertDate(row[5], "2000-01-02") // d_ok
+		assertStr(row[1], "1900-01-01") // d_null_low
+		assertStr(row[2], "2299-12-31") // d_null_high
+		assertStr(row[3], "1900-01-01") // d_nn_low
+		assertStr(row[4], "2299-12-31") // d_nn_high
+		assertStr(row[5], "2000-01-02") // d_ok
 		// DATETIME (DateTime64(6)): clamps the date, preserves the time-of-day.
-		assertDateTime(row[6], "1900-01-01 05:30:45")  // dt_null_low
-		assertDateTime(row[7], "2299-12-31 05:30:45")  // dt_null_high
-		assertDateTime(row[8], "1900-01-01 05:30:45")  // dt_nn_low
-		assertDateTime(row[9], "2299-12-31 05:30:45")  // dt_nn_high
-		assertDateTime(row[10], "2000-01-02 03:04:05") // dt_ok
+		assertStr(row[6], "1900-01-01 05:30:45.000000")  // dt_null_low
+		assertStr(row[7], "2299-12-31 05:30:45.000000")  // dt_null_high
+		assertStr(row[8], "1900-01-01 05:30:45.000000")  // dt_nn_low
+		assertStr(row[9], "2299-12-31 05:30:45.000000")  // dt_nn_high
+		assertStr(row[10], "2000-01-02 03:04:05.000000") // dt_ok
 	}
 
 	env.Cancel(s.t.Context())
