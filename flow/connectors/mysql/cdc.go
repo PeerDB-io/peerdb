@@ -818,8 +818,6 @@ func (c *MySqlConnector) PullRecords(
 					e := exceptions.NewMySQLUnsupportedBinlogRowValueOptionsError(string(ev.Table.Schema), string(ev.Table.Table))
 					c.logger.Error(e.Error())
 					return e
-				default:
-					return fmt.Errorf("unhandled mysql rows event type: %s", event.Header.EventType)
 				}
 			}
 			if event.Header.Timestamp > 0 {
