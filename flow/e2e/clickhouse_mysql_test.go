@@ -307,6 +307,82 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_MySQL_JSON_SnapshotCDCConsistency_NativeJSON is the native-JSON companion to
+// Test_MySQL_JSON_SnapshotCDCConsistency. With PEERDB_CLICKHOUSE_ENABLE_JSON the JSON column
+// lands in a ClickHouse JSON column rather than a String, so ClickHouse parses the text and
+// normalizes it on insert. That absorbs the one representation difference the snapshot and
+// CDC paths cannot make byte-identical themselves -- doubles whose text form differs by
+// magnitude (MySQL's "1000000.5" vs the CDC decoder's "1.0000005e+06") parse to the same
+// float and therefore read back identically here. Requires ClickHouse >= 25.3 for the
+// native JSON type (same assumption as Test_JSON); on older versions the column falls back
+// to String and this test would surface the divergence.
+func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency_NativeJSON() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_json_repr_native"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_json_repr_native_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id serial PRIMARY KEY,
+			js json NOT NULL
+		)`, srcFullName)))
+
+	// These deliberately include the doubles that diverge in text form between the snapshot
+	// and CDC paths; native JSON normalization is what makes them consistent at the destination.
+	variants := []string{
+		`{"pi": 3.14, "big": 1000000.5, "neg": -2.5}`, // magnitude where snapshot/CDC text forms differ
+		`{"tiny": 0.000015, "huge": 150000000000.5}`,  // more exponent-crossover magnitudes
+		`{"z": 1, "aa": 2}`,                           // key order, normalized consistently
+	}
+
+	insertVariants := func() {
+		for _, v := range variants {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf(`INSERT INTO %s (js) VALUES ('%s')`, srcFullName, v)))
+		}
+	}
+
+	insertVariants()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting for initial snapshot", dstTableName, "id", len(variants))
+
+	insertVariants()
+
+	EnvWaitForCount(env, s, "waiting for cdc", dstTableName, "id", 2*len(variants))
+
+	// Read ClickHouse's own normalized text of the JSON column so the comparison is over a
+	// plain String scan target (GetRows does not scan the native JSON type directly).
+	rows, err := s.GetRows(dstTableName, "id, toString(js)")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2*len(variants))
+
+	for i := range variants {
+		snapshotGot := fmt.Sprint(rows.Records[i][1].Value())
+		cdcGot := fmt.Sprint(rows.Records[i+len(variants)][1].Value())
+		require.Equal(s.t, snapshotGot, cdcGot, "snapshot/cdc JSON representation differs for %q", variants[i])
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 	mySource, ok := s.source.(*MySqlSource)
 	if !ok {
