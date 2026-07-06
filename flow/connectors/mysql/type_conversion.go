@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -17,14 +18,17 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 	switch strings.ToLower(ct) {
 	case "json":
 		return types.QValueKindJSON, nil
-	case "char", "varchar", "text", "set", "tinytext", "mediumtext", "longtext":
+	case "char", "varchar", "text", "set", "tinytext", "mediumtext", "longtext",
+		"clob", "varchar2", // maria
+		"xmltype": // maria
 		return types.QValueKindString, nil
 	case "enum":
 		if !binlogRowMetadataSupported && version >= shared.InternalVersion_MySQL5ConvertEnumsToInts {
 			return types.QValueKindUint16Enum, nil
 		}
 		return types.QValueKindEnum, nil
-	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob":
+	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob",
+		"char byte", "raw": // maria
 		return types.QValueKindBytes, nil
 	case "date":
 		return types.QValueKindDate, nil
@@ -32,7 +36,8 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 		return types.QValueKindTimestamp, nil
 	case "time":
 		return types.QValueKindTime, nil
-	case "decimal", "numeric":
+	case "decimal", "numeric",
+		"number": // maria (Oracle-mode synonym for decimal; TiDB parser rejects the spelling)
 		return types.QValueKindNumeric, nil
 	case "float":
 		return types.QValueKindFloat32, nil
@@ -68,9 +73,35 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 		}
 	case "vector":
 		return types.QValueKindArrayFloat32, nil
+	case "uuid": // maria
+		return types.QValueKindUUID, nil
+	case "inet4", "inet6": // maria
+		return types.QValueKindINET, nil
 	case "geometry", "point", "polygon", "linestring", "multipoint", "multilinestring", "multipolygon", "geomcollection", "geometrycollection":
 		return types.QValueKindGeometry, nil
 	default:
 		return types.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
 	}
+}
+
+// shouldReportColumnTypeChange decides whether a difference between the schema's qkind and
+// the qkind derived from the TABLE_MAP_EVENT wire type is a genuine column type change worth
+// reporting, given the server flavor.
+//
+// The one expected, benign difference is MariaDB's uuid/inet4/inet6 types: verified against
+// MariaDB 11.8, they all arrive with ColumnType 0xFE (MYSQL_TYPE_STRING) and binary charset —
+// byte-for-byte indistinguishable from BINARY(N) — so qkindFromMysqlType maps them to bytes.
+// That bytes-from-the-wire kind legitimately differs from the schema's uuid/inet kind, so the
+// pairing is suppressed. The suppression is scoped narrowly: only MariaDB, only when the wire
+// kind is exactly bytes, and only when the schema kind is uuid/inet — so a real change such as
+// schema uuid -> wire integer is still reported.
+func shouldReportColumnTypeChange(schemaKind, wireKind types.QValueKind, flavor protos.MySqlFlavor) bool {
+	if schemaKind == wireKind {
+		return false
+	}
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA && wireKind == types.QValueKindBytes &&
+		(schemaKind == types.QValueKindUUID || schemaKind == types.QValueKindINET) {
+		return false
+	}
+	return true
 }

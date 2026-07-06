@@ -25,12 +25,13 @@ type MySqlSource struct {
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
 	flavor, replication := internal.MySQLTestFlavorAndMechanism(t)
-	return SetupMyCore(t, suffix, replication, flavor)
+	return setupMyConnector(t, suffix, internal.GetMySQLConfigFromEnv(flavor, replication), "")
 }
 
-func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicationMechanism, flavor protos.MySqlFlavor) (*MySqlSource, error) {
+func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	return setupMyConnector(t, suffix, internal.GetMySQLConfigFromEnv(flavor, replication), "")
+	flavor, replication := internal.MariaDBTestFlavorAndMechanism(t)
+	return setupMyConnector(t, suffix, internal.GetMariaDBConfigFromEnv(flavor, replication), "mariadb")
 }
 
 func setupMyConnector(t *testing.T, suffix string, config *protos.MySqlConfig, peerName string) (*MySqlSource, error) {

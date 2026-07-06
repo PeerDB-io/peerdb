@@ -74,7 +74,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED",
 		Description:      "Override PEERDB_CDC_STORE_ENABLED when destination is ClickHouse",
-		DefaultValue:     "true",
+		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
@@ -477,6 +477,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_OFFLOAD_PARTITION_RANGES",
+		Description:      "Encrypt QRep partition ranges and offload them to the catalog instead of passing them through Temporal",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_PG_AUTOMATED_SCHEMA_DUMP",
 		Description: "For PG-to-PG mirrors, run pg_dump --schema-only from source into psql on destination " +
 			"during setup so destination schema/tables/indexes match the source.",
@@ -868,6 +876,10 @@ func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[strin
 
 func PeerDBMySQLDefaultPartitionKeyEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_MYSQL_DEFAULT_PARTITION_KEY_ENABLED")
+}
+
+func PeerDBOffloadPartitionRanges(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_OFFLOAD_PARTITION_RANGES")
 }
 
 func PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {

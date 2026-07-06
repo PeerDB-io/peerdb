@@ -146,7 +146,7 @@ Available test launchers:
 - **e2e_postgres** -- Postgres to ClickHouse generic tests (`TestGenericCH_PG`)
 - **e2e_mysql-gtid** -- MySQL GTID to ClickHouse generic tests (`TestGenericCH_MySQL`)
 - **e2e_mysql-pos** -- MySQL File-Pos to ClickHouse generic tests (`TestGenericCH_MySQL`)
-- **e2e_mariadb** -- MariaDB to ClickHouse generic tests (`TestGenericCH_MySQL`)
+- **e2e_mariadb** -- MariaDB to ClickHouse generic tests (`TestGenericCH_MariaDB`)
 - **e2e_mongodb** -- MongoDB to ClickHouse test suite (`TestMongoClickhouseSuite`)
 
 Each launcher automatically depends on the required services and provisioning steps, so Tilt will ensure all prerequisites are running before executing the tests. To trigger a test, click the resource in the Tilt UI and press the trigger (play) button.

@@ -295,3 +295,38 @@ func IsVitess(conn *client.Conn) (bool, error) {
 	}
 	return true, nil // is a Vitess server
 }
+
+func HasReplicaWithServerId(conn *client.Conn, serverID uint32) (bool, error) {
+	// This check assumes that the number of replicas is not beyond the order of magnitude of thousands.
+	// This is a reasonable assumption given that services like RDS limit them to 15 and that
+	// this number is constrained by concurrent connections and main server resources.
+	rs, err := conn.Execute("SHOW REPLICAS")
+	if err != nil {
+		if rs, err = conn.Execute("SHOW SLAVE HOSTS"); err != nil {
+			return false, fmt.Errorf("failed to query source for registered replicas")
+		}
+	}
+
+	serverIDCol := -1
+	for i, field := range rs.Fields {
+		// Case insensitive match because the column name differs between MySQL and MariaDB.
+		if strings.EqualFold(string(field.Name), "Server_id") {
+			serverIDCol = i
+			break
+		}
+	}
+	if serverIDCol < 0 {
+		return false, fmt.Errorf("no Server_id column in replica list, got fields %v", rs.Fields)
+	}
+
+	for row := range rs.RowNumber() {
+		got, err := rs.GetInt(row, serverIDCol)
+		if err != nil {
+			return false, err
+		}
+		if uint32(got) == serverID {
+			return true, nil
+		}
+	}
+	return false, nil
+}

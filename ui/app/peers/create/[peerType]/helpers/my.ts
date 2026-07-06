@@ -99,6 +99,29 @@ export const mysqlSetting: PeerSetting[] = [
     ],
   },
   {
+    label: 'Server ID',
+    field: 'serverId',
+    type: 'number',
+    optional: true,
+    stateHandler: (value, setter) => {
+      const strValue = value as string;
+      if (!strValue) {
+        // Leave unset so a random server_id is generated on each CDC run (legacy behavior).
+        setter((curr) => {
+          const newCurr = { ...curr } as MySqlConfig;
+          delete newCurr.serverId;
+          return newCurr;
+        });
+      } else {
+        setter((curr) => ({ ...curr, serverId: parseInt(strValue, 10) }));
+      }
+    },
+    tips:
+      'Optional. Fixed server_id used for the MySQL replication (binlog) connection. ' +
+      'Leave blank to auto-generate a random id on each CDC run. A fixed server_id must be ' +
+      'unique among replicas, so a peer that sets it cannot be reused across multiple mirrors.',
+  },
+  {
     label: 'Root Certificate',
     stateHandler: (value, setter) => {
       if (!value) {

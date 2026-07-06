@@ -250,6 +250,9 @@ var (
 	ErrorNotifyTooManyPartsError = ErrorClass{
 		Class: "NOTIFY_TOO_MANY_PARTS", action: NotifyUser,
 	}
+	ErrorNotifyClickHousePermissionsError = ErrorClass{
+		Class: "NOTIFY_CLICKHOUSE_PERMISSIONS_ERROR", action: NotifyUser,
+	}
 	// Catch-all for misc ClickHouse errors
 	ErrorNotifyClickHouseError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_ERROR", action: NotifyUser,
@@ -998,6 +1001,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.HasSuffix(chException.Message, "is either DETACHED PERMANENTLY or was just created by another replica") {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
+		case chproto.ErrAccessDenied:
+			return ErrorNotifyClickHousePermissionsError, chErrorInfo
 		case chproto.ErrUnsupportedMethod,
 			chproto.ErrIllegalColumn,
 			chproto.ErrDuplicateColumn,

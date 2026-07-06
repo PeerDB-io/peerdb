@@ -332,7 +332,11 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	}
 
 	var rangeStart, rangeEnd *string
-	if partition.Range != nil {
+	if partition.RangeOffloaded {
+		internal.LoggerFromCtx(ctx).Info(
+			"omitting partition_start/partition_end from qrep_partitions because it's offloaded",
+			slog.String("partitionId", partition.PartitionId))
+	} else if partition.Range != nil {
 		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			rangeStart, rangeEnd = new(strconv.FormatInt(x.IntRange.Start, 10)), new(strconv.FormatInt(x.IntRange.End, 10))
@@ -369,7 +373,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}
-	} else if !partition.FullTablePartition {
+	} else if !partition.FullTablePartition && len(partition.ChildTableRanges) == 0 {
 		internal.LoggerFromCtx(ctx).Warn("[monitoring]: partition "+partition.PartitionId+" has nil range",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
 	}
