@@ -579,10 +579,12 @@ func (c *MySqlConnector) PullRecords(
 		}
 	}
 	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
-		c.logger.Warn("unsupported rows event", slog.Any("type", event.Header.EventType))
 		otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.BinlogEventTypeKey, fmt.Sprintf("%s_%d", prefix, int(event.Header.EventType))),
 		)))
+		if _, loaded := c.warnedUnsupportedEventTypes.LoadOrStore(event.Header.EventType, struct{}{}); !loaded {
+			c.logger.Warn("unsupported rows event", slog.Any("type", event.Header.EventType))
+		}
 	}
 
 	lastEventAt := time.Now()
