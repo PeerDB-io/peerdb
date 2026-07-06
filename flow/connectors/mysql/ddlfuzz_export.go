@@ -138,6 +138,7 @@ type e2eSpec struct {
 	Cols        []e2eCol `json:"cols,omitempty"`
 	HasPosition bool     `json:"has_position"`
 	IfExists    bool     `json:"if_exists,omitempty"`
+	IfNotExists bool     `json:"if_not_exists,omitempty"`
 }
 type e2ePair struct {
 	OldSchema string `json:"old_schema"`
@@ -178,7 +179,6 @@ func fuzzDDLE2EFilterConditionalAdd(spec ddlAlterSpec, knownColumns map[string]s
 	if !spec.AddIfNotExists {
 		return spec, true
 	}
-	spec.AddIfNotExists = false
 	cols := make([]ddlColumnDef, 0, len(spec.NewColumns))
 	for _, col := range spec.NewColumns {
 		if _, ok := knownColumns[fuzzDDLE2EColumnNameKey(col.Name)]; ok {
@@ -255,6 +255,7 @@ func fuzzDDLStmtsToE2E(stmts []ddlStatement) e2eStmts {
 					}
 				case len(sp.NewColumns) > 0:
 					spec.Op = "add"
+					spec.IfNotExists = sp.AddIfNotExists
 					for _, c := range sp.NewColumns {
 						spec.Cols = append(spec.Cols, fuzzDDLColToE2E(c))
 					}

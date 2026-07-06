@@ -49,6 +49,9 @@ func applyPredicted(before Snapshot, parsed ParsedStmts) predicted {
 				switch spec.Op {
 				case "add":
 					for _, col := range spec.Cols {
+						if spec.IfNotExists && current[col.Name] {
+							continue
+						}
 						effect = true
 						if _, existed := before[col.Name]; existed {
 							p.Changed[col.Name] = col

@@ -1,0 +1,1 @@
+ALTER TABLE /*M! `fixture` */ ADD COLUMN IF NOT EXISTS `fixture` CHAR(8) NOT NULL

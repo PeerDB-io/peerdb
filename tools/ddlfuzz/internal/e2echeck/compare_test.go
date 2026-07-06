@@ -200,6 +200,29 @@ func TestCompareSemanticsIfExistsPresentOldNameApplies(t *testing.T) {
 	}
 }
 
+func TestCompareSemanticsIfNotExistsPresentColumnIsNoop(t *testing.T) {
+	before := Snapshot{
+		"fixture": {Name: "fixture", Ordinal: 1, ColumnType: "longtext", IsNullable: "YES"},
+	}
+	parsed := ParsedStmts{Stmts: []ParsedStmt{{
+		Kind: "alter_table",
+		Specs: []ParsedSpec{{
+			Op:          "add",
+			Cols:        []ParsedCol{{Name: "fixture", TypeStr: "char(8)", NotNull: true, Precision: -1, Scale: -1}},
+			IfNotExists: true,
+		}},
+	}}}
+
+	got := CompareSemantics(SemanticInput{
+		Before: before,
+		After:  before,
+		Actual: Delta{},
+	}, parsed)
+	if len(got) != 0 {
+		t.Fatalf("conditional add no-op findings = %v, want none", got)
+	}
+}
+
 func TestCompareSemanticsSameNameRenameIsNoop(t *testing.T) {
 	col := ColRow{Name: "n6", Ordinal: 34, ColumnType: "timestamp(6)", IsNullable: "YES"}
 	parsed := ParsedStmts{Stmts: []ParsedStmt{{

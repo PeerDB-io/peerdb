@@ -153,6 +153,26 @@ func TestDDLFuzzParseForE2EChangeIfExistsPreserved(t *testing.T) {
 	}
 }
 
+func TestDDLFuzzParseForE2EAddIfNotExistsPreserved(t *testing.T) {
+	query := []byte("ALTER TABLE /*M! `fixture` */ ADD COLUMN IF NOT EXISTS `fixture` CHAR(8) NOT NULL")
+	data, err := FuzzParseForE2E(query, sqlModeANSIQuotes|sqlModeNoBackslashEscapes, true)
+	if err != nil {
+		t.Fatalf("FuzzParseForE2E error: %v", err)
+	}
+	var got e2eStmts
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal e2e stmts: %v", err)
+	}
+	if len(got.Stmts) != 1 || len(got.Stmts[0].Specs) != 1 {
+		t.Fatalf("expected one alter spec: %s", data)
+	}
+	spec := got.Stmts[0].Specs[0]
+	if spec.Op != "add" || !spec.IfNotExists || len(spec.Cols) != 1 ||
+		spec.Cols[0].Name != "fixture" || spec.Cols[0].TypeStr != "char(8)" || !spec.Cols[0].NotNull {
+		t.Fatalf("unexpected e2e spec: %#v", spec)
+	}
+}
+
 func TestDDLFuzzParseForE2ESuppressesDuplicateConditionalAdd(t *testing.T) {
 	query := []byte("ALTER TABLE fixture ADD (n1 MIDDLEINT, n2 BINARY, INDEX (after)), ADD COLUMN IF NOT EXISTS n1 LINESTRING")
 	sig, err := FuzzDDLSignature(query, 0, true)
