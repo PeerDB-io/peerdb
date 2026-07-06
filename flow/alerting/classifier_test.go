@@ -15,6 +15,7 @@ import (
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -904,6 +905,18 @@ func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "1236",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLBinlogChecksumMismatch(t *testing.T) {
+	// go-mysql flattens ErrChecksumMismatch into the message; PullRecords wraps it as a MySQLExecuteError.
+	err := exceptions.NewMySQLExecuteError(
+		fmt.Errorf("failed checksum for WriteRowsEventV2, log pos 12345: %v", replication.ErrChecksumMismatch))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "BINLOG_CHECKSUM_MISMATCH",
 	}, errInfo, "Unexpected error info")
 }
 
