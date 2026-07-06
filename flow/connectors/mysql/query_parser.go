@@ -222,6 +222,7 @@ const (
 	ddlKindIgnored ddlKind = iota
 	ddlKindAlterTable
 	ddlKindRenameTable
+	ddlKindCommit
 )
 
 // classifyParsedStatement maps a successfully parsed statement to the handler that
@@ -235,6 +236,8 @@ func classifyParsedStatement(stmt ast.StmtNode) (ddlKind, *ast.AlterTableStmt, *
 		return ddlKindAlterTable, s, nil
 	case *ast.RenameTableStmt:
 		return ddlKindRenameTable, nil, s
+	case *ast.CommitStmt, *ast.RollbackStmt:
+		return ddlKindCommit, nil, nil
 	default:
 		return ddlKindIgnored, nil, nil
 	}

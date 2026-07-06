@@ -550,6 +550,18 @@ func (c *MySqlConnector) PullRecords(
 		}
 	}
 
+	advanceCheckpoint := func(evGSet mysql.GTIDSet, logPos uint32) {
+		if gset != nil {
+			gset = evGSet
+			updatedOffset = gset.String()
+			req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+		} else if logPos > pos.Pos {
+			pos.Pos = logPos
+			updatedOffset = posToOffsetText(pos)
+			req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+		}
+	}
+
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
 	processEvent := func(event *replication.BinlogEvent) error {
@@ -559,15 +571,7 @@ func (c *MySqlConnector) PullRecords(
 		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
 			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
 		case *replication.XIDEvent:
-			if gset != nil {
-				gset = ev.GSet
-				updatedOffset = gset.String() // accumulated from GTID events above
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			} else if event.Header.LogPos > pos.Pos {
-				pos.Pos = event.Header.LogPos
-				updatedOffset = posToOffsetText(pos)
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			}
+			advanceCheckpoint(ev.GSet, event.Header.LogPos)
 			inTx = false
 		case *replication.RotateEvent:
 			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
@@ -624,6 +628,10 @@ func (c *MySqlConnector) PullRecords(
 					}
 				case ddlKindRenameTable:
 					c.processRenameTableQuery(ctx, otelManager, req, renameStmt, string(ev.Schema))
+				case ddlKindCommit:
+					// Non-transactional engines (e.g. MyISAM) end a binlog group with a COMMIT/ROLLBACK
+					advanceCheckpoint(ev.GSet, event.Header.LogPos)
+					inTx = false
 				case ddlKindIgnored:
 				default:
 					return fmt.Errorf("unknown stmt kind: %v", kind)
