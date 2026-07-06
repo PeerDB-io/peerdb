@@ -1303,11 +1303,24 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			charset = uint16(collation)
 		}
 
+		// TABLE_MAP_EVENT reports ENUM/SET columns with the generic MYSQL_TYPE_STRING type,
+		// with the real type packed into the high byte of ColumnMeta; unpack it here so
+		// qkindFromMysqlType sees MYSQL_TYPE_ENUM/MYSQL_TYPE_SET instead of falling through to
+		// a plain string, which would lose the enum/set decoding for columns added mid-stream.
+		mytype := tableMap.ColumnType[idx]
+		if mytype == mysql.MYSQL_TYPE_STRING {
+			if tableMap.IsEnumColumn(idx) {
+				mytype = mysql.MYSQL_TYPE_ENUM
+			} else if tableMap.IsSetColumn(idx) {
+				mytype = mysql.MYSQL_TYPE_SET
+			}
+		}
+
 		if fd, exists := existingCols[colName]; exists {
 			newFds[idx] = fd
 
 			if qkind, err := qkindFromMysqlType(
-				tableMap.ColumnType[idx], unsignedMap[idx], charset, req.InternalVersion,
+				mytype, unsignedMap[idx], charset, req.InternalVersion,
 			); err == nil && shouldReportColumnTypeChange(types.QValueKind(fd.Type), qkind, c.config.Flavor) {
 				c.logger.Warn("column type change detected from TABLE_MAP_EVENT, not propagating",
 					slog.String("table", sourceTableName),
@@ -1318,7 +1331,6 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			}
 		} else {
 			// New column detected - get type from TABLE_MAP_EVENT
-			mytype := tableMap.ColumnType[idx]
 			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset, req.InternalVersion)
 			if err != nil {
 				c.logger.Warn("Unknown MySQL type for new column, skipping",

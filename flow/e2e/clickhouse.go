@@ -64,7 +64,7 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 			Config: &protos.Peer_ClickhouseConfig{
 				ClickhouseConfig: &protos.ClickhouseConfig{
 					Host:       internal.ClickHouseTestHost(),
-					Port:       9001,
+					Port:       internal.ClickHouseTestPort(),
 					Database:   dbname,
 					DisableTls: true,
 					S3:         s.s3Helper.S3Config,
