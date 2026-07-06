@@ -1,8 +1,10 @@
 package internal
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,15 +14,39 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
+// repoRoot returns the repository root (the directory containing .env.example) so test fixtures can
+// be referenced by paths relative to it, independent of a test's working directory.
+func repoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".env.example")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("could not locate repository root (.env.example)")
+		}
+		dir = parent
+	}
+}
+
 func loadRootCAFromEnv(envVar string) *string {
 	path := os.Getenv(envVar)
 	if path == "" {
 		return nil
 	}
+	if !filepath.IsAbs(path) {
+		if root, err := repoRoot(); err == nil {
+			path = filepath.Join(root, path)
+		}
+	}
 	// #nosec G703 -- This is test code
 	pem, err := os.ReadFile(path)
 	if err != nil {
-		panic(fmt.Sprintf("%s=%q: failed to read root CA: %v", envVar, path, err))
+		panic(fmt.Sprintf("%s=%q: failed to read PEM file: %v", envVar, path, err))
 	}
 	s := string(pem)
 	return &s
@@ -43,6 +69,31 @@ func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
 		Database:   GetEnvString("PG_DATABASE", "postgres"),
 		RequireTls: GetEnvBool("PG_REQUIRE_TLS", false),
 		RootCa:     loadRootCAFromEnv("PG_ROOT_CA_PATH"),
+	}
+}
+
+// GetMutualTLSPostgresConfigFromEnv builds a Postgres config that authenticates with a client
+// certificate over TLS. Returns nil unless PG_MTLS_CLIENT_CERT_PATH,
+// PG_MTLS_CLIENT_KEY_PATH and PG_MTLS_ROOT_CA_PATH are all set.
+func GetMutualTLSPostgresConfigFromEnv() *protos.PostgresConfig {
+	clientCert := loadRootCAFromEnv("PG_MTLS_CLIENT_CERT_PATH")
+	clientKey := loadRootCAFromEnv("PG_MTLS_CLIENT_KEY_PATH")
+	rootCA := loadRootCAFromEnv("PG_MTLS_ROOT_CA_PATH")
+	if clientCert == nil || clientKey == nil || rootCA == nil {
+		return nil
+	}
+	return &protos.PostgresConfig{
+		Host:       GetEnvString("PG_HOST", "localhost"),
+		Port:       uint32(getEnvUint[uint16]("PG_PORT", 5432)),
+		User:       GetEnvString("PG_USER", "postgres"),
+		Password:   GetEnvString("PG_PASSWORD", "postgres"),
+		Database:   GetEnvString("PG_DATABASE", "postgres"),
+		RequireTls: true,
+		RootCa:     rootCA,
+		ClientTls: &protos.ClientTlsConfig{
+			Certificate: *clientCert,
+			PrivateKey:  *clientKey,
+		},
 	}
 }
 

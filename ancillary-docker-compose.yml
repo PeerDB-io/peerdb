@@ -11,11 +11,13 @@ x-postgres-entrypoint: &postgres-entrypoint
     mkdir -p "$$DST"
     install -m 644 -o postgres -g postgres "$$SRC/server.crt" "$$DST/server.crt"
     install -m 600 -o postgres -g postgres "$$SRC/server.key" "$$DST/server.key"
+    install -m 644 -o postgres -g postgres "$$SRC/client.crt" "$$DST/ca.crt"
     exec docker-entrypoint.sh postgres \
       -c ssl=on \
       -c ssl_cert_file=$$DST/server.crt \
-      -c ssl_key_file=$$DST/server.key
-
+      -c ssl_key_file=$$DST/server.key \
+      -c ssl_ca_file=$$DST/ca.crt
+#ssl_ca_file is used for client certificate verification
 services:
   mongodb:
     container_name: peerdb-mongodb

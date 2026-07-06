@@ -303,6 +303,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		var err error
 		tlsConfig, err = common.CreateTlsConfig(
 			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+			nil,
 		)
 		if err != nil {
 			return nil, err
