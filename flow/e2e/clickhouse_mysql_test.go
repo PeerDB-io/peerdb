@@ -1740,8 +1740,7 @@ func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 
 // Test_MySQL_DateTime_ClickHouse_Range verifies that MySQL DATE/DATETIME values outside
 // ClickHouse's supported DateTime64/Date32 range ([1900, 2299]) are clamped to the nearest
-// boundary (date clamped, time-of-day preserved) rather than overflowing, on both the
-// snapshot and CDC paths, which must agree. In-range values pass through untouched.
+// boundary.
 func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
@@ -1805,11 +1804,6 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id", 2)
 
-	// Read the values back as strings via toString(). The clickhouse-go driver decodes
-	// DateTime64 into a Go time.Time through int64 nanoseconds, which overflows near the
-	// 2299 boundary (e.g. 2299-12-31 wraps to 1715-06-12), so scanning into time.Time would
-	// misrepresent the correctly-stored value. Comparing ClickHouse's own string rendering
-	// verifies exactly what is stored.
 	cols := "id"
 	for _, c := range []string{
 		"d_null_low", "d_null_high", "d_nn_low", "d_nn_high", "d_ok",
@@ -1827,9 +1821,7 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 		require.Equal(s.t, expect, sv)
 	}
 
-	// Out-of-range values are clamped to the nearest ClickHouse boundary (date clamped,
-	// time-of-day preserved), regardless of nullability; in-range values pass through.
-	// Both the snapshot (id=1) and CDC (id=2) rows must agree.
+	// Out-of-range values are clamped to the nearest ClickHouse boundary
 	for _, row := range rows.Records {
 		// DATE (Date32): clamps to the boundary day.
 		assertStr(row[1], "1900-01-01") // d_null_low
