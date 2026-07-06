@@ -319,6 +319,20 @@ func TestBuildPgDumpArgs(t *testing.T) {
 				"-h", "remote", "-p", "6543", "-d", "prod",
 			},
 		},
+		{
+			name: "TlsHost overrides -h",
+			config: &protos.PostgresConfig{
+				Host:     "10.0.0.1",
+				Port:     5432,
+				Database: "mydb",
+				User:     "admin",
+				TlsHost:  "db.example.com",
+			},
+			wantArgs: []string{
+				"--schema-only", "--no-owner", "--no-privileges",
+				"-h", "db.example.com", "-p", "5432", "-d", "mydb", "-U", "admin",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -365,6 +379,23 @@ func TestBuildPsqlArgs(t *testing.T) {
 				"--single-transaction",
 				"-v", "ON_ERROR_STOP=1",
 				"--quiet",
+			},
+		},
+		{
+			name: "TlsHost overrides -h",
+			config: &protos.PostgresConfig{
+				Host:     "10.0.0.1",
+				Port:     5432,
+				Database: "db",
+				User:     "u",
+				TlsHost:  "db.example.com",
+			},
+			wantArgs: []string{
+				"-h", "db.example.com", "-p", "5432", "-d", "db",
+				"--single-transaction",
+				"-v", "ON_ERROR_STOP=1",
+				"--quiet",
+				"-U", "u",
 			},
 		},
 	}
@@ -513,6 +544,68 @@ func TestAppendTLSEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAppendTLSEnv_TlsHost(t *testing.T) {
+	ctx := t.Context()
+
+	t.Run("PGHOSTADDR set when TlsHost configured", func(t *testing.T) {
+		cmd := exec.CommandContext(ctx, "echo") //nolint:gosec
+		cmd.Env = os.Environ()
+
+		config := &protos.PostgresConfig{
+			Host: "10.0.0.1", Port: 5432, Database: "d",
+			RequireTls: true,
+			TlsHost:    "db.example.com",
+		}
+		appendTLSEnv(ctx, cmd, config)
+
+		if got := envValue(cmd, "PGHOSTADDR"); got != "10.0.0.1" {
+			t.Errorf("PGHOSTADDR = %q, want %q", got, "10.0.0.1")
+		}
+		if got := envValue(cmd, "PGSSLMODE"); got != "require" {
+			t.Errorf("PGSSLMODE = %q, want %q", got, "require")
+		}
+	})
+
+	t.Run("PGHOSTADDR not set when TlsHost empty", func(t *testing.T) {
+		cmd := exec.CommandContext(ctx, "echo") //nolint:gosec
+		cmd.Env = os.Environ()
+
+		config := &protos.PostgresConfig{
+			Host: "10.0.0.1", Port: 5432, Database: "d",
+			RequireTls: true,
+		}
+		appendTLSEnv(ctx, cmd, config)
+
+		if got := envValue(cmd, "PGHOSTADDR"); got != "" {
+			t.Errorf("PGHOSTADDR should be empty, got %q", got)
+		}
+	})
+
+	t.Run("PGHOSTADDR with root CA and TlsHost", func(t *testing.T) {
+		cmd := exec.CommandContext(ctx, "echo") //nolint:gosec
+		cmd.Env = os.Environ()
+
+		config := &protos.PostgresConfig{
+			Host: "10.0.0.1", Port: 5432, Database: "d",
+			RequireTls: true,
+			TlsHost:    "db.example.com",
+			RootCa:     strPtr("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"),
+		}
+		appendTLSEnv(ctx, cmd, config)
+
+		if got := envValue(cmd, "PGHOSTADDR"); got != "10.0.0.1" {
+			t.Errorf("PGHOSTADDR = %q, want %q", got, "10.0.0.1")
+		}
+		if got := envValue(cmd, "PGSSLMODE"); got != "verify-ca" {
+			t.Errorf("PGSSLMODE = %q, want %q", got, "verify-ca")
+		}
+		// clean up temp file
+		if f := envValue(cmd, "PGSSLROOTCERT"); f != "" {
+			os.Remove(f)
+		}
+	})
 }
 
 func TestIncompatibleLineRegex(t *testing.T) {

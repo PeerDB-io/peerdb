@@ -233,6 +233,13 @@ func runPipeline(
 	return nil
 }
 
+func tlsHostOrHost(config *protos.PostgresConfig) string {
+	if config.TlsHost != "" {
+		return config.TlsHost
+	}
+	return config.Host
+}
+
 func buildPgDumpArgs(config *protos.PostgresConfig) []string {
 	port := config.Port
 	if port == 0 {
@@ -243,7 +250,7 @@ func buildPgDumpArgs(config *protos.PostgresConfig) []string {
 		"--schema-only",
 		"--no-owner",
 		"--no-privileges",
-		"-h", config.Host,
+		"-h", tlsHostOrHost(config),
 		"-p", strconv.FormatUint(uint64(port), 10),
 		"-d", config.Database,
 	}
@@ -260,7 +267,7 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 	}
 
 	args := []string{
-		"-h", config.Host,
+		"-h", tlsHostOrHost(config),
 		"-p", strconv.FormatUint(uint64(port), 10),
 		"-d", config.Database,
 		// Wrap the entire dump in a single transaction so partial failures
@@ -282,8 +289,6 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 
 func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig) {
 	hasRootCA := config.RootCa != nil && *config.RootCa != ""
-	// Match the regular connector: enable TLS when explicitly required OR when
-	// a root CA is provided (which implies the user wants a verified connection).
 	if !internal.PGMustUseTlsConnection(config) && !hasRootCA {
 		return
 	}
@@ -294,13 +299,10 @@ func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresCon
 	case hasRootCA:
 		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-ca")
 	default:
-		// TLS required but no CA provided — encrypt the connection without
-		// attempting certificate verification (matches pgx "require" behaviour).
 		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
 	}
 
 	if hasRootCA {
-		// write root CA to a temp file
 		tmpFile, err := os.CreateTemp("", "peerdb-root-ca-*.pem")
 		if err != nil {
 			slog.WarnContext(ctx, "failed to create temp file for root CA, skipping sslrootcert", slog.Any("error", err))
@@ -314,6 +316,9 @@ func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresCon
 		}
 		tmpFile.Close()
 		cmd.Env = append(cmd.Env, "PGSSLROOTCERT="+tmpFile.Name())
-		// note: temp file is cleaned up when the process exits
+	}
+
+	if config.TlsHost != "" {
+		cmd.Env = append(cmd.Env, "PGHOSTADDR="+config.Host)
 	}
 }
