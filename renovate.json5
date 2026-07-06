@@ -98,6 +98,14 @@
       "matchPackageNames": ["github.com/tikv/pd/client"],
       "allowedVersions": "v0.0.0-20251229071808-6173d50c004c"
     },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/go-mysql-org/go-mysql"],
+      // Pinned commit includes our reliability fixes
+      // Pinned so that we don't auto-follow the rest of the bleeding edge
+      // Unpin when a release is tagged
+      "allowedVersions": "v1.15.1-0.20260701093637-35ca5c6ee8c8"
+    },
     // This package rule instruct renovate to require approval from
     // the dependency dashboard before proposing major upgrades.
     // This sets a default is approval mindset for automatic proposals.
