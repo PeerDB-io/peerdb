@@ -909,7 +909,6 @@ func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 }
 
 func TestMySQLBinlogChecksumMismatch(t *testing.T) {
-	// go-mysql flattens ErrChecksumMismatch into the message; PullRecords wraps it as a MySQLExecuteError.
 	err := exceptions.NewMySQLExecuteError(
 		fmt.Errorf("failed checksum for WriteRowsEventV2, log pos 12345: %v", replication.ErrChecksumMismatch))
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records: %w", err))
