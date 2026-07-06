@@ -713,3 +713,51 @@ jobs:
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
+
+      - name: Check all present test functions in the source branch were exercised in CI
+        # Compares the top-level tests that actually ran in CI (from the
+        # normalized results produced by the ingest step above) against every top-level
+        # test defined under ./flow, and fails if the branch defines tests CI never ran.
+        # Only runs for pull request builds; skipped for non-PR builds (e.g. push to main).
+        # Parens matter: && binds tighter than || in GitHub Actions expressions.
+        if: |
+          (success() || failure()) &&
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+        working-directory: ./flow
+        run: |
+          set -uo pipefail
+          tmp="${RUNNER_TEMP:-/tmp}"
+
+          ndjson="../logs/normalized-test-results.ndjson"
+          if [ ! -s "$ndjson" ]; then
+            echo "::error::No normalized test results at ${ndjson} (results ingestion disabled or no tests ran); failing check."
+            exit 1
+          fi
+
+          # (run-tests): top-level test functions observed in CI results, with subtests
+          # collapsed onto their parent (TestFoo/sub -> TestFoo).
+          # This collapse is necessary because the branch test enumeration below only lists top-level tests functions.
+          jq -r '.test' "$ndjson" | { grep '^Test' || true; } | awk -F '/' '{ print $1 }' | sort -u > "${tmp}/run-tests.txt"
+          if [ ! -s "${tmp}/run-tests.txt" ]; then
+            echo "::error::No 'Test*' entries found in CI results; failing check."
+            exit 1
+          fi
+
+          # (tests-in-branch): every top-level test function defined in the source branch.
+          if ! go test -list '.*' ./... > "${tmp}/go-list.txt" 2> "${tmp}/go-list.err"; then
+            echo "::error::'go test -list' failed (likely a compilation error already surfaced by the test step); failing check."
+            cat "${tmp}/go-list.err"
+            exit 1
+          fi
+          { grep '^Test' "${tmp}/go-list.txt" || true; } | sort -u > "${tmp}/tests-in-branch.txt"
+
+          # Tests defined in the branch but never observed in CI results.
+          missing="$(comm -13 "${tmp}/run-tests.txt" "${tmp}/tests-in-branch.txt")"
+          if [ -z "$missing" ]; then
+            echo "All source-branch tests were exercised in CI."
+            exit 0
+          fi
+
+          echo "The following tests in the source branch have not been run in CI:"
+          printf '%s\n' "$missing"
+          exit 1
