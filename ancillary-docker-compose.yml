@@ -40,6 +40,7 @@ services:
 
   clickhouse:
     container_name: peerdb-clickhouse
+    hostname: clickhouse
     image: ${CLICKHOUSE_IMAGE}
     restart: unless-stopped
     ports:
@@ -47,6 +48,58 @@ services:
       - "${CI_CLICKHOUSE_NATIVE_PORT}:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse/
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node1/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  clickhouse-keeper:
+    container_name: peerdb-clickhouse-keeper
+    hostname: clickhouse-keeper
+    image: ${CLICKHOUSE_IMAGE}
+    restart: unless-stopped
+    command: ["clickhouse", "keeper", "--config-file=/etc/clickhouse-keeper/keeper_config.xml"]
+    volumes:
+      - clickhouse_keeper_data:/var/lib/clickhouse/
+      - ./local_provision_scripts/clickhouse-cluster-config/keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9181 && printf ruok >&3 && timeout 2 cat <&3 | grep -q imok"]
+      interval: 2s
+      timeout: 10s
+      retries: 15
+
+  clickhouse-02:
+    container_name: peerdb-clickhouse-02
+    hostname: clickhouse-02
+    image: ${CLICKHOUSE_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${CI_CLICKHOUSE_HTTP_PORT_02}:8123"
+      - "${CI_CLICKHOUSE_NATIVE_PORT_02}:9000"
+    volumes:
+      - clickhouse_02_data:/var/lib/clickhouse/
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node2/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+    depends_on:
+      clickhouse-keeper:
+        condition: service_healthy
     ulimits:
       nofile:
         soft: 262144
@@ -229,6 +282,8 @@ volumes:
   postgres_data:
   postgres2_data:
   clickhouse_data:
+  clickhouse_keeper_data:
+  clickhouse_02_data:
   mongo_data:
   mysql_gtid_data:
   mysql_pos_data:
