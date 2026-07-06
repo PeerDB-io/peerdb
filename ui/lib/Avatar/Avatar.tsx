@@ -22,9 +22,7 @@ type AvatarIconProps = {
 } & IconProps;
 
 type AvatarProps = { className?: string; size: AvatarSize } & (
-  | AvatarImageProps
-  | AvatarIconProps
-  | AvatarTextProps
+  AvatarImageProps | AvatarIconProps | AvatarTextProps
 );
 
 function isAvatarImage(
