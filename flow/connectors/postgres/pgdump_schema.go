@@ -281,29 +281,39 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 }
 
 func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig) {
-	if internal.PGMustUseTlsConnection(config) {
-		sslMode := "verify-ca"
-		if config.SkipCertVerification {
-			sslMode = "require"
-		}
-		cmd.Env = append(cmd.Env, "PGSSLMODE="+sslMode)
+	hasRootCA := config.RootCa != nil && *config.RootCa != ""
+	// Match the regular connector: enable TLS when explicitly required OR when
+	// a root CA is provided (which implies the user wants a verified connection).
+	if !internal.PGMustUseTlsConnection(config) && !hasRootCA {
+		return
+	}
 
-		if config.RootCa != nil && *config.RootCa != "" {
-			// write root CA to a temp file
-			tmpFile, err := os.CreateTemp("", "peerdb-root-ca-*.pem")
-			if err != nil {
-				slog.WarnContext(ctx, "failed to create temp file for root CA, skipping sslrootcert", slog.Any("error", err))
-				return
-			}
-			if _, err := tmpFile.WriteString(*config.RootCa); err != nil {
-				slog.WarnContext(ctx, "failed to write root CA to temp file", slog.Any("error", err))
-				tmpFile.Close()
-				os.Remove(tmpFile.Name())
-				return
-			}
-			tmpFile.Close()
-			cmd.Env = append(cmd.Env, "PGSSLROOTCERT="+tmpFile.Name())
-			// note: temp file is cleaned up when the process exits
+	switch {
+	case config.SkipCertVerification:
+		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
+	case hasRootCA:
+		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-ca")
+	default:
+		// TLS required but no CA provided — encrypt the connection without
+		// attempting certificate verification (matches pgx "require" behaviour).
+		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
+	}
+
+	if hasRootCA {
+		// write root CA to a temp file
+		tmpFile, err := os.CreateTemp("", "peerdb-root-ca-*.pem")
+		if err != nil {
+			slog.WarnContext(ctx, "failed to create temp file for root CA, skipping sslrootcert", slog.Any("error", err))
+			return
 		}
+		if _, err := tmpFile.WriteString(*config.RootCa); err != nil {
+			slog.WarnContext(ctx, "failed to write root CA to temp file", slog.Any("error", err))
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return
+		}
+		tmpFile.Close()
+		cmd.Env = append(cmd.Env, "PGSSLROOTCERT="+tmpFile.Name())
+		// note: temp file is cleaned up when the process exits
 	}
 }
