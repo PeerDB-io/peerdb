@@ -1809,7 +1809,7 @@ func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
 		"d_null_low", "d_null_high", "d_nn_low", "d_nn_high", "d_ok",
 		"dt_null_low", "dt_null_high", "dt_nn_low", "dt_nn_high", "dt_ok",
 	} {
-		colExprs = append(colExprs, fmt.Sprintf("ifNull(toString(%s),'') AS %s", c, c))
+		colExprs = append(colExprs, fmt.Sprintf("ifNull(toString(%s),'')", c))
 	}
 	cols := strings.Join(colExprs, ",")
 	rows, err := s.GetRows(dstTableName, cols)
