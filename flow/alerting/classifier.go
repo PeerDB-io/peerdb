@@ -1158,16 +1158,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	}
 
 	if partialRowEventError, ok := errors.AsType[*exceptions.MySQLUnsupportedPartialRowEventError](err); ok {
-		var additionalAttributes map[AdditionalErrorAttributeKey]string
-		if partialRowEventError.Schema != "" || partialRowEventError.Table != "" {
-			additionalAttributes = map[AdditionalErrorAttributeKey]string{
-				ErrorAttributeKeyTable: fmt.Sprintf("%s.%s", partialRowEventError.Schema, partialRowEventError.Table),
-			}
-		}
 		return ErrorNotifyBinlogPartialRowEventUnsupported, ErrorInfo{
-			Source:               ErrorSourceMySQL,
-			Code:                 "UNSUPPORTED_PARTIAL_ROW_EVENT",
-			AdditionalAttributes: additionalAttributes,
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_PARTIAL_ROW_EVENT",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: fmt.Sprintf("%s.%s", partialRowEventError.Schema, partialRowEventError.Table),
+			},
 		}
 	}
 
