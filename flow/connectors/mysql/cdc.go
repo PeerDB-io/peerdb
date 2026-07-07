@@ -583,7 +583,7 @@ func (c *MySqlConnector) PullRecords(
 			attribute.String(otel_metrics.BinlogEventTypeKey, fmt.Sprintf("%s_%d", prefix, int(event.Header.EventType))),
 		)))
 		if _, loaded := c.warnedUnsupportedEventTypes.LoadOrStore(event.Header.EventType, struct{}{}); !loaded {
-			c.logger.Warn("unsupported rows event", slog.Any("type", event.Header.EventType))
+			c.logger.Warn("unsupported binlog event", slog.Any("type", event.Header.EventType))
 		}
 	}
 
@@ -634,6 +634,10 @@ func (c *MySqlConnector) PullRecords(
 					break
 				}
 				tableID, totalFragments, ok := parsePartialRowEventTableID(ev.Data)
+				// tableIdToName tracking relies on TABLE_MAP_EVENT and
+				// PARTIAL_ROW_DATA_EVENT coming within the same batch, so no checkpoints in between
+				// Server sends events in groups with the usual sequence of begin - table map - rows - gtid/commit
+				// So as of committing this, the unresolvable path is not expected to be hit
 				sourceTableName, known := tableIdToName[tableID]
 				if !ok || !known {
 					// couldn't recover/resolve the table, fail loudly

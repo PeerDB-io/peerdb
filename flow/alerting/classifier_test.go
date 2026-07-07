@@ -1253,5 +1253,8 @@ func TestMySQLUnsupportedPartialRowEventShouldBeNotifyPartialRowEventUnsupported
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "UNSUPPORTED_PARTIAL_ROW_EVENT",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "e2e_test.partial_rows",
+		},
 	}, errInfo)
 }

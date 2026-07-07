@@ -607,7 +607,7 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if om.Metrics.UnsupportedBinlogEventCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnsupportedBinlogEventName),
 		metric.WithDescription(
-			"Counter of unsupported binlog generic events seen on the CDC path, with `eventType` label "+
+			"Counter of unsupported binlog events seen on the CDC path, with `eventType` label "+
 				"holding the numeric binlog event type"),
 	); err != nil {
 		return err
