@@ -226,19 +226,18 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 				bson.E{Key: "$lte", Value: endObjectID},
 			}},
 		}, nil
-	case *protos.PartitionRange_IntRange:
-		// Numeric _id: inclusive range. PartitionHelper builds non-overlapping
-		// [start, end] integer ranges. Mongo compares int32/int64 numerically, so
-		// int64 bounds match int32-typed _ids.
+	case *protos.PartitionRange_NumericRange:
+		endOp := "$lt"
+		if r.NumericRange.EndInclusive {
+			endOp = "$lte"
+		}
 		return bson.D{
 			bson.E{Key: watermarkColumn, Value: bson.D{
-				bson.E{Key: "$gte", Value: r.IntRange.Start},
-				bson.E{Key: "$lte", Value: r.IntRange.End},
+				bson.E{Key: "$gte", Value: r.NumericRange.Start},
+				bson.E{Key: endOp, Value: r.NumericRange.End},
 			}},
 		}, nil
 	case *protos.PartitionRange_StringRange:
-		// String _id: half-open [start, end) for all but the last partition;
-		// the last partition is closed [start, end] (EndInclusive == true).
 		endOp := "$lt"
 		if r.StringRange.EndInclusive {
 			endOp = "$lte"
