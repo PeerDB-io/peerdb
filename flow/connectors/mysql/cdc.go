@@ -658,6 +658,9 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Error("[mysql] received MariaDB partial row data event, resync required",
 					slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)), slog.String("table", sourceTableName))
 				return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent), schemaName, tableName)
+			case replication.STOP_EVENT, replication.RAND_EVENT, replication.USER_VAR_EVENT,
+				replication.IGNORABLE_EVENT, replication.MARIADB_START_ENCRYPTION_EVENT:
+				// safe to ignore because validation requires binlog_format=ROW
 			default:
 				recordUnsupportedEvent(ctx, event, "Generic")
 			}
@@ -887,6 +890,13 @@ func (c *MySqlConnector) PullRecords(
 					int64(event.Header.Timestamp),
 				)
 			}
+		case *replication.FormatDescriptionEvent, *replication.PreviousGTIDsEvent,
+			*replication.HeartbeatEvent, *replication.RowsQueryEvent, *replication.IntVarEvent,
+			*replication.BeginLoadQueryEvent, *replication.ExecuteLoadQueryEvent,
+			*replication.MariadbAnnotateRowsEvent, *replication.MariadbBinlogCheckPointEvent,
+			*replication.MariadbGTIDListEvent, *replication.MariadbGTIDEvent:
+			// benign events we intentionally don't process (binlog-file headers, heartbeats,
+			// rows-query/SBR context, MariaDB GTID/annotate markers)
 		default:
 			recordUnsupportedEvent(ctx, event, "Untyped")
 		}
