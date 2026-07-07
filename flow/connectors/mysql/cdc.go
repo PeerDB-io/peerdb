@@ -43,7 +43,6 @@ import (
 
 const (
 	defaultBinlogHeartbeatPeriod = time.Minute
-	binlogStalenessMultiplier    = 3
 )
 
 const (
@@ -92,10 +91,6 @@ func setParserSQLModeFromStatusVars(mysqlParser *parser.Parser, statusVars []byt
 		sqlMode = tidbmysql.ModeANSIQuotes
 	}
 	mysqlParser.SetSQLMode(sqlMode)
-}
-
-func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
-	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
 }
 
 func parseSQL(parser *parser.Parser, query []byte) ([]ast.StmtNode, []error, error) {
@@ -455,6 +450,11 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
+	binlogStalenessThreshold, err := internal.PeerDBMySQLBinlogStalenessSeconds(ctx, req.Env)
+	if err != nil {
+		return err
+	}
+
 	isMariaDb := c.Flavor() == mysql.MariaDBFlavor
 	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
@@ -513,7 +513,7 @@ func (c *MySqlConnector) PullRecords(
 	})
 	defer shutdown()
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, c.binlogStalenessThreshold())
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, binlogStalenessThreshold)
 	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
 	defer func() {
 		cancelTimeout()
@@ -842,7 +842,7 @@ func (c *MySqlConnector) PullRecords(
 
 			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount == 0 || inTx {
-					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
+					if since := time.Since(lastEventAt); since > binlogStalenessThreshold {
 						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
 					}
 
@@ -856,7 +856,7 @@ func (c *MySqlConnector) PullRecords(
 								updatedOffset = ""
 							}
 						}
-						resetTimeout(c.binlogStalenessThreshold())
+						resetTimeout(binlogStalenessThreshold)
 					} else {
 						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 							slog.Uint64("records", uint64(recordCount)),

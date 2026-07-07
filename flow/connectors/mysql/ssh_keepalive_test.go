@@ -334,10 +334,12 @@ func TestMySQLOnlyIntegrationBinlogStalenessThreshold(t *testing.T) {
 	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(ctx, t, "my-binlog-staleness-test", toxiproxyBinlogStalenessPort)
 	defer connector.Close()
 
-	// use a short staleness threshold (3x heartbeat period) to make test faster
+	// use a short staleness threshold to make test faster
 	connector.binlogHeartbeatPeriod = 1 * time.Second
+	const binlogStalenessThreshold = 3 * time.Second
 
 	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_binlog_staleness")
+	req.Env = map[string]string{"PEERDB_MYSQL_BINLOG_STALENESS_SECONDS": "3"}
 
 	pullDone := concurrency.NewLatch[error]()
 	go func() {
@@ -363,7 +365,7 @@ func TestMySQLOnlyIntegrationBinlogStalenessThreshold(t *testing.T) {
 		require.Error(t, pullErr)
 		var staleErr *exceptions.MySQLStaleConnectionError
 		require.ErrorAs(t, pullErr, &staleErr)
-		require.GreaterOrEqual(t, staleErr.Since, connector.binlogStalenessThreshold())
+		require.GreaterOrEqual(t, staleErr.Since, binlogStalenessThreshold)
 		require.Equal(t, connector.binlogHeartbeatPeriod, staleErr.HeartbeatPeriod)
 		t.Logf("PullRecords returned staleness error after %v (heartbeat=%v)",
 			staleErr.Since, staleErr.HeartbeatPeriod)
