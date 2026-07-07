@@ -3,6 +3,7 @@ package connmysql
 import (
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/stretchr/testify/require"
 )
 
@@ -182,6 +183,28 @@ func TestIsBenignUnparsedStatement(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// want == true means the statement is benign noise, i.e. classified as ddlKindIgnored.
 			require.Equal(t, tc.want, classifyUnparsedStatement(tc.query, tc.isMariaDb) == ddlKindIgnored)
+		})
+	}
+}
+
+func TestClassifyParsedStatementTxControl(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  ddlKind
+	}{
+		{name: "commit", query: "COMMIT", want: ddlKindCommit},
+		{name: "rollback", query: "ROLLBACK", want: ddlKindRollback},
+		{name: "begin", query: "BEGIN", want: ddlKindIgnored},
+		{name: "alter table add column", query: "ALTER TABLE t ADD COLUMN c INT", want: ddlKindAlterTable},
+		{name: "rename table", query: "RENAME TABLE a TO b", want: ddlKindRenameTable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stmts, _, err := parseSQL(parser.New(), []byte(tc.query))
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+			kind, _, _ := classifyParsedStatement(stmts[0])
+			require.Equal(t, tc.want, kind)
 		})
 	}
 }
