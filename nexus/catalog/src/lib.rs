@@ -181,6 +181,7 @@ impl CatalogConfig<'_> {
             skip_cert_verification: false,
             auth_type: PostgresAuthType::PostgresPassword.into(),
             aws_auth: None,
+            client_tls: None,
         }
     }
 

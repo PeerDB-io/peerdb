@@ -123,6 +123,16 @@ export const pgSchema = z.object({
     .optional()
     .transform((e) => (e === '' ? undefined : e)),
   tlsHost: z.string(),
+  clientTls: z
+    .object({
+      certificate: z
+        .string({ error: () => 'Client certificate must be a string' })
+        .min(1, 'Client certificate must be non-empty'),
+      privateKey: z
+        .string({ error: () => 'Client private key must be a string' })
+        .min(1, 'Client private key must be non-empty'),
+    })
+    .optional(),
   sshConfig: sshSchema,
 });
 export const mySchema = z.object({

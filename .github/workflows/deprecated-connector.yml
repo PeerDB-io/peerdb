@@ -1,0 +1,147 @@
+name: Deprecated connector
+
+# - Labels PRs that touch deprecated destination connectors (actions/labeler).
+# - On bug reports, applies the `deprecated` label only when the selected
+#   destination connector (issue-form dropdown) is a deprecated one.
+# - Posts a single informational notice on any issue/PR carrying the
+#   `deprecated` label. It never closes the issue or PR.
+#
+# NOTE: the `deprecated` label must be created once in the repository settings
+# (Settings -> Labels) — labels are not defined in this repo.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  pull_request:
+    types: [labeled]
+  issues:
+    types: [opened, edited, labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  # Apply path-based labels (incl. `deprecated`) to PRs per .github/labeler.yml.
+  label:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@8558fd74291d67161a8a78ce36a881fa63b766a9 # v5.0.0
+        with:
+          sync-labels: false
+
+  # On a new/edited bug report, apply `deprecated` only when the chosen
+  # destination connector (issue-form dropdown) is a deprecated one. Issues
+  # that select an actively-maintained destination are left untouched.
+  triage-issue:
+    if: github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'edited')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || '';
+            // Extract the "Destination connector" dropdown value from the form body.
+            const match = body.match(/###\s*Destination connector\s*\r?\n+\s*(.+)/);
+            const selection = match ? match[1].trim() : '';
+            const deprecated = new Set([
+              'Snowflake', 'BigQuery', 'ElasticSearch', 'Kafka', 'Redpanda',
+              'Confluent', 'Azure Event Hubs', 'Google Pub/Sub', 'S3',
+            ]);
+            if (!deprecated.has(selection)) {
+              core.info(`Destination "${selection || '(none)'}" is not a deprecated connector; not labeling.`);
+              return;
+            }
+            if ((issue.labels || []).some((l) => (l.name || l) === 'deprecated')) {
+              core.info('Issue already labeled deprecated.');
+              return;
+            }
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['deprecated'],
+            });
+            core.info(`Labeled issue #${issue.number} deprecated (destination: ${selection}).`);
+
+  # Post a one-time notice when the `deprecated` label is present on an issue/PR.
+  # Depends on the prior jobs so it observes labels they applied within this same
+  # run (a GITHUB_TOKEN label write does not itself emit a `labeled` event).
+  # `if: always()` keeps it running when an upstream job is skipped.
+  notice:
+    needs: [label, triage-issue]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const marker = '<!-- deprecated-connector-notice -->';
+            const number =
+              context.eventName === 'issues'
+                ? context.payload.issue?.number
+                : context.payload.pull_request?.number;
+            if (!number) {
+              core.info('No issue/PR number in payload; nothing to do.');
+              return;
+            }
+
+            // Re-fetch labels so we observe any applied by the label/triage jobs
+            // earlier in this run (rather than the stale event payload).
+            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+            });
+            if (!labels.some((l) => l.name === 'deprecated')) {
+              core.info('No deprecated label present; nothing to do.');
+              return;
+            }
+
+            // Guard against duplicate comments using the hidden marker.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+            });
+            if (comments.some((c) => c.body && c.body.includes(marker))) {
+              core.info('Deprecated-connector notice already posted; skipping.');
+              return;
+            }
+
+            const body = [
+              marker,
+              '### ⚠️ Deprecated destination connector',
+              '',
+              'This issue or pull request relates to a **deprecated** destination connector ' +
+                '(Snowflake, BigQuery, ElasticSearch, Kafka, Redpanda, Confluent, Azure Event Hubs, Google Pub/Sub, or S3).',
+              '',
+              'These destinations are **no longer actively maintained**, but remain functional. ' +
+                'We are unlikely to prioritize new work here.',
+              '',
+              '> Note: BigQuery is deprecated **only as a destination** — it remains a supported source.',
+              '',
+              'If you depend on one of these connectors, we recommend:',
+              '',
+              '- **Pin** to a known-good PeerDB version so behavior stays stable.',
+              '- **Fork** the repository if you need to carry your own changes.',
+              '',
+              'See the [deprecated connectors documentation](https://github.com/PeerDB-io/peerdb/blob/main/docs/deprecated-connectors.md) for details and migration guidance.',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+              body,
+            });
+            core.info(`Posted deprecated-connector notice on #${number}.`);

@@ -160,6 +160,11 @@ export default function PostgresForm({
                       }
                       type={setting.type}
                       defaultValue={setting.default}
+                      disabled={
+                        setting.field?.startsWith('clientTls.')
+                          ? !config.requireTls
+                          : undefined
+                      }
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                         handleFieldChange(e, setting, setter)
                       }

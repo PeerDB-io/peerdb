@@ -17,6 +17,7 @@ import (
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -1126,6 +1127,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable: unsupportedDDLError.TableName,
 			},
+		}
+	}
+
+	if strings.Contains(err.Error(), replication.ErrChecksumMismatch.Error()) {
+		return ErrorNotifyBinlogInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "BINLOG_CHECKSUM_MISMATCH",
 		}
 	}
 

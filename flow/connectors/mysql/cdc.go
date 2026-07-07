@@ -43,7 +43,6 @@ import (
 
 const (
 	defaultBinlogHeartbeatPeriod = time.Minute
-	binlogStalenessMultiplier    = 3
 )
 
 const (
@@ -92,10 +91,6 @@ func setParserSQLModeFromStatusVars(mysqlParser *parser.Parser, statusVars []byt
 		sqlMode = tidbmysql.ModeANSIQuotes
 	}
 	mysqlParser.SetSQLMode(sqlMode)
-}
-
-func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
-	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
 }
 
 func parseSQL(parser *parser.Parser, query []byte) ([]ast.StmtNode, []error, error) {
@@ -303,6 +298,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		var err error
 		tlsConfig, err = common.CreateTlsConfig(
 			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+			nil,
 		)
 		if err != nil {
 			return nil, err
@@ -354,6 +350,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		DisableRetrySync:      true,
 		UseDecimal:            true,
 		ParseTime:             true,
+		VerifyChecksum:        true,
 		RenderJSONAsMySQLText: true,
 		TLSConfig:             tlsConfig,
 		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
@@ -455,6 +452,11 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
+	binlogStalenessThreshold, err := internal.PeerDBMySQLBinlogStalenessSeconds(ctx, req.Env)
+	if err != nil {
+		return err
+	}
+
 	isMariaDb := c.Flavor() == mysql.MariaDBFlavor
 	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
@@ -513,7 +515,7 @@ func (c *MySqlConnector) PullRecords(
 	})
 	defer shutdown()
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, c.binlogStalenessThreshold())
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, binlogStalenessThreshold)
 	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
 	defer func() {
 		cancelTimeout()
@@ -551,6 +553,18 @@ func (c *MySqlConnector) PullRecords(
 		}
 	}
 
+	advanceCheckpoint := func(evGSet mysql.GTIDSet, logPos uint32) {
+		if gset != nil {
+			gset = evGSet
+			updatedOffset = gset.String()
+			req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+		} else if logPos > pos.Pos {
+			pos.Pos = logPos
+			updatedOffset = posToOffsetText(pos)
+			req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+		}
+	}
+
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
 	processEvent := func(event *replication.BinlogEvent) error {
@@ -560,15 +574,7 @@ func (c *MySqlConnector) PullRecords(
 		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
 			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
 		case *replication.XIDEvent:
-			if gset != nil {
-				gset = ev.GSet
-				updatedOffset = gset.String() // accumulated from GTID events above
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			} else if event.Header.LogPos > pos.Pos {
-				pos.Pos = event.Header.LogPos
-				updatedOffset = posToOffsetText(pos)
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			}
+			advanceCheckpoint(ev.GSet, event.Header.LogPos)
 			inTx = false
 		case *replication.RotateEvent:
 			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
@@ -625,6 +631,10 @@ func (c *MySqlConnector) PullRecords(
 					}
 				case ddlKindRenameTable:
 					c.processRenameTableQuery(ctx, otelManager, req, renameStmt, string(ev.Schema))
+				case ddlKindCommit, ddlKindRollback:
+					// Non-transactional engines (e.g. MyISAM) end a binlog group with a COMMIT/ROLLBACK
+					advanceCheckpoint(ev.GSet, event.Header.LogPos)
+					inTx = false
 				case ddlKindIgnored:
 				default:
 					return fmt.Errorf("unknown stmt kind: %v", kind)
@@ -842,7 +852,7 @@ func (c *MySqlConnector) PullRecords(
 
 			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount == 0 || inTx {
-					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
+					if since := time.Since(lastEventAt); since > binlogStalenessThreshold {
 						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
 					}
 
@@ -856,7 +866,7 @@ func (c *MySqlConnector) PullRecords(
 								updatedOffset = ""
 							}
 						}
-						resetTimeout(c.binlogStalenessThreshold())
+						resetTimeout(binlogStalenessThreshold)
 					} else {
 						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 							slog.Uint64("records", uint64(recordCount)),

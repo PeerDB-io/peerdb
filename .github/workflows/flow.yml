@@ -109,7 +109,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.154.0@sha256:b3079f45e19bdb7326bf49cdddce6cf60dfd865138db39f2733ea48ab17bc4cb
+        image: otel/opentelemetry-collector-contrib:0.155.0@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
         ports:
           - 4317:4317
       toxiproxy:
@@ -323,6 +323,7 @@ jobs:
           openssl x509 -req -days 3650 -in ch-certs/client.csr -CA ch-certs/ca.crt -CAkey ch-certs/ca.key -CAcreateserial -out ch-certs/tls.crt
 
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
+        # Also enables certificate-based client authentication (mTLS) on the catalog postgres instance.
         run: >
           docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
           docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
@@ -333,6 +334,9 @@ jobs:
           -c "ALTER SYSTEM SET max_wal_senders=256;"
           -c "ALTER SYSTEM SET max_connections=2048;" &&
           (cat ./nexus/catalog/migrations/V{?,??}__* | docker exec -i "${{ job.services.catalog.id }}" psql -U postgres) &&
+          docker cp volumes/pg-tls "${{ job.services.catalog.id }}:/tmp/pg-tls" &&
+          docker exec "${{ job.services.catalog.id }}" sh -c 'install -d -o postgres -g postgres /var/lib/postgresql/tls && install -m 644 -o postgres -g postgres /tmp/pg-tls/server.crt /var/lib/postgresql/tls/server.crt && install -m 600 -o postgres -g postgres /tmp/pg-tls/server.key /var/lib/postgresql/tls/server.key && install -m 644 -o postgres -g postgres /tmp/pg-tls/client.crt /var/lib/postgresql/tls/ca.crt' &&
+          docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "ALTER SYSTEM SET ssl=on;" -c "ALTER SYSTEM SET ssl_cert_file='/var/lib/postgresql/tls/server.crt';" -c "ALTER SYSTEM SET ssl_key_file='/var/lib/postgresql/tls/server.key';" -c "ALTER SYSTEM SET ssl_ca_file='/var/lib/postgresql/tls/ca.crt';" &&
           docker restart "${{ job.services.catalog.id }}"
         env:
           PGPASSWORD: postgres
@@ -639,6 +643,10 @@ jobs:
           PG2_USER: postgres
           PG2_PASSWORD: postgres
           PG2_DATABASE: postgres
+          # Mutual-TLS client-certificate auth test (catalog has TLS enabled above)
+          PG_MTLS_ROOT_CA_PATH: ${{ github.workspace }}/volumes/pg-tls/server.crt
+          PG_MTLS_CLIENT_CERT_PATH: ${{ github.workspace }}/volumes/pg-tls/client.crt
+          PG_MTLS_CLIENT_KEY_PATH: ${{ github.workspace }}/volumes/pg-tls/client.key
           PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
@@ -713,3 +721,51 @@ jobs:
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
+
+      - name: Check all present test functions in the source branch were exercised in CI
+        # Compares the top-level tests that actually ran in CI (from the
+        # normalized results produced by the ingest step above) against every top-level
+        # test defined under ./flow, and fails if the branch defines tests CI never ran.
+        # Only runs for pull request builds; skipped for non-PR builds (e.g. push to main).
+        # Parens matter: && binds tighter than || in GitHub Actions expressions.
+        if: |
+          (success() || failure()) &&
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+        working-directory: ./flow
+        run: |
+          set -uo pipefail
+          tmp="${RUNNER_TEMP:-/tmp}"
+
+          ndjson="../logs/normalized-test-results.ndjson"
+          if [ ! -s "$ndjson" ]; then
+            echo "::error::No normalized test results at ${ndjson} (results ingestion disabled or no tests ran); failing check."
+            exit 1
+          fi
+
+          # (run-tests): top-level test functions observed in CI results, with subtests
+          # collapsed onto their parent (TestFoo/sub -> TestFoo).
+          # This collapse is necessary because the branch test enumeration below only lists top-level tests functions.
+          jq -r '.test' "$ndjson" | { grep '^Test' || true; } | awk -F '/' '{ print $1 }' | sort -u > "${tmp}/run-tests.txt"
+          if [ ! -s "${tmp}/run-tests.txt" ]; then
+            echo "::error::No 'Test*' entries found in CI results; failing check."
+            exit 1
+          fi
+
+          # (tests-in-branch): every top-level test function defined in the source branch.
+          if ! go test -list '.*' ./... > "${tmp}/go-list.txt" 2> "${tmp}/go-list.err"; then
+            echo "::error::'go test -list' failed (likely a compilation error already surfaced by the test step); failing check."
+            cat "${tmp}/go-list.err"
+            exit 1
+          fi
+          { grep '^Test' "${tmp}/go-list.txt" || true; } | sort -u > "${tmp}/tests-in-branch.txt"
+
+          # Tests defined in the branch but never observed in CI results.
+          missing="$(comm -13 "${tmp}/run-tests.txt" "${tmp}/tests-in-branch.txt")"
+          if [ -z "$missing" ]; then
+            echo "All source-branch tests were exercised in CI."
+            exit 0
+          fi
+
+          echo "The following tests in the source branch have not been run in CI:"
+          printf '%s\n' "$missing"
+          exit 1
