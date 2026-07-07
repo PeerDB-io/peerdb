@@ -1,0 +1,110 @@
+name: flow-api-client-tag
+
+# Manually tags a release of the generated flow-api-client.
+#
+# The `flow-api-client` workflow keeps the long-lived `flow-api-client` branch in
+# sync with the generated proto Go files on every push to `main`. This workflow
+# publishes a consumable version by pushing a `flow-api-client/vX.Y.Z` tag that
+# points at the current tip of that branch.
+#
+# NOTE: GitHub Actions cannot dynamically pre-fill a workflow_dispatch input, so
+# the version box cannot be seeded with "latest + 1" in the UI. Instead, leave
+# the `version` input blank and the workflow auto-increments the patch level of
+# the latest existing flow-api-client/vX.Y.Z tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          flow-api-client version to publish (template X.Y.Z, tagged as
+          flow-api-client/vX.Y.Z). Leave blank to auto-increment the patch level
+          of the latest existing flow-api-client tag.
+          Make sure your changes have been merged to the flow-api-client branch before running this workflow.
+          You can check the history of completed syncs at https://github.com/PeerDB-io/peerdb/actions/workflows/flow-api-client.yml
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: flow-api-client-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Fetch flow-api-client branch and existing tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Latest state of the branch we will tag.
+          git fetch --no-tags origin \
+            '+refs/heads/flow-api-client:refs/remotes/origin/flow-api-client'
+          # Only the flow-api-client/* tags (ignores unrelated / malformed tags).
+          git fetch --no-tags origin \
+            '+refs/tags/flow-api-client/*:refs/tags/flow-api-client/*'
+
+      - name: Resolve version
+        id: resolve
+        # Only needed to derive the next version; skipped entirely when an explicit version is given.
+        if: ${{ inputs.version == '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          latest="$(git tag -l 'flow-api-client/v[0-9]*.[0-9]*.[0-9]*' \
+            | sed 's|^flow-api-client/v||' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort --version-sort \
+            | tail -1)"
+          if [ -z "$latest" ]; then
+            echo "::error::No existing flow-api-client/vX.Y.Z tag found; provide an explicit version input."
+            exit 1
+          fi
+
+          IFS=. read -r major minor patch <<< "$latest"
+          version="${major}.${minor}.$((patch + 1))"
+          echo "Latest tag flow-api-client/v${latest} -> next flow-api-client/v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RESOLVED_VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          version="${INPUT_VERSION#v}"
+          version="${version:-$RESOLVED_VERSION}"
+
+          if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version '${version}' does not match the X.Y.Z template."
+            exit 1
+          fi
+
+          tag="flow-api-client/v${version}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag ${tag} already exists."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          target="$(git rev-parse refs/remotes/origin/flow-api-client)"
+          echo "Tagging flow-api-client tip ${target} as ${tag}"
+
+          git tag -a "${tag}" "${target}" -m "${tag}"
+          git push origin "refs/tags/${tag}"
+
+          {
+            echo "### Published \`${tag}\`"
+            echo ""
+            echo "- Branch tip: \`${target}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

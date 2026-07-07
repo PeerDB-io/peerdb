@@ -1,6 +1,7 @@
 'use client';
 import { MirrorType } from '@/app/dto/MirrorsDTO';
 import { fetcher } from '@/app/utils/swr';
+import { Badge } from '@/lib/Badge';
 import { Label } from '@/lib/Label';
 import { RowWithRadiobutton } from '@/lib/Layout';
 import { ProgressCircle } from '@/lib/ProgressCircle';
@@ -22,6 +23,7 @@ export default function MirrorCards({
       title: MirrorType;
       description: string;
       link: string;
+      deprecated?: boolean;
     }[]
   >('/api/mirror-types', fetcher);
 
@@ -50,7 +52,26 @@ export default function MirrorCards({
                 <RowWithRadiobutton
                   label={
                     <Label>
-                      <div style={{ fontWeight: 'bold' }}>{card.title}</div>
+                      <div
+                        style={{
+                          fontWeight: 'bold',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                        }}
+                      >
+                        {card.title}
+                        {card.deprecated && (
+                          <Badge variant='destructive'>
+                            <Label
+                              as='label'
+                              style={{ fontSize: 13, padding: 0 }}
+                            >
+                              Deprecated
+                            </Label>
+                          </Badge>
+                        )}
+                      </div>
                     </Label>
                   }
                   action={<RadioButton value={card.title} />}

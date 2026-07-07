@@ -396,7 +396,7 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 			rootCAs, tlsHost := credsProvider.GetTlsConfig()
 			if rootCAs != nil || tlsHost != "" {
 				// start with a clone of DefaultTransport so we keep http2, idle-conns, etc.
-				tlsConfig, err := common.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
+				tlsConfig, err := common.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "", nil)
 				if err != nil {
 					return nil, err
 				}

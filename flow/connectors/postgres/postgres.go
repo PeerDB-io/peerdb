@@ -186,8 +186,16 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 	shouldUseTls := internal.PGMustUseTlsConnection(pgConfig)
 
 	if shouldUseTls || pgConfig.RootCa != nil {
+		var clientCert *common.ClientCertificate
+		if clientTls := pgConfig.GetClientTls(); clientTls != nil {
+			clientCert, err = common.NewClientCertificate(clientTls.GetCertificate(), clientTls.GetPrivateKey())
+			if err != nil {
+				return nil, err
+			}
+		}
 		tlsConfig, err := common.CreateTlsConfig(
-			tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, pgConfig.SkipCertVerification)
+			tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, pgConfig.SkipCertVerification,
+			clientCert)
 		if err != nil {
 			return nil, err
 		}

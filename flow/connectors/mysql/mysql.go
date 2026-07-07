@@ -187,6 +187,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			if !c.config.DisableTls {
 				config, err := common.CreateTlsConfig(
 					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+					nil,
 				)
 				if err != nil {
 					return err
@@ -467,7 +468,7 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 	var query string
 	switch c.Flavor() {
 	case mysql.MariaDBFlavor:
-		query = "select @@gtid_current_pos"
+		query = "select @@gtid_binlog_pos"
 	default:
 		query = "select @@GLOBAL.gtid_executed"
 	}

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"sync/atomic"
@@ -297,6 +298,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		var err error
 		tlsConfig, err = common.CreateTlsConfig(
 			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+			nil,
 		)
 		if err != nil {
 			return nil, err
@@ -325,9 +327,19 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get event cache count: %w", err)
 	}
-	//nolint:gosec
+
+	var serverId uint32
+	if c.config.ServerId != nil {
+		serverId = *c.config.ServerId
+	} else {
+		// If the configuration doesn't specify a server_id value, fallback to
+		// default behavior of generating a random server_id in the range [1000, MaxUint32).
+		// Range reference: https://dev.mysql.com/doc/refman/9.7/en/replication-options.html#sysvar_server_id
+		serverId = 1000 + rand.Uint32()%(math.MaxUint32-1000) //nolint:gosec // G404: server_id does not require cryptographic randomness
+	}
+
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
-		ServerID:         rand.Uint32(),
+		ServerID:         serverId,
 		Flavor:           c.Flavor(),
 		Host:             config.Host,
 		Port:             uint16(config.Port),
@@ -443,6 +455,7 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
+	isMariaDb := c.Flavor() == mysql.MariaDBFlavor
 	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
@@ -585,22 +598,36 @@ func (c *MySqlConnector) PullRecords(
 			setParserSQLModeFromStatusVars(mysqlParser, ev.StatusVars)
 			stmts, warns, err := parseSQL(mysqlParser, ev.Query)
 			if err != nil {
-				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				if classifyUnparsedStatement(string(ev.Query), isMariaDb) == ddlKindIgnored {
+					c.logger.Warn("skipping parse failure for non-replicated statement",
+						slog.String("query", string(ev.Query)), slog.Any("error", err))
+				} else {
+					c.logger.Error("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+					otelManager.Metrics.ParseSQLErrorsCounter.Add(ctx, 1)
+				}
 				break
 			}
 			if len(warns) > 0 {
-				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
+				warnStrs := make([]string, len(warns))
+				for i, w := range warns {
+					warnStrs[i] = w.Error()
+				}
+				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warnStrs))
 			}
 			for _, stmt := range stmts {
-				switch s := stmt.(type) {
-				case *ast.AlterTableStmt:
+				kind, alterStmt, renameStmt := classifyParsedStatement(stmt)
+				switch kind {
+				case ddlKindAlterTable:
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, otelManager, req, s,
+						ctx, catalogPool, otelManager, req, alterStmt,
 						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
-				case *ast.RenameTableStmt:
-					c.processRenameTableQuery(ctx, otelManager, req, s, string(ev.Schema))
+				case ddlKindRenameTable:
+					c.processRenameTableQuery(ctx, otelManager, req, renameStmt, string(ev.Schema))
+				case ddlKindIgnored:
+				default:
+					return fmt.Errorf("unknown stmt kind: %v", kind)
 				}
 			}
 		case *replication.RowsEvent:

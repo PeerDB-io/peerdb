@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a problem with PeerDB
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report! Please fill out the fields below so we can reproduce and triage the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is, including the expected behavior and what actually happened.
+      placeholder: When I run a CDC mirror to ..., I expected ... but instead ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps_to_reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Step-by-step instructions to reproduce the behavior.
+      placeholder: |
+        1. Create a peer with ...
+        2. Create a mirror with ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: PeerDB version
+      description: The PeerDB version (or Docker image tag / commit SHA) you are running.
+      placeholder: e.g. v0.30.0 or stable-dev
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source_connector
+    attributes:
+      label: Source connector
+      description: If this issue relates to a source connector, select it here. Leave blank if not applicable.
+      options:
+        - Postgres
+        - MySQL
+        - MongoDB
+        - BigQuery
+        - Other
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ### ⚠️ Deprecated destination connectors
+
+        The following destination connectors are **deprecated**: **Snowflake**, **BigQuery**, **ElasticSearch**, **Kafka**, **Redpanda**, **Confluent**, **Azure Event Hubs**, **Google Pub/Sub**, and **S3**.
+
+        These destinations are no longer actively maintained, but remain functional. Bugs affecting only these destinations are unlikely to be prioritized. Note: BigQuery is deprecated **only as a destination** — it remains a supported source. See the [deprecated connectors documentation](https://github.com/PeerDB-io/peerdb/blob/main/docs/deprecated-connectors.md) for details and migration guidance.
+
+  - type: dropdown
+    id: destination_connector
+    attributes:
+      label: Destination connector
+      description: If this issue relates to a destination connector, select it here (see the deprecation notice above). Leave blank if not applicable.
+      options:
+        - ClickHouse
+        - ClickHouse Cloud
+        - Postgres
+        - S3
+        - Snowflake
+        - BigQuery
+        - ElasticSearch
+        - Kafka
+        - Redpanda
+        - Confluent
+        - Azure Event Hubs
+        - Google Pub/Sub
+        - Other
+    validations:
+      required: false

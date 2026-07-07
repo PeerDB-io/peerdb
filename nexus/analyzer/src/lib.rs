@@ -12,9 +12,10 @@ use pt::peerdb_peers::{MySqlAuthType, PostgresAuthType};
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount, KafkaConfig,
-        MongoConfig, MySqlFlavor, MySqlReplicationMechanism, Peer, PostgresConfig, PubSubConfig,
-        S3Config, SnowflakeConfig, SqlServerConfig, SshConfig, peer::Config,
+        BigqueryConfig, ClickhouseConfig, ClientTlsConfig, DbType, EventHubConfig,
+        GcpServiceAccount, KafkaConfig, MongoConfig, MySqlFlavor, MySqlReplicationMechanism, Peer,
+        PostgresConfig, PubSubConfig, S3Config, SnowflakeConfig, SqlServerConfig, SshConfig,
+        peer::Config,
     },
 };
 use qrep::process_options;
@@ -759,6 +760,29 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 None => None,
             };
 
+            let client_tls: Option<ClientTlsConfig> = match opts.get("client_tls") {
+                Some(client_tls) => {
+                    let client_tls_str = client_tls.to_string();
+                    if client_tls_str.is_empty() {
+                        None
+                    } else {
+                        let parsed: ClientTlsConfig = serde_json::from_str(&client_tls_str)
+                            .context("failed to deserialize client_tls")?;
+                        // Mirror common::NewClientCertificate on the Go side: client
+                        // certificate auth requires both fields. A fully-empty value
+                        // means "not configured", and a half-filled one is a misconfig.
+                        match (parsed.certificate.is_empty(), parsed.private_key.is_empty()) {
+                            (true, true) => None,
+                            (false, false) => Some(parsed),
+                            _ => anyhow::bail!(
+                                "client_tls requires both certificate and private_key to be set"
+                            ),
+                        }
+                    }
+                }
+                None => None,
+            };
+
             let postgres_config = PostgresConfig {
                 host: opts.get("host").context("no host specified")?.to_string(),
                 port: opts
@@ -798,6 +822,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .unwrap_or_default(),
                 auth_type: PostgresAuthType::PostgresPassword.into(),
                 aws_auth: None,
+                client_tls,
             };
 
             Config::PostgresConfig(postgres_config)
@@ -1134,6 +1159,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             }
             .into(),
             aws_auth: None,
+            server_id: opts.get("server_id").and_then(|s| s.parse::<u32>().ok()),
         }),
         DbType::DbtypeUnknown => return Ok(None),
     }))
