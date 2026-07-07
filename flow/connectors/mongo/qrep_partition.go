@@ -127,7 +127,7 @@ func (c *MongoConnector) objectIDPartitions(
 
 // numericPartitions divides a numeric (int32/int64) _id range uniformly. MongoDB
 // sorts all numeric types by value, so integer min/max _ids cannot rule out
-// fractional (double/decimal) _ids in-between. Therefre we use [start, end) to
+// fractional (double/decimal) _ids in-between. Therefore we use [start, end) to
 // ensure contiguous boundaries.
 func (c *MongoConnector) numericPartitions(
 	minVal int64,
