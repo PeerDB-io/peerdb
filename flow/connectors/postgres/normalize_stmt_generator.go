@@ -76,7 +76,14 @@ func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []
 
 	if n.supportsMerge {
 		unchangedToastColumns := n.unchangedToastColumnsMap[dstTable]
-		return []string{n.generateMergeStatement(dstTable, normalizedTableSchema, unchangedToastColumns)}
+		stmts := []string{n.generateMergeStatement(dstTable, normalizedTableSchema, unchangedToastColumns)}
+		// For partitioned destination tables where delete records lack the partition key
+		// (REPLICA IDENTITY DEFAULT), split deletes into a separate statement that only
+		// uses primary keys, so the MERGE can use partition key equality for pruning.
+		if dstTable == "chat_messages.messages" {
+			stmts = append(stmts, n.generatePartitionedDeleteStatement(dstTable, normalizedTableSchema))
+		}
+		return stmts
 	}
 	n.Warn("Postgres version is not high enough to support MERGE, falling back to UPSERT+DELETE")
 	n.Warn("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
@@ -204,14 +211,11 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 
 	// For partitioned destination tables, include the partition key in the MERGE ON clause
 	// to enable partition pruning. Currently hardcoded for chat_messages.messages.
-	// The OR IS NULL fallback allows deletes to match when the partition key is absent
-	// from _peerdb_data (e.g. REPLICA IDENTITY DEFAULT only sends primary key columns).
 	if dstTableName == "chat_messages.messages" {
 		partitionCol := common.QuoteIdentifier("created_at")
 		joinClause := fmt.Sprintf("src.%s=dst.%s", partitionCol, partitionCol)
 		if !slices.Contains(primaryKeySelectSQLArray, joinClause) {
-			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray,
-				fmt.Sprintf("(src.%s=dst.%s OR src.%s IS NULL)", partitionCol, partitionCol, partitionCol))
+			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, joinClause)
 		}
 	}
 
@@ -289,6 +293,84 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	}
 
 	return mergeStmt
+}
+
+// generatePartitionedDeleteStatement generates a separate DELETE for partitioned tables
+// where delete records lack the partition key (e.g. REPLICA IDENTITY DEFAULT).
+// This allows the MERGE to use partition key equality for pruning while deletes
+// fall back to matching on primary keys only.
+func (n *normalizeStmtGenerator) generatePartitionedDeleteStatement(
+	dstTableName string,
+	normalizedTableSchema *protos.TableSchema,
+) string {
+	parsedDstTable, _ := common.ParseTableIdentifier(dstTableName)
+	useJsonbToRecord := normalizedTableSchema.System == protos.TypeSystem_PG
+
+	pkJoinClauses := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	if useJsonbToRecord {
+		// Build record defs for PK columns only
+		pkRecordDefs := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+		for _, column := range normalizedTableSchema.Columns {
+			if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
+				quotedCol := common.QuoteIdentifier(column.Name)
+				pgType := n.columnTypeToPg(normalizedTableSchema, column)
+				pkRecordDefs = append(pkRecordDefs, fmt.Sprintf("%s %s", quotedCol, pgType))
+				pkJoinClauses = append(pkJoinClauses, fmt.Sprintf("src.%s=dst.%s", quotedCol, quotedCol))
+			}
+		}
+		primaryKeyQuotedNames := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+		for _, pkCol := range normalizedTableSchema.PrimaryKeyColumns {
+			primaryKeyQuotedNames = append(primaryKeyQuotedNames, common.QuoteIdentifier(pkCol))
+		}
+		return fmt.Sprintf(
+			`WITH src_rank AS (
+				SELECT r.*,_peerdb_record_type,_peerdb_timestamp,
+				RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
+				FROM %s.%s, jsonb_to_record(_peerdb_data) AS r(%s)
+				WHERE _peerdb_batch_id = $1 AND _peerdb_destination_table_name = $2
+			)
+			DELETE FROM %s dst USING (SELECT * FROM src_rank WHERE _peerdb_rank=1 AND _peerdb_record_type=2) src
+			WHERE %s`,
+			strings.Join(primaryKeyQuotedNames, ","),
+			n.metadataSchema,
+			n.rawTableName,
+			strings.Join(pkRecordDefs, ","),
+			parsedDstTable.String(),
+			strings.Join(pkJoinClauses, " AND "),
+		)
+	}
+
+	// Legacy ->> path
+	for _, column := range normalizedTableSchema.Columns {
+		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
+			quotedCol := common.QuoteIdentifier(column.Name)
+			stringCol := utils.QuoteLiteral(column.Name)
+			pgType := n.columnTypeToPg(normalizedTableSchema, column)
+			pkJoinClauses = append(pkJoinClauses,
+				fmt.Sprintf("%s.%s=(_peerdb_data->>%s)::%s", parsedDstTable.String(), quotedCol, stringCol, pgType))
+		}
+	}
+	primaryKeyColumnCasts := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	for _, column := range normalizedTableSchema.Columns {
+		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
+			stringCol := utils.QuoteLiteral(column.Name)
+			pgType := n.columnTypeToPg(normalizedTableSchema, column)
+			primaryKeyColumnCasts = append(primaryKeyColumnCasts, fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType))
+		}
+	}
+	return fmt.Sprintf(
+		`WITH src_rank AS (
+			SELECT _peerdb_data,_peerdb_record_type,_peerdb_timestamp,
+			RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
+			FROM %s.%s WHERE _peerdb_batch_id = $1 AND _peerdb_destination_table_name = $2
+		)
+		DELETE FROM %s USING src_rank WHERE %s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`,
+		strings.Join(primaryKeyColumnCasts, ","),
+		n.metadataSchema,
+		n.rawTableName,
+		parsedDstTable.String(),
+		strings.Join(pkJoinClauses, " AND "),
+	)
 }
 
 func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, unchangedToastColumns []string) []string {
