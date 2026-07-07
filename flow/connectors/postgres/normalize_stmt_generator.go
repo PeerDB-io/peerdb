@@ -204,11 +204,14 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 
 	// For partitioned destination tables, include the partition key in the MERGE ON clause
 	// to enable partition pruning. Currently hardcoded for chat_messages.messages.
+	// The OR IS NULL fallback allows deletes to match when the partition key is absent
+	// from _peerdb_data (e.g. REPLICA IDENTITY DEFAULT only sends primary key columns).
 	if dstTableName == "chat_messages.messages" {
 		partitionCol := common.QuoteIdentifier("created_at")
 		joinClause := fmt.Sprintf("src.%s=dst.%s", partitionCol, partitionCol)
 		if !slices.Contains(primaryKeySelectSQLArray, joinClause) {
-			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, joinClause)
+			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray,
+				fmt.Sprintf("(src.%s=dst.%s OR src.%s IS NULL)", partitionCol, partitionCol, partitionCol))
 		}
 	}
 
