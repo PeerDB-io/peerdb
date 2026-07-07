@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -547,8 +548,9 @@ func QValueFromMysqlRowEvent(
 	case time.Time:
 		return types.QValueTimestamp{Val: val}, nil
 	case *replication.JsonDiff:
-		// TODO support somehow??
-		return types.QValueNull(types.QValueKindJSON), nil
+		// Partial JSON updates (binlog_row_value_options=PARTIAL_JSON) cannot be applied; the caller
+		// fails fast on PARTIAL_UPDATE_ROWS_EVENT, so this is a defensive backstop against silent data loss.
+		return nil, errors.New("partial JSON update value is not supported; binlog_row_value_options must be disabled")
 	case []byte:
 		switch qkind {
 		case types.QValueKindBytes:

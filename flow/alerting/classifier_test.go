@@ -1255,3 +1255,18 @@ func TestMySQLBinlogIncidentErrorShouldBeNotifyBinlogInvalid(t *testing.T) {
 		Code:   "BINLOG_INCIDENT",
 	}, errInfo)
 }
+
+func TestMySQLUnsupportedBinlogRowValueOptionsErrorShouldBeNotifyBinlogPartialJsonUnsupported(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLUnsupportedBinlogRowValueOptionsError("mydb", "mytable")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogPartialJsonUnsupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_PARTIAL_JSON",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "mydb.mytable",
+		},
+	}, errInfo)
+}

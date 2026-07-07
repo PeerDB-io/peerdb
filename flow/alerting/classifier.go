@@ -146,6 +146,9 @@ var (
 	ErrorNotifyBinlogEventExceededMaxAllowedPacket = ErrorClass{
 		Class: "NOTIFY_BINLOG_EVENT_EXCEEDED_MAX_ALLOWED_PACKET", action: NotifyUser,
 	}
+	ErrorNotifyBinlogPartialJsonUnsupported = ErrorClass{
+		Class: "NOTIFY_BINLOG_PARTIAL_JSON_UNSUPPORTED", action: NotifyUser,
+	}
 	ErrorNotifyBinlogRowMetadataInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_ROW_METADATA_INVALID", action: NotifyUser,
 	}
@@ -1117,6 +1120,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   "UNSUPPORTED_BINLOG_ROW_METADATA",
+		}
+	}
+
+	if partialJsonUnsupportedError, ok := errors.AsType[*exceptions.MySQLUnsupportedBinlogRowValueOptionsError](err); ok {
+		return ErrorNotifyBinlogPartialJsonUnsupported, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_PARTIAL_JSON",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: fmt.Sprintf("%s.%s", partialJsonUnsupportedError.Schema, partialJsonUnsupportedError.Table),
+			},
 		}
 	}
 
