@@ -55,6 +55,21 @@ func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
 		e.SchemaName, e.TableName)
 }
 
+type MySQLUnsupportedBinlogRowValueOptionsError struct {
+	Schema string
+	Table  string
+}
+
+func NewMySQLUnsupportedBinlogRowValueOptionsError(schema string, table string) *MySQLUnsupportedBinlogRowValueOptionsError {
+	return &MySQLUnsupportedBinlogRowValueOptionsError{Schema: schema, Table: table}
+}
+
+func (e *MySQLUnsupportedBinlogRowValueOptionsError) Error() string {
+	return fmt.Sprintf(
+		"Received a partial JSON update event while processing %s.%s; binlog_row_value_options must be disabled (set to '')",
+		e.Schema, e.Table)
+}
+
 type MySQLUnsupportedDDLError struct {
 	TableName string
 }

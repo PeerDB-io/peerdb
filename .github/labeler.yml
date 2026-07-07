@@ -1,0 +1,53 @@
+# Configuration for actions/labeler@v5.
+# Applies the `deprecated` label to PRs that touch deprecated destination connectors:
+# Snowflake, BigQuery, ElasticSearch, Kafka (incl. Confluent/Redpanda), Azure Event Hubs, Google Pub/Sub, S3.
+# ClickHouse and Postgres (the actively-maintained destinations) are intentionally excluded.
+deprecated:
+  - changed-files:
+      - any-glob-to-any-file:
+          # Destination-only connectors — the whole connector is deprecated.
+          - flow/connectors/snowflake/**
+          - flow/connectors/elasticsearch/**
+          - flow/connectors/eventhub/**
+          - flow/connectors/kafka/**
+          - flow/connectors/pubsub/**
+          - flow/connectors/s3/**
+          # End-to-end tests
+          - flow/e2e/snowflake*.go
+          - flow/e2e/elasticsearch*.go
+          - flow/e2e/eventhub*.go
+          - flow/e2e/kafka*.go
+          - flow/e2e/pubsub*.go
+          - flow/e2e/s3_*.go
+          # UI peer forms
+          - ui/components/PeerForms/SnowflakeForm.tsx
+          - ui/components/PeerForms/ElasticsearchConfigForm.tsx
+          - ui/components/PeerForms/KafkaConfig.tsx
+          - ui/components/PeerForms/PubSubConfig.tsx
+          - ui/components/PeerForms/S3Form.tsx
+          - ui/components/PeerForms/Eventhubs/**
+          # UI peer-create helpers. The literal `[` in the [peerType] dynamic
+          # route segment is escaped as `[[]` so minimatch treats it literally
+          # rather than as a character class.
+          - ui/app/peers/create/[[]peerType]/helpers/sf.ts
+          - ui/app/peers/create/[[]peerType]/helpers/es.ts
+          - ui/app/peers/create/[[]peerType]/helpers/eh.ts
+          - ui/app/peers/create/[[]peerType]/helpers/ka.ts
+          - ui/app/peers/create/[[]peerType]/helpers/ps.ts
+          - ui/app/peers/create/[[]peerType]/helpers/s3.ts
+          # BigQuery is dual-role: only its DESTINATION is deprecated, while its
+          # source is actively maintained and lives in the same directory. List
+          # the destination-specific files explicitly so BigQuery *source*
+          # changes (source.go, source_schema.go, qrep_object_pull.go,
+          # bigquery_source_test.go) are never auto-labeled as deprecated.
+          # (A `!`-negation / `all-globs-to-all-files` block was tried first but
+          # silently disables the whole labeler config in actions/labeler v5.)
+          - flow/connectors/bigquery/bigquery.go
+          - flow/connectors/bigquery/merge_stmt_generator.go
+          - flow/connectors/bigquery/qrep.go
+          - flow/connectors/bigquery/qrep_avro_sync.go
+          - flow/connectors/bigquery/clustering.go
+          - flow/e2e/bigquery_test.go
+          - flow/e2e/bigquery_qrep_test.go
+          - ui/components/PeerForms/BigqueryConfig.tsx
+          - ui/app/peers/create/[[]peerType]/helpers/bq.ts

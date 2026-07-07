@@ -15,6 +15,7 @@ import (
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -907,6 +908,17 @@ func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLBinlogChecksumMismatch(t *testing.T) {
+	err := exceptions.NewMySQLExecuteError(
+		fmt.Errorf("failed checksum for WriteRowsEventV2, log pos 12345: %v", replication.ErrChecksumMismatch))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "BINLOG_CHECKSUM_MISMATCH",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMySQLExecuteError(t *testing.T) {
 	err := exceptions.NewMySQLExecuteError(
 		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"})
@@ -1255,6 +1267,21 @@ func TestMySQLUnsupportedPartialRowEventShouldBeNotifyPartialRowEventUnsupported
 		Code:   "UNSUPPORTED_PARTIAL_ROW_EVENT",
 		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 			ErrorAttributeKeyTable: "e2e_test.partial_rows",
+		},
+	}, errInfo)
+}
+
+func TestMySQLUnsupportedBinlogRowValueOptionsErrorShouldBeNotifyBinlogPartialJsonUnsupported(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLUnsupportedBinlogRowValueOptionsError("mydb", "mytable")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogPartialJsonUnsupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_PARTIAL_JSON",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "mydb.mytable",
 		},
 	}, errInfo)
 }

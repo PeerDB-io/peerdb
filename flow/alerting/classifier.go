@@ -17,6 +17,7 @@ import (
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -147,6 +148,9 @@ var (
 	}
 	ErrorNotifyBinlogPartialRowEventUnsupported = ErrorClass{
 		Class: "NOTIFY_BINLOG_PARTIAL_ROW_EVENT_UNSUPPORTED", action: NotifyUser,
+	}
+	ErrorNotifyBinlogPartialJsonUnsupported = ErrorClass{
+		Class: "NOTIFY_BINLOG_PARTIAL_JSON_UNSUPPORTED", action: NotifyUser,
 	}
 	ErrorNotifyBinlogRowMetadataInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_ROW_METADATA_INVALID", action: NotifyUser,
@@ -1122,6 +1126,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if partialJsonUnsupportedError, ok := errors.AsType[*exceptions.MySQLUnsupportedBinlogRowValueOptionsError](err); ok {
+		return ErrorNotifyBinlogPartialJsonUnsupported, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_PARTIAL_JSON",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: fmt.Sprintf("%s.%s", partialJsonUnsupportedError.Schema, partialJsonUnsupportedError.Table),
+			},
+		}
+	}
+
 	if unsupportedDDLError, ok := errors.AsType[*exceptions.MySQLUnsupportedDDLError](err); ok {
 		return ErrorNotifyBinlogRowMetadataInvalid, ErrorInfo{
 			Source: ErrorSourceMySQL,
@@ -1129,6 +1143,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable: unsupportedDDLError.TableName,
 			},
+		}
+	}
+
+	if strings.Contains(err.Error(), replication.ErrChecksumMismatch.Error()) {
+		return ErrorNotifyBinlogInvalid, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "BINLOG_CHECKSUM_MISMATCH",
 		}
 	}
 

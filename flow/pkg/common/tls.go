@@ -3,6 +3,7 @@ package common
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 )
@@ -33,7 +34,24 @@ func verifyPeerCertificateWithoutHostname(rootCAs *x509.CertPool) func(certifica
 	}
 }
 
-func CreateTlsConfig(minVersion uint16, rootCAs *string, host string, tlsHost string, skipCertVerification bool) (*tls.Config, error) {
+// ClientCertificate is a PEM-encoded client certificate and its private key, for mutual TLS.
+type ClientCertificate struct {
+	certificate string
+	privateKey  string
+}
+
+// NewClientCertificate requires both the certificate and private key to be non-empty.
+func NewClientCertificate(certificate string, privateKey string) (*ClientCertificate, error) {
+	if certificate == "" || privateKey == "" {
+		return nil, errors.New("both certificate and private key must be provided for client certificate authentication")
+	}
+	return &ClientCertificate{certificate: certificate, privateKey: privateKey}, nil
+}
+
+func CreateTlsConfig(
+	minVersion uint16, rootCAs *string, host string, tlsHost string, skipCertVerification bool,
+	clientCert *ClientCertificate,
+) (*tls.Config, error) {
 	//nolint:gosec
 	config := &tls.Config{MinVersion: minVersion}
 	if rootCAs != nil {
@@ -42,6 +60,13 @@ func CreateTlsConfig(minVersion uint16, rootCAs *string, host string, tlsHost st
 			return nil, fmt.Errorf("failed to parse provided root CA")
 		}
 		config.RootCAs = caPool
+	}
+	if clientCert != nil {
+		cert, err := tls.X509KeyPair([]byte(clientCert.certificate), []byte(clientCert.privateKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse provided client certificate and private key: %w", err)
+		}
+		config.Certificates = []tls.Certificate{cert}
 	}
 	if skipCertVerification {
 		// self-hosted instances may generate self-signed certs that can't be verified
@@ -68,5 +93,5 @@ func CreateTlsConfigFromRootCAString(minVersion uint16, rootCAs string, host str
 	if rootCAs != "" {
 		rootCAsPtr = &rootCAs
 	}
-	return CreateTlsConfig(minVersion, rootCAsPtr, host, tlsHost, skipCertVerification)
+	return CreateTlsConfig(minVersion, rootCAsPtr, host, tlsHost, skipCertVerification, nil)
 }

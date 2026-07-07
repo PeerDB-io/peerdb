@@ -11,6 +11,26 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+// TestQkindFromMysqlColumnTypeMariaDB covers the MariaDB-only types as they appear in
+// information_schema (the snapshot/QRep path), which is how these columns are typed
+// since the DDL parser rejects them.
+func TestQkindFromMysqlColumnTypeMariaDB(t *testing.T) {
+	for _, tc := range []struct {
+		dataType string
+		want     types.QValueKind
+	}{
+		{"uuid", types.QValueKindUUID},
+		{"inet4", types.QValueKindINET},
+		{"inet6", types.QValueKindINET},
+	} {
+		t.Run(tc.dataType, func(t *testing.T) {
+			qkind, err := QkindFromMysqlColumnType(tc.dataType, true, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, qkind)
+		})
+	}
+}
+
 func TestQkindFromMysqlType_Bit(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

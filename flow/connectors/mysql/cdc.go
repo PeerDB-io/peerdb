@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -43,7 +44,6 @@ import (
 
 const (
 	defaultBinlogHeartbeatPeriod = time.Minute
-	binlogStalenessMultiplier    = 3
 )
 
 const mariadbPartialRowDataEvent replication.EventType = 172
@@ -132,10 +132,6 @@ func setParserSQLModeFromStatusVars(mysqlParser *parser.Parser, statusVars []byt
 		sqlMode = tidbmysql.ModeANSIQuotes
 	}
 	mysqlParser.SetSQLMode(sqlMode)
-}
-
-func (c *MySqlConnector) binlogStalenessThreshold() time.Duration {
-	return binlogStalenessMultiplier * c.binlogHeartbeatPeriod
 }
 
 func parseSQL(parser *parser.Parser, query []byte) ([]ast.StmtNode, []error, error) {
@@ -343,6 +339,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		var err error
 		tlsConfig, err = common.CreateTlsConfig(
 			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+			nil,
 		)
 		if err != nil {
 			return nil, err
@@ -371,9 +368,19 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get event cache count: %w", err)
 	}
-	//nolint:gosec
+
+	var serverId uint32
+	if c.config.ServerId != nil {
+		serverId = *c.config.ServerId
+	} else {
+		// If the configuration doesn't specify a server_id value, fallback to
+		// default behavior of generating a random server_id in the range [1000, MaxUint32).
+		// Range reference: https://dev.mysql.com/doc/refman/9.7/en/replication-options.html#sysvar_server_id
+		serverId = 1000 + rand.Uint32()%(math.MaxUint32-1000) //nolint:gosec // G404: server_id does not require cryptographic randomness
+	}
+
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
-		ServerID:         rand.Uint32(),
+		ServerID:         serverId,
 		Flavor:           c.Flavor(),
 		Host:             config.Host,
 		Port:             uint16(config.Port),
@@ -384,6 +391,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		DisableRetrySync: true,
 		UseDecimal:       true,
 		ParseTime:        true,
+		VerifyChecksum:   true,
 		TLSConfig:        tlsConfig,
 		HeartbeatPeriod:  c.binlogHeartbeatPeriod,
 		EventCacheCount:  eventCacheCount,
@@ -484,6 +492,12 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
+	binlogStalenessThreshold, err := internal.PeerDBMySQLBinlogStalenessSeconds(ctx, req.Env)
+	if err != nil {
+		return err
+	}
+
+	isMariaDb := c.Flavor() == mysql.MariaDBFlavor
 	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
@@ -541,7 +555,7 @@ func (c *MySqlConnector) PullRecords(
 	})
 	defer shutdown()
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, c.binlogStalenessThreshold())
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, binlogStalenessThreshold)
 	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
 	defer func() {
 		cancelTimeout()
@@ -587,6 +601,18 @@ func (c *MySqlConnector) PullRecords(
 		}
 	}
 
+	advanceCheckpoint := func(evGSet mysql.GTIDSet, logPos uint32) {
+		if gset != nil {
+			gset = evGSet
+			updatedOffset = gset.String()
+			req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+		} else if logPos > pos.Pos {
+			pos.Pos = logPos
+			updatedOffset = posToOffsetText(pos)
+			req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+		}
+	}
+
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
 	// table id -> "schema.table", maintained from TABLE_MAP_EVENTs
@@ -601,15 +627,7 @@ func (c *MySqlConnector) PullRecords(
 		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
 			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
 		case *replication.XIDEvent:
-			if gset != nil {
-				gset = ev.GSet
-				updatedOffset = gset.String() // accumulated from GTID events above
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			} else if event.Header.LogPos > pos.Pos {
-				pos.Pos = event.Header.LogPos
-				updatedOffset = posToOffsetText(pos)
-				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
-			}
+			advanceCheckpoint(ev.GSet, event.Header.LogPos)
 			inTx = false
 		case *replication.RotateEvent:
 			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
@@ -676,22 +694,40 @@ func (c *MySqlConnector) PullRecords(
 			setParserSQLModeFromStatusVars(mysqlParser, ev.StatusVars)
 			stmts, warns, err := parseSQL(mysqlParser, ev.Query)
 			if err != nil {
-				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				if classifyUnparsedStatement(string(ev.Query), isMariaDb) == ddlKindIgnored {
+					c.logger.Warn("skipping parse failure for non-replicated statement",
+						slog.String("query", string(ev.Query)), slog.Any("error", err))
+				} else {
+					c.logger.Error("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+					otelManager.Metrics.ParseSQLErrorsCounter.Add(ctx, 1)
+				}
 				break
 			}
 			if len(warns) > 0 {
-				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
+				warnStrs := make([]string, len(warns))
+				for i, w := range warns {
+					warnStrs[i] = w.Error()
+				}
+				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warnStrs))
 			}
 			for _, stmt := range stmts {
-				switch s := stmt.(type) {
-				case *ast.AlterTableStmt:
+				kind, alterStmt, renameStmt := classifyParsedStatement(stmt)
+				switch kind {
+				case ddlKindAlterTable:
 					if err := c.processAlterTableQuery(
-						ctx, catalogPool, otelManager, req, s,
+						ctx, catalogPool, otelManager, req, alterStmt,
 						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
-				case *ast.RenameTableStmt:
-					c.processRenameTableQuery(ctx, otelManager, req, s, string(ev.Schema))
+				case ddlKindRenameTable:
+					c.processRenameTableQuery(ctx, otelManager, req, renameStmt, string(ev.Schema))
+				case ddlKindCommit, ddlKindRollback:
+					// Non-transactional engines (e.g. MyISAM) end a binlog group with a COMMIT/ROLLBACK
+					advanceCheckpoint(ev.GSet, event.Header.LogPos)
+					inTx = false
+				case ddlKindIgnored:
+				default:
+					return fmt.Errorf("unknown stmt kind: %v", kind)
 				}
 			}
 		case *replication.TableMapEvent:
@@ -880,6 +916,11 @@ func (c *MySqlConnector) PullRecords(
 					}
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return fmt.Errorf("mysql v0 replication protocol not supported")
+				case replication.PARTIAL_UPDATE_ROWS_EVENT:
+					// Emitted only when binlog_row_value_options=PARTIAL_JSON is enabled at runtime.
+					e := exceptions.NewMySQLUnsupportedBinlogRowValueOptionsError(string(ev.Table.Schema), string(ev.Table.Table))
+					c.logger.Error(e.Error())
+					return e
 				default:
 					recordUnsupportedEvent(ctx, event, "Rows")
 				}
@@ -919,7 +960,7 @@ func (c *MySqlConnector) PullRecords(
 
 			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount == 0 || inTx {
-					if since := time.Since(lastEventAt); since > c.binlogStalenessThreshold() {
+					if since := time.Since(lastEventAt); since > binlogStalenessThreshold {
 						return exceptions.NewMySQLStaleConnectionError(since, c.binlogHeartbeatPeriod)
 					}
 
@@ -933,7 +974,7 @@ func (c *MySqlConnector) PullRecords(
 								updatedOffset = ""
 							}
 						}
-						resetTimeout(c.binlogStalenessThreshold())
+						resetTimeout(binlogStalenessThreshold)
 					} else {
 						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 							slog.Uint64("records", uint64(recordCount)),
@@ -974,6 +1015,48 @@ func (c *MySqlConnector) PullRecords(
 		}
 	}
 	return nil
+}
+
+func fieldDescriptionFromMysqlColumn(
+	col *ast.ColumnDef, binlogRowMetadataSupported bool, mirrorVersion uint32,
+) (*protos.FieldDescription, error) {
+	if col.Tp == nil {
+		return nil, fmt.Errorf("mysql column %s has no type", col.Name.OrigColName())
+	}
+
+	qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	nullable := true
+	for _, option := range col.Options {
+		if option.Tp == ast.ColumnOptionNotNull {
+			nullable = false
+			break
+		}
+	}
+
+	typmod := int32(-1)
+	if qkind == types.QValueKindNumeric {
+		precision := col.Tp.GetFlen()
+		scale := col.Tp.GetDecimal()
+		// TiDB leaves bare DECIMAL aliases without flen/decimal; MySQL defaults them to DECIMAL(10,0).
+		if precision < 0 {
+			precision = 10
+		}
+		if scale < 0 {
+			scale = 0
+		}
+		typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
+	}
+
+	return &protos.FieldDescription{
+		Name:         col.Name.OrigColName(),
+		Type:         string(qkind),
+		TypeModifier: typmod,
+		Nullable:     nullable,
+	}, nil
 }
 
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
@@ -1026,10 +1109,11 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					continue
 				}
 
-				qkind, err := QkindFromMysqlColumnType(col.Tp.InfoSchemaStr(), binlogRowMetadataSupported, mirrorVersion)
+				fd, err := fieldDescriptionFromMysqlColumn(col, binlogRowMetadataSupported, mirrorVersion)
 				if err != nil {
 					return err
 				}
+				qkind := types.QValueKind(fd.Type)
 
 				if oldType, exists := existingColTypes[col.Name.OrigColName()]; exists && oldType != string(qkind) {
 					c.logger.Warn("column type change detected via ALTER TABLE, not propagating",
@@ -1048,26 +1132,6 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						slog.String("tableName", sourceTableName))
 				}
 
-				nullable := true
-				for _, option := range col.Options {
-					if option.Tp == ast.ColumnOptionNotNull {
-						nullable = false
-					}
-				}
-
-				precision := col.Tp.GetFlen()
-				scale := col.Tp.GetDecimal()
-				typmod := int32(-1)
-				if scale >= 0 || precision >= 0 {
-					typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
-				}
-
-				fd := &protos.FieldDescription{
-					Name:         col.Name.OrigColName(),
-					Type:         string(qkind),
-					TypeModifier: typmod,
-					Nullable:     nullable,
-				}
 				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, fd)
 				// current assumption is the columns will be ordered like this
 				currentSchema.Columns = append(currentSchema.Columns, fd)
@@ -1244,7 +1308,7 @@ func (c *MySqlConnector) processTableMapEventSchema(
 
 			if qkind, err := qkindFromMysqlType(
 				tableMap.ColumnType[idx], unsignedMap[idx], charset, req.InternalVersion,
-			); err == nil && qkind != types.QValueKind(fd.Type) {
+			); err == nil && shouldReportColumnTypeChange(types.QValueKind(fd.Type), qkind, c.config.Flavor) {
 				c.logger.Warn("column type change detected from TABLE_MAP_EVENT, not propagating",
 					slog.String("table", sourceTableName),
 					slog.String("column", colName),
