@@ -281,9 +281,14 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
-	if _, ok := s.source.(*MySqlSource); !ok {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
+	// MySQL stores JSON in a native binary form and re-serializes it to a compact,
+	// whitespace-stripped text; MariaDB's JSON type is plain LONGTEXT stored verbatim, so
+	// the exact-representation checks below only hold on MySQL.
+	nativeJSON := mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL
 
 	srcTableName := "test_json_repr"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -354,7 +359,7 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 		snapshotGot := fmt.Sprint(rows.Records[i][1].Value())
 		cdcGot := fmt.Sprint(rows.Records[i+len(variants)][1].Value())
 		require.Equal(s.t, snapshotGot, cdcGot, "snapshot/cdc JSON representation differs for %q", variants[i].val)
-		if variants[i].expectExact != "" {
+		if nativeJSON && variants[i].expectExact != "" {
 			require.Equal(s.t, variants[i].expectExact, snapshotGot, "snapshot JSON not preserved faithfully for %q", variants[i].val)
 			require.Equal(s.t, variants[i].expectExact, cdcGot, "cdc JSON not preserved faithfully for %q", variants[i].val)
 		}
