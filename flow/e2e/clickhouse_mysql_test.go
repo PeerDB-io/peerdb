@@ -296,11 +296,11 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 		)`, srcFullName)))
 
 	variants := []string{
-		`{"z": 1, "aa": 2}`,                         // key order: shorter key sorts after longer one
-		`{"b": 2, "a": 1}`,                          // key order: reversed on storage
-		`{"n": [3, 1, 2], "obj": {"y": 1, "x": 2}}`, // nested object key order + array order preserved
-		`{"s": "a, b: c"}`,                          // whitespace inside strings is preserved
-		`{"pi": 3.14, "half": 0.5, "neg": -2.5}`,    // non-whole doubles that render identically in both paths
+		`{"z": 1, "aa": 2}`,                           // key order: shorter key sorts after longer one
+		`{"b": 2, "a": 1}`,                            // key order: reversed on storage
+		`{"n": [3, 1, 2], "obj": {"y": 1.0, "x": 2}}`, // nested object key order + array order preserved + type-faithful for 1.0
+		`{"s": "a, b: c"}`,                            // whitespace inside strings is preserved
+		`{"pi": 3.14, "half": 0.5, "neg": -2.5}`,      // non-whole doubles that render identically in both paths
 	}
 
 	insertVariants := func() {
