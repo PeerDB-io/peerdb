@@ -296,11 +296,11 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 		)`, srcFullName)))
 
 	variants := []string{
-		`{"z": 1, "aa": 2}`,                           // key order: shorter key sorts after longer one
-		`{"b": 2, "a": 1}`,                            // key order: reversed on storage
-		`{"n": [3, 1, 2], "obj": {"y": 1.0, "x": 2}}`, // nested object key order + array order preserved + type-faithful for 1.0
-		`{"s": "a, b: c"}`,                            // whitespace inside strings is preserved
-		`{"pi": 3.14, "half": 0.5, "neg": -2.5}`,      // non-whole doubles that render identically in both paths
+		`{"z": 1, "aa": 2}`,                         // key order: shorter key sorts after longer one
+		`{"b": 2, "a": 1}`,                          // key order: reversed on storage
+		`{"n": [3, 1, 2], "obj": {"y": 1, "x": 2}}`, // nested object key order + array order preserved
+		`{"s": "a, b: c"}`,                          // whitespace inside strings is preserved
+		`{"pi": 3.14, "half": 0.5, "neg": -2.5}`,    // non-whole doubles that render identically in both paths
 	}
 
 	insertVariants := func() {
@@ -369,7 +369,7 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency_NativeJSON() {
 	variants := []string{
 		`{"pi": 3.14, "big": 1000000.5, "neg": -2.5}`, // magnitude where snapshot/CDC text forms differ
 		`{"tiny": 0.000015, "huge": 150000000000.5}`,  // more exponent-crossover magnitudes
-		`{"z": 1, "aa": 2}`,                           // key order, normalized consistently
+		`{"z": 1.0, "aa": 2}`,                         // key order, normalized consistently
 	}
 
 	insertVariants := func() {
