@@ -1252,6 +1252,9 @@ func TestMySQLUnsupportedBinlogRowValueOptionsErrorShouldBeNotifyBinlogPartialJs
 	assert.Equal(t, ErrorNotifyBinlogPartialJsonUnsupported, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "UNSUPPORTED_BINLOG_ROW_VALUE_OPTIONS",
+		Code:   "UNSUPPORTED_PARTIAL_JSON",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "mydb.mytable",
+		},
 	}, errInfo)
 }

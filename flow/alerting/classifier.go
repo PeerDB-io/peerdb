@@ -1122,10 +1122,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	if _, ok := errors.AsType[*exceptions.MySQLUnsupportedBinlogRowValueOptionsError](err); ok {
+	if partialJsonUnsupportedError, ok := errors.AsType[*exceptions.MySQLUnsupportedBinlogRowValueOptionsError](err); ok {
 		return ErrorNotifyBinlogPartialJsonUnsupported, ErrorInfo{
 			Source: ErrorSourceMySQL,
-			Code:   "UNSUPPORTED_BINLOG_ROW_VALUE_OPTIONS",
+			Code:   "UNSUPPORTED_PARTIAL_JSON",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: fmt.Sprintf("%s.%s", partialJsonUnsupportedError.Schema, partialJsonUnsupportedError.Table),
+			},
 		}
 	}
 
