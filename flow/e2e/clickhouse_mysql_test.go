@@ -1782,6 +1782,110 @@ func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_MySQL_DateTime_ClickHouse_Range verifies that MySQL DATE/DATETIME values outside
+// ClickHouse's supported DateTime64/Date32 range ([1900, 2299]) are clamped to the nearest
+// boundary.
+func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_datetime_range"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_datetime_range_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			d_null_low DATE NULL,
+			d_null_high DATE NULL,
+			d_nn_low DATE NOT NULL,
+			d_nn_high DATE NOT NULL,
+			d_ok DATE NOT NULL,
+			dt_null_low DATETIME NULL,
+			dt_null_high DATETIME NULL,
+			dt_nn_low DATETIME NOT NULL,
+			dt_nn_high DATETIME NOT NULL,
+			dt_ok DATETIME NOT NULL
+		)`, quotedSrcFullName)))
+
+	// '1000-06-15' and '9999-06-15' are valid MySQL DATE/DATETIME values but fall outside
+	// ClickHouse's [1900, 2299] range. The distinctive time-of-day (05:30:45) verifies that
+	// clamping preserves the time-of-day, matching parseDateTime64BestEffortOrNull.
+	insertRow := func(id int) error {
+		return s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (
+			id,
+			d_null_low, d_null_high, d_nn_low, d_nn_high, d_ok,
+			dt_null_low, dt_null_high, dt_nn_low, dt_nn_high, dt_ok
+		) VALUES (
+			%d,
+			'1000-06-15', '9999-06-15', '1000-06-15', '9999-06-15', '2000-01-02',
+			'1000-06-15 05:30:45', '9999-06-15 05:30:45', '1000-06-15 05:30:45', '9999-06-15 05:30:45', '2000-01-02 03:04:05'
+		)`, quotedSrcFullName, id))
+	}
+
+	require.NoError(s.t, insertRow(1))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	// Enable nullable columns so nullable source columns map to Nullable(...) in ClickHouse,
+	// verifying that clamping happens regardless of column nullability.
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id", 1)
+
+	require.NoError(s.t, insertRow(2))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id", 2)
+
+	colExprs := []string{"id"}
+	for _, c := range []string{
+		"d_null_low", "d_null_high", "d_nn_low", "d_nn_high", "d_ok",
+		"dt_null_low", "dt_null_high", "dt_nn_low", "dt_nn_high", "dt_ok",
+	} {
+		colExprs = append(colExprs, fmt.Sprintf("ifNull(toString(%s),'')", c))
+	}
+	cols := strings.Join(colExprs, ",")
+	rows, err := s.GetRows(dstTableName, cols)
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2, "expected snapshot + cdc rows")
+
+	assertStr := func(qv types.QValue, expect string) {
+		sv, ok := qv.Value().(string)
+		require.Truef(s.t, ok, "expected string, got %T", qv.Value())
+		require.Equal(s.t, expect, sv)
+	}
+
+	// Out-of-range values are clamped to the nearest ClickHouse boundary
+	for _, row := range rows.Records {
+		// DATE (Date32): clamps to the boundary day.
+		assertStr(row[1], "1900-01-01") // d_null_low
+		assertStr(row[2], "2299-12-31") // d_null_high
+		assertStr(row[3], "1900-01-01") // d_nn_low
+		assertStr(row[4], "2299-12-31") // d_nn_high
+		assertStr(row[5], "2000-01-02") // d_ok
+		// DATETIME (DateTime64(6)): clamps the date, preserves the time-of-day.
+		assertStr(row[6], "1900-01-01 05:30:45.000000")  // dt_null_low
+		assertStr(row[7], "2299-12-31 05:30:45.000000")  // dt_null_high
+		assertStr(row[8], "1900-01-01 05:30:45.000000")  // dt_nn_low
+		assertStr(row[9], "2299-12-31 05:30:45.000000")  // dt_nn_high
+		assertStr(row[10], "2000-01-02 03:04:05.000000") // dt_ok
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
 	mySource, ok := s.source.(*MySqlSource)
 	if !ok {
