@@ -35,7 +35,7 @@ require (
 	github.com/cockroachdb/pebble/v2 v2.1.6
 	github.com/elastic/go-elasticsearch/v8 v8.19.6
 	github.com/go-logr/logr v1.4.3
-	github.com/go-mysql-org/go-mysql v1.15.1-0.20260701093637-35ca5c6ee8c8
+	github.com/go-mysql-org/go-mysql v1.15.1-0.20260703124437-a57884f25cf0
 	github.com/gogo/googleapis v1.4.1
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
@@ -80,7 +80,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/sdk/metric v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
-	go.temporal.io/api v1.63.0
+	go.temporal.io/api v1.63.1
 	go.temporal.io/sdk v1.45.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.7.0
 	go.uber.org/automaxprocs v1.6.0
