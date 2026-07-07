@@ -159,6 +159,22 @@ message TotalRowsSyncedByMirrorResponse {
   int64 totalCount = 3;
 }
 
+message RowCountRequest {
+  string flow_job_name = 1;
+  repeated string source_tables = 2; // optional filter; if empty, all tables
+}
+
+message TableRowCount {
+  string source_table = 1;
+  string destination_table = 2;
+  int64 source_count = 3;  // -1 means timed out
+  int64 destination_count = 4;  // -1 means timed out
+  bool source_is_approximate = 5;
+  bool destination_is_approximate = 6;
+}
+
+message RowCountResponse { repeated TableRowCount table_counts = 1; }
+
 message PeerSchemasResponse { repeated string schemas = 1; }
 
 message PeerPublicationsResponse { repeated string publication_names = 1; }
@@ -832,6 +848,13 @@ service FlowService {
   rpc ResetMirrorSequences(ResetMirrorSequencesRequest) returns (ResetMirrorSequencesResponse) {
     option (google.api.http) = {
       post : "/v1/mirrors/sequences/reset",
+      body : "*"
+    };
+  }
+
+  rpc GetMirrorRowCounts(RowCountRequest) returns (RowCountResponse) {
+    option (google.api.http) = {
+      post : "/v1/mirrors/row_counts",
       body : "*"
     };
   }
