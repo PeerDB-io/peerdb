@@ -350,6 +350,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		DisableRetrySync: true,
 		UseDecimal:       true,
 		ParseTime:        true,
+		VerifyChecksum:   true,
 		TLSConfig:        tlsConfig,
 		HeartbeatPeriod:  c.binlogHeartbeatPeriod,
 		EventCacheCount:  eventCacheCount,
