@@ -201,6 +201,17 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s", quotedCol, quotedCol))
 		}
 	}
+
+	// For partitioned destination tables, include the partition key in the MERGE ON clause
+	// to enable partition pruning. Currently hardcoded for chat_messages.messages.
+	if dstTableName == "chat_messages.messages" {
+		partitionCol := common.QuoteIdentifier("created_at")
+		joinClause := fmt.Sprintf("src.%s=dst.%s", partitionCol, partitionCol)
+		if !slices.Contains(primaryKeySelectSQLArray, joinClause) {
+			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, joinClause)
+		}
+	}
+
 	selectExprsSQL := strings.Join(selectExprs, ",")
 	insertValuesSQLArray := make([]string, 0, columnCount+2)
 	for _, quotedCol := range quotedColumnNames {
