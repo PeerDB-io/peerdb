@@ -299,11 +299,14 @@ func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
 		val         string
 		expectExact string
 	}{
-		{val: `{"z": 1, "aa": 2}`},                                                                // key order: shorter key sorts after longer one
-		{val: `{"b": 2, "a": 1}`},                                                                 // key order: reversed on storage
-		{val: `{"n": [3, 1, 2], "obj": {"y": 1, "x": 2}}`},                                        // nested object key order + array order preserved
-		{val: `{"s": "a, b: c"}`},                                                                 // whitespace inside strings is preserved
-		{val: `{"pi": 3.14, "half": 0.5, "neg": -2.5}`},                                           // non-whole doubles that render identically in both paths
+		// key order: shorter key sorts after longer one
+		{val: `{"z": 1, "aa": 2}`},
+		{val: `{"b": 2, "a": 1}`}, // key order: reversed on storage
+		// nested object key order + array order preserved
+		{val: `{"n": [3, 1, 2], "obj": {"y": 1, "x": 2}}`},
+		{val: `{"s": "a, b: c"}`}, // whitespace inside strings is preserved
+		// non-whole doubles that render identically in both paths
+		{val: `{"pi": 3.14, "half": 0.5, "neg": -2.5}`},
 		{val: `{"big": 1234567890123456789}`, expectExact: `{"big":1234567890123456789}`},         // 19-digit int64: float64 rounds to ...6800
 		{val: `{"maxsafe": 9007199254740993}`, expectExact: `{"maxsafe":9007199254740993}`},       // 2^53+1: float64 drops the low bit (...992)
 		{val: `{"negbig": -1234567890123456789}`, expectExact: `{"negbig":-1234567890123456789}`}, // sign preserved at full precision
