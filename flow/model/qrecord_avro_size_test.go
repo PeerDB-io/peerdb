@@ -276,6 +276,14 @@ func TestAvroSizeComputation(t *testing.T) {
 			},
 		},
 		{
+			name:       "uint64set",
+			kind:       types.QValueKindUint64Set,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueUint64Set{Val: rand.Uint64()}
+			},
+		},
+		{
 			name:       "timestamp",
 			kind:       types.QValueKindTimestamp,
 			numRecords: 10_000,

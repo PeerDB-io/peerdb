@@ -67,7 +67,7 @@ func TestQkindFromMysqlColumnType_Set(t *testing.T) {
 	}{
 		{"with metadata maps SET to String", true, shared.InternalVersion_Latest, types.QValueKindString},
 		{"without metadata, before gate maps SET to String", false, shared.InternalVersion_MySQL5ConvertSetsToInts - 1, types.QValueKindString},
-		{"without metadata, gating version maps SET to Uint64Set", false, shared.InternalVersion_MySQL5ConvertSetsToInts, types.QValueKindUint64Set},
+		{"without metadata, gate maps SET to Uint64Set", false, shared.InternalVersion_MySQL5ConvertSetsToInts, types.QValueKindUint64Set},
 		{"without metadata, latest maps SET to Uint64Set", false, shared.InternalVersion_Latest, types.QValueKindUint64Set},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
