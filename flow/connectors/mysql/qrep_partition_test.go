@@ -263,7 +263,26 @@ func (f *fakeRangeProber) fetchNextRealKey(
 	_ context.Context, _ string, _ string, midpoint string, start string, end string,
 ) (string, bool, error) {
 	for _, k := range f.keys {
-		if f.less(k, midpoint) {
+		if f.less(k, midpoint) { // k < midpoint
+			continue
+		}
+		if !f.less(start, k) { // k <= start
+			continue
+		}
+		if !f.less(k, end) { // k >= end
+			continue
+		}
+		return k, true, nil
+	}
+	return "", false, nil
+}
+
+func (f *fakeRangeProber) fetchPrevRealKey(
+	_ context.Context, _ string, _ string, midpoint string, start string, end string,
+) (string, bool, error) {
+	for i := len(f.keys) - 1; i >= 0; i-- {
+		k := f.keys[i]
+		if !f.less(k, midpoint) { // k >= midpoint
 			continue
 		}
 		if !f.less(start, k) { // k <= start
@@ -386,17 +405,19 @@ func TestBuildAdaptiveStringPartitions_CaseInsensitiveCollation(t *testing.T) {
 	verifyFullCoverage(t, partitions, keys, caseInsensitiveLess)
 }
 
-func TestBuildAdaptiveStringPartitions_NarrowAlphabetLimitation(t *testing.T) {
+func TestBuildAdaptiveStringPartitions_NarrowRange(t *testing.T) {
 	keys := make([]string, 0, 100)
 	for i := 1; i <= 100; i++ {
 		keys = append(keys, fmt.Sprintf("key_%04d", i))
 	}
 
-	// demonstrate midpoint is outside min/max range so fetchNextRealKey always returns false
+	// demonstrate fetchNextRealKey would not return a valid key
+	// (e.g. "key_00_" sorts after "key_0099") so splitting these
+	// keys relies on the fetchPrevRealKey fallback
 	require.Equal(t, "key_00_`", stringMidpoint("key_0001", "key_0100"))
 
 	partitions := runAdaptiveStringPartitions(t, keys, binaryLess, 8)
-	require.Len(t, partitions, 1)
+	require.Len(t, partitions, 8)
 	verifyFullCoverage(t, partitions, keys, binaryLess)
 }
 

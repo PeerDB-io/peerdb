@@ -184,6 +184,9 @@ type rangeProber interface {
 	fetchNextRealKey(
 		ctx context.Context, tableName string, quotedCol string, midpoint string, start string, end string,
 	) (string, bool, error)
+	fetchPrevRealKey(
+		ctx context.Context, tableName string, quotedCol string, midpoint string, start string, end string,
+	) (string, bool, error)
 }
 
 // buildAdaptiveStringPartitions splits an arbitrary string watermark column
@@ -224,6 +227,15 @@ func buildAdaptiveStringPartitions(
 		k, found, err := prober.fetchNextRealKey(ctx, tableName, quotedCol, mid, p.start, p.end)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch next real key for [%s, %s]: %w", p.start, p.end, err)
+		}
+		if !found {
+			// The interpolated midpoint can overshoot every key in the range when
+			// keys occupy a narrow slice of the character space. So also probe
+			// backwards before declaring the partition unsplittable.
+			k, found, err = prober.fetchPrevRealKey(ctx, tableName, quotedCol, mid, p.start, p.end)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch prev real key for [%s, %s]: %w", p.start, p.end, err)
+			}
 		}
 		if !found {
 			outputs = append(outputs, p)
@@ -267,6 +279,23 @@ func (c *MySqlConnector) fetchNextRealKey(
 	query := fmt.Sprintf(
 		"SELECT %[1]s FROM %[2]s WHERE %[1]s >= '%[3]s' AND %[1]s > '%[4]s' AND %[1]s < '%[5]s' ORDER BY %[1]s LIMIT 1",
 		quotedCol, tableName, mysql.Escape(midpoint), mysql.Escape(start), mysql.Escape(end))
+	return c.fetchRealKey(ctx, query)
+}
+
+// fetchPrevRealKey returns the largest real value of the watermark column that
+// is below the interpolated midpoint and strictly inside (start, end). The
+// bounds are enforced by MySQL using its column's collation. Return false when
+// no such key exists.
+func (c *MySqlConnector) fetchPrevRealKey(
+	ctx context.Context, tableName string, quotedCol string, midpoint string, start string, end string,
+) (string, bool, error) {
+	query := fmt.Sprintf(
+		"SELECT %[1]s FROM %[2]s WHERE %[1]s < '%[3]s' AND %[1]s > '%[4]s' AND %[1]s < '%[5]s' ORDER BY %[1]s DESC LIMIT 1",
+		quotedCol, tableName, mysql.Escape(midpoint), mysql.Escape(start), mysql.Escape(end))
+	return c.fetchRealKey(ctx, query)
+}
+
+func (c *MySqlConnector) fetchRealKey(ctx context.Context, query string) (string, bool, error) {
 	rs, err := c.Execute(ctx, query)
 	if err != nil {
 		return "", false, err
@@ -277,7 +306,7 @@ func (c *MySqlConnector) fetchNextRealKey(
 	}
 	key, err := rs.GetString(0, 0)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to read next real key: %w", err)
+		return "", false, fmt.Errorf("failed to read real key: %w", err)
 	}
 	// GetString is zero-copy over the resultset's row buffer, which rs.Close()
 	// recycles into a pool where the next query's response overwrites it; the
