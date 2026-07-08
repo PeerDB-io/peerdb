@@ -253,7 +253,7 @@ func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string) str
 		}
 
 		converted := common.QuoteMySQLIdentifier(col.Name)
-		if col.Type == string(types.QValueKindUint16Enum) {
+		if col.Type == string(types.QValueKindUint16Enum) || col.Type == string(types.QValueKindUint64Set) {
 			converted = fmt.Sprintf("CAST(%s AS UNSIGNED) AS %s", converted, converted)
 			selectAsterisk = false
 		}

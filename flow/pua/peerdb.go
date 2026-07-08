@@ -267,6 +267,8 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		newqv = types.QValueEnum{Val: lua.LVAsString(val)}
 	case types.QValueKindUint16Enum:
 		newqv = types.QValueUint16Enum{Val: uint16(lua.LVAsNumber(val))}
+	case types.QValueKindUint64Set:
+		newqv = types.QValueUint64Set{Val: uint64(lua.LVAsNumber(val))}
 	case types.QValueKindTimestamp:
 		newqv = types.QValueTimestamp{Val: LVAsTime(ls, val)}
 	case types.QValueKindTimestampTZ:

@@ -24,7 +24,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func mysqlEnumUsesOrdinals(source *MySqlSource) bool {
+// mysqlUsesOrdinals reports whether the source lacks binlog row metadata, in which case CDC
+// sees enum ordinals and set bitmasks as integers rather than labels.
+func mysqlUsesOrdinals(source *MySqlSource) bool {
 	return source.Config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL &&
 		source.Config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS
 }
@@ -636,26 +638,30 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 	RequireEnvCanceled(s.t, env)
 }
 
-func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
+// Test_MySQL_Enum_Set_Consistency verifies that ENUM and SET columns produce identical values
+// via snapshot and CDC. On servers without binlog row metadata, both are emitted as integers
+// (enum ordinal, set bitmask); otherwise as labels.
+func (s ClickHouseSuite) Test_MySQL_Enum_Set_Consistency() {
 	mySource, ok := s.source.(*MySqlSource)
 	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
-	srcTableName := "test_my_enum_consistency"
+	srcTableName := "test_my_enum_set_consistency"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
-	dstTableName := "test_my_enum_consistency_dst"
+	dstTableName := "test_my_enum_set_consistency_dst"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
-			status ENUM('active', 'inactive', 'pending') NOT NULL
+			status ENUM('active', 'inactive', 'pending') NOT NULL,
+			tags SET('a', 'b', 'c') NOT NULL
 		)
 	`, srcFullName)))
 
 	// Insert row before snapshot
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -670,50 +676,58 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// Wait for snapshot row to appear in destination
-	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,status", 1)
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,status,tags", 1)
 
 	// Insert row via CDC — on old MySQL this comes as integer from binlog
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName)))
 
 	// Wait for CDC row
-	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status", 2)
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status,tags", 2)
 
-	// Verify both rows have the same status value (consistency between snapshot and CDC)
-	rows, err := s.GetRows(dstTableName, "id,status")
+	// Verify snapshot and CDC produce the same values for both columns
+	rows, err := s.GetRows(dstTableName, "id,status,tags")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2)
 	require.Equal(s.t, rows.Records[0][1].Value(), rows.Records[1][1].Value(),
 		"snapshot and CDC enum values should be consistent")
-	if mysqlEnumUsesOrdinals(mySource) {
+	require.Equal(s.t, rows.Records[0][2].Value(), rows.Records[1][2].Value(),
+		"snapshot and CDC set values should be consistent")
+	if mysqlUsesOrdinals(mySource) {
 		require.EqualValues(s.t, 1, rows.Records[0][1].Value())
+		require.EqualValues(s.t, 3, rows.Records[0][2].Value()) // 'a,b' bitmask = 1|2
 	} else {
 		require.Equal(s.t, "active", rows.Records[0][1].Value())
+		require.Equal(s.t, "a,b", rows.Records[0][2].Value())
 	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
 
-func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
+// Test_MySQL_Enum_Set_Consistency_Version0 documents the legacy divergence: on pre-metadata
+// servers, mirrors created before the enum/set-to-int versions emit labels via snapshot but
+// ordinals/bitmasks via CDC. Existing mirrors deliberately keep this behavior for stability.
+func (s ClickHouseSuite) Test_MySQL_Enum_Set_Consistency_Version0() {
 	mySource, ok := s.source.(*MySqlSource)
 	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
-	srcTableName := "test_my_enum_consistency_v0"
+	srcTableName := "test_my_enum_set_consistency_v0"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
-	dstTableName := "test_my_enum_consistency_v0_dst"
+	dstTableName := "test_my_enum_set_consistency_v0_dst"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
-			status ENUM('active', 'inactive', 'pending') NOT NULL
+			status ENUM('active', 'inactive', 'pending') NOT NULL,
+			tags SET('a', 'b', 'c') NOT NULL
 		)
 	`, srcFullName)))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -729,23 +743,26 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Consistency_Version0() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,status", 1)
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,status,tags", 1)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (status) VALUES ('active')`, srcFullName)))
+		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName)))
 
-	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status", 2)
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status,tags", 2)
 
-	rows, err := s.GetRows(dstTableName, "id,status")
+	rows, err := s.GetRows(dstTableName, "id,status,tags")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2)
 	require.EqualValues(s.t, 1, rows.Records[0][0].Value())
 	require.EqualValues(s.t, 2, rows.Records[1][0].Value())
 	require.Equal(s.t, "active", rows.Records[0][1].Value())
-	if mysqlEnumUsesOrdinals(mySource) {
+	require.Equal(s.t, "a,b", rows.Records[0][2].Value())
+	if mysqlUsesOrdinals(mySource) {
 		require.Equal(s.t, "1", rows.Records[1][1].Value())
+		require.Equal(s.t, "3", rows.Records[1][2].Value())
 	} else {
 		require.Equal(s.t, "active", rows.Records[1][1].Value())
+		require.Equal(s.t, "a,b", rows.Records[1][2].Value())
 	}
 
 	env.Cancel(s.t.Context())

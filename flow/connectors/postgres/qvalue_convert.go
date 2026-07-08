@@ -55,6 +55,8 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "BIGINT"
 	case types.QValueKindUint16Enum:
 		return "INTEGER"
+	case types.QValueKindUint64Set:
+		return "BIGINT"
 	case types.QValueKindFloat32:
 		return "REAL"
 	case types.QValueKindFloat64:
