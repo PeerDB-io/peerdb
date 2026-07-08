@@ -120,6 +120,15 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		); err != nil {
 			return err
 		}
+		if err := chvalidate.ValidateClusterShardingKey(
+			c.Config.Cluster,
+			tableMapping.ShardingKey,
+			tableMapping.SourceTableIdentifier,
+			len(processedSchema.PrimaryKeyColumns) > 0,
+			sortingKeys,
+		); err != nil {
+			return err
+		}
 
 		// if destination table does not exist, we're good
 		if _, ok := chTableColumnsMapping[dstTableName]; !ok {

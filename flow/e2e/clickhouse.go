@@ -379,6 +379,21 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	return batch, rows.Err()
 }
 
+// CountNonDeletedRows returns the number of rows in table where _peerdb_is_deleted = 0.
+// Unlike GetRows it does not use FINAL, so it works for engines that reject FINAL (e.g. MergeTree).
+func (s ClickHouseSuite) CountNonDeletedRows(table string) (int, error) {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return 0, err
+	}
+	defer ch.Close()
+	var count uint64
+	err = ch.QueryRow(s.t.Context(),
+		fmt.Sprintf(`SELECT count() FROM "%s" WHERE _peerdb_is_deleted = 0 SETTINGS use_query_cache = false`, table),
+	).Scan(&count)
+	return int(count), err
+}
+
 func (s ClickHouseSuite) queryRawTable(conn clickhouse.Conn, table string, cols string) (driver.Rows, error) {
 	return conn.Query(
 		s.t.Context(),
