@@ -1153,17 +1153,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	if mysqlExecuteError, ok := errors.AsType[*exceptions.MySQLExecuteError](err); ok {
-		errClass := ErrorOther
-		if mysqlExecuteError.Retryable {
-			errClass = ErrorRetryRecoverable
-		}
-		return errClass, ErrorInfo{
-			Source: ErrorSourceMySQL,
-			Code:   "EXECUTE_ERROR",
-		}
-	}
-
 	if _, ok := errors.AsType[*exceptions.MySQLStaleConnectionError](err); ok {
 		return ErrorRetryRecoverable, ErrorInfo{
 			Source: ErrorSourceMySQL,
@@ -1193,6 +1182,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorUnsupportedDatatype, ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+		}
+	}
+
+	// mysql execute error is a generic error that can happen when interacting with mysql server;
+	// intentionally checked this after other more specific mysql errors above
+	if mysqlExecuteError, ok := errors.AsType[*exceptions.MySQLExecuteError](err); ok {
+		errClass := ErrorOther
+		if mysqlExecuteError.Retryable {
+			errClass = ErrorRetryRecoverable
+		}
+		return errClass, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "EXECUTE_ERROR",
 		}
 	}
 
