@@ -107,21 +107,6 @@ func bigIntToUUID(n *big.Int, casing hexCasing) (string, error) {
 	return s, nil
 }
 
-func createStringPartition(start string, end string, endInclusive bool) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.NewString(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_StringRange{
-				StringRange: &protos.StringPartitionRange{
-					Start:        start,
-					End:          end,
-					EndInclusive: endInclusive,
-				},
-			},
-		},
-	}
-}
-
 const (
 	base95Min   = ' ' // 0x20, lowest printable ASCII -> digit 0
 	base95Max   = '~' // 0x7E, highest printable ASCII -> digit 94
@@ -263,7 +248,7 @@ func buildAdaptiveStringPartitions(
 
 	partitions := make([]*protos.QRepPartition, 0, len(outputs))
 	for _, p := range outputs {
-		partitions = append(partitions, createStringPartition(p.start, p.end, p.end == maxVal))
+		partitions = append(partitions, utils.CreateStringPartition(p.start, p.end, p.end == maxVal))
 	}
 	logger.Info("[mysql] built adaptive string partitions",
 		slog.Int64("targetNumPartitions", numPartitions),
