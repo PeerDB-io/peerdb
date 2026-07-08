@@ -2378,3 +2378,132 @@ func (s ClickHouseSuite) Test_MySQL_NoPrimaryKey_CDC() {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_MySQL_Invisible_Column_Consistency() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	minVersion := mysql_validation.MySQLMinVersionForInvisibleColumns
+	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		minVersion = mysql_validation.MariaDBMinVersionForInvisibleColumns
+	}
+	cmp, err := mySource.CompareServerVersion(s.t.Context(), minVersion)
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("server version does not support invisible columns")
+	}
+
+	srcTableName := "test_my_invisible"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_my_invisible_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			name VARCHAR(50) NOT NULL,
+			secret INT NOT NULL DEFAULT 0 INVISIBLE
+		)
+	`, srcFullName)))
+
+	// Pre-snapshot row with an explicit, non-default invisible value.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, name, secret) VALUES (1, 'snap', 111)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,name,secret", 1)
+
+	// Post-snapshot CDC row with a distinct invisible value.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, name, secret) VALUES (2, 'cdc', 222)`, srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,name,secret", 2)
+
+	rows, err := s.GetRows(dstTableName, "id,name,secret")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	// Snapshot row must carry the real invisible value, not the destination default.
+	require.EqualValues(s.t, 111, rows.Records[0][2].Value(), "snapshot invisible column should be pulled")
+	require.EqualValues(s.t, 222, rows.Records[1][2].Value(), "cdc invisible column should be pulled")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_GIPK_Consistency() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("GIPK is not supported by MariaDB")
+	}
+	cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForGeneratedInvisiblePrimaryKey)
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("server version does not support generated invisible primary key")
+	}
+
+	srcTableName := "test_my_gipk"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_my_gipk_dst"
+
+	// GIPK is controlled by a session variable; the connector holds a single persistent connection,
+	// so the setting sticks for the subsequent CREATE. Reset it afterwards to avoid leaking into
+	// other tables in the suite.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), `SET SESSION sql_generate_invisible_primary_key = ON`))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			name VARCHAR(50) NOT NULL
+		)
+	`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), `SET SESSION sql_generate_invisible_primary_key = OFF`))
+
+	// Pre-snapshot row: my_row_id auto-assigns 1.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (name) VALUES ('snap')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "my_row_id,name", 1)
+
+	// Post-snapshot CDC row: my_row_id auto-assigns 2.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (name) VALUES ('cdc')`, srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "my_row_id,name", 2)
+
+	rows, err := s.GetRows(dstTableName, "my_row_id,name")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	// The snapshot row's my_row_id must be the real key value, not the destination default.
+	require.EqualValues(s.t, 1, rows.Records[0][0].Value(), "snapshot GIPK should be pulled")
+	require.Equal(s.t, "snap", rows.Records[0][1].Value())
+	require.EqualValues(s.t, 2, rows.Records[1][0].Value(), "cdc GIPK should be pulled")
+	require.Equal(s.t, "cdc", rows.Records[1][1].Value())
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}

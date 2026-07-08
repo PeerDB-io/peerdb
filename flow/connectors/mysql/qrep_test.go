@@ -27,7 +27,7 @@ func TestBuildSelectedColumns(t *testing.T) {
 				{Name: "status", Type: string(types.QValueKindEnum)},
 			},
 			exclude:                 []string{},
-			expectedSelectedColumns: "*",
+			expectedSelectedColumns: "`id`, `name`, `status`",
 		},
 		{
 			name: "one excluded column",
@@ -54,7 +54,18 @@ func TestBuildSelectedColumns(t *testing.T) {
 				{Name: "status", Type: string(types.QValueKindEnum)},
 			},
 			exclude:                 []string{},
-			expectedSelectedColumns: "*",
+			expectedSelectedColumns: "`id`, `status`",
+		},
+		{
+			// INVISIBLE / GIPK columns are present in the fetched schema but omitted by
+			// wildcard expansion; they must appear explicitly so snapshot pulls them.
+			name: "invisible/gipk column is listed explicitly",
+			cols: []*protos.FieldDescription{
+				{Name: "my_row_id", Type: string(types.QValueKindUInt64)},
+				{Name: "name", Type: string(types.QValueKindString)},
+			},
+			exclude:                 []string{},
+			expectedSelectedColumns: "`my_row_id`, `name`",
 		},
 		{
 			name: "uint16enum with exclude",
