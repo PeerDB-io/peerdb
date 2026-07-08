@@ -219,6 +219,21 @@ func (s APITestSuite) waitForFlowDropped(env WorkflowRun, flowJobName string) {
 	})
 }
 
+func (s APITestSuite) waitForDestinationRowCount(env WorkflowRun, dstTable string, expected int64) {
+	s.t.Helper()
+
+	EnvWaitFor(s.t, env, 3*time.Minute, fmt.Sprintf("wait for %d rows in %s", expected, dstTable), func() bool {
+		var count int64
+		if err := s.pg.Conn().QueryRow(
+			s.t.Context(), "SELECT COUNT(*) FROM "+dstTable,
+		).Scan(&count); err != nil {
+			s.t.Log(err)
+			return false
+		}
+		return count == expected
+	})
+}
+
 func testApi[TSource SuiteSource](
 	t *testing.T,
 	setup func(*testing.T, string) (TSource, error),
@@ -3804,4 +3819,147 @@ func (s APITestSuite) TestSnapshotNullPartitionKey() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	EnvWaitForCount(env, s.ch, "all 4 rows including nulls should be snapshotted", tableName, "*", 4)
+}
+
+func (s APITestSuite) TestGetMirrorRowCounts() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("row count validation is only supported for PostgreSQL source and destination")
+	}
+
+	srcTable1 := AttachSchema(s, "rowcount_src1")
+	dstTable1 := AttachSchema(s, "rowcount_dst1")
+	srcTable2 := AttachSchema(s, "rowcount_src2")
+	dstTable2 := AttachSchema(s, "rowcount_dst2")
+	srcTable3 := AttachSchema(s, "rowcount_src3")
+	dstTable3 := AttachSchema(s, "rowcount_dst3")
+
+	for _, tbl := range []string{srcTable1, srcTable2, srcTable3} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", tbl)))
+	}
+	for _, tbl := range []string{dstTable1, dstTable2, dstTable3} {
+		_, err := s.pg.Conn().Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", tbl))
+		require.NoError(s.t, err)
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) SELECT g, 'v'||g FROM generate_series(1,3) g", srcTable1)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) SELECT g, 'v'||g FROM generate_series(1,5) g", srcTable2)))
+
+	flowJobName := "get_row_counts_" + s.suffix
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     flowJobName,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{SourceTableIdentifier: srcTable1, DestinationTableIdentifier: dstTable1},
+			{SourceTableIdentifier: srcTable2, DestinationTableIdentifier: dstTable2},
+			{SourceTableIdentifier: srcTable3, DestinationTableIdentifier: dstTable3},
+		},
+		DoInitialSnapshot:  true,
+		System:             protos.TypeSystem_PG,
+		IdleTimeoutSeconds: 15,
+		Version:            shared.InternalVersion_Latest,
+	}
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	s.waitForDestinationRowCount(env, dstTable1, 3)
+	s.waitForDestinationRowCount(env, dstTable2, 5)
+	s.waitForDestinationRowCount(env, dstTable3, 0)
+
+	rowCounts, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{FlowJobName: flowJobName})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, rowCounts)
+	require.Len(s.t, rowCounts.TableCounts, 3)
+
+	bySrc := make(map[string]*protos.TableRowCount, len(rowCounts.TableCounts))
+	for _, tc := range rowCounts.TableCounts {
+		bySrc[tc.SourceTable] = tc
+	}
+	require.Contains(s.t, bySrc, srcTable1)
+	require.Contains(s.t, bySrc, srcTable2)
+	require.Contains(s.t, bySrc, srcTable3)
+
+	require.Equal(s.t, dstTable1, bySrc[srcTable1].DestinationTable)
+	require.Equal(s.t, int64(3), bySrc[srcTable1].SourceCount)
+	require.Equal(s.t, int64(3), bySrc[srcTable1].DestinationCount)
+	require.False(s.t, bySrc[srcTable1].SourceIsApproximate)
+	require.False(s.t, bySrc[srcTable1].DestinationIsApproximate)
+
+	require.Equal(s.t, dstTable2, bySrc[srcTable2].DestinationTable)
+	require.Equal(s.t, int64(5), bySrc[srcTable2].SourceCount)
+	require.Equal(s.t, int64(5), bySrc[srcTable2].DestinationCount)
+
+	require.Equal(s.t, dstTable3, bySrc[srcTable3].DestinationTable)
+	require.Equal(s.t, int64(0), bySrc[srcTable3].SourceCount)
+	require.Equal(s.t, int64(0), bySrc[srcTable3].DestinationCount)
+	require.False(s.t, bySrc[srcTable3].SourceIsApproximate)
+	require.False(s.t, bySrc[srcTable3].DestinationIsApproximate)
+
+	filtered, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{
+		FlowJobName:  flowJobName,
+		SourceTables: []string{srcTable2},
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, filtered.TableCounts, 1)
+	require.Equal(s.t, srcTable2, filtered.TableCounts[0].SourceTable)
+	require.Equal(s.t, int64(5), filtered.TableCounts[0].SourceCount)
+	require.Equal(s.t, int64(5), filtered.TableCounts[0].DestinationCount)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) VALUES (4,'v4'),(5,'v5')", srcTable1)))
+	s.waitForDestinationRowCount(env, dstTable1, 5)
+
+	afterCdc, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{
+		FlowJobName:  flowJobName,
+		SourceTables: []string{srcTable1},
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, afterCdc.TableCounts, 1)
+	require.Equal(s.t, int64(5), afterCdc.TableCounts[0].SourceCount)
+	require.Equal(s.t, int64(5), afterCdc.TableCounts[0].DestinationCount)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE "+srcTable3))
+
+	missingCounts, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{
+		FlowJobName:  flowJobName,
+		SourceTables: []string{srcTable3},
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, missingCounts.TableCounts, 1)
+	require.Equal(s.t, srcTable3, missingCounts.TableCounts[0].SourceTable)
+	require.Equal(s.t, int64(-1), missingCounts.TableCounts[0].SourceCount)
+	require.Equal(s.t, int64(0), missingCounts.TableCounts[0].DestinationCount)
+}
+
+func (s APITestSuite) TestGetMirrorRowCountsNonCDC() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("row count validation is only supported for PostgreSQL source and destination")
+	}
+
+	_, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{
+		FlowJobName: "nonexistent_flow_" + s.suffix,
+	})
+	require.Error(s.t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.InvalidArgument, grpcStatus.Code())
+	require.Contains(s.t, grpcStatus.Message(), "not supported for query replication mirrors")
 }

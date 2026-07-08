@@ -25,6 +25,11 @@ const (
 	countTimeoutSeconds = 30
 )
 
+// GetMirrorRowCounts returns per-table source and destination row counts for a
+// Postgres-to-Postgres CDC mirror, so the caller can compare the two sides and spot drift.
+// Both peers must be Postgres; query replication (QRep) mirrors are not supported. Tables can
+// be filtered via req.SourceTables. Small tables are counted exactly while large tables use an
+// approximate estimate; a count of -1 signals the value could not be obtained (missing table or timeout).
 func (h *FlowRequestHandler) GetMirrorRowCounts(
 	ctx context.Context,
 	req *protos.RowCountRequest,
@@ -32,22 +37,19 @@ func (h *FlowRequestHandler) GetMirrorRowCounts(
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	// Validate mirror exists and is CDC
 	isCdc, err := h.isCDCFlow(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("unable to check flow type: %w", err))
 	}
 	if !isCdc {
-		return nil, NewInvalidArgumentApiError(fmt.Errorf("row count validation is only supported for CDC mirrors"))
+		return nil, NewInvalidArgumentApiError(fmt.Errorf("row count validation is not supported for query replication mirrors"))
 	}
 
-	// Get flow config to extract table mappings and peer names
 	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 	}
 
-	// Verify both peers are Postgres
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("unable to load source peer type: %w", err))
@@ -63,7 +65,6 @@ func (h *FlowRequestHandler) GetMirrorRowCounts(
 		return nil, NewInvalidArgumentApiError(fmt.Errorf("destination peer %s is not PostgreSQL", config.DestinationName))
 	}
 
-	// Filter table mappings if source_tables filter is specified
 	tableMappings := config.TableMappings
 	if len(req.SourceTables) > 0 {
 		filterSet := make(map[string]struct{}, len(req.SourceTables))
@@ -83,7 +84,6 @@ func (h *FlowRequestHandler) GetMirrorRowCounts(
 		return &protos.RowCountResponse{TableCounts: nil}, nil
 	}
 
-	// Open connections to source and destination
 	srcConn, srcClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, config.SourceName)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to connect to source peer: %w", err))
@@ -96,7 +96,6 @@ func (h *FlowRequestHandler) GetMirrorRowCounts(
 	}
 	defer dstClose(ctx)
 
-	// Build result slice
 	results := make([]*protos.TableRowCount, len(tableMappings))
 	for i, tm := range tableMappings {
 		results[i] = &protos.TableRowCount{
@@ -105,8 +104,6 @@ func (h *FlowRequestHandler) GetMirrorRowCounts(
 		}
 	}
 
-	// Query source and destination in parallel,
-	// but serialize queries within each peer since pgx.Conn is not concurrent-safe.
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
@@ -162,7 +159,6 @@ func getTableRowCount(ctx context.Context, conn *pgx.Conn, tableIdentifier strin
 	}
 	qualifiedName := parsed.String()
 
-	// Get table size to decide strategy
 	var tableSizeBytes pgtype.Int8
 	if err := conn.QueryRow(ctx,
 		"SELECT pg_total_relation_size(to_regclass($1))", qualifiedName,
