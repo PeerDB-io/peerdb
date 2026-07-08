@@ -31,18 +31,19 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config                *protos.MySqlConfig
-	ssh                   *utils.SSHTunnel
-	conn                  atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts              atomic.Pointer[chan context.Context]
-	logger                log.Logger
-	rdsAuth               *utils.RDSAuth
-	serverVersion         string
-	collationCharset      atomic.Pointer[map[uint64]string]
-	warnedCharsets        sync.Map
-	binlogHeartbeatPeriod time.Duration
-	totalBytesRead        atomic.Int64
-	deltaBytesRead        atomic.Int64
+	config                      *protos.MySqlConfig
+	ssh                         *utils.SSHTunnel
+	conn                        atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts                    atomic.Pointer[chan context.Context]
+	logger                      log.Logger
+	rdsAuth                     *utils.RDSAuth
+	serverVersion               string
+	collationCharset            atomic.Pointer[map[uint64]string]
+	warnedUnsupportedEventTypes sync.Map
+	warnedCharsets              sync.Map
+	binlogHeartbeatPeriod       time.Duration
+	totalBytesRead              atomic.Int64
+	deltaBytesRead              atomic.Int64
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
