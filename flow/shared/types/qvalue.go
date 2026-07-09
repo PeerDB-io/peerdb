@@ -334,7 +334,7 @@ func (v QValueUint64Set) Value() any {
 }
 
 func (v QValueUint64Set) LValue(ls *lua.LState) lua.LValue {
-	return lua.LNumber(v.Val)
+	return glua64.U64.New(ls, v.Val)
 }
 
 type QValueTimestamp struct {
