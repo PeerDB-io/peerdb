@@ -26,3 +26,7 @@ ancillary.env
 # Ephemeral volumes for docker compose
 volumes/ch_*
 
+# Renovate debug files
+final-updated-packages.txt
+renovate.out
+update-proposals.json
