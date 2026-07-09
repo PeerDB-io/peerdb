@@ -39,6 +39,8 @@ const (
 	InternalVersion_MySQL5ConvertEnumsToInts
 	// MySQL: convert BIT to UInt64
 	InternalVersion_MySQLConvertBitToUInt64
+	// MySQL: convert sets to integers for older versions without binlog row metadata support
+	InternalVersion_MySQL5ConvertSetsToInts
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1

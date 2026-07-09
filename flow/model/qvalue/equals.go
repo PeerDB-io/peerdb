@@ -82,6 +82,11 @@ func Equals(qv types.QValue, other types.QValue) bool {
 			return q.Val == otherVal.Val
 		}
 		return false
+	case types.QValueUint64Set:
+		if otherVal, ok := other.(types.QValueUint64Set); ok {
+			return q.Val == otherVal.Val
+		}
+		return false
 	case types.QValueINET:
 		return compareString(q.Val, otherValue)
 	case types.QValueCIDR:

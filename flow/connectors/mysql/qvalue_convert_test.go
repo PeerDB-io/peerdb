@@ -58,6 +58,26 @@ func TestQkindFromMysqlType_Bit(t *testing.T) {
 	}
 }
 
+func TestQkindFromMysqlColumnType_Set(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		metadata bool
+		version  uint32
+		want     types.QValueKind
+	}{
+		{"with metadata maps SET to String", true, shared.InternalVersion_Latest, types.QValueKindString},
+		{"without metadata, before gate maps SET to String", false, shared.InternalVersion_MySQL5ConvertSetsToInts - 1, types.QValueKindString},
+		{"without metadata, gate maps SET to Uint64Set", false, shared.InternalVersion_MySQL5ConvertSetsToInts, types.QValueKindUint64Set},
+		{"without metadata, latest maps SET to Uint64Set", false, shared.InternalVersion_Latest, types.QValueKindUint64Set},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			qkind, err := QkindFromMysqlColumnType("set('a','b','c')", tc.metadata, tc.version)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, qkind)
+		})
+	}
+}
+
 func TestProcessTime(t *testing.T) {
 	epoch := time.Unix(0, 0).UTC()
 	for _, ts := range []struct {

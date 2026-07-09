@@ -18,9 +18,15 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 	switch strings.ToLower(ct) {
 	case "json":
 		return types.QValueKindJSON, nil
-	case "char", "varchar", "text", "set", "tinytext", "mediumtext", "longtext",
+	case "char", "varchar", "text", "tinytext", "mediumtext", "longtext",
 		"clob", "varchar2", // maria
 		"xmltype": // maria
+		return types.QValueKindString, nil
+	case "set":
+		// keeps snapshot and cdc consistent for mysql without row metadata
+		if !binlogRowMetadataSupported && version >= shared.InternalVersion_MySQL5ConvertSetsToInts {
+			return types.QValueKindUint64Set, nil
+		}
 		return types.QValueKindString, nil
 	case "enum":
 		if !binlogRowMetadataSupported && version >= shared.InternalVersion_MySQL5ConvertEnumsToInts {
