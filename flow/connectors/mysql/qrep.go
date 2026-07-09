@@ -277,6 +277,10 @@ func (c *MySqlConnector) PullQRepRecords(
 	}
 
 	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude)
+	if selectedColumns == "" {
+		return 0, 0, fmt.Errorf("no columns selected for watermark table %s (check Exclude configuration)", config.WatermarkTable)
+	}
+
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		c.logger.Error("unable to parse source table", slog.Any("error", err))

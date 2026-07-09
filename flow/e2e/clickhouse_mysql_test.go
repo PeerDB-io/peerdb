@@ -2460,9 +2460,6 @@ func (s ClickHouseSuite) Test_MySQL_GIPK_Consistency() {
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_my_gipk_dst"
 
-	// GIPK is controlled by a session variable; the connector holds a single persistent connection,
-	// so the setting sticks for the subsequent CREATE. Reset it afterwards to avoid leaking into
-	// other tables in the suite.
 	require.NoError(s.t, s.source.Exec(s.t.Context(), `SET SESSION sql_generate_invisible_primary_key = ON`))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
