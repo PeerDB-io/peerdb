@@ -584,7 +584,7 @@ func TestAppendTLSEnv_TlsHost(t *testing.T) {
 	})
 
 	t.Run("PGHOSTADDR with root CA and TlsHost", func(t *testing.T) {
-		cmd := exec.CommandContext(ctx, "echo") //nolint:gosec
+		cmd := exec.CommandContext(ctx, "echo")
 		cmd.Env = os.Environ()
 
 		config := &protos.PostgresConfig{
