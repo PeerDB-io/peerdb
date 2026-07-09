@@ -139,34 +139,13 @@ func (c *MongoConnector) numericPartitions(
 		return utils.FullTablePartition(), nil
 	}
 
-	ranges := computeNumericRanges(minVal, maxVal, numPartitions)
+	ranges := utils.ComputeRanges(minVal, maxVal, numPartitions)
 	c.logger.Info("[mongo] using numeric _id partitioning", slog.Int("numPartitions", len(ranges)))
 	partitions := make([]*protos.QRepPartition, 0, len(ranges))
 	for i, rng := range ranges {
 		partitions = append(partitions, utils.CreateNumericPartition(rng[0], rng[1], i == len(ranges)-1))
 	}
 	return partitions, nil
-}
-
-func computeNumericRanges(minVal int64, maxVal int64, numPartitions int64) [][2]int64 {
-	// span arithmetic is done in uint64 to avoid overflow
-	span := uint64(maxVal) - uint64(minVal)
-	step := span / uint64(numPartitions)
-	if span%uint64(numPartitions) != 0 {
-		step++
-	}
-
-	ranges := make([][2]int64, 0, numPartitions)
-	start := minVal
-	for {
-		if remaining := uint64(maxVal) - uint64(start); remaining <= step {
-			ranges = append(ranges, [2]int64{start, maxVal})
-			return ranges
-		}
-		end := int64(uint64(start) + step)
-		ranges = append(ranges, [2]int64{start, end})
-		start = end
-	}
 }
 
 // stringPartitions builds partitions for a string _id collection. Because string
