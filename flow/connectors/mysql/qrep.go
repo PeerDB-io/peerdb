@@ -244,28 +244,20 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 }
 
 func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string) string {
-	columns := []string{}
-	selectAsterisk := true
+	columns := make([]string, 0, len(cols))
 	for _, col := range cols {
 		if slices.Contains(exclude, col.Name) {
-			selectAsterisk = false
 			continue
 		}
 
 		converted := common.QuoteMySQLIdentifier(col.Name)
 		if col.Type == string(types.QValueKindUint16Enum) || col.Type == string(types.QValueKindUint64Set) {
 			converted = fmt.Sprintf("CAST(%s AS UNSIGNED) AS %s", converted, converted)
-			selectAsterisk = false
 		}
 		columns = append(columns, converted)
 	}
 
-	selectedColumns := "*"
-	if !selectAsterisk {
-		selectedColumns = strings.Join(columns, ", ")
-	}
-
-	return selectedColumns
+	return strings.Join(columns, ", ")
 }
 
 func (c *MySqlConnector) PullQRepRecords(
@@ -285,6 +277,10 @@ func (c *MySqlConnector) PullQRepRecords(
 	}
 
 	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude)
+	if selectedColumns == "" {
+		return 0, 0, fmt.Errorf("no columns selected for watermark table %s (check Exclude configuration)", config.WatermarkTable)
+	}
+
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		c.logger.Error("unable to parse source table", slog.Any("error", err))
