@@ -380,21 +380,22 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 	}
 
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
-		ServerID:         serverId,
-		Flavor:           c.Flavor(),
-		Host:             config.Host,
-		Port:             uint16(config.Port),
-		User:             config.User,
-		Password:         config.Password,
-		Logger:           internal.SlogLoggerFromCtx(ctx),
-		Dialer:           c.Dialer(),
-		DisableRetrySync: true,
-		UseDecimal:       true,
-		ParseTime:        true,
-		VerifyChecksum:   true,
-		TLSConfig:        tlsConfig,
-		HeartbeatPeriod:  c.binlogHeartbeatPeriod,
-		EventCacheCount:  eventCacheCount,
+		ServerID:              serverId,
+		Flavor:                c.Flavor(),
+		Host:                  config.Host,
+		Port:                  uint16(config.Port),
+		User:                  config.User,
+		Password:              config.Password,
+		Logger:                internal.SlogLoggerFromCtx(ctx),
+		Dialer:                c.Dialer(),
+		DisableRetrySync:      true,
+		UseDecimal:            true,
+		ParseTime:             true,
+		VerifyChecksum:        true,
+		RenderJSONAsMySQLText: true,
+		TLSConfig:             tlsConfig,
+		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
+		EventCacheCount:       eventCacheCount,
 	}), nil
 }
 

@@ -1,7 +1,9 @@
 package connmysql
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -27,6 +29,14 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func compactMySQLJSON(v []byte) string {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, v); err != nil {
+		return string(v)
+	}
+	return buf.String()
+}
 
 func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16, version uint32) (types.QValueKind, error) {
 	switch mytype {
@@ -332,7 +342,8 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 		case types.QValueKindBytes:
 			return types.QValueBytes{Val: slices.Clone(v)}, nil
 		case types.QValueKindJSON:
-			return types.QValueJSON{Val: string(v)}, nil
+			// keep snapshot and cdc json representation consistent
+			return types.QValueJSON{Val: compactMySQLJSON(v)}, nil
 		case types.QValueKindUUID:
 			// snapshot reads via the text protocol, so MariaDB sends the canonical string
 			u, err := uuid.Parse(unsafeString)

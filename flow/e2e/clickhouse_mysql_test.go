@@ -277,6 +277,164 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	// MySQL stores JSON in a native binary form and re-serializes it to a compact,
+	// whitespace-stripped text; MariaDB's JSON type is plain LONGTEXT stored verbatim, so
+	// the exact-representation checks below only hold on MySQL.
+	nativeJSON := mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL
+
+	srcTableName := "test_json_repr"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_json_repr_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id serial PRIMARY KEY,
+			js json NOT NULL
+		)`, srcFullName)))
+
+	variants := []struct {
+		val         string
+		expectExact string
+	}{
+		// key order: shorter key sorts after longer one
+		{val: `{"z": 1, "aa": 2}`},
+		{val: `{"b": 2, "a": 1}`}, // key order: reversed on storage
+		// nested object key order + array order preserved
+		{val: `{"n": [3, 1, 2], "obj": {"y": 1, "x": 2}}`},
+		{val: `{"s": "a, b: c"}`}, // whitespace inside strings is preserved
+		// non-whole doubles that render identically in both paths
+		{val: `{"pi": 3.14, "half": 0.5, "neg": -2.5}`},
+		{val: `{"big": 1234567890123456789}`, expectExact: `{"big":1234567890123456789}`},         // 19-digit int64: float64 rounds to ...6800
+		{val: `{"maxsafe": 9007199254740993}`, expectExact: `{"maxsafe":9007199254740993}`},       // 2^53+1: float64 drops the low bit (...992)
+		{val: `{"negbig": -1234567890123456789}`, expectExact: `{"negbig":-1234567890123456789}`}, // sign preserved at full precision
+		{
+			val:         `{"mix": [1234567890123456789, -9007199254740993, 9007199254740993]}`, // same hazards inside an array
+			expectExact: `{"mix":[1234567890123456789,-9007199254740993,9007199254740993]}`,
+		},
+	}
+
+	insertVariants := func() {
+		for _, v := range variants {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf(`INSERT INTO %s (js) VALUES ('%s')`, srcFullName, v.val)))
+		}
+	}
+
+	insertVariants()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting for initial snapshot", dstTableName, "id", len(variants))
+
+	insertVariants()
+
+	EnvWaitForCount(env, s, "waiting for cdc", dstTableName, "id", 2*len(variants))
+
+	// GetRows orders by id, so snapshot rows (ids 1..N) come first, then CDC rows (N+1..2N);
+	// both batches hold the same values in the same order, so row i and row i+N are the same
+	// logical value read via the snapshot and CDC paths respectively.
+	rows, err := s.GetRows(dstTableName, "id, js")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2*len(variants))
+
+	for i := range variants {
+		snapshotGot := fmt.Sprint(rows.Records[i][1].Value())
+		cdcGot := fmt.Sprint(rows.Records[i+len(variants)][1].Value())
+		require.Equal(s.t, snapshotGot, cdcGot, "snapshot/cdc JSON representation differs for %q", variants[i].val)
+		if nativeJSON && variants[i].expectExact != "" {
+			require.Equal(s.t, variants[i].expectExact, snapshotGot, "snapshot JSON not preserved faithfully for %q", variants[i].val)
+			require.Equal(s.t, variants[i].expectExact, cdcGot, "cdc JSON not preserved faithfully for %q", variants[i].val)
+		}
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_MySQL_JSON_SnapshotCDCConsistency_NativeJSON is the native-JSON companion to
+// Test_MySQL_JSON_SnapshotCDCConsistency.
+func (s ClickHouseSuite) Test_MySQL_JSON_SnapshotCDCConsistency_NativeJSON() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_json_repr_native"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_json_repr_native_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id serial PRIMARY KEY,
+			js json NOT NULL
+		)`, srcFullName)))
+
+	// These deliberately include the doubles that diverge in text form between the snapshot
+	// and CDC paths; native JSON normalization is what makes them consistent at the destination.
+	variants := []string{
+		`{"pi": 3.14, "big": 1000000.5, "neg": -2.5}`, // magnitude where snapshot/CDC text forms differ
+		`{"tiny": 0.000015, "huge": 150000000000.5}`,  // more exponent-crossover magnitudes
+		`{"z": 1.0, "aa": 2}`,                         // key order, normalized consistently
+	}
+
+	insertVariants := func() {
+		for _, v := range variants {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf(`INSERT INTO %s (js) VALUES ('%s')`, srcFullName, v)))
+		}
+	}
+
+	insertVariants()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting for initial snapshot", dstTableName, "id", len(variants))
+
+	insertVariants()
+
+	EnvWaitForCount(env, s, "waiting for cdc", dstTableName, "id", 2*len(variants))
+
+	// Read ClickHouse's own normalized text of the JSON column so the comparison is over a
+	// plain String scan target (GetRows does not scan the native JSON type directly).
+	rows, err := s.GetRows(dstTableName, "id, toString(js)")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2*len(variants))
+
+	for i := range variants {
+		snapshotGot := fmt.Sprint(rows.Records[i][1].Value())
+		cdcGot := fmt.Sprint(rows.Records[i+len(variants)][1].Value())
+		require.Equal(s.t, snapshotGot, cdcGot, "snapshot/cdc JSON representation differs for %q", variants[i])
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 	mySource, ok := s.source.(*MySqlSource)
 	if !ok {
