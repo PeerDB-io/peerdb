@@ -1027,8 +1027,8 @@ func (c *MySqlConnector) PullRecords(
 // MariaDB COMPRESSED columns binlog as these wire types
 // which go-mysql cannot decode.
 const (
-	mysqlColumnTypeVarcharCompressed = 140
-	mysqlColumnTypeBlobCompressed    = 141
+	mysqlColumnTypeBlobCompressed    = 140
+	mysqlColumnTypeVarcharCompressed = 141
 )
 
 func checkTableMapForCompressedColumns(ev *replication.TableMapEvent) error {
