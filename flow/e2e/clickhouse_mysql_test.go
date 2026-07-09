@@ -2472,10 +2472,20 @@ func (s ClickHouseSuite) Test_MySQL_GIPK_Consistency() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (name) VALUES ('snap')`, srcFullName)))
 
+	// The default TableNameMapping path shards on "id", which this table lacks
+	// (its only key is the invisible my_row_id), so shard on the GIPK for the cluster suite.
+	var shardingKey string
+	if s.cluster {
+		shardingKey = "my_row_id"
+	}
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix(srcTableName),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
-		Destination:      s.Peer().Name,
+		FlowJobName: s.attachSuffix(srcTableName),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			ShardingKey:                shardingKey,
+		}},
+		Destination: s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
