@@ -163,6 +163,9 @@ func (s ClickHouseSuite) Test_MySQL_MariaDB_CompressedColumn_Rejected() {
 }
 
 func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
+	if s.cluster {
+		s.t.Skip("source-side compressed column coverage does not need to run against ClickHouse cluster")
+	}
 	mySource, ok := s.source.(*MySqlSource)
 	if !ok {
 		s.t.Skip("only applies to mysql")
@@ -171,23 +174,34 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 		s.t.Skip("column compression is a MariaDB-only feature")
 	}
 
+	// A compressed column produces a binlog row event go-mysql cannot decode, which poisons the
+	// binlog stream for every mirror reading the server. Use a dedicated throwaway MariaDB so the
+	// failure cannot cascade into the other parallel subtests sharing the CI source.
+	src, suffix := SetupMySQLTestContainerSource(s.t, "cmpcol", MySQLTestContainerConfig{
+		Image:                "mariadb:12.3",
+		Flavor:               protos.MySqlFlavor_MYSQL_MARIA,
+		ReplicationMechanism: mySource.Config.ReplicationMechanism,
+	})
+
 	srcTableName := "compressed_mid_cdc"
-	srcFullName := s.attachSchemaSuffix(srcTableName)
+	srcFullName := fmt.Sprintf("e2e_test_%s.%s", suffix, srcTableName)
 	dstTableName := "compressed_mid_cdc"
 
 	// The table starts without a compressed column, so mirror creation validation passes.
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
 		`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)`, srcFullName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (id, name) VALUES (1, 'snapshot')`, srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      srcFullName,
+		FlowJobName:      "test_mariadb_compressed_mid_cdc_" + suffix,
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	// The suite source is the shared CI MariaDB; point the mirror at our isolated source instead.
+	flowConnConfig.SourceName = src.GeneratePeer(s.t).Name
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -196,13 +210,13 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
 	require.NoError(s.t, err)
 
-	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial snapshot", srcTableName, dstTableName, "id,name")
+	EnvWaitForCount(env, s, "waiting on initial snapshot", dstTableName, "id,name", 1)
 
 	// Add a COMPRESSED column mid-stream, then write a row so a row event carrying the undecodable
 	// wire type reaches the pipe and trips the TABLE_MAP detection.
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
 		`ALTER TABLE %s ADD COLUMN val TEXT COMPRESSED`, srcFullName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (id, name, val) VALUES (2, 'cdc', 'compressed value')`, srcFullName)))
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for compressed column error", func() bool {
