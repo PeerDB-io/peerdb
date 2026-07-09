@@ -27,8 +27,42 @@ import (
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func TestCheckTableMapForCompressedColumns(t *testing.T) {
+	// id (normal), v (varchar compressed, 140), b (blob compressed, 141)
+	ev := &replication.TableMapEvent{
+		Schema:     []byte("db"),
+		Table:      []byte("t"),
+		ColumnType: []byte{0x03 /* MYSQL_TYPE_LONG */, mysqlColumnTypeVarcharCompressed, mysqlColumnTypeBlobCompressed},
+		ColumnName: [][]byte{[]byte("id"), []byte("v"), []byte("b")},
+	}
+
+	t.Run("reports all compressed columns regardless of exclusion", func(t *testing.T) {
+		err := checkTableMapForCompressedColumns(ev)
+		require.ErrorContains(t, err, "COMPRESSED")
+		var ccErr *exceptions.MySQLUnsupportedCompressedColumnError
+		require.ErrorAs(t, err, &ccErr)
+		require.Equal(t, []string{"v", "b"}, ccErr.Columns)
+	})
+
+	t.Run("no compressed columns yields no error", func(t *testing.T) {
+		normal := &replication.TableMapEvent{ColumnType: []byte{0x03}}
+		require.NoError(t, checkTableMapForCompressedColumns(normal))
+	})
+
+	t.Run("without column names the column is reported positionally", func(t *testing.T) {
+		noMeta := &replication.TableMapEvent{
+			Schema:     []byte("db"),
+			Table:      []byte("t"),
+			ColumnType: []byte{mysqlColumnTypeVarcharCompressed},
+		}
+		err := checkTableMapForCompressedColumns(noMeta)
+		require.ErrorContains(t, err, "column #0")
+	})
+}
 
 func startBinlogStream(t *testing.T, ctx context.Context, c *MySqlConnector) *replication.BinlogStreamer {
 	t.Helper()

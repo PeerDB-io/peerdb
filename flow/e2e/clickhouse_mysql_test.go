@@ -122,6 +122,102 @@ func (s ClickHouseSuite) Test_MySQL_MyISAM_NonTransactional() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_MariaDB_CompressedColumn_Rejected() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mySource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("column compression is a MariaDB-only feature")
+	}
+
+	srcTableName := "test_compressed"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`CREATE TABLE %s (
+		id int primary key,
+		val text COMPRESSED,
+		plain text
+	)`, srcFullName)))
+
+	mapping := []*protos.TableMapping{{
+		SourceTableIdentifier:      srcFullName,
+		DestinationTableIdentifier: srcTableName,
+	}}
+
+	// The compressed column is rejected with an actionable error.
+	err := mySource.ValidateMirrorSource(s.t.Context(), &protos.FlowConnectionConfigsCore{
+		TableMappings:     mapping,
+		DoInitialSnapshot: true,
+	})
+	require.ErrorContains(s.t, err, "COMPRESSED")
+
+	// Excluding the column does not help: go-mysql cannot decode it from the binlog, so CDC would
+	// fail anyway. Validation rejects it regardless of exclusion.
+	mapping[0].Exclude = []string{"val"}
+	err = mySource.ValidateMirrorSource(s.t.Context(), &protos.FlowConnectionConfigsCore{
+		TableMappings:     mapping,
+		DoInitialSnapshot: true,
+	})
+	require.ErrorContains(s.t, err, "COMPRESSED")
+}
+
+func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mySource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("column compression is a MariaDB-only feature")
+	}
+
+	srcTableName := "compressed_mid_cdc"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "compressed_mid_cdc"
+
+	// The table starts without a compressed column, so mirror creation validation passes.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, name) VALUES (1, 'snapshot')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      srcFullName,
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial snapshot", srcTableName, dstTableName, "id,name")
+
+	// Add a COMPRESSED column mid-stream, then write a row so a row event carrying the undecodable
+	// wire type reaches the pipe and trips the TABLE_MAP detection.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN val TEXT COMPRESSED`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, name, val) VALUES (2, 'cdc', 'compressed value')`, srcFullName)))
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for compressed column error", func() bool {
+		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "cannot be replicated via CDC")
+		if err != nil {
+			s.t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Time() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")

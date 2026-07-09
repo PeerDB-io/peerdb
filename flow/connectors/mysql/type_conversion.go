@@ -5,11 +5,15 @@ import (
 	"strings"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, version uint32) (types.QValueKind, error) {
+	if mysql_validation.IsCompressedColumnType(ct) {
+		return types.QValueKind(""), fmt.Errorf("MariaDB COMPRESSED columns are not supported: %s", ct)
+	}
 	// https://mariadb.com/docs/server/reference/data-types/date-and-time-data-types/timestamp#tab-current-1
 	ct, _ = strings.CutSuffix(ct, " /* mariadb-5.3 */")
 	ct, _ = strings.CutSuffix(ct, " zerofill")

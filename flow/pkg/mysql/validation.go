@@ -299,6 +299,42 @@ func IsVitess(conn *client.Conn) (bool, error) {
 	return true, nil // is a Vitess server
 }
 
+func IsCompressedColumnType(columnType string) bool {
+	return strings.Contains(strings.ToUpper(columnType), "COMPRESSED")
+}
+
+func CheckCompressedColumns(conn *client.Conn, schema string, table string) error {
+	rs, err := conn.Execute(fmt.Sprintf(
+		"SELECT column_name, column_type FROM information_schema.columns WHERE table_schema = '%s' AND table_name = '%s'",
+		mysql.Escape(schema), mysql.Escape(table)))
+	if err != nil {
+		return fmt.Errorf("failed to fetch column types for %s.%s: %w", schema, table, err)
+	}
+
+	var compressed []string
+	for idx := range rs.RowNumber() {
+		columnType, err := rs.GetString(idx, 1)
+		if err != nil {
+			return err
+		}
+		if IsCompressedColumnType(columnType) {
+			columnName, err := rs.GetString(idx, 0)
+			if err != nil {
+				return err
+			}
+			compressed = append(compressed, columnName)
+		}
+	}
+
+	if len(compressed) > 0 {
+		return fmt.Errorf(
+			"table %s.%s has MariaDB COMPRESSED column(s) [%s], which cannot be replicated via CDC; "+
+				"convert them to a non-compressed type or remove the table from the mirror",
+			schema, table, strings.Join(compressed, ", "))
+	}
+	return nil
+}
+
 func HasReplicaWithServerId(conn *client.Conn, serverID uint32) (bool, error) {
 	// This check assumes that the number of replicas is not beyond the order of magnitude of thousands.
 	// This is a reasonable assumption given that services like RDS limit them to 15 and that

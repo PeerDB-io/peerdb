@@ -732,7 +732,13 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.TableMapEvent:
-			tableIdToName[ev.TableID] = string(ev.Schema) + "." + string(ev.Table)
+			schemaTable := string(ev.Schema) + "." + string(ev.Table)
+			tableIdToName[ev.TableID] = schemaTable
+			if req.TableNameSchemaMapping[req.TableNameMapping[schemaTable].Name] != nil {
+				if err := checkTableMapForCompressedColumns(ev); err != nil {
+					return err
+				}
+			}
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
@@ -1014,6 +1020,31 @@ func (c *MySqlConnector) PullRecords(
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// MariaDB COMPRESSED columns binlog as these wire types
+// which go-mysql cannot decode.
+const (
+	mysqlColumnTypeVarcharCompressed = 140
+	mysqlColumnTypeBlobCompressed    = 141
+)
+
+func checkTableMapForCompressedColumns(ev *replication.TableMapEvent) error {
+	var compressed []string
+	for i, t := range ev.ColumnType {
+		if t != mysqlColumnTypeVarcharCompressed && t != mysqlColumnTypeBlobCompressed {
+			continue
+		}
+		name := fmt.Sprintf("column #%d", i)
+		if i < len(ev.ColumnName) && len(ev.ColumnName[i]) > 0 {
+			name = string(ev.ColumnName[i])
+		}
+		compressed = append(compressed, name)
+	}
+	if len(compressed) > 0 {
+		return exceptions.NewMySQLUnsupportedCompressedColumnError(string(ev.Schema), string(ev.Table), compressed)
 	}
 	return nil
 }

@@ -1285,3 +1285,18 @@ func TestMySQLUnsupportedBinlogRowValueOptionsErrorShouldBeNotifyBinlogPartialJs
 		},
 	}, errInfo)
 }
+
+func TestMySQLUnsupportedCompressedColumnErrorShouldBeNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLUnsupportedCompressedColumnError("mydb", "mytable", []string{"v"})
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyMySQLCompressedColumnUnsupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_COMPRESSED_COLUMN",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "mydb.mytable",
+		},
+	}, errInfo)
+}
