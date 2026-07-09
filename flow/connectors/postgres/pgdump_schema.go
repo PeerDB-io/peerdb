@@ -233,6 +233,13 @@ func runPipeline(
 	return nil
 }
 
+func tlsHostOrHost(config *protos.PostgresConfig) string {
+	if config.TlsHost != "" {
+		return config.TlsHost
+	}
+	return config.Host
+}
+
 func buildPgDumpArgs(config *protos.PostgresConfig) []string {
 	port := config.Port
 	if port == 0 {
@@ -243,7 +250,7 @@ func buildPgDumpArgs(config *protos.PostgresConfig) []string {
 		"--schema-only",
 		"--no-owner",
 		"--no-privileges",
-		"-h", config.Host,
+		"-h", tlsHostOrHost(config),
 		"-p", strconv.FormatUint(uint64(port), 10),
 		"-d", config.Database,
 	}
@@ -260,7 +267,7 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 	}
 
 	args := []string{
-		"-h", config.Host,
+		"-h", tlsHostOrHost(config),
 		"-p", strconv.FormatUint(uint64(port), 10),
 		"-d", config.Database,
 		// Wrap the entire dump in a single transaction so partial failures
@@ -281,29 +288,37 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 }
 
 func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig) {
-	if internal.PGMustUseTlsConnection(config) {
-		sslMode := "verify-ca"
-		if config.SkipCertVerification {
-			sslMode = "require"
-		}
-		cmd.Env = append(cmd.Env, "PGSSLMODE="+sslMode)
+	hasRootCA := config.RootCa != nil && *config.RootCa != ""
+	if !internal.PGMustUseTlsConnection(config) && !hasRootCA {
+		return
+	}
 
-		if config.RootCa != nil && *config.RootCa != "" {
-			// write root CA to a temp file
-			tmpFile, err := os.CreateTemp("", "peerdb-root-ca-*.pem")
-			if err != nil {
-				slog.WarnContext(ctx, "failed to create temp file for root CA, skipping sslrootcert", slog.Any("error", err))
-				return
-			}
-			if _, err := tmpFile.WriteString(*config.RootCa); err != nil {
-				slog.WarnContext(ctx, "failed to write root CA to temp file", slog.Any("error", err))
-				tmpFile.Close()
-				os.Remove(tmpFile.Name())
-				return
-			}
-			tmpFile.Close()
-			cmd.Env = append(cmd.Env, "PGSSLROOTCERT="+tmpFile.Name())
-			// note: temp file is cleaned up when the process exits
+	switch {
+	case config.SkipCertVerification:
+		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
+	case hasRootCA:
+		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-ca")
+	default:
+		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
+	}
+
+	if hasRootCA && !config.SkipCertVerification {
+		tmpFile, err := os.CreateTemp("", "peerdb-root-ca-*.pem")
+		if err != nil {
+			slog.WarnContext(ctx, "failed to create temp file for root CA, skipping sslrootcert", slog.Any("error", err))
+			return
 		}
+		if _, err := tmpFile.WriteString(*config.RootCa); err != nil {
+			slog.WarnContext(ctx, "failed to write root CA to temp file", slog.Any("error", err))
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return
+		}
+		tmpFile.Close()
+		cmd.Env = append(cmd.Env, "PGSSLROOTCERT="+tmpFile.Name())
+	}
+
+	if config.TlsHost != "" {
+		cmd.Env = append(cmd.Env, "PGHOSTADDR="+config.Host)
 	}
 }
