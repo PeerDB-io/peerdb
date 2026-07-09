@@ -2351,6 +2351,186 @@ func (x *TotalRowsSyncedByMirrorResponse) GetTotalCount() int64 {
 	return 0
 }
 
+type RowCountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlowJobName   string                 `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
+	SourceTables  []string               `protobuf:"bytes,2,rep,name=source_tables,json=sourceTables,proto3" json:"source_tables,omitempty"` // optional filter; if empty, all tables
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RowCountRequest) Reset() {
+	*x = RowCountRequest{}
+	mi := &file_route_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RowCountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RowCountRequest) ProtoMessage() {}
+
+func (x *RowCountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_route_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RowCountRequest.ProtoReflect.Descriptor instead.
+func (*RowCountRequest) Descriptor() ([]byte, []int) {
+	return file_route_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *RowCountRequest) GetFlowJobName() string {
+	if x != nil {
+		return x.FlowJobName
+	}
+	return ""
+}
+
+func (x *RowCountRequest) GetSourceTables() []string {
+	if x != nil {
+		return x.SourceTables
+	}
+	return nil
+}
+
+type TableRowCount struct {
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	SourceTable              string                 `protobuf:"bytes,1,opt,name=source_table,json=sourceTable,proto3" json:"source_table,omitempty"`
+	DestinationTable         string                 `protobuf:"bytes,2,opt,name=destination_table,json=destinationTable,proto3" json:"destination_table,omitempty"`
+	SourceCount              int64                  `protobuf:"varint,3,opt,name=source_count,json=sourceCount,proto3" json:"source_count,omitempty"`                // -1 means timed out
+	DestinationCount         int64                  `protobuf:"varint,4,opt,name=destination_count,json=destinationCount,proto3" json:"destination_count,omitempty"` // -1 means timed out
+	SourceIsApproximate      bool                   `protobuf:"varint,5,opt,name=source_is_approximate,json=sourceIsApproximate,proto3" json:"source_is_approximate,omitempty"`
+	DestinationIsApproximate bool                   `protobuf:"varint,6,opt,name=destination_is_approximate,json=destinationIsApproximate,proto3" json:"destination_is_approximate,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *TableRowCount) Reset() {
+	*x = TableRowCount{}
+	mi := &file_route_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableRowCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableRowCount) ProtoMessage() {}
+
+func (x *TableRowCount) ProtoReflect() protoreflect.Message {
+	mi := &file_route_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableRowCount.ProtoReflect.Descriptor instead.
+func (*TableRowCount) Descriptor() ([]byte, []int) {
+	return file_route_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *TableRowCount) GetSourceTable() string {
+	if x != nil {
+		return x.SourceTable
+	}
+	return ""
+}
+
+func (x *TableRowCount) GetDestinationTable() string {
+	if x != nil {
+		return x.DestinationTable
+	}
+	return ""
+}
+
+func (x *TableRowCount) GetSourceCount() int64 {
+	if x != nil {
+		return x.SourceCount
+	}
+	return 0
+}
+
+func (x *TableRowCount) GetDestinationCount() int64 {
+	if x != nil {
+		return x.DestinationCount
+	}
+	return 0
+}
+
+func (x *TableRowCount) GetSourceIsApproximate() bool {
+	if x != nil {
+		return x.SourceIsApproximate
+	}
+	return false
+}
+
+func (x *TableRowCount) GetDestinationIsApproximate() bool {
+	if x != nil {
+		return x.DestinationIsApproximate
+	}
+	return false
+}
+
+type RowCountResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TableCounts   []*TableRowCount       `protobuf:"bytes,1,rep,name=table_counts,json=tableCounts,proto3" json:"table_counts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RowCountResponse) Reset() {
+	*x = RowCountResponse{}
+	mi := &file_route_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RowCountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RowCountResponse) ProtoMessage() {}
+
+func (x *RowCountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_route_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RowCountResponse.ProtoReflect.Descriptor instead.
+func (*RowCountResponse) Descriptor() ([]byte, []int) {
+	return file_route_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *RowCountResponse) GetTableCounts() []*TableRowCount {
+	if x != nil {
+		return x.TableCounts
+	}
+	return nil
+}
+
 type PeerSchemasResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Schemas       []string               `protobuf:"bytes,1,rep,name=schemas,proto3" json:"schemas,omitempty"`
@@ -2360,7 +2540,7 @@ type PeerSchemasResponse struct {
 
 func (x *PeerSchemasResponse) Reset() {
 	*x = PeerSchemasResponse{}
-	mi := &file_route_proto_msgTypes[39]
+	mi := &file_route_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2372,7 +2552,7 @@ func (x *PeerSchemasResponse) String() string {
 func (*PeerSchemasResponse) ProtoMessage() {}
 
 func (x *PeerSchemasResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[39]
+	mi := &file_route_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2385,7 +2565,7 @@ func (x *PeerSchemasResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerSchemasResponse.ProtoReflect.Descriptor instead.
 func (*PeerSchemasResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{39}
+	return file_route_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *PeerSchemasResponse) GetSchemas() []string {
@@ -2404,7 +2584,7 @@ type PeerPublicationsResponse struct {
 
 func (x *PeerPublicationsResponse) Reset() {
 	*x = PeerPublicationsResponse{}
-	mi := &file_route_proto_msgTypes[40]
+	mi := &file_route_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2416,7 +2596,7 @@ func (x *PeerPublicationsResponse) String() string {
 func (*PeerPublicationsResponse) ProtoMessage() {}
 
 func (x *PeerPublicationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[40]
+	mi := &file_route_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2429,7 +2609,7 @@ func (x *PeerPublicationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerPublicationsResponse.ProtoReflect.Descriptor instead.
 func (*PeerPublicationsResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{40}
+	return file_route_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *PeerPublicationsResponse) GetPublicationNames() []string {
@@ -2450,7 +2630,7 @@ type SchemaTablesRequest struct {
 
 func (x *SchemaTablesRequest) Reset() {
 	*x = SchemaTablesRequest{}
-	mi := &file_route_proto_msgTypes[41]
+	mi := &file_route_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2462,7 +2642,7 @@ func (x *SchemaTablesRequest) String() string {
 func (*SchemaTablesRequest) ProtoMessage() {}
 
 func (x *SchemaTablesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[41]
+	mi := &file_route_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2475,7 +2655,7 @@ func (x *SchemaTablesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchemaTablesRequest.ProtoReflect.Descriptor instead.
 func (*SchemaTablesRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{41}
+	return file_route_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *SchemaTablesRequest) GetPeerName() string {
@@ -2508,7 +2688,7 @@ type SchemaTablesResponse struct {
 
 func (x *SchemaTablesResponse) Reset() {
 	*x = SchemaTablesResponse{}
-	mi := &file_route_proto_msgTypes[42]
+	mi := &file_route_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2520,7 +2700,7 @@ func (x *SchemaTablesResponse) String() string {
 func (*SchemaTablesResponse) ProtoMessage() {}
 
 func (x *SchemaTablesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[42]
+	mi := &file_route_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2533,7 +2713,7 @@ func (x *SchemaTablesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchemaTablesResponse.ProtoReflect.Descriptor instead.
 func (*SchemaTablesResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{42}
+	return file_route_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *SchemaTablesResponse) GetTables() []*TableResponse {
@@ -2555,7 +2735,7 @@ type TableResponse struct {
 
 func (x *TableResponse) Reset() {
 	*x = TableResponse{}
-	mi := &file_route_proto_msgTypes[43]
+	mi := &file_route_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2567,7 +2747,7 @@ func (x *TableResponse) String() string {
 func (*TableResponse) ProtoMessage() {}
 
 func (x *TableResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[43]
+	mi := &file_route_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2580,7 +2760,7 @@ func (x *TableResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableResponse.ProtoReflect.Descriptor instead.
 func (*TableResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{43}
+	return file_route_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *TableResponse) GetTableName() string {
@@ -2620,7 +2800,7 @@ type AllTablesResponse struct {
 
 func (x *AllTablesResponse) Reset() {
 	*x = AllTablesResponse{}
-	mi := &file_route_proto_msgTypes[44]
+	mi := &file_route_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2632,7 +2812,7 @@ func (x *AllTablesResponse) String() string {
 func (*AllTablesResponse) ProtoMessage() {}
 
 func (x *AllTablesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[44]
+	mi := &file_route_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2645,7 +2825,7 @@ func (x *AllTablesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllTablesResponse.ProtoReflect.Descriptor instead.
 func (*AllTablesResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{44}
+	return file_route_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *AllTablesResponse) GetTables() []string {
@@ -2666,7 +2846,7 @@ type TableColumnsRequest struct {
 
 func (x *TableColumnsRequest) Reset() {
 	*x = TableColumnsRequest{}
-	mi := &file_route_proto_msgTypes[45]
+	mi := &file_route_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2678,7 +2858,7 @@ func (x *TableColumnsRequest) String() string {
 func (*TableColumnsRequest) ProtoMessage() {}
 
 func (x *TableColumnsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[45]
+	mi := &file_route_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2691,7 +2871,7 @@ func (x *TableColumnsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableColumnsRequest.ProtoReflect.Descriptor instead.
 func (*TableColumnsRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{45}
+	return file_route_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *TableColumnsRequest) GetPeerName() string {
@@ -2728,7 +2908,7 @@ type ColumnsItem struct {
 
 func (x *ColumnsItem) Reset() {
 	*x = ColumnsItem{}
-	mi := &file_route_proto_msgTypes[46]
+	mi := &file_route_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2740,7 +2920,7 @@ func (x *ColumnsItem) String() string {
 func (*ColumnsItem) ProtoMessage() {}
 
 func (x *ColumnsItem) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[46]
+	mi := &file_route_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2753,7 +2933,7 @@ func (x *ColumnsItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ColumnsItem.ProtoReflect.Descriptor instead.
 func (*ColumnsItem) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{46}
+	return file_route_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ColumnsItem) GetName() string {
@@ -2800,7 +2980,7 @@ type TableColumnsResponse struct {
 
 func (x *TableColumnsResponse) Reset() {
 	*x = TableColumnsResponse{}
-	mi := &file_route_proto_msgTypes[47]
+	mi := &file_route_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2812,7 +2992,7 @@ func (x *TableColumnsResponse) String() string {
 func (*TableColumnsResponse) ProtoMessage() {}
 
 func (x *TableColumnsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[47]
+	mi := &file_route_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2825,7 +3005,7 @@ func (x *TableColumnsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableColumnsResponse.ProtoReflect.Descriptor instead.
 func (*TableColumnsResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{47}
+	return file_route_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *TableColumnsResponse) GetColumns() []*ColumnsItem {
@@ -2844,7 +3024,7 @@ type ColumnsTypeConversionRequest struct {
 
 func (x *ColumnsTypeConversionRequest) Reset() {
 	*x = ColumnsTypeConversionRequest{}
-	mi := &file_route_proto_msgTypes[48]
+	mi := &file_route_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2856,7 +3036,7 @@ func (x *ColumnsTypeConversionRequest) String() string {
 func (*ColumnsTypeConversionRequest) ProtoMessage() {}
 
 func (x *ColumnsTypeConversionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[48]
+	mi := &file_route_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2869,7 +3049,7 @@ func (x *ColumnsTypeConversionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ColumnsTypeConversionRequest.ProtoReflect.Descriptor instead.
 func (*ColumnsTypeConversionRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{48}
+	return file_route_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ColumnsTypeConversionRequest) GetDestinationPeerType() string {
@@ -2889,7 +3069,7 @@ type ColumnsTypeConversion struct {
 
 func (x *ColumnsTypeConversion) Reset() {
 	*x = ColumnsTypeConversion{}
-	mi := &file_route_proto_msgTypes[49]
+	mi := &file_route_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2901,7 +3081,7 @@ func (x *ColumnsTypeConversion) String() string {
 func (*ColumnsTypeConversion) ProtoMessage() {}
 
 func (x *ColumnsTypeConversion) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[49]
+	mi := &file_route_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2914,7 +3094,7 @@ func (x *ColumnsTypeConversion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ColumnsTypeConversion.ProtoReflect.Descriptor instead.
 func (*ColumnsTypeConversion) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{49}
+	return file_route_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *ColumnsTypeConversion) GetQkind() string {
@@ -2940,7 +3120,7 @@ type ColumnsTypeConversionResponse struct {
 
 func (x *ColumnsTypeConversionResponse) Reset() {
 	*x = ColumnsTypeConversionResponse{}
-	mi := &file_route_proto_msgTypes[50]
+	mi := &file_route_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2952,7 +3132,7 @@ func (x *ColumnsTypeConversionResponse) String() string {
 func (*ColumnsTypeConversionResponse) ProtoMessage() {}
 
 func (x *ColumnsTypeConversionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[50]
+	mi := &file_route_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2965,7 +3145,7 @@ func (x *ColumnsTypeConversionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ColumnsTypeConversionResponse.ProtoReflect.Descriptor instead.
 func (*ColumnsTypeConversionResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{50}
+	return file_route_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *ColumnsTypeConversionResponse) GetConversions() []*ColumnsTypeConversion {
@@ -2985,7 +3165,7 @@ type PostgresPeerActivityInfoRequest struct {
 
 func (x *PostgresPeerActivityInfoRequest) Reset() {
 	*x = PostgresPeerActivityInfoRequest{}
-	mi := &file_route_proto_msgTypes[51]
+	mi := &file_route_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2997,7 +3177,7 @@ func (x *PostgresPeerActivityInfoRequest) String() string {
 func (*PostgresPeerActivityInfoRequest) ProtoMessage() {}
 
 func (x *PostgresPeerActivityInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[51]
+	mi := &file_route_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3010,7 +3190,7 @@ func (x *PostgresPeerActivityInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PostgresPeerActivityInfoRequest.ProtoReflect.Descriptor instead.
 func (*PostgresPeerActivityInfoRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{51}
+	return file_route_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *PostgresPeerActivityInfoRequest) GetPeerName() string {
@@ -3036,7 +3216,7 @@ type PeerInfoRequest struct {
 
 func (x *PeerInfoRequest) Reset() {
 	*x = PeerInfoRequest{}
-	mi := &file_route_proto_msgTypes[52]
+	mi := &file_route_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3048,7 +3228,7 @@ func (x *PeerInfoRequest) String() string {
 func (*PeerInfoRequest) ProtoMessage() {}
 
 func (x *PeerInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[52]
+	mi := &file_route_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3061,7 +3241,7 @@ func (x *PeerInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerInfoRequest.ProtoReflect.Descriptor instead.
 func (*PeerInfoRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{52}
+	return file_route_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *PeerInfoRequest) GetPeerName() string {
@@ -3081,7 +3261,7 @@ type PeerInfoResponse struct {
 
 func (x *PeerInfoResponse) Reset() {
 	*x = PeerInfoResponse{}
-	mi := &file_route_proto_msgTypes[53]
+	mi := &file_route_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3093,7 +3273,7 @@ func (x *PeerInfoResponse) String() string {
 func (*PeerInfoResponse) ProtoMessage() {}
 
 func (x *PeerInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[53]
+	mi := &file_route_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3106,7 +3286,7 @@ func (x *PeerInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerInfoResponse.ProtoReflect.Descriptor instead.
 func (*PeerInfoResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{53}
+	return file_route_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *PeerInfoResponse) GetPeer() *Peer {
@@ -3132,7 +3312,7 @@ type PeerTypeResponse struct {
 
 func (x *PeerTypeResponse) Reset() {
 	*x = PeerTypeResponse{}
-	mi := &file_route_proto_msgTypes[54]
+	mi := &file_route_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3144,7 +3324,7 @@ func (x *PeerTypeResponse) String() string {
 func (*PeerTypeResponse) ProtoMessage() {}
 
 func (x *PeerTypeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[54]
+	mi := &file_route_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3157,7 +3337,7 @@ func (x *PeerTypeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerTypeResponse.ProtoReflect.Descriptor instead.
 func (*PeerTypeResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{54}
+	return file_route_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *PeerTypeResponse) GetPeerType() string {
@@ -3177,7 +3357,7 @@ type PeerListItem struct {
 
 func (x *PeerListItem) Reset() {
 	*x = PeerListItem{}
-	mi := &file_route_proto_msgTypes[55]
+	mi := &file_route_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3189,7 +3369,7 @@ func (x *PeerListItem) String() string {
 func (*PeerListItem) ProtoMessage() {}
 
 func (x *PeerListItem) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[55]
+	mi := &file_route_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3202,7 +3382,7 @@ func (x *PeerListItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerListItem.ProtoReflect.Descriptor instead.
 func (*PeerListItem) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{55}
+	return file_route_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *PeerListItem) GetName() string {
@@ -3227,7 +3407,7 @@ type ListPeersRequest struct {
 
 func (x *ListPeersRequest) Reset() {
 	*x = ListPeersRequest{}
-	mi := &file_route_proto_msgTypes[56]
+	mi := &file_route_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3239,7 +3419,7 @@ func (x *ListPeersRequest) String() string {
 func (*ListPeersRequest) ProtoMessage() {}
 
 func (x *ListPeersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[56]
+	mi := &file_route_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3252,7 +3432,7 @@ func (x *ListPeersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPeersRequest.ProtoReflect.Descriptor instead.
 func (*ListPeersRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{56}
+	return file_route_proto_rawDescGZIP(), []int{59}
 }
 
 type ListPeersResponse struct {
@@ -3266,7 +3446,7 @@ type ListPeersResponse struct {
 
 func (x *ListPeersResponse) Reset() {
 	*x = ListPeersResponse{}
-	mi := &file_route_proto_msgTypes[57]
+	mi := &file_route_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3278,7 +3458,7 @@ func (x *ListPeersResponse) String() string {
 func (*ListPeersResponse) ProtoMessage() {}
 
 func (x *ListPeersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[57]
+	mi := &file_route_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3291,7 +3471,7 @@ func (x *ListPeersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPeersResponse.ProtoReflect.Descriptor instead.
 func (*ListPeersResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{57}
+	return file_route_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *ListPeersResponse) GetItems() []*PeerListItem {
@@ -3343,7 +3523,7 @@ type SlotInfo struct {
 
 func (x *SlotInfo) Reset() {
 	*x = SlotInfo{}
-	mi := &file_route_proto_msgTypes[58]
+	mi := &file_route_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3355,7 +3535,7 @@ func (x *SlotInfo) String() string {
 func (*SlotInfo) ProtoMessage() {}
 
 func (x *SlotInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[58]
+	mi := &file_route_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3368,7 +3548,7 @@ func (x *SlotInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SlotInfo.ProtoReflect.Descriptor instead.
 func (*SlotInfo) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{58}
+	return file_route_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *SlotInfo) GetSlotName() string {
@@ -3524,7 +3704,7 @@ type SlotLagPoint struct {
 
 func (x *SlotLagPoint) Reset() {
 	*x = SlotLagPoint{}
-	mi := &file_route_proto_msgTypes[59]
+	mi := &file_route_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3536,7 +3716,7 @@ func (x *SlotLagPoint) String() string {
 func (*SlotLagPoint) ProtoMessage() {}
 
 func (x *SlotLagPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[59]
+	mi := &file_route_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3549,7 +3729,7 @@ func (x *SlotLagPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SlotLagPoint.ProtoReflect.Descriptor instead.
 func (*SlotLagPoint) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{59}
+	return file_route_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *SlotLagPoint) GetTime() float64 {
@@ -3598,7 +3778,7 @@ type GetSlotLagHistoryRequest struct {
 
 func (x *GetSlotLagHistoryRequest) Reset() {
 	*x = GetSlotLagHistoryRequest{}
-	mi := &file_route_proto_msgTypes[60]
+	mi := &file_route_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3610,7 +3790,7 @@ func (x *GetSlotLagHistoryRequest) String() string {
 func (*GetSlotLagHistoryRequest) ProtoMessage() {}
 
 func (x *GetSlotLagHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[60]
+	mi := &file_route_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3623,7 +3803,7 @@ func (x *GetSlotLagHistoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSlotLagHistoryRequest.ProtoReflect.Descriptor instead.
 func (*GetSlotLagHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{60}
+	return file_route_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *GetSlotLagHistoryRequest) GetPeerName() string {
@@ -3656,7 +3836,7 @@ type GetSlotLagHistoryResponse struct {
 
 func (x *GetSlotLagHistoryResponse) Reset() {
 	*x = GetSlotLagHistoryResponse{}
-	mi := &file_route_proto_msgTypes[61]
+	mi := &file_route_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3668,7 +3848,7 @@ func (x *GetSlotLagHistoryResponse) String() string {
 func (*GetSlotLagHistoryResponse) ProtoMessage() {}
 
 func (x *GetSlotLagHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[61]
+	mi := &file_route_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3681,7 +3861,7 @@ func (x *GetSlotLagHistoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSlotLagHistoryResponse.ProtoReflect.Descriptor instead.
 func (*GetSlotLagHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{61}
+	return file_route_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *GetSlotLagHistoryResponse) GetData() []*SlotLagPoint {
@@ -3706,7 +3886,7 @@ type StatInfo struct {
 
 func (x *StatInfo) Reset() {
 	*x = StatInfo{}
-	mi := &file_route_proto_msgTypes[62]
+	mi := &file_route_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3718,7 +3898,7 @@ func (x *StatInfo) String() string {
 func (*StatInfo) ProtoMessage() {}
 
 func (x *StatInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[62]
+	mi := &file_route_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3731,7 +3911,7 @@ func (x *StatInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatInfo.ProtoReflect.Descriptor instead.
 func (*StatInfo) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{62}
+	return file_route_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *StatInfo) GetPid() int64 {
@@ -3792,7 +3972,7 @@ type PeerSlotResponse struct {
 
 func (x *PeerSlotResponse) Reset() {
 	*x = PeerSlotResponse{}
-	mi := &file_route_proto_msgTypes[63]
+	mi := &file_route_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3804,7 +3984,7 @@ func (x *PeerSlotResponse) String() string {
 func (*PeerSlotResponse) ProtoMessage() {}
 
 func (x *PeerSlotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[63]
+	mi := &file_route_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3817,7 +3997,7 @@ func (x *PeerSlotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerSlotResponse.ProtoReflect.Descriptor instead.
 func (*PeerSlotResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{63}
+	return file_route_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *PeerSlotResponse) GetSlotData() []*SlotInfo {
@@ -3836,7 +4016,7 @@ type PeerStatResponse struct {
 
 func (x *PeerStatResponse) Reset() {
 	*x = PeerStatResponse{}
-	mi := &file_route_proto_msgTypes[64]
+	mi := &file_route_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3848,7 +4028,7 @@ func (x *PeerStatResponse) String() string {
 func (*PeerStatResponse) ProtoMessage() {}
 
 func (x *PeerStatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[64]
+	mi := &file_route_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3861,7 +4041,7 @@ func (x *PeerStatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerStatResponse.ProtoReflect.Descriptor instead.
 func (*PeerStatResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{64}
+	return file_route_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *PeerStatResponse) GetStatData() []*StatInfo {
@@ -3890,7 +4070,7 @@ type CloneTableSummary struct {
 
 func (x *CloneTableSummary) Reset() {
 	*x = CloneTableSummary{}
-	mi := &file_route_proto_msgTypes[65]
+	mi := &file_route_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3902,7 +4082,7 @@ func (x *CloneTableSummary) String() string {
 func (*CloneTableSummary) ProtoMessage() {}
 
 func (x *CloneTableSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[65]
+	mi := &file_route_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3915,7 +4095,7 @@ func (x *CloneTableSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloneTableSummary.ProtoReflect.Descriptor instead.
 func (*CloneTableSummary) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{65}
+	return file_route_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *CloneTableSummary) GetTableName() string {
@@ -4004,7 +4184,7 @@ type SnapshotStatus struct {
 
 func (x *SnapshotStatus) Reset() {
 	*x = SnapshotStatus{}
-	mi := &file_route_proto_msgTypes[66]
+	mi := &file_route_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4016,7 +4196,7 @@ func (x *SnapshotStatus) String() string {
 func (*SnapshotStatus) ProtoMessage() {}
 
 func (x *SnapshotStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[66]
+	mi := &file_route_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4029,7 +4209,7 @@ func (x *SnapshotStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotStatus.ProtoReflect.Descriptor instead.
 func (*SnapshotStatus) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{66}
+	return file_route_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *SnapshotStatus) GetClones() []*CloneTableSummary {
@@ -4053,7 +4233,7 @@ type CDCMirrorStatus struct {
 
 func (x *CDCMirrorStatus) Reset() {
 	*x = CDCMirrorStatus{}
-	mi := &file_route_proto_msgTypes[67]
+	mi := &file_route_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4065,7 +4245,7 @@ func (x *CDCMirrorStatus) String() string {
 func (*CDCMirrorStatus) ProtoMessage() {}
 
 func (x *CDCMirrorStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[67]
+	mi := &file_route_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4078,7 +4258,7 @@ func (x *CDCMirrorStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CDCMirrorStatus.ProtoReflect.Descriptor instead.
 func (*CDCMirrorStatus) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{67}
+	return file_route_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *CDCMirrorStatus) GetConfig() *FlowConnectionConfigs {
@@ -4139,7 +4319,7 @@ type MirrorStatusResponse struct {
 
 func (x *MirrorStatusResponse) Reset() {
 	*x = MirrorStatusResponse{}
-	mi := &file_route_proto_msgTypes[68]
+	mi := &file_route_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4151,7 +4331,7 @@ func (x *MirrorStatusResponse) String() string {
 func (*MirrorStatusResponse) ProtoMessage() {}
 
 func (x *MirrorStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[68]
+	mi := &file_route_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4164,7 +4344,7 @@ func (x *MirrorStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MirrorStatusResponse.ProtoReflect.Descriptor instead.
 func (*MirrorStatusResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{68}
+	return file_route_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *MirrorStatusResponse) GetFlowJobName() string {
@@ -4238,7 +4418,7 @@ type InitialLoadSummaryRequest struct {
 
 func (x *InitialLoadSummaryRequest) Reset() {
 	*x = InitialLoadSummaryRequest{}
-	mi := &file_route_proto_msgTypes[69]
+	mi := &file_route_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4250,7 +4430,7 @@ func (x *InitialLoadSummaryRequest) String() string {
 func (*InitialLoadSummaryRequest) ProtoMessage() {}
 
 func (x *InitialLoadSummaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[69]
+	mi := &file_route_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4263,7 +4443,7 @@ func (x *InitialLoadSummaryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitialLoadSummaryRequest.ProtoReflect.Descriptor instead.
 func (*InitialLoadSummaryRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{69}
+	return file_route_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *InitialLoadSummaryRequest) GetParentMirrorName() string {
@@ -4282,7 +4462,7 @@ type InitialLoadSummaryResponse struct {
 
 func (x *InitialLoadSummaryResponse) Reset() {
 	*x = InitialLoadSummaryResponse{}
-	mi := &file_route_proto_msgTypes[70]
+	mi := &file_route_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4294,7 +4474,7 @@ func (x *InitialLoadSummaryResponse) String() string {
 func (*InitialLoadSummaryResponse) ProtoMessage() {}
 
 func (x *InitialLoadSummaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[70]
+	mi := &file_route_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4307,7 +4487,7 @@ func (x *InitialLoadSummaryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitialLoadSummaryResponse.ProtoReflect.Descriptor instead.
 func (*InitialLoadSummaryResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{70}
+	return file_route_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *InitialLoadSummaryResponse) GetTableSummaries() []*CloneTableSummary {
@@ -4330,7 +4510,7 @@ type GetCDCBatchesRequest struct {
 
 func (x *GetCDCBatchesRequest) Reset() {
 	*x = GetCDCBatchesRequest{}
-	mi := &file_route_proto_msgTypes[71]
+	mi := &file_route_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4342,7 +4522,7 @@ func (x *GetCDCBatchesRequest) String() string {
 func (*GetCDCBatchesRequest) ProtoMessage() {}
 
 func (x *GetCDCBatchesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[71]
+	mi := &file_route_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4355,7 +4535,7 @@ func (x *GetCDCBatchesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCDCBatchesRequest.ProtoReflect.Descriptor instead.
 func (*GetCDCBatchesRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{71}
+	return file_route_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *GetCDCBatchesRequest) GetFlowJobName() string {
@@ -4404,7 +4584,7 @@ type GetCDCBatchesResponse struct {
 
 func (x *GetCDCBatchesResponse) Reset() {
 	*x = GetCDCBatchesResponse{}
-	mi := &file_route_proto_msgTypes[72]
+	mi := &file_route_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4416,7 +4596,7 @@ func (x *GetCDCBatchesResponse) String() string {
 func (*GetCDCBatchesResponse) ProtoMessage() {}
 
 func (x *GetCDCBatchesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[72]
+	mi := &file_route_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4429,7 +4609,7 @@ func (x *GetCDCBatchesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCDCBatchesResponse.ProtoReflect.Descriptor instead.
 func (*GetCDCBatchesResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{72}
+	return file_route_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *GetCDCBatchesResponse) GetCdcBatches() []*CDCBatch {
@@ -4464,7 +4644,7 @@ type GraphRequest struct {
 
 func (x *GraphRequest) Reset() {
 	*x = GraphRequest{}
-	mi := &file_route_proto_msgTypes[73]
+	mi := &file_route_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4476,7 +4656,7 @@ func (x *GraphRequest) String() string {
 func (*GraphRequest) ProtoMessage() {}
 
 func (x *GraphRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[73]
+	mi := &file_route_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4489,7 +4669,7 @@ func (x *GraphRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GraphRequest.ProtoReflect.Descriptor instead.
 func (*GraphRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{73}
+	return file_route_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *GraphRequest) GetFlowJobName() string {
@@ -4523,7 +4703,7 @@ type GraphResponseItem struct {
 
 func (x *GraphResponseItem) Reset() {
 	*x = GraphResponseItem{}
-	mi := &file_route_proto_msgTypes[74]
+	mi := &file_route_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4535,7 +4715,7 @@ func (x *GraphResponseItem) String() string {
 func (*GraphResponseItem) ProtoMessage() {}
 
 func (x *GraphResponseItem) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[74]
+	mi := &file_route_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4548,7 +4728,7 @@ func (x *GraphResponseItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GraphResponseItem.ProtoReflect.Descriptor instead.
 func (*GraphResponseItem) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{74}
+	return file_route_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *GraphResponseItem) GetTime() float64 {
@@ -4575,7 +4755,7 @@ type GraphResponse struct {
 
 func (x *GraphResponse) Reset() {
 	*x = GraphResponse{}
-	mi := &file_route_proto_msgTypes[75]
+	mi := &file_route_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4587,7 +4767,7 @@ func (x *GraphResponse) String() string {
 func (*GraphResponse) ProtoMessage() {}
 
 func (x *GraphResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[75]
+	mi := &file_route_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4600,7 +4780,7 @@ func (x *GraphResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GraphResponse.ProtoReflect.Descriptor instead.
 func (*GraphResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{75}
+	return file_route_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *GraphResponse) GetData() []*GraphResponseItem {
@@ -4630,7 +4810,7 @@ type MirrorLog struct {
 
 func (x *MirrorLog) Reset() {
 	*x = MirrorLog{}
-	mi := &file_route_proto_msgTypes[76]
+	mi := &file_route_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4642,7 +4822,7 @@ func (x *MirrorLog) String() string {
 func (*MirrorLog) ProtoMessage() {}
 
 func (x *MirrorLog) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[76]
+	mi := &file_route_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4655,7 +4835,7 @@ func (x *MirrorLog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MirrorLog.ProtoReflect.Descriptor instead.
 func (*MirrorLog) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{76}
+	return file_route_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *MirrorLog) GetFlowName() string {
@@ -4707,7 +4887,7 @@ type ListMirrorLogsRequest struct {
 
 func (x *ListMirrorLogsRequest) Reset() {
 	*x = ListMirrorLogsRequest{}
-	mi := &file_route_proto_msgTypes[77]
+	mi := &file_route_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4719,7 +4899,7 @@ func (x *ListMirrorLogsRequest) String() string {
 func (*ListMirrorLogsRequest) ProtoMessage() {}
 
 func (x *ListMirrorLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[77]
+	mi := &file_route_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4732,7 +4912,7 @@ func (x *ListMirrorLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMirrorLogsRequest.ProtoReflect.Descriptor instead.
 func (*ListMirrorLogsRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{77}
+	return file_route_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *ListMirrorLogsRequest) GetFlowJobName() string {
@@ -4788,7 +4968,7 @@ type ListMirrorLogsResponse struct {
 
 func (x *ListMirrorLogsResponse) Reset() {
 	*x = ListMirrorLogsResponse{}
-	mi := &file_route_proto_msgTypes[78]
+	mi := &file_route_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4800,7 +4980,7 @@ func (x *ListMirrorLogsResponse) String() string {
 func (*ListMirrorLogsResponse) ProtoMessage() {}
 
 func (x *ListMirrorLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[78]
+	mi := &file_route_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4813,7 +4993,7 @@ func (x *ListMirrorLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMirrorLogsResponse.ProtoReflect.Descriptor instead.
 func (*ListMirrorLogsResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{78}
+	return file_route_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *ListMirrorLogsResponse) GetErrors() []*MirrorLog {
@@ -4845,7 +5025,7 @@ type ValidateCDCMirrorResponse struct {
 
 func (x *ValidateCDCMirrorResponse) Reset() {
 	*x = ValidateCDCMirrorResponse{}
-	mi := &file_route_proto_msgTypes[79]
+	mi := &file_route_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4857,7 +5037,7 @@ func (x *ValidateCDCMirrorResponse) String() string {
 func (*ValidateCDCMirrorResponse) ProtoMessage() {}
 
 func (x *ValidateCDCMirrorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[79]
+	mi := &file_route_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4870,7 +5050,7 @@ func (x *ValidateCDCMirrorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateCDCMirrorResponse.ProtoReflect.Descriptor instead.
 func (*ValidateCDCMirrorResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{79}
+	return file_route_proto_rawDescGZIP(), []int{82}
 }
 
 type ListMirrorsItem struct {
@@ -4891,7 +5071,7 @@ type ListMirrorsItem struct {
 
 func (x *ListMirrorsItem) Reset() {
 	*x = ListMirrorsItem{}
-	mi := &file_route_proto_msgTypes[80]
+	mi := &file_route_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4903,7 +5083,7 @@ func (x *ListMirrorsItem) String() string {
 func (*ListMirrorsItem) ProtoMessage() {}
 
 func (x *ListMirrorsItem) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[80]
+	mi := &file_route_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4916,7 +5096,7 @@ func (x *ListMirrorsItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMirrorsItem.ProtoReflect.Descriptor instead.
 func (*ListMirrorsItem) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{80}
+	return file_route_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *ListMirrorsItem) GetId() int64 {
@@ -4997,7 +5177,7 @@ type ListMirrorsRequest struct {
 
 func (x *ListMirrorsRequest) Reset() {
 	*x = ListMirrorsRequest{}
-	mi := &file_route_proto_msgTypes[81]
+	mi := &file_route_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5009,7 +5189,7 @@ func (x *ListMirrorsRequest) String() string {
 func (*ListMirrorsRequest) ProtoMessage() {}
 
 func (x *ListMirrorsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[81]
+	mi := &file_route_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5022,7 +5202,7 @@ func (x *ListMirrorsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMirrorsRequest.ProtoReflect.Descriptor instead.
 func (*ListMirrorsRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{81}
+	return file_route_proto_rawDescGZIP(), []int{84}
 }
 
 type ListMirrorsResponse struct {
@@ -5034,7 +5214,7 @@ type ListMirrorsResponse struct {
 
 func (x *ListMirrorsResponse) Reset() {
 	*x = ListMirrorsResponse{}
-	mi := &file_route_proto_msgTypes[82]
+	mi := &file_route_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5046,7 +5226,7 @@ func (x *ListMirrorsResponse) String() string {
 func (*ListMirrorsResponse) ProtoMessage() {}
 
 func (x *ListMirrorsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[82]
+	mi := &file_route_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5059,7 +5239,7 @@ func (x *ListMirrorsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMirrorsResponse.ProtoReflect.Descriptor instead.
 func (*ListMirrorsResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{82}
+	return file_route_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *ListMirrorsResponse) GetMirrors() []*ListMirrorsItem {
@@ -5077,7 +5257,7 @@ type ListMirrorNamesRequest struct {
 
 func (x *ListMirrorNamesRequest) Reset() {
 	*x = ListMirrorNamesRequest{}
-	mi := &file_route_proto_msgTypes[83]
+	mi := &file_route_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5089,7 +5269,7 @@ func (x *ListMirrorNamesRequest) String() string {
 func (*ListMirrorNamesRequest) ProtoMessage() {}
 
 func (x *ListMirrorNamesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[83]
+	mi := &file_route_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5102,7 +5282,7 @@ func (x *ListMirrorNamesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMirrorNamesRequest.ProtoReflect.Descriptor instead.
 func (*ListMirrorNamesRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{83}
+	return file_route_proto_rawDescGZIP(), []int{86}
 }
 
 type ListMirrorNamesResponse struct {
@@ -5114,7 +5294,7 @@ type ListMirrorNamesResponse struct {
 
 func (x *ListMirrorNamesResponse) Reset() {
 	*x = ListMirrorNamesResponse{}
-	mi := &file_route_proto_msgTypes[84]
+	mi := &file_route_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5126,7 +5306,7 @@ func (x *ListMirrorNamesResponse) String() string {
 func (*ListMirrorNamesResponse) ProtoMessage() {}
 
 func (x *ListMirrorNamesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[84]
+	mi := &file_route_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5139,7 +5319,7 @@ func (x *ListMirrorNamesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMirrorNamesResponse.ProtoReflect.Descriptor instead.
 func (*ListMirrorNamesResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{84}
+	return file_route_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *ListMirrorNamesResponse) GetNames() []string {
@@ -5163,7 +5343,7 @@ type FlowStateChangeRequest struct {
 
 func (x *FlowStateChangeRequest) Reset() {
 	*x = FlowStateChangeRequest{}
-	mi := &file_route_proto_msgTypes[85]
+	mi := &file_route_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5175,7 +5355,7 @@ func (x *FlowStateChangeRequest) String() string {
 func (*FlowStateChangeRequest) ProtoMessage() {}
 
 func (x *FlowStateChangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[85]
+	mi := &file_route_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5188,7 +5368,7 @@ func (x *FlowStateChangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowStateChangeRequest.ProtoReflect.Descriptor instead.
 func (*FlowStateChangeRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{85}
+	return file_route_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *FlowStateChangeRequest) GetFlowJobName() string {
@@ -5234,7 +5414,7 @@ type FlowStateChangeResponse struct {
 
 func (x *FlowStateChangeResponse) Reset() {
 	*x = FlowStateChangeResponse{}
-	mi := &file_route_proto_msgTypes[86]
+	mi := &file_route_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5246,7 +5426,7 @@ func (x *FlowStateChangeResponse) String() string {
 func (*FlowStateChangeResponse) ProtoMessage() {}
 
 func (x *FlowStateChangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[86]
+	mi := &file_route_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5259,7 +5439,7 @@ func (x *FlowStateChangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowStateChangeResponse.ProtoReflect.Descriptor instead.
 func (*FlowStateChangeResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{86}
+	return file_route_proto_rawDescGZIP(), []int{89}
 }
 
 type PeerDBVersionRequest struct {
@@ -5270,7 +5450,7 @@ type PeerDBVersionRequest struct {
 
 func (x *PeerDBVersionRequest) Reset() {
 	*x = PeerDBVersionRequest{}
-	mi := &file_route_proto_msgTypes[87]
+	mi := &file_route_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5282,7 +5462,7 @@ func (x *PeerDBVersionRequest) String() string {
 func (*PeerDBVersionRequest) ProtoMessage() {}
 
 func (x *PeerDBVersionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[87]
+	mi := &file_route_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5295,7 +5475,7 @@ func (x *PeerDBVersionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerDBVersionRequest.ProtoReflect.Descriptor instead.
 func (*PeerDBVersionRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{87}
+	return file_route_proto_rawDescGZIP(), []int{90}
 }
 
 type PeerDBVersionResponse struct {
@@ -5308,7 +5488,7 @@ type PeerDBVersionResponse struct {
 
 func (x *PeerDBVersionResponse) Reset() {
 	*x = PeerDBVersionResponse{}
-	mi := &file_route_proto_msgTypes[88]
+	mi := &file_route_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5320,7 +5500,7 @@ func (x *PeerDBVersionResponse) String() string {
 func (*PeerDBVersionResponse) ProtoMessage() {}
 
 func (x *PeerDBVersionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[88]
+	mi := &file_route_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5333,7 +5513,7 @@ func (x *PeerDBVersionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerDBVersionResponse.ProtoReflect.Descriptor instead.
 func (*PeerDBVersionResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{88}
+	return file_route_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *PeerDBVersionResponse) GetVersion() string {
@@ -5358,7 +5538,7 @@ type PeerDBStateRequest struct {
 
 func (x *PeerDBStateRequest) Reset() {
 	*x = PeerDBStateRequest{}
-	mi := &file_route_proto_msgTypes[89]
+	mi := &file_route_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5370,7 +5550,7 @@ func (x *PeerDBStateRequest) String() string {
 func (*PeerDBStateRequest) ProtoMessage() {}
 
 func (x *PeerDBStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[89]
+	mi := &file_route_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5383,7 +5563,7 @@ func (x *PeerDBStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerDBStateRequest.ProtoReflect.Descriptor instead.
 func (*PeerDBStateRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{89}
+	return file_route_proto_rawDescGZIP(), []int{92}
 }
 
 type InstanceInfoRequest struct {
@@ -5394,7 +5574,7 @@ type InstanceInfoRequest struct {
 
 func (x *InstanceInfoRequest) Reset() {
 	*x = InstanceInfoRequest{}
-	mi := &file_route_proto_msgTypes[90]
+	mi := &file_route_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5406,7 +5586,7 @@ func (x *InstanceInfoRequest) String() string {
 func (*InstanceInfoRequest) ProtoMessage() {}
 
 func (x *InstanceInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[90]
+	mi := &file_route_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5419,7 +5599,7 @@ func (x *InstanceInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceInfoRequest.ProtoReflect.Descriptor instead.
 func (*InstanceInfoRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{90}
+	return file_route_proto_rawDescGZIP(), []int{93}
 }
 
 type InstanceInfoResponse struct {
@@ -5431,7 +5611,7 @@ type InstanceInfoResponse struct {
 
 func (x *InstanceInfoResponse) Reset() {
 	*x = InstanceInfoResponse{}
-	mi := &file_route_proto_msgTypes[91]
+	mi := &file_route_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5443,7 +5623,7 @@ func (x *InstanceInfoResponse) String() string {
 func (*InstanceInfoResponse) ProtoMessage() {}
 
 func (x *InstanceInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[91]
+	mi := &file_route_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5456,7 +5636,7 @@ func (x *InstanceInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceInfoResponse.ProtoReflect.Descriptor instead.
 func (*InstanceInfoResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{91}
+	return file_route_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *InstanceInfoResponse) GetStatus() InstanceStatus {
@@ -5476,7 +5656,7 @@ type MaintenanceRequest struct {
 
 func (x *MaintenanceRequest) Reset() {
 	*x = MaintenanceRequest{}
-	mi := &file_route_proto_msgTypes[92]
+	mi := &file_route_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5488,7 +5668,7 @@ func (x *MaintenanceRequest) String() string {
 func (*MaintenanceRequest) ProtoMessage() {}
 
 func (x *MaintenanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[92]
+	mi := &file_route_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5501,7 +5681,7 @@ func (x *MaintenanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintenanceRequest.ProtoReflect.Descriptor instead.
 func (*MaintenanceRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{92}
+	return file_route_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *MaintenanceRequest) GetStatus() MaintenanceStatus {
@@ -5528,7 +5708,7 @@ type MaintenanceResponse struct {
 
 func (x *MaintenanceResponse) Reset() {
 	*x = MaintenanceResponse{}
-	mi := &file_route_proto_msgTypes[93]
+	mi := &file_route_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5540,7 +5720,7 @@ func (x *MaintenanceResponse) String() string {
 func (*MaintenanceResponse) ProtoMessage() {}
 
 func (x *MaintenanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[93]
+	mi := &file_route_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5553,7 +5733,7 @@ func (x *MaintenanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintenanceResponse.ProtoReflect.Descriptor instead.
 func (*MaintenanceResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{93}
+	return file_route_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *MaintenanceResponse) GetWorkflowId() string {
@@ -5578,7 +5758,7 @@ type MaintenanceStatusRequest struct {
 
 func (x *MaintenanceStatusRequest) Reset() {
 	*x = MaintenanceStatusRequest{}
-	mi := &file_route_proto_msgTypes[94]
+	mi := &file_route_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5590,7 +5770,7 @@ func (x *MaintenanceStatusRequest) String() string {
 func (*MaintenanceStatusRequest) ProtoMessage() {}
 
 func (x *MaintenanceStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[94]
+	mi := &file_route_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5603,7 +5783,7 @@ func (x *MaintenanceStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintenanceStatusRequest.ProtoReflect.Descriptor instead.
 func (*MaintenanceStatusRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{94}
+	return file_route_proto_rawDescGZIP(), []int{97}
 }
 
 type MaintenanceActivityDetails struct {
@@ -5619,7 +5799,7 @@ type MaintenanceActivityDetails struct {
 
 func (x *MaintenanceActivityDetails) Reset() {
 	*x = MaintenanceActivityDetails{}
-	mi := &file_route_proto_msgTypes[95]
+	mi := &file_route_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5631,7 +5811,7 @@ func (x *MaintenanceActivityDetails) String() string {
 func (*MaintenanceActivityDetails) ProtoMessage() {}
 
 func (x *MaintenanceActivityDetails) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[95]
+	mi := &file_route_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5644,7 +5824,7 @@ func (x *MaintenanceActivityDetails) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintenanceActivityDetails.ProtoReflect.Descriptor instead.
 func (*MaintenanceActivityDetails) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{95}
+	return file_route_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *MaintenanceActivityDetails) GetActivityName() string {
@@ -5693,7 +5873,7 @@ type MaintenanceStatusResponse struct {
 
 func (x *MaintenanceStatusResponse) Reset() {
 	*x = MaintenanceStatusResponse{}
-	mi := &file_route_proto_msgTypes[96]
+	mi := &file_route_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5705,7 +5885,7 @@ func (x *MaintenanceStatusResponse) String() string {
 func (*MaintenanceStatusResponse) ProtoMessage() {}
 
 func (x *MaintenanceStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[96]
+	mi := &file_route_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5718,7 +5898,7 @@ func (x *MaintenanceStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintenanceStatusResponse.ProtoReflect.Descriptor instead.
 func (*MaintenanceStatusResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{96}
+	return file_route_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *MaintenanceStatusResponse) GetMaintenanceRunning() bool {
@@ -5751,7 +5931,7 @@ type SkipSnapshotWaitFlowsRequest struct {
 
 func (x *SkipSnapshotWaitFlowsRequest) Reset() {
 	*x = SkipSnapshotWaitFlowsRequest{}
-	mi := &file_route_proto_msgTypes[97]
+	mi := &file_route_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5763,7 +5943,7 @@ func (x *SkipSnapshotWaitFlowsRequest) String() string {
 func (*SkipSnapshotWaitFlowsRequest) ProtoMessage() {}
 
 func (x *SkipSnapshotWaitFlowsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[97]
+	mi := &file_route_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5776,7 +5956,7 @@ func (x *SkipSnapshotWaitFlowsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkipSnapshotWaitFlowsRequest.ProtoReflect.Descriptor instead.
 func (*SkipSnapshotWaitFlowsRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{97}
+	return file_route_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *SkipSnapshotWaitFlowsRequest) GetFlowNames() []string {
@@ -5796,7 +5976,7 @@ type SkipSnapshotWaitFlowsResponse struct {
 
 func (x *SkipSnapshotWaitFlowsResponse) Reset() {
 	*x = SkipSnapshotWaitFlowsResponse{}
-	mi := &file_route_proto_msgTypes[98]
+	mi := &file_route_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5808,7 +5988,7 @@ func (x *SkipSnapshotWaitFlowsResponse) String() string {
 func (*SkipSnapshotWaitFlowsResponse) ProtoMessage() {}
 
 func (x *SkipSnapshotWaitFlowsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[98]
+	mi := &file_route_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5821,7 +6001,7 @@ func (x *SkipSnapshotWaitFlowsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkipSnapshotWaitFlowsResponse.ProtoReflect.Descriptor instead.
 func (*SkipSnapshotWaitFlowsResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{98}
+	return file_route_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *SkipSnapshotWaitFlowsResponse) GetSignalSent() bool {
@@ -5848,7 +6028,7 @@ type FlowTag struct {
 
 func (x *FlowTag) Reset() {
 	*x = FlowTag{}
-	mi := &file_route_proto_msgTypes[99]
+	mi := &file_route_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5860,7 +6040,7 @@ func (x *FlowTag) String() string {
 func (*FlowTag) ProtoMessage() {}
 
 func (x *FlowTag) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[99]
+	mi := &file_route_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5873,7 +6053,7 @@ func (x *FlowTag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowTag.ProtoReflect.Descriptor instead.
 func (*FlowTag) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{99}
+	return file_route_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *FlowTag) GetKey() string {
@@ -5900,7 +6080,7 @@ type CreateOrReplaceFlowTagsRequest struct {
 
 func (x *CreateOrReplaceFlowTagsRequest) Reset() {
 	*x = CreateOrReplaceFlowTagsRequest{}
-	mi := &file_route_proto_msgTypes[100]
+	mi := &file_route_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5912,7 +6092,7 @@ func (x *CreateOrReplaceFlowTagsRequest) String() string {
 func (*CreateOrReplaceFlowTagsRequest) ProtoMessage() {}
 
 func (x *CreateOrReplaceFlowTagsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[100]
+	mi := &file_route_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5925,7 +6105,7 @@ func (x *CreateOrReplaceFlowTagsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateOrReplaceFlowTagsRequest.ProtoReflect.Descriptor instead.
 func (*CreateOrReplaceFlowTagsRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{100}
+	return file_route_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *CreateOrReplaceFlowTagsRequest) GetFlowName() string {
@@ -5951,7 +6131,7 @@ type CreateOrReplaceFlowTagsResponse struct {
 
 func (x *CreateOrReplaceFlowTagsResponse) Reset() {
 	*x = CreateOrReplaceFlowTagsResponse{}
-	mi := &file_route_proto_msgTypes[101]
+	mi := &file_route_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5963,7 +6143,7 @@ func (x *CreateOrReplaceFlowTagsResponse) String() string {
 func (*CreateOrReplaceFlowTagsResponse) ProtoMessage() {}
 
 func (x *CreateOrReplaceFlowTagsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[101]
+	mi := &file_route_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5976,7 +6156,7 @@ func (x *CreateOrReplaceFlowTagsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateOrReplaceFlowTagsResponse.ProtoReflect.Descriptor instead.
 func (*CreateOrReplaceFlowTagsResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{101}
+	return file_route_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *CreateOrReplaceFlowTagsResponse) GetFlowName() string {
@@ -5995,7 +6175,7 @@ type GetFlowTagsRequest struct {
 
 func (x *GetFlowTagsRequest) Reset() {
 	*x = GetFlowTagsRequest{}
-	mi := &file_route_proto_msgTypes[102]
+	mi := &file_route_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6007,7 +6187,7 @@ func (x *GetFlowTagsRequest) String() string {
 func (*GetFlowTagsRequest) ProtoMessage() {}
 
 func (x *GetFlowTagsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[102]
+	mi := &file_route_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6020,7 +6200,7 @@ func (x *GetFlowTagsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFlowTagsRequest.ProtoReflect.Descriptor instead.
 func (*GetFlowTagsRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{102}
+	return file_route_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *GetFlowTagsRequest) GetFlowName() string {
@@ -6040,7 +6220,7 @@ type GetFlowTagsResponse struct {
 
 func (x *GetFlowTagsResponse) Reset() {
 	*x = GetFlowTagsResponse{}
-	mi := &file_route_proto_msgTypes[103]
+	mi := &file_route_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6052,7 +6232,7 @@ func (x *GetFlowTagsResponse) String() string {
 func (*GetFlowTagsResponse) ProtoMessage() {}
 
 func (x *GetFlowTagsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[103]
+	mi := &file_route_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6065,7 +6245,7 @@ func (x *GetFlowTagsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFlowTagsResponse.ProtoReflect.Descriptor instead.
 func (*GetFlowTagsResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{103}
+	return file_route_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *GetFlowTagsResponse) GetFlowName() string {
@@ -6094,7 +6274,7 @@ type CancelTableAdditionInput struct {
 
 func (x *CancelTableAdditionInput) Reset() {
 	*x = CancelTableAdditionInput{}
-	mi := &file_route_proto_msgTypes[104]
+	mi := &file_route_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6106,7 +6286,7 @@ func (x *CancelTableAdditionInput) String() string {
 func (*CancelTableAdditionInput) ProtoMessage() {}
 
 func (x *CancelTableAdditionInput) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[104]
+	mi := &file_route_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6119,7 +6299,7 @@ func (x *CancelTableAdditionInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelTableAdditionInput.ProtoReflect.Descriptor instead.
 func (*CancelTableAdditionInput) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{104}
+	return file_route_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *CancelTableAdditionInput) GetFlowJobName() string {
@@ -6161,7 +6341,7 @@ type CancelTableAdditionOutput struct {
 
 func (x *CancelTableAdditionOutput) Reset() {
 	*x = CancelTableAdditionOutput{}
-	mi := &file_route_proto_msgTypes[105]
+	mi := &file_route_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6173,7 +6353,7 @@ func (x *CancelTableAdditionOutput) String() string {
 func (*CancelTableAdditionOutput) ProtoMessage() {}
 
 func (x *CancelTableAdditionOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[105]
+	mi := &file_route_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6186,7 +6366,7 @@ func (x *CancelTableAdditionOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelTableAdditionOutput.ProtoReflect.Descriptor instead.
 func (*CancelTableAdditionOutput) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{105}
+	return file_route_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *CancelTableAdditionOutput) GetFlowJobName() string {
@@ -6219,7 +6399,7 @@ type ResetMirrorSequencesRequest struct {
 
 func (x *ResetMirrorSequencesRequest) Reset() {
 	*x = ResetMirrorSequencesRequest{}
-	mi := &file_route_proto_msgTypes[106]
+	mi := &file_route_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6231,7 +6411,7 @@ func (x *ResetMirrorSequencesRequest) String() string {
 func (*ResetMirrorSequencesRequest) ProtoMessage() {}
 
 func (x *ResetMirrorSequencesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[106]
+	mi := &file_route_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6244,7 +6424,7 @@ func (x *ResetMirrorSequencesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResetMirrorSequencesRequest.ProtoReflect.Descriptor instead.
 func (*ResetMirrorSequencesRequest) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{106}
+	return file_route_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *ResetMirrorSequencesRequest) GetFlowJobName() string {
@@ -6264,7 +6444,7 @@ type ResetMirrorSequencesResponse struct {
 
 func (x *ResetMirrorSequencesResponse) Reset() {
 	*x = ResetMirrorSequencesResponse{}
-	mi := &file_route_proto_msgTypes[107]
+	mi := &file_route_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6276,7 +6456,7 @@ func (x *ResetMirrorSequencesResponse) String() string {
 func (*ResetMirrorSequencesResponse) ProtoMessage() {}
 
 func (x *ResetMirrorSequencesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_route_proto_msgTypes[107]
+	mi := &file_route_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6289,7 +6469,7 @@ func (x *ResetMirrorSequencesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResetMirrorSequencesResponse.ProtoReflect.Descriptor instead.
 func (*ResetMirrorSequencesResponse) Descriptor() ([]byte, []int) {
-	return file_route_proto_rawDescGZIP(), []int{107}
+	return file_route_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *ResetMirrorSequencesResponse) GetOk() bool {
@@ -6440,7 +6620,19 @@ const file_route_proto_rawDesc = "" +
 	"\x15totalCountInitialLoad\x18\x02 \x01(\x03R\x15totalCountInitialLoad\x12\x1e\n" +
 	"\n" +
 	"totalCount\x18\x03 \x01(\x03R\n" +
-	"totalCount\"/\n" +
+	"totalCount\"Z\n" +
+	"\x0fRowCountRequest\x12\"\n" +
+	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12#\n" +
+	"\rsource_tables\x18\x02 \x03(\tR\fsourceTables\"\xa1\x02\n" +
+	"\rTableRowCount\x12!\n" +
+	"\fsource_table\x18\x01 \x01(\tR\vsourceTable\x12+\n" +
+	"\x11destination_table\x18\x02 \x01(\tR\x10destinationTable\x12!\n" +
+	"\fsource_count\x18\x03 \x01(\x03R\vsourceCount\x12+\n" +
+	"\x11destination_count\x18\x04 \x01(\x03R\x10destinationCount\x122\n" +
+	"\x15source_is_approximate\x18\x05 \x01(\bR\x13sourceIsApproximate\x12<\n" +
+	"\x1adestination_is_approximate\x18\x06 \x01(\bR\x18destinationIsApproximate\"R\n" +
+	"\x10RowCountResponse\x12>\n" +
+	"\ftable_counts\x18\x01 \x03(\v2\x1b.peerdb_route.TableRowCountR\vtableCounts\"/\n" +
 	"\x13PeerSchemasResponse\x12\x18\n" +
 	"\aschemas\x18\x01 \x03(\tR\aschemas\"G\n" +
 	"\x18PeerPublicationsResponse\x12+\n" +
@@ -6774,7 +6966,7 @@ const file_route_proto_rawDesc = "" +
 	"\x19MAINTENANCE_PHASE_UNKNOWN\x10\x00\x12'\n" +
 	"#MAINTENANCE_PHASE_START_MAINTENANCE\x10\x01\x12.\n" +
 	"*MAINTENANCE_PHASE_MAINTENANCE_MODE_ENABLED\x10\x02\x12%\n" +
-	"!MAINTENANCE_PHASE_END_MAINTENANCE\x10\x032\xc2.\n" +
+	"!MAINTENANCE_PHASE_END_MAINTENANCE\x10\x032\xba/\n" +
 	"\vFlowService\x12t\n" +
 	"\fValidatePeer\x12!.peerdb_route.ValidatePeerRequest\x1a\".peerdb_route.ValidatePeerResponse\"\x1d\x82\xd3\xe4\x93\x02\x17:\x01*\"\x12/v1/peers/validate\x12\x85\x01\n" +
 	"\x11ValidateCDCMirror\x12\".peerdb_route.CreateCDCFlowRequest\x1a'.peerdb_route.ValidateCDCMirrorResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x01*\"\x18/v1/mirrors/cdc/validate\x12l\n" +
@@ -6828,7 +7020,8 @@ const file_route_proto_rawDesc = "" +
 	"\vGetFlowTags\x12 .peerdb_route.GetFlowTagsRequest\x1a!.peerdb_route.GetFlowTagsResponse\"\"\x82\xd3\xe4\x93\x02\x1c\x12\x1a/v1/flows/tags/{flow_name}\x12\xad\x01\n" +
 	"\x17TotalRowsSyncedByMirror\x12,.peerdb_route.TotalRowsSyncedByMirrorRequest\x1a-.peerdb_route.TotalRowsSyncedByMirrorResponse\"5\x82\xd3\xe4\x93\x02/\x12-/v1/mirrors/total_rows_synced/{flow_job_name}\x12\x96\x01\n" +
 	"\x13CancelTableAddition\x12&.peerdb_route.CancelTableAdditionInput\x1a'.peerdb_route.CancelTableAdditionOutput\".\x82\xd3\xe4\x93\x02(:\x01*\"#/v1/flows/cdc/cancel_table_addition\x12\x95\x01\n" +
-	"\x14ResetMirrorSequences\x12).peerdb_route.ResetMirrorSequencesRequest\x1a*.peerdb_route.ResetMirrorSequencesResponse\"&\x82\xd3\xe4\x93\x02 :\x01*\"\x1b/v1/mirrors/sequences/resetB|\n" +
+	"\x14ResetMirrorSequences\x12).peerdb_route.ResetMirrorSequencesRequest\x1a*.peerdb_route.ResetMirrorSequencesResponse\"&\x82\xd3\xe4\x93\x02 :\x01*\"\x1b/v1/mirrors/sequences/reset\x12v\n" +
+	"\x12GetMirrorRowCounts\x12\x1d.peerdb_route.RowCountRequest\x1a\x1e.peerdb_route.RowCountResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/v1/mirrors/row_countsB|\n" +
 	"\x10com.peerdb_routeB\n" +
 	"RouteProtoP\x01Z\x10generated/protos\xa2\x02\x03PXX\xaa\x02\vPeerdbRoute\xca\x02\vPeerdbRoute\xe2\x02\x17PeerdbRoute\\GPBMetadata\xea\x02\vPeerdbRouteb\x06proto3"
 
@@ -6845,7 +7038,7 @@ func file_route_proto_rawDescGZIP() []byte {
 }
 
 var file_route_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_route_proto_msgTypes = make([]protoimpl.MessageInfo, 108)
+var file_route_proto_msgTypes = make([]protoimpl.MessageInfo, 111)
 var file_route_proto_goTypes = []any{
 	(ValidatePeerStatus)(0),                 // 0: peerdb_route.ValidatePeerStatus
 	(CreatePeerStatus)(0),                   // 1: peerdb_route.CreatePeerStatus
@@ -6893,252 +7086,258 @@ var file_route_proto_goTypes = []any{
 	(*CDCTableTotalCountsResponse)(nil),     // 43: peerdb_route.CDCTableTotalCountsResponse
 	(*TotalRowsSyncedByMirrorRequest)(nil),  // 44: peerdb_route.TotalRowsSyncedByMirrorRequest
 	(*TotalRowsSyncedByMirrorResponse)(nil), // 45: peerdb_route.TotalRowsSyncedByMirrorResponse
-	(*PeerSchemasResponse)(nil),             // 46: peerdb_route.PeerSchemasResponse
-	(*PeerPublicationsResponse)(nil),        // 47: peerdb_route.PeerPublicationsResponse
-	(*SchemaTablesRequest)(nil),             // 48: peerdb_route.SchemaTablesRequest
-	(*SchemaTablesResponse)(nil),            // 49: peerdb_route.SchemaTablesResponse
-	(*TableResponse)(nil),                   // 50: peerdb_route.TableResponse
-	(*AllTablesResponse)(nil),               // 51: peerdb_route.AllTablesResponse
-	(*TableColumnsRequest)(nil),             // 52: peerdb_route.TableColumnsRequest
-	(*ColumnsItem)(nil),                     // 53: peerdb_route.ColumnsItem
-	(*TableColumnsResponse)(nil),            // 54: peerdb_route.TableColumnsResponse
-	(*ColumnsTypeConversionRequest)(nil),    // 55: peerdb_route.ColumnsTypeConversionRequest
-	(*ColumnsTypeConversion)(nil),           // 56: peerdb_route.ColumnsTypeConversion
-	(*ColumnsTypeConversionResponse)(nil),   // 57: peerdb_route.ColumnsTypeConversionResponse
-	(*PostgresPeerActivityInfoRequest)(nil), // 58: peerdb_route.PostgresPeerActivityInfoRequest
-	(*PeerInfoRequest)(nil),                 // 59: peerdb_route.PeerInfoRequest
-	(*PeerInfoResponse)(nil),                // 60: peerdb_route.PeerInfoResponse
-	(*PeerTypeResponse)(nil),                // 61: peerdb_route.PeerTypeResponse
-	(*PeerListItem)(nil),                    // 62: peerdb_route.PeerListItem
-	(*ListPeersRequest)(nil),                // 63: peerdb_route.ListPeersRequest
-	(*ListPeersResponse)(nil),               // 64: peerdb_route.ListPeersResponse
-	(*SlotInfo)(nil),                        // 65: peerdb_route.SlotInfo
-	(*SlotLagPoint)(nil),                    // 66: peerdb_route.SlotLagPoint
-	(*GetSlotLagHistoryRequest)(nil),        // 67: peerdb_route.GetSlotLagHistoryRequest
-	(*GetSlotLagHistoryResponse)(nil),       // 68: peerdb_route.GetSlotLagHistoryResponse
-	(*StatInfo)(nil),                        // 69: peerdb_route.StatInfo
-	(*PeerSlotResponse)(nil),                // 70: peerdb_route.PeerSlotResponse
-	(*PeerStatResponse)(nil),                // 71: peerdb_route.PeerStatResponse
-	(*CloneTableSummary)(nil),               // 72: peerdb_route.CloneTableSummary
-	(*SnapshotStatus)(nil),                  // 73: peerdb_route.SnapshotStatus
-	(*CDCMirrorStatus)(nil),                 // 74: peerdb_route.CDCMirrorStatus
-	(*MirrorStatusResponse)(nil),            // 75: peerdb_route.MirrorStatusResponse
-	(*InitialLoadSummaryRequest)(nil),       // 76: peerdb_route.InitialLoadSummaryRequest
-	(*InitialLoadSummaryResponse)(nil),      // 77: peerdb_route.InitialLoadSummaryResponse
-	(*GetCDCBatchesRequest)(nil),            // 78: peerdb_route.GetCDCBatchesRequest
-	(*GetCDCBatchesResponse)(nil),           // 79: peerdb_route.GetCDCBatchesResponse
-	(*GraphRequest)(nil),                    // 80: peerdb_route.GraphRequest
-	(*GraphResponseItem)(nil),               // 81: peerdb_route.GraphResponseItem
-	(*GraphResponse)(nil),                   // 82: peerdb_route.GraphResponse
-	(*MirrorLog)(nil),                       // 83: peerdb_route.MirrorLog
-	(*ListMirrorLogsRequest)(nil),           // 84: peerdb_route.ListMirrorLogsRequest
-	(*ListMirrorLogsResponse)(nil),          // 85: peerdb_route.ListMirrorLogsResponse
-	(*ValidateCDCMirrorResponse)(nil),       // 86: peerdb_route.ValidateCDCMirrorResponse
-	(*ListMirrorsItem)(nil),                 // 87: peerdb_route.ListMirrorsItem
-	(*ListMirrorsRequest)(nil),              // 88: peerdb_route.ListMirrorsRequest
-	(*ListMirrorsResponse)(nil),             // 89: peerdb_route.ListMirrorsResponse
-	(*ListMirrorNamesRequest)(nil),          // 90: peerdb_route.ListMirrorNamesRequest
-	(*ListMirrorNamesResponse)(nil),         // 91: peerdb_route.ListMirrorNamesResponse
-	(*FlowStateChangeRequest)(nil),          // 92: peerdb_route.FlowStateChangeRequest
-	(*FlowStateChangeResponse)(nil),         // 93: peerdb_route.FlowStateChangeResponse
-	(*PeerDBVersionRequest)(nil),            // 94: peerdb_route.PeerDBVersionRequest
-	(*PeerDBVersionResponse)(nil),           // 95: peerdb_route.PeerDBVersionResponse
-	(*PeerDBStateRequest)(nil),              // 96: peerdb_route.PeerDBStateRequest
-	(*InstanceInfoRequest)(nil),             // 97: peerdb_route.InstanceInfoRequest
-	(*InstanceInfoResponse)(nil),            // 98: peerdb_route.InstanceInfoResponse
-	(*MaintenanceRequest)(nil),              // 99: peerdb_route.MaintenanceRequest
-	(*MaintenanceResponse)(nil),             // 100: peerdb_route.MaintenanceResponse
-	(*MaintenanceStatusRequest)(nil),        // 101: peerdb_route.MaintenanceStatusRequest
-	(*MaintenanceActivityDetails)(nil),      // 102: peerdb_route.MaintenanceActivityDetails
-	(*MaintenanceStatusResponse)(nil),       // 103: peerdb_route.MaintenanceStatusResponse
-	(*SkipSnapshotWaitFlowsRequest)(nil),    // 104: peerdb_route.SkipSnapshotWaitFlowsRequest
-	(*SkipSnapshotWaitFlowsResponse)(nil),   // 105: peerdb_route.SkipSnapshotWaitFlowsResponse
-	(*FlowTag)(nil),                         // 106: peerdb_route.FlowTag
-	(*CreateOrReplaceFlowTagsRequest)(nil),  // 107: peerdb_route.CreateOrReplaceFlowTagsRequest
-	(*CreateOrReplaceFlowTagsResponse)(nil), // 108: peerdb_route.CreateOrReplaceFlowTagsResponse
-	(*GetFlowTagsRequest)(nil),              // 109: peerdb_route.GetFlowTagsRequest
-	(*GetFlowTagsResponse)(nil),             // 110: peerdb_route.GetFlowTagsResponse
-	(*CancelTableAdditionInput)(nil),        // 111: peerdb_route.CancelTableAdditionInput
-	(*CancelTableAdditionOutput)(nil),       // 112: peerdb_route.CancelTableAdditionOutput
-	(*ResetMirrorSequencesRequest)(nil),     // 113: peerdb_route.ResetMirrorSequencesRequest
-	(*ResetMirrorSequencesResponse)(nil),    // 114: peerdb_route.ResetMirrorSequencesResponse
-	(*FlowConnectionConfigs)(nil),           // 115: peerdb_flow.FlowConnectionConfigs
-	(*QRepConfig)(nil),                      // 116: peerdb_flow.QRepConfig
-	(DynconfValueType)(0),                   // 117: peerdb_flow.DynconfValueType
-	(DynconfApplyMode)(0),                   // 118: peerdb_flow.DynconfApplyMode
-	(DynconfTarget)(0),                      // 119: peerdb_flow.DynconfTarget
-	(*Peer)(nil),                            // 120: peerdb_peers.Peer
-	(*timestamppb.Timestamp)(nil),           // 121: google.protobuf.Timestamp
-	(DBType)(0),                             // 122: peerdb_peers.DBType
-	(FlowStatus)(0),                         // 123: peerdb_flow.FlowStatus
-	(*FlowConfigUpdate)(nil),                // 124: peerdb_flow.FlowConfigUpdate
-	(*durationpb.Duration)(nil),             // 125: google.protobuf.Duration
-	(*TableMapping)(nil),                    // 126: peerdb_flow.TableMapping
+	(*RowCountRequest)(nil),                 // 46: peerdb_route.RowCountRequest
+	(*TableRowCount)(nil),                   // 47: peerdb_route.TableRowCount
+	(*RowCountResponse)(nil),                // 48: peerdb_route.RowCountResponse
+	(*PeerSchemasResponse)(nil),             // 49: peerdb_route.PeerSchemasResponse
+	(*PeerPublicationsResponse)(nil),        // 50: peerdb_route.PeerPublicationsResponse
+	(*SchemaTablesRequest)(nil),             // 51: peerdb_route.SchemaTablesRequest
+	(*SchemaTablesResponse)(nil),            // 52: peerdb_route.SchemaTablesResponse
+	(*TableResponse)(nil),                   // 53: peerdb_route.TableResponse
+	(*AllTablesResponse)(nil),               // 54: peerdb_route.AllTablesResponse
+	(*TableColumnsRequest)(nil),             // 55: peerdb_route.TableColumnsRequest
+	(*ColumnsItem)(nil),                     // 56: peerdb_route.ColumnsItem
+	(*TableColumnsResponse)(nil),            // 57: peerdb_route.TableColumnsResponse
+	(*ColumnsTypeConversionRequest)(nil),    // 58: peerdb_route.ColumnsTypeConversionRequest
+	(*ColumnsTypeConversion)(nil),           // 59: peerdb_route.ColumnsTypeConversion
+	(*ColumnsTypeConversionResponse)(nil),   // 60: peerdb_route.ColumnsTypeConversionResponse
+	(*PostgresPeerActivityInfoRequest)(nil), // 61: peerdb_route.PostgresPeerActivityInfoRequest
+	(*PeerInfoRequest)(nil),                 // 62: peerdb_route.PeerInfoRequest
+	(*PeerInfoResponse)(nil),                // 63: peerdb_route.PeerInfoResponse
+	(*PeerTypeResponse)(nil),                // 64: peerdb_route.PeerTypeResponse
+	(*PeerListItem)(nil),                    // 65: peerdb_route.PeerListItem
+	(*ListPeersRequest)(nil),                // 66: peerdb_route.ListPeersRequest
+	(*ListPeersResponse)(nil),               // 67: peerdb_route.ListPeersResponse
+	(*SlotInfo)(nil),                        // 68: peerdb_route.SlotInfo
+	(*SlotLagPoint)(nil),                    // 69: peerdb_route.SlotLagPoint
+	(*GetSlotLagHistoryRequest)(nil),        // 70: peerdb_route.GetSlotLagHistoryRequest
+	(*GetSlotLagHistoryResponse)(nil),       // 71: peerdb_route.GetSlotLagHistoryResponse
+	(*StatInfo)(nil),                        // 72: peerdb_route.StatInfo
+	(*PeerSlotResponse)(nil),                // 73: peerdb_route.PeerSlotResponse
+	(*PeerStatResponse)(nil),                // 74: peerdb_route.PeerStatResponse
+	(*CloneTableSummary)(nil),               // 75: peerdb_route.CloneTableSummary
+	(*SnapshotStatus)(nil),                  // 76: peerdb_route.SnapshotStatus
+	(*CDCMirrorStatus)(nil),                 // 77: peerdb_route.CDCMirrorStatus
+	(*MirrorStatusResponse)(nil),            // 78: peerdb_route.MirrorStatusResponse
+	(*InitialLoadSummaryRequest)(nil),       // 79: peerdb_route.InitialLoadSummaryRequest
+	(*InitialLoadSummaryResponse)(nil),      // 80: peerdb_route.InitialLoadSummaryResponse
+	(*GetCDCBatchesRequest)(nil),            // 81: peerdb_route.GetCDCBatchesRequest
+	(*GetCDCBatchesResponse)(nil),           // 82: peerdb_route.GetCDCBatchesResponse
+	(*GraphRequest)(nil),                    // 83: peerdb_route.GraphRequest
+	(*GraphResponseItem)(nil),               // 84: peerdb_route.GraphResponseItem
+	(*GraphResponse)(nil),                   // 85: peerdb_route.GraphResponse
+	(*MirrorLog)(nil),                       // 86: peerdb_route.MirrorLog
+	(*ListMirrorLogsRequest)(nil),           // 87: peerdb_route.ListMirrorLogsRequest
+	(*ListMirrorLogsResponse)(nil),          // 88: peerdb_route.ListMirrorLogsResponse
+	(*ValidateCDCMirrorResponse)(nil),       // 89: peerdb_route.ValidateCDCMirrorResponse
+	(*ListMirrorsItem)(nil),                 // 90: peerdb_route.ListMirrorsItem
+	(*ListMirrorsRequest)(nil),              // 91: peerdb_route.ListMirrorsRequest
+	(*ListMirrorsResponse)(nil),             // 92: peerdb_route.ListMirrorsResponse
+	(*ListMirrorNamesRequest)(nil),          // 93: peerdb_route.ListMirrorNamesRequest
+	(*ListMirrorNamesResponse)(nil),         // 94: peerdb_route.ListMirrorNamesResponse
+	(*FlowStateChangeRequest)(nil),          // 95: peerdb_route.FlowStateChangeRequest
+	(*FlowStateChangeResponse)(nil),         // 96: peerdb_route.FlowStateChangeResponse
+	(*PeerDBVersionRequest)(nil),            // 97: peerdb_route.PeerDBVersionRequest
+	(*PeerDBVersionResponse)(nil),           // 98: peerdb_route.PeerDBVersionResponse
+	(*PeerDBStateRequest)(nil),              // 99: peerdb_route.PeerDBStateRequest
+	(*InstanceInfoRequest)(nil),             // 100: peerdb_route.InstanceInfoRequest
+	(*InstanceInfoResponse)(nil),            // 101: peerdb_route.InstanceInfoResponse
+	(*MaintenanceRequest)(nil),              // 102: peerdb_route.MaintenanceRequest
+	(*MaintenanceResponse)(nil),             // 103: peerdb_route.MaintenanceResponse
+	(*MaintenanceStatusRequest)(nil),        // 104: peerdb_route.MaintenanceStatusRequest
+	(*MaintenanceActivityDetails)(nil),      // 105: peerdb_route.MaintenanceActivityDetails
+	(*MaintenanceStatusResponse)(nil),       // 106: peerdb_route.MaintenanceStatusResponse
+	(*SkipSnapshotWaitFlowsRequest)(nil),    // 107: peerdb_route.SkipSnapshotWaitFlowsRequest
+	(*SkipSnapshotWaitFlowsResponse)(nil),   // 108: peerdb_route.SkipSnapshotWaitFlowsResponse
+	(*FlowTag)(nil),                         // 109: peerdb_route.FlowTag
+	(*CreateOrReplaceFlowTagsRequest)(nil),  // 110: peerdb_route.CreateOrReplaceFlowTagsRequest
+	(*CreateOrReplaceFlowTagsResponse)(nil), // 111: peerdb_route.CreateOrReplaceFlowTagsResponse
+	(*GetFlowTagsRequest)(nil),              // 112: peerdb_route.GetFlowTagsRequest
+	(*GetFlowTagsResponse)(nil),             // 113: peerdb_route.GetFlowTagsResponse
+	(*CancelTableAdditionInput)(nil),        // 114: peerdb_route.CancelTableAdditionInput
+	(*CancelTableAdditionOutput)(nil),       // 115: peerdb_route.CancelTableAdditionOutput
+	(*ResetMirrorSequencesRequest)(nil),     // 116: peerdb_route.ResetMirrorSequencesRequest
+	(*ResetMirrorSequencesResponse)(nil),    // 117: peerdb_route.ResetMirrorSequencesResponse
+	(*FlowConnectionConfigs)(nil),           // 118: peerdb_flow.FlowConnectionConfigs
+	(*QRepConfig)(nil),                      // 119: peerdb_flow.QRepConfig
+	(DynconfValueType)(0),                   // 120: peerdb_flow.DynconfValueType
+	(DynconfApplyMode)(0),                   // 121: peerdb_flow.DynconfApplyMode
+	(DynconfTarget)(0),                      // 122: peerdb_flow.DynconfTarget
+	(*Peer)(nil),                            // 123: peerdb_peers.Peer
+	(*timestamppb.Timestamp)(nil),           // 124: google.protobuf.Timestamp
+	(DBType)(0),                             // 125: peerdb_peers.DBType
+	(FlowStatus)(0),                         // 126: peerdb_flow.FlowStatus
+	(*FlowConfigUpdate)(nil),                // 127: peerdb_flow.FlowConfigUpdate
+	(*durationpb.Duration)(nil),             // 128: google.protobuf.Duration
+	(*TableMapping)(nil),                    // 129: peerdb_flow.TableMapping
 }
 var file_route_proto_depIdxs = []int32{
-	115, // 0: peerdb_route.CreateCDCFlowRequest.connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
-	116, // 1: peerdb_route.CreateQRepFlowRequest.qrep_config:type_name -> peerdb_flow.QRepConfig
+	118, // 0: peerdb_route.CreateCDCFlowRequest.connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
+	119, // 1: peerdb_route.CreateQRepFlowRequest.qrep_config:type_name -> peerdb_flow.QRepConfig
 	11,  // 2: peerdb_route.PostAlertConfigRequest.config:type_name -> peerdb_route.AlertConfig
 	11,  // 3: peerdb_route.GetAlertConfigsResponse.configs:type_name -> peerdb_route.AlertConfig
-	117, // 4: peerdb_route.DynamicSetting.value_type:type_name -> peerdb_flow.DynconfValueType
-	118, // 5: peerdb_route.DynamicSetting.apply_mode:type_name -> peerdb_flow.DynconfApplyMode
-	119, // 6: peerdb_route.DynamicSetting.target_for_setting:type_name -> peerdb_flow.DynconfTarget
+	120, // 4: peerdb_route.DynamicSetting.value_type:type_name -> peerdb_flow.DynconfValueType
+	121, // 5: peerdb_route.DynamicSetting.apply_mode:type_name -> peerdb_flow.DynconfApplyMode
+	122, // 6: peerdb_route.DynamicSetting.target_for_setting:type_name -> peerdb_flow.DynconfTarget
 	18,  // 7: peerdb_route.GetDynamicSettingsResponse.settings:type_name -> peerdb_route.DynamicSetting
 	23,  // 8: peerdb_route.GetScriptsResponse.scripts:type_name -> peerdb_route.Script
 	23,  // 9: peerdb_route.PostScriptRequest.script:type_name -> peerdb_route.Script
-	120, // 10: peerdb_route.ValidatePeerRequest.peer:type_name -> peerdb_peers.Peer
-	120, // 11: peerdb_route.CreatePeerRequest.peer:type_name -> peerdb_peers.Peer
+	123, // 10: peerdb_route.ValidatePeerRequest.peer:type_name -> peerdb_peers.Peer
+	123, // 11: peerdb_route.CreatePeerRequest.peer:type_name -> peerdb_peers.Peer
 	0,   // 12: peerdb_route.ValidatePeerResponse.status:type_name -> peerdb_route.ValidatePeerStatus
 	1,   // 13: peerdb_route.CreatePeerResponse.status:type_name -> peerdb_route.CreatePeerStatus
-	121, // 14: peerdb_route.PartitionStatus.start_time:type_name -> google.protobuf.Timestamp
-	121, // 15: peerdb_route.PartitionStatus.end_time:type_name -> google.protobuf.Timestamp
+	124, // 14: peerdb_route.PartitionStatus.start_time:type_name -> google.protobuf.Timestamp
+	124, // 15: peerdb_route.PartitionStatus.end_time:type_name -> google.protobuf.Timestamp
 	37,  // 16: peerdb_route.QRepMirrorStatus.partitions:type_name -> peerdb_route.PartitionStatus
-	121, // 17: peerdb_route.CDCBatch.start_time:type_name -> google.protobuf.Timestamp
-	121, // 18: peerdb_route.CDCBatch.end_time:type_name -> google.protobuf.Timestamp
+	124, // 17: peerdb_route.CDCBatch.start_time:type_name -> google.protobuf.Timestamp
+	124, // 18: peerdb_route.CDCBatch.end_time:type_name -> google.protobuf.Timestamp
 	40,  // 19: peerdb_route.CDCTableRowCounts.counts:type_name -> peerdb_route.CDCRowCounts
 	40,  // 20: peerdb_route.CDCTableTotalCountsResponse.total_data:type_name -> peerdb_route.CDCRowCounts
 	41,  // 21: peerdb_route.CDCTableTotalCountsResponse.tables_data:type_name -> peerdb_route.CDCTableRowCounts
-	50,  // 22: peerdb_route.SchemaTablesResponse.tables:type_name -> peerdb_route.TableResponse
-	53,  // 23: peerdb_route.TableColumnsResponse.columns:type_name -> peerdb_route.ColumnsItem
-	56,  // 24: peerdb_route.ColumnsTypeConversionResponse.conversions:type_name -> peerdb_route.ColumnsTypeConversion
-	120, // 25: peerdb_route.PeerInfoResponse.peer:type_name -> peerdb_peers.Peer
-	122, // 26: peerdb_route.PeerListItem.type:type_name -> peerdb_peers.DBType
-	62,  // 27: peerdb_route.ListPeersResponse.items:type_name -> peerdb_route.PeerListItem
-	62,  // 28: peerdb_route.ListPeersResponse.source_items:type_name -> peerdb_route.PeerListItem
-	62,  // 29: peerdb_route.ListPeersResponse.destination_items:type_name -> peerdb_route.PeerListItem
-	66,  // 30: peerdb_route.GetSlotLagHistoryResponse.data:type_name -> peerdb_route.SlotLagPoint
-	65,  // 31: peerdb_route.PeerSlotResponse.slot_data:type_name -> peerdb_route.SlotInfo
-	69,  // 32: peerdb_route.PeerStatResponse.stat_data:type_name -> peerdb_route.StatInfo
-	121, // 33: peerdb_route.CloneTableSummary.start_time:type_name -> google.protobuf.Timestamp
-	72,  // 34: peerdb_route.SnapshotStatus.clones:type_name -> peerdb_route.CloneTableSummary
-	115, // 35: peerdb_route.CDCMirrorStatus.config:type_name -> peerdb_flow.FlowConnectionConfigs
-	73,  // 36: peerdb_route.CDCMirrorStatus.snapshot_status:type_name -> peerdb_route.SnapshotStatus
-	39,  // 37: peerdb_route.CDCMirrorStatus.cdc_batches:type_name -> peerdb_route.CDCBatch
-	122, // 38: peerdb_route.CDCMirrorStatus.source_type:type_name -> peerdb_peers.DBType
-	122, // 39: peerdb_route.CDCMirrorStatus.destination_type:type_name -> peerdb_peers.DBType
-	38,  // 40: peerdb_route.MirrorStatusResponse.qrep_status:type_name -> peerdb_route.QRepMirrorStatus
-	74,  // 41: peerdb_route.MirrorStatusResponse.cdc_status:type_name -> peerdb_route.CDCMirrorStatus
-	123, // 42: peerdb_route.MirrorStatusResponse.current_flow_state:type_name -> peerdb_flow.FlowStatus
-	121, // 43: peerdb_route.MirrorStatusResponse.created_at:type_name -> google.protobuf.Timestamp
-	72,  // 44: peerdb_route.InitialLoadSummaryResponse.tableSummaries:type_name -> peerdb_route.CloneTableSummary
-	39,  // 45: peerdb_route.GetCDCBatchesResponse.cdc_batches:type_name -> peerdb_route.CDCBatch
-	3,   // 46: peerdb_route.GraphRequest.aggregate_type:type_name -> peerdb_route.TimeAggregateType
-	2,   // 47: peerdb_route.GraphRequest.mode:type_name -> peerdb_route.GraphMode
-	81,  // 48: peerdb_route.GraphResponse.data:type_name -> peerdb_route.GraphResponseItem
-	83,  // 49: peerdb_route.ListMirrorLogsResponse.errors:type_name -> peerdb_route.MirrorLog
-	122, // 50: peerdb_route.ListMirrorsItem.source_type:type_name -> peerdb_peers.DBType
-	122, // 51: peerdb_route.ListMirrorsItem.destination_type:type_name -> peerdb_peers.DBType
-	123, // 52: peerdb_route.ListMirrorsItem.status:type_name -> peerdb_flow.FlowStatus
-	87,  // 53: peerdb_route.ListMirrorsResponse.mirrors:type_name -> peerdb_route.ListMirrorsItem
-	123, // 54: peerdb_route.FlowStateChangeRequest.requested_flow_state:type_name -> peerdb_flow.FlowStatus
-	124, // 55: peerdb_route.FlowStateChangeRequest.flow_config_update:type_name -> peerdb_flow.FlowConfigUpdate
-	4,   // 56: peerdb_route.InstanceInfoResponse.status:type_name -> peerdb_route.InstanceStatus
-	5,   // 57: peerdb_route.MaintenanceRequest.status:type_name -> peerdb_route.MaintenanceStatus
-	125, // 58: peerdb_route.MaintenanceActivityDetails.activity_duration:type_name -> google.protobuf.Duration
-	121, // 59: peerdb_route.MaintenanceActivityDetails.last_heartbeat:type_name -> google.protobuf.Timestamp
-	6,   // 60: peerdb_route.MaintenanceStatusResponse.phase:type_name -> peerdb_route.MaintenancePhase
-	102, // 61: peerdb_route.MaintenanceStatusResponse.pending_activities:type_name -> peerdb_route.MaintenanceActivityDetails
-	106, // 62: peerdb_route.CreateOrReplaceFlowTagsRequest.tags:type_name -> peerdb_route.FlowTag
-	106, // 63: peerdb_route.GetFlowTagsResponse.tags:type_name -> peerdb_route.FlowTag
-	126, // 64: peerdb_route.CancelTableAdditionInput.currently_replicating_tables:type_name -> peerdb_flow.TableMapping
-	126, // 65: peerdb_route.CancelTableAdditionOutput.tables_after_cancellation:type_name -> peerdb_flow.TableMapping
-	30,  // 66: peerdb_route.FlowService.ValidatePeer:input_type -> peerdb_route.ValidatePeerRequest
-	7,   // 67: peerdb_route.FlowService.ValidateCDCMirror:input_type -> peerdb_route.CreateCDCFlowRequest
-	31,  // 68: peerdb_route.FlowService.CreatePeer:input_type -> peerdb_route.CreatePeerRequest
-	32,  // 69: peerdb_route.FlowService.DropPeer:input_type -> peerdb_route.DropPeerRequest
-	7,   // 70: peerdb_route.FlowService.CreateCDCFlow:input_type -> peerdb_route.CreateCDCFlowRequest
-	9,   // 71: peerdb_route.FlowService.CreateQRepFlow:input_type -> peerdb_route.CreateQRepFlowRequest
-	12,  // 72: peerdb_route.FlowService.GetAlertConfigs:input_type -> peerdb_route.GetAlertConfigsRequest
-	13,  // 73: peerdb_route.FlowService.PostAlertConfig:input_type -> peerdb_route.PostAlertConfigRequest
-	14,  // 74: peerdb_route.FlowService.DeleteAlertConfig:input_type -> peerdb_route.DeleteAlertConfigRequest
-	19,  // 75: peerdb_route.FlowService.GetDynamicSettings:input_type -> peerdb_route.GetDynamicSettingsRequest
-	21,  // 76: peerdb_route.FlowService.PostDynamicSetting:input_type -> peerdb_route.PostDynamicSettingRequest
-	24,  // 77: peerdb_route.FlowService.GetScripts:input_type -> peerdb_route.GetScriptsRequest
-	26,  // 78: peerdb_route.FlowService.PostScript:input_type -> peerdb_route.PostScriptRequest
-	28,  // 79: peerdb_route.FlowService.DeleteScript:input_type -> peerdb_route.DeleteScriptRequest
-	42,  // 80: peerdb_route.FlowService.CDCTableTotalCounts:input_type -> peerdb_route.CDCTableTotalCountsRequest
-	58,  // 81: peerdb_route.FlowService.GetSchemas:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
-	58,  // 82: peerdb_route.FlowService.GetPublications:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
-	48,  // 83: peerdb_route.FlowService.GetTablesInSchema:input_type -> peerdb_route.SchemaTablesRequest
-	58,  // 84: peerdb_route.FlowService.GetAllTables:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
-	52,  // 85: peerdb_route.FlowService.GetColumns:input_type -> peerdb_route.TableColumnsRequest
-	55,  // 86: peerdb_route.FlowService.GetColumnsTypeConversion:input_type -> peerdb_route.ColumnsTypeConversionRequest
-	58,  // 87: peerdb_route.FlowService.GetSlotInfo:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
-	67,  // 88: peerdb_route.FlowService.GetSlotLagHistory:input_type -> peerdb_route.GetSlotLagHistoryRequest
-	58,  // 89: peerdb_route.FlowService.GetStatInfo:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
-	84,  // 90: peerdb_route.FlowService.ListMirrorLogs:input_type -> peerdb_route.ListMirrorLogsRequest
-	88,  // 91: peerdb_route.FlowService.ListMirrors:input_type -> peerdb_route.ListMirrorsRequest
-	90,  // 92: peerdb_route.FlowService.ListMirrorNames:input_type -> peerdb_route.ListMirrorNamesRequest
-	92,  // 93: peerdb_route.FlowService.FlowStateChange:input_type -> peerdb_route.FlowStateChangeRequest
-	36,  // 94: peerdb_route.FlowService.MirrorStatus:input_type -> peerdb_route.MirrorStatusRequest
-	78,  // 95: peerdb_route.FlowService.GetCDCBatches:input_type -> peerdb_route.GetCDCBatchesRequest
-	78,  // 96: peerdb_route.FlowService.CDCBatches:input_type -> peerdb_route.GetCDCBatchesRequest
-	80,  // 97: peerdb_route.FlowService.CDCGraph:input_type -> peerdb_route.GraphRequest
-	76,  // 98: peerdb_route.FlowService.InitialLoadSummary:input_type -> peerdb_route.InitialLoadSummaryRequest
-	59,  // 99: peerdb_route.FlowService.GetPeerInfo:input_type -> peerdb_route.PeerInfoRequest
-	59,  // 100: peerdb_route.FlowService.GetPeerType:input_type -> peerdb_route.PeerInfoRequest
-	63,  // 101: peerdb_route.FlowService.ListPeers:input_type -> peerdb_route.ListPeersRequest
-	94,  // 102: peerdb_route.FlowService.GetVersion:input_type -> peerdb_route.PeerDBVersionRequest
-	97,  // 103: peerdb_route.FlowService.GetInstanceInfo:input_type -> peerdb_route.InstanceInfoRequest
-	99,  // 104: peerdb_route.FlowService.Maintenance:input_type -> peerdb_route.MaintenanceRequest
-	101, // 105: peerdb_route.FlowService.GetMaintenanceStatus:input_type -> peerdb_route.MaintenanceStatusRequest
-	104, // 106: peerdb_route.FlowService.SkipSnapshotWaitFlows:input_type -> peerdb_route.SkipSnapshotWaitFlowsRequest
-	107, // 107: peerdb_route.FlowService.CreateOrReplaceFlowTags:input_type -> peerdb_route.CreateOrReplaceFlowTagsRequest
-	109, // 108: peerdb_route.FlowService.GetFlowTags:input_type -> peerdb_route.GetFlowTagsRequest
-	44,  // 109: peerdb_route.FlowService.TotalRowsSyncedByMirror:input_type -> peerdb_route.TotalRowsSyncedByMirrorRequest
-	111, // 110: peerdb_route.FlowService.CancelTableAddition:input_type -> peerdb_route.CancelTableAdditionInput
-	113, // 111: peerdb_route.FlowService.ResetMirrorSequences:input_type -> peerdb_route.ResetMirrorSequencesRequest
-	34,  // 112: peerdb_route.FlowService.ValidatePeer:output_type -> peerdb_route.ValidatePeerResponse
-	86,  // 113: peerdb_route.FlowService.ValidateCDCMirror:output_type -> peerdb_route.ValidateCDCMirrorResponse
-	35,  // 114: peerdb_route.FlowService.CreatePeer:output_type -> peerdb_route.CreatePeerResponse
-	33,  // 115: peerdb_route.FlowService.DropPeer:output_type -> peerdb_route.DropPeerResponse
-	8,   // 116: peerdb_route.FlowService.CreateCDCFlow:output_type -> peerdb_route.CreateCDCFlowResponse
-	10,  // 117: peerdb_route.FlowService.CreateQRepFlow:output_type -> peerdb_route.CreateQRepFlowResponse
-	15,  // 118: peerdb_route.FlowService.GetAlertConfigs:output_type -> peerdb_route.GetAlertConfigsResponse
-	16,  // 119: peerdb_route.FlowService.PostAlertConfig:output_type -> peerdb_route.PostAlertConfigResponse
-	17,  // 120: peerdb_route.FlowService.DeleteAlertConfig:output_type -> peerdb_route.DeleteAlertConfigResponse
-	20,  // 121: peerdb_route.FlowService.GetDynamicSettings:output_type -> peerdb_route.GetDynamicSettingsResponse
-	22,  // 122: peerdb_route.FlowService.PostDynamicSetting:output_type -> peerdb_route.PostDynamicSettingResponse
-	25,  // 123: peerdb_route.FlowService.GetScripts:output_type -> peerdb_route.GetScriptsResponse
-	27,  // 124: peerdb_route.FlowService.PostScript:output_type -> peerdb_route.PostScriptResponse
-	29,  // 125: peerdb_route.FlowService.DeleteScript:output_type -> peerdb_route.DeleteScriptResponse
-	43,  // 126: peerdb_route.FlowService.CDCTableTotalCounts:output_type -> peerdb_route.CDCTableTotalCountsResponse
-	46,  // 127: peerdb_route.FlowService.GetSchemas:output_type -> peerdb_route.PeerSchemasResponse
-	47,  // 128: peerdb_route.FlowService.GetPublications:output_type -> peerdb_route.PeerPublicationsResponse
-	49,  // 129: peerdb_route.FlowService.GetTablesInSchema:output_type -> peerdb_route.SchemaTablesResponse
-	51,  // 130: peerdb_route.FlowService.GetAllTables:output_type -> peerdb_route.AllTablesResponse
-	54,  // 131: peerdb_route.FlowService.GetColumns:output_type -> peerdb_route.TableColumnsResponse
-	57,  // 132: peerdb_route.FlowService.GetColumnsTypeConversion:output_type -> peerdb_route.ColumnsTypeConversionResponse
-	70,  // 133: peerdb_route.FlowService.GetSlotInfo:output_type -> peerdb_route.PeerSlotResponse
-	68,  // 134: peerdb_route.FlowService.GetSlotLagHistory:output_type -> peerdb_route.GetSlotLagHistoryResponse
-	71,  // 135: peerdb_route.FlowService.GetStatInfo:output_type -> peerdb_route.PeerStatResponse
-	85,  // 136: peerdb_route.FlowService.ListMirrorLogs:output_type -> peerdb_route.ListMirrorLogsResponse
-	89,  // 137: peerdb_route.FlowService.ListMirrors:output_type -> peerdb_route.ListMirrorsResponse
-	91,  // 138: peerdb_route.FlowService.ListMirrorNames:output_type -> peerdb_route.ListMirrorNamesResponse
-	93,  // 139: peerdb_route.FlowService.FlowStateChange:output_type -> peerdb_route.FlowStateChangeResponse
-	75,  // 140: peerdb_route.FlowService.MirrorStatus:output_type -> peerdb_route.MirrorStatusResponse
-	79,  // 141: peerdb_route.FlowService.GetCDCBatches:output_type -> peerdb_route.GetCDCBatchesResponse
-	79,  // 142: peerdb_route.FlowService.CDCBatches:output_type -> peerdb_route.GetCDCBatchesResponse
-	82,  // 143: peerdb_route.FlowService.CDCGraph:output_type -> peerdb_route.GraphResponse
-	77,  // 144: peerdb_route.FlowService.InitialLoadSummary:output_type -> peerdb_route.InitialLoadSummaryResponse
-	60,  // 145: peerdb_route.FlowService.GetPeerInfo:output_type -> peerdb_route.PeerInfoResponse
-	61,  // 146: peerdb_route.FlowService.GetPeerType:output_type -> peerdb_route.PeerTypeResponse
-	64,  // 147: peerdb_route.FlowService.ListPeers:output_type -> peerdb_route.ListPeersResponse
-	95,  // 148: peerdb_route.FlowService.GetVersion:output_type -> peerdb_route.PeerDBVersionResponse
-	98,  // 149: peerdb_route.FlowService.GetInstanceInfo:output_type -> peerdb_route.InstanceInfoResponse
-	100, // 150: peerdb_route.FlowService.Maintenance:output_type -> peerdb_route.MaintenanceResponse
-	103, // 151: peerdb_route.FlowService.GetMaintenanceStatus:output_type -> peerdb_route.MaintenanceStatusResponse
-	105, // 152: peerdb_route.FlowService.SkipSnapshotWaitFlows:output_type -> peerdb_route.SkipSnapshotWaitFlowsResponse
-	108, // 153: peerdb_route.FlowService.CreateOrReplaceFlowTags:output_type -> peerdb_route.CreateOrReplaceFlowTagsResponse
-	110, // 154: peerdb_route.FlowService.GetFlowTags:output_type -> peerdb_route.GetFlowTagsResponse
-	45,  // 155: peerdb_route.FlowService.TotalRowsSyncedByMirror:output_type -> peerdb_route.TotalRowsSyncedByMirrorResponse
-	112, // 156: peerdb_route.FlowService.CancelTableAddition:output_type -> peerdb_route.CancelTableAdditionOutput
-	114, // 157: peerdb_route.FlowService.ResetMirrorSequences:output_type -> peerdb_route.ResetMirrorSequencesResponse
-	112, // [112:158] is the sub-list for method output_type
-	66,  // [66:112] is the sub-list for method input_type
-	66,  // [66:66] is the sub-list for extension type_name
-	66,  // [66:66] is the sub-list for extension extendee
-	0,   // [0:66] is the sub-list for field type_name
+	47,  // 22: peerdb_route.RowCountResponse.table_counts:type_name -> peerdb_route.TableRowCount
+	53,  // 23: peerdb_route.SchemaTablesResponse.tables:type_name -> peerdb_route.TableResponse
+	56,  // 24: peerdb_route.TableColumnsResponse.columns:type_name -> peerdb_route.ColumnsItem
+	59,  // 25: peerdb_route.ColumnsTypeConversionResponse.conversions:type_name -> peerdb_route.ColumnsTypeConversion
+	123, // 26: peerdb_route.PeerInfoResponse.peer:type_name -> peerdb_peers.Peer
+	125, // 27: peerdb_route.PeerListItem.type:type_name -> peerdb_peers.DBType
+	65,  // 28: peerdb_route.ListPeersResponse.items:type_name -> peerdb_route.PeerListItem
+	65,  // 29: peerdb_route.ListPeersResponse.source_items:type_name -> peerdb_route.PeerListItem
+	65,  // 30: peerdb_route.ListPeersResponse.destination_items:type_name -> peerdb_route.PeerListItem
+	69,  // 31: peerdb_route.GetSlotLagHistoryResponse.data:type_name -> peerdb_route.SlotLagPoint
+	68,  // 32: peerdb_route.PeerSlotResponse.slot_data:type_name -> peerdb_route.SlotInfo
+	72,  // 33: peerdb_route.PeerStatResponse.stat_data:type_name -> peerdb_route.StatInfo
+	124, // 34: peerdb_route.CloneTableSummary.start_time:type_name -> google.protobuf.Timestamp
+	75,  // 35: peerdb_route.SnapshotStatus.clones:type_name -> peerdb_route.CloneTableSummary
+	118, // 36: peerdb_route.CDCMirrorStatus.config:type_name -> peerdb_flow.FlowConnectionConfigs
+	76,  // 37: peerdb_route.CDCMirrorStatus.snapshot_status:type_name -> peerdb_route.SnapshotStatus
+	39,  // 38: peerdb_route.CDCMirrorStatus.cdc_batches:type_name -> peerdb_route.CDCBatch
+	125, // 39: peerdb_route.CDCMirrorStatus.source_type:type_name -> peerdb_peers.DBType
+	125, // 40: peerdb_route.CDCMirrorStatus.destination_type:type_name -> peerdb_peers.DBType
+	38,  // 41: peerdb_route.MirrorStatusResponse.qrep_status:type_name -> peerdb_route.QRepMirrorStatus
+	77,  // 42: peerdb_route.MirrorStatusResponse.cdc_status:type_name -> peerdb_route.CDCMirrorStatus
+	126, // 43: peerdb_route.MirrorStatusResponse.current_flow_state:type_name -> peerdb_flow.FlowStatus
+	124, // 44: peerdb_route.MirrorStatusResponse.created_at:type_name -> google.protobuf.Timestamp
+	75,  // 45: peerdb_route.InitialLoadSummaryResponse.tableSummaries:type_name -> peerdb_route.CloneTableSummary
+	39,  // 46: peerdb_route.GetCDCBatchesResponse.cdc_batches:type_name -> peerdb_route.CDCBatch
+	3,   // 47: peerdb_route.GraphRequest.aggregate_type:type_name -> peerdb_route.TimeAggregateType
+	2,   // 48: peerdb_route.GraphRequest.mode:type_name -> peerdb_route.GraphMode
+	84,  // 49: peerdb_route.GraphResponse.data:type_name -> peerdb_route.GraphResponseItem
+	86,  // 50: peerdb_route.ListMirrorLogsResponse.errors:type_name -> peerdb_route.MirrorLog
+	125, // 51: peerdb_route.ListMirrorsItem.source_type:type_name -> peerdb_peers.DBType
+	125, // 52: peerdb_route.ListMirrorsItem.destination_type:type_name -> peerdb_peers.DBType
+	126, // 53: peerdb_route.ListMirrorsItem.status:type_name -> peerdb_flow.FlowStatus
+	90,  // 54: peerdb_route.ListMirrorsResponse.mirrors:type_name -> peerdb_route.ListMirrorsItem
+	126, // 55: peerdb_route.FlowStateChangeRequest.requested_flow_state:type_name -> peerdb_flow.FlowStatus
+	127, // 56: peerdb_route.FlowStateChangeRequest.flow_config_update:type_name -> peerdb_flow.FlowConfigUpdate
+	4,   // 57: peerdb_route.InstanceInfoResponse.status:type_name -> peerdb_route.InstanceStatus
+	5,   // 58: peerdb_route.MaintenanceRequest.status:type_name -> peerdb_route.MaintenanceStatus
+	128, // 59: peerdb_route.MaintenanceActivityDetails.activity_duration:type_name -> google.protobuf.Duration
+	124, // 60: peerdb_route.MaintenanceActivityDetails.last_heartbeat:type_name -> google.protobuf.Timestamp
+	6,   // 61: peerdb_route.MaintenanceStatusResponse.phase:type_name -> peerdb_route.MaintenancePhase
+	105, // 62: peerdb_route.MaintenanceStatusResponse.pending_activities:type_name -> peerdb_route.MaintenanceActivityDetails
+	109, // 63: peerdb_route.CreateOrReplaceFlowTagsRequest.tags:type_name -> peerdb_route.FlowTag
+	109, // 64: peerdb_route.GetFlowTagsResponse.tags:type_name -> peerdb_route.FlowTag
+	129, // 65: peerdb_route.CancelTableAdditionInput.currently_replicating_tables:type_name -> peerdb_flow.TableMapping
+	129, // 66: peerdb_route.CancelTableAdditionOutput.tables_after_cancellation:type_name -> peerdb_flow.TableMapping
+	30,  // 67: peerdb_route.FlowService.ValidatePeer:input_type -> peerdb_route.ValidatePeerRequest
+	7,   // 68: peerdb_route.FlowService.ValidateCDCMirror:input_type -> peerdb_route.CreateCDCFlowRequest
+	31,  // 69: peerdb_route.FlowService.CreatePeer:input_type -> peerdb_route.CreatePeerRequest
+	32,  // 70: peerdb_route.FlowService.DropPeer:input_type -> peerdb_route.DropPeerRequest
+	7,   // 71: peerdb_route.FlowService.CreateCDCFlow:input_type -> peerdb_route.CreateCDCFlowRequest
+	9,   // 72: peerdb_route.FlowService.CreateQRepFlow:input_type -> peerdb_route.CreateQRepFlowRequest
+	12,  // 73: peerdb_route.FlowService.GetAlertConfigs:input_type -> peerdb_route.GetAlertConfigsRequest
+	13,  // 74: peerdb_route.FlowService.PostAlertConfig:input_type -> peerdb_route.PostAlertConfigRequest
+	14,  // 75: peerdb_route.FlowService.DeleteAlertConfig:input_type -> peerdb_route.DeleteAlertConfigRequest
+	19,  // 76: peerdb_route.FlowService.GetDynamicSettings:input_type -> peerdb_route.GetDynamicSettingsRequest
+	21,  // 77: peerdb_route.FlowService.PostDynamicSetting:input_type -> peerdb_route.PostDynamicSettingRequest
+	24,  // 78: peerdb_route.FlowService.GetScripts:input_type -> peerdb_route.GetScriptsRequest
+	26,  // 79: peerdb_route.FlowService.PostScript:input_type -> peerdb_route.PostScriptRequest
+	28,  // 80: peerdb_route.FlowService.DeleteScript:input_type -> peerdb_route.DeleteScriptRequest
+	42,  // 81: peerdb_route.FlowService.CDCTableTotalCounts:input_type -> peerdb_route.CDCTableTotalCountsRequest
+	61,  // 82: peerdb_route.FlowService.GetSchemas:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
+	61,  // 83: peerdb_route.FlowService.GetPublications:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
+	51,  // 84: peerdb_route.FlowService.GetTablesInSchema:input_type -> peerdb_route.SchemaTablesRequest
+	61,  // 85: peerdb_route.FlowService.GetAllTables:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
+	55,  // 86: peerdb_route.FlowService.GetColumns:input_type -> peerdb_route.TableColumnsRequest
+	58,  // 87: peerdb_route.FlowService.GetColumnsTypeConversion:input_type -> peerdb_route.ColumnsTypeConversionRequest
+	61,  // 88: peerdb_route.FlowService.GetSlotInfo:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
+	70,  // 89: peerdb_route.FlowService.GetSlotLagHistory:input_type -> peerdb_route.GetSlotLagHistoryRequest
+	61,  // 90: peerdb_route.FlowService.GetStatInfo:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
+	87,  // 91: peerdb_route.FlowService.ListMirrorLogs:input_type -> peerdb_route.ListMirrorLogsRequest
+	91,  // 92: peerdb_route.FlowService.ListMirrors:input_type -> peerdb_route.ListMirrorsRequest
+	93,  // 93: peerdb_route.FlowService.ListMirrorNames:input_type -> peerdb_route.ListMirrorNamesRequest
+	95,  // 94: peerdb_route.FlowService.FlowStateChange:input_type -> peerdb_route.FlowStateChangeRequest
+	36,  // 95: peerdb_route.FlowService.MirrorStatus:input_type -> peerdb_route.MirrorStatusRequest
+	81,  // 96: peerdb_route.FlowService.GetCDCBatches:input_type -> peerdb_route.GetCDCBatchesRequest
+	81,  // 97: peerdb_route.FlowService.CDCBatches:input_type -> peerdb_route.GetCDCBatchesRequest
+	83,  // 98: peerdb_route.FlowService.CDCGraph:input_type -> peerdb_route.GraphRequest
+	79,  // 99: peerdb_route.FlowService.InitialLoadSummary:input_type -> peerdb_route.InitialLoadSummaryRequest
+	62,  // 100: peerdb_route.FlowService.GetPeerInfo:input_type -> peerdb_route.PeerInfoRequest
+	62,  // 101: peerdb_route.FlowService.GetPeerType:input_type -> peerdb_route.PeerInfoRequest
+	66,  // 102: peerdb_route.FlowService.ListPeers:input_type -> peerdb_route.ListPeersRequest
+	97,  // 103: peerdb_route.FlowService.GetVersion:input_type -> peerdb_route.PeerDBVersionRequest
+	100, // 104: peerdb_route.FlowService.GetInstanceInfo:input_type -> peerdb_route.InstanceInfoRequest
+	102, // 105: peerdb_route.FlowService.Maintenance:input_type -> peerdb_route.MaintenanceRequest
+	104, // 106: peerdb_route.FlowService.GetMaintenanceStatus:input_type -> peerdb_route.MaintenanceStatusRequest
+	107, // 107: peerdb_route.FlowService.SkipSnapshotWaitFlows:input_type -> peerdb_route.SkipSnapshotWaitFlowsRequest
+	110, // 108: peerdb_route.FlowService.CreateOrReplaceFlowTags:input_type -> peerdb_route.CreateOrReplaceFlowTagsRequest
+	112, // 109: peerdb_route.FlowService.GetFlowTags:input_type -> peerdb_route.GetFlowTagsRequest
+	44,  // 110: peerdb_route.FlowService.TotalRowsSyncedByMirror:input_type -> peerdb_route.TotalRowsSyncedByMirrorRequest
+	114, // 111: peerdb_route.FlowService.CancelTableAddition:input_type -> peerdb_route.CancelTableAdditionInput
+	116, // 112: peerdb_route.FlowService.ResetMirrorSequences:input_type -> peerdb_route.ResetMirrorSequencesRequest
+	46,  // 113: peerdb_route.FlowService.GetMirrorRowCounts:input_type -> peerdb_route.RowCountRequest
+	34,  // 114: peerdb_route.FlowService.ValidatePeer:output_type -> peerdb_route.ValidatePeerResponse
+	89,  // 115: peerdb_route.FlowService.ValidateCDCMirror:output_type -> peerdb_route.ValidateCDCMirrorResponse
+	35,  // 116: peerdb_route.FlowService.CreatePeer:output_type -> peerdb_route.CreatePeerResponse
+	33,  // 117: peerdb_route.FlowService.DropPeer:output_type -> peerdb_route.DropPeerResponse
+	8,   // 118: peerdb_route.FlowService.CreateCDCFlow:output_type -> peerdb_route.CreateCDCFlowResponse
+	10,  // 119: peerdb_route.FlowService.CreateQRepFlow:output_type -> peerdb_route.CreateQRepFlowResponse
+	15,  // 120: peerdb_route.FlowService.GetAlertConfigs:output_type -> peerdb_route.GetAlertConfigsResponse
+	16,  // 121: peerdb_route.FlowService.PostAlertConfig:output_type -> peerdb_route.PostAlertConfigResponse
+	17,  // 122: peerdb_route.FlowService.DeleteAlertConfig:output_type -> peerdb_route.DeleteAlertConfigResponse
+	20,  // 123: peerdb_route.FlowService.GetDynamicSettings:output_type -> peerdb_route.GetDynamicSettingsResponse
+	22,  // 124: peerdb_route.FlowService.PostDynamicSetting:output_type -> peerdb_route.PostDynamicSettingResponse
+	25,  // 125: peerdb_route.FlowService.GetScripts:output_type -> peerdb_route.GetScriptsResponse
+	27,  // 126: peerdb_route.FlowService.PostScript:output_type -> peerdb_route.PostScriptResponse
+	29,  // 127: peerdb_route.FlowService.DeleteScript:output_type -> peerdb_route.DeleteScriptResponse
+	43,  // 128: peerdb_route.FlowService.CDCTableTotalCounts:output_type -> peerdb_route.CDCTableTotalCountsResponse
+	49,  // 129: peerdb_route.FlowService.GetSchemas:output_type -> peerdb_route.PeerSchemasResponse
+	50,  // 130: peerdb_route.FlowService.GetPublications:output_type -> peerdb_route.PeerPublicationsResponse
+	52,  // 131: peerdb_route.FlowService.GetTablesInSchema:output_type -> peerdb_route.SchemaTablesResponse
+	54,  // 132: peerdb_route.FlowService.GetAllTables:output_type -> peerdb_route.AllTablesResponse
+	57,  // 133: peerdb_route.FlowService.GetColumns:output_type -> peerdb_route.TableColumnsResponse
+	60,  // 134: peerdb_route.FlowService.GetColumnsTypeConversion:output_type -> peerdb_route.ColumnsTypeConversionResponse
+	73,  // 135: peerdb_route.FlowService.GetSlotInfo:output_type -> peerdb_route.PeerSlotResponse
+	71,  // 136: peerdb_route.FlowService.GetSlotLagHistory:output_type -> peerdb_route.GetSlotLagHistoryResponse
+	74,  // 137: peerdb_route.FlowService.GetStatInfo:output_type -> peerdb_route.PeerStatResponse
+	88,  // 138: peerdb_route.FlowService.ListMirrorLogs:output_type -> peerdb_route.ListMirrorLogsResponse
+	92,  // 139: peerdb_route.FlowService.ListMirrors:output_type -> peerdb_route.ListMirrorsResponse
+	94,  // 140: peerdb_route.FlowService.ListMirrorNames:output_type -> peerdb_route.ListMirrorNamesResponse
+	96,  // 141: peerdb_route.FlowService.FlowStateChange:output_type -> peerdb_route.FlowStateChangeResponse
+	78,  // 142: peerdb_route.FlowService.MirrorStatus:output_type -> peerdb_route.MirrorStatusResponse
+	82,  // 143: peerdb_route.FlowService.GetCDCBatches:output_type -> peerdb_route.GetCDCBatchesResponse
+	82,  // 144: peerdb_route.FlowService.CDCBatches:output_type -> peerdb_route.GetCDCBatchesResponse
+	85,  // 145: peerdb_route.FlowService.CDCGraph:output_type -> peerdb_route.GraphResponse
+	80,  // 146: peerdb_route.FlowService.InitialLoadSummary:output_type -> peerdb_route.InitialLoadSummaryResponse
+	63,  // 147: peerdb_route.FlowService.GetPeerInfo:output_type -> peerdb_route.PeerInfoResponse
+	64,  // 148: peerdb_route.FlowService.GetPeerType:output_type -> peerdb_route.PeerTypeResponse
+	67,  // 149: peerdb_route.FlowService.ListPeers:output_type -> peerdb_route.ListPeersResponse
+	98,  // 150: peerdb_route.FlowService.GetVersion:output_type -> peerdb_route.PeerDBVersionResponse
+	101, // 151: peerdb_route.FlowService.GetInstanceInfo:output_type -> peerdb_route.InstanceInfoResponse
+	103, // 152: peerdb_route.FlowService.Maintenance:output_type -> peerdb_route.MaintenanceResponse
+	106, // 153: peerdb_route.FlowService.GetMaintenanceStatus:output_type -> peerdb_route.MaintenanceStatusResponse
+	108, // 154: peerdb_route.FlowService.SkipSnapshotWaitFlows:output_type -> peerdb_route.SkipSnapshotWaitFlowsResponse
+	111, // 155: peerdb_route.FlowService.CreateOrReplaceFlowTags:output_type -> peerdb_route.CreateOrReplaceFlowTagsResponse
+	113, // 156: peerdb_route.FlowService.GetFlowTags:output_type -> peerdb_route.GetFlowTagsResponse
+	45,  // 157: peerdb_route.FlowService.TotalRowsSyncedByMirror:output_type -> peerdb_route.TotalRowsSyncedByMirrorResponse
+	115, // 158: peerdb_route.FlowService.CancelTableAddition:output_type -> peerdb_route.CancelTableAdditionOutput
+	117, // 159: peerdb_route.FlowService.ResetMirrorSequences:output_type -> peerdb_route.ResetMirrorSequencesResponse
+	48,  // 160: peerdb_route.FlowService.GetMirrorRowCounts:output_type -> peerdb_route.RowCountResponse
+	114, // [114:161] is the sub-list for method output_type
+	67,  // [67:114] is the sub-list for method input_type
+	67,  // [67:67] is the sub-list for extension type_name
+	67,  // [67:67] is the sub-list for extension extendee
+	0,   // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_route_proto_init() }
@@ -7150,20 +7349,20 @@ func file_route_proto_init() {
 	file_flow_proto_init()
 	file_route_proto_msgTypes[11].OneofWrappers = []any{}
 	file_route_proto_msgTypes[14].OneofWrappers = []any{}
-	file_route_proto_msgTypes[58].OneofWrappers = []any{}
-	file_route_proto_msgTypes[68].OneofWrappers = []any{
+	file_route_proto_msgTypes[61].OneofWrappers = []any{}
+	file_route_proto_msgTypes[71].OneofWrappers = []any{
 		(*MirrorStatusResponse_QrepStatus)(nil),
 		(*MirrorStatusResponse_CdcStatus)(nil),
 	}
-	file_route_proto_msgTypes[85].OneofWrappers = []any{}
 	file_route_proto_msgTypes[88].OneofWrappers = []any{}
+	file_route_proto_msgTypes[91].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_route_proto_rawDesc), len(file_route_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   108,
+			NumMessages:   111,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

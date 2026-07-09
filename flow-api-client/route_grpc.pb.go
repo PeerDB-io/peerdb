@@ -65,6 +65,7 @@ const (
 	FlowService_TotalRowsSyncedByMirror_FullMethodName  = "/peerdb_route.FlowService/TotalRowsSyncedByMirror"
 	FlowService_CancelTableAddition_FullMethodName      = "/peerdb_route.FlowService/CancelTableAddition"
 	FlowService_ResetMirrorSequences_FullMethodName     = "/peerdb_route.FlowService/ResetMirrorSequences"
+	FlowService_GetMirrorRowCounts_FullMethodName       = "/peerdb_route.FlowService/GetMirrorRowCounts"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -117,6 +118,7 @@ type FlowServiceClient interface {
 	TotalRowsSyncedByMirror(ctx context.Context, in *TotalRowsSyncedByMirrorRequest, opts ...grpc.CallOption) (*TotalRowsSyncedByMirrorResponse, error)
 	CancelTableAddition(ctx context.Context, in *CancelTableAdditionInput, opts ...grpc.CallOption) (*CancelTableAdditionOutput, error)
 	ResetMirrorSequences(ctx context.Context, in *ResetMirrorSequencesRequest, opts ...grpc.CallOption) (*ResetMirrorSequencesResponse, error)
+	GetMirrorRowCounts(ctx context.Context, in *RowCountRequest, opts ...grpc.CallOption) (*RowCountResponse, error)
 }
 
 type flowServiceClient struct {
@@ -587,6 +589,16 @@ func (c *flowServiceClient) ResetMirrorSequences(ctx context.Context, in *ResetM
 	return out, nil
 }
 
+func (c *flowServiceClient) GetMirrorRowCounts(ctx context.Context, in *RowCountRequest, opts ...grpc.CallOption) (*RowCountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RowCountResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetMirrorRowCounts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FlowServiceServer is the server API for FlowService service.
 // All implementations must embed UnimplementedFlowServiceServer
 // for forward compatibility.
@@ -637,6 +649,7 @@ type FlowServiceServer interface {
 	TotalRowsSyncedByMirror(context.Context, *TotalRowsSyncedByMirrorRequest) (*TotalRowsSyncedByMirrorResponse, error)
 	CancelTableAddition(context.Context, *CancelTableAdditionInput) (*CancelTableAdditionOutput, error)
 	ResetMirrorSequences(context.Context, *ResetMirrorSequencesRequest) (*ResetMirrorSequencesResponse, error)
+	GetMirrorRowCounts(context.Context, *RowCountRequest) (*RowCountResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
 
@@ -784,6 +797,9 @@ func (UnimplementedFlowServiceServer) CancelTableAddition(context.Context, *Canc
 }
 func (UnimplementedFlowServiceServer) ResetMirrorSequences(context.Context, *ResetMirrorSequencesRequest) (*ResetMirrorSequencesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResetMirrorSequences not implemented")
+}
+func (UnimplementedFlowServiceServer) GetMirrorRowCounts(context.Context, *RowCountRequest) (*RowCountResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMirrorRowCounts not implemented")
 }
 func (UnimplementedFlowServiceServer) mustEmbedUnimplementedFlowServiceServer() {}
 func (UnimplementedFlowServiceServer) testEmbeddedByValue()                     {}
@@ -1634,6 +1650,24 @@ func _FlowService_ResetMirrorSequences_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetMirrorRowCounts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RowCountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetMirrorRowCounts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetMirrorRowCounts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetMirrorRowCounts(ctx, req.(*RowCountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FlowService_ServiceDesc is the grpc.ServiceDesc for FlowService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1824,6 +1858,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResetMirrorSequences",
 			Handler:    _FlowService_ResetMirrorSequences_Handler,
+		},
+		{
+			MethodName: "GetMirrorRowCounts",
+			Handler:    _FlowService_GetMirrorRowCounts_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
